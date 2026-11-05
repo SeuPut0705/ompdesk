@@ -91,8 +91,6 @@ export interface FamilyOpened {
 	buttonProps?: FamilyRowProps["buttonProps"];
 	/** Replaces the row while its title is being renamed. */
 	renaming?: ReactNode;
-	/** Its start waits for memory (status "queued"): the owner's Start now, on the computer that holds the wait. */
-	startNow?: () => void;
 }
 
 const NO_OPENED: readonly FamilyOpened[] = [];
@@ -432,16 +430,6 @@ function OpenedRow({ child }: { child: FamilyOpened }) {
 			auto={child.auto}
 			title={child.title}
 			tooltip={child.tooltip}
-			{...(child.status === "queued"
-				? {
-						memoryWait: {
-							label: t("titlebar.status.memoryWait"),
-							...(child.startNow
-								? { startNow: { label: t("chat.memoryWaitStartNow"), onClick: child.startNow } }
-								: {}),
-						},
-					}
-				: {})}
 		/>
 	);
 }

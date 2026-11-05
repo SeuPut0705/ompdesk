@@ -53,7 +53,7 @@ import {
 	type TitleParts,
 } from "../../../lib/session-title";
 import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
-import { MEMORY_WAIT_LABEL_KEY, tabSignalPresentation } from "../../../lib/tab-signal";
+import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotDesk, releaseBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
@@ -953,7 +953,6 @@ function DeviceSessions({
 	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
 		const { known, signal, waiting, running, settling } = hostRowState(tab, hostLive.get(session.path));
-		const memoryWaiting = signal?.labelKey === MEMORY_WAIT_LABEL_KEY;
 		const live = known ? undefined : hostLive.get(session.path);
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
@@ -1136,13 +1135,11 @@ function DeviceSessions({
 							/>
 							{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
 							{openElsewhere && !working && <span className="sr-only">, {t("sidebar.row.open")}</span>}
-							{memoryWaiting && <span className="sr-only">, {t(MEMORY_WAIT_LABEL_KEY)}</span>}
 						</>
 					}
 					titleText={[
 						title,
 						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
-						memoryWaiting ? t(MEMORY_WAIT_LABEL_KEY) : null,
 						openElsewhere && !working ? t("sidebar.row.open") : null,
 					]
 						.filter(Boolean)

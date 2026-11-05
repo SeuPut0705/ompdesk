@@ -97,7 +97,7 @@ import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../..
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { isSessionDown, isTabFailed, MEMORY_WAIT_LABEL_KEY, tabSignalPresentation } from "../../../lib/tab-signal";
+import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
@@ -745,9 +745,7 @@ export function Sidebar() {
 					title: tab.title || tab.task || (focused ? sessionName : null) || null,
 					status: tab.status,
 					ghost: tab.ghost,
-					// A new session whose first message waits for memory has work already: it gets its row (under its
-					// opener) to say so, before stock writes its file.
-					unstarted: tab.unstarted === true && tab.memoryWait === undefined,
+					unstarted: tab.unstarted === true,
 					placeholder: tab.placeholder,
 					openedBy: tab.openedBy,
 					openedBySession: tab.openedBySession,
@@ -1092,7 +1090,6 @@ export function Sidebar() {
 					status: hosted.status,
 					awaitingInput: hosted.awaitingInput ? "input" : undefined,
 					awaitingConnection: hosted.awaitingConnection,
-					memoryWait: hosted.memoryWait,
 					sessionHeld: hosted.sessionHeld,
 					unreadDone: false,
 				})
@@ -1512,11 +1509,9 @@ export function Sidebar() {
 					? t("sidebar.row.failed")
 					: done
 						? t("tabs.done")
-						: tabSignal?.labelKey === MEMORY_WAIT_LABEL_KEY
-							? t(MEMORY_WAIT_LABEL_KEY)
-							: openElsewhere
-								? t("sidebar.row.open")
-								: null);
+						: openElsewhere
+							? t("sidebar.row.open")
+							: null);
 		return {
 			isCurrent,
 			tab,
@@ -1599,23 +1594,19 @@ export function Sidebar() {
 					(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged: reviewUnmerged(review),
-			memoryWait: (row.tab?.memoryWait ?? row.hosted?.memoryWait) !== undefined,
 		});
-		const heldTab = row.tab?.memoryWait ? row.tab.id : undefined;
 		const statusLabel =
-			status === "queued"
-				? t("titlebar.status.memoryWait")
-				: status === "failed"
-					? t("sidebar.row.failed")
-					: status === "unmerged"
-						? t("sidebar.family.readyToMerge")
-						: status === "done"
-							? t("tabs.done")
-							: status === "waiting" && !isAsk(row.waiting)
-								? t(ATTENTION_LABEL_KEY.question)
-								: status === "running" && !row.running
-									? t("sidebar.signal.running")
-									: (row.statusLabel ?? "");
+			status === "failed"
+				? t("sidebar.row.failed")
+				: status === "unmerged"
+					? t("sidebar.family.readyToMerge")
+					: status === "done"
+						? t("tabs.done")
+						: status === "waiting" && !isAsk(row.waiting)
+							? t(ATTENTION_LABEL_KEY.question)
+							: status === "running" && !row.running
+								? t("sidebar.signal.running")
+								: (row.statusLabel ?? "");
 		// What it runs on: main's push for an open one, else what main recorded when it closed it.
 		const model = (childUsage[child.path] ?? closedChildren.find(row => row.path === child.path))?.model;
 		return {
@@ -1638,17 +1629,6 @@ export function Sidebar() {
 				.join("\n"),
 			selected: row.active,
 			onOpen: () => openSession(child),
-			...(heldTab
-				? {
-						startNow: () => {
-							window.omp.memory
-								.startNow(heldTab)
-								.catch((cause: unknown) =>
-									toastError({ title: t("chat.memoryWaitStartFailed"), error: cause }),
-								);
-						},
-					}
-				: {}),
 			renaming: renamingSessionPath === child.path ? renderRenameField(child, key, openTabId, "pl-3.5") : undefined,
 			buttonProps: {
 				tabIndex: -1,
@@ -1727,27 +1707,22 @@ export function Sidebar() {
 			finished: tab.lastRun !== undefined,
 			failed,
 			unmerged: reviewUnmerged(review),
-			memoryWait: tab.memoryWait !== undefined,
 		});
 		const device = (here ? selfName : host?.name) ?? tab.device ?? "";
 		const title = tab.title || tab.task || t("sidebar.newSession");
 		const auto = tab.title ? sessionTitleParts(tab.title, tabAutoTitle(tab, listedRowOf(tab))).auto : undefined;
 		const statusLabel =
-			status === "queued"
-				? t(MEMORY_WAIT_LABEL_KEY)
-				: status === "failed"
-					? t("sidebar.row.failed")
-					: status === "unmerged"
-						? t("sidebar.family.readyToMerge")
-						: status === "waiting"
-							? t(ATTENTION_LABEL_KEY[run.ask ?? "question"])
-							: status === "running"
-								? t("sidebar.signal.running")
-								: status === "done"
-									? t("tabs.done")
-									: tab.memoryWait
-										? t(MEMORY_WAIT_LABEL_KEY)
-										: t("sidebar.row.open");
+			status === "failed"
+				? t("sidebar.row.failed")
+				: status === "unmerged"
+					? t("sidebar.family.readyToMerge")
+					: status === "waiting"
+						? t(ATTENTION_LABEL_KEY[run.ask ?? "question"])
+						: status === "running"
+							? t("sidebar.signal.running")
+							: status === "done"
+								? t("tabs.done")
+								: t("sidebar.row.open");
 		const model = childUsage[tab.sessionPath ?? tab.id]?.model;
 		return {
 			key: id,
@@ -1763,17 +1738,6 @@ export function Sidebar() {
 				.filter(Boolean)
 				.join("\n"),
 			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
-			...(tab.memoryWait
-				? {
-						startNow: () => {
-							window.omp.memory
-								.startNow(tab.id)
-								.catch((cause: unknown) =>
-									toastError({ title: t("chat.memoryWaitStartFailed"), error: cause }),
-								);
-						},
-					}
-				: {}),
 			// A stand-in has no tab here: its session opens as any row of its computer's does.
 			onOpen: () =>
 				void (tabs.some(entry => entry.id === tab.id)

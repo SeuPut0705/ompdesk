@@ -61,7 +61,6 @@ import {
 	type HostLiveSession,
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
-	type IpcMemoryWait,
 	type IpcModelWaitTogether,
 	type IpcOpenExtensionRequest,
 	type IpcScheduledRetry,
@@ -234,8 +233,6 @@ export interface TabFacts {
 	scheduledRetry?: boolean;
 	/** The tab whose agent opened this one, while it is open here. */
 	openedBy?: string;
-	/** Another session's agent opened this one (`openedBy` or, after a relaunch, its opener's file): its starts may wait for memory. */
-	agentOpened?: boolean;
 	/** The tab compacts its context now. */
 	compacting?: boolean;
 }
@@ -372,8 +369,6 @@ interface PoolEntry extends RunTracking {
 	sessionFile?: string;
 	/** The turn waits for the internet connection and continues once it is back (turn-resume.ts). */
 	awaitingConnection?: boolean;
-	/** The tab's start waits for memory (memory-admission.ts), or for its paired host's (mirrored). */
-	memoryWait?: IpcMemoryWait;
 	/** The `error` status is a session another omp still holds: a wait that ends by itself (`IpcTabInfo.sessionHeld`). */
 	sessionHeld?: boolean;
 	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
@@ -496,11 +491,6 @@ export class SidecarPool {
 	 */
 	onCancelWait: ((tabId: string) => void) | null = null;
 	/**
-	 * A paired device's Start now on the memory wait of a window's tab it views (`viewForDevice`): this computer's
-	 * memory admission holds it (index.ts hands it to `MemoryAdmission.startNow`).
-	 */
-	onStartNow: ((tabId: string) => boolean) | null = null;
-	/**
 	 * `worktree.onStart` (worktree-lifecycle.ts): the gate for a new tab, or null
 	 * when the tab is not a candidate. Installed at startup.
 	 */
@@ -599,7 +589,6 @@ export class SidecarPool {
 			scheduledRetry: entry.scheduledRetry !== undefined,
 			...(entry.openedBy !== undefined ? { openedBy: entry.openedBy } : {}),
 			...(entry.run.compacting === true ? { compacting: true } : {}),
-			...(entry.openedBy !== undefined || entry.openedBySession !== undefined ? { agentOpened: true } : {}),
 		};
 	}
 
@@ -863,7 +852,6 @@ export class SidecarPool {
 			answer: frame => this.#answerFromDevice(entry, frame, view),
 			stopped: () => this.noteStopped(entry.tabId),
 			cancelWait: () => this.onCancelWait?.(entry.tabId),
-			startNow: () => this.onStartNow?.(entry.tabId) ?? false,
 			snapshot: () => ({
 				asks: [...this.#requestOwners].flatMap(([id, owner]) => {
 					const body = owner === entry ? this.#requestBodies.get(id) : undefined;
@@ -874,7 +862,6 @@ export class SidecarPool {
 				...(entry.autoTitle ? { autoTitle: entry.autoTitle } : {}),
 				...(entry.awaitingConnection ? { awaitingConnection: true } : {}),
 				...(entry.scheduledRetry ? { scheduledRetry: entry.scheduledRetry } : {}),
-				...(entry.memoryWait ? { memoryWait: entry.memoryWait } : {}),
 				run: runReading(entry.run),
 			}),
 			subagentLevel: level => {
@@ -1237,8 +1224,6 @@ export class SidecarPool {
 		sidecar.on("scheduledRetry", (retry: IpcScheduledRetry | undefined) =>
 			this.setScheduledRetry(entry.tabId, retry),
 		);
-		// And the memory wait a paired host holds for this tab (memory-admission.ts): mirror it.
-		sidecar.on("memoryWait", (wait: IpcMemoryWait | undefined) => this.setMemoryWait(entry.tabId, wait));
 		// Agent-end means one run yielded; upstream prompt/session-settled frames
 		// keep background async work represented as running until it is quiet.
 		sidecar.on("events", (events: AgentSessionEvent[]) => {
@@ -2552,16 +2537,6 @@ export class SidecarPool {
 		for (const view of entry.deviceViews ?? []) view.emit("awaitingConnection", awaiting);
 	}
 
-	/** Show or clear the tab's "waiting for memory" state (memory-admission.ts, or a paired host's mirrored). */
-	setMemoryWait(tabId: string, wait: IpcMemoryWait | undefined): void {
-		const entry = this.#byTabId.get(tabId);
-		if (!entry || JSON.stringify(entry.memoryWait) === JSON.stringify(wait)) return;
-		if (wait) entry.memoryWait = wait;
-		else delete entry.memoryWait;
-		this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
-		for (const view of entry.deviceViews ?? []) view.emit("memoryWait", wait);
-	}
-
 	/** Show or clear the tab's calm "continuing where it left off" row (a relaunch's resume). */
 	setResuming(tabId: string, resuming: boolean): void {
 		const entry = this.#byTabId.get(tabId);
@@ -2672,8 +2647,8 @@ export class SidecarPool {
 		);
 	}
 
-	/** The tabs whose omp runs on this computer, for memory admission: pid, title, whether a turn runs, whether it is quiet. */
-	memoryTabs(): Array<{ tabId: string; pid?: number; label: string; busy: boolean; quiet: boolean }> {
+	/** The tabs whose omp runs on this computer, for idle release: pid, title, whether it is quiet. */
+	memoryTabs(): Array<{ tabId: string; pid?: number; label: string; quiet: boolean }> {
 		return [...this.#entries].flatMap(entry =>
 			entry.hostedView || entry.device !== undefined
 				? []
@@ -2682,7 +2657,6 @@ export class SidecarPool {
 							tabId: entry.tabId,
 							...(entry.sidecar.pid !== undefined ? { pid: entry.sidecar.pid } : {}),
 							label: entry.title || entry.autoTitle || entry.tabId,
-							busy: runBusy(entry.run),
 							quiet: this.#quiet(entry),
 						},
 					],
@@ -2700,7 +2674,7 @@ export class SidecarPool {
 		if (entry.full || (entry.deviceViews?.size ?? 0) > 0) return false;
 		if (runBusy(entry.run) || entry.run.compacting === true) return false;
 		if (entry.openedBy !== undefined || entry.openedBySession !== undefined) return false;
-		if (entry.awaitingConnection || entry.memoryWait || entry.planProposal || entry.resuming) return false;
+		if (entry.awaitingConnection || entry.planProposal || entry.resuming) return false;
 		if (entry.unsavedPrompt !== undefined || entry.scheduledRetry || entry.retry) return false;
 		if (entry.signIns || entry.ompRestartPending || entry.extensionPending) return false;
 		if (this.hasDraft(entry.tabId)) return false;
@@ -2938,7 +2912,6 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.sessionHeld && payload.status === "error") payload.sessionHeld = true;
 	if (entry.resuming) payload.resuming = true;
 	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
-	if (entry.memoryWait) payload.memoryWait = entry.memoryWait;
 	if (entry.device !== undefined) payload.device = entry.device;
 	return payload;
 }

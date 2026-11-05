@@ -5,10 +5,9 @@
  * the tooltip; the row never grows a second line.
  */
 
-import { Bot, Check, GitBranch, GitMerge, MemoryStick, MessageSquare, Pause, TriangleAlert, X } from "lucide-react";
+import { Bot, Check, GitBranch, GitMerge, MessageSquare, Pause, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
-import { Button } from "../../common";
 import type { ListRowProps } from "../../common/ListRow";
 import { SessionTitle } from "../../common/SessionTitle";
 import { WorkingArc } from "../../common/WorkingArc";
@@ -29,8 +28,6 @@ export function FamilyStatus({ state }: { state: FamilyState }) {
 				<WorkingArc state="turn" />
 			) : state === "waiting" ? (
 				<TriangleAlert className="size-(--sc-icon-sm) text-(--sc-warning)" />
-			) : state === "queued" ? (
-				<MemoryStick className="size-(--sc-icon-sm) text-(--sc-text-muted)" />
 			) : state === "done" ? (
 				<Check className="size-(--sc-icon-sm) text-(--sc-success)" />
 			) : state === "failed" ? (
@@ -68,11 +65,6 @@ export interface FamilyRowProps {
 	buttonProps?: ListRowProps["buttonProps"];
 	/** The tree connector of a nested child, drawn behind the row. */
 	connector?: ReactNode;
-	/**
-	 * Its start waits for memory (`state` "queued"): the row says so in words, as flat rows do, with the owner's Start
-	 * now; the words take the age's place, so the row stays one line.
-	 */
-	memoryWait?: { label: string; startNow?: { label: string; onClick: () => void } };
 }
 
 export function FamilyRow({
@@ -91,7 +83,6 @@ export function FamilyRow({
 	rowProps,
 	buttonProps,
 	connector,
-	memoryWait,
 }: FamilyRowProps) {
 	const Icon = KIND_ICON[kind];
 	return (
@@ -134,26 +125,7 @@ export function FamilyRow({
 					</span>
 				)}
 				{state && <FamilyStatus state={state} />}
-				{memoryWait ? (
-					<>
-						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)" data-family-memory-wait>
-							{memoryWait.label}
-						</span>
-						{memoryWait.startNow && (
-							<Button
-								className="relative z-[1]"
-								data-family-start-now
-								onClick={memoryWait.startNow.onClick}
-								size="sm"
-								variant="ghost"
-							>
-								{memoryWait.startNow.label}
-							</Button>
-						)}
-					</>
-				) : (
-					age && <span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)">{age}</span>
-				)}
+				{age && <span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-subtle)">{age}</span>}
 			</div>
 		</div>
 	);

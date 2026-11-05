@@ -280,8 +280,6 @@ for (const resume of [true, false])
 		const next = await call("ompdesk_session_send", { session: oldId, message: "And E" });
 		expect(next.isError, next.text).toBe(false);
 		expect(next.text).toContain("Sent to");
-		// B has memory to spare: the turns it ran for A and the tab its quit closed reserve none of it any more.
-		expect(next.text).not.toContain("waiting for memory");
 		await expect.poll(() => journaled(childPath), { timeout: 60_000 }).toEqual(["d1", "d2", "d3", "d4"]);
 		expect(client.errors).toEqual([]);
 	});

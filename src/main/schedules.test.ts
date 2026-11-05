@@ -73,19 +73,13 @@ function fakeLauncher() {
 }
 
 /** A service on `dir` whose `until(predicate)` settles with the first pushed state that matches. */
-function harness(
-	dir: string,
-	launch: RunLauncher,
-	reserve?: ScheduleServiceOptions["reserve"],
-	admit?: ScheduleServiceOptions["admit"],
-) {
+function harness(dir: string, launch: RunLauncher, reserve?: ScheduleServiceOptions["reserve"]) {
 	const listeners = new Set<(state: SchedulesState) => void>();
 	const service = new ScheduleService({
 		file: join(dir, "schedules.json"),
 		logDir: join(dir, "runs"),
 		launch,
 		...(reserve ? { reserve } : {}),
-		...(admit ? { admit } : {}),
 		onState: state => {
 			for (const listener of [...listeners]) listener(state);
 		},
@@ -172,26 +166,6 @@ describe("ScheduleService", () => {
 		runs[1]?.finish(2);
 		const failed = await until(state => state.runs[0]?.status === "failed");
 		expect(failed.runs[0]).toMatchObject({ exitCode: 2, error: "omp exited with code 2" });
-		service.dispose();
-	});
-
-	it("Stop ends a run that still waits for memory: it never launches, and its place in line is given up", async () => {
-		fakeClock();
-		const dir = await tempDir();
-		const { launch } = fakeLauncher();
-		const waiting = Promise.withResolvers<"admitted" | "started-now" | "cancelled">();
-		const cancel = vi.fn(() => waiting.resolve("cancelled"));
-		const { service, until } = harness(dir, launch, undefined, () => ({ outcome: waiting.promise, cancel }));
-		await service.start();
-		const id = (await service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
-
-		await service.command({ action: "runNow", id });
-		const runId = service.state().runs[0]?.id ?? "";
-		await service.command({ action: "stop", runId });
-		const stopped = await until(state => state.runs[0]?.status === "stopped");
-		expect(stopped.runs[0]).toMatchObject({ id: runId, error: null });
-		expect(cancel).toHaveBeenCalledOnce();
-		expect(launch).not.toHaveBeenCalled();
 		service.dispose();
 	});
 

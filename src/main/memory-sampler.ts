@@ -1,5 +1,5 @@
 /**
- * This computer's memory, as `memory-admission.ts` judges it: the OS's own pressure level and available memory,
+ * This computer's memory: the OS's own pressure level and available memory,
  * and the footprint of each session's process tree (its omp and everything it started: tsc, vitest, Playwright's
  * browsers, a cargo build).
  *
@@ -13,7 +13,15 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
-import type { MemoryPressure, MemoryReading } from "./memory-admission";
+
+export type MemoryPressure = "normal" | "warn" | "critical";
+
+export interface MemoryReading {
+	totalBytes: number;
+	/** What the OS can hand out without paging: macOS `kern.memorystatus_level` % of RAM, Windows' available physical memory. */
+	availableBytes: number;
+	pressure: MemoryPressure;
+}
 
 const run = promisify(execFile);
 
@@ -110,7 +118,7 @@ export function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
 	return promise.finally(() => clearTimeout(timer));
 }
 
-/** The OS's reading now; null when it cannot be read in time (memory-admission.ts then decides from the last good one). */
+/** The OS's reading now; null when it cannot be read in time. */
 export function readMemory(deps: SamplerDeps): Promise<MemoryReading | null> {
 	const read = async (): Promise<MemoryReading | null> => {
 		if (deps.platform === "darwin") {

@@ -134,7 +134,6 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.WORKTREE_PROMPT_ANSWER]: never(DENY),
 	[C.PROJECT_ORIGINS_GET]: never(DENY),
 	[C.RESUME_CANCEL_WAIT]: never(DENY),
-	[C.MEMORY_START_NOW]: never(DENY),
 	[C.RESUME_STOP]: never(DENY),
 	[C.CONNECTIVITY_REPORT]: never(DENY),
 	[C.STATS_FETCH]: never(DENY),

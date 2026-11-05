@@ -86,7 +86,6 @@ export const en: Record<string, string> = {
 	"titlebar.status.waiting": "Installing omp",
 	"titlebar.status.sessionHeld": "Waiting for the session",
 	"titlebar.status.connectionWait": "Waiting for the internet connection",
-	"titlebar.status.memoryWait": "Waiting for memory",
 	"titlebar.toggleSidebar": "Toggle sidebar",
 	"titlebar.openProjectFailed": "Couldn't open project",
 	"titlebar.renameFailed": "Couldn't rename session",
@@ -2319,11 +2318,6 @@ export const en: Record<string, string> = {
 	"chat.connectionWait": "Waiting for the internet connection…",
 	"chat.connectionWaitHost": "Waiting for {device}'s internet connection…",
 	"chat.connectionWaitCancelFailed": "Couldn't cancel the wait",
-	"chat.memoryWait": "Waiting for memory: {free} GB free of {total} GB · #{position} in line · starts by itself",
-	"chat.memoryWaitUnknown":
-		"Waiting for memory: this computer's memory can't be read right now · #{position} in line · starts by itself",
-	"chat.memoryWaitStartNow": "Start now",
-	"chat.memoryWaitStartFailed": "Couldn't start it now",
 	"settings.gui.thinkingDisplay": "Thinking",
 	"settings.gui.thinkingDisplayDesc":
 		"Hidden shows no reasoning (⌃T toggles it); collapsed and expanded set how a block starts, and each can still be opened or closed.",

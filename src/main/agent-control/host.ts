@@ -89,11 +89,9 @@ import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
 import { createWorktree, tablessWorktreeBridge, WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { describePreparation, MERGE_HOOKS_BUDGET_MS } from "../local/git/worktree-seed";
-import { type MemoryAdmission, parseAdmissionStatus } from "../memory-admission";
 import {
 	GIT_METHODS,
 	GIT_REQUEST_TIMEOUT_MS,
-	HOST_MEMORY_STATUS_METHOD,
 	ScheduleCreatedSchema,
 	SchedulesStateSchema,
 	WorktreeCreateReply,
@@ -261,8 +259,6 @@ export interface AgentControlHostDeps {
 	beforeFirstPrompt?: (child: OpenedChild) => Promise<void>;
 	/** A run tab Autopilot coordinates (`Autopilot.runRootOf`): it ends with its run, never by the opened-session rules. */
 	isAutopilotRun?: (tabId: string) => boolean;
-	/** This computer's memory admission (memory-admission.ts): a parent's result wait and `ompdesk_sessions` read it. */
-	memoryAdmission?: Pick<MemoryAdmission, "blockedOn" | "status">;
 	/** Autopilot's coordinator (`Autopilot.handleCommand`); absent where there is none. */
 	autopilot?: {
 		command: (
@@ -396,8 +392,6 @@ export class AgentControlRuntime {
 	readonly #bot: BotFeed;
 	/** The owner's rules as last logged, so the activity log keeps each change once. */
 	#loggedRules: string;
-	/** Per blocked caller tab: the children on paired hosts those hosts were told it waits on. */
-	readonly #remoteOwed = new Map<string, Set<string>>();
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
@@ -1025,24 +1019,6 @@ export class AgentControlRuntime {
 	}
 
 	/**
-	 * A turn blocks on `children` (or no longer, `null`): this computer's memory admission admits them ahead, and so does
-	 * each paired host for the ones that run there (`SidecarLike.memoryWaitedOn`), told once and released when the wait ends.
-	 */
-	#memoryBlockedOn(callerTabId: string, children: ReadonlySet<string> | null): void {
-		this.#deps.memoryAdmission?.blockedOn(callerTabId, children);
-		const remote = new Set(
-			[...(children ?? [])].filter(child => this.#deps.pool.sidecarOf(child)?.device !== undefined),
-		);
-		const told = this.#remoteOwed.get(callerTabId) ?? new Set<string>();
-		for (const child of told)
-			if (!remote.has(child)) void this.#deps.pool.sidecarOf(child)?.memoryWaitedOn?.(callerTabId, false);
-		for (const child of remote)
-			if (!told.has(child)) void this.#deps.pool.sidecarOf(child)?.memoryWaitedOn?.(callerTabId, true);
-		if (remote.size > 0) this.#remoteOwed.set(callerTabId, remote);
-		else this.#remoteOwed.delete(callerTabId);
-	}
-
-	/**
 	 * The tab that opened `tabId`: the one this launch saw open it, else the opener the pool kept across a relaunch
 	 * (its tab id, or, as tab ids are new after a relaunch, the tab now holding the opener's session file).
 	 */
@@ -1394,7 +1370,6 @@ export class AgentControlRuntime {
 			...(this.#deps.pool.sidecarOf(info.tabId)?.statusPayload?.sessionHeld ? { sessionHeld: true } : {}),
 			busy: facts?.busy === true,
 			...(info.resuming ? { resuming: true } : {}),
-			...(info.memoryWait ? { memoryWait: info.memoryWait } : {}),
 			asks,
 			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
@@ -1823,14 +1798,6 @@ export class AgentControlRuntime {
 					} as RpcResponse);
 				return deps.dispatch(win, sidecar, tabId, command, timeoutMs);
 			},
-			memoryBlockedOn: (callerTabId, children) => this.#memoryBlockedOn(callerTabId, children),
-			memory: () => deps.memoryAdmission?.status() ?? null,
-			deviceMemory: device =>
-				deps.remote
-					? deps.remote
-							.request<unknown>(device, HOST_MEMORY_STATUS_METHOD, {})
-							.then(parseAdmissionStatus, () => null)
-					: Promise.resolve(null),
 			spawn: (callerTabId, request) => this.#spawn(callerTabId, request),
 			autopilot: this.#autopilotSource(),
 			start: tabId => void deps.pool.startTab(tabId),

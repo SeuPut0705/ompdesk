@@ -213,10 +213,6 @@ describe("openedChildStatus: one status per opened session", () => {
 		expect(status({ finished: true })).toBe("done");
 		expect(status({ finished: true, failed: true })).toBe("failed");
 		expect(status({ finished: true, unmerged: true })).toBe("unmerged");
-		// Its start waits for memory: queued, below a question for the person, above everything it has not done yet.
-		expect(status({ memoryWait: true })).toBe("queued");
-		expect(status({ memoryWait: true, finished: true })).toBe("queued");
-		expect(status({ memoryWait: true, waiting: true })).toBe("waiting");
 	});
 
 	it("tells a clean finish with unmerged work from a failed ending, and never folds either as done", () => {
@@ -232,7 +228,6 @@ describe("openedChildStatus: one status per opened session", () => {
 		expect(CHILD_TOKEN).toEqual({
 			running: "running",
 			waiting: "waiting",
-			queued: "queued",
 			done: "done",
 			failed: "failed",
 			unmerged: "unmerged",

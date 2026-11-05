@@ -691,7 +691,7 @@ describe("ompdesk_session_open", () => {
 		},
 	);
 
-	it("sends the first message once more after a refusal, and still reads a start held for memory", async () => {
+	it("sends the first message once more after a refusal", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
 		refuseCommand(host, "prompt", {
 			code: "sidecar_not_ready",
@@ -699,23 +699,9 @@ describe("ompdesk_session_open", () => {
 			status: "error",
 			recoverMs: 20,
 		});
-		const original = host.command;
-		host.command = async (tabId, command, timeoutMs) =>
-			command.type === "prompt" && host.sent.some(entry => entry.command.type === "prompt")
-				? ok({
-						memoryWait: {
-							position: 1,
-							availableBytes: 1 << 30,
-							totalBytes: 16 << 30,
-							pressure: "warn",
-							since: 0,
-						},
-					})
-				: original(tabId, command, timeoutMs);
 		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go" }));
 		expect(result.isError).toBe(false);
-		expect(result.text).toContain("Its first message is held");
-		expect(result.text).toContain("do not send it again");
+		expect(result.text).toContain("It is working on your message.");
 	});
 
 	it("fails an open whose child stays not ready past the bound, naming the refusal, and takes back its worktree", async () => {

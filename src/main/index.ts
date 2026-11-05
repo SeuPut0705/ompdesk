@@ -1115,21 +1115,15 @@ app.whenReady().then(() => {
 		sessionOf: tab =>
 			sidecarPool.sessionFileOf(tab) ?? hostServices.resumeFacts().find(fact => fact.tabId === tab)?.sessionFile,
 	});
-	// New agent work waits while this computer's memory is in danger (memory-admission.ts). Unpackaged test launches
-	// read memory from OMP_GUI_TEST_MEMORY (a JSON file: totalGb, availableGb, pressure) every OMP_GUI_TEST_MEMORY_MS;
-	// a Playwright launch without one reads ample memory, so the machine running the suite never holds its sessions.
+	// While this computer is short of memory a quiet hidden session gives its omp back (idle-release.ts). Unpackaged test
+	// launches read memory from OMP_GUI_TEST_MEMORY (a JSON file: totalGb, availableGb, pressure) every
+	// OMP_GUI_TEST_MEMORY_MS; a Playwright launch without one reads ample memory, so the machine running the suite never
+	// releases its sessions.
 	const testMemory = !app.isPackaged ? process.env.OMP_GUI_TEST_MEMORY : undefined;
 	const ampleTestMemory = !app.isPackaged && !testMemory && process.env.OMP_GUI_TEST_LAUNCHER_PID !== undefined;
-	const memoryWatch = startMemoryWatch({
-		peaksFile: join(app.getPath("userData"), "agent-footprints.json"),
+	startMemoryWatch({
 		tabs: () => [...sidecarPool.memoryTabs(), ...hostServices.memoryTabs()],
-		show: (tabId, wait) => {
-			sidecarPool.setMemoryWait(tabId, wait);
-			hostServices.setMemoryWait(tabId, wait);
-		},
 		log: (message, details) => writeRuntimeLog({ source: "memory", message, details }),
-		notify: (title, body) => appNotification({ title, body }).show(),
-		text: (key, params) => mainT(key, undefined, params),
 		sampler: {
 			platform: process.platform,
 			systemMemory: () => process.getSystemMemoryInfo(),
@@ -1166,12 +1160,6 @@ app.whenReady().then(() => {
 			? { releaseQuietMs: Number(process.env.OMP_GUI_TEST_IDLE_RELEASE_MS) }
 			: {}),
 	});
-	const memoryAdmission = memoryWatch.admission;
-	// A turn that ended has finished its growth (it reserves nothing more); a released tab leaves the line.
-	sidecarPool.observeTabs(activity => {
-		if (activity.type === "idle") memoryAdmission.turnEnded(activity.tabId);
-		else if (activity.type === "released") memoryAdmission.forgetTab(activity.tabId);
-	});
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
 		// A paired computer's attached files land in the phones' upload folder (24 h); `webHost` is made later.
@@ -1182,7 +1170,6 @@ app.whenReady().then(() => {
 		agentHidden: () => agentHiddenPaths(prefs.get(AGENT_HIDDEN_PREFS_KEY)),
 		botEnded: sessionPath => botRowOf(sessionPath, key => prefs.get(key as never)) === "past",
 		turnGate: botTurns,
-		memoryAdmission,
 		renameStoredSession: async (sessionPath, name) => {
 			const omp = await systemOmp();
 			if (!omp.ok) throw new Error(omp.error);
@@ -1877,7 +1864,6 @@ app.whenReady().then(() => {
 		file: join(app.getPath("userData"), "schedules.json"),
 		logDir: join(app.getPath("userData"), "schedule-runs"),
 		launch: launchScheduledRun,
-		admit: schedule => memoryAdmission.request({ kind: "schedule", label: `schedule "${schedule.name}"` }),
 		onState: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(SCHEDULES_STATE, state);
@@ -2088,7 +2074,6 @@ app.whenReady().then(() => {
 		},
 		goalSettled: (tabId, outcome) => autopilotRef.current?.resumeSettled(tabId, outcome),
 		log: (message, details) => writeRuntimeLog({ source: "turn-resume", message, details }),
-		admit: (tabId, label) => memoryAdmission.request({ kind: "resume", tabId, label }).outcome,
 	});
 	ipc.handle(IPC_COMMANDS.RESUME_CANCEL_WAIT, async (_caller, tabId: unknown) => {
 		if (typeof tabId !== "string") return;
@@ -2099,16 +2084,6 @@ app.whenReady().then(() => {
 	});
 	// A paired device's Cancel on the wait or scheduled retry of a window's tab it views: this computer's own tab.
 	sidecarPool.onCancelWait = tabId => turnResume.cancelWait(tabId);
-	// Start now on a waiting tab (memory-admission.ts): the computer that holds the wait decides. A paired host's tab asks
-	// its host; a tab here starts at once.
-	ipc.handle(IPC_COMMANDS.MEMORY_START_NOW, async (_caller, tabId: unknown) => {
-		if (typeof tabId !== "string") return false;
-		const sidecar = sidecarPool.sidecarOf(tabId);
-		if (sidecar?.startHostNow) return sidecar.startHostNow();
-		return memoryAdmission.startNow(tabId);
-	});
-	// A paired device's Start now on a window's tab it views: this computer's own tab.
-	sidecarPool.onStartNow = tabId => memoryAdmission.startNow(tabId);
 	ipc.handle(IPC_COMMANDS.RESUME_STOP, async (_caller, tabId: unknown) => {
 		if (typeof tabId === "string") await turnResume.stopResumed(tabId);
 	});
@@ -2182,7 +2157,6 @@ app.whenReady().then(() => {
 		fileEditReports,
 		ipc,
 		sidecarPool,
-		memoryAdmission,
 		sessionIndex,
 		machine,
 		logWatcher,

@@ -85,7 +85,6 @@ export const ko: Record<string, string> = {
 	"titlebar.status.waiting": "omp 설치 중",
 	"titlebar.status.sessionHeld": "세션을 기다리는 중",
 	"titlebar.status.connectionWait": "인터넷 연결을 기다리는 중",
-	"titlebar.status.memoryWait": "메모리 대기 중",
 	"titlebar.toggleSidebar": "사이드바 전환",
 	"titlebar.openProjectFailed": "프로젝트를 열 수 없어요",
 	"titlebar.renameFailed": "세션 이름을 바꾸지 못했어요",
@@ -2312,11 +2311,6 @@ export const ko: Record<string, string> = {
 	"chat.connectionWait": "인터넷 연결을 기다리는 중이에요…",
 	"chat.connectionWaitHost": "{device}의 인터넷 연결을 기다리는 중이에요…",
 	"chat.connectionWaitCancelFailed": "대기를 취소하지 못했어요",
-	"chat.memoryWait": "메모리 대기 중: {total} GB 중 {free} GB 남음 · #{position}번째 · 저절로 시작돼요",
-	"chat.memoryWaitUnknown":
-		"메모리 대기 중: 지금 이 컴퓨터의 메모리를 읽을 수 없어요 · #{position}번째 · 저절로 시작돼요",
-	"chat.memoryWaitStartNow": "지금 시작",
-	"chat.memoryWaitStartFailed": "지금 시작하지 못했어요",
 	"settings.gui.thinkingDisplay": "사고 과정",
 	"settings.gui.thinkingDisplayDesc":
 		"숨김이면 사고 과정을 보여 주지 않아요(⌃T로 전환). 접힘과 펼침은 블록이 처음 놓이는 모양이고, 블록마다 열고 닫을 수 있어요.",

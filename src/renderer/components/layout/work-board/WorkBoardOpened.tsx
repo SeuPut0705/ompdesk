@@ -11,7 +11,6 @@ import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { useT } from "../../../lib/i18n";
 import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
-import { MEMORY_WAIT_LABEL_KEY } from "../../../lib/tab-signal";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
@@ -48,9 +47,7 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 	const storedCwd = !row.tabId && !row.deviceId && row.sessionPath ? row.cwd : undefined;
 	const projectName = useProjectNames(storedCwd ? [storedCwd] : []);
 	const gone = storedCwd !== undefined && projectName(storedCwd).gone;
-	// Its start waits for memory: that is what it does now, whatever it said last.
-	const memoryLabel = row.memoryWait ? t(MEMORY_WAIT_LABEL_KEY) : null;
-	const activity = memoryLabel ?? childActivity(row);
+	const activity = childActivity(row);
 	return (
 		<BoardRow
 			data={{
@@ -117,7 +114,7 @@ function OpenedRow({ row, now, tag }: { row: OpenedChildRow; now: number; tag?: 
 			}
 			title={[
 				`${title}${row.device ? ` · ${row.device}` : ""}`,
-				memoryLabel ?? (note || statusLabel),
+				note || statusLabel,
 				gone ? t("sessionFolder.goneTip") : null,
 				branch,
 				[usage?.model, costWords(t, kinds)].filter(Boolean).join(" · "),

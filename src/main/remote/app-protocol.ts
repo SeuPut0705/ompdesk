@@ -12,8 +12,6 @@
  *   opens the ones its layout lost, `readopt.ts`); an older host answers `unsupported`
  * - `tab.sideChannel {rtab, frame}`, `tab.syncImageGeneration {rtab}`
  * - `tab.cancelWait {rtab}`: Cancel on the tab's connection wait or scheduled retry
- * - `tab.startNow {rtab}` → boolean: Start now on the tab's memory wait (memory-admission.ts); false when it no longer
- *   waits; an older host answers `unsupported`
  * - `sessions.list|search|kindFor|delete|rename|move`, `fs.list|read|readImage|readPlan|listDirs`,
  *   `workspace.default`, `launchProfile.get|update`
  * - `host.fs.readBinary {rtab?, cwd?, path, maxBytes?}` → HostFsReadBinaryReply: the file
@@ -184,9 +182,6 @@ export const TAB_EVENT_NAMES = [
 	// The retry this computer scheduled for the turn of the window's tab the device views (TabScheduledRetryArg, null when
 	// none), sent as it changes and on every `tab.open`. An older device drops the name; an older host never sends it.
 	"scheduledRetry",
-	// The tab's start waits for this computer's memory (IpcMemoryWait, null when it no longer waits; memory-admission.ts),
-	// sent as it changes and on every `tab.open`. An older device drops the name; an older host never sends it.
-	"memoryWait",
 ] as const;
 
 export type TabEventName = (typeof TAB_EVENT_NAMES)[number];
@@ -289,11 +284,6 @@ export const RemoteOpenedReply = z.object({ tabs: z.array(z.unknown()) });
 export const MOBILE_WEB_LINK_EVENT = "host.mobileWeb.changed";
 export const MOBILE_WEB_LINK_METHOD = "host.mobileWeb.link";
 export const MobileWebLinkReply = z.object({ url: z.string().url().startsWith("https://").nullable() });
-/**
- * The host's memory and its line of waiting agent work (data: `AdmissionStatus` of memory-admission.ts, or null): a
- * device's `ompdesk_sessions` lists each computer's capacity. An older host answers `unsupported`.
- */
-export const HOST_MEMORY_STATUS_METHOD = "host.memory.status";
 /** This computer's device name changed (data: `{name}`); sent to every connected device. */
 export const HOST_NAME_EVENT = "host.name";
 /**
@@ -607,21 +597,6 @@ export const TabScheduledRetryArg = z
 	})
 	.nullable();
 export type TabScheduledRetryArg = z.infer<typeof TabScheduledRetryArg>;
-
-/**
- * `memoryWait` event argument: the host's memory wait of the tab (IpcMemoryWait), or null when it no longer waits.
- * Byte counts are the host's own.
- */
-export const TabMemoryWaitArg = z
-	.object({
-		position: z.number().int().positive(),
-		availableBytes: z.number().nonnegative(),
-		totalBytes: z.number().nonnegative(),
-		pressure: z.enum(["normal", "warn", "critical", "unknown"]),
-		since: z.number(),
-	})
-	.nullable();
-export type TabMemoryWaitArg = z.infer<typeof TabMemoryWaitArg>;
 
 export const TabOpenResult = z.object({
 	/** Canonical cwd on the host. */

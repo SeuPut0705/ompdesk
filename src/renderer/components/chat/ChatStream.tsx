@@ -32,7 +32,7 @@ import { useMessagesStore } from "../../stores/messages";
 import { useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
-import { useActiveTabKind, useAwaitingConnection, useMemoryWait, useResuming, useTabsStore } from "../../stores/tabs";
+import { useActiveTabKind, useAwaitingConnection, useResuming, useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
@@ -74,7 +74,6 @@ import {
 import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { createStageCall, StageCallContext, useStageCall, WorkCardPending } from "./LiveStepPeek";
-import { MemoryWaitRow } from "./MemoryWaitRow";
 import { MessageBubble } from "./MessageBubble";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
@@ -165,7 +164,6 @@ function SessionTranscript() {
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const childrenAtWork = useHasChildrenAtWork();
 	const awaitingConnection = useAwaitingConnection();
-	const memoryWait = useMemoryWait();
 	const resuming = useResuming();
 	const status = useSessionStore(s => s.status);
 	const sessionId = useSessionStore(s => s.sessionId);
@@ -240,7 +238,6 @@ function SessionTranscript() {
 	// loader; tool-execution windows show running tool cards instead.
 	const showStatusRow =
 		awaitingConnection !== null ||
-		memoryWait !== null ||
 		resuming !== null ||
 		retryInfo != null ||
 		compactionInfo != null ||
@@ -1474,7 +1471,6 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	const compactionInfo = useSessionStore(s => s.compactionInfo);
 	const awaitingConnection = useAwaitingConnection();
 	const resuming = useResuming();
-	const memoryWait = useMemoryWait();
 	const waitHost = useHostView(useTabsStore(s => s.tabs.find(tab => tab.id === awaitingConnection)?.device));
 	const awaitingModelSince = useSessionStore(s => s.awaitingModelSince);
 	const now = Date.now();
@@ -1528,9 +1524,6 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 			</div>
 		);
 	}
-	// Its start waits for memory on the computer that runs it (main's memory admission): a calm row with Start now. It
-	// outranks the relaunch's "continuing" row, which waits on the same gate.
-	if (memoryWait) return <MemoryWaitRow tabId={memoryWait.tabId} wait={memoryWait.wait} />;
 	// A relaunch continues this tab's interrupted work (main's turn-resume): one calm row, the only resume
 	// indicator (no toast), with the Stop the old toast offered; the turn's own rows replace it once it starts.
 	if (resuming) {

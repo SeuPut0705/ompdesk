@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { IdleRelease, memoryShort } from "./idle-release";
-import type { MemoryReading } from "./memory-admission";
-import type { ProcessRow } from "./memory-sampler";
+import type { MemoryReading, ProcessRow } from "./memory-sampler";
 
 const GiB = 1024 ** 3;
 const reading = (availableGb: number, pressure: MemoryReading["pressure"] = "normal"): MemoryReading => ({

@@ -4,9 +4,7 @@
  * watch (`memory-watch.ts`) feeds it each sample, and the pool (`SidecarPool.releaseIdle`) re-checks and does it.
  *
  * Nothing changes while memory is fine: no tab is released then, so no session ever waits for its omp to start again.
- * Short means what the OS says now (pressure warn or critical, or less than `RESERVE_FRACTION` of RAM available), never
- * the admission's prediction of growth to come: that predicts work still starting and would release sessions on a
- * machine with gigabytes free.
+ * Short means what the OS says now: pressure warn or critical, or less than `RESERVE_FRACTION` of RAM available.
  *
  * Only a quiet tab goes: the pool says nothing in it is live (hidden in every window and device, idle, no ask, plan,
  * draft, retry or continuation, not opened by an agent), and its omp has started no process. A child process is live
@@ -15,8 +13,10 @@
  * sample, so a short spell frees what it needs and no more. A released tab reads asleep and starts again on its session
  * file the way a restored tab does: when it is shown or messaged.
  */
-import { type MemoryReading, RESERVE_FRACTION } from "./memory-admission";
-import { type ProcessRow, treeBytes } from "./memory-sampler";
+import { type MemoryReading, type ProcessRow, treeBytes } from "./memory-sampler";
+
+/** Headroom below which memory reads as short: 15 % of RAM (2.4 GB on 16 GB), before the kernel's warn level. */
+const RESERVE_FRACTION = 0.15;
 
 /** How long a tab stays quiet before it may be released. */
 export const IDLE_RELEASE_QUIET_MS = 5 * 60_000;

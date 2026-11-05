@@ -23,7 +23,7 @@ describe("childFoldSignal", () => {
 		expect(childFoldSignal({ status: "waiting", ask: "approval" })).toBe("approval");
 		// A host only knows a prompt waits: the row reads it as a question.
 		expect(childFoldSignal({ status: "waiting" })).toBe("question");
-		for (const status of ["failed", "unmerged", "done", "queued", null] as const)
+		for (const status of ["failed", "unmerged", "done", null] as const)
 			expect(childFoldSignal({ status })).toBeNull();
 	});
 });

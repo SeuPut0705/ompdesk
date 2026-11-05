@@ -59,24 +59,6 @@ describe("tabSignalPresentation", () => {
 		expect(tabSignalPresentation(tab({ status: "ready", unreadDone: true })).labelKey).toBe("tabs.done");
 	});
 
-	it("shows a tab whose start waits for memory as a calm warning, outranked by a down session or a question", () => {
-		const memoryWait = { position: 1, availableBytes: 1, totalBytes: 2, pressure: "warn", since: 1 } as const;
-		expect(tabSignalPresentation(tab({ status: "ready", memoryWait }))).toEqual({
-			active: true,
-			color: "var(--omp-warning)",
-			labelKey: "titlebar.status.memoryWait",
-			running: false,
-		});
-		// A finished background run waits in line too: the wait is the newer fact.
-		expect(tabSignalPresentation(tab({ status: "ready", unreadDone: true, memoryWait })).labelKey).toBe(
-			"titlebar.status.memoryWait",
-		);
-		expect(tabSignalPresentation(tab({ status: "error", memoryWait })).labelKey).toBe("titlebar.status.error");
-		expect(tabSignalPresentation(tab({ status: "ready", awaitingInput: "input", memoryWait })).labelKey).toBe(
-			"attention.question",
-		);
-	});
-
 	it("flags a tab waiting on the user over its run, without hiding that it is still running", () => {
 		const waiting = tabSignalPresentation(tab({ status: "running", awaitingInput: "input" }));
 		// A question is not an approval: the question word, the approval word only for approvals.
