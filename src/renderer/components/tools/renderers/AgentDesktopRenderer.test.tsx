@@ -87,6 +87,53 @@ describe("AgentDesktopRenderer", () => {
 		expect(rows()).toEqual(["window @e1", "group @e2", "group @e3", 'button "Save" @e4']);
 	});
 
+	it("keeps a real snapshot's values, states and cut-short branches on their rows, and says when it is partial", async () => {
+		// The shape agent-desktop 1.2.0 printed for TextEdit (`snapshot --app TextEdit --skeleton -i --compact`).
+		const tree = {
+			role: "window",
+			name: "Untitled 3",
+			children: [
+				{
+					role: "scrollarea",
+					ref_id: "@s1:e1",
+					native_id: { kind: "ax_identifier", value: "_NS:8" },
+					available_actions: ["Scroll", "SetFocus"],
+					children: [
+						{
+							role: "textfield",
+							ref_id: "@s1:e2",
+							states: ["focused"],
+							value: "agent-desktop smoke 1793909565077",
+							available_actions: ["SetValue", "TypeText"],
+						},
+						{ role: "scrollbar", ref_id: "@s1:e3", states: ["disabled"], value: "0" },
+					],
+				},
+				{ role: "group", name: "Format", children_count: 9 },
+				{ role: "toolbar", subtree_truncated: true },
+			],
+		};
+		await mount(
+			<AgentDesktopRenderer
+				args={{ app: "TextEdit" }}
+				result={answer({
+					version: "2.6",
+					ok: true,
+					command: "snapshot",
+					data: { app: "TextEdit", snapshot_id: "s1", ref_count: 3, complete: false, tree },
+				})}
+			/>,
+		);
+
+		expect(rows()).toContain('textfield = "agent-desktop smoke 1793909565077" @s1:e2 [focused]');
+		expect(rows()).toContain('scrollbar = "0" @s1:e3 [disabled]');
+		expect(rows()).toContain('group "Format" (9 not read)');
+		expect(rows()).toContain("toolbar (cut short)");
+		expect(container.querySelector("[data-agent-desktop-partial]")?.textContent).toContain("Partial tree");
+		// Everything else the envelope said (actions, native ids) is one fold away.
+		expect(text()).toContain("Full result");
+	});
+
 	it("shows a screenshot as an image the reader can open", async () => {
 		await mount(
 			<AgentDesktopRenderer

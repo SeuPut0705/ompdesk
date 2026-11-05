@@ -1,5 +1,5 @@
 import { Check, MousePointer2 } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import {
 	type AgentDesktopError,
 	type AgentDesktopNode,
@@ -23,30 +23,59 @@ import { ToolTextPreview } from "./ToolTextPreview";
 /** Levels open at first, as the JSON tree's: deeper rows are one click or arrow key away. */
 const OPEN_DEPTH = 2;
 
-function treeNodes(nodes: AgentDesktopNode[], parentId: string, depth: number, open: Set<string>): TreeNode[] {
+/** A value past this many characters is clipped on its row (the raw result below holds it whole). */
+const VALUE_CHARS = 60;
+
+type Translate = ReturnType<typeof useT>;
+
+function treeNodes(
+	nodes: AgentDesktopNode[],
+	parentId: string,
+	depth: number,
+	open: Set<string>,
+	t: Translate,
+): TreeNode[] {
 	return nodes.map((node, index) => {
 		const id = `${parentId}.${index}`;
 		if (node.children.length > 0 && depth < OPEN_DEPTH) open.add(id);
+		const value = node.value && node.value.length > VALUE_CHARS ? `${node.value.slice(0, VALUE_CHARS)}…` : node.value;
+		// What agent-desktop did not read under this element: a count it took, or only that it stopped.
+		const unread =
+			node.unread !== undefined
+				? t("tools.agentDesktop.unread", { count: node.unread })
+				: node.truncated
+					? t("tools.agentDesktop.cutShort")
+					: undefined;
 		return {
 			id,
 			label: (
-				<span className="font-mono">
+				<span className="font-mono" data-agent-desktop-states={node.states.join(" ") || undefined}>
 					<span className="text-[var(--omp-dim)]">{node.role}</span>
 					{node.name && <span className="text-[var(--omp-success)]">{` "${node.name}"`}</span>}
+					{value !== undefined && <span className="text-[var(--omp-muted)]">{` = "${value}"`}</span>}
 					{node.ref && <span className="text-[var(--omp-accent)]">{` ${node.ref}`}</span>}
+					{node.states.length > 0 && (
+						<span className="text-[var(--omp-warning)]">{` [${node.states.join(", ")}]`}</span>
+					)}
+					{unread && (
+						<span className="text-[var(--omp-dim)] italic" data-agent-desktop-unread>
+							{` ${unread}`}
+						</span>
+					)}
 				</span>
 			),
-			children: node.children.length > 0 ? treeNodes(node.children, id, depth + 1, open) : undefined,
+			children: node.children.length > 0 ? treeNodes(node.children, id, depth + 1, open, t) : undefined,
 		};
 	});
 }
 
 /** The accessibility tree of a snapshot, a find or a window list: one line per element, deep levels folded. */
 function ElementTree({ nodes, label }: { nodes: AgentDesktopNode[]; label: string }) {
+	const t = useT();
 	const built = useMemo(() => {
 		const open = new Set<string>();
-		return { rows: treeNodes(nodes, "$", 0, open), open };
-	}, [nodes]);
+		return { rows: treeNodes(nodes, "$", 0, open, t), open };
+	}, [nodes, t]);
 	const [expanded, setExpanded] = useState(built.open);
 	return (
 		<div aria-label={label} className="rounded bg-[var(--omp-code-bg)] text-omp-sm" role="group">
@@ -60,13 +89,12 @@ function ElementTree({ nodes, label }: { nodes: AgentDesktopNode[]; label: strin
 	);
 }
 
-/** `desktop_skills_get`: the guide is long reference text, so it stays folded until asked for. */
-function Guide({ content }: { content: string }) {
-	const t = useT();
+/** Long reference (`desktop_skills_get`'s guide, a snapshot's whole envelope): folded until asked for. */
+function Folded({ label, kind, children }: { label: string; kind: string; children: ReactNode }) {
 	const bodyId = useId();
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="flex min-w-0 flex-col" data-tool-agent-desktop="guide">
+		<div className="flex min-w-0 flex-col" data-tool-agent-desktop={kind}>
 			<DisclosureButton
 				aria-controls={bodyId}
 				className="min-h-7 rounded-(--sc-radius-sm) px-1 text-sc-sm text-(--sc-text-muted) hover:text-(--sc-text-secondary)"
@@ -74,11 +102,11 @@ function Guide({ content }: { content: string }) {
 				onToggle={() => setOpen(!open)}
 				open={open}
 			>
-				{t("tools.agentDesktop.guide")}
+				{label}
 			</DisclosureButton>
 			<Collapse className="flow-root" open={open}>
 				<div id={bodyId} className="mt-1 text-sc-sm">
-					<MarkdownRenderer content={content} />
+					{children}
 				</div>
 			</Collapse>
 		</div>
@@ -145,7 +173,12 @@ export function AgentDesktopRenderer(props: ToolRendererProps) {
 	if (envelope.error) return <FailedCall error={envelope.error} />;
 
 	const guide = asString(data?.content);
-	if (guide !== undefined) return <Guide content={guide} />;
+	if (guide !== undefined)
+		return (
+			<Folded kind="guide" label={t("tools.agentDesktop.guide")}>
+				<MarkdownRenderer content={guide} />
+			</Folded>
+		);
 
 	const elements = agentDesktopNodes(data);
 	if (elements) {
@@ -164,6 +197,17 @@ export function AgentDesktopRenderer(props: ToolRendererProps) {
 					<div className="font-mono text-sc-xs text-(--sc-text-subtle)">
 						{t("tools.agentDesktop.moreElements", { count: elements.omitted })}
 					</div>
+				)}
+				{elements.partial && (
+					<div className="text-sc-xs text-(--sc-warning)" data-agent-desktop-partial>
+						{t("tools.agentDesktop.partial")}
+					</div>
+				)}
+				{/* Everything the envelope said (bounds, actions, native ids), folded: the rows carry what a reader scans. */}
+				{data && (
+					<Folded kind="raw" label={t("tools.agentDesktop.raw")}>
+						<JsonTree label={t("tools.agentDesktop.raw")} openDepth={1} value={data} />
+					</Folded>
 				)}
 			</div>
 		);

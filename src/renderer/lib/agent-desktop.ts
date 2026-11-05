@@ -77,6 +77,17 @@ export interface AgentDesktopNode {
 	role: string;
 	name?: string;
 	ref?: string;
+	/** The element's value (a field's text, a slider's position). */
+	value?: string;
+	/** agent-desktop's states (`disabled`, `focused`, `checked`, `expanded`, …), as it names them. */
+	states: string[];
+	/**
+	 * Children agent-desktop counted but did not read (`children_count` on a node a skeleton or depth cut left without
+	 * `children`): the row is not a leaf.
+	 */
+	unread?: number;
+	/** `subtree_truncated`: its descendants were cut short (a budget or deadline), with no count. */
+	truncated: boolean;
 	children: AgentDesktopNode[];
 }
 
@@ -90,6 +101,8 @@ export interface AgentDesktopNodes {
 	nodes: AgentDesktopNode[];
 	/** Nodes in the result beyond {@link AGENT_DESKTOP_MAX_NODES}. */
 	omitted: number;
+	/** A snapshot's `complete: false`: agent-desktop could not read the whole surface in time. */
+	partial: boolean;
 }
 
 function toNode(value: unknown, fallbackRole: string, budget: { left: number; omitted: number }, depth: number) {
@@ -105,8 +118,15 @@ function toNode(value: unknown, fallbackRole: string, budget: { left: number; om
 		role: asNonEmptyString(record.role) ?? fallbackRole,
 		name: asNonEmptyString(record.name) ?? asNonEmptyString(record.title) ?? asNonEmptyString(record.app),
 		ref,
+		value: asNonEmptyString(record.value),
+		states: Array.isArray(record.states) ? record.states.flatMap(state => asNonEmptyString(state) ?? []) : [],
+		truncated: record.subtree_truncated === true,
 		children: [],
 	};
+	const counted = asNumber(record.children_count);
+	if (counted !== undefined && counted > 0 && !(Array.isArray(record.children) && record.children.length > 0)) {
+		node.unread = counted;
+	}
 	if (depth < MAX_DEPTH && Array.isArray(record.children)) {
 		for (const child of record.children) {
 			const built = toNode(child, "node", budget, depth + 1);
@@ -128,7 +148,7 @@ export function agentDesktopNodes(data: Record<string, unknown> | undefined): Ag
 	if (tree) {
 		const root = toNode(tree, "node", budget, 0);
 		if (root) roots.push(root);
-		return { nodes: roots, omitted: budget.omitted };
+		return { nodes: roots, omitted: budget.omitted, partial: data.complete === false };
 	}
 	for (const [key, role] of Object.entries(LIST_ROLES)) {
 		const list = data[key];
@@ -137,7 +157,7 @@ export function agentDesktopNodes(data: Record<string, unknown> | undefined): Ag
 			const built = toNode(item, role, budget, 0);
 			if (built) roots.push(built);
 		}
-		return { nodes: roots, omitted: budget.omitted };
+		return { nodes: roots, omitted: budget.omitted, partial: data.complete === false };
 	}
 	return undefined;
 }
