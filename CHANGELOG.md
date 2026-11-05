@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.111.0] - 2026-11-05
+
+답변 안에 스크린샷을 크게 보여 줘요. 그림만 있는 문단은 캡션이 붙은 한 줄로 나란히 놓이고, 에이전트도 결과 그림을 답변에 직접 넣도록 안내받아요.
+
+### 새로 생긴 것
+- 답변에서 그림만 있는 문단(줄을 바꿔 이어 쓴 `![Before: …](…)`와 `![After: …](…)` 등)은 그림마다 크게, 대체 텍스트를 캡션으로 달아 한 줄에 나란히 보여 줘요. 폭이 좁은 휴대폰에서는 위아래로 쌓여요. 그림을 누르면 크게 열리고, 같은 줄의 다른 그림으로 넘겨 볼 수 있어요. 이 컴퓨터, 페어링한 컴퓨터, 휴대폰 페이지에서 똑같이 보여요(`FigureRow`).
+- 에이전트에게 짧은 안내를 더했어요(`<reply-presentation>`, 약 140토큰). 스크린샷, 페이지, 전후 비교 같은 결과는 설명만 하지 말고 `![캡션](/절대/경로.png)`로 답변에 넣고, 전후는 두 줄로 이어 써서 짝으로 보여 주라고 해요. 이전에는 결과 그림이 작업 상자의 작은 썸네일로만 남았어요.
+
+<!-- en -->
+
+Replies show screenshots large: a paragraph of pictures only is one captioned row, and agents are told to put result pictures in the reply itself.
+
+### Added
+- A reply paragraph holding only pictures (such as `![Before: …](…)` and `![After: …](…)` on consecutive lines) shows each picture large with its alt text as caption, side by side in one row, stacked on a narrow phone. A click opens it full size and steps to the row's other pictures. This computer, a paired computer and the phone page show it the same way (`FigureRow`).
+- A short instruction for the agent (`<reply-presentation>`, about 140 tokens): a visual result (a screenshot, a page, a before/after) goes in the reply as `![caption](/absolute/path.png)` instead of only being described, and a before/after pair is written on two consecutive lines. Result pictures used to stay as small thumbnails in the tool work box.
+
 ## [0.110.6] - 2026-11-05
 
 호스트에 닿지 않을 때 휴대폰 페이지를 새로고침해도 멈추지 않고, 예약 작업 목록이 멈춘 실행을 "실행 중"으로 되돌리지 않아요.
