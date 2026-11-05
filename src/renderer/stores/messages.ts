@@ -63,7 +63,8 @@ export interface MessagesStore {
 	clearDeliveredLiveMessages: () => void;
 	/**
 	 * Apply a fetched committed transcript. In-flight stable rows are merged by
-	 * mergeFetchedTranscript before this replacement.
+	 * mergeFetchedTranscript before this replacement. A stream the transcript
+	 * already holds has ended; its buffers close.
 	 */
 	reconcileFetched: (fetched: AgentMessage[]) => void;
 	reset: () => void;
@@ -424,13 +425,18 @@ export const createMessagesStore = () =>
 				}
 				return !optimisticUserWasCommitted(message, fetched);
 			});
+			// A tab that sat in the background heard neither the end of the reply it last saw streaming nor anything
+			// after it: the transcript holds that reply now, and its text left in the buffers would show a second time
+			// under the run's live card until the next reply streams (the owner's report, 6 Nov 2026).
+			const streamEnded = state.streamingMessage !== null && holds(fetched, state.streamingMessage, true);
 			const messagesUnchanged =
 				fetched.length === state.messages.length &&
 				fetched.every((message, index) => message === state.messages[index]);
-			if (messagesUnchanged && liveMessages.length === state.liveMessages.length) return;
+			if (messagesUnchanged && liveMessages.length === state.liveMessages.length && !streamEnded) return;
 			set({
 				messages: fetched,
 				liveMessages: liveMessages.length === state.liveMessages.length ? state.liveMessages : liveMessages,
+				...(streamEnded ? { streamingMessage: null, streamingText: "", streamingThinking: "" } : {}),
 			});
 		},
 		reset: () => set(initialState),
