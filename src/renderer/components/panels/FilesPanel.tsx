@@ -469,7 +469,7 @@ function FilePreview({
 				</div>
 				<div className="flex min-w-0 flex-wrap items-baseline gap-x-2 ps-9 text-sc-xs text-(--sc-text-subtle)">
 					{path.includes("/") && (
-						<span className="min-w-0 [overflow-wrap:anywhere]" data-file-folder>
+						<span className="min-w-0 text-sc-sm [overflow-wrap:anywhere]" data-file-folder>
 							{path
 								.slice(0, path.lastIndexOf("/"))
 								.split("/")

@@ -142,7 +142,7 @@ export function ForceToolDialog() {
 				<>
 					{/* The tool forced now, with Clear, at the footer's start: one line with the actions, not a box of its
 					    own over the list. */}
-					<div className="me-auto flex min-w-0 items-center gap-2 text-sc-sm" data-force-tool-current>
+					<div className="me-auto flex min-w-0 items-center gap-2 text-sc-md" data-force-tool-current>
 						<Wrench aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 						{current ? (
 							<span className="truncate font-medium text-(--sc-text)">{current}</span>

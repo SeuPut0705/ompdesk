@@ -448,6 +448,12 @@ button.omp-work-board-more:hover {
 	color: var(--sc-text);
 }
 
+/* Record a workflow keeps the 13 px its button had: a row's look, never smaller text. */
+button.omp-work-board-more[data-bot-teach-record] {
+	font-size: var(--sc-font-sm);
+	line-height: 20px;
+}
+
 /* State dots. */
 .omp-work-board-dot {
 	width: 6px;
