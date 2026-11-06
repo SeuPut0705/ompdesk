@@ -215,6 +215,9 @@ test("a first launch drives the text editor with the agent-desktop the app ships
 		!existsSync(path.join(bundle, "agent-desktop.build.json")),
 		"No bundled agent-desktop: run `bun run build:agent-desktop`",
 	);
+	// The session types into a Notepad it launches; with one already running it could land in the person's document,
+	// and the cleanup can only end a Notepad process the run started.
+	test.skip(WIN && notepadPids().size > 0, "Notepad is open: close it first, this run must not touch its documents");
 	test.setTimeout(900_000);
 	const real = await realOmpProfile();
 	const env = WIN ? { ...real.env, LOCALAPPDATA: path.join(real.profile, "local") } : real.env;
