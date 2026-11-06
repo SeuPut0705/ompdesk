@@ -1,8 +1,8 @@
 /**
  * The work card's verdict over real journals: every work card in `e2e/fixtures/work-verdict-corpus.json` (OMPdesk's own
- * sessions, built and redacted by `scripts/work-verdict-corpus.ts`), mounted as the transcript mounts it, and the
- * board's check row after it. One line per card in `__snapshots__/work-verdict-replay.txt`: the card's state, whether
- * it is red, its head facts and its verdict blocks and chips, then what the board's check row says.
+ * sessions, built and redacted by `scripts/work-verdict-corpus.ts`), mounted as the transcript mounts it, in its turn,
+ * and the board's check row once that turn ended. One line per card in `__snapshots__/work-verdict-replay.txt`: the
+ * card's state, whether it is red, its head facts and its verdict blocks and chips, then what the board's check row says.
  *
  * A change to the verdict rules moves lines here; review each moved card before `vitest -u` takes the new lines.
  * ci.yml's `check` job runs this file as its own step, so a verdict regression fails by name.
@@ -19,8 +19,9 @@ import { useSessionStore } from "../../../stores/session";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { lastCheck } from "../../layout/work-board/session-board";
-import { buildHistoryRows, callStops } from "../chat-stream-utils";
+import { buildHistoryRows, callStops, workTurns } from "../chat-stream-utils";
 import { backgroundJobVerdicts } from "../completion-events";
+import { turnScope } from "./work-findings";
 import { workOutcomes } from "./work-view";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -75,7 +76,10 @@ describe("work card verdict over real journals", () => {
 			useToolsStore.getState().hydrateMessages(slice.messages);
 			const verdicts = backgroundJobVerdicts(slice.messages);
 			const stops = callStops(slice.messages);
-			const rows = buildHistoryRows(slice.messages, "compact").flatMap(row => (row.kind === "process" ? [row] : []));
+			const history = buildHistoryRows(slice.messages, "compact");
+			// Each card in its turn, as the transcript mounts it: which failure the work ended on is the turn's to say.
+			const turns = workTurns(history, false);
+			const rows = history.flatMap(row => (row.kind === "process" ? [row] : []));
 			for (const [index, row] of rows.entries()) {
 				if (row.toolCallIds.length === 0) continue;
 				await act(async () =>
@@ -90,6 +94,8 @@ describe("work card verdict over real journals", () => {
 								stepCount={row.stepCount}
 								stoppedAt={row.stoppedAt}
 								superseded={index < rows.length - 1}
+								turn={turns.get(row)?.turn}
+								endsTurn={turns.get(row)?.last ?? true}
 								todoSnapshots={row.todoSnapshots}
 								toolCallIds={row.toolCallIds}
 							>
@@ -98,20 +104,22 @@ describe("work card verdict over real journals", () => {
 						</I18nProvider>,
 					),
 				);
+				// The board once the card's turn ended: the whole turn is its newest turn, as the cards read it.
 				const tools = useToolsStore.getState();
-				const cardEntries = row.toolCallIds.flatMap(key => {
+				const turnEntries = (turns.get(row)?.turn.ids ?? row.toolCallIds).flatMap(key => {
 					const entry = selectToolEntry(tools, key);
 					return entry ? [[key, entry] as const] : [];
 				});
-				const until = Math.max(...cardEntries.map(([, entry]) => entry.startTime));
+				const until = Math.max(...turnEntries.map(([, entry]) => entry.startTime));
 				const sessionSoFar = [...tools.finishedTools].filter(([, entry]) => entry.startTime <= until);
 				const turn = workOutcomes(
-					cardEntries.map(([toolCallId, entry]) => ({ entry, toolCallId, stoppedAt: stops.get(toolCallId) })),
+					turnEntries.map(([toolCallId, entry]) => ({ entry, toolCallId, stoppedAt: stops.get(toolCallId) })),
 					undefined,
 					slice.cwd,
 					verdicts,
 				);
-				const board = lastCheck(sessionSoFar, turn.commands, slice.cwd, verdicts, stops);
+				const scope = turnScope(turnEntries, turn.commands, { running: false, failedEnd: false });
+				const board = lastCheck(sessionSoFar, turn.commands, slice.cwd, verdicts, stops, scope);
 				const boardLine = board
 					? `${board.state} ${board.kind}${board.count !== undefined ? ` ${board.count}` : ""} ${board.key ?? "-"}`
 					: "-";

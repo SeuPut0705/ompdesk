@@ -17,14 +17,15 @@ import { Collapse } from "../common/Collapse";
 import { CopyButton } from "../common/CopyButton";
 import { openPeer, peerOpen, peerOverlap } from "../layout/work-board/open-peer";
 import { getToolActivity } from "../tools/index";
+import type { WorkTurn } from "./chat-stream-utils";
 import { LiveStepPeek } from "./LiveStepPeek";
 import { LiveTurnMeter, OutputMeter } from "./TurnOutputMeter";
 import { revealStep, type StepReveal, StepRevealContext } from "./work/reveal-step";
-import { useRunOutcome, useRunStores } from "./work/use-work-run";
+import { useRunOutcome, useRunStores, useTurnScope } from "./work/use-work-run";
 import { type WorkFact, WorkMetrics } from "./work/WorkFacts";
 import { type GroupAgent, isInterruptedError, resolveWorkGroup } from "./work/WorkStatus";
-import { firstErrorLine, workVerdict } from "./work/work-checks";
-import { operationLabel, stepOperations, workSummaryText } from "./work/work-findings";
+import { firstErrorLine, type OperationCall, workVerdict } from "./work/work-checks";
+import { operationLabel, stepOperations, turnScope, workSummaryText } from "./work/work-findings";
 import { finishedHeadline, parseTaskResults, runSpan, transcriptTodoSnapshot } from "./work/work-run";
 import { messageSourceTimestamp } from "./work/work-turn";
 import { isSkippedWork, mergeSkills, skillPromptName } from "./work/work-view";
@@ -52,6 +53,13 @@ interface ExecutionGroupProps {
 	superseded?: boolean;
 	/** A step asked for from outside the transcript (the work board): shown like a finding's, once opened. */
 	revealRequest?: StepReveal | null;
+	/**
+	 * The turn this card is part of (`workTurns`): which of its failures the work ended on is the turn's to say. Without
+	 * one, the card is a turn of its own.
+	 */
+	turn?: WorkTurn;
+	/** The card is its turn's last: the turn's own error end, its agents' and its reported failures are this card's. */
+	endsTurn?: boolean;
 }
 
 /** A completion notice only for agents that have a lane: the lane already states it. */
@@ -94,6 +102,8 @@ export function ExecutionGroup({
 	leadingSkills,
 	superseded = false,
 	revealRequest = null,
+	turn,
+	endsTurn = true,
 }: ExecutionGroupProps) {
 	const t = useT();
 	const openPreview = useUiStore(state => state.openPreview);
@@ -174,17 +184,28 @@ export function ExecutionGroup({
 		const entry = selectToolEntry(tools.getState(), id);
 		return entry ? [[id, entry] as const] : [];
 	});
+	const sharedScope = useTurnScope(turn);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `outcome` changes with every status of the entries read here.
-	const verdict = useMemo(
-		() => workVerdict(outcome.commands, cwd, stepOperations(groupEntries, stoppedAt)),
-		[outcome, toolCallIds.join("\u0000"), stoppedAt, cwd],
-	);
+	const verdict = useMemo(() => {
+		// A card without a turn is one of its own; the turn's error end belongs to its last card only.
+		const scope = !sharedScope
+			? turnScope(groupEntries, outcome.commands, { running: live, failedEnd: false })
+			: sharedScope.failedEnd && !endsTurn
+				? { ...sharedScope, failedEnd: false }
+				: sharedScope;
+		return workVerdict(outcome.commands, cwd, stepOperations(groupEntries, stoppedAt), scope);
+	}, [outcome, toolCallIds.join("\u0000"), stoppedAt, cwd, sharedScope, endsTurn, live]);
 	const { checks } = verdict;
-	const recovered = [
-		...new Set(
-			verdict.recovered.map(call => `${call.agentName ? `${call.agentName}: ` : ""}${operationLabel(call, cwd)}`),
-		),
-	];
+	const callLabel = (call: OperationCall) =>
+		`${call.agentName ? `${call.agentName}: ` : ""}${operationLabel(call, cwd)}`;
+	const recovered = [...new Set(verdict.recovered.map(callLabel))];
+	const passedOver = [...new Set(verdict.passedOver.map(callLabel))];
+	// Every failure the work did not end on, fixed or gone past: one quiet note, never red.
+	const intermediate = [...verdict.recovered, ...verdict.passedOver].sort(
+		(a, b) => (a.startTime ?? 0) - (b.startTime ?? 0),
+	);
+	// Its agents' and its reported failures are the work's end only on the card that ends a finished turn.
+	const lastOfWork = !(sharedScope?.running ?? live) && (!turn || endsTurn);
 	const groupAgents: GroupAgent[] = agents.map(node => {
 		const parent = node.parentToolCallId
 			? selectToolEntry(tools.getState(), tools.getState().entryKeyForCallId(node.parentToolCallId))
@@ -205,7 +226,8 @@ export function ExecutionGroup({
 		live,
 		runningTools: running,
 		failedTools: verdict.failedCalls,
-		reportedFailures: failureCount,
+		reportedFailures: lastOfWork ? failureCount : 0,
+		agentFailures: lastOfWork,
 		interruptedTools,
 		agents: groupAgents,
 		superseded,
@@ -222,6 +244,11 @@ export function ExecutionGroup({
 	};
 	if (failed > 0) say(t("chat.work.commandsFailed", { count: failed }));
 	if (state === "interrupted" && interrupted > 0) say(t("chat.work.interruptedCount", { count: interrupted }));
+	const intermediateSentence = t("chat.work.intermediateSentence", {
+		count: intermediate.length,
+		plural: intermediate.length === 1 ? "" : "s",
+	});
+	if (intermediate.length) say(intermediateSentence);
 	const produced = facts.length;
 	if (outcome.files.length) {
 		const hasStats = outcome.files.some(file => file.added !== undefined);
@@ -363,12 +390,14 @@ export function ExecutionGroup({
 					files: outcome.files,
 					checks: checkLabels,
 					recovered,
+					passedOver,
 					previewUrl,
 					labels: {
 						cause: t("chat.work.copy.cause"),
 						changed: t("chat.work.copy.changed", { count: outcome.files.length }),
 						checks: t("chat.work.copy.checks"),
 						recovered: t("chat.work.copy.recovered"),
+						passedOver: t("chat.work.copy.passedOver"),
 						preview: t("chat.work.chip.preview"),
 						deleted: t("chat.work.copy.deleted"),
 					},
@@ -458,6 +487,33 @@ export function ExecutionGroup({
 				sentence: `${t("chat.work.chip.error")}${error.cause ? `: ${error.cause}` : ""}`,
 				title: t("chat.work.cause.open"),
 				onSelect: () => show(error.toolCallId),
+			});
+		}
+		const [firstNote] = intermediate;
+		if (firstNote) {
+			const fixed = new Set(verdict.recovered);
+			metrics.push({
+				key: "intermediate",
+				finding: "intermediate",
+				tone: "neutral",
+				icon: "note",
+				label: t("chat.work.chip.intermediate"),
+				figure: intermediate.length,
+				sentence: intermediateSentence,
+				// One line per failure: fixed by a later run, or gone past with what it printed.
+				title: intermediate
+					.map(call => {
+						if (fixed.has(call)) return `✕ → ✓ ${callLabel(call)}`;
+						const cause = call.text ? firstErrorLine(call.text) : undefined;
+						return `✕ ${callLabel(call)}${cause ? `: ${cause}` : ""}`;
+					})
+					.join("\n"),
+				onSelect: () =>
+					show(
+						"toolCallId" in firstNote && typeof firstNote.toolCallId === "string"
+							? firstNote.toolCallId
+							: undefined,
+					),
 			});
 		}
 		const stopped = outcome.commands.filter(command => command.status === "interrupted");

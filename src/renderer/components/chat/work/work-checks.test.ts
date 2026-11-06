@@ -21,7 +21,7 @@ import {
 	settleFailures,
 	workVerdict,
 } from "./work-checks";
-import { stepOperations } from "./work-findings";
+import { stepOperations, turnScope } from "./work-findings";
 import { workOutcomes } from "./work-view";
 
 /** A command as a test writes it: `status` when it is the point, else the facts `commandStatus` reads. */
@@ -1313,5 +1313,126 @@ describe("the repo's gate through a filter", () => {
 		const failed = op("bun run check:changed 2>&1 | tail -25", 1, "[check:changed] FAILED: biome");
 		const silent = op("bun run check:changed 2>&1 | grep -vE '^$'", 0, "(no output)");
 		expect(unresolvedFailures([failed, silent], "/repo")).toEqual([failed]);
+	});
+});
+
+// The owner's rule (6 Nov 2026): a card is an error only when the work ended in an error. Each card of a turn is
+// judged with the whole turn's scope, as the transcript gives it (`workTurns` → `useTurnScope` → `ExecutionGroup`).
+describe("a card's verdict in its turn", () => {
+	const run = (key: string, command: string, text: string, exitCode: number, at: number): [string, ToolEntry] => [
+		key,
+		{
+			toolName: "bash",
+			args: { command },
+			status: exitCode ? "error" : "done",
+			streamingArgs: "",
+			result: { content: [{ type: "text", text }], details: { exitCode } },
+			isError: exitCode !== 0,
+			startTime: at,
+			endTime: at + 1_000,
+		},
+	];
+	const testFailed = (key: string, at: number) =>
+		run(key, "bunx vitest run", " FAIL src/a.test.ts > adds\n Tests  1 failed | 3 passed (4)", 1, at);
+	const status = (key: string, at: number) => run(key, "git status --short", " M src/a.ts", 0, at);
+	const ledger = (entries: readonly [string, ToolEntry][]) =>
+		workOutcomes(
+			entries.map(([toolCallId, entry]) => ({ entry, toolCallId })),
+			undefined,
+			"/repo",
+		).commands;
+	/** Each card's verdict, read as the transcript reads it: the turn's scope, its error end on its last card only. */
+	function cards(groups: [string, ToolEntry][][], end: { running?: boolean; failedEnd?: boolean } = {}) {
+		const all = groups.flat();
+		const scope = turnScope(all, ledger(all), { running: end.running ?? false, failedEnd: end.failedEnd ?? false });
+		return groups.map((group, index) =>
+			workVerdict(
+				ledger(group),
+				"/repo",
+				stepOperations(group),
+				index === groups.length - 1 ? scope : { ...scope, failedEnd: false },
+			),
+		);
+	}
+
+	it("has no error while the turn runs, on a card whose failure nothing fixed yet", () => {
+		const running: [string, ToolEntry] = [
+			"b",
+			{ ...status("b", 5_000)[1], args: { command: "bunx vitest run" }, status: "running", result: undefined },
+		];
+		const [first] = cards([[testFailed("a", 0)], [running]], { running: true });
+		expect(first?.error).toBeUndefined();
+		expect(first?.checks).toEqual([]);
+		expect(first?.passedOver.map(call => call.args.command)).toEqual(["bunx vitest run"]);
+	});
+
+	it("has no error once the turn ended for a failure the work went on past that is no check", () => {
+		const pathspec = run(
+			"a",
+			"git checkout -- src/missing.ts",
+			"error: pathspec 'src/missing.ts' did not match",
+			1,
+			0,
+		);
+		const [first, second] = cards([[pathspec], [status("b", 5_000)]]);
+		expect(first?.error).toBeUndefined();
+		expect(first?.failedCalls).toBe(0);
+		expect(first?.passedOver.map(call => call.args.command)).toEqual(["git checkout -- src/missing.ts"]);
+		expect(second?.error).toBeUndefined();
+	});
+
+	it("is an error on the card whose step was the turn's last and failed", () => {
+		const [first, second] = cards([
+			[status("a", 0)],
+			[run("b", "git push origin main", "fatal: denied", 128, 5_000)],
+		]);
+		expect(first?.error).toBeUndefined();
+		expect(second?.error).toEqual({ cause: "fatal: denied", toolCallId: "b" });
+		expect(second?.failedCalls).toBe(1);
+	});
+
+	it("is an error on the card holding the turn's last test run when it failed, though other steps followed", () => {
+		const [first, second] = cards([[testFailed("a", 0)], [status("b", 5_000)]]);
+		expect(first?.error?.toolCallId).toBe("a");
+		expect(first?.checks.map(check => [check.kind, check.passed])).toEqual([["test", false]]);
+		expect(second?.error).toBeUndefined();
+	});
+
+	it("fixes a card's failed test with a later card's passing run of it: recovered, no error", () => {
+		const [first] = cards([[testFailed("a", 0)], [run("b", "bunx vitest run", " Tests  4 passed (4)", 0, 5_000)]]);
+		expect(first?.error).toBeUndefined();
+		expect(first?.recovered.map(call => call.args.command)).toEqual(["bunx vitest run"]);
+		expect(first?.passedOver).toEqual([]);
+	});
+
+	it("fixes a card's rejected edit with a later card's edit of the same file", () => {
+		const edit = (key: string, failed: boolean, at: number): [string, ToolEntry] => [
+			key,
+			{
+				toolName: "edit",
+				args: { path: "src/a.ts" },
+				status: failed ? "error" : "done",
+				streamingArgs: "",
+				result: { content: [{ type: "text", text: failed ? "Edit rejected" : "ok" }] },
+				isError: failed,
+				startTime: at,
+				endTime: at + 500,
+			},
+		];
+		const [first] = cards([[edit("a", true, 0)], [edit("b", false, 5_000), status("c", 6_000)]]);
+		expect(first?.recovered.map(call => call.toolName)).toEqual(["edit"]);
+		expect(first?.error).toBeUndefined();
+	});
+
+	it("makes every failure nothing fixed an error on the card before the turn's own error end, and only there", () => {
+		const [first, second] = cards(
+			[
+				[run("a", "git push origin main", "fatal: denied", 128, 0)],
+				[run("b", "git push origin dev", "fatal: denied", 128, 5_000), status("c", 8_000)],
+			],
+			{ failedEnd: true },
+		);
+		expect(first?.error).toBeUndefined();
+		expect(second?.failedCommands.map(call => call.command)).toEqual(["git push origin dev"]);
 	});
 });

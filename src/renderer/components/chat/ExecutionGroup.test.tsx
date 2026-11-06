@@ -134,7 +134,7 @@ describe("ExecutionGroup", () => {
 		expect(header?.getAttribute("aria-label")).toBe("Steps: 1 running · 1 step");
 	});
 
-	it("counts the command a user stop cut short as interrupted, keeping an earlier real failure", async () => {
+	it("counts the command a user stop cut short as interrupted, and an earlier failure the work went on past as a note", async () => {
 		Object.assign(window, { omp: { rpc: { command: async () => ({ success: true, data: { messages: [] } }) } } });
 		const failure = (command: string, endTime: number, details: Record<string, unknown> = {}): ToolEntry => ({
 			...toolEntry("error", true),
@@ -164,11 +164,13 @@ describe("ExecutionGroup", () => {
 				</I18nProvider>,
 			);
 		});
-		// One run model: the head's label counts the run once; the failed command is a verdict block, the cut one a chip.
-		expect(headLabel()).toMatch(/1 failed · 2 commands/);
+		// One run model: the head's label counts the run once; the failure the work went past is a note, the cut one a chip.
+		expect(headLabel()).toMatch(/1 error along the way · 2 commands/);
 		expect(container.querySelector(".omp-execution-group-summary")?.textContent).toBe("2 steps");
-		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
-		expect(container.querySelector('[data-work-finding="error"]')?.textContent).toContain("exit failed");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(container.querySelector('[data-work-finding="intermediate"]')?.getAttribute("title")).toBe(
+			"✕ exit 3: failed",
+		);
 		expect(container.querySelector('[data-work-finding="stopped"]')?.textContent).toContain("1 interrupted");
 		expect(container.querySelector(".omp-work-outcome")).toBeNull();
 	});
@@ -719,5 +721,13 @@ describe("resolveWorkGroup", () => {
 			runningAgents: 1,
 		});
 		expect(resolveWorkGroup({ ...base, agents: [{ status: "completed", parent: "done" }] }).state).toBe("complete");
+	});
+	it("leaves an agent's failed end to its lane on a card the work went on past", () => {
+		const agents = [{ status: "failed", parent: "done" as const }];
+		expect(resolveWorkGroup({ ...base, agents }).state).toBe("failed");
+		expect(resolveWorkGroup({ ...base, agents, agentFailures: false })).toMatchObject({
+			state: "complete",
+			failed: 0,
+		});
 	});
 });

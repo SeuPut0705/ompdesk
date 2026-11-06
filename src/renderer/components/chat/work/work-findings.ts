@@ -1,7 +1,9 @@
 /**
- * What a finished card's verdict reads of the main agent's other calls (`stepOperations`) and the plain-text summary
- * Copy puts on the clipboard, derived from the run's ledger alone (no model call). Pure; `ExecutionGroup.tsx` draws it.
+ * What a finished card's verdict reads of the main agent's other calls (`stepOperations`) and of its whole turn
+ * (`turnScope`), and the plain-text summary Copy puts on the clipboard, derived from the run's ledger alone (no model
+ * call). Pure; `ExecutionGroup.tsx` draws it.
  */
+import type { CheckKind } from "../../../../../resources/gui-bridge/command-verdict-core";
 import { TURN_EDIT_TOOLS } from "../../../../shared/turn-edits";
 import { agentDesktopCall, isAgentDesktopLookupMiss } from "../../../lib/agent-desktop-name";
 import { xdevWriteTarget } from "../../../lib/xdev";
@@ -9,9 +11,25 @@ import type { ToolEntry } from "../../../stores/tools";
 import { editArgumentPaths } from "../../tools/edit-args";
 import { getToolActivity } from "../../tools/index";
 import { isInterruptedError } from "./WorkStatus";
-import type { OperationCall, StepCall } from "./work-checks";
+import {
+	type CommandCall,
+	commandOperation,
+	type OperationCall,
+	runKinds,
+	type StepCall,
+	type TurnScope,
+} from "./work-checks";
 import { projectPath } from "./work-run";
-import { guardRefusal } from "./work-view";
+import { guardRefusal, isSkippedWork } from "./work-view";
+
+/** A call whose failure or success can decide a verdict: an edit, or any other call that is no read, search or `wait`. */
+function decides(entry: ToolEntry): boolean {
+	return (
+		entry.toolName !== "wait" &&
+		(TURN_EDIT_TOOLS.includes(entry.toolName) ||
+			!["read", "search"].includes(getToolActivity(entry.toolName, entry.args).activity))
+	);
+}
 
 /**
  * The card's main-agent calls other than commands (those come from the ledger, `commandOperation`) that can decide its
@@ -35,10 +53,8 @@ export function stepOperations(entries: readonly (readonly [string, ToolEntry])[
 		(entry.status === "error" || entry.isError) &&
 		settled(entry) &&
 		guardRefusal(entry) === null &&
-		entry.toolName !== "wait" &&
 		!isAgentDesktopLookupCall(entry) &&
-		(TURN_EDIT_TOOLS.includes(entry.toolName) ||
-			!["read", "search"].includes(getToolActivity(entry.toolName, entry.args).activity));
+		decides(entry);
 	const first = entries.findIndex(([, entry]) => failure(entry));
 	if (first < 0) return [];
 	// Every edit tool fixes a file the same way (`callKeys`): they are one tool here.
@@ -62,6 +78,51 @@ export function stepOperations(entries: readonly (readonly [string, ToolEntry])[
 	});
 }
 
+/**
+ * A turn's main-agent calls as each of its cards' verdicts reads them (`TurnScope`): its `entries` in order, the
+ * `commands` its ledger read of them (`workOutcomes`), and how the turn stands. Every success fixes a failure that ended
+ * before it, the last call that went anywhere (a stopped one included) is the turn's last step, and each check kind's
+ * last run is the one that can still say it failed.
+ */
+export function turnScope(
+	entries: readonly (readonly [string, ToolEntry])[],
+	commands: readonly CommandCall[],
+	end: { running: boolean; failedEnd: boolean },
+): TurnScope {
+	const fixes: OperationCall[] = [];
+	const lastRuns = new Map<CheckKind, number>();
+	for (const command of commands) {
+		if (command.agentName !== undefined) continue;
+		if (command.status === "passed") fixes.push(commandOperation(command));
+		const start = command.startTime ?? Number.NEGATIVE_INFINITY;
+		for (const kind of runKinds(command)) lastRuns.set(kind, Math.max(lastRuns.get(kind) ?? start, start));
+	}
+	let lastStep: string | undefined;
+	let lastStart = Number.NEGATIVE_INFINITY;
+	for (const [key, entry] of entries) {
+		if (entry.status === "pending" || entry.status === "running" || isSkippedWork(entry)) continue;
+		if (entry.startTime >= lastStart) {
+			lastStart = entry.startTime;
+			lastStep = key;
+		}
+		if (entry.toolName !== "bash" && entry.status === "done" && !entry.isError && decides(entry))
+			fixes.push({
+				toolName: entry.toolName,
+				args: entry.args,
+				outcome: "passed",
+				startTime: entry.startTime,
+				...(entry.endTime !== null ? { endTime: entry.endTime } : {}),
+			});
+	}
+	return {
+		running: end.running,
+		failedEnd: end.failedEnd,
+		fixes,
+		lastRuns,
+		...(lastStep !== undefined ? { lastStep } : {}),
+	};
+}
+
 /** A call in one line for Copy summary: the command as typed, the files an edit touched, the device written. */
 export function operationLabel(call: OperationCall, cwd: string): string {
 	if (typeof call.args.command === "string") {
@@ -83,9 +144,19 @@ export interface WorkSummaryInput {
 	checks: readonly { passed: boolean; label: string }[];
 	/** Each failed call a later run of the same call fixed (`operationLabel`). */
 	recovered: readonly string[];
+	/** Each failed call nothing fixed that the work went on past or still runs past (`WorkVerdict.passedOver`). */
+	passedOver: readonly string[];
 	previewUrl?: string;
 	/** Already in the UI's language. */
-	labels: { cause: string; changed: string; checks: string; recovered: string; preview: string; deleted: string };
+	labels: {
+		cause: string;
+		changed: string;
+		checks: string;
+		recovered: string;
+		passedOver: string;
+		preview: string;
+		deleted: string;
+	};
 }
 
 /** The card as plain text a person can paste into a message or a ticket. */
@@ -109,6 +180,9 @@ export function workSummaryText(input: WorkSummaryInput): string {
 	}
 	if (input.recovered.length) {
 		blocks.push([input.labels.recovered, ...input.recovered.map(label => `- ✕ → ✓ ${label}`)].join("\n"));
+	}
+	if (input.passedOver.length) {
+		blocks.push([input.labels.passedOver, ...input.passedOver.map(label => `- ✕ ${label}`)].join("\n"));
 	}
 	if (input.previewUrl) blocks.push(`${input.labels.preview}: ${input.previewUrl}`);
 	return blocks.join("\n\n");

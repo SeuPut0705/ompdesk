@@ -13,7 +13,13 @@ import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
-import { asyncResultJobs, completionFailureCount, deliveredJobCalls, isCompletionMessage } from "./completion-events";
+import {
+	asyncResultJobs,
+	completionFailureCount,
+	deliveredJobCalls,
+	isCompletionMessage,
+	isRestartNotice,
+} from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
 import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
 import { skillPromptName } from "./work/work-view";
@@ -1059,6 +1065,85 @@ export function liveWorkTail(
 	}
 	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process" && !(narrated && streamingStarted);
 	return { liveTail, lastWorkRow };
+}
+
+/** One turn of the transcript as its work cards share it (`useTurnScope`): every call its cards hold and their stops. */
+export interface WorkTurn {
+	ids: readonly string[];
+	stops: ReadonlyMap<string, number>;
+	/** The session still runs this turn: none of its failures is a verdict yet. */
+	running: boolean;
+	/** The turn ended in an error (a failed reply, omp's exit) after its last card. */
+	failedEnd: boolean;
+}
+
+/** A work row's turn, and whether the row is that turn's last card. */
+export interface WorkTurnRow {
+	turn: WorkTurn;
+	last: boolean;
+}
+
+const sameTurn = (a: WorkTurn, b: WorkTurn) =>
+	a.running === b.running &&
+	a.failedEnd === b.failedEnd &&
+	a.ids.length === b.ids.length &&
+	a.ids.every((id, index) => b.ids[index] === id) &&
+	a.stops.size === b.stops.size &&
+	[...a.stops].every(([id, at]) => b.stops.get(id) === at);
+
+/**
+ * Each work row's turn: the process rows a prompt's run made (one `turnStartedAt`; a steer joins its run), closed by
+ * the next prompt. An error reply after the turn's last card is its error end; one a later card of it follows was
+ * retried past. `running`: the session runs its newest turn, unless a prompt after it already started another.
+ * `previous`: the last result, whose objects are kept when unchanged so memoized rows skip them.
+ */
+export function workTurns(
+	rows: readonly HistoryRow[],
+	running: boolean,
+	previous?: ReadonlyMap<HistoryRow, WorkTurnRow>,
+): Map<HistoryRow, WorkTurnRow> {
+	const groups: { rows: Extract<HistoryRow, { kind: "process" }>[]; failedEnd: boolean; open: boolean }[] = [];
+	let current: (typeof groups)[number] | undefined;
+	let currentStart: number | undefined;
+	for (const row of rows) {
+		if (row.kind === "process") {
+			if (!current || row.turnStartedAt !== currentStart) {
+				current = { rows: [], failedEnd: false, open: false };
+				groups.push(current);
+				currentStart = row.turnStartedAt;
+			}
+			current.rows.push(row);
+			current.failedEnd = false;
+		} else if (row.kind === "message" && current) {
+			const { message } = row;
+			if (message.role === "user" && !message.steering) current = undefined;
+			else if (message.role === "assistant" && (message.stopReason === "error" || isRestartNotice(message)))
+				current.failedEnd = true;
+		}
+	}
+	if (current) current.open = true;
+	const turns = new Map<HistoryRow, WorkTurnRow>();
+	for (const group of groups) {
+		const first = group.rows[0];
+		if (!first) continue;
+		const stops = new Map<string, number>();
+		for (const row of group.rows)
+			if (row.stoppedAt !== undefined) for (const id of row.toolCallIds) stops.set(id, row.stoppedAt);
+		const built: WorkTurn = {
+			ids: group.rows.flatMap(row => row.toolCallIds),
+			stops,
+			running: running && group.open,
+			failedEnd: group.failedEnd,
+		};
+		const before = previous?.get(first)?.turn;
+		const turn = before && sameTurn(before, built) ? before : built;
+		for (const [index, row] of group.rows.entries()) {
+			const last = index === group.rows.length - 1;
+			const kept = previous?.get(row);
+			turns.set(row, kept && kept.turn === turn && kept.last === last ? kept : { turn, last });
+		}
+	}
+	return turns;
 }
 
 /**

@@ -193,7 +193,7 @@ describe("work card verdict", () => {
 });
 
 describe("work card failures", () => {
-	it("shows one verdict block for several failures: the failing check first, the rest folded into one line", async () => {
+	it("shows one verdict block for what the work ended on: the failing check first, the last step folded into one line", async () => {
 		let expanded = false;
 		await mount(
 			[
@@ -209,12 +209,14 @@ describe("work card failures", () => {
 		expect(blocks).toHaveLength(1);
 		expect(blocks[0]?.textContent).toContain("type check failed");
 		const more = container.querySelector('[data-work-finding="more-failed"]') as unknown as HTMLElement;
-		expect(more.textContent).toBe("+2 more failed");
+		expect(more.textContent).toBe("+1 more failed");
+		// The push the work went on past is no verdict: a note.
+		expect(finding("intermediate").getAttribute("title")).toBe("✕ git push origin main: fatal: denied");
 		await click(more);
 		expect(expanded).toBe(true);
 	});
 
-	it("shows the last failed command when no check failed, named by the program it ran", async () => {
+	it("shows the failed command the work ended on, named by the program it ran", async () => {
 		await mount([
 			["a", bash("cd src && FOO=1 ./first.sh", "first: boom", 1, 0)],
 			["b", bash("cd src && FOO=1 env git push origin main", "fatal: denied", 128, 5_000)],
@@ -222,7 +224,8 @@ describe("work card failures", () => {
 		const block = finding("error");
 		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("git push failed");
 		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toBe("fatal: denied");
-		expect(container.querySelector('[data-work-finding="more-failed"]')?.textContent).toBe("+1 more failed");
+		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
+		expect(finding("intermediate").textContent).toBe("Errors along the way1");
 	});
 
 	it("never blames the first step of a chain whose exit code any step could have set", async () => {
@@ -301,16 +304,19 @@ describe("work card recovery", () => {
 		expect(step("edit-2")?.getAttribute("data-tool-error")).toBeNull();
 	});
 
-	it("stays red for a rejected edit when only another file was edited after it", async () => {
+	it("is no error for a rejected edit the work went past to edit another file: a note", async () => {
 		await mount([
 			["edit-1", rejected],
 			["edit-2", { ...redone, args: { path: "src/b.ts" } }],
 		]);
-		expect(mark()?.getAttribute("data-state")).toBe("failed");
-		expect(finding("error")).not.toBeNull();
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(finding("intermediate").getAttribute("title")).toBe("✕ edit src/a.ts");
+		await click(container.querySelector(".omp-work-copy") as unknown as HTMLElement);
+		expect(writeText.mock.calls[0]?.[0]).toContain("Failed along the way, not rerun\n- ✕ edit src/a.ts");
 	});
 
-	it("stays red for a check that failed in packages/a when only packages/b passed after it, and skips a probe", async () => {
+	it("reads a check kind by its last run: a later passing test run leaves a failure in packages/a a note", async () => {
 		let expanded = false;
 		await mount(
 			[
@@ -334,22 +340,31 @@ describe("work card recovery", () => {
 				expanded = next;
 			},
 		);
-		expect(mark()?.getAttribute("data-state")).toBe("failed");
-		const block = finding("error");
-		expect(block.querySelector(".omp-work-verdict-label")?.textContent).toBe("1 test failed");
-		expect(block.querySelector(".omp-work-verdict-cause")?.textContent).toBe("FAIL packages/a/src/x.test.ts > adds");
-		expect(container.querySelectorAll('[data-work-finding="error"]')).toHaveLength(1);
-		expect(container.querySelector('[data-work-finding="more-failed"]')).toBeNull();
-		await click(block);
+		expect(mark()?.getAttribute("data-state")).toBe("complete");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(finding("tests").getAttribute("aria-label")).toBe("4 tests passed");
+		const note = finding("intermediate");
+		expect(note.getAttribute("title")).toBe("✕ bunx vitest run: FAIL packages/a/src/x.test.ts > adds");
+		await click(note);
 		expect(expanded).toBe(true);
 	});
 
-	it("stays red for a failed push followed only by a git status", async () => {
+	it("stays red for a failed test run that is the run's last, whatever came after it", async () => {
+		await mount([
+			["test-1", bash("bunx vitest run", " FAIL src/a.test.ts > adds\n Tests  1 failed (3)", 1, 0)],
+			["status-1", bash("git status", "nothing to commit", 0, 2_000)],
+		]);
+		expect(mark()?.getAttribute("data-state")).toBe("failed");
+		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("1 test failed");
+	});
+
+	it("is no error for a failed push the work went on past with a git status", async () => {
 		await mount([
 			["push-1", bash("git push origin main", "fatal: denied", 128, 0)],
 			["status-1", bash("git status", "nothing to commit", 0, 2_000)],
 		]);
-		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("git push failed");
+		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(finding("intermediate")).not.toBeNull();
 	});
 
 	it("goes green once the same push is retried and passes", async () => {
@@ -361,12 +376,11 @@ describe("work card recovery", () => {
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
 	});
 
-	// 2026-10-19: a piped test run that printed failures under exit 0, then the gate passed; the board said the tests
-	// failed while the card read green (seven cards of the real-journal replay).
-	it("stays red for tests whose output showed failures under exit 0 when only a run that does not cover them passed", async () => {
+	// 2026-10-19: a piped test run that printed failures under exit 0; read as failed though its exit code was 0.
+	it("stays red for tests whose output showed failures under exit 0 when that run is the last test run", async () => {
 		await mount([
 			["test-1", bash("bunx vitest run src/a.test.ts | tail -5", " × adds\n Tests  3 failed | 1 passed (4)", 0, 0)],
-			["gate-1", bash("bun run check:changed", "[check:changed] PASSED in 12s", 0, 2_000)],
+			["push-1", bash("git push origin main", "main -> main", 0, 2_000)],
 		]);
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-verdict")).toBe("failed");
 		expect(finding("error").querySelector(".omp-work-verdict-label")?.textContent).toBe("3 tests failed");
@@ -401,6 +415,117 @@ describe("work card recovery", () => {
 		]);
 		expect(mark()?.getAttribute("data-state")).toBe("complete");
 		expect(container.querySelector('[data-work-finding="error"]')).toBeNull();
+	});
+});
+
+// The owner's report (6 Nov 2026, v0.116.0): a test that failed on one card and passed on the next, after the agent
+// wrote a sentence between them, left the first card a ✕ and a red box: a failure the work went on past read as its end.
+describe("work card in its turn", () => {
+	const failing = bash("bunx vitest run", " FAIL src/a.test.ts > adds\n Tests  1 failed | 3 passed (4)", 1, 0);
+	const cards = () => [...container.querySelectorAll(".omp-execution-group")] as unknown as HTMLElement[];
+	const markOf = (card: HTMLElement | undefined) => card?.querySelector(".omp-work-head > .omp-work-status");
+
+	/** One turn of cards, each a list of calls, every card given the same turn as the transcript gives it. */
+	async function mountTurn(groups: [string, ToolEntry][][], end: { running?: boolean; failedEnd?: boolean } = {}) {
+		const entries = groups.flat();
+		useToolsStore.setState(toolEntriesState(entries));
+		const turn = {
+			ids: entries.map(([id]) => id),
+			stops: new Map<string, number>(),
+			running: end.running ?? false,
+			failedEnd: end.failedEnd ?? false,
+		};
+		container = document.createElement("div") as unknown as HTMLElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		await act(async () =>
+			root?.render(
+				<I18nProvider>
+					{groups.map((group, index) => (
+						<ExecutionGroup
+							endsTurn={index === groups.length - 1}
+							expanded={false}
+							key={group[0]?.[0]}
+							live={end.running === true && index === groups.length - 1}
+							onExpandedChange={() => {}}
+							stepCount={group.length}
+							superseded={index < groups.length - 1}
+							toolCallIds={group.map(([id]) => id)}
+							turn={turn}
+						>
+							<div />
+						</ExecutionGroup>
+					))}
+				</I18nProvider>,
+			),
+		);
+	}
+
+	it("is no error on the card whose failed test a later card's rerun fixed: a note, copied as fixed", async () => {
+		await mountTurn([[["test-a", failing]], [["test-b", bash("bunx vitest run", " Tests  4 passed (4)", 0, 5_000)]]]);
+		const [first, second] = cards();
+		expect(markOf(first)?.getAttribute("data-state")).toBe("complete");
+		expect(first?.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(first?.querySelector('[data-work-finding="intermediate"]')?.getAttribute("title")).toBe(
+			"✕ → ✓ bunx vitest run",
+		);
+		expect(second?.querySelector('[data-work-finding="tests"]')?.getAttribute("aria-label")).toBe("4 tests passed");
+		await click(first?.querySelector(".omp-work-copy") as unknown as HTMLElement);
+		expect(writeText.mock.calls[0]?.[0]).toContain("Failed, then fixed by a rerun\n- ✕ → ✓ bunx vitest run");
+	});
+
+	it("is no error while the turn still runs, though nothing fixed the failure yet", async () => {
+		const rerun: ToolEntry = { ...bash("bunx vitest run", "", 0, 5_000), status: "running", result: undefined };
+		await mountTurn([[["test-a", failing]], [["test-b", rerun]]], { running: true });
+		const [first] = cards();
+		expect(markOf(first)?.getAttribute("data-state")).toBe("complete");
+		expect(first?.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(first?.querySelector('[data-work-finding="intermediate"]')?.textContent).toBe("Errors along the way1");
+	});
+
+	it("is no error on a card whose failure the work went on past to its end", async () => {
+		await mountTurn([
+			[["checkout", bash("git checkout -- src/missing.ts", "error: pathspec 'src/missing.ts' did not match", 1, 0)]],
+			[["status", bash("git status --short", " M src/a.ts", 0, 5_000)]],
+		]);
+		const [first] = cards();
+		expect(markOf(first)?.getAttribute("data-state")).toBe("complete");
+		expect(first?.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(first?.querySelector('[data-work-finding="intermediate"]')).not.toBeNull();
+	});
+
+	it("stays red on the card whose failed test run is the turn's last test run", async () => {
+		await mountTurn([[["test-a", failing]], [["status", bash("git status --short", " M src/a.ts", 0, 5_000)]]]);
+		const [first, second] = cards();
+		expect(markOf(first)?.getAttribute("data-state")).toBe("failed");
+		expect(first?.querySelector('[data-work-finding="error"]')?.textContent).toContain("1 test failed");
+		expect(second?.querySelector('[data-work-finding="error"]')).toBeNull();
+	});
+
+	it("stays red on the card whose last step failed with nothing after it", async () => {
+		await mountTurn([
+			[["status", bash("git status --short", " M src/a.ts", 0, 0)]],
+			[["push", bash("git push origin main", "fatal: denied", 128, 5_000)]],
+		]);
+		const [, second] = cards();
+		expect(markOf(second)?.getAttribute("data-state")).toBe("failed");
+		expect(second?.querySelector('[data-work-finding="error"]')?.textContent).toContain("git push failed");
+	});
+
+	it("stays red for a failure nothing fixed on the card the turn's own error end follows, and only there", async () => {
+		await mountTurn(
+			[
+				[["push-a", bash("git push origin main", "fatal: denied", 128, 0)]],
+				[
+					["push-b", bash("git push origin dev", "fatal: denied", 128, 5_000)],
+					["status", bash("git status --short", " M src/a.ts", 0, 8_000)],
+				],
+			],
+			{ failedEnd: true },
+		);
+		const [first, second] = cards();
+		expect(first?.querySelector('[data-work-finding="error"]')).toBeNull();
+		expect(second?.querySelector('[data-work-finding="error"]')?.textContent).toContain("git push failed");
 	});
 });
 

@@ -70,6 +70,9 @@ import {
 	shouldRePinTranscript,
 	transcriptScrollTo,
 	viewMark,
+	type WorkTurn,
+	type WorkTurnRow,
+	workTurns,
 } from "./chat-stream-utils";
 import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { ExecutionGroup } from "./ExecutionGroup";
@@ -220,6 +223,12 @@ function SessionTranscript() {
 		builtRowsRef.current = new Map(reused.map((row, index) => [keys[index] ?? "", row]));
 		return reused;
 	}, [displayMessages, hiddenCount, transcriptDetail, todoHistory, expandedProcessKeys, readTargets]);
+	// Each work card's turn: which of a card's failures the work ended on is its whole turn's to say (`TurnScope`).
+	const workTurnsRef = useRef<ReadonlyMap<HistoryRow, WorkTurnRow>>(new Map());
+	const turnOfRow = useMemo(() => {
+		workTurnsRef.current = workTurns(historyRows, isStreaming, workTurnsRef.current);
+		return workTurnsRef.current;
+	}, [historyRows, isStreaming]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -1129,6 +1138,8 @@ function SessionTranscript() {
 												row={row}
 												rowKey={rowKey}
 												superseded={item.index < currentWorkRow}
+												turn={turnOfRow.get(row)?.turn}
+												endsTurn={turnOfRow.get(row)?.last ?? true}
 											/>
 										) : row.kind === "streaming" && transcriptDetail === "compact" && !liveTail ? (
 											// The in-flight reply's work renders through the same component and
@@ -1260,6 +1271,8 @@ export const ProcessGroup = memo(function ProcessGroup({
 	superseded = false,
 	streaming = false,
 	reveal = null,
+	turn,
+	endsTurn = true,
 }: {
 	expanded: boolean;
 	/**
@@ -1276,6 +1289,9 @@ export const ProcessGroup = memo(function ProcessGroup({
 	streaming?: boolean;
 	/** A step asked for from outside the transcript (the work board): the card opens and shows it. */
 	reveal?: StepReveal | null;
+	/** The turn the row is part of (`workTurns`), and whether the row is its last card. */
+	turn?: WorkTurn;
+	endsTurn?: boolean;
 }) {
 	const changeExpanded = useCallback((next: boolean) => onExpandedChange(rowKey, next), [onExpandedChange, rowKey]);
 	const stageCall = useMemo(createStageCall, []);
@@ -1312,6 +1328,8 @@ export const ProcessGroup = memo(function ProcessGroup({
 							toolCallIds={toolCallIds}
 							revealRequest={reveal}
 							todoSnapshots={row.todoSnapshots}
+							turn={turn}
+							endsTurn={endsTurn}
 						>
 							<div className="omp-process-group">
 								<StepGroups appendOnly={live} messages={row.messages} />

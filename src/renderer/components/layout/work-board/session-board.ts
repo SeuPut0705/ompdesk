@@ -12,7 +12,7 @@ import { resultDetails } from "../../../lib/format";
 import { devServerUrl } from "../../../lib/panel-auto-open";
 import type { ToolEntry } from "../../../stores/tools";
 import type { BackgroundJobVerdict } from "../../chat/completion-events";
-import { workVerdict } from "../../chat/work/work-checks";
+import { type TurnScope, workVerdict } from "../../chat/work/work-checks";
 import { skillPromptName, type WorkCommandOutcome, workOutcomes } from "../../chat/work/work-view";
 import { workFilePathKey } from "../../tools/edit-args";
 
@@ -142,10 +142,11 @@ function checkOf(outcome: WorkCommandOutcome): LastCheck | null {
 /**
  * The check the board names: the session's newest one while it has not reported (a backgrounded job whose verdict
  * has not arrived, a call still running: `running`, never passed); else the newest turn's last check failure that
- * still stands in that turn's verdict (`workVerdict` over `turnCommands`, the ledger its work card reads, subagents'
- * calls included), as that card says; else the session's newest check run. `stops`: each call's stop (`callStops`),
- * so a check a stop cut off reads as its card reads it. A stopped one is skipped, as the
- * work card skips it. A run that mixes kinds (`biome; vitest`) is a check run of the kinds it proved passed, the
+ * the work ended on in that turn's verdict (`workVerdict` over `turnCommands` in its `scope`, the ledger and turn its
+ * work card reads, subagents' calls included), as that card says; else the session's newest check run. While the turn
+ * runs, none of its failed checks is a verdict yet: the row skips them, as the card shows them as a note. `stops`:
+ * each call's stop (`callStops`), so a check a stop cut off reads as its card reads it. A stopped one is skipped, as
+ * the work card skips it. A run that mixes kinds (`biome; vitest`) is a check run of the kinds it proved passed, the
  * first of them named, and fixes a failure as the card reads it.
  */
 export function lastCheck(
@@ -154,6 +155,7 @@ export function lastCheck(
 	cwd: string,
 	verdicts: ReadonlyMap<string, BackgroundJobVerdict>,
 	stops: ReadonlyMap<string, number>,
+	scope?: TurnScope,
 ): LastCheck | null {
 	const candidates: { key: string; entry: ToolEntry; command: string; kind: CheckKind }[] = [];
 	for (const [key, entry] of entries) {
@@ -163,6 +165,9 @@ export function lastCheck(
 		if (kind) candidates.push({ key, entry, command, kind: checkKind(command) ?? kind });
 	}
 	candidates.sort((a, b) => b.entry.startTime - a.entry.startTime);
+	const running = scope?.running
+		? new Set(turnCommands.flatMap(command => (command.toolCallId ? [command.toolCallId] : [])))
+		: undefined;
 	let newest: LastCheck | null = null;
 	for (const { key, entry, command, kind } of candidates) {
 		const base = { kind, command, startedAt: entry.startTime, key };
@@ -175,10 +180,11 @@ export function lastCheck(
 		).commands;
 		if (!outcome || outcome.status === "interrupted" || outcome.status === "refused") continue;
 		if (outcome.status === "unknown") return { ...base, state: "running" };
+		if (outcome.status === "failed" && running?.has(key)) continue;
 		newest = checkOf(outcome);
 		if (newest) break;
 	}
-	const standing = workVerdict(turnCommands, cwd).failedCommands.findLast(call => checkKind(call.command));
+	const standing = workVerdict(turnCommands, cwd, [], scope).failedCommands.findLast(call => checkKind(call.command));
 	return (standing && checkOf(standing)) ?? newest;
 }
 

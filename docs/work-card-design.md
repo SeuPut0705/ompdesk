@@ -242,3 +242,29 @@ is not a target. In 30 sampled turns each of the 97 fixes cites the later identi
 A fixed failure is still a step with its own ✕ in the opened card and a line under "Failed, then fixed by a later run"
 in Copy summary. A broken ending that no call reports (a script that prints a missed gate and exits 0) stays green,
 as before.
+
+## Red only when the work ended in an error (6 Nov 2026)
+
+The owner's report on v0.116.0, "왜 오류를 끝난 것처럼 보이게 만드냐": a reply's narration splits a run into cards,
+and each card was judged alone. A test that failed on one card and passed on the next, a git pathspec error the agent
+never needed again, a refused edit it went past: each closed its card with a ✕ and a red box, while the agent went on
+and the next card showed the fix. A failure in the middle read as the work's end.
+
+The rule, the owner's: a card is an error box only when the work ended in an error. Its failures are judged in its
+turn (a prompt's run, every card of it; `workTurns`, `TurnScope`):
+
+| The turn | A failure nothing fixed is red when |
+| --- | --- |
+| still runs | never: the agent may still fix it |
+| ended or was stopped | it is the turn's last step, with nothing after it (a stopped call is after) |
+| | it is its check kind's last run of the turn (the last test, type check, lint or build run failed) |
+| ended in its own error (a failed reply, omp's exit) | it is on the card that error follows |
+
+A later card's success fixes an earlier card's failure by the same-call rule above. Every other failure, fixed or gone
+past, is one neutral chip on its card, "Errors along the way N" ("중간 오류 N"): no colour, no ✕, its tooltip each
+failure with what it printed, a tap the step. Copy summary lists the fixed ones and the ones gone past apart. The
+board's check row reads the newest turn the same way and names no failed check while the turn runs. The turn's calls
+are read once per change of them for all its cards (`useTurnScope`); a running turn reads none.
+
+Replayed over the corpus's 368 real cards (`work-verdict-replay.test.tsx`, each card in its turn): red cards 78 → 42,
+no card turned red, 100 cards carry the note.

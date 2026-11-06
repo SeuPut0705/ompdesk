@@ -42,6 +42,8 @@ import {
 	type HistoryRow,
 	liveWorkTail,
 	reuseTranscriptRows,
+	type WorkTurnRow,
+	workTurns,
 } from "../chat/chat-stream-utils";
 import { MessageBubble } from "../chat/MessageBubble";
 import { Banner, Button, EmptyState, JumpToLatest, Spinner } from "../common";
@@ -202,6 +204,12 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 	// A subagent's transcript has no streaming reply: only its finalized messages.
 	const { liveTail, lastWorkRow } = liveWorkTail(rows, live, false);
 	const currentWork = liveTail ? lastWorkRow : rows.findLastIndex(row => row.kind === "process");
+	// The agent's run is one turn: a failure it went on past is a note, not the end of its work (`TurnScope`).
+	const turnsRef = useRef<ReadonlyMap<HistoryRow, WorkTurnRow>>(new Map());
+	const turnOfRow = useMemo(() => {
+		turnsRef.current = workTurns(rows, live, turnsRef.current);
+		return turnsRef.current;
+	}, [rows, live]);
 
 	const setProcessExpanded = useMemo(
 		() => (key: string, open: boolean) =>
@@ -279,6 +287,8 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 												row={row}
 												rowKey={key}
 												superseded={index < currentWork}
+												turn={turnOfRow.get(row)?.turn}
+												endsTurn={turnOfRow.get(row)?.last ?? true}
 											/>
 											{expanded.has(key) ? null : <SubagentToolMedia results={results} row={row} />}
 										</>

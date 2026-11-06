@@ -30,6 +30,11 @@ export interface WorkGroupTally {
 	failedTools: number;
 	/** Failures reported for the group outside its tool entries. */
 	reportedFailures: number;
+	/**
+	 * An agent's own failed end is the group's failure (default). Off on a card the work went on past or still runs
+	 * past (`TurnScope`): the agent's lane says it, and the card is no error.
+	 */
+	agentFailures?: boolean;
 	interruptedTools: number;
 	agents: readonly GroupAgent[];
 	/**
@@ -63,7 +68,7 @@ export function resolveWorkGroup(tally: WorkGroupTally): WorkGroupResolution {
 	for (const agent of tally.agents) {
 		const state = agentGroupState(agent.status);
 		if (state === "running") runningAgents += tally.superseded ? 0 : 1;
-		else if (state === "failed" && agent.parent !== "failed") failed++;
+		else if (state === "failed" && agent.parent !== "failed") failed += tally.agentFailures === false ? 0 : 1;
 		else if (state === "interrupted" && agent.parent !== "interrupted" && agent.parent !== "failed") interrupted++;
 	}
 	const live = !tally.superseded && (tally.live || tally.runningTools > 0);

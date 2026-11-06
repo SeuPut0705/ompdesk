@@ -8,13 +8,59 @@ import { useSessionStore } from "../../../stores/session";
 import { useSessionRuntime } from "../../../stores/session-runtime-context";
 import { type SubagentNode, type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
 import { selectToolEntry, type ToolsStore, useToolsStore } from "../../../stores/tools";
-import { backgroundJobVerdicts } from "../completion-events";
+import type { WorkTurn } from "../chat-stream-utils";
+import { type BackgroundJobVerdict, backgroundJobVerdicts } from "../completion-events";
+import type { TurnScope } from "./work-checks";
+import { turnScope } from "./work-findings";
 import { type AgentCompletion, mergeRunAgents, resumedAgents, runTranscript, type TaskCallResult } from "./work-run";
 import { type WorkEvidence, workOutcomes } from "./work-view";
 
 const NO_MESSAGES: readonly AgentMessage[] = [];
 const NO_COMPLETIONS: ReadonlyMap<string, AgentCompletion> = new Map();
 const NO_CUTS: ReadonlyMap<string, RestartCut> = new Map();
+const NO_JOBS: ReadonlyMap<string, BackgroundJobVerdict> = new Map();
+const RUNNING_SCOPE: TurnScope = { running: true, failedEnd: false, fixes: [], lastRuns: new Map() };
+const turnScopes = new WeakMap<
+	WorkTurn,
+	{ key: string; version: number; cwd: string; jobs: ReadonlyMap<string, BackgroundJobVerdict>; scope: TurnScope }
+>();
+
+/**
+ * The scope every card of `turn` reads its verdict in (`TurnScope`): worked out once per turn and change of its calls,
+ * whichever card asks first, and the same object while nothing of it changed. A running turn reads none of its calls:
+ * nothing of it is a verdict yet.
+ */
+export function useTurnScope(turn: WorkTurn | undefined): TurnScope | undefined {
+	const { tools, messages } = useRunStores();
+	const cwd = useSessionStore(state => state.cwd);
+	const settled = turn !== undefined && !turn.running;
+	const jobs = useFrameSelector(messages, state => (settled ? backgroundJobVerdicts(state.messages) : NO_JOBS));
+	return useFrameSelector(tools, state => {
+		if (!turn) return undefined;
+		if (turn.running) return RUNNING_SCOPE;
+		const cached = turnScopes.get(turn);
+		const same = cached?.cwd === cwd && cached.jobs === jobs;
+		if (same && cached.version === state.finishedVersion) return cached.scope;
+		const entries = turn.ids.flatMap(id => {
+			const entry = selectToolEntry(state, id);
+			return entry ? [[id, entry] as const] : [];
+		});
+		const key = entries.map(([, entry]) => `${entry.status}:${entry.endTime}`).join("|");
+		if (same && cached.key === key) {
+			cached.version = state.finishedVersion;
+			return cached.scope;
+		}
+		const { commands } = workOutcomes(
+			entries.map(([toolCallId, entry]) => ({ entry, toolCallId, stoppedAt: turn.stops.get(toolCallId) })),
+			undefined,
+			cwd,
+			jobs,
+		);
+		const scope = turnScope(entries, commands, turn);
+		turnScopes.set(turn, { key, version: state.finishedVersion, cwd, jobs, scope });
+		return scope;
+	});
+}
 
 export function useRunStores() {
 	const runtime = useSessionRuntime();

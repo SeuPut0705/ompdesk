@@ -295,7 +295,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // running tab a tab list makes a runtime for reads its roster once, tabs.ts `reconcileTabs`): 2,162,311.
 // The same read once per runtime whichever names a hidden running tab first, its status push or the tab list
 // (`rosterRead`), and stock 18.17's two Devin sign-ins with the Devin mark (provider-marks.ts): 2,162,456.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_162_456;
+// A work card is red only when the work ended in an error (6 Nov 2026): each card's failures judged in its turn
+// (chat-stream-utils.ts `workTurns`, `useTurnScope`, work-findings.ts `turnScope`, work-checks.ts `TurnScope`), the
+// "Errors along the way" note and its strings in the English catalog; the work card is the first screen: 2,166,852.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_166_852;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

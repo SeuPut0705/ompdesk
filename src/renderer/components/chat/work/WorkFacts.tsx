@@ -1,4 +1,15 @@
-import { Ban, BookOpen, Check, CircleX, FileDiff, Globe, type LucideIcon, Shield, Users } from "lucide-react";
+import {
+	Ban,
+	BookOpen,
+	Check,
+	CircleAlert,
+	CircleX,
+	FileDiff,
+	Globe,
+	type LucideIcon,
+	Shield,
+	Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
 
@@ -10,7 +21,7 @@ export interface WorkFact {
 	/** The `data-work-finding` value the tests and captures look for; `error` for every failed fact. */
 	finding: string;
 	tone: WorkFactTone;
-	icon: "files" | "check" | "error" | "preview" | "stopped" | "skill" | "peers" | "protected";
+	icon: "files" | "check" | "error" | "note" | "preview" | "stopped" | "skill" | "peers" | "protected";
 	label: string;
 	figure?: ReactNode;
 	/** A verdict block's cause: the first line of output that says what failed. */
@@ -29,6 +40,7 @@ const ICONS: Record<WorkFact["icon"], LucideIcon> = {
 	files: FileDiff,
 	check: Check,
 	error: CircleX,
+	note: CircleAlert,
 	preview: Globe,
 	stopped: Ban,
 	skill: BookOpen,

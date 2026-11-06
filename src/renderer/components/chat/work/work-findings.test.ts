@@ -72,6 +72,7 @@ describe("workSummaryText", () => {
 		changed: "Changed files (2)",
 		checks: "Checks",
 		recovered: "Failed, then fixed",
+		passedOver: "Failed along the way, not rerun",
 		preview: "Preview",
 		deleted: "deleted",
 	};
@@ -90,6 +91,7 @@ describe("workSummaryText", () => {
 					{ passed: true, label: "128 tests passed" },
 				],
 				recovered: ["edit src/a.ts"],
+				passedOver: ["git checkout -- src/missing.ts"],
 				previewUrl: "http://localhost:5173/",
 				labels,
 			}),
@@ -100,6 +102,7 @@ describe("workSummaryText", () => {
 				"Changed files (2)\n- src/a.ts +3 -1\n- src/old.ts (deleted)",
 				"Checks\n- ✕ type check failed\n- ✓ 128 tests passed",
 				"Failed, then fixed\n- ✕ → ✓ edit src/a.ts",
+				"Failed along the way, not rerun\n- ✕ git checkout -- src/missing.ts",
 				"Preview: http://localhost:5173/",
 			].join("\n\n"),
 		);
@@ -107,7 +110,14 @@ describe("workSummaryText", () => {
 
 	it("leaves out what the run did not have", () => {
 		expect(
-			workSummaryText({ head: "3 commands", files: [{ path: "a.ts" }], checks: [], recovered: [], labels }),
+			workSummaryText({
+				head: "3 commands",
+				files: [{ path: "a.ts" }],
+				checks: [],
+				recovered: [],
+				passedOver: [],
+				labels,
+			}),
 		).toBe("3 commands\n\nChanged files (2)\n- a.ts");
 	});
 });

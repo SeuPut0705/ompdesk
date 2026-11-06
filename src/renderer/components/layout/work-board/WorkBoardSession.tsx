@@ -26,6 +26,7 @@ import { callStops } from "../../chat/chat-stream-utils";
 import { backgroundJobVerdicts } from "../../chat/completion-events";
 import { requestRevealStep } from "../../chat/work/reveal-step";
 import { useRunOutcome, useRunStores } from "../../chat/work/use-work-run";
+import { turnScope } from "../../chat/work/work-findings";
 import {
 	mergeSkills,
 	type WorkOutcomes,
@@ -296,31 +297,39 @@ function useNewestTurnCalls(): readonly string[] {
 	}, [start, prompted, tools, finishedVersion]);
 }
 
-/** The newest turn's outcome as its work card reads it (`useRunOutcome`, subagents' calls included). */
-function useNewestOutcome(): WorkOutcomes {
+/** The newest turn's calls and outcome as its work card reads it (`useRunOutcome`, subagents' calls included). */
+function useNewestTurn(): { keys: readonly string[]; outcome: WorkOutcomes } {
 	const messages = useMessagesStore(state => state.messages);
-	return useRunOutcome(useNewestTurnCalls(), undefined, callStops(messages)).outcome;
+	const keys = useNewestTurnCalls();
+	return { keys, outcome: useRunOutcome(keys, undefined, callStops(messages)).outcome };
 }
 
-/** The check the board names, as the newest work card reads it; the session's finished and live calls give the newest run. */
-function useLastCheck(outcome: WorkOutcomes): LastCheck | null {
+/**
+ * The check the board names, as the newest work card reads it; the session's finished and live calls give the newest
+ * run, the newest turn's scope (`turnScope`) which failure the work ended on.
+ */
+function useLastCheck({ keys, outcome }: { keys: readonly string[]; outcome: WorkOutcomes }): LastCheck | null {
 	const { tools } = useRunStores();
 	const cwd = useSessionStore(state => state.cwd);
 	const live = useToolsStore(state => state.liveTools);
 	const finishedVersion = useToolsStore(state => state.finishedVersion);
 	const messages = useMessagesStore(state => state.messages);
+	const running = useTodoStore(state => state.turnActive);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: finishedVersion marks the finished map changing in place.
-	return useMemo(
-		() =>
-			lastCheck(
-				[...tools.getState().finishedTools, ...live],
-				outcome.commands,
-				cwd,
-				backgroundJobVerdicts(messages),
-				callStops(messages),
-			),
-		[tools, live, finishedVersion, cwd, messages, outcome],
-	);
+	return useMemo(() => {
+		const entries = keys.flatMap(key => {
+			const entry = tools.getState().finishedTools.get(key);
+			return entry ? [[key, entry] as const] : [];
+		});
+		return lastCheck(
+			[...tools.getState().finishedTools, ...live],
+			outcome.commands,
+			cwd,
+			backgroundJobVerdicts(messages),
+			callStops(messages),
+			turnScope(entries, outcome.commands, { running, failedEnd: false }),
+		);
+	}, [tools, live, finishedVersion, cwd, messages, outcome, keys, running]);
 }
 
 export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
@@ -328,8 +337,9 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const family = useFamilyParts(turn);
 	const changes = useMemo(() => familyChanges([{ title: null, files: own }, ...family]), [own, family]);
 	const unlanded = useUnlanded();
-	const outcome = useNewestOutcome();
-	const check = useLastCheck(outcome);
+	const newest = useNewestTurn();
+	const { outcome } = newest;
+	const check = useLastCheck(newest);
 	const jobs = useBackgroundJobs();
 	const peers = useSessionStore(state => state.checkoutPeers);
 	const messages = useMessagesStore(state => state.messages);
