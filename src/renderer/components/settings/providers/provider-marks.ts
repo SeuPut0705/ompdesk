@@ -179,6 +179,8 @@ export const PROVIDER_BRANDS: Readonly<Record<string, Brand>> = {
 	deepinfra: brand("deepinfra", "DeepInfra"),
 	deepseek: brand("deepseek", "DeepSeek"),
 	devin: brand("devin", "Devin"),
+	"devin-cli": brand("devin", "Devin"),
+	"devin-windsurf": brand("devin", "Devin"),
 	exa: brand("exa", "Exa"),
 	firepass: brand("fireworks", "Fireworks AI"),
 	fireworks: brand("fireworks", "Fireworks AI"),

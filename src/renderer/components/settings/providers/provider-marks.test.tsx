@@ -39,6 +39,8 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"deepinfra",
 	"deepseek",
 	"devin",
+	"devin-cli",
+	"devin-windsurf",
 	"exa",
 	"factory-droid",
 	"firepass",

@@ -293,7 +293,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // catalog and the lazy fix's wrapper; the fix itself is a chunk of its own (`LazyMacPermissionFix`): 2,162,145.
 // A row hears its session's subagents while no window shows it (6 Nov 2026, use-rpc-events.ts `openTabFrame`; a hidden
 // running tab a tab list makes a runtime for reads its roster once, tabs.ts `reconcileTabs`): 2,162,311.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_162_311;
+// The same read once per runtime whichever names a hidden running tab first, its status push or the tab list
+// (`rosterRead`), and stock 18.17's two Devin sign-ins with the Devin mark (provider-marks.ts): 2,162,456.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_162_456;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
