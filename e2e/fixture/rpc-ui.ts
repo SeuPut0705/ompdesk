@@ -4459,6 +4459,109 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message.startsWith("fixture checkout:")) {
 			void checkout.run(user, JSON.parse(message.slice("fixture checkout:".length)));
 		} else if (
+			message === "fixture turn recovered" ||
+			message === "fixture turn recovered live" ||
+			message === "fixture turn unfixed"
+		) {
+			// One turn whose work splits into two cards around a reply's narration (the owner's report, 6 Nov 2026: a
+			// failure the agent went on to handle read as the work's end). `recovered`: card A's test run fails, the
+			// narration, card B's rerun passes. `live`: card B's rerun stays running and the turn open. `unfixed`: card B
+			// only hits a git pathspec error and a passing status, so card A's failed run is the turn's last test run.
+			const turn: AgentMessage[] = [user];
+			const failing = " FAIL  src/a.test.ts > adds\n      Tests  1 failed | 3 passed (4)";
+			const call = (id: string, text: string, command: string, output: string, exitCode: number | null) => {
+				const args = { command, intent: "Running the tests" };
+				const reply: AgentMessage = {
+					role: "assistant",
+					content: [
+						...(text ? [{ type: "text" as const, text }] : []),
+						{ type: "toolCall", id, name: "bash", arguments: args },
+					],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "toolUse",
+				};
+				write({ type: "message_start", message: reply });
+				appendMessage(reply);
+				write({ type: "message_end", message: reply });
+				turn.push(reply);
+				write({ type: "tool_execution_start", toolCallId: id, toolName: "bash", args });
+				if (exitCode === null) return;
+				const content = [{ type: "text" as const, text: output }];
+				const isError = exitCode !== 0;
+				write({
+					type: "tool_execution_end",
+					toolCallId: id,
+					toolName: "bash",
+					result: { content, details: { exitCode } },
+					isError,
+				});
+				const result: AgentMessage = {
+					role: "toolResult",
+					toolCallId: id,
+					toolName: "bash",
+					content,
+					details: { exitCode },
+					isError,
+					timestamp: Date.now(),
+				};
+				appendMessage(result);
+				write({ type: "message_end", message: result });
+				turn.push(result);
+			};
+			const stamp = Date.now();
+			const live = message === "fixture turn recovered live";
+			const unfixed = message === "fixture turn unfixed";
+			// A reply's narration stays under the card holding its own call: the calls after it start card B.
+			const steps: (() => void)[] = [
+				() => call(`turn-a-${stamp}`, "", "bunx vitest run", failing, 1),
+				() =>
+					call(
+						`turn-a2-${stamp}`,
+						unfixed
+							? "Restoring the file first, then I'll look at the test."
+							: "Fixed the assertion; rerunning the tests.",
+						"git diff --stat",
+						" src/a.ts | 2 +-",
+						0,
+					),
+				unfixed
+					? () =>
+							call(
+								`turn-b-${stamp}`,
+								"",
+								"git checkout -- src/missing.ts",
+								"error: pathspec 'src/missing.ts' did not match any file(s) known to git",
+								1,
+							)
+					: () => call(`turn-b-${stamp}`, "", "bunx vitest run", "      Tests  4 passed (4)", live ? null : 0),
+				...(unfixed ? [() => call(`turn-c-${stamp}`, "", "git status --short", " M src/a.ts", 0)] : []),
+			];
+			const next = (index: number) => {
+				const step = steps[index];
+				if (step) {
+					step();
+					setTimeout(() => next(index + 1), 120);
+					return;
+				}
+				if (live) return;
+				const answer: AgentMessage = {
+					role: "assistant",
+					content: [{ type: "text", text: unfixed ? "One test still fails." : "The tests pass now." }],
+					timestamp: Date.now(),
+					provider: model.provider,
+					model: model.id,
+					stopReason: "stop",
+				};
+				appendMessage(answer);
+				write({ type: "message_start", message: answer });
+				write({ type: "message_end", message: answer });
+				turn.push(answer);
+				endTurn(turn);
+			};
+			next(0);
+		} else if (
 			message === "fixture narrated" ||
 			message === "fixture narrated live" ||
 			message === "fixture narrated then work"
