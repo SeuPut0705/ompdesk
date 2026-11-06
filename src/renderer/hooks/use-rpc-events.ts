@@ -160,6 +160,18 @@ function closedTabFrame(tabId: string): boolean {
 }
 
 /**
+ * Whether a frame for `tabId` applies (not a closed tab's, see above), giving a tab with no runtime yet its own: a
+ * page that just loaded still shows the last load's ghosts and lists the tabs after their frames start, and
+ * `withSessionRuntime` would run such a frame against the focused tab's stores (another session's transcript, roster,
+ * model), and the tab's own row would never hear it.
+ */
+function openTabFrame(tabId: string): boolean {
+	if (closedTabFrame(tabId)) return false;
+	if (tabId !== "") ensureTabRuntime(tabId);
+	return true;
+}
+
+/**
  * Desktop-notification gate, mirroring the TUI's notify policy: the GUI master
  * pref (Settings → GUI, default on), then the agent's `<kind>.notify` setting
  * (read live via get_settings so edits from either the TUI or the GUI's
@@ -343,7 +355,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			// Incoming session events belong to the target sidecar. Drop them
 			// during an in-place session switch, but never suppress the other pane.
 			if (sessionRuntimeStore<SessionStore>(tabId, "session")?.getState().switchPending) return;
-			if (closedTabFrame(tabId)) return;
+			if (!openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				useMessagesStore.getState().applyEvents(events);
 				useToolsStore.getState().applyEvents(events);
@@ -707,11 +719,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		/** Tabs whose `starting` was a paired host's re-attach (`reconnecting`): the page was kept, and the next `ready` catches up. */
 		const reattaching = new Set<string>();
 		const handleStatus = (payload: IpcSidecarStatusPayload, statusTabId: string) => {
-			if (disposed || closedTabFrame(statusTabId)) return;
-			// A tab whose runtime does not exist yet (a page that just loaded still shows the last load's ghosts) gets its
-			// own here: `withSessionRuntime` falls back to the focused runtime, so its status, and the `get_state` main
-			// answers for its active tab, would land in whichever pane is focused by then, under another tab's session.
-			if (statusTabId !== "") ensureTabRuntime(statusTabId);
+			if (disposed || !openTabFrame(statusTabId)) return;
 			statusVersion++;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
 			if (payload.status === "starting") {
@@ -843,13 +851,13 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			});
 
 		const handleSubagent = (frame: SubagentFrame, tabId: string) => {
-			if (closedTabFrame(tabId)) return;
+			if (!openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => useSubagentsStore.getState().applyFrame(frame));
 		};
 		const unsubSubagent = window.omp.events.onTabSubagentFrame(handleSubagent);
 
 		const handleModelCatalog = (frame: ModelCatalogUpdateFrame, tabId: string) => {
-			if (closedTabFrame(tabId)) return;
+			if (!openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => useModelStore.getState().applyCatalogUpdate(frame));
 		};
 		const unsubModelCatalog = window.omp.events.onTabModelCatalogUpdate(handleModelCatalog);
@@ -870,7 +878,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// also carries the sidecar's live model, which is applied directly: unlike
 		// a get_state round trip it cannot lose a race with the event batch.
 		const handleConfig = (frame: ConfigUpdateFrame, tabId: string) => {
-			if (closedTabFrame(tabId)) return;
+			if (!openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				applyModelInfo(frame.model, tabId);
 				void useSettingsStore.getState().syncDisplaySettings();
@@ -890,7 +898,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// Text-mode slash commands write outside the transcript. Surface their
 		// output as local custom messages instead of silently dropping the frame.
 		const handleCommandOutput = (frame: CommandOutputFrame, tabId: string) => {
-			if (!frame.text || closedTabFrame(tabId)) return;
+			if (!frame.text || !openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				useMessagesStore.getState().appendMessage({
 					role: "custom",
@@ -903,7 +911,7 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		const unsubCommandOutput = window.omp.events.onTabCommandOutput(handleCommandOutput);
 
 		const handleSessionInfo = (frame: SessionInfoUpdateFrame, tabId: string) => {
-			if (closedTabFrame(tabId)) return;
+			if (!openTabFrame(tabId)) return;
 			withSessionRuntime(tabId, () => {
 				useSessionStore.setState(state => {
 					// Another session's automatic title is not this one's: a frame naming a new session without one drops it.

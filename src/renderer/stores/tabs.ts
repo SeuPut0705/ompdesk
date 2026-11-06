@@ -97,6 +97,7 @@ import {
 	useRuntimeTabId,
 } from "./session-runtime-context";
 import { useSidebarProjects } from "./sidebar-projects";
+import type { SubagentsStore } from "./subagents";
 import { installTabReadyGate, READY_WAIT_CAP_MS } from "./tab-ready-gate";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
@@ -762,11 +763,16 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		for (const ghost of ghosts) if (!get().tabs.some(tab => tab.id === ghost.id)) deleteSessionRuntime(ghost.id);
 		// A runtime made here missed the TAB_STATUS that told its status (a paired page that resyncs after the host
 		// restarted learns the new tab ids only from this list, after their `ready` went by): the list's status is it.
+		const shown = visibleTabIds(get());
 		for (const info of fresh) {
 			const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
 			if (!session) continue;
 			session.getState().setStatus(info.status === "running" ? "ready" : info.status, info.cwd);
 			session.setState({ isStreaming: info.status === "running" });
+			// Nor did it hear the starts of the subagents that already run: one read of the roster, so the tab's sidebar
+			// row counts them now. A shown tab's hydration reads it.
+			if (info.status === "running" && !shown.includes(info.tabId))
+				void sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents")?.getState().refresh();
 		}
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;

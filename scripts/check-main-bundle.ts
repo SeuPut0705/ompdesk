@@ -291,7 +291,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The macOS permissions computer use needs (6 Nov 2026): the matcher for stock's "… permission is not granted"
 // (`lib/mac-permission-error.ts`, the eager `ComputerRenderer`/`EvalRenderer` ask it), their strings in the English
 // catalog and the lazy fix's wrapper; the fix itself is a chunk of its own (`LazyMacPermissionFix`): 2,162,145.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_162_145;
+// A row hears its session's subagents while no window shows it (6 Nov 2026, use-rpc-events.ts `openTabFrame`; a hidden
+// running tab a tab list makes a runtime for reads its roster once, tabs.ts `reconcileTabs`): 2,162,311.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_162_311;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

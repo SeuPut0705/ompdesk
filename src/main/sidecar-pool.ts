@@ -189,9 +189,16 @@ export function describeAnswer(frame: object): string {
 	return "";
 }
 
-/** The level that serves every window's request: the highest. */
+/**
+ * The level every tab's omp holds whatever its windows ask: stock's stream starts `off` and then writes no lifecycle
+ * frame at all, and a tab no window shows still owes its sidebar row (and a phone's, and the work tree) its
+ * subagents' starts and ends (`#forwardToHidden`).
+ */
+const SUBAGENT_LEVEL_FLOOR: SubagentSubscriptionLevel = "progress";
+
+/** The level that serves every window's request: the highest, never below the floor. */
 function highestSubagentLevel(levels: Iterable<SubagentSubscriptionLevel>): SubagentSubscriptionLevel {
-	let top: SubagentSubscriptionLevel = "off";
+	let top = SUBAGENT_LEVEL_FLOOR;
 	for (const level of levels) if (SUBAGENT_LEVEL_RANK[level] > SUBAGENT_LEVEL_RANK[top]) top = level;
 	return top;
 }
@@ -1016,6 +1023,16 @@ export class SidecarPool {
 				entry.run = idleRun();
 			}
 			this.#forwardToTab(entry, IPC_EVENTS.TAB_STATUS, tabStatusPayload(entry));
+			// Every new omp starts with its subagent stream off: ask as it becomes ready, before anything can spawn a
+			// subagent, whether a window shows the tab or not. A paired host's tab ready again over the link asks again.
+			if (payload.status === "ready") {
+				void sidecar.rpcClient
+					?.command({
+						type: "set_subagent_subscription",
+						level: highestSubagentLevel(entry.subagentLevels?.values() ?? []),
+					})
+					.catch(() => {});
+			}
 			this.onRunningChange?.();
 		});
 		// The host's reading of the turn on a re-attach (sent before its status): what the lost link hid of its start or end.
@@ -2107,7 +2124,8 @@ export class SidecarPool {
 		} finally {
 			this.#answering.delete(id);
 		}
-		if (this.#requestOwners.get(id) === entry) {
+		const open = this.#requestOwners.get(id) === entry;
+		if (open) {
 			this.#requestOwners.delete(id);
 			const request = this.#requestBodies.get(id);
 			this.#announce({
@@ -2121,7 +2139,9 @@ export class SidecarPool {
 			});
 			this.onRunningChange?.();
 		}
-		if (shared) this.#sendAnsweredElsewhere(entry, id, responderId);
+		// No window answered (an agent's `ompdesk_session_answer`): every window still shows the card, and the tab's
+		// sidebar row its waiting mark, until told; stock omp sends nothing when an ask is answered.
+		if (shared || (open && responderId === undefined)) this.#sendAnsweredElsewhere(entry, id, responderId);
 		return true;
 	}
 
