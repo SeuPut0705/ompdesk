@@ -78,6 +78,98 @@ function notepadPids(): Set<number> {
 	return new Set(out.split(/\s+/).filter(Boolean).map(Number));
 }
 
+/** One answer of the agent-desktop the spec runs (semantic reads and clicks: no pointer, no focus change). */
+function agentDesktop(exe: string, args: string[]): unknown {
+	try {
+		return JSON.parse(execFileSync(exe, args, { encoding: "utf8", timeout: 30_000 }));
+	} catch {
+		return null;
+	}
+}
+
+function matchRef(answer: unknown): string | undefined {
+	const data = answer && typeof answer === "object" && "data" in answer ? answer.data : undefined;
+	const matches = data && typeof data === "object" && "matches" in data ? data.matches : undefined;
+	const first: unknown = Array.isArray(matches) ? matches[0] : undefined;
+	return first && typeof first === "object" && "ref_id" in first && typeof first.ref_id === "string"
+		? first.ref_id
+		: undefined;
+}
+
+/**
+ * TextEdit's open windows by id; none while it does not run. A read that fails while it runs throws: an empty answer
+ * then would make every window the person had open look like the run's own, and cleanup would close them.
+ */
+function textEditWindows(exe: string): string[] {
+	const answer = agentDesktop(exe, ["list-windows", "--app", "TextEdit"]);
+	const ok = answer && typeof answer === "object" && "ok" in answer && answer.ok === true;
+	const data = ok && "data" in answer ? answer.data : undefined;
+	if (!Array.isArray(data)) {
+		if (!textEditRunning()) return [];
+		throw new Error(`could not list TextEdit's windows: ${JSON.stringify(answer)}`);
+	}
+	return data.map((window: unknown) => {
+		if (window && typeof window === "object" && "id" in window && typeof window.id === "string") return window.id;
+		throw new Error(`TextEdit window without an id: ${JSON.stringify(window)}`);
+	});
+}
+
+/**
+ * Closes a TextEdit window the run opened without saving its document: its Close button, then the sheet's Delete
+ * (`DontSaveButton`). Quitting or killing TextEdit instead would keep the untitled document in its autosave and
+ * bring it back at the next launch: nine "agent-desktop smoke" windows had piled up that way (6 Nov 2026).
+ */
+async function closeWithoutSaving(exe: string, windowId: string): Promise<void> {
+	const close = matchRef(
+		agentDesktop(exe, [
+			"find",
+			"--app",
+			"TextEdit",
+			"--window-id",
+			windowId,
+			"--role",
+			"button",
+			"--name",
+			"Close",
+			"--exact",
+		]),
+	);
+	if (!close) return;
+	agentDesktop(exe, ["click", close]);
+	// The sheet of this window only: another window's sheet belongs to a document the run did not make.
+	const findDontSave = () =>
+		matchRef(
+			agentDesktop(exe, [
+				"find",
+				"--app",
+				"TextEdit",
+				"--window-id",
+				windowId,
+				"--surface",
+				"sheet",
+				"--native-id",
+				"DontSaveButton",
+			]),
+		);
+	// A document with nothing typed closes without a sheet.
+	await expect
+		.poll(findDontSave, { timeout: 10_000 })
+		.toBeDefined()
+		.catch(() => undefined);
+	const dontSave = findDontSave();
+	if (dontSave) agentDesktop(exe, ["click", dontSave]);
+	await expect.poll(() => textEditWindows(exe).includes(windowId), { timeout: 10_000 }).toBe(false);
+}
+
+function textEditRunning(): boolean {
+	try {
+		execFileSync("pgrep", ["-x", "TextEdit"]);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 async function launch(project: string, desktop: string, env: Record<string, string>) {
 	const app = await electron.launch({
 		args: [
@@ -130,6 +222,10 @@ test("a first launch drives the text editor with the agent-desktop the app ships
 	const dir = process.env.OMP_GUI_AGENT_DESKTOP_SHOTS;
 	if (dir) await fs.mkdir(dir, { recursive: true });
 	const notepadsBefore = WIN ? notepadPids() : new Set<number>();
+	// TextEdit's windows the person has open stay; only what the run opens is closed, and TextEdit quits if it started it.
+	const agentDesktopExe = path.join(bundle, "agent-desktop");
+	const textEditBefore = WIN ? [] : textEditWindows(agentDesktopExe);
+	const textEditWasRunning = !WIN && textEditRunning();
 	const { app, page } = await launch(real.project, real.desktop, env);
 	try {
 		await expect
@@ -215,7 +311,18 @@ test("a first launch drives the text editor with the agent-desktop the app ships
 		await exitApp(app);
 		// Only the Notepad this run opened; one the person had open stays.
 		if (WIN) for (const pid of notepadPids()) if (!notepadsBefore.has(pid)) process.kill(pid);
+		if (!WIN) {
+			for (const id of textEditWindows(agentDesktopExe)) {
+				if (!textEditBefore.includes(id)) await closeWithoutSaving(agentDesktopExe, id);
+			}
+			if (!textEditWasRunning && textEditRunning()) agentDesktop(agentDesktopExe, ["close-app", "TextEdit"]);
+		}
 		// The Notepad the session started had the project folder as its working directory until it ended.
 		await fs.rm(real.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 500 });
+	}
+	// Reached only when the run passed: the desktop is as the run found it.
+	if (!WIN) {
+		expect(textEditWindows(agentDesktopExe)).toEqual(textEditBefore);
+		expect(textEditRunning()).toBe(textEditWasRunning);
 	}
 });
