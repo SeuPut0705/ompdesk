@@ -98,23 +98,51 @@ export class MacPermissions {
 		return this.status();
 	}
 
+	/** Accessibility was asked by this process: Screen Recording waits until it is granted, or until a later launch. */
+	#accessibilityAskedNow = false;
+	/** One automatic pass at a time: focus events can come faster than agent-desktop answers. */
+	#asking: Promise<MacPermission[]> | null = null;
+	/** Every permission is granted or was asked: no automatic pass has anything left to do. */
+	#settled = false;
+
 	/**
-	 * At launch: asks macOS for each permission still missing that OMPdesk never asked for, so its prompt reaches the
-	 * person without a hunt through Settings. One that could not be asked yet (Screen Recording before machine setup
-	 * installed agent-desktop) is asked at a later launch. Returns what it asked.
+	 * Asks macOS for a missing permission OMPdesk never asked for, so its prompt reaches the person without a hunt
+	 * through Settings; called at launch and whenever an OMPdesk window gains focus. macOS shows one permission prompt
+	 * at a time, and a request made while one is up leaves no record (measured 6 Nov 2026: with Accessibility also
+	 * missing, the Accessibility prompt showed and the Screen Recording request left the app unlisted). So one at a
+	 * time: Accessibility first; Screen Recording once Accessibility is granted (the focus after the person turns it on),
+	 * or at a later launch when it was declined. One that could not be asked (no agent-desktop to run) waits for a later
+	 * pass. Returns what it asked.
 	 */
-	async askMissing(): Promise<MacPermission[]> {
+	askMissing(): Promise<MacPermission[]> {
+		this.#asking ??= this.#askNext().finally(() => {
+			this.#asking = null;
+		});
+		return this.#asking;
+	}
+
+	async #askNext(): Promise<MacPermission[]> {
+		if (this.#settled) return [];
+		const requested = this.#requested();
+		if (MAC_PERMISSIONS.every(permission => requested.includes(permission))) return [];
 		const status = await this.status();
 		if (!status) return [];
-		const asked: MacPermission[] = [];
-		for (const permission of MAC_PERMISSIONS) {
-			if (status[permission] || this.#requested().includes(permission)) continue;
-			if (await this.#ask(permission)) {
-				this.#remember(permission);
-				asked.push(permission);
-			}
+		// Nothing left to ask in this process: later focus events spawn nothing.
+		if (MAC_PERMISSIONS.every(permission => status[permission] || requested.includes(permission))) {
+			this.#settled = true;
+			return [];
 		}
-		return asked;
+		if (!status.accessibility && !requested.includes("accessibility")) {
+			await this.#ask("accessibility");
+			this.#remember("accessibility");
+			this.#accessibilityAskedNow = true;
+			return ["accessibility"];
+		}
+		const accessibilityAnswered = status.accessibility || !this.#accessibilityAskedNow;
+		if (status.screen || requested.includes("screen") || !accessibilityAnswered) return [];
+		if (!(await this.#ask("screen"))) return [];
+		this.#remember("screen");
+		return ["screen"];
 	}
 
 	#requested(): MacPermission[] {

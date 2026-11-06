@@ -1395,21 +1395,28 @@ app.whenReady().then(() => {
 		screenGranted: () => systemPreferences.getMediaAccessStatus("screen") === "granted",
 		openPane: url => shell.openExternal(url),
 	});
-	// Only a packaged, non-headless app asks on its own: a dev or test launch must never raise a system prompt.
+	// Only a packaged, non-headless app asks on its own: a dev or test launch must never raise a system prompt. After
+	// the first tab, and again when a window gains focus: the person comes back from System Settings, and a permission
+	// that had to wait for the other one's prompt is asked then.
 	if (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") {
-		void afterFirstTab()
-			.then(() => macPermissions.askMissing())
-			.then(asked => {
-				if (asked.length > 0)
-					writeRuntimeLog({ source: "background-task", message: "mac-permissions-asked", details: { asked } });
-			})
-			.catch(error =>
-				writeRuntimeLog({
-					source: "background-task",
-					message: "mac-permissions-failed",
-					details: { error: String(error) },
-				}),
-			);
+		const askMacPermissions = () =>
+			macPermissions
+				.askMissing()
+				.then(asked => {
+					if (asked.length > 0)
+						writeRuntimeLog({ source: "background-task", message: "mac-permissions-asked", details: { asked } });
+				})
+				.catch(error =>
+					writeRuntimeLog({
+						source: "background-task",
+						message: "mac-permissions-failed",
+						details: { error: String(error) },
+					}),
+				);
+		void afterFirstTab().then(() => {
+			void askMacPermissions();
+			app.on("browser-window-focus", () => void askMacPermissions());
+		});
 	}
 
 	// This machine's setup: detect Bun/omp/Git/gh/Node and, in a packaged app,

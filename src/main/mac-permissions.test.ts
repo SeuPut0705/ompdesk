@@ -44,7 +44,7 @@ function mac(overrides: Partial<MacPermissionDeps> = {}, stored: Record<string, 
 		},
 		...overrides,
 	};
-	return { permissions: new MacPermissions(deps), data, granted, runs, panes, accessibilityTrusted };
+	return { permissions: new MacPermissions(deps), deps, data, granted, runs, panes, accessibilityTrusted };
 }
 
 describe("MacPermissions.status", () => {
@@ -101,6 +101,28 @@ describe("MacPermissions.askMissing (launch)", () => {
 		expect(await m.permissions.askMissing()).toEqual(["accessibility"]);
 		expect(m.accessibilityTrusted).toHaveBeenCalledWith(true);
 		expect(m.runs).not.toContainEqual([AGENT_DESKTOP, "permissions", "--request"]);
+	});
+
+	it("asks one at a time when both are missing: Screen Recording once Accessibility is granted, or at the next launch", async () => {
+		const m = mac();
+		m.granted.accessibility = false;
+		const screenAsks = () => m.runs.filter(run => run.includes("--request")).length;
+		expect(await m.permissions.askMissing()).toEqual(["accessibility"]);
+		// macOS's Accessibility prompt is up: a Screen Recording request now would leave no record, so a focus asks nothing.
+		expect(await m.permissions.askMissing()).toEqual([]);
+		expect(screenAsks()).toBe(0);
+		// The person turns Accessibility on and comes back to the window.
+		m.granted.accessibility = true;
+		expect(await m.permissions.askMissing()).toEqual(["screen"]);
+		expect(screenAsks()).toBe(1);
+
+		// Declined instead: the next launch asks Screen Recording, and Accessibility is not asked again.
+		const declined = mac();
+		declined.granted.accessibility = false;
+		expect(await declined.permissions.askMissing()).toEqual(["accessibility"]);
+		expect(await declined.permissions.askMissing()).toEqual([]);
+		expect(await new MacPermissions(declined.deps).askMissing()).toEqual(["screen"]);
+		expect(declined.accessibilityTrusted.mock.calls.filter(([prompt]) => prompt)).toHaveLength(1);
 	});
 
 	it("leaves Screen Recording for a later launch while no agent-desktop can run (a dev run without the bundle)", async () => {

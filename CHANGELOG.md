@@ -5,7 +5,7 @@
 이제 OMPdesk가 macOS에 화면 기록 권한을 제대로 요청해서, 시스템 설정의 '화면 및 시스템 오디오 녹음' 목록에 OMPdesk가 나타나요.
 
 ### 고친 것
-- 컴퓨터 조작에 필요한 화면 기록 권한을 OMPdesk가 macOS에 한 번도 요청하지 못해서, 시스템 설정 목록에 OMPdesk가 없고 켤 스위치도 없던 문제를 고쳤어요. 이제 macOS가 OMPdesk를 목록에 올리고 직접 확인 창을 띄워요. 전에 물어본 적이 있는 설치본도 한 번 더 물어봐요.
+- 컴퓨터 조작에 필요한 화면 기록 권한을 OMPdesk가 macOS에 한 번도 요청하지 못해서, 시스템 설정 목록에 OMPdesk가 없고 켤 스위치도 없던 문제를 고쳤어요. 이제 macOS가 OMPdesk를 목록에 올리고 직접 확인 창을 띄워요. 전에 물어본 적이 있는 설치본도 한 번 더 물어봐요. 두 권한이 모두 없으면 macOS가 한 번에 창 하나만 띄우므로, 손쉬운 사용을 먼저 묻고 그걸 켜고 돌아오면 화면 기록을 이어서 물어봐요.
 
 ### 새로 생긴 것
 - 설정 › 에이전트 동작 › 컴퓨터 조작 엔진 아래에 '손쉬운 사용'과 '화면 및 시스템 오디오 녹음' 권한 상태가 보여요. 허용되지 않은 권한은 '허용하기…'를 누르면 macOS에 요청하고 해당 설정 화면을 열어요. 거기서 OMPdesk를 켜고 돌아오면 바로 '허용됨'으로 바뀌어요(다시 열 필요 없어요).
@@ -20,7 +20,7 @@
 OMPdesk now asks macOS for Screen Recording properly, so it appears in System Settings › Screen & System Audio Recording.
 
 ### Fixed
-- OMPdesk never actually asked macOS for the Screen Recording permission computer use needs, so it was missing from the System Settings list and there was no switch to turn on. macOS now lists OMPdesk and shows its own prompt. Installs that were asked before are asked once more.
+- OMPdesk never actually asked macOS for the Screen Recording permission computer use needs, so it was missing from the System Settings list and there was no switch to turn on. macOS now lists OMPdesk and shows its own prompt. Installs that were asked before are asked once more. When both are missing, macOS shows one prompt at a time, so OMPdesk asks Accessibility first and Screen Recording as soon as you come back with Accessibility on.
 
 ### Added
 - Settings › Agent behavior shows Accessibility and Screen & System Audio Recording under Computer use engine. **Allow…** on a missing one asks macOS and opens its pane; turn on OMPdesk there and come back, and the row reads Allowed at once (no relaunch needed).
