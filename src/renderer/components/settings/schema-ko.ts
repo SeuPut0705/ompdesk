@@ -1831,6 +1831,71 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Vim 모드 표시",
 		description: "현재 Vim 모드(예: NORMAL / INSERT)를 표시해요.",
 	},
+	"tui.colorfulMarkdown": {
+		label: "컬러 마크다운",
+		description:
+			"제목은 단계별로, 굵게·기울임 글자, 인라인 코드, 표 머리글을 테마의 ANSI 색으로 칠해요. 끄면 제목은 한 가지 색이고 굵게·기울임은 색 없이 보여요.",
+	},
+	"tui.spinnerInterval": {
+		label: "스피너 간격(ms)",
+		description:
+			"터미널 제목을 포함한 모든 스피너의 프레임 사이 간격(밀리초)이에요. 0이면 멈춘 글리프를 보여 줘요. 비워 두면 움직임 설정을 따라요",
+	},
+	"tui.maxFps": {
+		label: "초당 최대 프레임",
+		description:
+			"스트리밍 글자를 포함해 TUI를 다시 그리는 빈도의 상한이에요. 입력한 글자는 30fps로 바로 보여서 입력 중인 창은 계속 빠르게 반응해요",
+	},
+	"tui.motion": {
+		label: "움직임",
+		description:
+			"스피너, 반짝임, 장식용 깜빡임·페이드를 한 번에 정해요. 스트리밍 글자에는 영향이 없어요(초당 최대 프레임 참고). 직접 정한 스피너 간격이 우선이에요",
+	},
+	"display.shellVisualization": {
+		label: "셸 시각화",
+		description: "bash 명령을 일반 셸 명령 대신 대화형 실행 시각화로 보여 줘요",
+	},
+	"update.auto": {
+		label: "자동 업데이트",
+		description: "시작할 때 omp 업데이트를 백그라운드에서 설치해요. 다음 실행부터 새 버전이 돌아요",
+	},
+	"magicKeywords.chillax": {
+		label: "Chillax 키워드",
+		description:
+			"단독으로 쓴 chillax가 사고 수준을 모델의 가장 낮은 단계로 내리고(메시지마다 노력 수준을 바꿀 수 있는 모델은 턴 중간에도) 숨은 안내를 덧붙이게 해요",
+	},
+	"providers.openaiResponsesWebsockets": {
+		label: "OpenAI Responses WebSocket",
+		description:
+			"카탈로그가 지원하는 표준 Responses 모델에서 WebSocket을 켜요. 모델이나 요청에서 false로 정하면 꺼져요",
+	},
+	"ovnfs.path": {
+		label: "ovnfs 실행 파일",
+		description:
+			"ovnfs 실행 파일이에요. 비워 두면 PATH에서 `ovnfs`를 찾아요. 찾으면 별도 사본이 필요한 모든 곳에 ovnfs 체크아웃(폴더의 쓰기 시 복사 보기로, 크기와 상관없이 약 1초면 준비돼요)을 써요. 시스템 프롬프트가 에이전트에게 git 워크트리나 복사 대신 체크아웃을 열라고 하고, 격리된 서브에이전트도(허용되고 `isolation.backend`가 auto일 때) 네이티브 클론 대신 체크아웃에서 돌아요",
+	},
+	"task.workerThreads": {
+		label: "서브에이전트 워커 스레드",
+		description:
+			"서브에이전트용 워커 스레드의 최대 개수예요. 동시에 도는 서브에이전트가 8개까지는 메인 스레드에서 돌고, 9개가 되면 워커 하나가 붙고, 그 수가 두 배가 될 때마다(18, 36, 72) 하나씩 더 붙어요. 살아 있는 서브에이전트가 없는 워커는 1분 뒤에 멈춰요. 0이면 모든 서브에이전트가 메인 스레드에서 돌아요",
+	},
+	"skills.manualSkills": { label: "수동 스킬" },
+	"extensionRenderers.transcriptPresenters": {
+		label: "확장 대화 표시기",
+		description:
+			"확장이 도구 호출 같은 대화 블록을 전체로, 한 줄로 줄여서, 또는 숨겨서 그리게 해요. 세션, 내보내기, 모델 컨텍스트는 그대로예요",
+	},
+	"spotlight.experiment.enabled": {
+		label: "Spotlight 실험",
+		description: "Stencil Spotlight로 도구 출력을 다듬고 find 결과의 순위를 매기며, 다듬은 결과를 세션에 기록해요",
+	},
+	"spotlight.experiment.holdout": { label: "Spotlight 실험 대조군" },
+	"spotlight.experiment.scoreFree": { label: "Spotlight 실험 무료 채점" },
+	"spotlight.experiment.tools": { label: "Spotlight 실험 도구" },
+	"spotlight.url": { label: "Spotlight URL" },
+	"spotlight.model": { label: "Spotlight 모델" },
+	"spotlight.thinking": { label: "Spotlight 사고 수준" },
+	"spotlight.timeoutMs": { label: "Spotlight 타임아웃(ms)" },
 	"input.bareExitOnEmptySession": {
 		label: "빈 세션에서 접두사 없이 종료",
 		description: "첫 메시지 전에 정확히 `exit`, `quit`, `q`(대소문자 무관)만 입력하면 모델에 묻지 않고 종료해요.",
