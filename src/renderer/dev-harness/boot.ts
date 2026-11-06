@@ -136,6 +136,7 @@ if (query.get("host") === "1") {
 		host,
 		connectionState: () => "open",
 		onConnectionState: () => () => {},
+		linkAnswered: async () => {},
 		features: () => ({ push: true, preview: true, upload: true, passkey: false }),
 		grants: () => DEFAULT_WEB_GRANTS,
 		emitMenuAction: () => {},

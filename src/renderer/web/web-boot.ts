@@ -190,6 +190,7 @@ async function bootApp(): Promise<void> {
 		host: web.host,
 		connectionState: () => transport.state,
 		onConnectionState: listener => transport.onState(listener),
+		linkAnswered: () => transport.answered(),
 		features: () => transport.features,
 		grants: () => transport.grants,
 		emitMenuAction: web.emitMenuAction,

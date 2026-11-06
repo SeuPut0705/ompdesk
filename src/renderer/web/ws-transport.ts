@@ -181,6 +181,8 @@ export class WsTransport implements OmpTransport {
 	#connId: string | null = null;
 	/** A call failed when the last link dropped: the page loads its state again even if the host resumes. */
 	#lostCalls = false;
+	/** Callers of `answered()` waiting for the host's next frame. */
+	readonly #heard = new Set<() => void>();
 
 	constructor(options: WsTransportOptions) {
 		this.#options = options;
@@ -242,6 +244,19 @@ export class WsTransport implements OmpTransport {
 	/** Tell the host whether the page is visible (it stops full streams for a hidden one). */
 	setPresence(visible: boolean): void {
 		this.#send({ t: "presence", visible });
+	}
+
+	/**
+	 * Resolves once the host is heard after this call: on an open link the page asks (`ping`) and any frame answers; a
+	 * link that is down, or that never answers and is dropped for it (liveness), answers with the next connection's
+	 * `hello`. A link that looks open can be a dead route the page has not noticed yet; only a frame heard says the
+	 * route works.
+	 */
+	answered(): Promise<void> {
+		const { promise, resolve } = Promise.withResolvers<void>();
+		this.#heard.add(resolve);
+		if (this.#ready) this.#ask();
+		return promise;
 	}
 
 	/** Stop for good (tests, page teardown). */
@@ -384,6 +399,8 @@ export class WsTransport implements OmpTransport {
 		if (!isServerFrame(frame)) return;
 		this.#lastInbound = this.#now();
 		this.#askedAt = null;
+		for (const resolve of this.#heard) resolve();
+		this.#heard.clear();
 		switch (frame.t) {
 			case "hello":
 				this.#hello(frame);

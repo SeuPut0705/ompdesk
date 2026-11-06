@@ -575,6 +575,7 @@ describe("WebHostUi", () => {
 		host,
 		connectionState: () => "open" as never,
 		onConnectionState: () => () => {},
+		linkAnswered: async () => {},
 		features: () => null,
 		grants: () => null,
 		emitMenuAction: () => {},

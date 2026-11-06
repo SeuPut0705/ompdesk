@@ -12,6 +12,8 @@ export interface WebRuntime {
 	host: HostActions;
 	connectionState(): WsConnectionState;
 	onConnectionState(listener: (state: WsConnectionState) => void): () => void;
+	/** Resolves once the computer is heard after the call (`WsTransport.answered`): an open link can be a dead route. */
+	linkAnswered(): Promise<void>;
 	/** What the host offered in its last `hello`; null before the first one. */
 	features(): WebFeatures | null;
 	/** What the host's last `hello` said this device may call; null before the first one. */

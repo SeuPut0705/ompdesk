@@ -470,6 +470,61 @@ describe("WsTransport", () => {
 		expect(transport.state).toBe("open");
 	});
 
+	it("answered() resolves only once the host is heard after the call: a question on an open link, then its answer", async () => {
+		const { transport, last } = setup();
+		transport.start();
+		await settle();
+		last().serve(HELLO());
+		let heard = false;
+		void transport.answered().then(() => {
+			heard = true;
+		});
+		expect(last().framesOf("ping")).toHaveLength(1);
+		await settle();
+		expect(heard).toBe(false);
+		last().serve({ t: "pong" });
+		await settle();
+		expect(heard).toBe(true);
+	});
+
+	it("answered() on a dead route that reads open waits through the drop and resolves with the next hello", async () => {
+		const { transport, clock, sockets, last } = setup();
+		transport.start();
+		await settle();
+		last().serve(HELLO());
+		const dead = last();
+		let heard = false;
+		void transport.answered().then(() => {
+			heard = true;
+		});
+		clock.advance(3000);
+		await settle();
+		expect(dead.closedWith).toBe(4000);
+		expect(heard).toBe(false);
+		clock.advance(0);
+		await settle();
+		expect(sockets).toHaveLength(2);
+		expect(heard).toBe(false);
+		last().serve(HELLO(true));
+		await settle();
+		expect(heard).toBe(true);
+	});
+
+	it("answered() asked while the link is down asks nothing and resolves with the first hello", async () => {
+		const { transport, last } = setup();
+		let heard = false;
+		void transport.answered().then(() => {
+			heard = true;
+		});
+		transport.start();
+		await settle();
+		expect(last().sent).toEqual([]);
+		expect(heard).toBe(false);
+		last().serve(HELLO());
+		await settle();
+		expect(heard).toBe(true);
+	});
+
 	it("asks after 5 s of silence while seen, and drops a link that leaves the question unanswered 2.5 s", async () => {
 		const { transport, clock, last } = setup();
 		transport.start();

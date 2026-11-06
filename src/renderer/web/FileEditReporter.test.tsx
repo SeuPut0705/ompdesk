@@ -56,6 +56,7 @@ describe("FileEditReporter", () => {
 					onState = undefined;
 				};
 			},
+			linkAnswered: async () => {},
 			features: () => null,
 			grants: () => null,
 			emitMenuAction: () => {},
