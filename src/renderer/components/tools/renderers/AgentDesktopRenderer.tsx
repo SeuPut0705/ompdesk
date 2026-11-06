@@ -11,6 +11,7 @@ import { extractImageDataUrls } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { asNumber, asRecord, asString } from "../../../lib/wire-value";
+import { MacPermissionFix } from "../../chat/MacPermissionFix";
 import { Collapse } from "../../common/Collapse";
 import { DisclosureButton } from "../../common/DisclosureButton";
 import { type TreeNode, TreeView } from "../../common/TreeView";
@@ -126,6 +127,7 @@ function FailedCall({ error }: { error: AgentDesktopError }) {
 			<ToolTextPreview isError text={`${error.code}: ${error.message}`.trimEnd()} />
 			{error.suggestion && <div className="text-sc-xs text-(--sc-text-muted)">{error.suggestion}</div>}
 			{outcome && <div className="text-sc-xs text-(--sc-text-subtle)">{outcome}</div>}
+			{error.code === "PERM_DENIED" && <MacPermissionFix />}
 		</div>
 	);
 }

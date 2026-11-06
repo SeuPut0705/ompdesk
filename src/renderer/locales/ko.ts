@@ -6412,6 +6412,20 @@ export const ko: Record<string, string> = {
 		"agent-desktop이 아직 설치되지 않아서, 설치될 때까지 세션은 내장 컴퓨터 조작을 써요.",
 	"settings.gui.computerUseVersion": "agent-desktop {version} 버전이 설치돼 있어요.",
 	"settings.gui.computerUseInstalled": "agent-desktop이 설치돼 있어요.",
+	"macPermissions.accessibility": "손쉬운 사용",
+	"macPermissions.accessibilityDesc":
+		"컴퓨터 조작이 이 Mac의 앱을 클릭하고 입력하는 데 필요한 macOS 권한이에요. ‘허용하기…’를 누르면 macOS에 요청하고 설정 화면을 열어요. 거기서 OMPdesk를 켜 주세요.",
+	"macPermissions.screen": "화면 및 시스템 오디오 녹음",
+	"macPermissions.screenDesc":
+		"컴퓨터 조작이 이 Mac의 앱 화면을 캡처하는 데 필요한 macOS 권한이에요. ‘허용하기…’를 누르면 macOS에 요청하고 설정 화면을 열어요. 거기서 OMPdesk를 켜 주세요.",
+	"macPermissions.allowed": "허용됨",
+	"macPermissions.allow": "허용하기…",
+	"macPermissions.requestFailed": "macOS에 권한을 요청하지 못했어요",
+	"macPermissions.fixTitle":
+		"이 단계에는 macOS 권한이 필요해요. ‘허용하기…’를 누르고, 열리는 화면에서 OMPdesk를 켠 뒤 돌아오세요.",
+	"macPermissions.fixDone": "허용됐어요. 에이전트에게 다시 시도하라고 해 주세요.",
+	"macPermissions.otherComputer":
+		"이 세션은 다른 컴퓨터에서 실행돼요. 그 컴퓨터의 설정 › 에이전트 동작에서 권한을 허용해 주세요.",
 	"settings.gui.autoMode": "자동 모드",
 	"settings.gui.autoModeDesc": "새 요청 하나에만 계획·목표를 써요. 내 모드는 바꾸지 않아요",
 	"settings.gui.autoPreviewDevServer": "개발 서버를 미리보기로 열기",

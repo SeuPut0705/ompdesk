@@ -262,6 +262,19 @@ async function openSettingsModels(page: Page, look: Look): Promise<void> {
 	await row.scrollIntoViewIfNeeded();
 }
 
+/** Settings › Agent behavior, scrolled to Computer use engine and the two macOS permission rows under it. */
+async function openSettingsComputerUse(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="agent"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	const row = page.locator("[data-settings-page] #setting-gui-macPermission-screen");
+	await row.waitFor({ state: "visible", timeout: 30_000 });
+	await page.locator("[data-settings-page] #setting-gui-computerUse").scrollIntoViewIfNeeded();
+	await row.scrollIntoViewIfNeeded();
+}
+
 async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
 	await openDrawer(page, look);
 	await page.locator('[data-destination="settings"]').first().click();
@@ -885,6 +898,17 @@ export const SURFACES: readonly Surface[] = [
 		open: openSettingsModels,
 		ready: "[data-settings-page] [data-local-engine-detect]",
 		settle: 900,
+		parity: { session: "work" },
+	},
+	{
+		id: "settings-computer-use",
+		area: "B",
+		title: "Settings › Agent behavior, scrolled to Computer use engine and the macOS permission rows under it",
+		open: openSettingsComputerUse,
+		ready: "[data-settings-page] [data-mac-permission]",
+		settle: 900,
+		// The rows read the computer's macOS permissions from main: the audits' harness page has no such computer.
+		when: () => false,
 		parity: { session: "work" },
 	},
 	// Settings › Memory: every tab, and the list → detail states of Pages, Handoffs and Sessions.

@@ -732,6 +732,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.DEFAULT_BROWSER_INSTALL_RELAY, {
 					browser,
 				} satisfies IpcInstallBrowserRelayPayload),
+			macPermissionsStatus: () => transport.invoke(IPC_COMMANDS.MAC_PERMISSIONS_STATUS),
+			requestMacPermission: permission => transport.invoke(IPC_COMMANDS.MAC_PERMISSIONS_REQUEST, { permission }),
 			updateLaunchProfile: (cwd, patch, device) =>
 				transport.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch, device }),
 			onChanged: callback => subscribe<IpcPrefsChangedPayload>(IPC_EVENTS.PREFS_CHANGED, callback),

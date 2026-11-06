@@ -132,6 +132,7 @@ import {
 	type TrayState,
 } from "../shared/ipc-types";
 import { LOCAL_ENGINE_DETECT_PREF } from "../shared/local-engines";
+import { isMacPermission } from "../shared/mac-permissions";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
@@ -190,6 +191,7 @@ import { readOriginFacts, readProjectOrigin } from "./local/git/origin";
 import { WORKTREE_PREPARE_BUDGET_MS } from "./local/git/worktree-seed";
 import { noteTypedPrompt } from "./local/prompt-origin";
 import type { LogWatcher } from "./log-watcher";
+import type { MacPermissions } from "./mac-permissions";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
 import type { MediaStreams } from "./media-stream";
@@ -270,6 +272,8 @@ export interface IpcDeps {
 	fileEditReports: FileEditReports;
 	/** Where every handler here registers (index.ts's one table). */
 	ipc: IpcRegistry;
+	/** Accessibility and Screen Recording for computer use on this Mac (null answers elsewhere). */
+	macPermissions: Pick<MacPermissions, "status" | "request">;
 	sidecarPool: SidecarPool;
 	sessionIndex: SessionIndex;
 	/** This computer's models.yml, stats server and `omp bench`; a paired host serves its own. */
@@ -2557,6 +2561,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return { dir };
 		},
 	);
+	ipc.handle(IPC_COMMANDS.MAC_PERMISSIONS_STATUS, () => deps.macPermissions.status());
+	ipc.handle(IPC_COMMANDS.MAC_PERMISSIONS_REQUEST, (_caller, payload: { permission?: unknown }) => {
+		if (!isMacPermission(payload?.permission)) throw new Error("Unknown macOS permission");
+		return deps.macPermissions.request(payload.permission);
+	});
 
 	ipc.handle(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, (_caller, payload: IpcUpdateLaunchProfilePayload) => {
 		const device = deviceOf(payload?.device);

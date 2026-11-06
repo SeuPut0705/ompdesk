@@ -288,7 +288,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // parser are a chunk of their own (tools/index.tsx `LazyAgentDesktopRenderer`, 5,255 bytes kept out): 2,160,895.
 // An agent-desktop row's own state (6 Nov 2026, ToolCard `isAgentDesktopNoMatch`, "Nothing matched": a look that matched
 // nothing reads so on the row of the transcript, the first screen) and its target key naming `ref` as `ref_id`: 2,161,237.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_161_237;
+// The macOS permissions computer use needs (6 Nov 2026): the matcher for stock's "… permission is not granted"
+// (`lib/mac-permission-error.ts`, the eager `ComputerRenderer`/`EvalRenderer` ask it), their strings in the English
+// catalog and the lazy fix's wrapper; the fix itself is a chunk of its own (`LazyMacPermissionFix`): 2,162,145.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_162_145;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

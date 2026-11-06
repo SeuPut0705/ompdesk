@@ -3,15 +3,16 @@
  * App lifecycle: ready → window, sidecar, session index, IPC, tray, menu, deep links, updater.
  */
 
+import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir, release } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 import {
 	app,
 	BrowserWindow,
 	clipboard,
-	desktopCapturer,
 	dialog,
 	globalShortcut,
 	ipcMain,
@@ -96,6 +97,7 @@ import { BotActivityLog } from "./agent-control/bot-activity";
 import { BotDesk } from "./agent-control/bot-desk";
 import { BotHome } from "./agent-control/bot-home";
 import { TurnGate } from "./agent-control/turn-gate";
+import { agentDesktopToRun } from "./agent-desktop";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
 import { lowerAgentPriority } from "./agent-priority";
@@ -157,7 +159,7 @@ import { stockWorktreeLocation, tablessWorktreeBridge } from "./local/git/worktr
 import { renameStoredSession } from "./local/session-files";
 import { LocalEngineDetector, localEngineSettings, probeLocalEngine } from "./local-engines";
 import { LogWatcher } from "./log-watcher";
-import { askMacPermissionsOnce } from "./mac-permissions";
+import { MacPermissions } from "./mac-permissions";
 import { LocalMachine } from "./machine-services";
 import { MailAccounts, plainImapConnect } from "./mail-accounts";
 import { McpHub } from "./mcp-hub";
@@ -1379,26 +1381,36 @@ app.whenReady().then(() => {
 				statsLaunchSettled = true;
 			});
 	void launchStats();
-	// Accessibility and Screen Recording cannot be granted by an app: ask the OS once, after the first tab is up, so
-	// computer use (agents have every power by default) shows the system prompt instead of failing silently.
-	void afterFirstTab().then(() =>
-		askMacPermissionsOnce({
-			platform: process.platform,
-			automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
-			prefs: prefsStore(),
-			accessibilityTrusted: prompt => systemPreferences.isTrustedAccessibilityClient(prompt),
-			screenStatus: () => systemPreferences.getMediaAccessStatus("screen"),
-			requestScreenCapture: async () => {
-				await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
-			},
-		}).catch(error =>
-			writeRuntimeLog({
-				source: "background-task",
-				message: "mac-permissions-failed",
-				details: { error: String(error) },
-			}),
-		),
-	);
+	// Accessibility and Screen Recording cannot be granted by an app: macOS checks OMPdesk's grant for both engines.
+	// After the first tab is up, a missing one OMPdesk never asked for gets macOS's own prompt; Settings › Agent
+	// behavior › Computer use and a failed computer-use step keep the state and the button.
+	const macPermissions = new MacPermissions({
+		platform: process.platform,
+		prefs: prefsStore(),
+		// The copy sessions run (the bundled one, or a newer managed one): it runs under OMPdesk either way.
+		agentDesktop: async () =>
+			(await agentDesktopToRun({ toolsDir, bundleDir: agentDesktopBundle, platform }))?.path ?? null,
+		run: async (executable, args) => (await promisify(execFile)(executable, [...args], { timeout: 30_000 })).stdout,
+		accessibilityTrusted: prompt => systemPreferences.isTrustedAccessibilityClient(prompt),
+		screenGranted: () => systemPreferences.getMediaAccessStatus("screen") === "granted",
+		openPane: url => shell.openExternal(url),
+	});
+	// Only a packaged, non-headless app asks on its own: a dev or test launch must never raise a system prompt.
+	if (app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") {
+		void afterFirstTab()
+			.then(() => macPermissions.askMissing())
+			.then(asked => {
+				if (asked.length > 0)
+					writeRuntimeLog({ source: "background-task", message: "mac-permissions-asked", details: { asked } });
+			})
+			.catch(error =>
+				writeRuntimeLog({
+					source: "background-task",
+					message: "mac-permissions-failed",
+					details: { error: String(error) },
+				}),
+			);
+	}
 
 	// This machine's setup: detect Bun/omp/Git/gh/Node and, in a packaged app,
 	// install what is missing on its own (src/main/setup/). Tests opt in with a
@@ -2172,6 +2184,7 @@ app.whenReady().then(() => {
 	registerIpcHandlers({
 		fileEditReports,
 		ipc,
+		macPermissions,
 		sidecarPool,
 		sessionIndex,
 		machine,

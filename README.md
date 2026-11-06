@@ -83,7 +83,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 
 - **Is it the official omp app?** No. It is an unofficial app that drives the omp you have installed; omp itself is never modified.
 - **Does it cost anything?** No. It is open source under the Apache License 2.0 and needs no account. Your model providers bill you as they do in the terminal.
-- **Can the agent control my computer?** Computer use is on by default, and only one session drives the desktop at a time. On macOS it needs Screen Recording and Accessibility granted to OMPdesk. With omp's default tool approval the agent acts without asking: set **Tool approval** to always ask in Settings › Permissions & security, or turn it off with `/computer off`.
+- **Can the agent control my computer?** Computer use is on by default, and only one session drives the desktop at a time. On macOS it needs Screen & System Audio Recording and Accessibility granted to OMPdesk: OMPdesk asks macOS once on its own, and Settings › Agent behavior shows each permission with an **Allow…** button (so does a computer-use step that failed for one). With omp's default tool approval the agent acts without asking: set **Tool approval** to always ask in Settings › Permissions & security, or turn it off with `/computer off`.
 - **I closed the window and the app is still running.** By design: tasks continue until you quit (⌘Q or the tray menu).
 - **Something else broke.** See [Troubleshooting](docs/troubleshooting.md), or open an [issue](https://github.com/SeuPut0705/ompdesk/issues).
 

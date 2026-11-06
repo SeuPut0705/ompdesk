@@ -1,8 +1,10 @@
 import { CircleX, Code2 } from "lucide-react";
 import { extractImageDataUrls, formatDuration, resultDetails, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { needsMacPermission } from "../../../lib/mac-permission-error";
 import { asArray, asNumber, asRecord, asString } from "../../../lib/wire-value";
 import { CodeBlock } from "../../chat/CodeBlock";
+import { LazyMacPermissionFix } from "../../chat/LazyMacPermissionFix";
 import { Spinner } from "../../common";
 import { ResultImages } from "../media/ResultImages";
 import type { ToolRendererProps } from "../ToolCard";
@@ -170,6 +172,7 @@ export function EvalRenderer({ args, result, isError, isPartial, partialResult, 
 			<ResultImages images={images} livePreview={livePreview} />
 			{notice && !livePreview && <div className="text-sc-xs text-(--sc-text-subtle)">{notice}</div>}
 			{truncation && !livePreview && <TruncationNote notice={truncation} />}
+			{!livePreview && !isPartial && needsMacPermission(text) && <LazyMacPermissionFix />}
 			{backgrounded ? (
 				<div className="omp-bash-notes text-sc-xs text-(--sc-text-subtle)">
 					{t("tools.bash.background", { id: backgrounded })}

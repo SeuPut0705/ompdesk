@@ -1,31 +1,131 @@
-/** Prefs key set before the macOS prompts are shown, so a person who declines them is never asked again. */
-export const MAC_PERMISSIONS_ASKED_PREF = "macPermissionsAsked";
+import { MAC_PERMISSIONS, type MacPermission, type MacPermissionStatus } from "../shared/mac-permissions";
+
+/**
+ * The permissions OMPdesk has asked macOS for on its own, once each: a person who declines is not asked again at the
+ * next launch (Settings › Agent behavior › Computer use keeps the state and the button).
+ */
+export const MAC_PERMISSIONS_REQUESTED_PREF = "macPermissionsRequested";
+
+/** The pane of System Settings › Privacy & Security that holds each switch. */
+const PANES: Record<MacPermission, string> = {
+	accessibility: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+	screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+};
 
 export interface MacPermissionDeps {
 	platform: NodeJS.Platform;
-	/** Only a packaged, non-headless app asks: a dev or test launch must never raise a system prompt. */
-	automatic: boolean;
 	prefs: { get(key: string): unknown; set(key: string, value: unknown): void };
+	/** The agent-desktop executable sessions run (bundled with the app, or a newer managed copy), else null. */
+	agentDesktop(): Promise<string | null>;
+	/** Runs an executable; resolves its stdout, rejects when it cannot run, exits non-zero or outlasts its bound. */
+	run(executable: string, args: readonly string[]): Promise<string>;
 	/** `systemPreferences.isTrustedAccessibilityClient(prompt)`. */
 	accessibilityTrusted(prompt: boolean): boolean;
-	/** `systemPreferences.getMediaAccessStatus("screen")`. */
-	screenStatus(): string;
-	/** A screen capture request, which is what makes macOS show the Screen Recording prompt. */
-	requestScreenCapture(): Promise<void>;
+	/** `systemPreferences.getMediaAccessStatus("screen") === "granted"`. */
+	screenGranted(): boolean;
+	openPane(url: string): Promise<void>;
+}
+
+/** A field of a parsed JSON object, when there is one. */
+function field(value: unknown, key: string): unknown {
+	return typeof value === "object" && value !== null && key in value ? Reflect.get(value, key) : undefined;
+}
+
+/** `agent-desktop permissions` as it prints it: `{data: {accessibility: {state}, screen_recording: {state}}}`. */
+function parseAgentDesktop(stdout: string): MacPermissionStatus | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(stdout);
+	} catch {
+		return null;
+	}
+	const data = field(parsed, "data");
+	const accessibility = field(field(data, "accessibility"), "state");
+	const screen = field(field(data, "screen_recording"), "state");
+	if (typeof accessibility !== "string" || typeof screen !== "string") return null;
+	return { accessibility: accessibility === "granted", screen: screen === "granted" };
 }
 
 /**
- * Accessibility and Screen Recording cannot be granted by an app, only by the person in System Settings. Computer
- * use (the `computer` eval prelude) runs inside omp, which macOS attributes to OMPdesk, so OMPdesk asks the OS once
- * on the first launch after agents got every power by default: the system prompt reaches the person without a hunt
- * through Settings. Remembered before the prompts show; a declined or ignored prompt is never repeated.
- * Returns whether it asked.
+ * Accessibility and Screen & System Audio Recording for computer use. Both engines run under OMPdesk, so macOS checks
+ * OMPdesk's grant (TCC's responsible process) for either.
+ *
+ * - The state is read by a fresh `agent-desktop permissions` when it is installed: the engine's own view, and a new
+ *   process each time, so a switch the person just turned on reads granted. Without it, Electron's own reading.
+ * - Asking: Electron's `getMediaAccessStatus("screen")` says `denied` while macOS has no record of OMPdesk at all
+ *   (measured, macOS 27: tccd answered `Unknown (None)` at the same moment), so it cannot tell "never asked" from
+ *   "declined", and a capture request from Electron never put OMPdesk in the list. `agent-desktop permissions
+ *   --request` does: its request reaches tccd as OMPdesk's, which adds OMPdesk to the list and shows macOS's prompt.
+ *   Accessibility is asked with `isTrustedAccessibilityClient(true)`, which does the same.
  */
-export async function askMacPermissionsOnce(deps: MacPermissionDeps): Promise<boolean> {
-	if (deps.platform !== "darwin" || !deps.automatic) return false;
-	if (deps.prefs.get(MAC_PERMISSIONS_ASKED_PREF) === true) return false;
-	deps.prefs.set(MAC_PERMISSIONS_ASKED_PREF, true);
-	deps.accessibilityTrusted(true);
-	if (deps.screenStatus() === "not-determined") await deps.requestScreenCapture();
-	return true;
+export class MacPermissions {
+	readonly #deps: MacPermissionDeps;
+
+	constructor(deps: MacPermissionDeps) {
+		this.#deps = deps;
+	}
+
+	/** Whether each is granted now; null off macOS. */
+	async status(): Promise<MacPermissionStatus | null> {
+		const deps = this.#deps;
+		if (deps.platform !== "darwin") return null;
+		const executable = await deps.agentDesktop();
+		if (executable) {
+			const read = await deps.run(executable, ["permissions"]).then(parseAgentDesktop, () => null);
+			if (read) return read;
+		}
+		return { accessibility: deps.accessibilityTrusted(false), screen: deps.screenGranted() };
+	}
+
+	async #ask(permission: MacPermission): Promise<boolean> {
+		const deps = this.#deps;
+		if (permission === "accessibility") {
+			deps.accessibilityTrusted(true);
+			return true;
+		}
+		const executable = await deps.agentDesktop();
+		if (!executable) return false;
+		await deps.run(executable, ["permissions", "--request"]);
+		return true;
+	}
+
+	/** The person's button: ask macOS (it lists OMPdesk and prompts once), then open the pane with the switch. */
+	async request(permission: MacPermission): Promise<MacPermissionStatus | null> {
+		if (this.#deps.platform !== "darwin") return null;
+		await this.#ask(permission).catch(() => false);
+		this.#remember(permission);
+		await this.#deps.openPane(PANES[permission]);
+		return this.status();
+	}
+
+	/**
+	 * At launch: asks macOS for each permission still missing that OMPdesk never asked for, so its prompt reaches the
+	 * person without a hunt through Settings. One that could not be asked yet (Screen Recording before machine setup
+	 * installed agent-desktop) is asked at a later launch. Returns what it asked.
+	 */
+	async askMissing(): Promise<MacPermission[]> {
+		const status = await this.status();
+		if (!status) return [];
+		const asked: MacPermission[] = [];
+		for (const permission of MAC_PERMISSIONS) {
+			if (status[permission] || this.#requested().includes(permission)) continue;
+			if (await this.#ask(permission)) {
+				this.#remember(permission);
+				asked.push(permission);
+			}
+		}
+		return asked;
+	}
+
+	#requested(): MacPermission[] {
+		const stored = this.#deps.prefs.get(MAC_PERMISSIONS_REQUESTED_PREF);
+		return MAC_PERMISSIONS.filter(permission => Array.isArray(stored) && stored.includes(permission));
+	}
+
+	#remember(permission: MacPermission): void {
+		const requested = this.#requested();
+		if (!requested.includes(permission)) {
+			this.#deps.prefs.set(MAC_PERMISSIONS_REQUESTED_PREF, [...requested, permission]);
+		}
+	}
 }

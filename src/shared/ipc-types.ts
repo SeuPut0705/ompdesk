@@ -39,6 +39,7 @@ import type { GithubAuthState, GithubStarState } from "./github-auth";
 import type { IpcErrorCode } from "./ipc-error-codes";
 import type { LaunchProfile } from "./launch-profile";
 import type { LocalEngineDetectState } from "./local-engines";
+import type { MacPermission, MacPermissionStatus } from "./mac-permissions";
 import type { MailAccountsApi } from "./mail-accounts";
 import type { MobileWebApi } from "./mobile-web";
 import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
@@ -326,6 +327,10 @@ export const IPC_COMMANDS = {
 	DEFAULT_BROWSER_STATUS: "prefs:default-browser-status",
 	/** Install the omp Browser Relay extension for a Chromium browser and open its extensions page */
 	DEFAULT_BROWSER_INSTALL_RELAY: "prefs:default-browser-install-relay",
+	/** Whether macOS grants OMPdesk Accessibility and Screen Recording for computer use, read afresh (null off macOS) */
+	MAC_PERMISSIONS_STATUS: "prefs:mac-permissions-status",
+	/** Ask macOS for one of them (it lists OMPdesk and prompts once) and open its pane of System Settings */
+	MAC_PERMISSIONS_REQUEST: "prefs:mac-permissions-request",
 	/** Restart sidecar */
 	SIDECAR_RESTART: "sidecar:restart",
 	/** Get sidecar status */
@@ -2543,6 +2548,10 @@ export interface OmpApi {
 		defaultBrowserStatus(): Promise<AgentBrowserStatus>;
 		/** Write the omp Browser Relay extension to disk, open the browser's extensions page and show the folder. */
 		installBrowserRelay(browser: ChromiumBrowserId): Promise<IpcInstallBrowserRelayResult>;
+		/** Whether macOS grants OMPdesk each permission computer use needs; read afresh. Null off macOS. */
+		macPermissionsStatus(): Promise<MacPermissionStatus | null>;
+		/** Ask macOS for one (its prompt shows the first time), open the pane with its switch, then read the state again. */
+		requestMacPermission(permission: MacPermission): Promise<MacPermissionStatus | null>;
 		/** Another window wrote a preference. */
 		onChanged(callback: (payload: IpcPrefsChangedPayload) => void): () => void;
 	};

@@ -88,6 +88,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "workBoard",
 		why: "The work board docks whenever the pane has room (`workBoardFits`); its ✕ hides it for that window only.",
 	},
+	{
+		key: "macPermissionsAsked",
+		why: "Its one ask never reached macOS (Electron reads an unasked Screen Recording as denied); `macPermissionsRequested` (src/main/mac-permissions.ts) records the asks that did, so everyone is asked once again.",
+	},
 ];
 
 /**

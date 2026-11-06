@@ -6421,6 +6421,20 @@ export const en: Record<string, string> = {
 		"agent-desktop is not installed yet, so sessions use the built-in computer use until it is.",
 	"settings.gui.computerUseVersion": "agent-desktop {version} is installed.",
 	"settings.gui.computerUseInstalled": "agent-desktop is installed.",
+	"macPermissions.accessibility": "Accessibility",
+	"macPermissions.accessibilityDesc":
+		"macOS permission for computer use to click and type in apps on this Mac. Allow… asks macOS and opens the pane; turn on OMPdesk there.",
+	"macPermissions.screen": "Screen & System Audio Recording",
+	"macPermissions.screenDesc":
+		"macOS permission for computer use to take screenshots of apps on this Mac. Allow… asks macOS and opens the pane; turn on OMPdesk there.",
+	"macPermissions.allowed": "Allowed",
+	"macPermissions.allow": "Allow…",
+	"macPermissions.requestFailed": "Couldn't ask macOS for the permission",
+	"macPermissions.fixTitle":
+		"This step needs a macOS permission. Allow it, turn on OMPdesk in the pane that opens, then come back.",
+	"macPermissions.fixDone": "Allowed. Ask the agent to try again.",
+	"macPermissions.otherComputer":
+		"This session runs on another computer: allow the permission there, in Settings › Agent behavior.",
 	"settings.gui.autoMode": "Auto mode",
 	"settings.gui.autoModeDesc": "Uses Plan or Goal for one new request, never changes your mode",
 	"settings.gui.autoPreviewDevServer": "Open dev servers in Preview",

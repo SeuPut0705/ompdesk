@@ -8,6 +8,7 @@ import { ComputerUseRow } from "./ComputerUseRow";
 import { DefaultBrowserRow } from "./DefaultBrowserRow";
 import { EccRow } from "./EccRow";
 import { JudgeAssistRow } from "./JudgeAssistRow";
+import { MacPermissionRows } from "./MacPermissionRows";
 import { NextPromptRow } from "./NextPromptRow";
 import { OwnedSchemaSettings, useOwnedSchemaGroups } from "./OwnedSchemaSettings";
 import { PstackRow } from "./PstackRow";
@@ -74,6 +75,7 @@ export function AgentSection() {
 				<EccRow />
 				<DefaultBrowserRow />
 				<ComputerUseRow />
+				<MacPermissionRows />
 			</SettingsSection>
 			<SettingsSection id="settings-agent-modes" title={t("settings.agent.modes")}>
 				<AgentModes />
