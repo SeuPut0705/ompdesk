@@ -763,16 +763,21 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		for (const ghost of ghosts) if (!get().tabs.some(tab => tab.id === ghost.id)) deleteSessionRuntime(ghost.id);
 		// A runtime made here missed the TAB_STATUS that told its status (a paired page that resyncs after the host
 		// restarted learns the new tab ids only from this list, after their `ready` went by): the list's status is it.
-		const shown = visibleTabIds(get());
 		for (const info of fresh) {
 			const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
 			if (!session) continue;
 			session.getState().setStatus(info.status === "running" ? "ready" : info.status, info.cwd);
 			session.setState({ isStreaming: info.status === "running" });
-			// Nor did it hear the starts of the subagents that already run: one read of the roster, so the tab's sidebar
-			// row counts them now. A shown tab's hydration reads it.
-			if (info.status === "running" && !shown.includes(info.tabId))
-				void sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents")?.getState().refresh();
+		}
+		// Nor did a runtime made by this page (this list, or a status push that named the tab first) hear the starts of
+		// the subagents a hidden running tab already runs: one read of its roster per runtime, so the tab's sidebar row
+		// counts them now. A shown tab's hydration reads it.
+		const shown = visibleTabIds(get());
+		for (const info of list) {
+			const runtime = sessionRuntime(info.tabId);
+			if (info.status !== "running" || shown.includes(info.tabId) || !runtime || rosterRead.has(runtime)) continue;
+			rosterRead.add(runtime);
+			void sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents")?.getState().refresh();
 		}
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
@@ -1538,6 +1543,9 @@ export function settleTabExtensionUiRequests(open: readonly IpcOpenExtensionRequ
 
 /** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */
 const watchedRuntimes = new WeakSet<SessionRuntime>();
+
+/** Runtimes of hidden running tabs whose subagent roster a tab list already had read (`reconcileTabs`). */
+const rosterRead = new WeakSet<SessionRuntime>();
 
 /**
  * Mirror "this tab's session blocks on the user" (a response-bearing extension
