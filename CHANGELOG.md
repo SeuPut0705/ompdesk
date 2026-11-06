@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.118.1] - 2026-11-06
+
+휴대폰에서 지운 세션과 사이드바에서 뺀 프로젝트가 누르기 전까지 목록에 남던 문제를 고쳤어요. 이제 바로 사라져요.
+
+### 고친 것
+- 에이전트가 세션을 지우거나(`ompdesk_session_stop {delete}`), 페어링된 컴퓨터나 다른 창에서 지우거나, 프로젝트를 사이드바에서 빼도 휴대폰 서랍에는 그대로 남아 있다가 한 번 눌러야 사라지던 문제를 고쳤어요. 컴퓨터가 세션 목록과 프로젝트 목록의 변화를 데스크톱 창에만 알리고 휴대폰 페이지에는 알리지 않았기 때문이에요. 이제 데스크톱 창, 페어링된 컴퓨터, 휴대폰 모두 누르지 않아도 바로 목록에서 빠져요. 실행 중 표시와 다른 창이 연 세션 표시도 휴대폰에 바로 반영돼요.
+<!-- en -->
+
+A session deleted elsewhere and a project removed from the sidebar no longer stay in the phone's list until tapped. They disappear at once.
+
+### Fixed
+- A session an agent deleted (`ompdesk_session_stop {delete}`), one deleted from a paired computer or another window, and a project removed from the sidebar stayed in the phone's drawer until a tap. The computer told only its desktop windows about changes to its session and project lists, never the phone's page. Now desktop windows, paired computers and the phone all drop them with no tap, and the phone's running marks and its rows held by other windows follow live too.
+
 ## [0.118.0] - 2026-11-06
 
 작업 카드는 작업이 오류로 끝났을 때만 빨간 ✕와 오류 상자를 보여 줘요. 에이전트가 이어서 처리한 중간 오류는 색 없는 '중간 오류 N'으로 남아요.
