@@ -706,35 +706,34 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
 	sidecarPool.selfDeviceId = () => deps.remoteDevices.deviceId;
 
-	// The session list changed: every window here gets what changed (a window holding the last version applies it and
-	// asks nothing), and so does every device using this computer as its host.
+	// Every window here and every paired phone page (`broadcast` reaches the desktop's own only): a page whose list
+	// never heard a delete kept the deleted row until a tap remounted its drawer.
+	const everywhere = (channel: string, data: unknown) => {
+		broadcast(windowManager, channel, data);
+		for (const page of deps.webPages?.() ?? []) if (!page.isDestroyed()) page.webContents.send(channel, data);
+	};
+	// The session list changed: every window and page here gets what changed (one holding the last version applies it
+	// and asks nothing), and so does every device using this computer as its host.
 	sessionIndex.onListChange = delta => {
-		broadcast(
-			windowManager,
-			IPC_EVENTS.SESSIONS_CHANGED,
-			(delta ? { list: delta } : {}) satisfies IpcSessionsChanged,
-		);
+		everywhere(IPC_EVENTS.SESSIONS_CHANGED, (delta ? { list: delta } : {}) satisfies IpcSessionsChanged);
 		remoteDevices.hostSessionsChanged();
 		deps.sidebarProjects?.schedule();
 	};
 	// The sessions this computer runs for paired devices are every window's sidebar rows too.
 	deps.hostedTabs.onHostedSessionsChange(() =>
-		broadcast(windowManager, IPC_EVENTS.HOSTED_SESSIONS_CHANGED, deps.hostedTabs.hostedSessions()),
+		everywhere(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, deps.hostedTabs.hostedSessions()),
 	);
 	// What this computer works on now lights the rows no tab of a window holds (another window's, a phone page's).
 	deps.hostedTabs.onLiveSessionsChange(() =>
-		broadcast(windowManager, IPC_EVENTS.LIVE_SESSIONS_CHANGED, deps.hostedTabs.liveSessions()),
+		everywhere(IPC_EVENTS.LIVE_SESSIONS_CHANGED, deps.hostedTabs.liveSessions()),
 	);
 	// The tabs this computer's sessions opened on paired devices: every other window and phone page nests them under
 	// their opener as the window holding them does.
-	deps.hostedTabs.onRemoteOpenedChange(() => {
-		const tabs = deps.hostedTabs.remoteOpened();
-		broadcast(windowManager, IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, tabs);
-		for (const page of deps.webPages?.() ?? [])
-			if (!page.isDestroyed()) page.webContents.send(IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, tabs);
-	});
+	deps.hostedTabs.onRemoteOpenedChange(() =>
+		everywhere(IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, deps.hostedTabs.remoteOpened()),
+	);
 	deps.hostedTabs.onWindowHeldSessionsChange(() =>
-		broadcast(windowManager, IPC_EVENTS.SESSIONS_HELD_CHANGED, [...deps.hostedTabs.windowHeldSessions()]),
+		everywhere(IPC_EVENTS.SESSIONS_HELD_CHANGED, [...deps.hostedTabs.windowHeldSessions()]),
 	);
 
 	// Host-level lookups on a paired host, shared by spawn/open/switch paths.
