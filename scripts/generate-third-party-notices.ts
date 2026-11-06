@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import aiMemorySource from "../native/memory/ompdesk.json" with { type: "json" };
+import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
 import { lockHash } from "./gen-ai-memory-notices";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -227,6 +228,14 @@ function vendoredSections(): string {
 			"its own license.",
 			"",
 			aiMemoryLicense,
+		].join("\n"),
+		[
+			`agent-desktop ${agentDesktopPin.version} (https://github.com/${agentDesktopPin.repo}, tag v${agentDesktopPin.version})`,
+			"The upstream release binaries (agent-desktop and agent-desktop-macos-helper on macOS, agent-desktop.exe",
+			"on Windows) ship unmodified inside the app under agent-desktop-bin/, unpacked from the release archive",
+			"scripts/agent-desktop-pin.json pins by scripts/build-agent-desktop.ts; on macOS they are re-signed with",
+			"the app. Licensed under the Apache License, Version 2.0 (full text: LICENSES/agent-desktop-LICENSE,",
+			"also shipped as agent-desktop-bin/LICENSE). Upstream publishes no NOTICE file.",
 		].join("\n"),
 		[
 			"reverse-engineer-anything skill from REA (rea-agents, https://github.com/morluto/rea)",

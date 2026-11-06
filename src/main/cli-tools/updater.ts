@@ -52,6 +52,8 @@ export interface CliUpdaterDeps {
 	enabled: () => boolean;
 	platform: CliPlatform;
 	toolsDir: string;
+	/** The agent-desktop the app ships (src/main/agent-desktop.ts): agent-desktop updates from its version. */
+	agentDesktopBundle?: string;
 	/** Stock provider ids with a stored credential; a failure lists none (machine-setup tools still count). */
 	connectedProviders: () => Promise<string[]>;
 	/** The spawn environment (login-shell PATH, proxies); its PATH is where tools are looked up. */
@@ -190,6 +192,7 @@ export class CliUpdater {
 		const ctx: InstallContext = {
 			platform: this.#deps.platform,
 			toolsDir: this.#deps.toolsDir,
+			agentDesktopBundle: this.#deps.agentDesktopBundle,
 			brew: findBrew(pathEnv, this.#deps.platform),
 		};
 		return { pathEnv, env, ctx };

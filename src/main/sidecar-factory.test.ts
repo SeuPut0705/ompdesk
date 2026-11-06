@@ -7,7 +7,6 @@ import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-p
 import { BridgeHealth } from "./bridge-health";
 import { setControlEndpoint } from "./control-socket/env";
 import { SessionKindStore } from "./session-kinds";
-import { managedAgentDesktop } from "./setup/paths";
 import type { SidecarOptions } from "./sidecar";
 import { localSidecarFactory } from "./sidecar-factory";
 
@@ -359,8 +358,9 @@ describe("localSidecarFactory", () => {
 		expect(hubAsked).toEqual(["/w/alpha", "/w/alpha"]);
 	});
 
-	it("mounts agent-desktop on every tab it spawns, hosted ones included, only while it is picked and installed, read per spawn", async () => {
+	it("mounts agent-desktop on every tab it spawns, hosted ones included, only while it is picked and present, read per spawn", async () => {
 		const tools = fs.mkdtempSync(path.join(os.tmpdir(), "omp-gui-factory-tools-"));
+		const bundle = path.join(tools, "bundle");
 		try {
 			let pick: unknown;
 			const create = localSidecarFactory({
@@ -379,14 +379,14 @@ describe("localSidecarFactory", () => {
 				accountRotationPref: () => undefined,
 				accountRotationLedger: "/ledger.json",
 				launchProfilesPref: () => undefined,
-				computerUse: { pref: () => pick, toolsDir: tools, platform: "darwin" },
+				computerUse: { pref: () => pick, toolsDir: tools, bundleDir: bundle, platform: "darwin" },
 			});
 			created.length = 0;
 			create("/w/alpha", "agent", false);
 			create("/w/alpha", "agent", true, { deviceId: "peer-1", name: "Laptop", hostName: "Desk" });
-			const executable = managedAgentDesktop(tools, "darwin");
+			const executable = path.join(bundle, "agent-desktop");
 
-			// Picked (the default) but not installed yet: nothing mounted, and the bridge is told.
+			// Picked (the default), with no managed copy and no bundled one (a dev run): nothing mounted, the bridge is told.
 			for (const options of created) {
 				const missing = await options.builtinMcp?.();
 				expect(missing?.args).toEqual(FORMAL);
@@ -394,8 +394,9 @@ describe("localSidecarFactory", () => {
 				expect(missing?.env).not.toHaveProperty("OMP_GUI_AGENT_DESKTOP");
 			}
 
-			fs.mkdirSync(path.dirname(executable), { recursive: true });
+			fs.mkdirSync(bundle, { recursive: true });
 			fs.writeFileSync(executable, "");
+			fs.writeFileSync(path.join(bundle, "agent-desktop.build.json"), JSON.stringify({ version: "1.2.0" }));
 			for (const options of created) {
 				const mounted = await options.builtinMcp?.();
 				expect(mounted?.args).toEqual(["-e", path.join("/builtin", "agent-desktop"), ...FORMAL]);

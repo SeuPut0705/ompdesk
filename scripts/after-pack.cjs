@@ -78,6 +78,54 @@ async function checkAiMemory(context) {
 	}
 }
 
+/** The release the app ships (`bun run build:agent-desktop` unpacks it) and each packaged platform's pinned target. */
+const AGENT_DESKTOP_PIN = path.join(__dirname, "agent-desktop-pin.json");
+const AGENT_DESKTOP_TARGETS = { darwin: "darwin-arm64", win32: "win32-x64" };
+
+/**
+ * Fail the package unless the platform's agent-desktop is in the packed app's Resources (`agent-desktop-bin/`, from
+ * `bun run build:agent-desktop`): its build record names the pinned version, target and archive hash, every pinned
+ * binary is there byte-identical to the record (this runs before signing), executable on macOS (POSIX host only),
+ * with upstream's LICENSE beside it.
+ */
+async function checkAgentDesktop(context) {
+	const platform = context.electronPlatformName;
+	const key = AGENT_DESKTOP_TARGETS[platform];
+	if (!key) return;
+	const pin = JSON.parse(await fs.readFile(AGENT_DESKTOP_PIN, "utf8"));
+	const target = pin.targets[key];
+	const resources =
+		platform === "darwin"
+			? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources")
+			: path.join(context.appOutDir, "resources");
+	const directory = path.join(resources, "agent-desktop-bin");
+	let record;
+	try {
+		record = JSON.parse(await fs.readFile(path.join(directory, "agent-desktop.build.json"), "utf8"));
+		await fs.access(path.join(directory, "LICENSE"));
+	} catch {
+		throw new Error(
+			`${directory} has no agent-desktop build record or LICENSE; run \`bun run build:agent-desktop\` before packaging`,
+		);
+	}
+	if (record.version !== pin.version || record.target !== key || record.archiveSha256 !== target.sha256) {
+		throw new Error(
+			`${directory} holds agent-desktop ${record.version} (${record.target}), not the pinned ${pin.version} (${key}); run \`bun run build:agent-desktop\``,
+		);
+	}
+	for (const name of target.binaries) {
+		const file = path.join(directory, name);
+		const bytes = await fs.readFile(file).catch(() => {
+			throw new Error(`${file} is missing; run \`bun run build:agent-desktop\` before packaging`);
+		});
+		if (platform === "darwin" && process.platform !== "win32" && ((await fs.stat(file)).mode & 0o111) === 0)
+			throw new Error(`${file} is not executable`);
+		const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+		if (actual !== record.binaries[name])
+			throw new Error(`${file} hashes to ${actual}; its build record expects ${record.binaries[name]}`);
+	}
+}
+
 /**
  * electron-builder enables arbitrary ATS loads after applying mac.extendInfo so
  * its localhost updater exception works. Restore the app's explicit policy
@@ -86,6 +134,7 @@ async function checkAiMemory(context) {
 async function afterPack(context) {
 	await checkLocales(context);
 	await checkAiMemory(context);
+	await checkAgentDesktop(context);
 	if (context.electronPlatformName !== "darwin") return;
 
 	const bundle = `${context.packager.appInfo.productFilename}.app`;

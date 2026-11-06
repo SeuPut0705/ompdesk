@@ -1,0 +1,16 @@
+{
+	"repo": "vercel-labs/agent-desktop",
+	"version": "1.2.0",
+	"targets": {
+		"darwin-arm64": {
+			"file": "agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+			"sha256": "219813428bb1ad8decae172faed05c5964a2415170df402e2786ccfa6452ba82",
+			"binaries": ["agent-desktop", "agent-desktop-macos-helper"]
+		},
+		"win32-x64": {
+			"file": "agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+			"sha256": "a4199f741a441cedd349bf56c5eba01783b1261258b498efeb7ec9945220c3e8",
+			"binaries": ["agent-desktop.exe"]
+		}
+	}
+}

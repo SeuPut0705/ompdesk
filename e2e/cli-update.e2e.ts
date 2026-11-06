@@ -141,6 +141,9 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 			OMP_GUI_TEST_INSTALLER: installer,
 			OMP_GUI_TEST_CLI_UPDATES: "1",
 			OMP_GUI_TEST_BREW_DIRS: "",
+			// No bundled agent-desktop, whether or not this checkout ran `bun run build:agent-desktop`: machine setup's
+			// tools are not installed here.
+			OMP_GUI_TEST_AGENT_DESKTOP_BUNDLE: path.join(root, "no-agent-desktop"),
 			OMPDESK_FAKE_INSTALLER_DIR: installerDir,
 			OMPDESK_FAKE_CLAUDE_VERSION: versionFile,
 			OMPDESK_FAKE_PROVIDERS: "anthropic,openai-codex",

@@ -1,7 +1,15 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { PORTABLE_GIT } from "../src/main/setup/plans";
+import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
 import { checkAsset, healthReport, type PinnedAsset, pinnedAssets } from "./setup-assets-health";
+
+/** The agent-desktop release the app ships, as `bun run build:agent-desktop` downloads it: no lookup involved. */
+const SHIPPED = Object.entries(agentDesktopPin.targets).map(([key, target]) => ({
+	label: `agent-desktop ${agentDesktopPin.version} shipped in the app (${key})`,
+	url: `https://github.com/vercel-labs/agent-desktop/releases/download/v${agentDesktopPin.version}/${target.file}`,
+	sha256: target.sha256,
+}));
 
 const bytes = new TextEncoder().encode("PortableGit bytes");
 const sha = createHash("sha256").update(bytes).digest("hex");
@@ -37,7 +45,7 @@ function listings(overrides: Record<string, string> = {}): (url: string) => Prom
 }
 
 describe("pinnedAssets", () => {
-	it("lists both pinned PortableGits and the gh, Node and agent-desktop archives the app would download, with their checksums", async () => {
+	it("lists both pinned PortableGits, the gh, Node and agent-desktop archives the app would download and the agent-desktop it ships, with their checksums", async () => {
 		const { assets, failures } = await pinnedAssets(listings());
 		expect(failures).toEqual([]);
 		expect(assets).toEqual([
@@ -78,6 +86,7 @@ describe("pinnedAssets", () => {
 				url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
 				sha256: "1".repeat(64),
 			},
+			...SHIPPED,
 		]);
 	});
 
@@ -89,7 +98,11 @@ describe("pinnedAssets", () => {
 				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": `${"e".repeat(64)}  other.tar.gz`,
 			}),
 		);
-		expect(assets.map(entry => entry.label)).toEqual(["PortableGit 2.56.0.2 (x64)", "PortableGit 2.56.0.2 (arm64)"]);
+		expect(assets.map(entry => entry.label)).toEqual([
+			"PortableGit 2.56.0.2 (x64)",
+			"PortableGit 2.56.0.2 (arm64)",
+			...SHIPPED.map(entry => entry.label),
+		]);
 		expect(failures).toEqual([
 			"Node.js lookup (macOS arm64): nodejs.org lists no supported LTS release",
 			"Node.js lookup (macOS x64): nodejs.org lists no supported LTS release",

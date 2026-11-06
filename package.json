@@ -19,6 +19,7 @@
     "gen:icons": "bun scripts/gen-icons.ts",
     "sync:rea-skill": "bun scripts/sync-rea-skill.ts",
     "build:memory": "bun scripts/build-memory.ts",
+    "build:agent-desktop": "bun scripts/build-agent-desktop.ts",
     "sync:pstack": "bun scripts/sync-pstack.ts",
     "sync:ecc": "bun scripts/sync-ecc.ts",
     "gen:licenses": "bun scripts/generate-third-party-notices.ts",

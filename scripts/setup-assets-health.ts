@@ -1,11 +1,13 @@
 /**
- * Health check for what machine setup (src/main/setup/) downloads on a user's
- * first launch: both pinned PortableGits (plans.ts), the gh and Node.js
- * archives a Mac without Homebrew installs and the agent-desktop archives of
- * macOS and Windows (archives.ts, resolved exactly the way the app resolves
- * them). Each file is downloaded in full through the
- * app's own downloader (download.ts), so it passes only when the URL still
- * resolves and its bytes still match the pinned or published SHA-256.
+ * Health check for what OMPdesk downloads to set a machine up: both pinned
+ * PortableGits (plans.ts), the gh and Node.js archives a Mac without Homebrew
+ * installs, the agent-desktop archives of macOS and Windows its updates install
+ * (archives.ts, resolved exactly the way the app resolves them), and the
+ * agent-desktop release the app ships (scripts/agent-desktop-pin.json, which
+ * `bun run build:agent-desktop` downloads for every package). Each file is
+ * downloaded in full through the app's own downloader (download.ts), so it
+ * passes only when the URL still resolves and its bytes still match the pinned
+ * or published SHA-256.
  *
  *   bun scripts/setup-assets-health.ts [--report <file.md>]
  *
@@ -19,6 +21,7 @@ import { join } from "node:path";
 import { type FetchText, resolveAgentDesktopRelease, resolveArchiveRelease } from "../src/main/setup/archives";
 import { type DownloadFetch, downloadVerified } from "../src/main/setup/download";
 import { PORTABLE_GIT } from "../src/main/setup/plans";
+import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
 
 export interface PinnedAsset {
 	label: string;
@@ -73,6 +76,13 @@ export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: Pinn
 		} catch (error) {
 			failures.push(`agent-desktop lookup (${where}): ${error instanceof Error ? error.message : String(error)}`);
 		}
+	}
+	for (const [key, target] of Object.entries(agentDesktopPin.targets)) {
+		assets.push({
+			label: `agent-desktop ${agentDesktopPin.version} shipped in the app (${key})`,
+			url: `https://github.com/${agentDesktopPin.repo}/releases/download/v${agentDesktopPin.version}/${target.file}`,
+			sha256: target.sha256,
+		});
 	}
 	return { assets, failures };
 }

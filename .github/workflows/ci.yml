@@ -380,6 +380,8 @@ jobs:
       - if: steps.memory-cache.outputs.cache-hit == 'true'
         name: Check the cached memory binary
         run: bun run build:memory -- --check
+      - name: Unpack the pinned agent-desktop
+        run: bun run build:agent-desktop
       - name: Package
         run: bunx electron-builder --config electron-builder.win.yml --win --x64 --publish never
       - name: Stage the setup under its release name and the assisted-installer release
@@ -468,6 +470,8 @@ jobs:
       - if: steps.memory-cache.outputs.cache-hit == 'true'
         name: Check the cached memory binary
         run: bun run build:memory -- --check
+      - name: Unpack the pinned agent-desktop
+        run: bun run build:agent-desktop
       # e2e/first-launch-window.e2e.ts launches dist/win-unpacked/OMPdesk.exe, the packaged app whose memory sets its
       # real ai-memory service up (an unpacked dev run only reports), as release.yml's win job does after packaging.
       - name: Package (unpacked)

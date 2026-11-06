@@ -89,6 +89,8 @@ export interface SetupServiceDeps {
 	arch: string;
 	systemRoot: string;
 	toolsDir: string;
+	/** The agent-desktop the app ships (src/main/agent-desktop.ts): while it is intact, setup never downloads one. */
+	agentDesktopBundle?: string;
 	bunInstall: string;
 	/** Back-off ledger (JSON). */
 	statePath: string;
@@ -105,7 +107,12 @@ export interface SetupServiceDeps {
 	onOmpReady: () => void;
 	/** Resolves when setup's automatic optional installs may start (main: once the first tab is ready). */
 	beforeOptional?: () => Promise<void>;
-	detect?: (platform: SetupPlatform, bunInstall: string, toolsDir: string) => Promise<Detection>;
+	detect?: (
+		platform: SetupPlatform,
+		bunInstall: string,
+		toolsDir: string,
+		agentDesktopBundle?: string,
+	) => Promise<Detection>;
 	runner?: SetupRunner;
 	fetchText?: FetchText;
 	/** Downloads main runs itself (download.ts). */
@@ -630,6 +637,7 @@ export class SetupService {
 			this.#deps.platform,
 			this.#deps.bunInstall,
 			this.#deps.toolsDir,
+			this.#deps.agentDesktopBundle,
 		);
 		throwIfStepStalled();
 		const git = detection.presence.git;

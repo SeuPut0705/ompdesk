@@ -103,6 +103,52 @@ async function fakeAiMemory(
 	return file;
 }
 
+const AGENT_DESKTOP_PIN = JSON.parse(
+	fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/agent-desktop-pin.json"), "utf8"),
+) as { version: string; targets: Record<string, { sha256: string; binaries: string[] }> };
+const AGENT_DESKTOP_KEYS: Record<string, string> = { darwin: "darwin-arm64", win32: "win32-x64" };
+
+/**
+ * The packed app's `agent-desktop-bin/` for `platform` under `appOutDir`, as `bun run build:agent-desktop` leaves it:
+ * every pinned binary (a stand-in's bytes), upstream's LICENSE and the build record; `record` overrides its fields.
+ */
+async function fakeAgentDesktop(
+	appOutDir: string,
+	platform: string,
+	record: Record<string, unknown> = {},
+	mode = 0o755,
+): Promise<string> {
+	const key = AGENT_DESKTOP_KEYS[platform] ?? "";
+	const target = AGENT_DESKTOP_PIN.targets[key] ?? { sha256: "", binaries: [] };
+	const directory = path.join(
+		platform === "darwin"
+			? path.join(appOutDir, "OMPdesk.app", "Contents", "Resources")
+			: path.join(appOutDir, "resources"),
+		"agent-desktop-bin",
+	);
+	await fs.promises.rm(directory, { recursive: true, force: true });
+	await fs.promises.mkdir(directory, { recursive: true });
+	const binaries: Record<string, string> = {};
+	for (const name of target.binaries) {
+		const bytes = Buffer.from(`#!/bin/sh\necho ${name}\n`);
+		await fs.promises.writeFile(path.join(directory, name), bytes, { mode });
+		await fs.promises.chmod(path.join(directory, name), mode);
+		binaries[name] = sha256(bytes);
+	}
+	await fs.promises.writeFile(path.join(directory, "LICENSE"), "Apache License");
+	await fs.promises.writeFile(
+		path.join(directory, "agent-desktop.build.json"),
+		JSON.stringify({
+			version: AGENT_DESKTOP_PIN.version,
+			target: key,
+			archiveSha256: target.sha256,
+			binaries,
+			...record,
+		}),
+	);
+	return directory;
+}
+
 const PRIVACY_KEYS = [
 	"NSMicrophoneUsageDescription",
 	"NSCameraUsageDescription",
@@ -395,6 +441,7 @@ describe("mac bundle configs", () => {
 			await fs.promises.mkdir(path.dirname(plistPath), { recursive: true });
 			await fakeLocales(directory, "darwin", ["en", "ko"]);
 			await fakeAiMemory(directory, "darwin");
+			await fakeAgentDesktop(directory, "darwin");
 			for (const { file, config } of configs) {
 				await savePlistFile(plistPath, original);
 				const hookPath = config.afterPack;
@@ -440,6 +487,8 @@ describe("mac bundle configs", () => {
 			await fakeLocales(directory, "win32", ["en-US", "ko"]);
 			await fakeAiMemory(directory, "win32");
 			await fakeAiMemory(directory, "darwin");
+			await fakeAgentDesktop(directory, "win32");
+			await fakeAgentDesktop(directory, "darwin");
 			await expect(run("win32")).resolves.toBeUndefined();
 			for (const names of [["ko"], [], ["de", "en-US", "ko"]]) {
 				await fakeLocales(directory, "win32", names);
@@ -491,6 +540,7 @@ describe("mac bundle configs", () => {
 					});
 				try {
 					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeAgentDesktop(directory, platform);
 					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
 					await fs.promises.writeFile(
 						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
@@ -510,6 +560,64 @@ describe("mac bundle configs", () => {
 					}
 					await fakeAiMemory(directory, platform);
 					await expect(run(), `${platform} with the pinned binary`).resolves.toBeUndefined();
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		});
+	});
+
+	describe("agent-desktop", () => {
+		it("ships each platform's pinned agent-desktop as extraResources, kept out of git, with upstream's license", () => {
+			for (const [platform, { builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
+				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
+				const entries = (config.extraResources ?? []).filter(resource =>
+					resource.from.startsWith("resources/agent-desktop-bin"),
+				);
+				expect(entries, `${platform}: ${builderConfig}`).toEqual([
+					{ from: `resources/agent-desktop-bin/${AGENT_DESKTOP_KEYS[platform]}`, to: "agent-desktop-bin" },
+				]);
+			}
+			const ignored = fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n");
+			expect(ignored).toContain("resources/agent-desktop-bin/");
+			expect(fs.readFileSync(path.join(PACKAGE_ROOT, "LICENSES/agent-desktop-LICENSE"), "utf8")).toContain(
+				"Apache License",
+			);
+		});
+
+		it("fails the package without the pinned release, with another version or with other bytes than its record", async () => {
+			const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-agent-desktop-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				try {
+					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeAiMemory(directory, platform);
+					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
+					await fs.promises.writeFile(
+						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
+						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
+					);
+					await expect(run(), `${platform} without it`).rejects.toThrow(
+						/no agent-desktop build record or LICENSE; run `bun run build:agent-desktop`/,
+					);
+					await fakeAgentDesktop(directory, platform, { version: "0.0.1" });
+					await expect(run(), `${platform}, another version`).rejects.toThrow(/not the pinned/);
+					const folder = await fakeAgentDesktop(directory, platform);
+					const cli = AGENT_DESKTOP_PIN.targets[AGENT_DESKTOP_KEYS[platform] ?? ""]?.binaries[0] ?? "";
+					await fs.promises.writeFile(path.join(folder, cli), "other bytes");
+					await expect(run(), `${platform}, other bytes`).rejects.toThrow(/hashes to [0-9a-f]{64}/);
+					if (platform === "darwin" && process.platform !== "win32") {
+						await fakeAgentDesktop(directory, platform, {}, 0o644);
+						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
+					}
+					await fakeAgentDesktop(directory, platform);
+					await expect(run(), `${platform} with the pinned release`).resolves.toBeUndefined();
 				} finally {
 					await fs.promises.rm(directory, { recursive: true, force: true });
 				}
@@ -559,13 +667,15 @@ describe("release assets", () => {
 		expect(["true", "false"]).toContain(release.env.LEGACY_UPDATE_FEED);
 	});
 
-	it("builds the memory binary from native/memory before packaging on both platforms and verifies it in the package", () => {
+	it("puts the memory binary and the pinned agent-desktop in place before packaging on both platforms and verifies them in the package", () => {
 		for (const job of ["mac", "win"]) {
 			const steps = release.jobs[job]?.steps ?? [];
-			const sync = steps.findIndex(step => step.run === "bun run build:memory");
 			const pack = steps.findIndex(step => step.name === "Package");
-			expect(sync, job).toBeGreaterThanOrEqual(0);
-			expect(sync, job).toBeLessThan(pack);
+			for (const command of ["bun run build:memory", "bun run build:agent-desktop"]) {
+				const index = steps.findIndex(step => step.run === command);
+				expect(index, `${job}: ${command}`).toBeGreaterThanOrEqual(0);
+				expect(index, `${job}: ${command}`).toBeLessThan(pack);
+			}
 		}
 		const verify = (name: string) =>
 			release.jobs[name === "mac" ? "mac" : "win"]?.steps.find(step => step.name?.startsWith("Verify"))?.run ?? "";
@@ -577,6 +687,12 @@ describe("release assets", () => {
 			String.raw`-R "=identifier \"ai-memory\" and certificate root = H\"$SHA1\"" "$AIM"`,
 		);
 		expect(verify("win")).toContain("ai-memory-bin/ai-memory.exe");
+		// The shipped agent-desktop runs and is the pinned release; on macOS both of its binaries carry the app's signature.
+		expect(verify("mac")).toContain("Resources/agent-desktop-bin");
+		expect(verify("mac")).toContain("agent-desktop-macos-helper");
+		expect(verify("mac")).toContain("agent-desktop-pin.json");
+		expect(verify("win")).toContain("agent-desktop-bin/agent-desktop.exe");
+		expect(verify("win")).toContain("agent-desktop-pin.json");
 	});
 });
 

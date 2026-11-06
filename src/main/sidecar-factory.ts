@@ -71,11 +71,11 @@ export interface LocalSidecarDeps {
 	defaultBrowserPref?: () => unknown;
 	/**
 	 * Settings › Agent behavior › Computer use (`computerUse`, default agent-desktop), read per spawn, with the managed
-	 * tools dir the executable lives in; absent = the built-in prelude with no engine env (tests only). Scheduled runs
-	 * (`ompRunLauncher`) load no bridge and none of these roots, so stock's `computer.enabled` stays off there
-	 * whichever engine is picked.
+	 * tools dir and the app's bundled copy (`bundleDir`) the executable is picked from (src/main/agent-desktop.ts);
+	 * absent = the built-in prelude with no engine env (tests only). Scheduled runs (`ompRunLauncher`) load no bridge
+	 * and none of these roots, so stock's `computer.enabled` stays off there whichever engine is picked.
 	 */
-	computerUse?: { pref: () => unknown; toolsDir: string; platform: SetupPlatform };
+	computerUse?: { pref: () => unknown; toolsDir: string; bundleDir: string; platform: SetupPlatform };
 	/** The stored Settings › General profile pref (`userProfile`), read per use. */
 	userProfilePref: () => unknown;
 	/** The prompt-suggestion switches (`nextPromptSuggestions`, `nextPromptInline`; both default on), read per use. */
@@ -193,7 +193,11 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 				const hub = rea.length || memory.length ? ((await deps.mcpHubEnv?.(cwd)) ?? {}) : {};
 				// One table for this computer's tabs and the tabs it hosts for a paired device.
 				const computer = deps.computerUse
-					? computerUseSpawn({ ...deps.computerUse, pref: deps.computerUse.pref(), builtinDir: deps.builtinDir })
+					? await computerUseSpawn({
+							...deps.computerUse,
+							pref: deps.computerUse.pref(),
+							builtinDir: deps.builtinDir,
+						})
 					: undefined;
 				return {
 					args: [...own, ...rea, ...(computer?.args ?? []), ...pstack, ...ecc, ...formal, ...memory],

@@ -7083,6 +7083,15 @@ SOFTWARE.
 
 ------------------------------------------------------------------------------
 
+agent-desktop 1.2.0 (https://github.com/vercel-labs/agent-desktop, tag v1.2.0)
+The upstream release binaries (agent-desktop and agent-desktop-macos-helper on macOS, agent-desktop.exe
+on Windows) ship unmodified inside the app under agent-desktop-bin/, unpacked from the release archive
+scripts/agent-desktop-pin.json pins by scripts/build-agent-desktop.ts; on macOS they are re-signed with
+the app. Licensed under the Apache License, Version 2.0 (full text: LICENSES/agent-desktop-LICENSE,
+also shipped as agent-desktop-bin/LICENSE). Upstream publishes no NOTICE file.
+
+------------------------------------------------------------------------------
+
 reverse-engineer-anything skill from REA (rea-agents, https://github.com/morluto/rea)
 Copyright (c) 2026 morluto, licensed under the MIT License. Copied unmodified from the pinned
 rea-agents release into resources/omp-builtin/rea/skills/reverse-engineer-anything/, except

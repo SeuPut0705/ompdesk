@@ -812,6 +812,13 @@ app.whenReady().then(() => {
 	const builtinDir = app.isPackaged
 		? join(process.resourcesPath, "omp-builtin")
 		: join(devResourcesDir, "omp-builtin");
+	// The agent-desktop the app ships (bun run build:agent-desktop); a dev run without it falls back to the managed copy.
+	// OMP_GUI_TEST_AGENT_DESKTOP_BUNDLE (unpacked runs only) points a spec at its own, so it never depends on whether
+	// the checkout ran the build.
+	const agentDesktopBundle = app.isPackaged
+		? join(process.resourcesPath, "agent-desktop-bin")
+		: process.env.OMP_GUI_TEST_AGENT_DESKTOP_BUNDLE ||
+			join(devResourcesDir, "agent-desktop-bin", `${process.platform}-${process.arch}`);
 	const sessionKinds = new SessionKindStore(join(app.getPath("userData"), "session-kinds.json"));
 	// gui-bridge compatibility warnings: once per omp version per launch, taken by whichever window asks first.
 	const bridgeHealth = new BridgeHealth(
@@ -911,7 +918,12 @@ app.whenReady().then(() => {
 		sessionKinds,
 		replyLanguagePref: () => prefsStore().get(REPLY_LANGUAGE_PREF),
 		defaultBrowserPref: () => prefsStore().get(DEFAULT_BROWSER_PREF),
-		computerUse: { pref: () => prefsStore().get(COMPUTER_USE_PREF), toolsDir, platform },
+		computerUse: {
+			pref: () => prefsStore().get(COMPUTER_USE_PREF),
+			toolsDir,
+			bundleDir: agentDesktopBundle,
+			platform,
+		},
 		userProfilePref: () => prefsStore().get(USER_PROFILE_PREF),
 		nextPromptPrefs: () =>
 			nextPromptFromPrefs(prefsStore().get(NEXT_PROMPT_PREF), prefsStore().get(NEXT_PROMPT_INLINE_PREF)),
@@ -1397,6 +1409,7 @@ app.whenReady().then(() => {
 		arch: process.arch,
 		systemRoot: process.env.SystemRoot || "C:\\Windows",
 		toolsDir,
+		agentDesktopBundle,
 		bunInstall: bunInstallDir(process.env, homedir()),
 		statePath: join(app.getPath("userData"), "setup-state.json"),
 		appVersion: app.getVersion(),
@@ -1562,6 +1575,7 @@ app.whenReady().then(() => {
 		enabled: () => prefs.get(TOOLS_AUTO_UPDATE_PREF) !== false,
 		platform: platform === "win32" ? "win32" : "darwin",
 		toolsDir,
+		agentDesktopBundle,
 		connectedProviders: () =>
 			stockHelperRequest<{ providers: string[] }>("accounts.providers").then(result => result.providers),
 		env: async () => ({ ...process.env, ...(await shellSpawnEnv()), ...(await resolveProxyEnvForSpawn()) }),

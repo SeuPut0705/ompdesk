@@ -42,8 +42,11 @@ const BUILD_SCRIPTS = [
 const INPUT_DIRS = ["src", "resources"];
 const TEST_FILE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const RENDERER_DIR = `src${path.sep}renderer${path.sep}`;
-/** The memory binaries built from native/memory (bun run build:memory): packaged as extraResources, never read by the build. */
-const AI_MEMORY_BIN = path.join("resources", "ai-memory-bin");
+/**
+ * Binaries packaged as extraResources and never read by the build: the memory binary built from native/memory
+ * (bun run build:memory) and agent-desktop's pinned release (bun run build:agent-desktop).
+ */
+const PACKAGED_BINS = [path.join("resources", "ai-memory-bin"), path.join("resources", "agent-desktop-bin")];
 /**
  * Env electron-vite and its plugins read at build time: Vite's mode and
  * NODE_ENV, the `VITE_`-prefixed vars electron-vite's `loadEnv` exposes to each
@@ -62,7 +65,7 @@ function walk(root: string, dir: string, files: string[]): void {
 	for (const entry of entries) {
 		if (entry.name === ".DS_Store") continue;
 		const rel = path.join(dir, entry.name);
-		if (rel === AI_MEMORY_BIN) continue;
+		if (PACKAGED_BINS.includes(rel)) continue;
 		if (entry.isDirectory()) walk(root, rel, files);
 		else if (entry.isFile()) files.push(rel);
 	}
@@ -74,7 +77,8 @@ export function isBuildInput(file: string): boolean {
 	if (!rel.includes("/")) return ROOT_INPUT.test(rel);
 	if (BUILD_SCRIPTS.includes(rel)) return true;
 	if (!INPUT_DIRS.some(dir => rel.startsWith(`${dir}/`))) return false;
-	if (rel === "resources/ai-memory-bin" || rel.startsWith("resources/ai-memory-bin/")) return false;
+	if (PACKAGED_BINS.some(dir => rel === dir.replaceAll("\\", "/") || rel.startsWith(`${dir.replaceAll("\\", "/")}/`)))
+		return false;
 	return !TEST_FILE.test(rel) || rel.startsWith("src/renderer/");
 }
 

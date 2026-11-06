@@ -8,6 +8,8 @@ import { execFile } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, win32 } from "node:path";
 import type { CliSkipReason, CliToolId } from "../../shared/cli-update";
+import { isNewer } from "../../shared/version";
+import { bundledAgentDesktop } from "../agent-desktop";
 import { parseOmpVersion } from "../omp-runtime";
 import { managedBinDirs } from "../setup/paths";
 import { brewBinDirs } from "../shell-env";
@@ -41,6 +43,8 @@ export interface InstallContext {
 	platform: CliPlatform;
 	/** Machine setup's managed tools dir. */
 	toolsDir: string;
+	/** The agent-desktop the app ships (src/main/agent-desktop.ts); absent in tests that do not need it. */
+	agentDesktopBundle?: string;
 	/** Homebrew's `brew`, when this Mac has it. */
 	brew: string | null;
 }
@@ -206,8 +210,40 @@ export function bunxShimTarget(exe: string, bytes: Buffer): string | null {
 	return win32.join(win32.dirname(win32.dirname(exe)), target);
 }
 
-/** Find and classify `id`; null when it is not installed (OMPdesk never installs a vendor CLI). */
+/**
+ * Find and classify `id`; null when it is not installed (OMPdesk never installs a vendor CLI). agent-desktop is also
+ * installed when only the app's own copy is, or the managed copy is older: it is machine setup's to update, and an
+ * update installs the newer release into the managed tools dir, which sessions run from their next start
+ * (src/main/agent-desktop.ts `pickAgentDesktop`).
+ */
 export async function detectCliTool(id: CliToolId, deps: DetectDeps): Promise<CliDetection | null> {
+	const found = await detectInstalled(id, deps);
+	const { ctx } = deps;
+	const bundled =
+		id === "agent-desktop" && ctx.agentDesktopBundle
+			? bundledAgentDesktop(ctx.agentDesktopBundle, ctx.platform)
+			: null;
+	if (!bundled || (found?.installed && !isNewer(bundled.version, found.installed))) return found;
+	// The managed tools dir may not exist yet: the update creates it under its nearest existing parent.
+	let dir = ctx.toolsDir;
+	while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+	let skip: CliSkipReason | null = null;
+	try {
+		accessSync(dir, constants.W_OK);
+	} catch {
+		skip = "not-writable";
+	}
+	return {
+		id,
+		path: bundled.path,
+		real: bundled.path,
+		owner: skip ? null : { method: "managed", item: "agent-desktop" },
+		skip,
+		installed: bundled.version,
+	};
+}
+
+async function detectInstalled(id: CliToolId, deps: DetectDeps): Promise<CliDetection | null> {
 	const spec = CLI_TOOL_SPECS[id];
 	const { ctx } = deps;
 	const win = ctx.platform === "win32";

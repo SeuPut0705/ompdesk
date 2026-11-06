@@ -503,6 +503,28 @@ describe.skipIf(process.platform === "win32")("detectCliTool", () => {
 		});
 	});
 
+	it("lists the app's bundled agent-desktop for an update into the managed tools dir until a managed copy is newer", async () => {
+		const { root, bin } = await sandbox();
+		const tools = path.join(root, "tools");
+		const bundle = path.join(root, "bundle");
+		const bundled = await script(path.join(bundle, "agent-desktop"));
+		await fs.writeFile(path.join(bundle, "agent-desktop.build.json"), JSON.stringify({ version: "1.2.0" }));
+		const ctx: InstallContext = { platform: "darwin", toolsDir: tools, agentDesktopBundle: bundle, brew: null };
+		const owner = { method: "managed", item: "agent-desktop" };
+		// No managed copy yet, and its tools dir does not exist: the bundle's version is what the update starts from.
+		expect(await detectCliTool("agent-desktop", { pathEnv: bin, env: {}, ctx })).toMatchObject({
+			path: bundled,
+			owner,
+			installed: "1.2.0",
+			skip: null,
+		});
+		const managed = await script(path.join(tools, "agent-desktop", "agent-desktop"));
+		const older = await detectCliTool("agent-desktop", { pathEnv: bin, env: {}, ctx, probe: async () => "1.1.0" });
+		expect(older).toMatchObject({ path: bundled, owner, installed: "1.2.0" });
+		const newer = await detectCliTool("agent-desktop", { pathEnv: bin, env: {}, ctx, probe: async () => "1.3.0" });
+		expect(newer).toMatchObject({ path: managed, owner, installed: "1.3.0" });
+	});
+
 	it("detects the gh-copilot extension through gh, and nothing when gh lists none", async () => {
 		const { root, bin } = await sandbox();
 		await fs.symlink(await script(path.join(root, "gh-real", "gh")), path.join(bin, "gh"));

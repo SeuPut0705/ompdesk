@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { REA_NODE_REQUIREMENT } from "../../shared/builtin-mcp";
 import type { GitShellProblem, SetupItemId, SetupPlatform, SetupPresence } from "../../shared/setup";
 import { isNewer } from "../../shared/version";
+import { bundledAgentDesktop, pickAgentDesktop } from "../agent-desktop";
 import { builtinReaState, resetReaRuntimeCache } from "../builtin-mcp";
 import { ompBunMinimum, ompPackageRoot, parseOmpVersion, refreshSystemOmp, systemOmp } from "../omp-runtime";
 import { writeRuntimeLog } from "../runtime-log";
@@ -213,30 +214,39 @@ async function detectNode(): Promise<SetupPresence> {
 }
 
 /**
- * agent-desktop (the default computer-use engine): only the copy setup keeps in the managed tools dir counts. One
- * the user put on PATH (npm, brew) is theirs; OMPdesk neither runs nor updates it, so the engine never depends
- * on a version OMPdesk did not verify. Below `AGENT_DESKTOP_MIN_VERSION` (no `agent-desktop mcp` before 1.2.0) it
- * is `outdated`; one that does not answer `--version` is `broken`. Both get reinstalled.
+ * agent-desktop (the default computer-use engine): the copy setup keeps in the managed tools dir, or the one the app
+ * ships (`bundleDir`, src/main/agent-desktop.ts). One the user put on PATH (npm, brew) is theirs; OMPdesk neither
+ * runs nor updates it, so the engine never depends on a version OMPdesk did not verify. The copy a session would run
+ * (`pickAgentDesktop`: the managed one when it is at least the bundled version) is `present`, so a first launch
+ * downloads nothing while the bundle is intact; newer releases come through the CLI updater. Without the bundle, a
+ * managed copy below `AGENT_DESKTOP_MIN_VERSION` (no `agent-desktop mcp` before 1.2.0) is `outdated` and one that
+ * does not answer `--version` is `broken`; both get reinstalled.
  */
 export async function detectAgentDesktop(
 	platform: SetupPlatform,
 	toolsDir: string,
 	env: NodeJS.ProcessEnv,
+	bundleDir?: string,
 ): Promise<SetupPresence> {
 	if (platform === "other") return { kind: "missing" };
 	const exe = managedAgentDesktop(toolsDir, platform);
-	if (!existsSync(exe)) return { kind: "missing" };
-	let version: string | null;
-	try {
-		version = parseOmpVersion(await probe(exe, ["--version"], env, platform));
-	} catch (error) {
-		return { kind: "broken", detail: error instanceof Error ? error.message : String(error), path: exe };
+	let managed: SetupPresence = { kind: "missing" };
+	if (existsSync(exe)) {
+		try {
+			const version = parseOmpVersion(await probe(exe, ["--version"], env, platform));
+			if (!version) managed = { kind: "broken", detail: "agent-desktop printed no version", path: exe };
+			else if (isNewer(AGENT_DESKTOP_MIN_VERSION, version))
+				managed = { kind: "outdated", version, minimum: AGENT_DESKTOP_MIN_VERSION, path: exe };
+			else managed = { kind: "present", version, path: exe };
+		} catch (error) {
+			managed = { kind: "broken", detail: error instanceof Error ? error.message : String(error), path: exe };
+		}
 	}
-	if (!version) return { kind: "broken", detail: "agent-desktop printed no version", path: exe };
-	if (isNewer(AGENT_DESKTOP_MIN_VERSION, version)) {
-		return { kind: "outdated", version, minimum: AGENT_DESKTOP_MIN_VERSION, path: exe };
-	}
-	return { kind: "present", version, path: exe };
+	const copy = pickAgentDesktop(
+		managed.kind === "present" && managed.version ? { path: exe, version: managed.version } : null,
+		bundleDir ? bundledAgentDesktop(bundleDir, platform) : null,
+	);
+	return copy ? { kind: "present", version: copy.version, path: copy.path } : managed;
 }
 
 /**
@@ -260,8 +270,16 @@ export async function detectTailscale(platform: SetupPlatform, pathEnv: string):
 	return { kind: "present", version: /\d+\.\d+\.\d+/.exec(first)?.[0] ?? null, path: located.path };
 }
 
-/** Detect every setup item. `bunInstall` is where Bun's own installer puts it, `toolsDir` the managed tools dir (agent-desktop lives only there). */
-export async function detectMachine(platform: SetupPlatform, bunInstall: string, toolsDir: string): Promise<Detection> {
+/**
+ * Detect every setup item. `bunInstall` is where Bun's own installer puts it, `toolsDir` the managed tools dir,
+ * `agentDesktopBundle` the agent-desktop the app ships (src/main/agent-desktop.ts).
+ */
+export async function detectMachine(
+	platform: SetupPlatform,
+	bunInstall: string,
+	toolsDir: string,
+	agentDesktopBundle?: string,
+): Promise<Detection> {
 	const pathEnv = await spawnPath();
 	const env = { ...process.env, PATH: pathEnv };
 	const win = platform === "win32";
@@ -290,7 +308,7 @@ export async function detectMachine(platform: SetupPlatform, bunInstall: string,
 		detectGit(platform, pathEnv, env),
 		gh ? versionOf(gh, env, platform) : Promise.resolve<SetupPresence>({ kind: "missing" }),
 		detectNode(),
-		detectAgentDesktop(platform, toolsDir, env),
+		detectAgentDesktop(platform, toolsDir, env, agentDesktopBundle),
 		detectTailscale(platform, pathEnv),
 	]);
 	// The Bun omp runs on, when omp's resolution found that one too old: the Bun `bun upgrade` must reach.

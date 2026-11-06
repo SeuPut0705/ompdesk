@@ -311,6 +311,12 @@ jobs:
       - if: steps.memory-cache.outputs.cache-hit == 'true'
         name: Check the cached memory binary
         run: bun run build:memory -- --check
+      # agent-desktop, the default computer-use engine, ships in the app at the release scripts/agent-desktop-pin.json
+      # pins: downloaded from its GitHub release, checked against the pinned SHA-256 and the archive's exact files,
+      # unpacked into the gitignored resources/agent-desktop-bin/ (about 4 MB, so no cache). after-pack fails the
+      # package without it; mac.sign signs both binaries with the app.
+      - name: Unpack the pinned agent-desktop
+        run: bun run build:agent-desktop
       # Package build's out/ (the same bytes `win` uses), not
       # a second build: `needs: build` would start this job only after build's
       # run is over, and `bun run package:mac` would build again (a downloaded
@@ -366,6 +372,13 @@ jobs:
           fi
           AIM_HOME=$(mktemp -d)
           HOME="$AIM_HOME" "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
+          # The bundled agent-desktop (scripts/agent-desktop-pin.json): both binaries signed with the app, the CLI runs.
+          ADT="$APP/Contents/Resources/agent-desktop-bin"
+          for BIN in "$ADT/agent-desktop" "$ADT/agent-desktop-macos-helper"; do
+            test -x "$BIN"
+            codesign --verify --strict --verbose=2 "$BIN"
+          done
+          "$ADT/agent-desktop" --version | grep -Fx "agent-desktop $(jq -r .version scripts/agent-desktop-pin.json)"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
         run: |
@@ -565,6 +578,8 @@ jobs:
       - if: steps.memory-cache.outputs.cache-hit == 'true'
         name: Check the cached memory binary
         run: bun run build:memory -- --check
+      - name: Unpack the pinned agent-desktop
+        run: bun run build:agent-desktop
       # `build` uploads out/ about when this install ends; `needs: build`
       # would instead start this job only once the build job is done too.
       - name: Wait for out/ from the build job
@@ -589,6 +604,8 @@ jobs:
           AIM=dist/win-unpacked/resources/ai-memory-bin/ai-memory.exe
           test -f "$AIM"
           "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
+          ADT=dist/win-unpacked/resources/agent-desktop-bin/agent-desktop.exe
+          "$ADT" --version | grep -Fx "agent-desktop $(jq -r .version scripts/agent-desktop-pin.json)"
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"

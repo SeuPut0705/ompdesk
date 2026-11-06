@@ -1,22 +1,26 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
 import { AGENT_DESKTOP_TOOL_PREFIX } from "../resources/gui-bridge/modes/computer-use-contracts";
+import { managedAgentDesktopDir, managedToolsDir } from "../src/main/setup/paths";
 import { exitApp, pressShortcutUntilVisible } from "./harness";
 import { realOmpProfile } from "./real-omp";
 
 /**
  * Opt-in (`OMP_GUI_REAL_AGENT_DESKTOP=1`, macOS or Windows, network, a small-model request): OMPdesk on an isolated
- * copy of the user's real omp profile. The first launch has no agent-desktop, so its session falls back to the
- * built-in prelude and says so (note and toast); machine setup's Retry then installs agent-desktop through the managed
- * path and Settings names its version; the relaunched session drives the platform's text editor with agent-desktop's
- * tools only. macOS: TextEdit in the background (the pointer and the frontmost app stay where they were). Windows:
- * Notepad, whose text is then read back through UI Automation, outside the session; Notepad's XAML text area takes
- * keys only from the system input queue, so the foreground is not asserted there. Windows keeps the managed tools dir
- * under `%LOCALAPPDATA%`, which the run points into the profile, so the user's own tools dir is never touched.
- * `OMP_GUI_AGENT_DESKTOP_SHOTS=<dir>` keeps the captures.
+ * copy of the user's real omp profile, with an empty managed tools dir, as on a first launch. The session runs on the
+ * agent-desktop the app ships (`bun run build:agent-desktop` unpacks it into resources/agent-desktop-bin, the dev
+ * run's bundle): Settings names its version, nothing is downloaded into the managed tools dir, no fallback note
+ * appears, and the session drives the platform's text editor with agent-desktop's tools only. macOS: TextEdit in the
+ * background (the pointer and the frontmost app stay where they were). Windows: Notepad, whose text is then read back
+ * through UI Automation, outside the session; Notepad's XAML text area takes keys only from the system input queue,
+ * so the foreground is not asserted there. Windows keeps the managed tools dir under `%LOCALAPPDATA%`, which the run
+ * points into the profile, so the user's own tools dir is never touched. `OMP_GUI_AGENT_DESKTOP_SHOTS=<dir>` keeps the
+ * captures.
  */
 
 const WIN = process.platform === "win32";
@@ -109,32 +113,31 @@ async function shot(page: Page, name: string): Promise<void> {
 	await test.info().attach(name, { path: file, contentType: "image/png" });
 }
 
-test("a session falls back visibly without agent-desktop, then drives the text editor with it", async () => {
+test("a first launch drives the text editor with the agent-desktop the app ships, downloading nothing", async () => {
 	test.skip(
 		process.env.OMP_GUI_REAL_AGENT_DESKTOP !== "1" || (process.platform !== "darwin" && !WIN),
 		"Opt-in, macOS or Windows",
 	);
+	const bundle = path.resolve("resources/agent-desktop-bin", `${process.platform}-${process.arch}`);
+	test.skip(
+		!existsSync(path.join(bundle, "agent-desktop.build.json")),
+		"No bundled agent-desktop: run `bun run build:agent-desktop`",
+	);
 	test.setTimeout(900_000);
 	const real = await realOmpProfile();
 	const env = WIN ? { ...real.env, LOCALAPPDATA: path.join(real.profile, "local") } : real.env;
+	const tools = managedToolsDir(WIN ? "win32" : "darwin", env, os.homedir(), real.desktop);
 	const dir = process.env.OMP_GUI_AGENT_DESKTOP_SHOTS;
 	if (dir) await fs.mkdir(dir, { recursive: true });
 	const notepadsBefore = WIN ? notepadPids() : new Set<number>();
-	let { app, page } = await launch(real.project, real.desktop, env);
+	const { app, page } = await launch(real.project, real.desktop, env);
 	try {
-		await send(page, "Reply with the single word OK.");
-		await expect(page.getByText(/agent-desktop is not installed yet/)).toBeVisible({ timeout: 60_000 });
-		await expect(page.locator("[data-computer-use-note]")).toBeVisible();
-		await shot(page, "1-fallback-note.png");
-		await expect(page.getByPlaceholder(/Ask anything ·/)).toBeVisible({ timeout: 180_000 });
-
-		await page.evaluate(() => window.omp.setup.retry("agent-desktop"));
 		await expect
 			.poll(
 				async () =>
 					(await page.evaluate(() => window.omp.setup.getState())).items.find(item => item.id === "agent-desktop")
 						?.phase,
-				{ timeout: 180_000, intervals: [500, 1000] },
+				{ timeout: 120_000, intervals: [500, 1000] },
 			)
 			.toBe("present");
 		const settings = page.locator("[data-settings-page]");
@@ -143,10 +146,9 @@ test("a session falls back visibly without agent-desktop, then drives the text e
 		const installed = settings.locator("[data-computer-use-installed]");
 		await expect(installed).toContainText(/agent-desktop \d+\.\d+\.\d+ is installed/);
 		await installed.scrollIntoViewIfNeeded();
-		await shot(page, "2-settings-version.png");
-		await exitApp(app);
+		await shot(page, "1-settings-version.png");
+		await page.keyboard.press("Escape");
 
-		({ app, page } = await launch(real.project, real.desktop, env));
 		const stamp = `agent-desktop smoke ${Date.now()}`;
 		const before = desktopFocus();
 		const steps = WIN
@@ -175,12 +177,12 @@ test("a session falls back visibly without agent-desktop, then drives the text e
 		// A long turn can be compacted on the small model: its cards then sit behind "Show N earlier messages".
 		const earlier = page.getByRole("button", { name: /Show \d+ earlier messages/ });
 		while (await earlier.isVisible()) await earlier.click();
-		// A turn that did its work reads complete on every card (advisor notes and narration can split it into several),
-		// and the heads say what it did on the desktop, never a tool's docs as files.
+		// A turn that did its work has no failed card (advisor notes and narration can split it into several; a card the
+		// session's todo list names reads that list's title, "Tasks", instead of "Work complete"), and the heads say what
+		// it did on the desktop, never a tool's docs as files.
 		const cards = page.locator(".omp-execution-group");
 		await expect(cards.first()).toBeVisible();
 		await expect(cards.filter({ hasText: "Work failed" })).toHaveCount(0);
-		await expect(cards.filter({ hasText: "Work complete" }).first()).toBeVisible();
 		const heads = (await page.locator(".omp-execution-group-summary").allTextContents()).join(" | ");
 		await test.info().attach("card heads", { body: heads, contentType: "text/plain" });
 		expect(heads).toContain("desktop step");
@@ -188,6 +190,10 @@ test("a session falls back visibly without agent-desktop, then drives the text e
 		expect(journal).toContain(AGENT_DESKTOP_TOOL_PREFIX);
 		expect(journal).toContain(stamp);
 		expect(journal).not.toContain('"name":"eval"');
+		// The bundled copy ran: no fallback note in the transcript, nothing installed into the managed tools dir.
+		await expect(page.locator("[data-computer-use-note]")).toHaveCount(0);
+		expect(journal).not.toContain("ompdesk-computer-use");
+		expect(existsSync(managedAgentDesktopDir(tools))).toBe(false);
 		if (WIN) expect(notepadText()).toContain(stamp);
 		else expect(after).toBe(before);
 		// The work card opened, with its first snapshot's tree unfolded: what the renderer makes of agent-desktop's calls.

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+agent-desktop가 이제 앱 안에 들어 있어서, 처음 켠 순간부터 인터넷 없이도 모든 세션이 agent-desktop으로 컴퓨터를 조작해요.
+
+### 바뀐 것
+- OMPdesk에 agent-desktop 1.2.0이 함께 들어 있어요(macOS, Windows). 전에는 처음 켤 때 GitHub에서 내려받았는데, 내려받기가 끝나기 전에 열린 세션이나 오프라인·내려받기 실패 때의 세션은 끝까지 내장 컴퓨터 조작으로 돌았어요. 이제 그런 세션도 바로 agent-desktop을 써요.
+- 새 버전은 지금처럼 "도구 최신으로 유지"가 받아 와요. 받아 둔 버전이 앱에 든 것보다 같거나 새로우면 다음 세션부터 그걸 쓰고, 오래된 것이면 앱에 든 것을 써요. 처음 켤 때 앱에 든 것과 같거나 오래된 버전을 내려받는 일은 없어요.
+
+<!-- en -->
+
+agent-desktop now ships inside the app, so every session operates the computer with it from the first launch on, with no download.
+
+### Changed
+- OMPdesk ships agent-desktop 1.2.0 (macOS, Windows). Before, the first launch downloaded it from GitHub, and a session that opened before the download finished, offline or after a failed download ran on the built-in computer use for its whole life. Those sessions now use agent-desktop at once.
+- Newer releases still arrive through "Keep tools up to date". A session uses the downloaded copy from its next start when it is the same as or newer than the one in the app, and the app's own otherwise. A first launch never downloads a version equal to or older than the one in the app.
+
 ## [0.114.0] - 2026-11-06
 
 에이전트가 다른 세션에 보낸 메시지가 그 세션의 작업이 끝날 때까지 기다리지 않고 바로 전달돼요.

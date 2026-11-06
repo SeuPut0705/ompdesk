@@ -170,6 +170,12 @@ function Assert-PerUserInstall {
 	$memoryVersion = (& $memory --version | Out-String).Trim()
 	if ($LASTEXITCODE -ne 0 -or $memoryVersion -notlike "*$pinned*") { Fail "$memory --version printed '$memoryVersion' (exit $LASTEXITCODE), expected $pinned" }
 	Ok "bundled ai-memory runs: $memoryVersion"
+	$desktopTool = Join-Path $installDir 'resources\agent-desktop-bin\agent-desktop.exe'
+	if (-not (Test-Path -LiteralPath $desktopTool)) { Fail "$desktopTool is missing (the bundled agent-desktop)" }
+	$pinnedDesktop = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'agent-desktop-pin.json') | ConvertFrom-Json).version
+	$desktopVersion = (& $desktopTool --version | Out-String).Trim()
+	if ($LASTEXITCODE -ne 0 -or $desktopVersion -ne "agent-desktop $pinnedDesktop") { Fail "$desktopTool --version printed '$desktopVersion' (exit $LASTEXITCODE), expected agent-desktop $pinnedDesktop" }
+	Ok "bundled agent-desktop runs: $desktopVersion"
 	$entries = Get-UninstallEntries HKCU
 	if ($entries.Count -ne 1) { Fail "expected one per-user uninstall entry, found $($entries.Count)" }
 	$entry = $entries[0]

@@ -72,4 +72,25 @@ describe.skipIf(process.platform === "win32")("machine setup's agent-desktop det
 			detail: "agent-desktop printed no version",
 		});
 	});
+
+	it("counts the app's bundled copy, so a first launch downloads nothing, until an update installs a newer one", async () => {
+		const toolsDir = await tools();
+		const bundle = path.join(toolsDir, "bundle");
+		await fs.mkdir(bundle);
+		await fs.writeFile(path.join(bundle, "agent-desktop"), "");
+		await fs.writeFile(path.join(bundle, "agent-desktop.build.json"), JSON.stringify({ version: "1.2.0" }));
+		const bundled = { kind: "present", version: "1.2.0", path: path.join(bundle, "agent-desktop") };
+		expect(await detectAgentDesktop("darwin", toolsDir, process.env, bundle)).toEqual(bundled);
+		// A managed copy that is broken or older than the bundle is no reason to download: the bundle runs.
+		await install(toolsDir, "exit 1");
+		expect(await detectAgentDesktop("darwin", toolsDir, process.env, bundle)).toEqual(bundled);
+		await install(toolsDir, "echo 'agent-desktop 1.1.0'");
+		expect(await detectAgentDesktop("darwin", toolsDir, process.env, bundle)).toEqual(bundled);
+		const exe = await install(toolsDir, "echo 'agent-desktop 1.3.0'");
+		expect(await detectAgentDesktop("darwin", toolsDir, process.env, bundle)).toEqual({
+			kind: "present",
+			version: "1.3.0",
+			path: exe,
+		});
+	});
 });
