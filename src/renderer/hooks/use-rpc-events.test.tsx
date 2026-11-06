@@ -24,6 +24,7 @@ import type {
 	RpcCommand,
 	RpcResponse,
 	SessionInfoUpdateFrame,
+	SubagentFrame,
 	TodoPhase,
 } from "../../shared/rpc-types";
 import { TurnStatusRow } from "../components/chat/ChatStream";
@@ -37,7 +38,7 @@ import type { PlanApprovalStore } from "../stores/plan-approval";
 import { type SessionStore, useSessionStore } from "../stores/session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "../stores/session-runtime-context";
 import { useSettingsStore } from "../stores/settings";
-import { useSubagentsStore } from "../stores/subagents";
+import { type SubagentsStore, useSubagentsStore } from "../stores/subagents";
 import { ensureTabRuntime, replaceTabRuntime } from "../stores/tab-runtime";
 import { useTabsStore } from "../stores/tabs";
 import { useToastStore } from "../stores/toast";
@@ -2686,5 +2687,34 @@ describe("useRpcEvents background tabs", () => {
 			await hydrateTabSession("t-back");
 		});
 		expect(sessionRuntimeStore<PlanApprovalStore>("t-back", "planApproval")?.getState().pending).toEqual(proposal);
+	});
+
+	// 6 Nov 2026, the owner: a background session's subagent chip stayed stale until clicked. A frame can come for a tab
+	// this page has no runtime for yet (a page that just loaded still shows the last load's ghosts; the tab list comes
+	// after): it is that tab's, never the focused tab's, and the tab's row reads it once its list arrives.
+	it("files a frame for a tab without a runtime under that tab, never the focused one", async () => {
+		installTabRoutedMockOmp();
+		let onSubagent: (frame: SubagentFrame, tabId: string) => void = () => {};
+		(window.omp.events as unknown as Record<string, unknown>).onTabSubagentFrame = vi.fn(
+			(callback: typeof onSubagent) => {
+				onSubagent = callback;
+				return () => {};
+			},
+		);
+		seedTabs();
+		await mount(<RpcEventsProbe />);
+		expect(sessionRuntime("t-later")).toBeNull();
+		await act(async () =>
+			onSubagent(
+				{
+					type: "subagent_lifecycle",
+					payload: { id: "sa-1", index: 0, agent: "task", agentSource: "bundled", status: "started" },
+				},
+				"t-later",
+			),
+		);
+		const roster = (tabId: string) => sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents;
+		expect([...(roster("t-front")?.keys() ?? [])]).toEqual([]);
+		expect([...(roster("t-later")?.keys() ?? [])]).toEqual(["sa-1"]);
 	});
 });

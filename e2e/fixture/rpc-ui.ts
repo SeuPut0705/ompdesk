@@ -495,7 +495,8 @@ export function runRpcUi(): void {
 	let boardUsage = false;
 	/** `fixture:usage-accounts:N` (1..5): that many subscription accounts, the second of the fixture's own provider. */
 	let usageAccounts: Array<Record<string, unknown>> | undefined;
-	let subagentSubscription = "progress";
+	/** Stock's `RpcSubagentsTracker`: the stream starts off and writes no `subagent_*` frame until the GUI asks. */
+	let subagentSubscription = "off";
 	/** The emitted plan proposal awaiting `plan_approval`, as the bridge's get_plan_mode reports it. */
 	let planProposal: Record<string, unknown> | undefined;
 	/** The bridge's `settlePending`: the proposal stops waiting and every window hears `plan_proposal_resolved`. */
@@ -642,7 +643,10 @@ export function runRpcUi(): void {
 			// A turn that starts while the plan waits replies to it (bridge modes/plan.ts `settlePending`).
 			resolvePlan();
 		}
-		if ("type" in frame && frame.type === "subagent_event" && subagentSubscription !== "events") return;
+		if ("type" in frame && typeof frame.type === "string" && frame.type.startsWith("subagent_")) {
+			if (subagentSubscription === "off") return;
+			if (frame.type === "subagent_event" && subagentSubscription !== "events") return;
+		}
 		const json = JSON.stringify(frame);
 		const bytes = Buffer.from(json, "utf8");
 		if (protocolVersion < 2 || bytes.byteLength <= MAX_FRAME_BYTES) {

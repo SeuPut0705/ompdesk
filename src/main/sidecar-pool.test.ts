@@ -35,6 +35,8 @@ class FakeSidecar extends EventEmitter {
 	/** What the next sendSideChannel's promise rejects with (the link dropped while the answer was on its way). */
 	sideChannelRejection: Error | undefined;
 	rpcCommands: RpcCommand[] = [];
+	/** The levels the pool asked with `set_subagent_subscription`, kept apart from the commands a test sends. */
+	subagentLevels: string[] = [];
 	constructor(public cwd: string) {
 		super();
 	}
@@ -58,7 +60,8 @@ class FakeSidecar extends EventEmitter {
 	slept = 0;
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
-			this.rpcCommands.push(command);
+			if (command.type === "set_subagent_subscription") this.subagentLevels.push(command.level);
+			else this.rpcCommands.push(command);
 			const data =
 				command.type === "get_state" ? { isSettled: this.settled, isStreaming: false } : { cancelled: false };
 			return { type: "response", command: command.type, success: true, data };
@@ -2293,6 +2296,51 @@ describe("SidecarPool background tabs", () => {
 		expect(a?.sentFrames).toEqual([]);
 	});
 
+	// 6 Nov 2026, the owner: a background session's sidebar chip stayed stale until clicked. Stock omp starts with its
+	// subagent stream off and writes no lifecycle frame until asked, and only a window that shows a tab asked: a tab
+	// opened in the background (ompdesk_session_open), or woken there, never told the sidebar its subagents.
+	it("asks a tab's omp for subagent frames whenever it is ready, shown or not, so its row hears them", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const b = sidecars[1];
+		b?.emitStatus("ready");
+		expect(b?.subagentLevels).toEqual(["progress"]);
+		// A restarted omp starts with the stream off again.
+		b?.emitStatus("restarting");
+		b?.emitStatus("ready");
+		expect(b?.subagentLevels).toEqual(["progress", "progress"]);
+		const started = { type: "subagent_lifecycle", payload: { id: "sa-1", status: "started" } };
+		b?.emit("subagentFrame", started);
+		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
+			{ tabId: "tab-b", payload: [started] },
+		]);
+	});
+
+	// The same report: a background session's row kept its waiting mark after an agent (`ompdesk_session_answer`) or
+	// Autopilot answered its question, until a click re-read the open asks. No window answered, so none was told.
+	it("closes an ask an agent answered in every window that holds the tab", async () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a");
+		pool.acquire("/b", fw.win, "tab-b");
+		const b = sidecars[1];
+		b?.emitUiRequest({ id: "ask-b", method: "select", title: "Allow?", options: ["Yes", "No"] });
+		fw.sent.length = 0;
+		expect(
+			await pool.routeSideChannel("ask-b", { type: "extension_ui_response", id: "ask-b", value: "No" }, "tab-b"),
+		).toBe(true);
+		expect(fw.sentTo(IPC_EVENTS.EXTENSION_UI).map(item => item.data)).toEqual([
+			{
+				tabId: "tab-b",
+				request: { type: "extension_ui_request", id: "answered:ask-b", method: "cancel", targetId: "ask-b" },
+				answeredElsewhere: true,
+			},
+		]);
+		expect(pool.openRequests(fw.win)).toEqual([]);
+	});
+
 	it("forgets a request omp cancelled and forwards the cancel to the tab", async () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
@@ -3846,19 +3894,13 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		const { pool, sidecar, view } = viewed();
 		const phone = fakeWindow(2);
 		expect(pool.attachViewer(phone.win, "tab-a")).toBe(true);
-		await view.rpcClient?.command({ type: "set_subagent_subscription", level: "progress" });
-		expect(pool.noteSubagentLevel("tab-a", 2, "events")).toBe("events");
+		await view.rpcClient?.command({ type: "set_subagent_subscription", level: "events" });
+		expect(pool.noteSubagentLevel("tab-a", 2, "progress")).toBe("events");
 		pool.detachViewer(phone.win, "tab-a");
-		expect(sidecar.rpcCommands.filter(command => command.type === "set_subagent_subscription").at(-1)).toEqual({
-			type: "set_subagent_subscription",
-			level: "progress",
-		});
-		// The device leaving lets the level fall to what the windows here still ask.
+		expect(sidecar.subagentLevels.at(-1)).toBe("events");
+		// The device leaving lets the level fall to what the windows here still ask, never below what the sidebar needs.
 		view.dispose();
-		expect(sidecar.rpcCommands.filter(command => command.type === "set_subagent_subscription").at(-1)).toEqual({
-			type: "set_subagent_subscription",
-			level: "off",
-		});
+		expect(sidecar.subagentLevels.at(-1)).toBe("progress");
 	});
 
 	// 27 Oct 2026, a DNS outage on this computer: a device viewing a window's tab showed only the red error card while
