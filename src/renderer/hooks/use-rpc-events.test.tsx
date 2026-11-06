@@ -2717,4 +2717,23 @@ describe("useRpcEvents background tabs", () => {
 		expect([...(roster("t-front")?.keys() ?? [])]).toEqual([]);
 		expect([...(roster("t-later")?.keys() ?? [])]).toEqual(["sa-1"]);
 	});
+
+	it("re-reads only its own tab when a tab without a runtime reports a slash command's result", async () => {
+		const { commandForTab } = installTabRoutedMockOmp();
+		let onPromptResult: (frame: PromptResultFrame, tabId: string) => void = () => {};
+		(window.omp.events as unknown as Record<string, unknown>).onTabPromptResult = vi.fn(
+			(callback: typeof onPromptResult) => {
+				onPromptResult = callback;
+				return () => {};
+			},
+		);
+		seedTabs();
+		await mount(<RpcEventsProbe />);
+		commandForTab.mockClear();
+		await act(async () => onPromptResult({ type: "prompt_result", agentInvoked: false }, "t-later"));
+		await flush();
+		const asked = commandForTab.mock.calls.map(([tabId, command]) => `${tabId}:${command.type}`);
+		expect(asked).toContain("t-later:get_state");
+		expect(asked.filter(call => !call.startsWith("t-later:"))).toEqual([]);
+	});
 });
