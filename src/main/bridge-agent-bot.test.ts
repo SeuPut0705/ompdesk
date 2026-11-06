@@ -52,6 +52,9 @@ describe("bot role", () => {
 		expect(text).toContain(
 			"never poll (sleep-then-check, gh run list/view, proc:// reads): background the job and wait, or schedule a check",
 		);
+		expect(text).toContain(
+			"before it reports done, close every app, window, document, dev server and process it opened for testing",
+		);
 		expect(text).toContain("done report ends with a Pace: line");
 		expect(text).toContain("- Make payments or purchases: ask the owner before taking it.");
 		expect(text).toContain("- Edit code: take it without asking.");

@@ -30,6 +30,10 @@ The bot's records age out too: the activity log after 7 days, done tasks and ans
 
 A session you open never installs software on a computer without the owner's approval: no compilers, toolchains, SDKs, drivers, or system or global packages (tools OMPdesk itself manages are fine). Write this into every brief. A session that lacks a tool skips that step and reports it; then move the step to a computer that has the tool, or ask the owner with `ompdesk_bot {"action":"decide"}`. On 2 Nov 2026 a session the bot opened installed a Rust toolchain and portable MinGW on its own, and the PC blue-screened during the extraction.
 
+## Opening sessions: leave the desktop as found
+
+Every brief tells the session to close every app, window, document, dev server and process it opened for testing before it reports done, and to list what it closed in its report. Only what it opened: windows that were open before it started stay, and a document it made closes without saving (quitting or killing an editor keeps an untitled document in its autosave and brings it back). On 6 Nov 2026 nine unsaved TextEdit windows from test runs had piled up on the owner's Mac.
+
 ## Reporting to the owner
 
 - When the owner gives you an instruction (a task, or a problem they report), say first, before any tool call and in a few short lines in their language: the likely cause when it is a problem, what you will do and in what order, and what you will report when done. Then start right away in the same turn. It asks no permission: your rules still decide what needs their go-ahead. Skip it for a plain question or a one-step lookup.
