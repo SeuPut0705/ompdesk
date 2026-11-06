@@ -206,19 +206,23 @@ function alternateOption(entry: SettingEntry, value: unknown): unknown {
 	return alternate.value;
 }
 
-function alternateNumber(input: {
+/**
+ * Values to try in a number row, in order. A stock setting can bound its value in its own `validate` without a min or
+ * max in the schema (omp 18.17's `spotlight.experiment.holdout`, a share from 0 to 1), so the row has no bound to read:
+ * a value stock refuses shows its message on the row and the next one is tried.
+ */
+function numberCandidates(input: {
 	value: string;
 	min: string | null;
 	max: string | null;
 	step: string | null;
-}): number | undefined {
+}): number[] {
 	const current = Number(input.value);
 	const min = input.min === null || input.min === "" ? Number.NEGATIVE_INFINITY : Number(input.min);
 	const max = input.max === null || input.max === "" ? Number.POSITIVE_INFINITY : Number(input.max);
 	const step =
 		input.step === null || input.step === "" || input.step === "any" ? 1 : Math.abs(Number(input.step)) || 1;
-	const candidates = [current + step, current - step, 1, 0];
-	return candidates.find(
+	return [...new Set([current + step, current - step, 1, 0])].filter(
 		candidate => Number.isFinite(candidate) && candidate >= min && candidate <= max && candidate !== current,
 	);
 }
@@ -364,11 +368,36 @@ async function mutateEntry(
 				max: element.getAttribute("max"),
 				step: element.getAttribute("step"),
 			}));
-			const next = alternateNumber(metadata);
-			if (next === undefined) return { write: "skipped-no-control", readback: "not-run", restore: "not-run", notes };
-			await input.fill(String(next));
-			await input.press("Enter");
-			const readbackValue = await pollSetting(page, entry.path, next);
+			const candidates = numberCandidates(metadata);
+			if (candidates.length === 0)
+				return { write: "skipped-no-control", readback: "not-run", restore: "not-run", notes };
+			let next: number | undefined;
+			for (const candidate of candidates) {
+				await input.fill(String(candidate));
+				await input.press("Enter");
+				const outcome = async () =>
+					(await input.getAttribute("aria-invalid")) === "true"
+						? "refused"
+						: equalJson(await readSetting(page, entry.path), candidate)
+							? "written"
+							: "pending";
+				await expect.poll(outcome, { timeout: 8_000 }).not.toBe("pending");
+				if ((await outcome()) === "written") {
+					next = candidate;
+					break;
+				}
+				const message = await input.evaluate(element =>
+					(element.getAttribute("aria-describedby") ?? "")
+						.split(/\s+/)
+						.map(id => element.ownerDocument.getElementById(id)?.textContent ?? "")
+						.join(" ")
+						.trim(),
+				);
+				expect(message, `${entry.path} refused ${candidate} without saying why`).not.toBe("");
+				notes.push(`refused ${candidate}: ${message}`);
+			}
+			if (next === undefined) throw new Error(`${entry.path} refused every candidate: ${notes.join("; ")}`);
+			const readbackValue = await readSetting(page, entry.path);
 			if (initial === undefined) {
 				const restore = await restoreInitial(page, entry.path, initial);
 				return { write: "passed", readback: "passed", restore, changedTo: next, readbackValue, notes };
