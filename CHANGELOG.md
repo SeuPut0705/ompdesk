@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.116.0] - 2026-11-06
+
+이제 OMPdesk가 macOS에 화면 기록 권한을 제대로 요청해서, 시스템 설정의 '화면 및 시스템 오디오 녹음' 목록에 OMPdesk가 나타나요.
+
+### 고친 것
+- 컴퓨터 조작에 필요한 화면 기록 권한을 OMPdesk가 macOS에 한 번도 요청하지 못해서, 시스템 설정 목록에 OMPdesk가 없고 켤 스위치도 없던 문제를 고쳤어요. 이제 macOS가 OMPdesk를 목록에 올리고 직접 확인 창을 띄워요. 전에 물어본 적이 있는 설치본도 한 번 더 물어봐요.
+
+### 새로 생긴 것
+- 설정 › 에이전트 동작 › 컴퓨터 조작 엔진 아래에 '손쉬운 사용'과 '화면 및 시스템 오디오 녹음' 권한 상태가 보여요. 허용되지 않은 권한은 '허용하기…'를 누르면 macOS에 요청하고 해당 설정 화면을 열어요. 거기서 OMPdesk를 켜고 돌아오면 바로 '허용됨'으로 바뀌어요(다시 열 필요 없어요).
+- 컴퓨터 조작 단계가 macOS 권한이 없어서 실패하면, 그 단계 아래에 같은 '허용하기…' 버튼이 나와요. 허용하고 돌아오면 에이전트에게 다시 시도하라고 하면 돼요.
+- 한 번 거부한 권한은 앱을 켤 때마다 다시 묻지 않아요. 상태와 버튼은 설정에 계속 남아 있어요. Windows에는 이런 권한이 없어서 바뀐 게 없어요.
+
+### 바뀐 것
+- 봇이 세션에 일을 맡길 때, 테스트하려고 연 앱·창·문서·개발 서버·프로세스를 보고하기 전에 모두 닫고 닫은 것을 알려 달라고 지시해요. 원래 열려 있던 창은 그대로 둬요.
+
+<!-- en -->
+
+OMPdesk now asks macOS for Screen Recording properly, so it appears in System Settings › Screen & System Audio Recording.
+
+### Fixed
+- OMPdesk never actually asked macOS for the Screen Recording permission computer use needs, so it was missing from the System Settings list and there was no switch to turn on. macOS now lists OMPdesk and shows its own prompt. Installs that were asked before are asked once more.
+
+### Added
+- Settings › Agent behavior shows Accessibility and Screen & System Audio Recording under Computer use engine. **Allow…** on a missing one asks macOS and opens its pane; turn on OMPdesk there and come back, and the row reads Allowed at once (no relaunch needed).
+- A computer-use step that failed for a missing macOS permission shows the same **Allow…** button under it. Allow it, then ask the agent to try again.
+- A permission you declined is not asked again at every launch; its state and button stay in Settings. Windows has no such permissions, so nothing changes there.
+
+### Changed
+- The bot tells every session it opens to close each app, window, document, dev server and process it opened for testing before it reports, and to list what it closed. Windows that were already open stay.
+
 ## [0.115.0] - 2026-11-06
 
 agent-desktop이 이제 앱 안에 들어 있어서, 처음 켠 순간부터 인터넷 없이도 모든 세션이 agent-desktop으로 컴퓨터를 조작해요.
