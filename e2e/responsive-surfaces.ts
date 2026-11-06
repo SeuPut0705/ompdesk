@@ -523,6 +523,40 @@ export const SURFACES: readonly Surface[] = [
 		when: () => false,
 		parity: { session: "reply" },
 	},
+	...(
+		[
+			[
+				"work-turn-recovered",
+				"fixture turn recovered",
+				"The tests pass now.",
+				"a failed test a later card's rerun fixed",
+			],
+			[
+				"work-turn-unfixed",
+				"fixture turn unfixed",
+				"One test still fails.",
+				"a failed test that was the turn's last",
+			],
+		] as const
+	).map(
+		([id, prompt, answer, what]): Surface => ({
+			id,
+			area: "A",
+			title: `A turn's two work cards around a reply's narration: ${what}, and a note for an error gone past`,
+			open: async page => {
+				await page.getByText(answer, { exact: true }).last().waitFor({ timeout: 15_000 });
+				await page
+					.locator(".omp-user-bubble")
+					.getByText(prompt, { exact: true })
+					.last()
+					.evaluate(element => element.scrollIntoView({ block: "start" }));
+			},
+			ready: "[data-transcript-kind='process']",
+			settle: 900,
+			when: () => false,
+			parity: { session: "reply" },
+		}),
+	),
 	{
 		id: "tool-agent-desktop",
 		area: "A",
