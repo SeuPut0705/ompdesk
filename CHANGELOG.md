@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## [0.115.0] - 2026-11-06
 
-agent-desktop가 이제 앱 안에 들어 있어서, 처음 켠 순간부터 인터넷 없이도 모든 세션이 agent-desktop으로 컴퓨터를 조작해요.
+agent-desktop이 이제 앱 안에 들어 있어서, 처음 켠 순간부터 인터넷 없이도 모든 세션이 agent-desktop으로 컴퓨터를 조작해요.
 
 ### 바뀐 것
 - OMPdesk에 agent-desktop 1.2.0이 함께 들어 있어요(macOS, Windows). 전에는 처음 켤 때 GitHub에서 내려받았는데, 내려받기가 끝나기 전에 열린 세션이나 오프라인·내려받기 실패 때의 세션은 끝까지 내장 컴퓨터 조작으로 돌았어요. 이제 그런 세션도 바로 agent-desktop을 써요.
