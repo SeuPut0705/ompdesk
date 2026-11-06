@@ -50,7 +50,7 @@ import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
 import { type SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
-import { useSubagentsStore } from "./subagents";
+import { type SubagentsStore, useSubagentsStore } from "./subagents";
 import { READY_WAIT_CAP_MS, tabReady } from "./tab-ready-gate";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
@@ -299,6 +299,27 @@ describe("tabs store boot reconciliation", () => {
 		expect(tabs).toHaveLength(1);
 		expect(tabs[0]?.title).toBe("Alpha");
 	});
+
+	// 6 Nov 2026, the owner: a background session's subagent chip was stale until clicked. A page that loads while a
+	// hidden tab's subagents run heard none of their starts: it reads the roster once, whether the tab's status push or
+	// the tab list names the tab first.
+	for (const order of ["list first", "status first"] as const)
+		it(`reads the roster of a hidden running tab the page learns of (${order})`, async () => {
+			omp.tabs.list.mockResolvedValue([
+				{ ...tabInfo("t0", "/alpha"), active: true },
+				tabInfo("t1", "/beta", "running"),
+			]);
+			omp.rpc.getSubagents.mockResolvedValue(
+				ok({ subagents: [{ id: "sa-1", index: 0, agent: "task", status: "running", lastUpdate: 1 }] }),
+			);
+			if (order === "status first")
+				useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+			await useTabsStore.getState().reconcileTabs();
+			const roster = (tabId: string) =>
+				sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents;
+			await vi.waitFor(() => expect([...(roster("t1")?.keys() ?? [])]).toEqual(["sa-1"]));
+			expect(roster("t0")?.size ?? 0).toBe(0);
+		});
 
 	it("keeps renderer-known tabs the reply misses and re-converges active on reload", async () => {
 		seedTabs("t1");
