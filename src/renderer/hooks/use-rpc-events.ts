@@ -891,8 +891,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 		// Extension slash commands can settle locally after the prompt response
 		// has already resolved; prompt_result carries the deferred rehydrate signal.
 		const handlePromptResult = (frame: PromptResultFrame, tabId: string) => {
-			if (closedTabFrame(tabId)) return;
-			if (!frame.agentInvoked) void (sessionRuntime(tabId) ? hydrateTabSession(tabId) : hydrateLegacySession());
+			if (!openTabFrame(tabId)) return;
+			if (!frame.agentInvoked) void (tabId ? hydrateTabSession(tabId) : hydrateLegacySession());
 		};
 		const unsubPromptResult = window.omp.events.onTabPromptResult(handlePromptResult);
 		// Text-mode slash commands write outside the transcript. Surface their
