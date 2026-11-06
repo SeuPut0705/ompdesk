@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+터미널 화면에서만 쓰이는 omp 18.17 설정(초당 최대 프레임, 스피너 간격, 움직임, 컬러 마크다운, 셸 시각화, 자동 업데이트, 확장 대화 표시기)을 설정 화면에서 숨겼어요. 앱에서는 아무 효과가 없던 스위치예요.
+<!-- en -->
+
+The omp 18.17 settings that only change the terminal screen (max frames per second, spinner interval, motion, colorful Markdown, shell visualization, auto update, extension transcript presenters) are hidden from Settings. They were switches that did nothing in the app.
+
 ## [0.117.0] - 2026-11-06
 
 보고 있지 않은 세션도 사이드바 행이 클릭하지 않아도 바로바로 최신 상태로 바뀌어요.

@@ -71,6 +71,16 @@ const TERMINAL_DISPLAY_SETTINGS = new Set([
 	"statusLine.leftSegments",
 	"statusLine.rightSegments",
 	"statusLine.segmentOptions",
+	// omp 18.17 settings only the TUI acts on: pi-tui's repaint ceiling, spinner clock, motion preset, Markdown
+	// palette and bash visualization, the background self-update an interactive launch alone runs, and extension
+	// transcript presenters only interactive-mode applies. An rpc-ui session builds none of them.
+	"tui.maxFps",
+	"tui.spinnerInterval",
+	"tui.motion",
+	"tui.colorfulMarkdown",
+	"display.shellVisualization",
+	"update.auto",
+	"extensionRenderers.transcriptPresenters",
 ]);
 
 /**

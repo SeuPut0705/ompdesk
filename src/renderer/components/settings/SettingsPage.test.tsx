@@ -205,6 +205,13 @@ describe("GUI settings visibility", () => {
 			"statusLine.leftSegments",
 			"statusLine.rightSegments",
 			"statusLine.segmentOptions",
+			"tui.maxFps",
+			"tui.spinnerInterval",
+			"tui.motion",
+			"tui.colorfulMarkdown",
+			"display.shellVisualization",
+			"update.auto",
+			"extensionRenderers.transcriptPresenters",
 		].map(path => entry({ path, tab: "terminal-display" }));
 		expect(unsupported.filter(item => isSettingVisibleInGui(item, {}))).toEqual([]);
 	});

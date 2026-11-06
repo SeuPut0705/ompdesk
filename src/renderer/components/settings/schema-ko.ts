@@ -1831,34 +1831,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Vim 모드 표시",
 		description: "현재 Vim 모드(예: NORMAL / INSERT)를 표시해요.",
 	},
-	"tui.colorfulMarkdown": {
-		label: "컬러 마크다운",
-		description:
-			"제목은 단계별로, 굵게·기울임 글자, 인라인 코드, 표 머리글을 테마의 ANSI 색으로 칠해요. 끄면 제목은 한 가지 색이고 굵게·기울임은 색 없이 보여요.",
-	},
-	"tui.spinnerInterval": {
-		label: "스피너 간격(ms)",
-		description:
-			"터미널 제목을 포함한 모든 스피너의 프레임 사이 간격(밀리초)이에요. 0이면 멈춘 글리프를 보여 줘요. 비워 두면 움직임 설정을 따라요",
-	},
-	"tui.maxFps": {
-		label: "초당 최대 프레임",
-		description:
-			"스트리밍 글자를 포함해 TUI를 다시 그리는 빈도의 상한이에요. 입력한 글자는 30fps로 바로 보여서 입력 중인 창은 계속 빠르게 반응해요",
-	},
-	"tui.motion": {
-		label: "움직임",
-		description:
-			"스피너, 반짝임, 장식용 깜빡임·페이드를 한 번에 정해요. 스트리밍 글자에는 영향이 없어요(초당 최대 프레임 참고). 직접 정한 스피너 간격이 우선이에요",
-	},
-	"display.shellVisualization": {
-		label: "셸 시각화",
-		description: "bash 명령을 일반 셸 명령 대신 대화형 실행 시각화로 보여 줘요",
-	},
-	"update.auto": {
-		label: "자동 업데이트",
-		description: "시작할 때 omp 업데이트를 백그라운드에서 설치해요. 다음 실행부터 새 버전이 돌아요",
-	},
 	"magicKeywords.chillax": {
 		label: "Chillax 키워드",
 		description:
@@ -1880,11 +1852,6 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"서브에이전트용 워커 스레드의 최대 개수예요. 동시에 도는 서브에이전트가 8개까지는 메인 스레드에서 돌고, 9개가 되면 워커 하나가 붙고, 그 수가 두 배가 될 때마다(18, 36, 72) 하나씩 더 붙어요. 살아 있는 서브에이전트가 없는 워커는 1분 뒤에 멈춰요. 0이면 모든 서브에이전트가 메인 스레드에서 돌아요",
 	},
 	"skills.manualSkills": { label: "수동 스킬" },
-	"extensionRenderers.transcriptPresenters": {
-		label: "확장 대화 표시기",
-		description:
-			"확장이 도구 호출 같은 대화 블록을 전체로, 한 줄로 줄여서, 또는 숨겨서 그리게 해요. 세션, 내보내기, 모델 컨텍스트는 그대로예요",
-	},
 	"spotlight.experiment.enabled": {
 		label: "Spotlight 실험",
 		description: "Stencil Spotlight로 도구 출력을 다듬고 find 결과의 순위를 매기며, 다듬은 결과를 세션에 기록해요",
