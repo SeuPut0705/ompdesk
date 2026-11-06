@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.118.2] - 2026-11-06
+
+휴대폰이 네트워크가 끊겼다 돌아온 뒤에도 컴퓨터에 다시 연결하지 못하고 계속 '다시 연결하는 중'에 머물던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰 페이지는 시작하고 잠시 뒤 설정, 에이전트, 인사이트 화면과 옆 패널을 미리 불러와요. 연결이 열려 보이기만 하면 미리 불러오기를 시작했는데, 경로가 막 끊긴 연결(네트워크가 바뀐 휴대폰)도 몇 초 동안은 열려 보여요. 그때 보낸 여섯 개의 요청은 취소할 수 없어서 컴퓨터로 가는 연결을 모두 붙잡았고, 네트워크가 돌아와도 다시 연결하는 요청이 그 뒤에서 끝없이 기다렸어요(iPhone의 Safari 엔진). 이제 컴퓨터가 실제로 대답한 직후에만 미리 불러와요. 대답이 없으면 다시 연결된 뒤에 불러와요.
+
+<!-- en -->
+
+A phone whose network dropped and came back no longer stays on "Reconnecting to your computer…" for good.
+
+### Fixed
+- A phone's page preloads Settings, Agents, Insights and the side panel's views a few seconds after it starts. It started as soon as its link looked open, and a link whose route just died (a phone that changed networks) looks open for a few seconds. The six requests it sent then cannot be cancelled: they held every connection to the computer, and once the network was back the requests to reconnect waited behind them forever (WebKit, the engine of Safari on iPhone). The preload now starts only right after the computer answered; without an answer it waits for the reconnect.
+
 ## [0.118.1] - 2026-11-06
 
 휴대폰에서 지운 세션과 사이드바에서 뺀 프로젝트가 누르기 전까지 목록에 남던 문제를 고쳤어요. 이제 바로 사라져요.
