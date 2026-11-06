@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.118.0] - 2026-11-06
+
+작업 카드는 작업이 오류로 끝났을 때만 빨간 ✕와 오류 상자를 보여 줘요. 에이전트가 이어서 처리한 중간 오류는 색 없는 '중간 오류 N'으로 남아요.
+
+### 고친 것
+- 에이전트가 말을 한 줄 쓰면 작업 카드가 둘로 나뉘는데, 앞 카드에서 실패한 테스트를 다음 카드에서 다시 돌려 통과해도 앞 카드가 ✕와 빨간 상자로 끝나 작업이 실패로 끝난 것처럼 보이던 문제를 고쳤어요. 이제 카드의 오류는 그 요청의 작업 전체를 보고 정해요. 작업이 도는 동안에는 어떤 카드도 오류로 보이지 않고, 끝난 뒤(멈춘 뒤 포함)에는 마지막 단계가 실패했을 때, 테스트·타입 검사·린트·빌드의 마지막 실행이 실패했을 때, 작업 자체가 오류(모델 오류, omp 종료)로 끝났을 때만 그 카드가 빨개요.
+- 그 밖의 실패(나중에 다시 실행해서 해결됐거나 에이전트가 넘어간 것)는 카드에 색 없는 '중간 오류 N' 칩으로 나와요. 칩에 마우스를 올리면 오류마다 한 줄씩 보이고, 누르면 그 단계를 열어요. 요약 복사에는 '다시 실행해서 해결된 것'과 '다시 실행하지 않은 것'으로 나눠 적혀요.
+- 작업 보드의 검사 줄도 같은 규칙을 따라, 작업이 도는 동안 중간에 실패한 검사를 실패로 보여 주지 않아요. 이 컴퓨터, 페어링된 컴퓨터, 휴대폰 모두 같아요.
+
+<!-- en -->
+
+A work card shows a red ✕ and an error box only when the work ended in an error. An error the agent went on to handle stays as a quiet "Errors along the way N".
+
+### Fixed
+- When the agent wrote a sentence mid-run, the work split into two cards, and a test that failed on the first card still closed it with a ✕ and a red box after the next card reran it and it passed: the work looked like it had ended in failure. A card's errors are now judged against the whole run of the request. While it runs, no card is an error; once it ended (or was stopped), a card is red only when the last step failed, when the last test, type check, lint or build run failed, or when the run itself ended in an error (a model error, omp exiting).
+- Every other failure (fixed by a later run, or one the agent moved past) is a neutral "Errors along the way N" chip on its card. Hovering lists each one; a tap opens that step. Copy summary lists the ones fixed by a rerun and the ones not rerun apart.
+- The work board's check row follows the same rule and no longer shows a check that failed mid-run as failed while the work goes on. The same on this computer, a paired computer and the phone.
+
 ## [0.117.1] - 2026-11-06
 
 터미널 화면에서만 쓰이는 omp 18.17 설정(초당 최대 프레임, 스피너 간격, 움직임, 컬러 마크다운, 셸 시각화, 자동 업데이트, 확장 대화 표시기)을 설정 화면에서 숨겼어요. 앱에서는 아무 효과가 없던 스위치예요.
