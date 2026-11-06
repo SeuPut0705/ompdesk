@@ -8,6 +8,7 @@
 - 백그라운드에서 열리거나 깨어난 세션(에이전트가 연 세션, 다시 켠 뒤 에이전트 메시지로 깨어난 세션 등)의 사이드바 행이 서브에이전트 수(🤖)를 보여 주지 않다가, 행을 눌러야 맞게 바뀌던 문제를 고쳤어요. 이제 서브에이전트가 생기고 끝날 때마다 숫자가 바로 오르내려요. 이 컴퓨터, 분할 화면의 다른 칸, 휴대폰 모두 같아요.
 - 다른 세션의 에이전트나 Autopilot이 질문·승인에 답해도 그 세션의 행과 카드가 계속 '기다리는 중'으로 남던 문제를 고쳤어요. 답하는 즉시 모든 창에서 닫혀요.
 - 막 연 창이나 새로 고친 휴대폰 화면이 아직 모르는 탭의 소식이, 지금 보고 있는 다른 세션에 잘못 붙을 수 있던 문제를 고쳤어요. 이제 그 탭의 것으로 들어가고, 이미 돌고 있는 서브에이전트도 한 번 읽어 와서 바로 보여 줘요.
+- omp 18.17에서 새로 생긴 설정(TUI 움직임·초당 프레임, 자동 업데이트, chillax 키워드, 서브에이전트 워커 스레드, Spotlight 등)이 설정 화면에 한국어로 보여요. 새 Devin 로그인 두 가지(devin-cli, devin-windsurf)에도 Devin 마크가 붙어요.
 
 <!-- en -->
 
@@ -17,6 +18,7 @@ A session you are not looking at keeps its sidebar row current without a click.
 - A session opened or woken in the background (one an agent opened, or one an agent's message woke after a relaunch) showed no subagent count (🤖) on its sidebar row until you clicked it. The count now goes up and down as its subagents start and finish, on this computer, in a split's other pane and on the phone.
 - When another session's agent or Autopilot answered a question or approval, the session's row and card kept saying it was waiting. They now close in every window as soon as it is answered.
 - A window that just opened, or a phone page that just reloaded, could file news from a tab it did not know yet under the session it was showing. It now goes to that tab, and the tab reads the subagents already running once, so its row shows them at once.
+- The settings omp 18.17 added (TUI motion and frame rate, auto update, the chillax keyword, subagent worker threads, Spotlight and more) read in Korean in Settings, and its two new Devin sign-ins (devin-cli, devin-windsurf) wear the Devin mark.
 
 ## [0.116.0] - 2026-11-06
 
