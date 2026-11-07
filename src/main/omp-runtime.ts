@@ -313,6 +313,14 @@ function runOmp(
 		clearTimeout(timer);
 		reject(err);
 	});
+	// A subcommand that ends without reading its stdin (`omp --version`, a crash on launch) closes the read end while
+	// the input is still being written: that fails on the stream, not the call, and with no listener it is an uncaught
+	// exception in main. The exit code and output already say how the run went.
+	child.stdin.on("error", err => {
+		if ((err as NodeJS.ErrnoException).code === "EPIPE") return;
+		clearTimeout(timer);
+		reject(err);
+	});
 	child.on("close", code => {
 		clearTimeout(timer);
 		resolve({ code: code ?? 1, stdout, stderr });
