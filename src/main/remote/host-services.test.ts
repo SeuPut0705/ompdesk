@@ -3289,7 +3289,7 @@ describe("LocalHostServices: a device opening a session another device's tab run
 			{ type: "prompt", message: "from y" },
 		]);
 		// The holder's tab is the one this computer lists, resumes and restarts; the view is none of those.
-		expect(services.hostedSessions().map(session => session.device)).toEqual(["device-x"]);
+		expect(services.summarySources().map(source => source.facts()?.openFor)).toEqual(["device-x"]);
 		expect(services.resumeFacts().map(fact => fact.tabId)).toEqual(["peer:device-x:t1"]);
 		// The holder's omp moving to another file moves the view with it: neither tab is closed as a duplicate.
 		sidecar.emit("session", { sessionId: "s2", sessionFile: "/s/next.jsonl" });
