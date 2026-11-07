@@ -64,6 +64,7 @@ import {
 import { PreviewCheckNotice } from "./PreviewCheckNotice";
 import { AllVisualsDialog, PreviewFeedbackBar, usePreviewFeedback } from "./PreviewFeedback";
 import { PreviewStreamView } from "./PreviewStreamView";
+import { usePreviewLayout } from "./use-preview-layout";
 
 const VIEWPORT_ICONS = { fill: Maximize, phone: Smartphone, tablet: Tablet, laptop: Laptop } as const;
 
@@ -184,64 +185,12 @@ export function PreviewPanel() {
 		if (agentOwner.current && !owner) releaseAgentRelay(agentOwner.current);
 		agentOwner.current = owner;
 	}, [state.agent?.tabId]);
-	useEffect(() => {
-		const element = surface.current;
-		if (!element) return;
-		let frame = 0;
-		let lastLayout = "";
-		const update = () => {
-			cancelAnimationFrame(frame);
-			frame = requestAnimationFrame(() => {
-				const bounds = element.getBoundingClientRect();
-				// A native view floats over the window, so a dialog or menu above it must hide it. A web viewer's
-				// frame is an ordinary image in the page (and the panel itself is a sheet there): nothing covers it.
-				const covered =
-					!web &&
-					[
-						...document.querySelectorAll(
-							'.omp-dialog-overlay, [role="dialog"], [role="alertdialog"], [role="menu"], [data-state="open"][data-popover]',
-						),
-					].some(node => node.getClientRects().length > 0);
-				const request: PreviewRequest = {
-					action: "layout",
-					// The streamed page sizes to the surface alone: where it sits in the window means nothing to the host.
-					bounds: web
-						? { x: 0, y: 0, width: Math.round(bounds.width), height: Math.round(bounds.height) }
-						: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
-					visible: visible && !covered && !remoteBlocked && Boolean(state.url) && !state.error && !state.crashed,
-					// A web viewer's page is rendered for its own screen density; an Electron window sends none.
-					...(web ? { dpr: window.devicePixelRatio } : {}),
-				};
-				const key = JSON.stringify(request);
-				if (web && key === lastLayout) return;
-				lastLayout = key;
-				command(request);
-			});
-		};
-		const resize = new ResizeObserver(update);
-		resize.observe(element);
-		const mutations = new MutationObserver(update);
-		// Only a native view needs to follow dialogs opening over it.
-		if (!web) {
-			mutations.observe(document.body, {
-				childList: true,
-				subtree: true,
-				attributes: true,
-				attributeFilter: ["aria-hidden", "data-state", "style"],
-			});
-		}
-		window.addEventListener("resize", update);
-		window.addEventListener("scroll", update, true);
-		update();
-		return () => {
-			cancelAnimationFrame(frame);
-			resize.disconnect();
-			mutations.disconnect();
-			window.removeEventListener("resize", update);
-			window.removeEventListener("scroll", update, true);
-			command({ action: "layout", bounds: { x: 0, y: 0, width: 0, height: 0 }, visible: false });
-		};
-	}, [visible, remoteBlocked, state.url, state.error, state.crashed, command, web]);
+	usePreviewLayout(
+		surface,
+		web,
+		visible && !remoteBlocked && Boolean(state.url) && !state.error && !state.crashed,
+		command,
+	);
 	useEffect(
 		() => () => {
 			if (agentTab.current) releaseAgentRelay(agentTab.current);
