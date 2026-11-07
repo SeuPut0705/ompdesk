@@ -6,6 +6,7 @@ import { type FixtureTailscale, fixtureTailscale } from "./fixture/fake-tailscal
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
 import { defaultTailscaleScenario } from "./fixture/tailscale-scenario";
 import { exitApp, pressShortcutUntilVisible } from "./harness";
+import { ClickProbe } from "./preview-agent-click-probe";
 import {
 	connectRelay,
 	fixtureSite,
@@ -69,13 +70,26 @@ function viewOf(panel: Locator): AgentView {
 	};
 }
 
-/** The agent opens the site, reads it, follows its link and the person's page follows. */
-async function agentWalks(view: AgentView, driven: PuppeteerPage, site: string) {
-	await driven.goto(site);
-	await expect(view.status).toHaveText("Agent fixture", { timeout: 30_000 });
-	await expect(view.banner).toHaveAttribute("data-preview-agent", "attached");
-	expect(await driven.evaluate(() => document.querySelector("h1")?.textContent)).toBe("Agent fixture");
-	await Promise.all([driven.waitForNavigation(), driven.click("#next")]);
+/**
+ * The agent opens the site, reads it, follows its link and the person's page follows. `pageHost` is the computer
+ * whose Electron owns the page the agent drives: a click that never navigates carries the evidence of issue #21.
+ */
+async function agentWalks(view: AgentView, driven: PuppeteerPage, site: string, pageHost: RemoteInstance) {
+	const probe = await ClickProbe.start(driven, pageHost.app, site);
+	try {
+		await driven.goto(site);
+		await expect(view.status).toHaveText("Agent fixture", { timeout: 30_000 });
+		await expect(view.banner).toHaveAttribute("data-preview-agent", "attached");
+		expect(await driven.evaluate(() => document.querySelector("h1")?.textContent)).toBe("Agent fixture");
+		await probe.beforeClick();
+		try {
+			await Promise.all([driven.waitForNavigation(), driven.click("#next")]);
+		} catch (error) {
+			throw await probe.failed(error);
+		}
+	} finally {
+		probe.stop();
+	}
 	await expect(view.status).toHaveText("Second page", { timeout: 30_000 });
 	await expect(view.address).toHaveValue(`${site}next`);
 	await expect(view.banner).toContainText(/Page\.|Runtime\.|Input\.|DOM\./);
@@ -98,13 +112,14 @@ interface AgentBrowser {
 
 /**
  * The scenario on one Preview panel: the robot button lets the agent in, it drives the page (`during` may check more
- * while it holds it), Take over detaches it, and the robot button lets it in again.
+ * while it holds it), Take over detaches it, and the robot button lets it in again. `pageHost` owns the page.
  */
 async function driveTakeOverAndHandBack(
 	view: AgentView,
 	relayFile: string,
 	site: string,
 	agent: AgentBrowser,
+	pageHost: RemoteInstance,
 	during?: (driven: PuppeteerPage) => Promise<void>,
 ) {
 	const letIn = async () => {
@@ -115,13 +130,13 @@ async function driveTakeOverAndHandBack(
 	};
 	await test.step("the agent drives the page that is watched", async () => {
 		const { browser, driven } = await letIn();
-		await agentWalks(view, driven, site);
+		await agentWalks(view, driven, site, pageHost);
 		await during?.(driven);
 		await test.step("Take over detaches the agent", () => takenOver(view, browser, driven, site));
 	});
 	await test.step("the robot button hands the page back to the agent", async () => {
 		const { driven } = await letIn();
-		await agentWalks(view, driven, site);
+		await agentWalks(view, driven, site, pageHost);
 	});
 }
 
@@ -241,7 +256,7 @@ test("a paired phone's Preview page is driven by the agent through stock's relay
 		const paired = await pairedPhone(app, tailscale, phoneBrowser, { cwd: profile.project });
 		proxy = paired.proxy;
 		const view = await phonePreview(paired.phone, fixture.url);
-		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent);
+		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, app);
 	} finally {
 		await agent.current?.disconnect().catch(() => {});
 		await phoneBrowser.close().catch(() => {});
@@ -281,7 +296,7 @@ test("a paired device's own Preview page is driven by the agent of the host's ta
 			instance.app.evaluate(({ webContents }) =>
 				webContents.getAllWebContents().map(contents => contents.getTitle()),
 			);
-		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, async driven => {
+		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, client, async driven => {
 			// The page that moved is the device's own native one; the host opened none.
 			expect(await pageTitles(client)).toContain("Second page");
 			expect(await pageTitles(host)).not.toContain("Second page");
@@ -316,7 +331,7 @@ test("a paired phone viewing a tab of a paired host is driven through the same t
 		const paired = await pairedPhone(client, tailscale, phoneBrowser, { cwd: hostProfile.project, device: deviceId });
 		proxy = paired.proxy;
 		const view = await phonePreview(paired.phone, fixture.url);
-		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, async () => {
+		await driveTakeOverAndHandBack(view, relayFile, fixture.url, agent, client, async () => {
 			// The page that moved is the computer's offscreen one for the phone; the host opened none.
 			expect(
 				await host.app.evaluate(({ webContents }) => webContents.getAllWebContents().map(c => c.getTitle())),
