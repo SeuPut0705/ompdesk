@@ -38,6 +38,12 @@ export interface Surface {
 		 */
 		remoteChild?: boolean;
 		/**
+		 * Before it is captured, B runs a second session, "Parity roster", that every view opened once and then left for
+		 * the shown session, so each holds a tab of it it does not show; its turn then starts two subagents
+		 * (e2e/parity.e2e.ts). Its row must count them with no click.
+		 */
+		hiddenRoster?: boolean;
+		/**
 		 * Runs in each view after its capture (also when the capture failed): puts back what `open` changed beyond the
 		 * page (the host's settings, a take waiting on the fake omp), so the next surface starts from the same host.
 		 */
@@ -733,6 +739,16 @@ export const SURFACES: readonly Surface[] = [
 		// Two paired apps only: the parity sheet sets it up (`remoteChild`); the audits' harness page has no paired computer.
 		when: () => false,
 		parity: { session: "work", remoteChild: true },
+	},
+	{
+		id: "sidebar-roster",
+		area: "A",
+		title: "Session list with a session this view holds but does not show running two subagents: its row counts them with no click",
+		open: openDrawer,
+		ready: ':is(.omp-sidebar-session-row, [data-device-session]):has-text("Parity roster") [data-family-running="2"]',
+		// Two paired apps only: the parity sheet sets it up (`hiddenRoster`); the audits' harness page has no such session.
+		when: () => false,
+		parity: { session: "work", hiddenRoster: true },
 	},
 	{
 		id: "transcript-top",

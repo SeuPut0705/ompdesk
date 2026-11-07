@@ -450,9 +450,55 @@ if (dir) {
 				);
 			};
 
+			/**
+			 * What a `hiddenRoster` surface shows, set up once before the first: B runs a second session, each view opens
+			 * it (so holds a tab of it) and goes back to the work session, and only then a turn of it starts two subagents,
+			 * so no view shows the session when they start. The phone's capture loads its page afresh: its tab list reads
+			 * them.
+			 */
+			let hiddenRosterLeft = false;
+			const leaveHiddenRoster = async () => {
+				hiddenRosterLeft = true;
+				const tabId = (await b.evaluate(cwd => window.omp.tabs.spawn({ cwd }), work.cwd))?.tabId ?? "";
+				if (!tabId) throw new Error("B opened no tab for the roster session");
+				const rosterTab = async () =>
+					(await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId);
+				await expect.poll(async () => (await rosterTab())?.status, { timeout: 60_000 }).toBe("ready");
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity roster" }),
+					tabId,
+				);
+				// One answered turn gives it a file, so a row in every view.
+				await b.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), tabId);
+				let sessionPath = "";
+				await expect
+					.poll(async () => (sessionPath = (await rosterTab())?.sessionPath ?? ""), { timeout: 30_000 })
+					.not.toBe("");
+				await openRow(
+					a,
+					a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`),
+					sessionPath,
+				);
+				const viewed = await phone.evaluate(spawn => window.omp.tabs.spawn(spawn), { cwd: work.cwd, sessionPath });
+				if (!viewed?.tabId)
+					throw new Error(`the phone could not view the roster session: ${JSON.stringify(viewed)}`);
+				for (const view of VIEWS) await show[view]("work");
+				// The fake holds "fixture running" open until `fixture:finish`.
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+					tabId,
+				);
+				await expect.poll(async () => (await rosterTab())?.status, { timeout: 30_000 }).toBe("running");
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:subagents" }),
+					tabId,
+				);
+			};
+
 			const records: SurfaceRecord[] = [];
 			for (const surface of surfaces) {
 				if (surface.parity.remoteChild && !remoteChildLeft) await leaveRemoteChild();
+				if (surface.parity.hiddenRoster && !hiddenRosterLeft) await leaveHiddenRoster();
 				const record: SurfaceRecord = {
 					id: surface.id,
 					title: surface.title,
