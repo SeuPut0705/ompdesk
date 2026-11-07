@@ -12,6 +12,7 @@ import type { BotActivityPage } from "../../shared/bot-activity";
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import {
 	IPC_COMMANDS,
+	IPC_EVENTS,
 	type IpcFsReadImageResult,
 	type IpcFsReadPlanResult,
 	type IpcSessionsListPayload,
@@ -36,6 +37,7 @@ import {
 } from "../../shared/preview";
 import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
+import type { SummariesChanged } from "../../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
@@ -95,6 +97,7 @@ import {
 import { PLAN_FILE_PATH, PLAN_MARKDOWN, SESSION_TREE } from "./fixture-sheets";
 import { statsAnswer } from "./fixture-stats";
 import { diskCareState, orphanWorktrees, savedWorktreeRestore, savedWorktrees } from "./fixture-work-tree";
+import { createHarnessSummaries, type HarnessSummaries } from "./summaries";
 
 type Listener = (data: unknown) => void;
 
@@ -136,6 +139,11 @@ export interface Harness {
 	 * `sessions:changed` (with `device` for a host's section) and the list reads it as a session that just appeared.
 	 */
 	sessions: SessionInfo[];
+	/**
+	 * This computer's session summaries, built by main's own builder over the fixture tabs (./summaries.ts): what a row
+	 * shows of a session's run, ask and subagents. Set a tab's facts, write a stock subagent frame, restart its omp.
+	 */
+	summaries: HarnessSummaries;
 }
 
 declare global {
@@ -300,6 +308,9 @@ interface PrefsSetPayload {
 	value: unknown;
 }
 
+/** The open session's subagents the fixture's flags give it (`?board=busy`, `?jobs=tree`): what its omp's `get_subagents` answers. */
+const openSessionSubagents = () => (BOARD_BUSY ? boardSubagents() : JOBS_TREE ? JOB_TREE_SUBAGENTS : []);
+
 export function createHarnessTransport(prefs: Record<string, unknown>): { transport: OmpTransport; harness: Harness } {
 	const listeners = new Map<string, Set<Listener>>();
 	const unhandled: string[] = [];
@@ -309,6 +320,13 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	const note = (key: string) => {
 		if (!unhandled.includes(key)) unhandled.push(key);
 	};
+	const emit = (channel: string, data: unknown) => {
+		for (const listener of listeners.get(channel) ?? []) listener(data);
+	};
+	const summaries = createHarnessSummaries({
+		subagentsOf: tabId => (tabId === "tab-1" ? openSessionSubagents() : []),
+		onChange: change => emit(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, { change } satisfies SummariesChanged),
+	});
 	// This computer's project list, edited in place: a project's Delete takes it out.
 	let projects = projectsFixture();
 	const harnessProjects = (request: SidebarProjectsRequest) => {
@@ -413,9 +431,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case "get_available_commands":
 				return respond(command, { commands: [] });
 			case "get_subagents":
-				return respond(command, {
-					subagents: BOARD_BUSY ? boardSubagents() : JOBS_TREE ? JOB_TREE_SUBAGENTS : [],
-				});
+				return respond(command, { subagents: openSessionSubagents() });
 			case "get_jobs":
 				return respond(command, { rows: BOARD_BUSY ? boardJobs() : JOBS_TREE ? jobTreeRows() : [] });
 			case "get_queue":
@@ -534,6 +550,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return rpc({ command: (payload as RpcPayload).command });
 			case IPC_COMMANDS.RPC_COMMAND_FOR_TAB:
 				return rpc(payload as RpcPayload);
+			// This computer's summaries; a paired host's are not known to the harness (an older host answers none).
+			case IPC_COMMANDS.SESSION_SUMMARIES:
+				return payload === undefined ? summaries.current() : null;
 			case IPC_COMMANDS.SESSIONS_LIST: {
 				// The feed's read (`listShared`) takes the list with its version (`epoch.n`, n only grows): it moves only with
 				// `harness.sessions`, whose newest `modified` grows with every push and touch.
@@ -742,14 +761,13 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	};
 
 	const harness: Harness = {
-		emit(channel, data) {
-			for (const listener of listeners.get(channel) ?? []) listener(data);
-		},
+		emit,
 		unhandled,
 		calls,
 		stream: { dialogs: [], answers: [] },
 		terminal: { lease: "you" },
 		sessions: [],
+		summaries,
 	};
 
 	const transport: OmpTransport = {

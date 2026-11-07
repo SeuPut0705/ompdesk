@@ -10,7 +10,6 @@
  * The summaries are numbered like the session list (`SessionListShare`): `current()` is the whole set at a version,
  * and each change is published once per burst as what changed from the last version.
  */
-import { randomUUID } from "node:crypto";
 import {
 	assignmentHeadline,
 	assignmentTitle,
@@ -214,7 +213,7 @@ export class SessionSummaries {
 	readonly #sources: () => Iterable<SummarySource>;
 	readonly #timers: Timers;
 	readonly #rosters = new WeakMap<SummarySidecar, Roster>();
-	readonly #epoch = randomUUID().slice(0, 8);
+	readonly #epoch = globalThis.crypto.randomUUID().slice(0, 8);
 	#next = 0;
 	#copy: VersionedSummaries | null = null;
 	#timer: unknown = null;

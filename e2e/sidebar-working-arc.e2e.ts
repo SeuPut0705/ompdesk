@@ -87,25 +87,23 @@ async function openHarness(
 
 /**
  * `count` saved sessions get a tab, running unless `status` says otherwise (the first one's turn waits on the
- * person when `waitingFirst`).
+ * person when `waitingFirst`): the pool's facts for them, through `window.__harness.summaries`. Tabs of an earlier
+ * call past `count` close.
  */
 async function startWork(page: Page, count: number, waitingFirst = false, status = "running"): Promise<void> {
 	await page.evaluate(
 		({ count, waitingFirst, status }) => {
-			const tabs = window.__stores?.tabs as unknown as {
-				getState(): { tabs: { id: string }[] };
-				setState(partial: unknown): void;
-			};
-			const extra = Array.from({ length: count }, (_, index) => ({
-				id: `arc-${index + 1}`,
-				cwd: "/Users/dev/projects/ompdesk",
-				status,
-				kind: "agent",
-				unreadDone: false,
-				sessionPath: `-Users-dev-projects-ompdesk/sess-row-${index + 1}.jsonl`,
-				...(waitingFirst && index === 0 ? { awaitingInput: "input" } : {}),
-			}));
-			tabs.setState({ tabs: [...tabs.getState().tabs.filter(tab => !tab.id.startsWith("arc-")), ...extra] });
+			const summaries = window.__harness?.summaries;
+			if (!summaries) throw new Error("no harness summaries");
+			for (const { tabId } of summaries.current().sessions)
+				if (tabId.startsWith("arc-") && Number(tabId.slice("arc-".length)) > count) summaries.tab(tabId, null);
+			for (let index = 0; index < count; index++)
+				summaries.tab(`arc-${index + 1}`, {
+					cwd: "/Users/dev/projects/ompdesk",
+					status: status as "running" | "ready",
+					sessionPath: `-Users-dev-projects-ompdesk/sess-row-${index + 1}.jsonl`,
+					ask: waitingFirst && index === 0 ? "input" : undefined,
+				});
 		},
 		{ count, waitingFirst, status },
 	);
@@ -113,11 +111,9 @@ async function startWork(page: Page, count: number, waitingFirst = false, status
 
 async function stopWork(page: Page): Promise<void> {
 	await page.evaluate(() => {
-		const tabs = window.__stores?.tabs as unknown as {
-			getState(): { tabs: { id: string }[] };
-			setState(partial: unknown): void;
-		};
-		tabs.setState({ tabs: tabs.getState().tabs.filter(tab => !tab.id.startsWith("arc-")) });
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		for (const { tabId } of summaries.current().sessions) if (tabId.startsWith("arc-")) summaries.tab(tabId, null);
 	});
 }
 

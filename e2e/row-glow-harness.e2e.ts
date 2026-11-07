@@ -13,6 +13,7 @@ import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
 import { type Browser, chromium, devices, expect, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import type { SummaryFacts } from "../src/main/session-summaries";
 
 const CAPTURES = process.env.OMP_GUI_ROW_GLOW;
 
@@ -81,37 +82,15 @@ async function openHarness(
 	return page;
 }
 
-/** Tabs 1 and 2 run, tab 3 stays idle; two subagents of the open session run. */
+/** Tabs 1 and 2 run, tab 3 stays idle; two subagents of the open session run (stock's frames, through main's builder). */
 async function seedRunning(page: Page): Promise<void> {
 	await page.evaluate(() => {
-		const stores = window.__stores;
-		if (!stores) throw new Error("no stores");
-		const tabs = stores.tabs as unknown as {
-			getState(): { tabs: { id: string; status: string }[] };
-			setState(partial: unknown): void;
-		};
-		tabs.setState({
-			tabs: tabs.getState().tabs.map(tab => (tab.id === "tab-3" ? tab : { ...tab, status: "running" })),
-		});
-		const subagents = stores.subagents.getState() as { setSnapshots(rows: unknown[]): void };
-		subagents.setSnapshots([
-			{
-				id: "r1",
-				index: 1,
-				agent: "task",
-				assignment: "Title: Theme cleanup",
-				status: "running",
-				lastUpdate: Date.now(),
-			},
-			{
-				id: "r2",
-				index: 2,
-				agent: "task",
-				assignment: "Title: Check attachments",
-				status: "running",
-				lastUpdate: Date.now(),
-			},
-		]);
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		summaries.tab("tab-1", { status: "running" });
+		summaries.tab("tab-2", { status: "running" });
+		summaries.progress("tab-1", { id: "r1", index: 1, assignment: "Title: Theme cleanup" });
+		summaries.progress("tab-1", { id: "r2", index: 2, assignment: "Title: Check attachments" });
 	});
 	await page.locator("[data-sidebar-subagents-toggle]").first().click();
 	await expect(page.locator("[data-sidebar-subagent]")).toHaveCount(2);
@@ -146,13 +125,12 @@ async function runningAnimations(page: Page) {
 	);
 }
 
-async function setTabs(page: Page, change: Record<string, Record<string, unknown>>): Promise<void> {
+/** Set tabs' facts as the pool reports them (`window.__harness.summaries`): the rows read them from the builder. */
+async function setTabs(page: Page, change: Record<string, Partial<SummaryFacts>>): Promise<void> {
 	await page.evaluate(change => {
-		const tabs = window.__stores?.tabs as unknown as {
-			getState(): { tabs: { id: string }[] };
-			setState(partial: unknown): void;
-		};
-		tabs.setState({ tabs: tabs.getState().tabs.map(tab => ({ ...tab, ...change[tab.id] })) });
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		for (const [tabId, facts] of Object.entries(change)) summaries.tab(tabId, facts);
 	}, change);
 }
 
@@ -165,7 +143,17 @@ async function setSession(page: Page, patch: Record<string, unknown>): Promise<v
 	}, patch);
 }
 
-/** Replace the open session's subagent roster. */
+/** The open session's two seeded subagents finish: stock's `subagent_lifecycle` frames end their runs. */
+async function finishSubagents(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		summaries.lifecycle("tab-1", { id: "r1", index: 1, status: "completed" });
+		summaries.lifecycle("tab-1", { id: "r2", index: 2, status: "completed" });
+	});
+}
+
+/** Replace the open session's own subagent roster (its store, which the composer's cue reads). */
 async function setSubagents(page: Page, rows: unknown[]): Promise<void> {
 	await page.evaluate(rows => {
 		const roster = window.__stores?.subagents?.getState() as { setSnapshots(rows: unknown[]): void } | undefined;
@@ -227,7 +215,7 @@ for (const surface of SURFACES)
 			}
 
 			// A session that waits for an answer keeps its warning look; its title holds a still warning colour.
-			await setTabs(page, { "tab-2": { awaitingInput: "input" } });
+			await setTabs(page, { "tab-2": { ask: "input" } });
 			const waiting = sidebar.locator('.omp-sidebar-session-row[data-signal="waiting"] .omp-live-text');
 			await expect(waiting).toHaveAttribute("data-working", "waiting");
 			await expect(waiting).toHaveCSS("animation-name", "none");
@@ -290,15 +278,15 @@ if (SHOTS)
 						await row.screenshot({ path: path.join(SHOTS, "frames", `row-${tag}-${frame}.png`) });
 						await page.waitForTimeout(375);
 					}
-					await setTabs(page, { "tab-2": { awaitingInput: "input" } });
+					await setTabs(page, { "tab-2": { ask: "input" } });
 					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-waiting-${tag}.png`) });
 					await setTabs(page, { "tab-1": { status: "ready" } });
 					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-background-${tag}.png`) });
 					await setTabs(page, {
 						"tab-1": { status: "ready" },
-						"tab-2": { status: "ready", awaitingInput: undefined },
+						"tab-2": { status: "ready", ask: undefined },
 					});
-					await setSubagents(page, []);
+					await finishSubagents(page);
 					await sidebar.screenshot({ path: path.join(SHOTS, `sidebar-done-${tag}.png`) });
 					if (surface.name === "phone") await page.keyboard.press("Escape");
 					const box = page.locator(".omp-composer-box").first();

@@ -79,54 +79,29 @@ async function openHarness(surface: Surface, theme: "light" | "dark", lang: "en"
 	return page;
 }
 
-/** The frames stock sends: first runs, then a follow-up to some, and the revival of others. */
+/** The frames stock sends, written to the open session's omp: first runs, then a follow-up to some, and the revival of others. */
 async function seedFamily(page: Page): Promise<void> {
 	await page.evaluate(originals => {
-		const stores = window.__stores;
-		if (!stores) throw new Error("no stores");
-		const store = stores.subagents.getState() as { applyFrame(frame: unknown): void };
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
 		const wrap = (assignment: string) => `Complete assignment thoroughly:\n\n${assignment}`;
-		const progress = (id: string, index: number, task: string, assignment: string | undefined, status: string) => ({
-			type: "subagent_progress",
-			payload: {
-				index,
-				agent: "task",
-				agentSource: "bundled",
-				task,
-				assignment,
-				detached: true,
-				sessionFile: `/tmp/${id}.jsonl`,
-				progress: {
-					index,
-					id,
-					agent: "task",
-					agentSource: "bundled",
-					status,
-					task,
-					assignment,
-					recentTools: [],
-					recentOutput: [],
-					toolCount: 2,
-					requests: 1,
-					tokens: 1200,
-					cost: 0,
-					durationMs: 60_000,
-				},
-			},
-		});
 		originals.forEach(([id, assignment], index) => {
 			const body = `${assignment}\n\n# Target\nsomething`;
+			const sessionFile = `/tmp/${id}.jsonl`;
 			if (index % 3 === 2) {
 				// A revival after a restart: the wrapped original, no assignment.
-				store.applyFrame(progress(id, index, wrap(body), undefined, "running"));
+				summaries.progress("tab-1", { id, index, task: wrap(body), sessionFile });
 				return;
 			}
-			store.applyFrame(progress(id, index, wrap(body), body, "running"));
+			summaries.progress("tab-1", { id, index, task: wrap(body), assignment: body, sessionFile });
 			if (index % 3 === 1) {
 				// A follow-up message to the idle subagent: its text is `task`, no assignment.
-				store.applyFrame(
-					progress(id, index, "Your mac check in 7e3ec34a looked fine, now go on.", undefined, "running"),
-				);
+				summaries.progress("tab-1", {
+					id,
+					index,
+					task: "Your mac check in 7e3ec34a looked fine, now go on.",
+					sessionFile,
+				});
 			}
 		});
 	}, ORIGINALS);
@@ -191,11 +166,11 @@ test("a child waiting for the person shows alone under the folded parent, the ch
 	if (!surface) throw new Error("no surface");
 	const page = await openHarness(surface, "dark", "ko");
 	await openSidebar(page, surface);
+	// A restart's revival: the omp reads its registry as it becomes ready; a subagent that runs no turn waits.
 	await page.evaluate(() => {
-		const stores = window.__stores;
-		if (!stores) throw new Error("no stores");
-		const subagents = stores.subagents.getState() as { setSnapshots(rows: unknown[]): void };
-		subagents.setSnapshots([
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		summaries.restart("tab-1", [
 			{
 				id: "r1",
 				index: 1,
