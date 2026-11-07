@@ -997,7 +997,6 @@ export class LocalHostServices implements HostServices {
 		return this.#deps.windowRemoteOpened?.() ?? [];
 	}
 
-
 	/** This computer's Mobile web address changed: every connected device hears it (`host.mobileWeb.changed`). */
 	mobileWebLinkChanged(url: string | null): void {
 		for (const conn of this.#conns) emitSafely(conn, MOBILE_WEB_LINK_EVENT, { url });
