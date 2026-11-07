@@ -116,6 +116,18 @@ describe("deriveMarkers", () => {
 	it("records the paired device a hosted tab runs for", () => {
 		expect(deriveMarkers([fact({ running: true, peer: "device-a" })], [], 500)[0]?.peer).toBe("device-a");
 	});
+
+	it("marks a run whose turn ended and only background work keeps on, so its continuation never retries the turn", () => {
+		expect(deriveMarkers([fact({ running: true, settling: true })], [], 500)[0]).toMatchObject({
+			reason: "running",
+			background: true,
+		});
+		expect(deriveMarkers([fact({ running: true })], [], 500)[0]).not.toHaveProperty("background");
+		// A failed turn waiting for the connection is retried, background work or not.
+		expect(deriveMarkers([fact({ settling: true, awaitingConnection: true })], [], 500)[0]).not.toHaveProperty(
+			"background",
+		);
+	});
 });
 
 describe("launch rules", () => {
@@ -123,6 +135,7 @@ describe("launch rules", () => {
 		expect(launchAction(marker({ reason: "running" }))).toBe("restore");
 		expect(launchAction(marker({ reason: "network" }))).toBe("retry");
 		expect(launchAction(marker({ reason: "asking" }))).toBe("restore");
+		expect(launchAction(marker({ background: true }))).toBe("revive");
 	});
 });
 
@@ -1130,6 +1143,81 @@ describe("TurnResume launch", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("revives what a session's background work left on a relaunch and never retries its ended turn", async () => {
+		const nothing: RpcResponse = {
+			type: "response",
+			command: "restore_interrupted",
+			success: true,
+			data: { turn: false, subagents: [], jobs: [] },
+		};
+		h = setup({ answers: { restore_interrupted: nothing } });
+		new InterruptedTurnStore(h.file).write([marker({ background: true })]);
+		h.facts.push(fact({ tabId: "restored" }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.logs.at(-1)).toMatchObject(["continue", { action: "revive", retried: false, started: false }]);
+		expect(h.store.read()).toEqual([]);
+	});
+});
+
+describe("TurnResume after the omp died under its tab (`exits`)", () => {
+	let h: Harness;
+	afterEach(() => rmSync(h.dir, { recursive: true, force: true }));
+
+	it("continues the marker the tab had on its next omp, once, and leaves a paired host's tab to its host", async () => {
+		h = setup({ answers: { restore_interrupted: RESTORED } });
+		h.resume.launch();
+		h.facts.push(fact({ running: true }), fact({ tabId: "hosts", device: "host-b", running: true }));
+		h.resume.sync();
+		h.facts[0] = fact({ exits: 1 });
+		h.facts[1] = fact({ tabId: "hosts", device: "host-b", exits: 1 });
+		h.resume.sync();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.started).toEqual(["t1"]);
+		expect(h.logs).toContainEqual(["marker", { session: "/s/a.jsonl", reason: "running", tab: "t1", via: "exit" }]);
+		// Another sync with the same count is no new exit.
+		h.resume.sync();
+		await settle();
+		expect(h.commands).toHaveLength(1);
+	});
+
+	it("leaves a network wait to its own retry", async () => {
+		h = setup({ answers: { retry: RETRIED } });
+		h.resume.launch();
+		h.facts.push(fact({ awaitingConnection: true }));
+		h.resume.sync();
+		h.facts[0] = fact({ awaitingConnection: true, exits: 1 });
+		h.resume.sync();
+		await settle();
+		expect(h.commands).toEqual([]);
+	});
+
+	it("ends a continuation whose omp died under it, so only the next omp's restore goes on and the goal hears once", async () => {
+		const first = Promise.withResolvers<RpcResponse>();
+		let restores = 0;
+		h = setup({
+			answers: { restore_interrupted: () => (++restores === 1 ? first.promise : Promise.resolve(RESTORED)) },
+		});
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored" }));
+		h.resume.launch();
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+
+		// The omp dies while the launch's restore is on its way; the command fails with it.
+		h.facts[0] = fact({ tabId: "restored", exits: 1 });
+		h.resume.sync();
+		first.resolve({ type: "response", command: "restore_interrupted", success: false, error: "omp exited" });
+		await settle();
+
+		// No stock `retry` from the dead omp's continuation; the next omp restores once.
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "restore_interrupted"]);
+		expect(h.goals).toEqual([["restored", "none"]]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
 	});
 });
 

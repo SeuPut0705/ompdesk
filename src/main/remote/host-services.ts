@@ -368,6 +368,8 @@ interface HostTab extends RunTracking {
 	touched?: number;
 	/** Times the device sent this tab a prompt of its person's own (`personsPrompt`): a continuation started before is called off. */
 	prompted?: number;
+	/** Times this tab's omp died and its manager started another (`restarting`): `ResumeFact.exits`. */
+	exits?: number;
 	/** A view of a window's tab: the retry this computer scheduled for that tab's failed turn (turn-resume.ts). */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
@@ -843,6 +845,8 @@ export class LocalHostServices implements HostServices {
 			if (tab.sessionFile) fact.sessionFile = tab.sessionFile;
 			if (tab.touched) fact.touched = tab.touched;
 			if (tab.prompted) fact.prompted = tab.prompted;
+			if (tab.exits) fact.exits = tab.exits;
+			if (runSettling(tab.run)) fact.settling = true;
 			if (tab.lastRun) fact.lastRun = tab.lastRun;
 			if (tab.retry) fact.retry = tab.retry;
 			return [fact];
@@ -2098,10 +2102,13 @@ export class LocalHostServices implements HostServices {
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			if (payload.status !== "ready" && !payload.sessionEnded)
 				change(() => {
+					// The omp died and comes back by itself: the resume rules continue what it was doing.
+					const died = payload.status === "restarting";
+					if (died) tab.exits = (tab.exits ?? 0) + 1;
 					tab.run = idleRun();
 					const asked = tab.asks.size > 0;
 					tab.asks.clear();
-					return asked;
+					return asked || died;
 				});
 		});
 		sidecar.on("promptResult", (frame: PromptResultFrame) => {

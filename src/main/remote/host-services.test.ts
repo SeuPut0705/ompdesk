@@ -2042,6 +2042,27 @@ describe("LocalHostServices", () => {
 		expect(sidecars[1]?.disposed).toBe(false);
 	});
 
+	it("tells the resume rules when a device tab's omp dies under its background work, so this computer continues it", async () => {
+		const { services, sidecars } = setup();
+		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };
+		services.attachResume(resume);
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, sessionPath: "/s/one.jsonl" }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const omp = sidecars[0];
+		omp?.setStatus("ready");
+		omp?.emit("events", [{ type: "agent_start" }]);
+		omp?.emit("events", [{ type: "agent_end" }]);
+		omp?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
+		expect(services.resumeFacts()[0]).toMatchObject({ running: true, settling: true, peer: "device-x" });
+		expect(services.resumeFacts()[0]).not.toHaveProperty("exits");
+
+		resume.sync.mockClear();
+		omp?.setStatus("restarting");
+		expect(services.resumeFacts()[0]).toMatchObject({ running: false, exits: 1 });
+		expect(resume.sync).toHaveBeenCalled();
+	});
+
 	it("lists a revived tab whose relaunch continuation has not started its turn yet as kept for its relaunched device", async () => {
 		// 2 Nov 2026: this computer relaunched for an update and continued two of a Mac's tabs; the Mac relaunched seconds
 		// later and asked `tabs.kept` while one continuation's restore had answered but stock had not started the turn yet.

@@ -50,6 +50,11 @@ export interface ResumeMarker {
 	 * message): a turn cut off before that left nothing on disk, so the relaunch sends the prompt again.
 	 */
 	prompt?: string;
+	/**
+	 * The turn had ended; only background work (subagents, async jobs) kept the run on. The continuation revives and
+	 * names that work through stock's restore and never retries the ended turn.
+	 */
+	background?: true;
 }
 
 /** What the pool knows about one tab, the only input of the marker rules. */
@@ -66,8 +71,10 @@ export interface ResumeFact {
 	sessionFile?: string;
 	cwd: string;
 	kind: "agent" | "chat";
-	/** A turn is in flight (not a bare compaction). */
+	/** A run is on: a turn in flight, or the background work after one (not a bare compaction). */
 	running: boolean;
+	/** The run's turn ended; only background work (subagents, async jobs) keeps it on. */
+	settling?: boolean;
 	/** The user pressed Stop since the run began. */
 	stopped: boolean;
 	/** An ask or approval is open on this tab. */
@@ -90,6 +97,11 @@ export interface ResumeFact {
 	prompted?: number;
 	/** The run's prompt while the new session has no file yet (see {@link ResumeMarker.prompt}). */
 	unsavedPrompt?: string;
+	/**
+	 * How often the tab's omp died and its manager started another (`restarting`): the run died with it, so a marker
+	 * the tab had then continues on the next omp as a relaunch's does.
+	 */
+	exits?: number;
 	/** The tab whose agent opened this one (`ompdesk_session_open`), and that opener's session file. */
 	openedBy?: string;
 	openedBySession?: string;
@@ -127,12 +139,14 @@ export function deriveMarkers(
 		};
 		if (fact.peer) marker.peer = fact.peer;
 		if (fact.unsavedPrompt) marker.prompt = fact.unsavedPrompt;
+		if (fact.settling && reason !== "network") marker.background = true;
 		markers.push(marker);
 	}
 	return markers;
 }
 
-export type ResumeAction = "restore" | "retry";
+/** `revive`: stock's restore alone, for a turn that had ended (its background work goes on, the turn is never retried). */
+export type ResumeAction = "restore" | "retry" | "revive";
 
 /** How a tab's launch continuation ended for its goal (`ResumeDeps.goalSettled`). */
 export type GoalSettlement = "resumed" | "none" | "cancelled";
@@ -142,7 +156,8 @@ export type RelaunchContinuation = "after_restore" | "now" | "off";
 
 /** What a launch does with a marker. */
 export function launchAction(marker: ResumeMarker): ResumeAction {
-	return marker.reason === "network" ? "retry" : "restore";
+	if (marker.reason === "network") return "retry";
+	return marker.background ? "revive" : "restore";
 }
 
 /**
@@ -351,7 +366,7 @@ export class InterruptedTurnStore {
 function sanitizeMarker(value: unknown): ResumeMarker | null {
 	if (typeof value !== "object" || value === null) return null;
 	const record = value as Record<string, unknown>;
-	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt } = record;
+	const { window, tab, device, peer, sessionPath, cwd, kind, startedAt, reason, prompt, background } = record;
 	if (
 		typeof window !== "number" ||
 		typeof tab !== "string" ||
@@ -367,6 +382,7 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 	const marker: ResumeMarker = { window, tab, sessionPath, cwd, kind, startedAt, reason };
 	if (typeof peer === "string" && peer) marker.peer = peer;
 	if (typeof prompt === "string" && prompt) marker.prompt = prompt;
+	if (background === true) marker.background = true;
 	return marker;
 }
 
@@ -541,6 +557,10 @@ export class TurnResume {
 	readonly #ownRetries = new Set<string>();
 	/** Tabs showing the "continuing" row: a launch continues them and their turn has not started yet. */
 	readonly #resumingShown = new Set<string>();
+	/** Per tab, the `exits` count last seen: a higher one means its omp died since (`#exited`). */
+	readonly #exits = new Map<string, number>();
+	/** Launch markers a later exit of the tab's omp replaced: their continuation is over and reports nothing. */
+	readonly #superseded = new WeakSet<ResumeMarker>();
 	#launched = false;
 	#previous: ResumeMarker[] = [];
 
@@ -573,8 +593,10 @@ export class TurnResume {
 			this.#takenOverRuns,
 			this.#attempts,
 			this.#ownRetries,
+			this.#exits,
 		])
 			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
+		const exited = this.#exited(current);
 		const live = deriveMarkers(current, this.#previous, this.#deps.now()).filter(
 			marker => !this.#pending.has(marker.tab),
 		);
@@ -582,6 +604,50 @@ export class TurnResume {
 		this.#previous = kept;
 		this.#deps.store.write(kept);
 		this.#showResuming();
+		for (const { tabId, action, since } of exited) {
+			if (this.#deps.network.shouldWait()) this.#hold(tabId, action, since);
+			else void this.#run(tabId, action, since);
+		}
+	}
+
+	/**
+	 * Tabs whose omp died under their work since the last look (`exits` moved; its manager starts the next one): the pool
+	 * already ended the run, so the marker the tab had goes on as a launch marker, continued once the next omp is up, as
+	 * a relaunch continues it. A network marker is not one: its wait and marker outlive the omp. Nor is a tab whose launch
+	 * continuation still waits offline: it runs on whatever omp is up then. A continuation already on its way is
+	 * superseded: its commands went to the omp that died, and it sends nothing more.
+	 */
+	#exited(current: readonly ResumeFact[]): Array<{ tabId: string; action: ResumeAction; since: HeldFor }> {
+		const exited: Array<{ tabId: string; action: ResumeAction; since: HeldFor }> = [];
+		for (const fact of current) {
+			const exits = fact.exits ?? 0;
+			const seen = this.#exits.get(fact.tabId) ?? 0;
+			this.#exits.set(fact.tabId, exits);
+			if (exits <= seen || !this.#deps.enabled() || this.#waiting.has(fact.tabId)) continue;
+			const marker = this.#previous.find(entry => entry.tab === fact.tabId);
+			if (!marker || marker.reason === "network") continue;
+			const before = this.#pending.get(fact.tabId);
+			if (before) {
+				this.#superseded.add(before);
+				this.#cancels.set(fact.tabId, (this.#cancels.get(fact.tabId) ?? 0) + 1);
+			}
+			const next: ResumeMarker = { ...marker };
+			this.#pending.set(fact.tabId, next);
+			this.#deps.log?.("marker", {
+				session: next.sessionPath,
+				reason: next.reason,
+				tab: fact.tabId,
+				via: "exit",
+				...(next.background ? { background: true } : {}),
+				...(next.peer ? { peer: next.peer } : {}),
+			});
+			exited.push({
+				tabId: fact.tabId,
+				action: launchAction(next),
+				since: { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 },
+			});
+		}
+		return exited;
 	}
 
 	/** The "continuing" row follows the launch markers still waiting for their turn (a reopened card is not one). */
@@ -861,6 +927,10 @@ export class TurnResume {
 		const since: HeldFor = { ...held, prompted: this.#factFor(tabId)?.prompted ?? 0 };
 		let personTookOver = false;
 		const calledOff = (): boolean => cancelled() || personTookOver;
+		// The launch marker this continuation runs for; once a later exit of the tab's omp replaced it (`#exited`), the
+		// continuation of the replacement owns the marker and the goal report.
+		const own = this.#pending.get(tabId);
+		const superseded = (): boolean => own !== undefined && this.#superseded.has(own);
 		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. A move's call-off
 		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
 		const stale = async (): Promise<boolean> => {
@@ -874,7 +944,14 @@ export class TurnResume {
 		const ready = sidecar ? await whenReady(sidecar) : false;
 		if (ready) await stale();
 		if (!sidecar || !ready || calledOff()) {
-			this.#deps.log?.("continue", { tab: tabId, action, ready, cancelled: calledOff() });
+			this.#deps.log?.("continue", {
+				tab: tabId,
+				action,
+				ready,
+				cancelled: calledOff(),
+				...(superseded() ? { superseded: true } : {}),
+			});
+			if (superseded()) return false;
 			this.#pending.delete(tabId);
 			this.#deps.goalSettled?.(tabId, calledOff() ? "cancelled" : "none");
 			this.sync();
@@ -912,9 +989,9 @@ export class TurnResume {
 		// omp outlives a killed OMPdesk long enough to close the turn itself: its RPC client is gone (stdin EOF),
 		// so a pending ask or approval fails ("RPC client disconnected…") and the run ends aborted, journaled.
 		// Stock `restoreSession` then finds nothing unfinished; stock `retry` (`/retry`) replays that failed tool
-		// batch (the card reopens) or the aborted reply, and does nothing for a turn that really ended.
-		const restored = action === "restore" ? await send("restore_interrupted") : undefined;
-		const retried = !continues(restored) && continues(await send("retry"));
+		// batch (the card reopens) or the aborted reply. A turn that had ended (`revive`) is never retried.
+		const restored = action === "retry" ? undefined : await send("restore_interrupted");
+		const retried = action !== "revive" && !continues(restored) && continues(await send("retry"));
 		let started = continues(restored) || retried;
 		// A new session's first turn cut off before stock wrote its file left nothing to restore (its tab starts a
 		// fresh session in the same folder): the prompt runs again. It leaves the marker before it is sent, so no
@@ -946,7 +1023,7 @@ export class TurnResume {
 		this.#deps.log?.("continue", {
 			tab: tabId,
 			action,
-			restored: action === "restore" ? restoreSummary(restored) : "skipped",
+			restored: action === "retry" ? "skipped" : restoreSummary(restored),
 			retried,
 			prompt: promptSent,
 			goal: goalResumed,
@@ -959,7 +1036,9 @@ export class TurnResume {
 			...(opened > 0 ? { opened } : {}),
 			...failures,
 			...(calledOff() ? { cancelled: true } : {}),
+			...(superseded() ? { superseded: true } : {}),
 		});
+		if (superseded()) return false;
 		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : calledOff() ? "cancelled" : "none");
 		// Nothing left to continue (or the call failed): the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);

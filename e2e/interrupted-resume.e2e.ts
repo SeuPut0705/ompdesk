@@ -6,12 +6,14 @@
  * resuming tab (with Stop), the background job the restart stopped named to the agent in a muted transcript line
  * (never a user bubble), the transcript left at the bottom of the live turn; a turn the user stopped does not
  * continue. The marker file is written on run-state transitions, so a crash leaves it behind. With the setting
- * off, nothing is marked or resumed and a quit asks first (turn-resume.test.ts, app-quit.test.ts).
+ * off, nothing is marked or resumed and a quit asks first (turn-resume.test.ts, app-quit.test.ts). A tab's omp that dies
+ * while the app runs is continued the same way on the omp the app starts next.
  *
  * Offline: a network error while the window is offline shows a calm waiting row
  * with Cancel instead of the failure card, and stock `retry` runs once an
  * `online` event arrives. Captures: light/dark × en/ko.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -98,6 +100,7 @@ async function launch(
 interface MarkerFile {
 	reason: string;
 	sessionPath: string;
+	background?: boolean;
 }
 
 async function markers(profile: Profile): Promise<MarkerFile[]> {
@@ -457,6 +460,53 @@ for (const language of variants(["en", "ko"] as const))
 			await cleanup(profile);
 		}
 	});
+
+/** The fake omps running in RPC mode under a profile: one per live tab. */
+function ompPids(profile: Profile): number[] {
+	return execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
+		.split("\n")
+		.filter(line => line.includes(profile.root) && line.includes("rpc-ui"))
+		.map(line => Number.parseInt(line, 10));
+}
+
+// 7 Nov 2026: a tab's omp died of an uncaught exception while its ended turn's background subagents still worked;
+// OMPdesk started the omp again and the session sat idle, its subagents gone and its agent never told.
+test("a session idle while its background subagent works goes on when its omp dies under it", async () => {
+	test.skip(process.platform === "win32", "the omp's pid comes from ps");
+	test.setTimeout(150_000);
+	const profile = await makeProfile("en", "light");
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		const input = page.locator(".omp-composer-input").first();
+		await input.fill("fixture background subagent");
+		await input.press("Enter");
+		await expect(page.getByText("Watcher is on the release build in the background.")).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect
+			.poll(() => markers(profile), { timeout: 30_000 })
+			.toMatchObject([{ reason: "running", background: true }]);
+		const [omp, ...others] = ompPids(profile);
+		expect(others).toEqual([]);
+		if (omp === undefined) throw new Error("expected the tab's omp");
+		process.kill(omp, "SIGKILL");
+
+		// The app starts the tab's omp again; the revived subagent is named to the agent in one muted line and the
+		// session takes one turn. The ended turn is not sent again.
+		await expect(page.getByText("Watcher is still on the release build; I'll report when it is green.")).toBeVisible({
+			timeout: 60_000,
+		});
+		await expect(page.locator("[data-restart-subagents]")).toHaveText(TEXT.en.subagents);
+		await expect(page.locator(".omp-user-bubble")).toHaveText([/^fixture background subagent/]);
+		await expect.poll(() => markers(profile), { timeout: 15_000 }).toEqual([]);
+		expect(ompPids(profile)).not.toContain(omp);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});
 
 for (const language of variants(["en", "ko"] as const))
 	for (const theme of variants(["light", "dark"] as const))

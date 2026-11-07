@@ -390,6 +390,8 @@ interface PoolEntry extends RunTracking {
 	touched?: number;
 	/** Times the person sent the tab a prompt of their own (`notePrompted`); a continuation that started at another count is called off. */
 	prompted?: number;
+	/** Times the tab's omp died and its manager started another (`restarting`): `ResumeFact.exits`. */
+	exits?: number;
 	/** The window "closed" listener registered at acquire, removed on release. */
 	onWindowClosed: () => void;
 	/** `omp update` landed while this tab ran a turn: it restarts on the new omp when the turn ends. */
@@ -1002,6 +1004,8 @@ export class SidecarPool {
 				if (sidecar.statusFromLink) {
 					if (runBusy(entry.run)) entry.runAcrossLink = true;
 				} else {
+					// The omp died under the tab and comes back by itself: the resume rules continue what it was doing.
+					if (payload.status === "restarting") entry.exits = (entry.exits ?? 0) + 1;
 					entry.run = idleRun();
 					entry.runAcrossLink = false;
 				}
@@ -2352,6 +2356,8 @@ export class SidecarPool {
 			if (entry.retry) fact.retry = entry.retry;
 			if (entry.touched) fact.touched = entry.touched;
 			if (entry.prompted) fact.prompted = entry.prompted;
+			if (entry.exits) fact.exits = entry.exits;
+			if (runSettling(entry.run)) fact.settling = true;
 			if (entry.unsavedPrompt !== undefined) fact.unsavedPrompt = entry.unsavedPrompt;
 			if (entry.openedBy) fact.openedBy = entry.openedBy;
 			if (entry.openedBySession) fact.openedBySession = entry.openedBySession;
