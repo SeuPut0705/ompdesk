@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.118.7] - 2026-11-08
+
+다른 기기의 탭이 이미 열고 있는 세션을 페어링한 컴퓨터에서 열어도, "omp를 시작하지 못했어요"라는 오류 탭이 생기지 않아요.
+
+### 고친 것
+- 맥미니처럼 페어링한 컴퓨터의 세션을, 다른 기기(예: 노트북)의 탭이 그 컴퓨터에서 이미 열고 있을 때 이 컴퓨터에서 열면 호스트가 두 번째 탭을 거절했어요. 그 거절이 "omp를 사용할 수 없어요 / omp를 시작하지 못했어요" 배너가 붙은 죽은 탭으로 남았어요. 이제 호스트는 어느 기기의 어느 탭이 세션을 열고 있는지 함께 알려 주고, 이 컴퓨터는 그 탭이 자기 탭이면 그 탭으로 옮겨 가고, 다른 기기의 탭이면 탭을 만들지 않고 "이 세션은 <기기>에서 이미 열려 있어요"라고 알려 줘요. 이전 버전의 호스트처럼 기기를 알려 주지 않아도 오류 탭은 남지 않아요.
+- 탭의 오류 배너가 실제 이유 대신 "omp를 시작하지 못했어요"만 보여 주는 경우가 있었어요. 이유가 보이는 탭과 앱을 처음 열 때의 활성 탭에만 전해졌기 때문이에요. 이제 이유는 탭 목록과 함께 모든 탭에 전해지고, 닫은 배너는 같은 이유로 다시 뜨지 않아요.
+
+<!-- en -->
+
+Opening a paired computer's session that another device's tab already has open no longer leaves an "omp failed to start" error tab.
+
+### Fixed
+- Opening a paired computer's session (a Mac mini's, say) while another device's tab (a laptop's) held it on that computer made the host refuse the second tab, and the refusal stayed as a dead tab with the banner "omp unavailable / omp failed to start". The host now names the device and tab that hold the session: when that tab is this computer's own, it switches to it; when it is another device's, no tab opens and a note says "This session is already open on <device>". A host on an older version that names no one leaves no error tab either.
+- A tab's error banner could say only "omp failed to start" instead of the real reason, because the reason reached only the tab on screen and, at launch, the active one. It now comes with the tab list to every tab, and a dismissed banner stays closed while the reason is the same.
+
 ## [0.118.6] - 2026-11-07
 
 휴대폰에서 미리보기 주소가 바뀌어도 페이지 크기가 순간적으로 0으로 줄지 않아요.
