@@ -203,7 +203,7 @@ import {
 	type TabStatusArg,
 } from "./app-protocol";
 import type { HostConnection, HostServices } from "./host-server";
-import { HostedTabView, labelForHost } from "./hosted-view";
+import { HostedTabView, labelForViewer } from "./hosted-view";
 import { createLinkEventSender, createReadEncoder, encodedReadKey, type LinkEventSender } from "./link-events";
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
@@ -386,15 +386,19 @@ interface HostTab extends RunTracking {
 	extensionPending?: ExtensionApplyPlan;
 	/** The prompt origin its omp was spawned with: the device it serves and this computer's name. */
 	origin: PromptOriginEnv;
-	/** Windows of this computer that show the tab (`viewSession`). */
+	/** Windows of this computer and other paired devices' tabs here that show the tab (`viewSession`, `#viewTab`). */
 	views: Set<HostedTabView>;
 	/**
-	 * The tab shows a window of this computer's own tab (`localTabs.viewForDevice`): its sidecar is that omp's view,
-	 * so its resume, updates and sidebar row are the window's, and its close only leaves.
+	 * The tab shows another tab's omp instead of running one: a window of this computer's own tab
+	 * (`localTabs.viewForDevice`), or another device's tab here (`#viewTab`). Its resume, updates and sidebar row are
+	 * that tab's, and its close only leaves.
 	 */
-	viewsWindow?: true;
-	/** Asks answered, by request id → who answered first; the other side's late answer is refused. */
-	answered: Map<string, "device" | "host">;
+	viewing?: "window" | HostTab;
+	/**
+	 * Asks answered, by request id → who answered first (`device`: the tab's own device, `host`: a window here,
+	 * `peer:<id>`: a device viewing it); everyone else's late answer is refused.
+	 */
+	answered: Map<string, string>;
 	/** What the connection last got of `events`/`subagentFrame`, when its device asked for slim ones. */
 	linkEvents?: { conn: HostConnection; sender: LinkEventSender };
 	/**
@@ -738,7 +742,7 @@ export class LocalHostServices implements HostServices {
 		// A device reads the list again only when told: a child's landing check ends after its file last changed.
 		if (JSON.stringify([...problems]) !== before) this.sessionsChanged();
 		for (const tab of this.#tabs.values())
-			if (tab.viewsWindow && tab.sessionFile === sessionPath) this.#emit(tab, AGENT_REVIEW_EVENT, review);
+			if (tab.viewing === "window" && tab.sessionFile === sessionPath) this.#emit(tab, AGENT_REVIEW_EVENT, review);
 	}
 
 	/** A device tab's sidecar by its resume id (the coordinator reads a start's source tab through it). */
@@ -825,13 +829,13 @@ export class LocalHostServices implements HostServices {
 
 	/** A tab this computer runs for a paired device compacts its context: an automatic update restart waits for it. */
 	compacting(): boolean {
-		return [...this.#tabs.values()].some(tab => !tab.viewsWindow && tab.run.compacting === true);
+		return [...this.#tabs.values()].some(tab => !tab.viewing && tab.run.compacting === true);
 	}
 
 	/** The resume rules' inputs for the tabs this computer runs for paired devices. */
 	resumeFacts(): ResumeFact[] {
 		return [...this.#tabs.values()].flatMap(tab => {
-			if (tab.viewsWindow) return [];
+			if (tab.viewing) return [];
 			const fact: ResumeFact = {
 				tabId: tab.resumeId,
 				winId: 0,
@@ -867,7 +871,7 @@ export class LocalHostServices implements HostServices {
 	/** The omps here that run for paired devices, for idle release: pid and title. */
 	memoryTabs(): Array<{ tabId: string; pid?: number; label: string }> {
 		return [...this.#tabs.values()].flatMap(tab =>
-			tab.viewsWindow
+			tab.viewing
 				? []
 				: [
 						{
@@ -910,7 +914,7 @@ export class LocalHostServices implements HostServices {
 	hostedSessions(): IpcHostedSession[] {
 		const sessions: IpcHostedSession[] = [];
 		for (const tab of this.#tabs.values()) {
-			if (tab.sessionFile === undefined || tab.viewsWindow) continue;
+			if (tab.sessionFile === undefined || tab.viewing) continue;
 			const { sidecar } = tab;
 			const session: IpcHostedSession = {
 				sessionPath: tab.sessionFile,
@@ -936,7 +940,7 @@ export class LocalHostServices implements HostServices {
 		return [...this.#tabs].flatMap(([key, tab]) => {
 			const { sidecar } = tab;
 			const request = sidecar.bridgeRequest?.bind(sidecar);
-			if (tab.viewsWindow || !request || sidecar.status !== "ready") return [];
+			if (tab.viewing || !request || sidecar.status !== "ready") return [];
 			return [
 				{
 					key: `hosted:${key}`,
@@ -959,7 +963,7 @@ export class LocalHostServices implements HostServices {
 		return [...this.#tabs].flatMap(([key, tab]) => {
 			const { sidecar } = tab;
 			const request = sidecar.bridgeRequest?.bind(sidecar);
-			if (tab.viewsWindow || !tab.run.running || !request || sidecar.status !== "ready") return [];
+			if (tab.viewing || !tab.run.running || !request || sidecar.status !== "ready") return [];
 			return [{ key: `hosted:${key}`, request }];
 		});
 	}
@@ -1010,7 +1014,7 @@ export class LocalHostServices implements HostServices {
 		};
 		for (const session of this.#deps.windowLiveSessions?.() ?? []) add(session.sessionPath, session.state);
 		for (const tab of this.#tabs.values()) {
-			if (tab.sessionFile === undefined || tab.viewsWindow) continue;
+			if (tab.sessionFile === undefined || tab.viewing) continue;
 			if (tab.asks.size > 0) add(tab.sessionFile, "waiting");
 			else if (tab.run.running) add(tab.sessionFile, runSettling(tab.run) ? "background" : "turn");
 		}
@@ -1062,12 +1066,12 @@ export class LocalHostServices implements HostServices {
 	 * window's sidecar (hosted-view.ts), so one omp serves both. Null when no tab here holds the session.
 	 */
 	viewSession(sessionPath: string): HostedTabView | null {
-		const tab = this.#holder(sessionPath);
+		const tab = this.#runner(sessionPath);
 		if (!tab) return null;
 		const view: HostedTabView = new HostedTabView({
 			sidecar: tab.sidecar,
 			promptOrigin: { deviceId: PROMPT_ORIGIN_HOST_ID, name: tab.origin.hostName },
-			labelTranscript: data => labelForHost(data, tab.origin),
+			labelTranscript: data => labelForViewer(data, tab.origin.name, tab.origin.hostName),
 			start: () => this.#start(tab),
 			answer: frame => this.#answer(tab, frame, "host", view),
 			stopped: () => this.noteStopped(tab.resumeId),
@@ -1092,11 +1096,11 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
-	 * Deliver a side-channel frame from the device or a window here. The first answer to an ask wins: the
-	 * other side's cards close as answered elsewhere (`answered:<id>`, the pool's synthetic cancel), and its
-	 * later answer is refused (`already_answered`) instead of reaching the omp.
+	 * Deliver a side-channel frame from the device, a window here or a device viewing the tab (`side`). The first
+	 * answer to an ask wins: the other parties' cards close as answered elsewhere (`answered:<id>`, the pool's synthetic
+	 * cancel), and their later answer is refused (`already_answered`) instead of reaching the omp.
 	 */
-	#answer(tab: HostTab, frame: { type?: unknown; id?: unknown }, side: "device" | "host", from?: HostedTabView): void {
+	#answer(tab: HostTab, frame: { type?: unknown; id?: unknown }, side: string, from?: HostedTabView): void {
 		if ((frame.type === "host_tool_result" || frame.type === "host_uri_result") && typeof frame.id === "string")
 			tab.hostCalls.delete(frame.id);
 		const id = frame.type === "extension_ui_response" && typeof frame.id === "string" ? frame.id : undefined;
@@ -1115,7 +1119,7 @@ export class LocalHostServices implements HostServices {
 			method: "cancel",
 			targetId: id,
 		};
-		if (side === "host") this.#emit(tab, "extensionUi", cancel);
+		if (side !== "device") this.#emit(tab, "extensionUi", cancel);
 		for (const view of tab.views) if (view !== from) view.emit("extensionUi", cancel);
 		this.#resume?.sync();
 		this.#hostedChanged();
@@ -1185,8 +1189,8 @@ export class LocalHostServices implements HostServices {
 				return { url: this.#deps.mobileWebUrl?.() ?? null };
 			case "tab.cancelWait": {
 				const tab = this.#tab(peer, parse(RtabParams, method, params).rtab);
-				// A view of a window's tab: the wait and the retry are that tab's, whose id only the pool knows.
-				if (tab.viewsWindow) await tab.sidecar.cancelHostWait?.();
+				// A view: the wait and the retry are the tab it shows's (a window's, whose id only the pool knows).
+				if (tab.viewing) await tab.sidecar.cancelHostWait?.();
 				else this.#resume?.cancelWait(tab.resumeId);
 				return null;
 			}
@@ -1762,8 +1766,8 @@ export class LocalHostServices implements HostServices {
 		tab.conn = null;
 		clearTimeout(tab.graceTimer);
 		tab.graceTimer = setTimeout(() => {
-			// A view's wait is its window tab's, which holds it there: the view has nothing to keep.
-			const waiting = tab.awaitingConnection === true && !tab.viewsWindow;
+			// A view's wait is the tab's it shows, which holds it there: the view has nothing to keep.
+			const waiting = tab.awaitingConnection === true && !tab.viewing;
 			if (runBusy(tab.run) || waiting || tab.views.size > 0) this.#startGrace(tab);
 			else this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		}, this.#graceMs);
@@ -1809,20 +1813,28 @@ export class LocalHostServices implements HostServices {
 		}
 		// A session deleted on this computer is never reopened for a device whose layout still names it.
 		if (deletedSessions().has(params.sessionPath)) throw codedError("session_deleted", "Session was deleted");
-		// A window of this computer runs the session: the device views that omp, never a second one on the file.
-		const view = params.sessionPath
+		// A window of this computer runs the session, or another device's tab here does: the device views that omp,
+		// never a second one on the file.
+		const windowView = params.sessionPath
 			? this.#deps.localTabs.viewForDevice(
 					params.sessionPath,
 					{ deviceId: peer.deviceId, name: peer.name },
 					this.#deps.hostName(),
 				)
 			: null;
+		const runner = params.sessionPath && !windowView ? this.#runner(params.sessionPath) : undefined;
+		const view = windowView ?? (runner ? this.#viewTab(runner, peer) : null);
 		if (view && params.sessionPath) {
-			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, view);
+			const tab = this.#createTab(peer, params.rtab, view.cwd, view.kind, false, params.sessionPath, conn, {
+				sidecar: view,
+				of: runner ?? "window",
+			});
 			this.#emit(tab, "run", runReading(tab.run));
+			// A tab this computer revived after a restart is still asleep: the device opening it wants it live.
+			if (view.status === "asleep") view.start();
 			this.#emit(tab, "status", this.#statusArg(tab, view.statusPayload));
 			this.#emit(tab, "signIn", { active: [] } satisfies TabSignInArg);
-			// The window's wait and scheduled retry, if any, follow from the view's snapshot (next microtask).
+			// The wait and scheduled retry of the tab it shows, if any, follow from the view's snapshot (next microtask).
 			this.#emit(tab, "awaitingConnection", false);
 			this.#emit(tab, "scheduledRetry", null);
 			return { cwd: view.cwd, kind: view.kind, attached: true, viewing: true };
@@ -1876,19 +1888,16 @@ export class LocalHostServices implements HostServices {
 	 * One session file, one host tab, one omp. A relaunched device reopens its tabs under new rtabs,
 	 * each with the session it showed: the tab an earlier connection of that device left on the
 	 * session (running out its grace period, or revived after this computer restarted) is taken
-	 * over under the new rtab. A tab this same connection still shows under another rtab, or
-	 * another device's tab, is refused `session_open_in_tab`: never a second omp on that file.
+	 * over under the new rtab. A tab this same connection still shows under another rtab is refused
+	 * `session_open_in_tab`; another device's tab is viewed instead (`#open`).
 	 */
 	#adopt(peer: PeerInfo, params: z.infer<typeof OpenParams>, conn: HostConnection): HostTab | undefined {
 		if (!params.sessionPath) return undefined;
-		// This device's own tab on the file first (one it left, or one it still shows); another device's view of a
-		// window's tab holds no omp of its own, so this device views the window too.
-		const holders = [...this.#tabs.values()].filter(entry => entry.sessionFile === params.sessionPath);
-		const tab =
-			holders.find(entry => entry.peerId === peer.deviceId) ??
-			holders.find(entry => !(entry.viewsWindow && entry.peerId !== peer.deviceId));
+		const tab = [...this.#tabs.values()].find(
+			entry => entry.sessionFile === params.sessionPath && entry.peerId === peer.deviceId,
+		);
 		if (!tab) return undefined;
-		if (tab.peerId !== peer.deviceId || tab.conn === conn) throw heldBy(tab);
+		if (tab.conn === conn) throw heldBy(tab);
 		this.#stopRelay(this.#key(tab.peerId, tab.rtab));
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
 		// Terminals are owned by rtab; the device lost the old one with its previous launch.
@@ -1908,7 +1917,7 @@ export class LocalHostServices implements HostServices {
 	#keptTabs(peer: PeerInfo): KeptTab[] {
 		const kept: KeptTab[] = [];
 		for (const tab of this.#tabs.values()) {
-			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.viewsWindow || !tab.sessionFile) continue;
+			if (tab.peerId !== peer.deviceId || tab.conn !== null || tab.viewing || !tab.sessionFile) continue;
 			// Read as running: the turn goes on here, and every device version knows that state.
 			const continuing = this.#resume?.relaunchContinuation(tab.resumeId) === "after_restore";
 			const state = keptState(tab) ?? (continuing ? "running" : null);
@@ -1926,22 +1935,63 @@ export class LocalHostServices implements HostServices {
 		return kept;
 	}
 
-	/** The host tab whose omp is on `sessionPath` (or will be, once started). */
+	/** The host tab on `sessionPath` (or about to be, once started), its own omp or a view of another's. */
 	#holder(sessionPath: string): HostTab | undefined {
 		for (const tab of this.#tabs.values()) if (tab.sessionFile === sessionPath) return tab;
 		return undefined;
+	}
+
+	/** The host tab whose own omp is on `sessionPath` (or will be, once started): never a view. */
+	#runner(sessionPath: string): HostTab | undefined {
+		for (const tab of this.#tabs.values()) if (tab.sessionFile === sessionPath && !tab.viewing) return tab;
+		return undefined;
+	}
+
+	/**
+	 * Another device opens the session `tab` runs here: that tab's omp as the device's tab's sidecar, as a window here
+	 * views it (`viewSession`). Its prompts are journaled as the device's and a transcript page is labelled for it; the
+	 * first answer to an ask, of either device or a window, wins; the holder's close ends the view (#closeTab).
+	 */
+	#viewTab(tab: HostTab, peer: PeerInfo): HostedTabView {
+		const side = `peer:${peer.deviceId}`;
+		const view: HostedTabView = new HostedTabView({
+			sidecar: tab.sidecar,
+			promptOrigin: { deviceId: peer.deviceId, name: peer.name },
+			labelTranscript: data => labelForViewer(data, tab.origin.name, peer.name),
+			start: () => this.#start(tab),
+			answer: frame => this.#answer(tab, frame, side, view),
+			stopped: () => this.noteStopped(tab.resumeId),
+			cancelWait: () => this.#resume?.cancelWait(tab.resumeId),
+			snapshot: () => ({
+				asks: [...tab.asks.values()],
+				...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
+				...(tab.title ? { title: tab.title } : {}),
+				...(tab.autoTitle ? { autoTitle: tab.autoTitle } : {}),
+				...(tab.awaitingConnection ? { awaitingConnection: true } : {}),
+				run: runReading(tab.run),
+			}),
+			// The holder sets its omp's level; a viewer leaving sends nothing, so the holder's stream never drops.
+			subagentLevel: level => level,
+			leave: left => {
+				tab.views.delete(left);
+			},
+		});
+		tab.views.add(view);
+		return view;
 	}
 
 	/**
 	 * A tab's omp moved onto a file another host tab already holds (a switch, a restart onto that
 	 * session): two omps would append diverging turns to one conversation. The one running a turn
 	 * stays, else the one that just moved; the other's omp is stopped and its device sees it exited.
+	 * A device's view of a tab here and that tab share one omp: never a duplicate of each other.
 	 */
 	#dedupe(tab: HostTab): void {
 		const file = tab.sessionFile;
 		if (file === undefined) return;
+		const ompOf = (entry: HostTab) => (typeof entry.viewing === "object" ? entry.viewing : entry);
 		for (const [key, other] of this.#tabs) {
-			if (other === tab || other.sessionFile !== file) continue;
+			if (other === tab || other.sessionFile !== file || ompOf(other) === ompOf(tab)) continue;
 			const loser = runBusy(other.run) && !runBusy(tab.run) ? tab : other;
 			this.#emit(loser, "status", this.#goneStatus(loser, "This session is open in another tab on the host"));
 			this.#closeTab(loser === tab ? this.#key(tab.peerId, tab.rtab) : key);
@@ -1957,11 +2007,11 @@ export class LocalHostServices implements HostServices {
 		fresh: boolean,
 		sessionPath: string | undefined,
 		conn: HostConnection | null,
-		/** A window's tab the device views (`localTabs.viewForDevice`) instead of an omp of its own. */
-		view?: SidecarLike,
+		/** Another tab's omp the device views instead of one of its own: a window's tab here, or another device's tab. */
+		view?: { sidecar: SidecarLike; of: "window" | HostTab },
 	): HostTab {
 		const origin: PromptOriginEnv = { deviceId: peer.deviceId, name: peer.name, hostName: this.#deps.hostName() };
-		const sidecar = view ?? this.#deps.createSidecar(cwd, kind, fresh, origin);
+		const sidecar = view?.sidecar ?? this.#deps.createSidecar(cwd, kind, fresh, origin);
 		const tab: HostTab = {
 			peerId: peer.deviceId,
 			rtab,
@@ -1973,8 +2023,8 @@ export class LocalHostServices implements HostServices {
 			sessionFile: sessionPath,
 			formerRtabs: [],
 			graceTimer: undefined,
-			// A window's tab may be mid-turn as the device joins it: its events so far reached nobody here.
-			run: view instanceof HostedTabView ? runFromReading(view.runReading()) : idleRun(),
+			// The tab it views may be mid-turn as the device joins it: its events so far reached nobody here.
+			run: view?.sidecar instanceof HostedTabView ? runFromReading(view.sidecar.runReading()) : idleRun(),
 			asks: new Map(),
 			hostCalls: new Map(),
 			origin,
@@ -1990,13 +2040,14 @@ export class LocalHostServices implements HostServices {
 		// A tab opened on a stored session holds it now, though no journal moved.
 		this.listingChanged();
 		if (view) {
-			tab.viewsWindow = true;
+			tab.viewing = view.of;
 			// The window's omp may hold asks already: the device's tab gets them as its open set.
 			sidecar.on("openAsks", (asks: ExtensionUIRequest[]) => {
 				for (const ask of asks) tab.asks.set(ask.id, ask);
 				this.#emit(tab, "openAsks", asks);
 			});
-			// The window's tab's connection wait and scheduled retry (the pool's `setAwaitingConnection`/`setScheduledRetry`).
+			// The connection wait and scheduled retry of the tab it views (a window's: the pool's
+			// `setAwaitingConnection`/`setScheduledRetry`; a device's: `setAwaitingConnection` here).
 			sidecar.on("awaitingConnection", (awaiting: boolean) => {
 				tab.awaitingConnection = awaiting;
 				this.#emit(tab, "awaitingConnection", awaiting);
@@ -2005,7 +2056,7 @@ export class LocalHostServices implements HostServices {
 				tab.scheduledRetry = retry;
 				this.#emit(tab, "scheduledRetry", scheduledRetryArg(retry));
 			});
-			// The window closed its tab: the device heard `viewEnded` (#wire), and its tab here goes.
+			// The tab it views closed: the device heard `viewEnded` (#wire), and its tab here goes.
 			sidecar.on(VIEW_ENDED_EVENT, () => this.#closeTab(this.#key(tab.peerId, tab.rtab)));
 		}
 		return tab;
@@ -2133,9 +2184,10 @@ export class LocalHostServices implements HostServices {
 				return news;
 			});
 			// A tab a window shows is counted by the pool; a device's own tab waits on this computer's account too.
-			if (!tab.viewsWindow) this.#deps.localTabs.modelWait?.observe(`hosted:${tab.resumeId}`, "", events);
-			// A device's view of an Autopilot run it started here counts nothing: the run itself is charged (`runEvents`).
-			if (tab.viewsWindow && this.#chargedSession(tab.sessionFile)) return;
+			if (!tab.viewing) this.#deps.localTabs.modelWait?.observe(`hosted:${tab.resumeId}`, "", events);
+			// Another device's tab here is charged to that device as it runs (its own tab sees the same replies), and a
+			// device's view of an Autopilot run it started here counts nothing: the run itself is charged (`runEvents`).
+			if (typeof tab.viewing === "object" || (tab.viewing && this.#chargedSession(tab.sessionFile))) return;
 			let tokens = 0;
 			for (const event of events) tokens += assistantTokens(event);
 			if (tokens > 0) this.#quota?.record(tab.peerId, { tokens });
@@ -2178,7 +2230,7 @@ export class LocalHostServices implements HostServices {
 	restartOnNewOmp(): void {
 		for (const tab of this.#tabs.values()) {
 			const decision = ompRestartDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
-			if (decision === "skip" || tab.viewsWindow) continue;
+			if (decision === "skip" || tab.viewing) continue;
 			if (decision === "wait") tab.ompRestartPending = true;
 			else tab.sidecar.restart(undefined, tab.sessionFile);
 		}
@@ -2205,7 +2257,7 @@ export class LocalHostServices implements HostServices {
 		let waiting = 0;
 		for (const tab of this.#tabs.values()) {
 			const decision = extensionApplyDecision({ status: tab.sidecar.status, busy: runBusy(tab.run) });
-			if (decision === "skip" || tab.viewsWindow) continue;
+			if (decision === "skip" || tab.viewing) continue;
 			if (decision === "wait") {
 				tab.extensionPending = tab.extensionPending ? mergeApplyPlans(tab.extensionPending, plan) : plan;
 				waiting++;
@@ -2343,14 +2395,16 @@ export class LocalHostServices implements HostServices {
 			);
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
-		// A view's moves are its window tab's (the pool counts them, ipc.ts as for a window's own); found by the file it
-		// shows before the command can change it.
-		const viewed = tab.viewsWindow && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+		// A view's moves and prompts are the tab's it shows: a window's (the pool counts them, ipc.ts as for a window's
+		// own; found by the file it shows before the command can change it), or another device's tab here.
+		const viewed =
+			tab.viewing === "window" && tab.sessionFile ? this.#deps.localTabs.sessionOwner(tab.sessionFile) : null;
+		const runs = tab.viewing === "window" ? undefined : (tab.viewing ?? tab);
 		// The person's own prompt makes the run it starts theirs: no continuation goes on into it (turn-resume.ts).
 		if (personsPrompt(command)) {
 			if (viewed) this.#deps.localTabs.notePrompted(viewed.tabId);
-			else if (!tab.viewsWindow) {
-				tab.prompted = (tab.prompted ?? 0) + 1;
+			else if (runs) {
+				runs.prompted = (runs.prompted ?? 0) + 1;
 				this.#resume?.sync();
 			}
 		}
@@ -2368,15 +2422,15 @@ export class LocalHostServices implements HostServices {
 					begin: () => this.#deps.localTabs.beginMove(viewed.tabId),
 					moved: () => this.#deps.localTabs.noteTouched(viewed.tabId),
 				}
-			: tab.viewsWindow
-				? undefined
-				: {
-						begin: () => this.#moves.begin(tab.resumeId),
+			: runs
+				? {
+						begin: () => this.#moves.begin(runs.resumeId),
 						moved: () => {
-							tab.touched = (tab.touched ?? 0) + 1;
+							runs.touched = (runs.touched ?? 0) + 1;
 							this.#resume?.sync();
 						},
-					};
+					}
+				: undefined;
 		try {
 			const response = await trackMove(command.type, tracker, () =>
 				commandUsesModel(command)
@@ -2441,19 +2495,21 @@ export class LocalHostServices implements HostServices {
 		command: RpcCommand,
 		timeoutMs: number | undefined,
 	): Promise<RpcResponse> {
+		// Another device's tab here answers for its view: its run, its omp.
+		const runs = typeof tab.viewing === "object" ? tab.viewing : tab;
 		const target: HostedAutopilotTarget = {
-			tabId: tab.resumeId,
+			tabId: runs.resumeId,
 			peer: tab.peerId,
-			sidecar: tab.sidecar,
+			sidecar: runs.sidecar,
 			...(tab.sessionFile ? { sessionPath: tab.sessionFile } : {}),
-			viewsWindow: tab.viewsWindow === true,
+			viewsWindow: tab.viewing === "window",
 		};
 		if (this.#autopilot && (command.type === "get_autopilot" || command.type === "set_autopilot"))
 			return this.#autopilot(target, command);
 		// The sessions a window's session opened are this computer's: its control tools answer for a device viewing it.
 		if (
 			this.#agentReview &&
-			tab.viewsWindow &&
+			tab.viewing === "window" &&
 			(command.type === "agent_control_review" || command.type === "agent_control_family_edits")
 		)
 			return this.#agentReview(target, command);
@@ -2548,9 +2604,7 @@ export class LocalHostServices implements HostServices {
 	 */
 	async stopSessionTurns(sessionPath: string, by?: string): Promise<void> {
 		const busy = () =>
-			[...this.#tabs.values()].filter(
-				tab => tab.sessionFile === sessionPath && !tab.viewsWindow && runBusy(tab.run),
-			);
+			[...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath && !tab.viewing && runBusy(tab.run));
 		const window = this.#deps.localTabs.stopSession(sessionPath);
 		const held = busy();
 		for (const tab of held) {
@@ -2729,7 +2783,7 @@ export class LocalHostServices implements HostServices {
 		tab.sidecar.removeAllListeners();
 		// Taken before dispose(), which forgets the child it kills.
 		const exited = tab.sidecar.whenExited?.() ?? Promise.resolve();
-		if (!tab.viewsWindow) noteOmpExit(tab.sidecar.cwd, exited);
+		if (!tab.viewing) noteOmpExit(tab.sidecar.cwd, exited);
 		tab.sidecar.dispose();
 		const { sessionFile } = tab;
 		if (sessionFile !== undefined) {

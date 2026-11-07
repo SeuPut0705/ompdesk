@@ -408,6 +408,17 @@ async function focusTab(
 		// A tab this window let go meanwhile (main closed it: a paired host refused it, and its window hears why with
 		// the tab list) has nothing to re-converge.
 		if (version !== switchVersion || isTabClosed(id)) return;
+		// Main closed it before this window heard so: its answer to the route can come before the tab list that says
+		// why (a paired host's refusal, 7 Nov 2026). Gone from main's list, it leaves here too, with no toast.
+		const listed = await window.omp.tabs.list().catch(() => null);
+		if (version !== switchVersion || isTabClosed(id)) return;
+		if (listed && !listed.some(info => info.tabId === id)) {
+			closedTabIds.add(id);
+			useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => tab.id !== id) }));
+			deleteSessionRuntime(id);
+			await useTabsStore.getState().reconcileTabs();
+			return;
+		}
 		// Routing never re-pointed: main still forwards the PREVIOUS tab's
 		// events, so hydrating here would pull that sidecar's session into
 		// this tab's restored stores. Surface the failure and re-converge

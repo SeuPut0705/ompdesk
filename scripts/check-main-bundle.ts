@@ -303,7 +303,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A paired host's refusal of a tab another tab holds shows that tab or says where it is open, and every tab's banner
 // reads its failure's reason from the tab list (7 Nov 2026, tabs.ts `applyTabList` `shown`, `applyTabFailure`, no
 // switch-failure toast for a tab main let go; the visible-only route in use-rpc-events.ts went): 2,167,482.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_167_482;
+// A tab main closed while the window still routed to it leaves quietly, with no switch-failure toast, when main's list
+// no longer names it (8 Nov 2026, tabs.ts `focusTab`: a paired host's refusal answered before its tab list): 2,167,699.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_167_699;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

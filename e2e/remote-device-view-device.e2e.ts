@@ -81,6 +81,10 @@ test("a device opens a session another device's tab runs on the host, and both w
 			)
 			.not.toBe("");
 
+		// C works in a session of its own too, so closing its view of A's tab leaves it a tab (closing the last closes
+		// the window).
+		await send(c, "PC-C's own work");
+		await expect(c.getByText("PC-C's own work").first()).toBeVisible({ timeout: 30_000 });
 		const row = c.locator(`[data-device-session=${cssString(sessionPath)}]`);
 		const cTabs = async () =>
 			(await c.evaluate(() => window.omp.tabs.list())).filter(tab => tab.sessionPath === sessionPath);

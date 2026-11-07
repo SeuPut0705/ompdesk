@@ -12,9 +12,9 @@
  *   window's tab named its own device first, and a transcript page is relabelled for the viewer
  *   (`labelTranscript`).
  *
- * The same view serves the other direction: a paired device viewing a tab a window of this computer
+ * The same view serves the other directions: a paired device viewing a tab a window of this computer
  * owns (`SidecarPool.viewForDevice`), with the device as `promptOrigin` and the pool deciding the
- * first answer;
+ * first answer; and a paired device viewing another device's tab here (LocalHostServices `#viewTab`);
  * - an answer to an ask goes through LocalHostServices, where the first of the device and this
  *   computer's windows wins and the other's card closes as answered elsewhere (`answered:<id>`);
  * - a window that joins gets the asks open now and the session's identity (next microtask, once the
@@ -26,7 +26,7 @@
  *   the view (`VIEW_ENDED_EVENT`) before its omp goes.
  */
 import { EventEmitter } from "node:events";
-import type { PromptOrigin, PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
+import type { PromptOrigin } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { codedError } from "../../shared/ipc-error-codes";
 import type { IpcScheduledRetry } from "../../shared/ipc-types";
 import type {
@@ -236,19 +236,19 @@ export class HostedTabView extends EventEmitter implements SidecarLike {
 
 /**
  * A transcript page the hosted omp labelled for the device it serves (`labelPromptOrigins`: that device's
- * prompts plain, the others named), relabelled for a window of this computer: its own prompts plain (named
- * with this computer's name there), the device's named after it. Untouched while no prompt is labelled
- * (one device typed them all).
+ * prompts plain, the others named), relabelled for another viewer (a window of this computer, `viewerName` its name;
+ * or another device): its own prompts plain, the serving device's named `ownerName`. Untouched while no prompt is
+ * labelled (one device typed them all).
  */
-export function labelForHost(data: unknown, origin: PromptOriginEnv): unknown {
+export function labelForViewer(data: unknown, ownerName: string, viewerName: string): unknown {
 	const page = data as { messages?: Array<{ role?: unknown; promptFrom?: string }> } | undefined;
 	if (!Array.isArray(page?.messages) || !page.messages.some(message => message.promptFrom !== undefined)) return data;
 	return {
 		...page,
 		messages: page.messages.map(message => {
 			if (message.role !== "user") return message;
-			if (message.promptFrom === undefined) return { ...message, promptFrom: origin.name };
-			if (message.promptFrom !== origin.hostName) return message;
+			if (message.promptFrom === undefined) return { ...message, promptFrom: ownerName };
+			if (message.promptFrom !== viewerName) return message;
 			const { promptFrom: _own, ...plain } = message;
 			return plain;
 		}),
