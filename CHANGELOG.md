@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.118.5] - 2026-11-07
+
+omp가 입력을 다 읽기 전에 끝나도 OMPdesk 본체가 오류 창을 띄우며 꺼지지 않아요.
+
+### 고친 것
+- OMPdesk는 `omp --version` 같은 짧은 omp 명령을 실행하면서 입력을 함께 보내요. 그 명령이 입력을 읽기 전에 끝나거나(시작하자마자 꺼진 omp 등) 하면, 보내던 입력이 실패한 것을 아무도 처리하지 않아 OMPdesk 본체에서 처리되지 않은 오류가 됐어요. 이제 이 경우는 omp의 종료 코드와 출력으로 판단하고, 다른 입력 오류는 그 명령의 실패로 돌려줘요.
+
+<!-- en -->
+
+OMPdesk's main process no longer fails with an error dialog when an omp command exits before reading its input.
+
+### Fixed
+- OMPdesk runs short omp commands (`omp --version` and the like) with input on their stdin. When such a command ended before reading it (an omp that crashed on launch, for example), the failed write had no handler and became an uncaught exception in OMPdesk's main process. That case is now judged by omp's exit code and output, and any other stdin error fails just that command.
+
 ## [0.118.4] - 2026-11-07
 
 사이드바에서 보이지 않는 세션의 하위 에이전트 수가, 그 세션을 눌러 열기 전까지 비어 있거나 틀려 있던 문제를 고쳤어요.
