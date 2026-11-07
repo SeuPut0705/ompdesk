@@ -27,10 +27,10 @@ import { useQuotaResume } from "./hooks/use-quota-resume";
 import { useRpcEvents } from "./hooks/use-rpc-events";
 import { useSessionAttention } from "./hooks/use-session-attention";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
+import { useFocusedRun } from "./hooks/use-tab-run";
 import { useTraySync } from "./hooks/use-tray-sync";
 import { useWorkspaceRecency } from "./hooks/use-workspace-recency";
 import { startAgentAppEvents } from "./lib/agent-app";
-import { sessionWorking } from "./lib/attention";
 import { subscribeBridgeHealth } from "./lib/bridge-health";
 import { lazyChunk, loadChunk } from "./lib/chunk-load";
 import { restartSidecarFromGui, retryFailedTurn, runSessionCommand } from "./lib/command-registry";
@@ -116,8 +116,8 @@ function FocusedSessionEffects() {
 	useTraySync();
 	useWorkspaceRecency();
 	// The run state in the window title and progress on the app icon are always on (no setting).
-	// The window title's ● and the dock badge's: a turn that streams, compacts or waits to retry (`sessionWorking`).
-	const working = useSessionStore(sessionWorking);
+	// The window title's ● and the dock badge's: the focused session works, as its summary and sidebar row say.
+	const working = useFocusedRun().run.running;
 	const titleSessionName = useSessionStore(s => s.sessionName);
 	const titleAutoTitle = useSessionStore(s => s.autoTitle);
 	// An extension's `setTitle` (stock rpc `PI_RPC_EMIT_TITLE`) names the window

@@ -74,6 +74,7 @@ import { actionKbd, onEscape } from "../../../lib/keymap";
 import { moveInOrder, reorderProjects, withLocalProjectOrder } from "../../../lib/project-order";
 import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-origin";
 import { sessionForkOrigin } from "../../../lib/session-fork";
+import type { RunFacts } from "../../../lib/session-run";
 import {
 	botDisplayName,
 	combinedTitle,
@@ -145,7 +146,7 @@ import { workingAgentCount } from "../live-work";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
-import { type RowFacts, remoteOpenedTab, summaryRowState } from "./host-row-state";
+import { remoteOpenedTab, summaryRowState } from "./host-row-state";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { deleteProject, isStoredRow } from "./project-delete";
 import { projectMenuItems } from "./project-menu";
@@ -1087,7 +1088,7 @@ export function Sidebar() {
 		const tab = tabForSession(session);
 		return tab && !tab.sessionPath ? summaryByPath.get(unsavedSessionKey(tab.id)) : undefined;
 	};
-	const rowFactsOf = (session: SidebarSession): RowFacts | undefined => summaryFor(session);
+	const rowFactsOf = (session: SidebarSession): RunFacts | undefined => summaryFor(session);
 	const sessionRun = (session: SidebarSession) =>
 		summaryRowState(rowFactsOf(session), tabForSession(session)?.unreadDone === true);
 	const isSessionBusy = (session: SidebarSession) =>

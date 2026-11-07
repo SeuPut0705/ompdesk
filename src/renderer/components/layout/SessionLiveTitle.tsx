@@ -4,17 +4,14 @@
  * while the turn is idle and work it started still runs; `waiting`, a still warning colour, while it waits on the
  * person; plain text while nothing works.
  *
- * A sidebar row reads its background work from the session's summary (`shared/session-summary.ts`: main's `settling`
- * and its working subagents, as the computer running it built them) and the sessions its agent opened that run now; a
- * split pane's header shows its own tab, whose full stream it has, so it reads that tab's roster.
+ * Both read the session's summary (`shared/session-summary.ts`: main's `settling` and its working subagents, as the
+ * computer running it built them) and the sessions its agent opened that run now.
  */
 import { memo, type ReactElement } from "react";
-import { useStore } from "zustand";
-import { createStore, type StoreApi } from "zustand/vanilla";
+import type { SessionSummary } from "../../../shared/session-summary";
 import { useOpenedChildren } from "../../hooks/use-opened-children";
+import type { SessionRun } from "../../lib/session-run";
 import type { TitleParts } from "../../lib/session-title";
-import { useTabSessionRuntime } from "../../stores/session-runtime-context";
-import type { SubagentsStore } from "../../stores/subagents";
 import { type LiveState, SessionTitle } from "../common";
 import { TimeAgo } from "../common/TimeAgo";
 import { WorkingArc } from "../common/WorkingArc";
@@ -41,19 +38,20 @@ function sessionLive({ running, settling, waiting, opened, agents }: SessionLive
 	});
 }
 
-/** A roster with nobody in it, for a pane whose tab has no runtime yet. */
-const NO_ROSTER = createStore<Pick<SubagentsStore, "subagents">>(() => ({ subagents: new Map() }));
-
-/** For a card that knows only its tab (a pane header): its roster and the sessions it opened come from the tab. */
+/** For a card that knows only its tab (a pane header): the sessions it opened come from the tab. */
 export function useTabLive(
-	props: Omit<SessionLiveProps, "opened" | "agents"> & { tabId: string | null },
+	tabId: string,
+	summary: SessionSummary | undefined,
+	run: Pick<SessionRun, "running" | "settling" | "waiting">,
 ): LiveState | null {
-	const opened = useOpenedChildren(props.tabId).counts.running;
-	const roster = useTabSessionRuntime(props.tabId)?.stores.get("subagents") as
-		| StoreApi<Pick<SubagentsStore, "subagents">>
-		| undefined;
-	const agents = useStore(roster ?? NO_ROSTER, s => workingAgentCount(s.subagents.values()));
-	return sessionLive({ ...props, opened, agents });
+	const opened = useOpenedChildren(tabId).counts.running;
+	return sessionLive({
+		running: run.running,
+		settling: run.settling,
+		waiting: run.waiting,
+		opened,
+		agents: workingAgentCount(summary?.agents ?? []),
+	});
 }
 
 export const SessionLiveTitle = memo(function SessionLiveTitle({

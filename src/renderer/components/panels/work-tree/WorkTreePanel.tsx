@@ -21,7 +21,7 @@ import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
-import { summariesOf, useHostedSessionsStore } from "../../../stores/hosted-sessions";
+import { ensureHostSummaries, summariesOf, tabSummary, useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useRemoteStore } from "../../../stores/remote";
 import { onSessionRuntimesChange, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../../stores/subagents";
@@ -89,20 +89,25 @@ function useWorkTree(billing: Readonly<Record<string, Billing>> | undefined): Wo
 	const review = useAgentReviewStore(state => state.byTab);
 	const usage = useAgentReviewStore(state => state.usage);
 	const closed = useClosedChildrenStore(state => state.rows);
-	const summaries = useHostedSessionsStore(state => summariesOf(state, undefined));
-	const hosted = useMemo(() => hostedSummaries(summaries), [summaries]);
+	const allSummaries = useHostedSessionsStore(state => state.summaries);
+	const hosted = useMemo(() => hostedSummaries(summariesOf({ summaries: allSummaries }, undefined)), [allSummaries]);
 	const hosts = useRemoteStore(state => state.state?.hosts);
 	const tabIds = useMemo(() => tabs.filter(tab => !tab.ghost).map(tab => tab.id), [tabs]);
 	const rosters = useRosters(tabIds);
+	const devices = useMemo(() => [...new Set(tabs.flatMap(tab => (tab.device ? [tab.device] : [])))], [tabs]);
 	useEffect(() => {
 		ensureAgentReviewSubscription();
 		ensureClosedChildren();
 	}, []);
+	useEffect(() => {
+		for (const device of devices) ensureHostSummaries(device);
+	}, [devices]);
 	return useMemo(
 		() =>
 			buildWorkTree({
 				tabs,
 				subagents: rosters,
+				summaryOf: tab => tabSummary({ summaries: allSummaries }, tab),
 				review,
 				usage,
 				closed,
@@ -110,7 +115,7 @@ function useWorkTree(billing: Readonly<Record<string, Billing>> | undefined): Wo
 				deviceName: id => hosts?.find(host => host.deviceId === id)?.name ?? id,
 				billing,
 			}),
-		[tabs, rosters, review, usage, closed, hosted, hosts, billing],
+		[tabs, rosters, allSummaries, review, usage, closed, hosted, hosts, billing],
 	);
 }
 

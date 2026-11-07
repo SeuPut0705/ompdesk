@@ -1,6 +1,6 @@
 /**
  * Side panel › Work tree: one family per session with children (live rows listed, finished ones in a closed fold,
- * model, role and cost on every child row), following each tab's subagent roster as it changes; the unused worktrees
+ * model, role and cost on every child row), following each session's summary as it changes; the unused worktrees
  * of the repository with removal only for the ones whose work landed, after a confirm. linkedom + react-dom harness
  * (ThinkingBlock.test.tsx); `window.omp.rpc.command` answers the two worktree commands.
  */
@@ -12,10 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStore } from "zustand/vanilla";
 import type { SavedWorktree } from "../../../../shared/disk-care";
 import type { RpcCommand, RpcOrphanWorktrees, RpcResponse, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { SummaryAgent } from "../../../../shared/session-summary";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { resetLastReadForTest } from "../../../lib/last-read";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
+import { LOCAL_SUMMARIES, useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useSessionStore } from "../../../stores/session";
 import {
 	deleteSessionRuntime,
@@ -57,12 +59,34 @@ const agent = (id: string, index: number, status: string, cost: number): Subagen
 		progress: { cost, modelRole: "task", resolvedModel: "anthropic/claude-x" },
 	}) as SubagentSnapshot;
 
-const roster = createStore(() => ({
-	subagents: new Map([
-		["a", agent("a", 1, "running", 0.1)],
-		["b", agent("b", 2, "completed", 0.2)],
-	]),
-}));
+// This window's record of the session's subagents: only the finished one is read from it (the closed fold).
+const roster = createStore(() => ({ subagents: new Map([["b", agent("b", 2, "completed", 0.2)]]) }));
+
+/** What main says of the boss's session: its subagents at work, as its sidebar row lists them. */
+function summarizeBoss(agents: SummaryAgent[]): void {
+	useHostedSessionsStore.setState({
+		summaries: {
+			[LOCAL_SUMMARIES]: {
+				version: "test.1",
+				sessions: [
+					{ sessionPath: "/s/boss.jsonl", tabId: "boss", cwd: "/repo", kind: "agent", status: "ready", agents },
+				],
+			},
+		},
+	});
+}
+
+const atWork: SummaryAgent = {
+	id: "a",
+	index: 1,
+	agent: "task",
+	status: "running",
+	title: "Agent a",
+	startedAt: 0,
+	model: "anthropic/claude-x",
+	role: "task",
+	cost: 0.1,
+};
 
 const tabs = [
 	{ id: "boss", cwd: "/repo", status: "ready", kind: "agent", title: "Boss", sessionPath: "/s/boss.jsonl" },
@@ -206,6 +230,7 @@ beforeEach(() => {
 	});
 	setFocusedSessionRuntime("boss");
 	useTabsStore.setState({ tabs, activeTabId: "boss" });
+	summarizeBoss([atWork]);
 	// A ready omp: the session's spend (and with it the providers' billing) is read.
 	useSessionStore.setState({ status: "ready" });
 	useAgentReviewStore.setState({
@@ -237,6 +262,7 @@ afterEach(async () => {
 	container?.remove();
 	deleteSessionRuntime("boss");
 	useTabsStore.setState({ tabs: [], activeTabId: null });
+	useHostedSessionsStore.setState({ summaries: {} });
 	useSessionStore.setState({ status: "starting" });
 	useAgentReviewStore.getState().reset();
 	useClosedChildrenStore.getState().reset();
@@ -281,16 +307,9 @@ describe("WorkTreePanel", () => {
 		]);
 	});
 
-	it("follows a roster that changes after mount", async () => {
+	it("follows the session's summary as its subagent finishes", async () => {
 		await mount();
-		await act(async () => {
-			roster.setState({
-				subagents: new Map([
-					["a", agent("a", 1, "completed", 0.4)],
-					["b", agent("b", 2, "completed", 0.2)],
-				]),
-			});
-		});
+		await act(async () => summarizeBoss([]));
 		expect(rowKeys()).toEqual(["tab:boss", "tab:kid", "tab:far"]);
 		// Both finished: their spend is in the session's journal (main's next push), no longer counted on their own.
 		expect(container.querySelector("[data-work-tree-summary]")?.textContent).toBe("$0.09 · ≈ $1.06");

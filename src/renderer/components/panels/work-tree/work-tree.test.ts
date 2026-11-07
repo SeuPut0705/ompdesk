@@ -2,9 +2,37 @@
 import { describe, expect, it } from "vitest";
 import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import type { SessionSummary } from "../../../../shared/session-summary";
+import type { SessionSummary, SummaryAgent } from "../../../../shared/session-summary";
 import type { SessionTab } from "../../../stores/tabs";
 import { buildWorkTree, familySpend, type WorkTreeInput } from "./work-tree";
+
+/** A summary as the computer running the session builds it (`session-summaries.ts`). */
+const summary = (sessionPath: string, extra: Partial<SessionSummary> = {}): SessionSummary => ({
+	sessionPath,
+	tabId: sessionPath,
+	cwd: "/repo",
+	kind: "agent",
+	status: "ready",
+	agents: [],
+	...extra,
+});
+
+const atWork = (id: string, index: number, cost: number, role?: string): SummaryAgent => ({
+	id,
+	index,
+	agent: "task",
+	status: "running",
+	title: `Agent ${id}`,
+	startedAt: 0,
+	cost,
+	...(role ? { role, model: "anthropic/claude-x" } : {}),
+});
+
+/** `summaryOf` over summaries by session file. */
+const summariesBy =
+	(...summaries: SessionSummary[]) =>
+	(tab: SessionTab) =>
+		summaries.find(entry => entry.sessionPath === tab.sessionPath);
 
 const tab = (id: string, extra: Partial<SessionTab> = {}): SessionTab =>
 	({ id, cwd: "/repo", status: "ready", kind: "agent", sessionPath: `/s/${id}.jsonl`, ...extra }) as SessionTab;
@@ -57,16 +85,12 @@ function input(overrides: Partial<WorkTreeInput> = {}): WorkTreeInput {
 	];
 	return {
 		tabs,
-		subagents: new Map([
-			[
-				"boss",
-				new Map([
-					["a", agent("a", 1, "running", 0.1, "task")],
-					["b", agent("b", 2, "completed", 0.2)],
-				]),
-			],
-			["kid", new Map([["x", agent("x", 1, "running", 0.01)]])],
-		]),
+		// This window's record: only the finished subagent is read from it.
+		subagents: new Map([["boss", new Map([["b", agent("b", 2, "completed", 0.2)]])]]),
+		summaryOf: summariesBy(
+			summary("/s/boss.jsonl", { agents: [atWork("a", 1, 0.1, "task")] }),
+			summary("/s/kid.jsonl", { status: "running", agents: [atWork("x", 1, 0.01)] }),
+		),
 		review: {
 			boss: [item("kid", { branch: "omp/agent/a", baseBranch: "main", state: "running", commitsAhead: 1 })],
 		},
@@ -134,13 +158,28 @@ describe("buildWorkTree", () => {
 	});
 
 	it("counts nothing for a cost stock has not reported, rather than poisoning the sum", () => {
-		const running = { id: "x", index: 1, agent: "task", status: "running", lastUpdate: 0 } as SubagentSnapshot;
-		const unpriced = { ...running, progress: { cost: Number.NaN } as SubagentSnapshot["progress"] };
+		const unpriced = { ...atWork("x", 1, Number.NaN) };
 		expect(familySpend({ cost: Number.NaN }, [unpriced], [{ usage: {} }, {}], {})).toEqual({
 			charged: 0,
 			estimate: 0,
 			unknown: 0,
 		});
+	});
+
+	it("lists the subagents a tab's summary says are at work, though this window heard none of their frames", () => {
+		// A tab no pane shows: its omp's frames went to main, which built its summary; this window recorded nothing.
+		const [family] = buildWorkTree(
+			input({
+				tabs: [tab("boss", { title: "Boss" })],
+				subagents: new Map(),
+				summaryOf: summariesBy(summary("/s/boss.jsonl", { status: "running", agents: [atWork("a", 1, 0.1)] })),
+				review: {},
+				closed: [],
+			}),
+		);
+		expect(family?.root).toMatchObject({ key: "tab:boss", state: "running" });
+		expect(family?.rows.map(row => [row.key, row.state])).toEqual([["agent:boss:a", "running"]]);
+		expect(family?.running).toBe(1);
 	});
 
 	it("lists a paired device's session at work on this computer as a root of its own, and nothing idle", () => {
@@ -172,13 +211,20 @@ describe("buildWorkTree", () => {
 		]);
 	});
 
-	it("reads a session another omp still holds as no failure, here and from a paired device", () => {
-		const held = input({
-			tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", { status: "error", sessionHeld: true })],
-		});
-		expect(buildWorkTree(held)[0]?.root).toMatchObject({ key: "tab:boss", state: null });
-		const failed = input({ tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", { status: "error" })] });
-		expect(buildWorkTree(failed)[0]?.root).toMatchObject({ key: "tab:boss", state: "failed" });
+	it("reads the root's run by its sidebar row's rule: a held session and a failed turn are no failed session", () => {
+		const root = (fields: Partial<SessionSummary>, extra: Partial<SessionTab> = {}) =>
+			buildWorkTree(
+				input({
+					tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", extra)],
+					summaryOf: summariesBy(summary("/s/boss.jsonl", { agents: [atWork("a", 1, 0.1)], ...fields })),
+				}),
+			)[0]?.root;
+		expect(root({ status: "error", sessionHeld: true })).toMatchObject({ key: "tab:boss", state: null });
+		expect(root({ status: "error" })).toMatchObject({ key: "tab:boss", state: "failed" });
+		expect(root({}, { lastRun: { stopReason: "error" } })).toMatchObject({ key: "tab:boss", state: null });
+		// A question on a session that is not up cannot be answered there: the row says restarting, not waiting.
+		expect(root({ status: "restarting", ask: "input" })).toMatchObject({ key: "tab:boss", state: null });
+		expect(root({ ask: "approval" })).toMatchObject({ key: "tab:boss", state: "waiting" });
 
 		const hosted: SessionSummary[] = [
 			{

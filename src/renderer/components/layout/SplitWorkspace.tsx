@@ -7,11 +7,11 @@ import { isDrawerMode } from "../../hooks/shell-queries";
 import { useSessionList } from "../../hooks/use-session-list";
 import { maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
 import { useTabListRows } from "../../hooks/use-tab-list-rows";
+import { useTabRun } from "../../hooks/use-tab-run";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useProjectNames, useWorktreeKindLabels } from "../../lib/project-origin";
 import { combinedTitle, type TitleParts } from "../../lib/session-title";
-import { isSessionHeld } from "../../lib/tab-signal";
 import { SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
@@ -169,24 +169,18 @@ export function SplitPaneHeader({ tab, parts }: { tab: SessionTab; parts: TitleP
 	);
 	const kindLabels = useWorktreeKindLabels();
 	const shown = tab.kind === "chat" || !tab.cwd ? null : projectNameOf(tab.cwd);
-	// The header's own title wears the session's working cue: its turn, or (fainter) its subagents, background work and
-	// opened sessions still working behind an idle turn; a still warning colour while it waits on the person.
-	// Compacting and (re)starting keep the spinner.
-	const running = tab.status === "running" && tab.awaitingInput === undefined;
-	// Another omp still holding the session is a wait that ends by itself: the spinner, not the failure mark.
-	const held = isSessionHeld(tab);
-	const busy = tab.compacting === true || tab.status === "starting" || tab.status === "restarting" || held;
-	const failed = !held && (tab.status === "error" || tab.status === "exited");
-	const live = useTabLive({
-		running,
-		settling: tab.settling === true,
-		tabId: tab.id,
-		waiting: tab.awaitingInput !== undefined,
-	});
+	// What the session does, as its summary and its sidebar row say (`sessionRun`). The header's own title wears the
+	// working cue: its turn or a compaction, or (fainter) its subagents, background work and opened sessions still
+	// working behind an idle turn; a still warning colour while it waits on the person. A session coming up, restarting
+	// or held by another omp keeps the spinner; a failed or exited one the failure mark.
+	const { summary, run } = useTabRun(tab);
+	const busy = run.down && !run.failed && summary?.status !== "exited";
+	const failed = run.failed || summary?.status === "exited";
+	const live = useTabLive(tab.id, summary, run);
 	return (
 		<header
 			className="relative flex h-9 shrink-0 items-center gap-2 border-b border-(--sc-divider) pr-1 pl-3 text-sc-sm"
-			data-pane-running={(running && tab.settling !== true) || undefined}
+			data-pane-running={(run.running && !run.settling) || undefined}
 		>
 			{busy ? (
 				<span aria-hidden className="inline-flex">

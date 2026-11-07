@@ -6,16 +6,18 @@
  * model and at what cost. Sessions a paired device runs on this computer that are at work are roots of their own.
  *
  * Pure: `WorkTreePanel` feeds it from the stores the sidebar and the work board already read (tabs, each tab's
- * subagent roster, main's review push, the closed-children list, the hosted sessions). Rows come out flat in pre-order
- * with a depth, so a long tree renders as one list.
+ * summary, this window's record of finished subagents, main's review push, the closed-children list, the hosted
+ * sessions). A session's run and its subagents at work are its summary's (`shared/session-summary.ts`), by the rule
+ * its sidebar row reads (`sessionRun`), so the tree never says something the row does not, a tab no pane shows
+ * included. Rows come out flat in pre-order with a depth, so a long tree renders as one list.
  */
 
 import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import type { SessionSummary } from "../../../../shared/session-summary";
+import { type SessionSummary, type SummaryAgent, summaryAgentSnapshot } from "../../../../shared/session-summary";
+import { sessionRun } from "../../../lib/session-run";
 import { type CostKinds, costKinds, NO_COST } from "../../../lib/spend";
-import { isTabFailed } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
 import {
 	buildSubagentFamilyRows,
@@ -69,8 +71,10 @@ export interface WorkTreeFamily {
 
 export interface WorkTreeInput {
 	tabs: readonly SessionTab[];
-	/** Tab → its subagent roster (a tab without a runtime has none). */
+	/** Tab → this window's record of its subagents: only the finished ones are read, for the closed fold. */
 	subagents: ReadonlyMap<string, ReadonlyMap<string, SubagentSnapshot>>;
+	/** The summary of the session a tab holds (`tabSummary`): its run and its subagents at work. */
+	summaryOf: (tab: SessionTab) => SessionSummary | undefined;
 	/** Parent tab → main's review list of the sessions it opened (`useAgentReviewStore.byTab`). */
 	review: Readonly<Record<string, readonly AgentReviewItem[]>>;
 	/** Session file → what an opened session runs on and has cost (main's review push). */
@@ -86,16 +90,10 @@ export interface WorkTreeInput {
 const NO_AGENTS: ReadonlyMap<string, SubagentSnapshot> = new Map();
 const NO_OWNERS: ReadonlyMap<string, string> = new Map();
 
-/** The token a tab's own state reads as (the same reading the sidebar gives a session row). */
-function tabState(
-	tab: Pick<SessionTab, "status" | "awaitingInput" | "compacting" | "lastRun" | "sessionHeld">,
-): FamilyState {
-	if (tab.awaitingInput !== undefined) return "waiting";
-	if (tab.status === "running" || tab.compacting === true) return "running";
-	// Another omp still holding the session is a wait that ends by itself, not a failure.
-	if (isTabFailed(tab) || tab.lastRun?.stopReason === "error" || tab.lastRun?.stopReason === "aborted")
-		return "failed";
-	return "idle";
+/** The token a session's run reads as, by its sidebar row's rule: its prompt, its work, a failed omp. */
+function runState(summary: SessionSummary | undefined): FamilyState {
+	const run = sessionRun(summary);
+	return run.waiting ? "waiting" : run.running ? "running" : run.failed ? "failed" : "idle";
 }
 
 /** Whether `tab` was opened by another tab of this window (by tab id, or by session file after a relaunch). */
@@ -109,14 +107,15 @@ function hasOpenerHere(tab: SessionTab, tabs: readonly SessionTab[]): boolean {
 }
 
 export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
-	const { tabs, subagents, review, usage, closed, hosted, deviceName, billing } = input;
+	const { tabs, subagents, summaryOf, review, usage, closed, hosted, deviceName, billing } = input;
 	const live = tabs.filter(tab => !tab.ghost);
 	const byId = new Map(live.map(tab => [tab.id, tab]));
 	const families: WorkTreeFamily[] = [];
 
 	for (const rootTab of live) {
 		if (hasOpenerHere(rootTab, live)) continue;
-		const rootState = tabState(rootTab);
+		const rootSummary = summaryOf(rootTab);
+		const rootState = runState(rootSummary);
 		const family: WorkTreeFamily = {
 			root: {
 				key: `tab:${rootTab.id}`,
@@ -143,24 +142,37 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 		};
 		const visited = new Set<string>([rootTab.id]);
 		const visit = (tab: SessionTab, depth: number, done: boolean) => {
-			const roster = subagents.get(tab.id) ?? NO_AGENTS;
-			const subagentNode = (agent: SubagentSnapshot, level: number): WorkTreeNode => ({
+			// Its subagents at work, failed or stale, as its summary lists them (the row's family); the ones that
+			// finished, as this window recorded them, in the closed fold.
+			const atWork = summaryOf(tab)?.agents ?? [];
+			const listed = new Map(atWork.map(agent => [agent.id, agent]));
+			const subagentNode = (
+				agent: SubagentSnapshot,
+				level: number,
+				used: Pick<SummaryAgent, "model" | "role" | "cost">,
+			): WorkTreeNode => ({
 				key: `agent:${tab.id}:${agent.id}`,
 				kind: "subagent",
 				title: subagentPrimaryLabel(agent),
 				state: subagentFamilyState(agent.status),
 				depth: level,
-				usage: {
-					model: agent.progress?.resolvedModel,
-					role: agent.progress?.modelRole,
-					cost: agent.progress?.cost,
-				},
+				usage: { model: used.model, role: used.role, cost: used.cost },
 				target: { kind: "subagent", tabId: tab.id, agentId: agent.id },
 			});
-			for (const row of buildSubagentFamilyRows(roster, NO_OWNERS).rows)
-				add(subagentNode(row.agent, depth + 1 + row.depth), done);
+			const snapshots = new Map(atWork.map(agent => [agent.id, summaryAgentSnapshot(agent)]));
+			for (const row of buildSubagentFamilyRows(snapshots, NO_OWNERS).rows)
+				add(subagentNode(row.agent, depth + 1 + row.depth, listed.get(row.agent.id) ?? {}), done);
+			const roster = subagents.get(tab.id) ?? NO_AGENTS;
 			for (const agent of [...roster.values()].sort((a, b) => a.index - b.index))
-				if (isFoldedSubagent(agent.status)) add(subagentNode(agent, depth + 1), true);
+				if (isFoldedSubagent(agent.status) && !listed.has(agent.id))
+					add(
+						subagentNode(agent, depth + 1, {
+							model: agent.progress?.resolvedModel,
+							role: agent.progress?.modelRole,
+							cost: agent.progress?.cost,
+						}),
+						true,
+					);
 
 			for (const child of openedChildRows({
 				parent: tab,
@@ -225,12 +237,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 		const opened = [...family.rows, ...family.finished].filter(
 			node => node.kind === "session" || node.kind === "worktree",
 		);
-		family.cost = familySpend(
-			usage[rootTab.sessionPath ?? rootTab.id],
-			(subagents.get(rootTab.id) ?? NO_AGENTS).values(),
-			opened,
-			billing,
-		);
+		family.cost = familySpend(usage[rootTab.sessionPath ?? rootTab.id], rootSummary?.agents ?? [], opened, billing);
 		if (family.rows.length > 0 || family.finished.length > 0) families.push(family);
 	}
 
@@ -238,13 +245,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 	const shown = new Set(live.flatMap(tab => (tab.sessionPath ? [tab.sessionPath] : [])));
 	for (const session of hosted) {
 		if (shown.has(session.sessionPath)) continue;
-		const state: FamilyState = session.ask
-			? "waiting"
-			: session.status === "running"
-				? "running"
-				: isTabFailed(session)
-					? "failed"
-					: "idle";
+		const state = runState(session);
 		if (state === "idle") continue;
 		families.push({
 			root: {
@@ -276,17 +277,14 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
  */
 export function familySpend(
 	root: ChildUsage | undefined,
-	subagents: Iterable<SubagentSnapshot>,
+	subagents: Iterable<Pick<SummaryAgent, "status" | "model" | "cost">>,
 	opened: readonly { usage?: ChildUsage }[],
 	billing: Readonly<Record<string, Billing>> | undefined,
 ): CostKinds {
 	let total = costKinds(root, billing);
 	for (const agent of subagents)
 		if (isLiveSubagentStatus(agent.status))
-			total = addKinds(
-				total,
-				costKinds({ model: agent.progress?.resolvedModel, cost: agent.progress?.cost }, billing),
-			);
+			total = addKinds(total, costKinds({ model: agent.model, cost: agent.cost }, billing));
 	for (const child of opened) total = addKinds(total, costKinds(child.usage, billing));
 	return total;
 }

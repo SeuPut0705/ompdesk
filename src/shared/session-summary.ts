@@ -32,9 +32,10 @@ export interface SummaryAgent {
 	role?: string;
 	/** What it does now (stock's last intent, else its current tool): the row's tooltip. */
 	step?: string;
-	/** Stock's progress tally, the row's tooltip ("128.4k tokens · 48 tool calls"). */
+	/** Stock's progress tally, the row's tooltip ("128.4k tokens · 48 tool calls") and the Work tree's cost. */
 	tokens?: number;
 	toolCount?: number;
+	cost?: number;
 	/** Its own transcript file (a row's click reads it through the tab that holds the session). */
 	sessionFile?: string;
 }
@@ -73,6 +74,8 @@ export interface SessionSummary {
 	status: SummaryStatus;
 	/** With `running`: only background work runs, the turn itself ended. */
 	settling?: true;
+	/** Stock compacts the session's context (often between turns): work under way, as a turn is. */
+	compacting?: true;
 	/** When the running turn started (the building computer's clock). */
 	since?: number;
 	ask?: SummaryAsk;

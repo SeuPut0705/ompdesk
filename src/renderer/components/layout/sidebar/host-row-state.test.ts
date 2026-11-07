@@ -19,6 +19,14 @@ describe("summaryRowState", () => {
 		});
 	});
 
+	it("reads a compaction between turns as work under way, as a turn is", () => {
+		expect(summaryRowState(summary("a", { status: "ready", compacting: true }))).toMatchObject({
+			running: true,
+			settling: false,
+			fold: "running",
+		});
+	});
+
 	it("puts the session's own prompt before its run: a question or an approval, as the summary says", () => {
 		expect(summaryRowState(summary("a", { status: "running", ask: "input" }))).toMatchObject({
 			waiting: true,

@@ -18,6 +18,7 @@ import {
 	applySummaryChange,
 	type SessionSummary,
 	type SummariesChanged,
+	unsavedSessionKey,
 	type VersionedSummaries,
 } from "../../shared/session-summary";
 
@@ -59,6 +60,19 @@ export function summariesOf(
 export function useSummaryMap(device: string | undefined): ReadonlyMap<string, SessionSummary> {
 	const sessions = useHostedSessionsStore(state => summariesOf(state, device));
 	return useMemo(() => new Map(sessions.map(session => [session.sessionPath, session])), [sessions]);
+}
+
+/**
+ * The summary of the session a tab holds, from the computer its omp runs on: by its session file, or, before its omp
+ * named one, by the tab (`unsavedSessionKey`), the key a sidebar row finds it by too. Undefined until that computer
+ * said.
+ */
+export function tabSummary(
+	state: Pick<HostedSessionsStore, "summaries">,
+	tab: { id: string; sessionPath?: string; device?: string },
+): SessionSummary | undefined {
+	const key = tab.sessionPath ?? unsavedSessionKey(tab.id);
+	return summariesOf(state, tab.device).find(summary => summary.sessionPath === key);
 }
 
 /** Read one computer's summaries whole; null (an older host, a link down) leaves none for it. */

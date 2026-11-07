@@ -2430,6 +2430,7 @@ export class SidecarPool {
 							kind: entry.kind,
 							status: tab.status,
 							...(tab.settling ? { settling: true as const } : {}),
+							...(tab.compacting ? { compacting: true as const } : {}),
 							...(tab.runningSince === undefined ? {} : { since: tab.runningSince }),
 							...(ask ? { ask } : {}),
 							...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),

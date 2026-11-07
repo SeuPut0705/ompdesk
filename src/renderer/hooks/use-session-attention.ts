@@ -1,29 +1,26 @@
 import { useMemo } from "react";
-import { type Attention, pendingAsks, sessionAttention } from "../lib/attention";
-import { useExtensionUiStore } from "../stores/extension-ui";
-import { usePlanApprovalStore } from "../stores/plan-approval";
+import { type Attention, sessionAttention } from "../lib/attention";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { useTabsStore } from "../stores/tabs";
 import { useOpenedChildren } from "./use-opened-children";
+import { useFocusedRun } from "./use-tab-run";
 
 /**
- * What the attached session needs from the person (`sessionAttention`), or null, for the surfaces outside the work
- * board: the title bar, the sidebar row, the window title, the dock badge and the tray. Its own question or approval
- * and a child waiting on an answer count; a failed check does not (the agent fixes it). Stable while the kind and
- * count hold.
+ * What the focused session needs from the person (`sessionAttention`), or null, for the surfaces outside the work
+ * board: the title bar, the window title, the dock badge and the tray. By the sidebar row's rule: its own prompt as
+ * its summary says it (none while the session is down), else a child of it waiting on an answer. A failed check does
+ * not count (the agent fixes it). Stable while the kind and count hold.
  */
 export function useSessionAttention(): Attention | null {
 	// The pane's tab, else the window's active one (as the board's own `useBoardTabId`).
 	const runtimeTabId = useRuntimeTabId();
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const tabId = runtimeTabId ?? activeTabId;
-	const pendingRequests = useExtensionUiStore(state => state.pendingRequests);
-	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
-	const planPending = usePlanApprovalStore(state => state.pending !== null);
+	const { run } = useFocusedRun();
 	const childrenWaiting = useOpenedChildren(tabId).counts.waiting;
 	const attention = sessionAttention({
-		asks: pendingAsks({ pendingRequests, loginRequestIds }, planPending),
-		childrenWaiting,
+		asks: run.ask ? [run.ask] : [],
+		childrenWaiting: run.down ? 0 : childrenWaiting,
 	});
 	const kind = attention?.kind;
 	const count = attention?.count ?? 0;

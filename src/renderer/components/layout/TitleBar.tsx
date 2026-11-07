@@ -29,7 +29,8 @@ import { useOverlayPresence } from "../../hooks/use-overlay-presence";
 import { useSessionAttention } from "../../hooks/use-session-attention";
 import { useSessionList } from "../../hooks/use-session-list";
 import { useDrawerMode } from "../../hooks/use-shell-mode";
-import { ATTENTION_LABEL_KEY, sessionWorking } from "../../lib/attention";
+import { useFocusedRun } from "../../hooks/use-tab-run";
+import { ATTENTION_LABEL_KEY } from "../../lib/attention";
 import { cx, formatCost, formatDuration, formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -354,11 +355,10 @@ export function TitleBar() {
 		setEditingName(false);
 	};
 
-	const working = useSessionStore(sessionWorking);
-	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, not a failure.
-	const sessionHeld = useSessionStore(s => s.sidecarHeld);
-	// The session's own state (connecting, restarting, failed, exited) outranks what it needs from the person: a
-	// question on a session that is not up cannot be answered there, as the tray already says.
+	// What the session does, as its summary and its sidebar row say (`sessionRun`). A session that is not up (connecting,
+	// restarting, held, failed, exited) outranks what it needs from the person: a question on it cannot be answered
+	// there. Before its computer said anything, it reads as ready.
+	const { summary, run } = useFocusedRun();
 	const hostOffline = !webLinkLost && !unpaired && hostLinkLost && host !== undefined;
 	const [tone, statusLabel]: [StatusTone, string] = webLinkLost
 		? ["offline", t(webLinkLost === "connecting" ? "web.connection.connecting" : "web.connection.lost")]
@@ -368,21 +368,15 @@ export function TitleBar() {
 				? ["offline", t("remote.tab.reconnecting", { name: host.name })]
 				: reconnecting
 					? ["pending", t("remote.tab.statusReconnecting")]
-					: status === "starting"
-						? ["pending", t("titlebar.status.connecting")]
-						: status === "waiting"
-							? ["pending", t("titlebar.status.waiting")]
-							: status === "restarting"
-								? ["pending", t("titlebar.status.restarting")]
-								: status === "error" && sessionHeld
-									? ["pending", t("titlebar.status.sessionHeld")]
-									: status === "error" || status === "exited"
-										? ["error", t(`titlebar.status.${status}`)]
-										: attention
-											? ["attention", t(ATTENTION_LABEL_KEY[attention.kind])]
-											: working
-												? ["busy", t("titlebar.status.working")]
-												: ["ready", t(`titlebar.status.${status}`)];
+					: !summary || !run.signal
+						? ["ready", t("titlebar.status.ready")]
+						: run.down || summary.status === "waiting"
+							? [run.failed || summary.status === "exited" ? "error" : "pending", t(run.signal.labelKey)]
+							: attention
+								? ["attention", t(ATTENTION_LABEL_KEY[attention.kind])]
+								: run.running
+									? ["busy", t("titlebar.status.working")]
+									: ["ready", t(run.signal.labelKey)];
 
 	const ui = useUiStore.getState;
 	const sessionMenuItems: ContextMenuItem[] = [

@@ -928,6 +928,7 @@ export class LocalHostServices implements HostServices {
 					kind: sidecar.kind,
 					status,
 					...(status === "running" && runSettling(tab.run) ? { settling: true as const } : {}),
+					...(tab.run.compacting === true ? { compacting: true as const } : {}),
 					...(status === "running" && tab.run.since !== undefined ? { since: tab.run.since } : {}),
 					...(ask ? { ask } : {}),
 					...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),

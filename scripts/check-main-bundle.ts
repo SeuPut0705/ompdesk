@@ -310,7 +310,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // and a project's one menu builder and Delete dialog (project-menu.ts, ProjectDeleteDialog.tsx), on top of v0.118.7's
 // banner reason, whose failure rule is now shared with the summaries (`failureOf`), and a tab with no session file
 // read from its own summary (`unsavedSessionKey`, `hostedSummaries`), on top of v0.118.8's quiet close: 2,168,705.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_168_705;
+// Every other surface that says what a session does reads that summary by the row's rule (8 Nov 2026,
+// lib/session-run.ts `sessionRun`, hooks/use-tab-run.ts: the title bar and the window title are the first screen;
+// their own derivations from the runtime stores went): 2,169,204.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_169_204;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

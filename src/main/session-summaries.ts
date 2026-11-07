@@ -129,6 +129,7 @@ class Roster {
 			step: progress.lastIntent ?? progress.currentTool,
 			tokens: progress.tokens,
 			toolCount: progress.toolCount,
+			cost: progress.cost,
 		}));
 	}
 
@@ -154,6 +155,7 @@ class Roster {
 				step: row.progress?.lastIntent ?? row.progress?.currentTool,
 				tokens: row.progress?.tokens,
 				toolCount: row.progress?.toolCount,
+				cost: row.progress?.cost,
 			}));
 		}
 	}

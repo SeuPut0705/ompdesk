@@ -4,23 +4,36 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RemoteState } from "../../../shared/ipc-types";
 import type { RpcResponse } from "../../../shared/rpc-types";
+import { type SessionSummary, unsavedSessionKey } from "../../../shared/session-summary";
 import { formatTimeAgo } from "../../lib/format";
 import { I18nProvider, translate } from "../../lib/i18n";
-import type { ExtensionUiStore } from "../../stores/extension-ui";
+import { LOCAL_SUMMARIES, useHostedSessionsStore } from "../../stores/hosted-sessions";
 import { useMessagesStore } from "../../stores/messages";
 import { useRemoteStore } from "../../stores/remote";
-import { type SessionStore, useSessionStore } from "../../stores/session";
-import {
-	deleteSessionRuntime,
-	SessionRuntimeProvider,
-	sessionRuntimeStore,
-} from "../../stores/session-runtime-context";
+import { useSessionStore } from "../../stores/session";
+import { deleteSessionRuntime, SessionRuntimeProvider } from "../../stores/session-runtime-context";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { useTabsStore } from "../../stores/tabs";
 import { useToastStore } from "../../stores/toast";
 import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { TitleBar } from "./TitleBar";
+
+/** What the computer running tab `tabId` says of its session (main's `SessionSummaries`), its only session there. */
+function summarize(tabId: string, fields: Partial<SessionSummary>, device?: string): void {
+	const summary: SessionSummary = {
+		sessionPath: unsavedSessionKey(tabId),
+		tabId,
+		cwd: "/tmp/project",
+		kind: "agent",
+		status: "ready",
+		agents: [],
+		...fields,
+	};
+	useHostedSessionsStore.setState(state => ({
+		summaries: { ...state.summaries, [device ?? LOCAL_SUMMARIES]: { version: "test.1", sessions: [summary] } },
+	}));
+}
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(window as unknown as Record<string, number>, { innerHeight: 768, innerWidth: 1024 });
@@ -120,8 +133,8 @@ afterEach(async () => {
 	useMessagesStore.getState().reset();
 	useToolsStore.getState().reset();
 	useUiStore.getState().closeSessionOverlays();
-	useTabsStore.getState().reset();
 	useRemoteStore.getState().reset();
+	useHostedSessionsStore.setState({ summaries: {} });
 	getSessionStats.mockRestore();
 	vi.clearAllMocks();
 	sessions.list.mockResolvedValue([]);
@@ -533,29 +546,12 @@ describe("TitleBar", () => {
 			state: { hosts: [{ deviceId: "host-b", name: "Studio", state: "online" }] } as unknown as RemoteState,
 		});
 		await mount("t1");
-		const extensionUi = sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi");
-		await act(async () => {
-			sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" });
-			extensionUi?.getState().pushRequest({
-				type: "extension_ui_request",
-				id: "ask",
-				method: "ask",
-				questions: [],
-			});
-		});
+		// What the host running it says, not what this window's own stores hold.
+		await act(async () => summarize("t1", { ask: "input" }, "host-b"));
 		// A question is not an approval.
 		expect(container.textContent).toContain(translate("attention.question"));
 		expect(container.textContent).not.toContain(translate("attention.approval"));
-		await act(async () => {
-			extensionUi?.getState().removeRequest("ask");
-			extensionUi?.getState().pushRequest({
-				type: "extension_ui_request",
-				id: "approval",
-				method: "select",
-				title: "Allow tool: bash\nls",
-				options: ["Approve", "Deny"],
-			});
-		});
+		await act(async () => summarize("t1", { status: "running", ask: "approval" }, "host-b"));
 		expect(container.textContent).toContain(translate("attention.approval"));
 
 		// Unpaired in Settings: the host is gone for good, not reconnecting.
@@ -584,7 +580,7 @@ describe("TitleBar", () => {
 			activeTabId: "t1",
 		});
 		await mount("t1");
-		await act(async () => sessionRuntimeStore<SessionStore>("t1", "session")?.setState({ status: "ready" }));
+		await act(async () => summarize("t1", {}));
 		expect(container.textContent).toContain(translate("attention.childWaiting"));
 		expect(container.textContent).not.toContain(translate("titlebar.status.ready"));
 		// A phone's bar hides the word: the status keeps it as its accessible name and tooltip.
@@ -606,16 +602,10 @@ describe("TitleBar", () => {
 			activeTabId: "t1",
 		});
 		await mount("t1");
-		const session = sessionRuntimeStore<SessionStore>("t1", "session");
-		await act(async () => {
-			session?.setState({ status: "ready" });
-			sessionRuntimeStore<ExtensionUiStore>("t1", "extensionUi")
-				?.getState()
-				.pushRequest({ type: "extension_ui_request", id: "ask", method: "ask", questions: [] });
-		});
+		await act(async () => summarize("t1", { ask: "input" }));
 		expect(container.textContent).toContain(translate("attention.question"));
 		for (const status of ["error", "exited", "restarting", "starting"] as const) {
-			await act(async () => session?.setState({ status }));
+			await act(async () => summarize("t1", { status, ask: "input" }));
 			expect(container.textContent, status).not.toContain(translate("attention.question"));
 		}
 		expect(container.textContent).toContain(translate("titlebar.status.connecting"));
@@ -628,15 +618,27 @@ describe("TitleBar", () => {
 			activeTabId: "t1",
 		});
 		await mount("t1");
-		const session = sessionRuntimeStore<SessionStore>("t1", "session");
-		await act(async () => {
-			session?.getState().setStatus("error", "/tmp/project");
-			session?.getState().setSidecarError("still open in another omp", null, true);
-		});
+		await act(async () => summarize("t1", { status: "error", sessionHeld: true }));
 		expect(container.textContent).toContain(translate("titlebar.status.sessionHeld"));
 		expect(container.textContent).not.toContain(translate("titlebar.status.error"));
-		await act(async () => session?.getState().setSidecarError("crashed", null, false));
+		await act(async () => summarize("t1", { status: "error", failure: { message: "crashed" } }));
 		expect(container.textContent).toContain(translate("titlebar.status.error"));
+		deleteSessionRuntime("t1");
+	});
+
+	it("says what the session's summary says, whatever this window's own stream holds", async () => {
+		useTabsStore.setState({
+			tabs: [{ id: "t1", cwd: "/tmp/project", status: "ready", kind: "agent", unreadDone: false }],
+			activeTabId: "t1",
+		});
+		await mount("t1");
+		// Background work after the turn, then a compaction between turns: both are work, as on the session's row.
+		await act(async () => summarize("t1", { status: "running", settling: true }));
+		expect(container.textContent).toContain(translate("titlebar.status.working"));
+		await act(async () => summarize("t1", { compacting: true }));
+		expect(container.textContent).toContain(translate("titlebar.status.working"));
+		await act(async () => summarize("t1", {}));
+		expect(container.textContent).toContain(translate("titlebar.status.ready"));
 		deleteSessionRuntime("t1");
 	});
 });

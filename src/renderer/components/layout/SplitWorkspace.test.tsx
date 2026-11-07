@@ -2,12 +2,28 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import { type SessionSummary, unsavedSessionKey } from "../../../shared/session-summary";
 import { I18nProvider } from "../../lib/i18n";
 import type { TitleParts } from "../../lib/session-title";
+import { LOCAL_SUMMARIES, useHostedSessionsStore } from "../../stores/hosted-sessions";
 import { useProjectOrigins } from "../../stores/project-origins";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { type SessionTab, tabDisplayParts, useTabsStore } from "../../stores/tabs";
 import { PaneSwitcher, SplitPaneHeader } from "./SplitWorkspace";
+
+/** What main says of the pane's session (its tab has no file yet: it is summarized under the tab). */
+function summarize(fields: Partial<SessionSummary>): void {
+	const summary: SessionSummary = {
+		sessionPath: unsavedSessionKey("pane"),
+		tabId: "pane",
+		cwd: "/work",
+		kind: "agent",
+		status: "ready",
+		agents: [],
+		...fields,
+	};
+	useHostedSessionsStore.setState({ summaries: { [LOCAL_SUMMARIES]: { version: "test.1", sessions: [summary] } } });
+}
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
@@ -44,6 +60,7 @@ afterEach(async () => {
 	useSidebarPrefs.setState({ groupAliases: {} });
 	useProjectOrigins.getState().reset();
 	useTabsStore.getState().reset();
+	useHostedSessionsStore.setState({ summaries: {} });
 });
 
 describe("split pane breadcrumb", () => {
@@ -121,7 +138,8 @@ describe("split pane header working title", () => {
 	const light = () => container.querySelector("header [data-working]");
 
 	it("shimmers a running session's own title, with no border light and no spinner", async () => {
-		await mount({ ...tab, status: "running" });
+		summarize({ status: "running" });
+		await mount();
 		expect(light()?.getAttribute("data-working")).toBe("turn");
 		expect(light()?.classList.contains("omp-live-text")).toBe(true);
 		expect(container.querySelector("header .omp-live-edge")).toBeNull();
@@ -130,23 +148,32 @@ describe("split pane header working title", () => {
 	});
 
 	it("leaves idle and failed headers unlit, tints a waiting one still; starting keeps the spinner", async () => {
-		for (const state of [
-			{ ...tab, status: "ready" as const },
-			{ ...tab, status: "error" as const },
-		]) {
-			await mount(state);
+		for (const fields of [{ status: "ready" as const }, { status: "error" as const }]) {
+			summarize(fields);
+			await mount();
 			expect(light()).toBeNull();
 			await act(async () => root?.unmount());
 			container.remove();
 		}
-		await mount({ ...tab, status: "running", awaitingInput: "input" });
+		summarize({ status: "running", ask: "input" });
+		await mount();
 		expect(light()?.getAttribute("data-working")).toBe("waiting");
 		expect(container.querySelector("header")?.getAttribute("data-pane-running")).not.toBe("true");
 		await act(async () => root?.unmount());
 		container.remove();
-		await mount({ ...tab, status: "starting" });
+		summarize({ status: "starting" });
+		await mount();
 		expect(light()).toBeNull();
 		expect(container.querySelector("[role='status']")).not.toBeNull();
+	});
+
+	it("says what the session's summary says, not what the tab it was handed holds", async () => {
+		// The tab still reads running and waiting; the computer running it says it restarts: no question, a spinner.
+		summarize({ status: "restarting", ask: "input" });
+		await mount({ ...tab, status: "running", awaitingInput: "input" });
+		expect(light()).toBeNull();
+		expect(container.querySelector("[role='status']")).not.toBeNull();
+		expect(container.querySelector("header")?.getAttribute("data-pane-running")).not.toBe("true");
 	});
 });
 
