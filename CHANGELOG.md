@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.119.1] - 2026-11-08
+
+제목 줄, 창 제목, 트레이, 분할 창 머리, 작업 트리가 사이드바 행과 같은 세션 요약을 같은 규칙으로 읽어서, 세션 상태를 서로 다르게 말하지 않아요.
+
+### 고친 것
+- 창에 보이지 않는 탭의 하위 에이전트가 사이드바에서는 일하는 중으로 나오는데 작업 트리에는 하나도 없었어요. 작업 트리는 이 창이 받은 이벤트로 따로 상태를 만들었기 때문이에요. 이제 작업 트리의 세션 상태와 일하는 하위 에이전트, 그 비용이 세션을 실행하는 컴퓨터가 만든 요약에서 나와요.
+- 제목 줄의 상태, 창 제목의 표시(●, !), 독 배지, 트레이, 분할 창 머리의 스피너와 실패 표시도 같은 요약에서 읽어요. 세션이 다시 시작되는 중이면 남은 질문 대신 그 상태를 말하고, 턴이 오류로 끝나도 omp가 살아 있으면 세션 실패로 표시하지 않아요(사이드바와 같아요).
+- 턴 사이의 자동 압축도 사이드바와 모든 화면에서 작업 중으로 보여요.
+
+<!-- en -->
+
+The title bar, the window title, the tray, a split pane's header and the Work tree now read the same session summary as the sidebar row, by the same rule, so they never disagree about what a session is doing.
+
+### Fixed
+- A tab no pane showed had its subagents at work on its sidebar row but none in the Work tree, which built its state from the events this window happened to receive. The Work tree's session state, its subagents at work and their cost now come from the summary the computer running the session builds.
+- The title bar's status, the window title's mark (●, !), the dock badge, the tray, and a split pane's spinner and failure mark read the same summary. A session that is restarting says so instead of a leftover question, and a turn that ended in an error is not a failed session while its omp is up (as on its row).
+- A compaction between turns shows as work under way on the sidebar and every other surface.
+
 ## [0.119.0] - 2026-11-08
 
 사이드바의 세션 행이 이 컴퓨터 창, 페어링한 컴퓨터, 휴대폰 어디서나 같은 상태를 보여요. 세션을 실행하는 컴퓨터가 상태를 한 번 만들어 모든 화면에 보내요.
