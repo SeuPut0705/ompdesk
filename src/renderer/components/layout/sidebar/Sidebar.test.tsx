@@ -41,16 +41,11 @@ import { useQueueStore } from "../../../stores/queue";
 import { useRemoteStore } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-list";
-import {
-	deleteSessionRuntime,
-	sessionRuntimeStore,
-	setFocusedSessionRuntime,
-} from "../../../stores/session-runtime-context";
+import { deleteSessionRuntime, setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarProjects } from "../../../stores/sidebar-projects";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
-import type { SubagentsStore } from "../../../stores/subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
 import { useTabsStore } from "../../../stores/tabs";
 import { useToastStore } from "../../../stores/toast";
@@ -7252,7 +7247,10 @@ describe("Sidebar folded headers say what works inside", () => {
 		setSummaries(
 			[
 				summary(REMOTE_PATH, { cwd: "/Users/kim/code/app", status: "running", ask: "approval" }),
-				summary("/Users/kim/.omp/agent/sessions/app/other.jsonl", { cwd: "/Users/kim/code/app", status: "running" }),
+				summary("/Users/kim/.omp/agent/sessions/app/other.jsonl", {
+					cwd: "/Users/kim/code/app",
+					status: "running",
+				}),
 			],
 			"dev-studio",
 		);

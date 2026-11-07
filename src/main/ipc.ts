@@ -1329,7 +1329,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 							typeof command.since === "number" ? command.since : undefined,
 						)
 					: command.live === true
-						? (await agentControl.liveReview(owner.tabId), null)
+						? await agentControl.liveReview(owner.tabId).then(() => null)
 						: await agentControl.review(win, owner.tabId);
 			return { type: "response", command: command.type, success: true, data } as RpcResponse;
 		} catch (error) {
