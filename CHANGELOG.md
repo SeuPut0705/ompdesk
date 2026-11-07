@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.118.6] - 2026-11-07
+
+휴대폰에서 미리보기 주소가 바뀌어도 페이지 크기가 순간적으로 0으로 줄지 않아요.
+
+### 고친 것
+- 휴대폰(또는 휴대폰으로 보는 다른 컴퓨터의 탭) 미리보기에서 주소가 바뀔 때마다 패널이 "크기 0, 숨김"을 먼저 보내고 한 프레임 뒤에 실제 크기를 보내서, 컴퓨터 쪽 화면 밖 페이지가 잠깐 1x1로 줄었어요. 그 순간에 에이전트가 페이지를 클릭하면 크기 0인 화면에 눌려 클릭이 어디에도 닿지 않았어요(에이전트를 넘겨받았다가 다시 돌려준 뒤 첫 이동에서 특히 잘 났어요). 이제 패널은 닫힐 때만 페이지를 숨겨요.
+
+<!-- en -->
+
+A phone's Preview page no longer shrinks to nothing for a moment whenever the address changes.
+
+### Fixed
+- On a phone's Preview (or a phone viewing a paired host's tab), every address change made the panel send "size 0, hidden" and the real size a frame later, so the computer's offscreen page shrank to 1x1 in between. An agent's click in that moment hit a 0x0 viewport and reached nothing (most visible on the first move after taking the page over and handing it back). The panel now hides the page only when it closes.
+
 ## [0.118.5] - 2026-11-07
 
 omp가 입력을 다 읽기 전에 끝나도 OMPdesk 본체가 오류 창을 띄우며 꺼지지 않아요.
