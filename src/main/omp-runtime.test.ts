@@ -275,6 +275,39 @@ describe("resolveOmp", () => {
 		}
 	});
 
+	// A subcommand that ends without reading its stdin (`omp --version`, a crash on launch) closes the read end
+	// while `run` is still writing: the write fails on the stream, not the call.
+	it.skipIf(process.platform === "win32")("survives a subcommand that exits without reading its stdin", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-runtime-epipe-"));
+		const bin = await writeFakeOmp(
+			dir,
+			[
+				`import * as fs from "node:fs";`,
+				`if (process.argv[2] === "--version") console.log("omp/${MIN_OMP_VERSION}");`,
+				`else { fs.closeSync(0); console.log("ran"); }`,
+			].join("\n"),
+		);
+		process.env.OMP_GUI_OMP = bin;
+		const uncaught: unknown[] = [];
+		const onUncaught = (error: unknown) => uncaught.push(error);
+		process.on("uncaughtException", onUncaught);
+		try {
+			const resolution = await resolveOmp();
+			if (!resolution.ok) throw new Error(resolution.error);
+			// More than a pipe holds, so the write is still going when the child closes its end.
+			await expect(
+				resolution.runtime.run(["update"], { input: "x".repeat(4 * 1024 * 1024) }),
+			).resolves.toMatchObject({
+				code: 0,
+				stdout: "ran\n",
+			});
+			expect(uncaught).toEqual([]);
+		} finally {
+			process.off("uncaughtException", onUncaught);
+			await fs.rm(dir, RM_TEMP);
+		}
+	});
+
 	it("refuses an omp older than the minimum with an update hint", async () => {
 		// 18.6.3: the last omp without `AgentSession.disarmPrewalk`.
 		const { bin, dir } = await fakeOmp("omp/18.6.3");
