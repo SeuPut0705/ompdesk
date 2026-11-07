@@ -2,7 +2,8 @@
  * What a relaunch's restore (`composer.restore_interrupted`) reads from the session journal
  * beyond stock `restoreSession`: the background bash jobs the last process started and never
  * finished, the subagents the restore revived (named to the session whether its own turn goes
- * on or not), and whether a goal was still active when it ended. Pure over journal entries, so
+ * on or not) and the background subagents it could not revive, and whether a goal was still
+ * active when it ended. Pure over journal entries, so
  * the rules are unit-tested without a session (src/main/bridge-restart.test.ts).
  */
 import { assignmentHeadline } from "./modes/subagent-title-contracts";
@@ -108,9 +109,7 @@ function settles(entry: JournalEntry, id: string): boolean {
  * relaunch already named (`RESTART_JOBS_MESSAGE`) counts as settled.
  */
 export function interruptedJobs(branch: readonly JournalEntry[], startedAt: number): InterruptedJob[] {
-	const earlier = branch.filter(entry => journaledBefore(entry, startedAt));
-	const exits = earlier.flatMap((entry, index) => (isExit(entry) ? [index] : []));
-	const life = earlier.slice((exits.at(-2) ?? -1) + 1);
+	const life = replacedLife(branch, startedAt);
 	const jobs: InterruptedJob[] = [];
 	life.forEach((entry, index) => {
 		const message = entry.message;
@@ -126,6 +125,48 @@ export function interruptedJobs(branch: readonly JournalEntry[], startedAt: numb
 		if (call !== undefined && !jobs.some(job => job.id === state.jobId)) jobs.push({ id: state.jobId, ...call });
 	});
 	return jobs;
+}
+
+/**
+ * The entries the processes this one replaced journaled in their last life: those before `startedAt`, this process's
+ * start (epoch ms), after the second-to-last `session_exit` among them (see {@link interruptedJobs}).
+ */
+function replacedLife(branch: readonly JournalEntry[], startedAt: number): JournalEntry[] {
+	const earlier = branch.filter(entry => journaledBefore(entry, startedAt));
+	const exits = earlier.flatMap((entry, index) => (isExit(entry) ? [index] : []));
+	return earlier.slice((exits.at(-2) ?? -1) + 1);
+}
+
+/**
+ * The background `task` subagents the processes this one replaced started in their last life and never settled, that
+ * the restore did not revive (`revived`): stock revives none that is isolated (a worktree of its own) or lacks a
+ * `session_init`, and its result never comes, so the agent is told to start again what the work still needs. Read from
+ * each backgrounded `task` call's result (`details.async` running, `details.progress` the spawns still pending or
+ * running when the call returned; a blocking spawn had finished by then), settled as a bash job is (`settles`: stock's
+ * delivery, a `wait` report, an earlier restart's notice).
+ */
+export function stoppedSubagents(
+	branch: readonly JournalEntry[],
+	startedAt: number,
+	revived: readonly string[],
+): RevivedSubagent[] {
+	const ids: string[] = [];
+	for (const entry of replacedLife(branch, startedAt)) {
+		const message = entry.message;
+		if (entry.type !== "message" || message?.role !== "toolResult" || !isObject(message.details)) continue;
+		const state = asyncState(message.details);
+		const progress = message.details.progress;
+		if (state?.type !== "task" || state.state !== "running" || !Array.isArray(progress)) continue;
+		const later = branch.slice(branch.indexOf(entry) + 1);
+		for (const spawn of progress) {
+			if (!isObject(spawn) || typeof spawn.id !== "string") continue;
+			if (spawn.status !== "pending" && spawn.status !== "running") continue;
+			const id = spawn.id;
+			if (ids.includes(id) || revived.includes(id) || later.some(next => settles(next, id))) continue;
+			ids.push(id);
+		}
+	}
+	return revivedSubagents(branch, ids);
 }
 
 /**
@@ -428,6 +469,7 @@ function restartNotice(
 	jobs: readonly InterruptedJob[],
 	subagents: readonly RevivedSubagent[],
 	turn: RestartTurn,
+	stopped: readonly RevivedSubagent[],
 ): string {
 	const lines: string[] = [];
 	if (turn === "cut") {
@@ -441,6 +483,13 @@ function restartNotice(
 			"OMPdesk restarted and stopped these background jobs before they finished; their results will not arrive:",
 			...jobs.map(job => `- ${job.id}: ${job.intent ? `${job.intent} — ` : ""}\`${job.command}\``),
 			"Start again, in the background, only the jobs the work still needs; skip any whose result no longer matters.",
+		);
+	}
+	if (stopped.length > 0) {
+		lines.push(
+			"OMPdesk restarted and these background agents you started stopped with it; they did not come back and their results will not arrive:",
+			...stopped.map(agent => `- ${agent.id}: ${agent.intent ?? "background agent"}`),
+			"Check what each one already did, then start again only the ones the work still needs; skip any whose result no longer matters.",
 		);
 	}
 	if (subagents.length > 0) {
@@ -482,25 +531,27 @@ const listedSubagents = (items: readonly RevivedSubagent[]) =>
 	items.map(({ id, intent, doing }) => ({ id, ...(intent ? { intent } : {}), ...(doing ? { doing } : {}) }));
 
 /**
- * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents and
- * what happened to the session's own turn (`RestartTurn`). One message, so one turn.
+ * The relaunch's one follow-up, or undefined when it has nothing to say: the cut-off jobs, the revived subagents, what
+ * happened to the session's own turn (`RestartTurn`) and the background subagents the restart stopped for good
+ * (`stopped`, counted with the jobs in the transcript's line). One message, so one turn.
  */
 export function restartFollowUp(
 	jobs: readonly InterruptedJob[],
 	subagents: readonly RevivedSubagent[],
 	turn: RestartTurn = "idle",
+	stopped: readonly RevivedSubagent[] = [],
 ): RestartFollowUp | undefined {
-	if (jobs.length === 0 && subagents.length === 0 && turn !== "cut") return undefined;
+	if (jobs.length === 0 && stopped.length === 0 && subagents.length === 0 && turn !== "cut") return undefined;
 	return {
 		customType:
-			jobs.length > 0
+			jobs.length > 0 || stopped.length > 0
 				? RESTART_JOBS_MESSAGE
 				: subagents.length > 0
 					? RESTART_SUBAGENTS_MESSAGE
 					: RESTART_TURN_MESSAGE,
-		content: restartNotice(jobs, subagents, turn),
+		content: restartNotice(jobs, subagents, turn, stopped),
 		details: {
-			jobs: listed(jobs),
+			jobs: listed([...jobs, ...stopped]),
 			...(subagents.length > 0 ? { subagents: listedSubagents(subagents) } : {}),
 			...(turn === "cut" ? { turn: true as const } : {}),
 		},

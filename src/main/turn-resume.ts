@@ -460,11 +460,11 @@ export function openedRunning(facts: readonly ResumeFact[], tabId: string): numb
 	).length;
 }
 
-/** What stock's `restore_interrupted` found, in a word: the cut-off turn, what it revived, or nothing. */
+/** What stock's `restore_interrupted` found, in a word: the cut-off turn, what it revived or named stopped, or nothing. */
 function restoreSummary(data: Record<string, unknown> | undefined): string {
 	if (!data) return "failed";
 	if (data.turn === true) return "turn";
-	const parts = (["subagents", "jobs"] as const).flatMap(key => {
+	const parts = (["subagents", "jobs", "stopped"] as const).flatMap(key => {
 		const value = data[key];
 		return Array.isArray(value) && value.length > 0 ? [`${key}:${value.length}`] : [];
 	});

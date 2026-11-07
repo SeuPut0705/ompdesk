@@ -29,6 +29,7 @@ import {
 	restartFollowUp,
 	revivedSubagents,
 	shutdownMarks,
+	stoppedSubagents,
 	turnCutBehindNotes,
 } from "./restart-core";
 import type { BridgeMethods } from "./types";
@@ -525,10 +526,14 @@ export const methods: BridgeMethods = {
 			// A turn stock neither restores nor can retry, because a custom message came after its aborted reply, goes on
 			// with the follow-up (`turnCutBehindNotes`; read before the restore, which may append to the journal).
 			const turnCut = !outcome.turn && turnCutBehindNotes(branch, startedAt);
+			// Background subagents that process ran and stock could not revive (isolated, no `session_init`): named, so the
+			// agent starts again what the work still needs instead of waiting on results that never come.
+			const stopped = stoppedSubagents(branch, startedAt, outcome.subagents);
 			const followUp = restartFollowUp(
 				cutOff,
 				revivedSubagents(branch, outcome.subagents, id => prepared.doing.get(id)),
 				outcome.turn ? "restored" : turnCut ? "cut" : "idle",
+				stopped,
 			);
 			if (followUp) {
 				const failed = (error: unknown) =>
@@ -558,6 +563,7 @@ export const methods: BridgeMethods = {
 			return {
 				...outcome,
 				jobs: cutOff.map(job => job.id),
+				stopped: stopped.map(agent => agent.id),
 				goalPausedByExit,
 				followUp: followUp !== undefined,
 				cutBeforeRequest: abort !== undefined,

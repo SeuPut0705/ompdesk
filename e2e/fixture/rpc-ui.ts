@@ -45,6 +45,7 @@ import {
 	requestCutAtExit,
 	restartFollowUp,
 	revivedSubagents,
+	stoppedSubagents,
 } from "../../resources/gui-bridge/restart-core";
 import { type ForkEntry, forkCut } from "../../resources/gui-bridge/session-fork-core";
 import { transcriptPageMessages, transcriptRunStart } from "../../resources/gui-bridge/transcript-page";
@@ -1935,7 +1936,12 @@ export function runRpcUi(): void {
 			});
 			// The bridge's follow-up: a displayed custom message the transcript shows as muted lines; with no cut-off turn
 			// it starts the turn, as stock's idle follow-up does. A restored turn names revived subagents too (composer.ts).
-			const followUp = restartFollowUp(stopped, revivedSubagents(journal, subagents), cutOff ? "restored" : "idle");
+			const followUp = restartFollowUp(
+				stopped,
+				revivedSubagents(journal, subagents),
+				cutOff ? "restored" : "idle",
+				stoppedSubagents(journal, performance.timeOrigin, subagents),
+			);
 			if (followUp) {
 				const notice: AgentMessage = {
 					role: "custom",
