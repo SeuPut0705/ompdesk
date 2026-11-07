@@ -80,7 +80,7 @@ import {
 	type ScheduleFrequency,
 	type ScheduleRun,
 } from "../../shared/schedules";
-import { runningAgentCount, type SessionSummary } from "../../shared/session-summary";
+import { hostedSummaries, runningAgentCount, type SessionSummary } from "../../shared/session-summary";
 import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
 import {
 	type FamilyEdits,
@@ -371,7 +371,7 @@ export interface AgentControlHost {
 	/** `agentControlApprove`, or full control: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
 	/** What every row shows of the tab's session, from the computer that runs it; undefined while it is not known. */
-	summaryOf(tab: Pick<ControlTab, "sessionPath" | "device">): SessionSummary | undefined;
+	summaryOf(tab: Pick<ControlTab, "sessionPath" | "device" | "tabId">): SessionSummary | undefined;
 	/** What every row shows of the sessions this computer runs, its windows' tabs and the ones it runs for paired devices. */
 	localSummaries(): readonly SessionSummary[];
 	/** `agentControlManage` (default on) or full control: an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open asks unless full control is on. */
@@ -1875,8 +1875,8 @@ export class AgentControl {
 		// this list, from the same summaries.
 		if (app && !device && !args.mine) {
 			const held = new Set(tabs.map(tab => tab.sessionPath));
-			for (const summary of this.#host.localSummaries()) {
-				if (!summary.openFor || held.has(summary.sessionPath)) continue;
+			for (const summary of hostedSummaries(this.#host.localSummaries())) {
+				if (held.has(summary.sessionPath)) continue;
 				if (args.folder && !summary.cwd.includes(args.folder)) continue;
 				const title = summary.title || summary.autoTitle;
 				if (query && !(title ?? "").toLowerCase().includes(query)) continue;

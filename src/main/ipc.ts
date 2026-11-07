@@ -139,7 +139,7 @@ import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
-import type { SummariesChanged } from "../shared/session-summary";
+import { hostedSummaries, type SummariesChanged } from "../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import {
@@ -727,7 +727,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		deps.hostedTabs.summariesChanged(delta);
 	});
 	/** The sessions this computer runs for paired devices (a device's tab here), from the one summary builder. */
-	const hostedSummaries = () => deps.summaries.current().sessions.filter(session => session.openFor !== undefined);
+	const hostedSessions = () => hostedSummaries(deps.summaries.current().sessions);
 	// The tabs this computer's sessions opened on paired devices: every other window and phone page nests them under
 	// their opener as the window holding them does.
 	deps.hostedTabs.onRemoteOpenedChange(() =>
@@ -1034,7 +1034,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (cmd.type === "switch_session") {
 			const blocker = sidecarPool.foreignSessionOwner(issuerTabId, cmd.sessionPath);
 			// A paired device's tab here runs it: the window opens a view of that tab instead (`tabs.spawn`).
-			if (!blocker && !sidecar.device && hostedSummaries().some(s => s.sessionPath === cmd.sessionPath))
+			if (!blocker && !sidecar.device && hostedSessions().some(s => s.sessionPath === cmd.sessionPath))
 				return {
 					id: _id,
 					type: "response",
@@ -1462,7 +1462,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const info = owner ? tabInfo(owner.tabId) : undefined;
 			if (info) return { title: info.title || info.task || "", cwd: info.cwd };
 			// A tab this computer runs for a paired device (the device opened the session itself).
-			const hosted = hostedSummaries().find(session => session.sessionPath === sessionPath);
+			const hosted = hostedSessions().find(session => session.sessionPath === sessionPath);
 			return hosted ? { title: hosted.title ?? "", cwd: hosted.cwd } : null;
 		},
 		stop: sessionPath => agentControl.sessionTakenOver(sessionPath),
@@ -1694,7 +1694,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			agentControl.botQuiet(sessionPath) &&
 			botTakeovers.state().length === 0 &&
 			botTeach.state() === null &&
-			!hostedSummaries().some(
+			!hostedSessions().some(
 				hosted => hosted.sessionPath === sessionPath && (hosted.status === "running" || hosted.ask !== undefined),
 			),
 		sideAnswer: (sessionPath, question) => agentControl.botSideAnswer(sessionPath, question, BOT_HANDOFF_TIMEOUT_MS),
@@ -2177,7 +2177,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const device = deviceOf(payload.device);
 		const owner = deps.sidecarPool.sessionOwner(payload.sessionPath, device);
 		if (owner || device) return owner;
-		const held = hostedSummaries().some(session => session.sessionPath === payload.sessionPath);
+		const held = hostedSessions().some(session => session.sessionPath === payload.sessionPath);
 		return held ? ({ tabId: "", winId: 0, hosted: true } satisfies IpcSessionOwner) : null;
 	});
 	// One computer's summaries: this computer's, or what this computer holds of a paired host's.

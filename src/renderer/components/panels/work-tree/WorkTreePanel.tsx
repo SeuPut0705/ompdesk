@@ -13,6 +13,7 @@ import { Bot, GitBranch, MessageSquare, Network } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { hostedSummaries } from "../../../../shared/session-summary";
 import { useSessionSpend } from "../../../hooks/use-session-spend";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -89,7 +90,7 @@ function useWorkTree(billing: Readonly<Record<string, Billing>> | undefined): Wo
 	const usage = useAgentReviewStore(state => state.usage);
 	const closed = useClosedChildrenStore(state => state.rows);
 	const summaries = useHostedSessionsStore(state => summariesOf(state, undefined));
-	const hosted = useMemo(() => summaries.filter(summary => summary.openFor !== undefined), [summaries]);
+	const hosted = useMemo(() => hostedSummaries(summaries), [summaries]);
 	const hosts = useRemoteStore(state => state.state?.hosts);
 	const tabIds = useMemo(() => tabs.filter(tab => !tab.ghost).map(tab => tab.id), [tabs]);
 	const rosters = useRosters(tabIds);

@@ -94,7 +94,7 @@ import {
 	type SubagentFrame,
 	type SubagentSubscriptionLevel,
 } from "../shared/rpc-types";
-import { failureOf, type SummaryAsk, type SummaryFailure } from "../shared/session-summary";
+import { failureOf, type SummaryAsk, type SummaryFailure, unsavedSessionKey } from "../shared/session-summary";
 import {
 	asSplitLayout,
 	forgetSplitTab,
@@ -2420,11 +2420,11 @@ export class SidecarPool {
 				{
 					sidecar: entry.sidecar,
 					facts: (): SummaryFacts | null => {
-						if (!entry.sessionFile || !this.#byTabId.has(entry.tabId)) return null;
+						if (!this.#byTabId.has(entry.tabId)) return null;
 						const tab = tabStatusPayload(entry);
 						const ask = asks.get(entry) ?? (entry.planProposal ? "approval" : undefined);
 						return {
-							sessionPath: entry.sessionFile,
+							sessionPath: entry.sessionFile ?? unsavedSessionKey(entry.tabId),
 							tabId: entry.tabId,
 							cwd: tab.cwd,
 							kind: entry.kind,

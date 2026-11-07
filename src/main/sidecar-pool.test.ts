@@ -13,6 +13,7 @@ import type {
 	SessionInfoUpdateFrame,
 	SidecarStatus,
 } from "../shared/rpc-types";
+import { unsavedSessionKey } from "../shared/session-summary";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -2808,9 +2809,10 @@ describe("SidecarPool background tabs", () => {
 				const source = pool.summarySources().find(entry => entry.sidecar === sidecars[tabId === "tab-a" ? 0 : 1]);
 				return source?.facts();
 			};
-			// A tab with no file yet has nothing a row could show.
+			// A tab whose omp has named no file yet (a first turn stock has not written) is summarized under its tab, so
+			// its row (a live row of that tab) reads the one source too: running, with its subagents.
 			sidecars[1]?.emitAgentEvents(["agent_start"]);
-			expect(factsOf("tab-b")).toBeNull();
+			expect(factsOf("tab-b")).toMatchObject({ sessionPath: unsavedSessionKey("tab-b"), status: "running" });
 
 			expect(factsOf("tab-a")).toMatchObject({
 				sessionPath: "/sessions/a.jsonl",

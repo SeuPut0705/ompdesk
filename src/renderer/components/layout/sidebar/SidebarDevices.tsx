@@ -30,6 +30,7 @@ import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
+import { unsavedSessionKey } from "../../../../shared/session-summary";
 import { CHATS_ORDER_KEY, familyRows, type RowGroup, type RowSession } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -976,7 +977,10 @@ function DeviceSessions({
 
 	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
-		const summary = hostSummaries.get(session.path);
+		// The host's summary of it, by its file; a tab here the host's omp has named no file for yet, by that tab.
+		const summary =
+			hostSummaries.get(session.path) ??
+			(tab && !tab.sessionPath ? hostSummaries.get(unsavedSessionKey(tab.id)) : undefined);
 		const { signal, waiting, running, settling, reason } = summaryRowState(summary);
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;

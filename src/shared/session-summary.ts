@@ -39,8 +39,32 @@ export interface SummaryAgent {
 	sessionFile?: string;
 }
 
+const UNSAVED_PREFIX = "tab:";
+
+/** The key of the summary of a tab whose omp has named no session file yet: its row is a live row of that tab. */
+export function unsavedSessionKey(tabId: string): string {
+	return `${UNSAVED_PREFIX}${tabId}`;
+}
+
+/** A summary of a tab with no session file yet: no saved session, no stored row, nothing to list by file. */
+function isUnsavedSession(summary: Pick<SessionSummary, "sessionPath">): boolean {
+	return summary.sessionPath.startsWith(UNSAVED_PREFIX);
+}
+
+/**
+ * The sessions a computer runs for its paired devices (a device's tab there, `openFor`) that a list can show by file:
+ * this computer's sidebar rows, the Work tree and the tabs it counts as held. A device's tab whose omp has named no
+ * file yet is a row of that device's own, not of this computer's list.
+ */
+export function hostedSummaries(sessions: readonly SessionSummary[]): SessionSummary[] {
+	return sessions.filter(summary => summary.openFor !== undefined && !isUnsavedSession(summary));
+}
+
 export interface SessionSummary {
-	/** The session file: the key every view finds its row by. */
+	/**
+	 * The session file: the key every view finds its row by. A tab whose omp has named no file yet (a first turn stock
+	 * has not written) is summarized under `unsavedSessionKey(tabId)`, so its row reads the same one source.
+	 */
 	sessionPath: string;
 	/** The tab that runs it on the computer that built the summary. */
 	tabId: string;

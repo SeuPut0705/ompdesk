@@ -48,7 +48,7 @@ import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
-import type { SessionSummary } from "../../../../shared/session-summary";
+import { hostedSummaries, type SessionSummary, unsavedSessionKey } from "../../../../shared/session-summary";
 import {
 	CHATS_ORDER_KEY,
 	familyRows,
@@ -542,7 +542,7 @@ export function Sidebar() {
 	const summaryByPath = useSummaryMap(undefined);
 	const summaryList = useHostedSessionsStore(s => summariesOf(s, undefined));
 	// Sessions paired devices' tabs run on this computer: rows of this device's list, also before the index lists them.
-	const hostedSessions = useMemo(() => summaryList.filter(summary => summary.openFor !== undefined), [summaryList]);
+	const hostedSessions = useMemo(() => hostedSummaries(summaryList), [summaryList]);
 	const hostedByKey = useMemo(() => {
 		const index = new Map<string, SessionSummary>();
 		for (const hosted of hostedSessions) {
@@ -1078,20 +1078,16 @@ export function Sidebar() {
 		localTabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
 	/**
-	 * The facts a session's row reads: the summary of this computer, which runs it (a tab of any window, or one it runs
-	 * for a paired device). A tab of this window with no session file yet has no summary: its own facts stand in.
+	 * The summary a session's row reads: this computer's, which runs it (a tab of any window, or one it runs for a paired
+	 * device), by its file; a tab of this window whose omp has named no file yet, by that tab (`unsavedSessionKey`).
 	 */
-	const rowFactsOf = (session: SidebarSession): RowFacts | undefined => {
-		const summary = summaryByPath.get(session.path) ?? hostedByKey.get(session.id);
-		if (summary) return summary;
+	const summaryFor = (session: SidebarSession) => {
+		const found = summaryByPath.get(session.path) ?? hostedByKey.get(session.id);
+		if (found) return found;
 		const tab = tabForSession(session);
-		if (!tab || tab.sessionPath) return undefined;
-		return {
-			status: tab.status,
-			...(tab.awaitingInput ? { ask: tab.awaitingInput } : {}),
-			...(tab.settling ? { settling: true as const } : {}),
-		};
+		return tab && !tab.sessionPath ? summaryByPath.get(unsavedSessionKey(tab.id)) : undefined;
 	};
+	const rowFactsOf = (session: SidebarSession): RowFacts | undefined => summaryFor(session);
 	const sessionRun = (session: SidebarSession) =>
 		summaryRowState(rowFactsOf(session), tabForSession(session)?.unreadDone === true);
 	const isSessionBusy = (session: SidebarSession) =>
@@ -1439,7 +1435,7 @@ export function Sidebar() {
 		const indexed = session.liveTabId === undefined;
 		// What this computer runs of it (its summary: any window's tab, or one it runs for a paired device), the same on
 		// every window and phone page whatever tab events each happened to receive.
-		const summary = summaryByPath.get(session.path) ?? hostedByKey.get(session.id);
+		const summary = summaryFor(session);
 		const run = sessionRun(session);
 		// Its own prompt first; a child of its waiting next (the family's own rows say which).
 		const waiting: AttentionKind | undefined =

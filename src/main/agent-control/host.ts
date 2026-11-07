@@ -82,7 +82,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
-import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
+import { type SessionSummary, unsavedSessionKey, type VersionedSummaries } from "../../shared/session-summary";
 import { approvalChoices } from "../../shared/tool-approval";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { deletedSessions } from "../deleted-sessions";
@@ -1623,10 +1623,10 @@ export class AgentControlRuntime {
 			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			approveEnabled: () => this.#approveEnabled(),
-			summaryOf: tab =>
-				tab.sessionPath
-					? deps.summaries?.(tab.device)?.sessions.find(session => session.sessionPath === tab.sessionPath)
-					: undefined,
+			summaryOf: tab => {
+				const key = tab.sessionPath ?? unsavedSessionKey(tab.tabId);
+				return deps.summaries?.(tab.device)?.sessions.find(session => session.sessionPath === key);
+			},
 			localSummaries: () => deps.summaries?.()?.sessions ?? [],
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||

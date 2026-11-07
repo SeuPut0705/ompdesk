@@ -308,8 +308,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // One summary per session, built in main, the only source of every row's live state (8 Nov 2026: hosted-sessions.ts
 // holds each computer's summaries at a version and applies deltas, `summaryRowState`; the per-view re-reads deleted),
 // and a project's one menu builder and Delete dialog (project-menu.ts, ProjectDeleteDialog.tsx), on top of v0.118.7's
-// banner reason, whose failure rule is now shared with the summaries (`failureOf`): 2,168,231.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_168_231;
+// banner reason, whose failure rule is now shared with the summaries (`failureOf`), and a tab with no session file
+// read from its own summary (`unsavedSessionKey`, `hostedSummaries`): 2,168,488.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_168_488;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

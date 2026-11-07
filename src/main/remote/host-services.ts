@@ -71,7 +71,7 @@ import {
 	type SubagentFrame,
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
-import { failureOf, type SummaryAsk, type SummaryDelta } from "../../shared/session-summary";
+import { failureOf, type SummaryAsk, type SummaryDelta, unsavedSessionKey } from "../../shared/session-summary";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
@@ -915,14 +915,14 @@ export class LocalHostServices implements HostServices {
 			if (tab.viewing) return [];
 			const facts = (): SummaryFacts | null => {
 				const { sidecar } = tab;
-				if (tab.sessionFile === undefined) return null;
 				const status = tab.run.running && sidecar.status === "ready" ? "running" : sidecar.status;
 				let ask: SummaryAsk | undefined;
 				for (const request of tab.asks.values())
 					if (ask !== "approval") ask = isApprovalSelect(request) ? "approval" : "input";
 				const failure = sidecar.statusPayload ? failureOf(sidecar.statusPayload) : undefined;
 				return {
-					sessionPath: tab.sessionFile,
+					// A tab whose omp has named no file yet: under the device's own tab id, which its view looks it up by.
+					sessionPath: tab.sessionFile ?? unsavedSessionKey(tab.rtab),
 					tabId: tab.resumeId,
 					cwd: sidecar.cwd,
 					kind: sidecar.kind,

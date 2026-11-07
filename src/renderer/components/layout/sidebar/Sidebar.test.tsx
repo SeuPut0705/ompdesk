@@ -18,7 +18,7 @@ import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent
 import { type BotDecision, type BotDeskState, EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
-import type { SessionSummary } from "../../../../shared/session-summary";
+import { type SessionSummary, unsavedSessionKey } from "../../../../shared/session-summary";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { CHATS_ORDER_KEY } from "../../../../shared/sidebar-rows";
 import { TOUCH_QUERY } from "../../../hooks/shell-queries";
@@ -864,7 +864,12 @@ describe("Sidebar menus and pinned ordering", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
-		setSummaries([summary("/work/beta/bg.jsonl", { cwd: "/work/beta", tabId: "t1", status: "running" })]);
+		// Tabs t0 and t2 have no session file yet: main summarizes them by tab.
+		setSummaries([
+			summary("/work/beta/bg.jsonl", { cwd: "/work/beta", tabId: "t1", status: "running" }),
+			summary(unsavedSessionKey("t0"), { cwd: "/work/gamma", tabId: "t0" }),
+			summary(unsavedSessionKey("t2"), { cwd: "/work/delta", tabId: "t2" }),
+		]);
 		await mount(<Sidebar />);
 
 		expect(container.textContent).not.toContain("No code sessions yet");
@@ -968,6 +973,10 @@ describe("Sidebar menus and pinned ordering", () => {
 				},
 			],
 		});
+		// The tab has no file yet: main summarizes it by tab.
+		const attachedSummary = (status: "ready" | "running") =>
+			setSummaries([summary(unsavedSessionKey("t0"), { cwd: "/work/alpha", tabId: "t0", status })]);
+		attachedSummary("ready");
 		await mount(<Sidebar />);
 
 		const activeRow = () => container.querySelector('[data-active="true"]') as unknown as Element;
@@ -977,6 +986,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await act(async () => {
 			useTabsStore.setState({ tabs: [{ ...useTabsStore.getState().tabs[0]!, status: "running" }] });
+			attachedSummary("running");
 		});
 		expect(activeRow().textContent).toContain("Running");
 		expect(activeRow().getAttribute("data-signal")).toBe("running");
@@ -3032,8 +3042,15 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
-		// Main's word: the worktree session in tab ta works; the live tab tc has no file yet and speaks for itself.
-		setSummaries([summaryA()]);
+		// Main's word: the worktree session in tab ta works; the live tab tc has no file yet, so main names it by tab.
+		setSummaries([
+			summaryA(),
+			summary(unsavedSessionKey("tc"), {
+				cwd: "/home/me/.omp/wt/h1/gui-agent-cccccc-3333333",
+				tabId: "tc",
+				status: "running",
+			}),
+		]);
 		for (const [device, sessions] of Object.entries(hosted)) setSummaries(sessions, device);
 		ensureTabRuntime("t1");
 		useSidebarSubagentsStore.setState({ expanded: open ? new Set([BOSS]) : new Set() });
