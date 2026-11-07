@@ -1235,6 +1235,56 @@ describe("tabs store close", () => {
 		expect(omp.tabs.spawn).not.toHaveBeenCalled();
 		expect(useToastStore.getState().toasts).toEqual([]);
 	});
+
+	// The owner's report (7 Nov 2026): a session another device's tab held on a paired host opened as a dead tab whose
+	// banner said omp failed to start. Main closes such a tab; the window shows the tab that holds it, or says where.
+	it("drops a tab a paired host refused because this window's other tab shows its session, and shows that one", async () => {
+		seedTabs("t2");
+		const left = [tabInfo("t0", "/alpha"), tabInfo("t1", "/beta")];
+		omp.tabs.close.mockResolvedValue(false);
+		omp.tabs.list.mockResolvedValue(left);
+
+		await useTabsStore.getState().applyTabList(left, ["t2"], { tabId: "t0" });
+		const state = useTabsStore.getState();
+		expect(state.tabs.map(tab => tab.id)).toEqual(["t0", "t1"]);
+		expect(state.activeTabId).toBe("t0");
+	});
+
+	it("says on which device a refused session is open, and an open main closed before listing it adds no tab", async () => {
+		seedTabs("t1");
+		useToastStore.setState({ toasts: [] });
+		const left = [tabInfo("t0", "/alpha"), tabInfo("t1", "/beta")];
+		omp.tabs.close.mockResolvedValue(false);
+		omp.tabs.list.mockResolvedValue(left);
+
+		await useTabsStore.getState().applyTabList(left, ["t2"], { host: "host-b", holder: "Laptop" });
+		// An older host names no holder: the window names the host.
+		await useTabsStore.getState().applyTabList(left, ["t9"], { host: "host-b" });
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual([
+			translate("tabs.openElsewhere", { device: "Laptop" }),
+			translate("tabs.openElsewhere", { device: "host-b" }),
+		]);
+		expect(useTabsStore.getState().activeTabId).toBe("t1");
+		// `t9` was never listed here: the `openTab` still adding it finds it closed.
+		expect(isTabClosed("t9")).toBe(true);
+	});
+
+	it("puts a tab's failure reason on its banner from main's status, shown or not, without re-raising a closed one", () => {
+		seedTabs("t0");
+		const banner = () => sessionRuntimeStore<SessionStore>("t1", "session")?.getState();
+		const failed = { ...tabInfo("t1", "/beta", "error"), message: "[session_open_in_tab] held" };
+
+		useTabsStore.getState().applyTabStatus(failed);
+		expect(banner()?.sidecarError).toBe("[session_open_in_tab] held");
+		// Only that tab's banner: the focused one says nothing.
+		expect(sessionRuntimeStore<SessionStore>("t0", "session")?.getState().sidecarError).toBeNull();
+		banner()?.dismissSidecarBanner();
+		// A push about anything else (a title) keeps the person's dismissal.
+		useTabsStore.getState().applyTabStatus({ ...failed, title: "Renamed" });
+		expect(banner()?.sidecarDismissed).toBe(true);
+		useTabsStore.getState().applyTabStatus(tabInfo("t1", "/beta", "ready"));
+		expect(banner()?.sidecarError).toBeNull();
+	});
 });
 
 describe("tabs store close races and failures", () => {

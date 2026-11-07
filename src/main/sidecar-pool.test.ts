@@ -1517,6 +1517,45 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["other-host", "elsewhere"]);
 	});
 
+	// The owner's report (7 Nov 2026): a session another device's tab held on the host opened here as a dead tab whose
+	// banner said omp failed to start.
+	it("closes a tab a paired host refused because another tab holds its session: shows this computer's, else says where", () => {
+		const { pool, sidecars } = fakePool();
+		pool.selfDeviceId = () => "me";
+		const fw = fakeWindow(1);
+		const open = (tabId: string, sessionPath: string) =>
+			pool.acquire("/h", fw.win, tabId, sessionPath, "agent", undefined, false, false, false, undefined, "host-b");
+		const lastList = () => fw.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data;
+		open("mine", "/s/a.jsonl");
+
+		// The holder is this computer's tab, named by its id on the host: the window switches to it.
+		open("dup", "/s/a-moved.jsonl");
+		sidecars[1]?.emit("shownElsewhere", { device: "me", rtab: "mine", name: "PC" });
+		expect(sidecars[1]?.disposed).toBe(true);
+		expect(lastList()).toEqual({ tabs: pool.tabsForWindow(fw.win), closed: ["dup"], shown: { tabId: "mine" } });
+
+		// Another device's tab holds it: the tab closes and the window says on which device it is open.
+		open("theirs", "/s/b.jsonl");
+		sidecars[2]?.emit("shownElsewhere", { device: "laptop", rtab: "l1", name: "Laptop" });
+		expect(lastList()).toEqual({
+			tabs: pool.tabsForWindow(fw.win),
+			closed: ["theirs"],
+			shown: { host: "host-b", holder: "Laptop" },
+		});
+
+		// An older host names no holder: this computer's tab on the same session file, else only the host.
+		open("again", "/s/a.jsonl");
+		sidecars[3]?.emit("shownElsewhere", null);
+		expect(lastList()).toMatchObject({ closed: ["again"], shown: { tabId: "mine" } });
+		open("unknown", "/s/c.jsonl");
+		sidecars[4]?.emit("shownElsewhere", null);
+		expect(lastList()).toMatchObject({ closed: ["unknown"], shown: { host: "host-b" } });
+
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["mine"]);
+		// Nothing was deleted: the session opens again once its holder lets go.
+		expect(deletedSessions().has("/s/b.jsonl", "host-b")).toBe(false);
+	});
+
 	it("passes a paired host's review list of the session a tab views to its windows, each item opening on that host", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
@@ -2794,6 +2833,31 @@ describe("SidecarPool background tabs", () => {
 			a?.emit("status", { status: "error", cwd: "/a", sessionHeld: true });
 			a?.emitStatus("ready");
 			expect(listed()).not.toHaveProperty("sessionHeld");
+		});
+
+		it("lists why a tab's omp failed with its status, for every window's banner, until it is back up", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			const listed = () => pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a");
+
+			a?.emit("status", {
+				status: "restarting",
+				cwd: "/a",
+				message: "omp crashed",
+				restart: { attempt: 1, maxAttempts: 3 },
+			});
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+				status: "restarting",
+				message: "omp crashed",
+				restart: { attempt: 1, maxAttempts: 3 },
+			});
+			a?.emit("status", { status: "error", cwd: "/a", message: "omp 18.0 is too old" });
+			expect(listed()).toMatchObject({ status: "error", message: "omp 18.0 is too old" });
+			expect(listed()).not.toHaveProperty("restart");
+			a?.emitStatus("ready");
+			expect(listed()).not.toHaveProperty("message");
 		});
 
 		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {

@@ -92,7 +92,7 @@ import type { HostedTabView } from "./hosted-view";
 import { createLinkEventDecoder, createReadDecoder, type WireSubagentFrame } from "./link-events";
 import { localDay, PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
-import { slimOf } from "./protocol";
+import { slimOf, tabHolderOf } from "./protocol";
 import { FrameTooLargeError } from "./wire";
 
 /** A SidecarManager stand-in for the host side. */
@@ -1314,16 +1314,20 @@ describe("LocalHostServices", () => {
 		expect(ipcErrorCode(old)).toBe("unknown_tab");
 
 		// Another device's open of that path, or this connection's own under a second rtab, is refused:
-		// never a second omp on the same file.
+		// never a second omp on the same file. The refusal names the tab that holds it, for the device to show
+		// that tab or say where the session is open.
+		const holder = { device: "device-x", rtab: "new", name: "device-x" };
 		const other = new FakeConnection(peer("device-y"));
 		const refusedOther = await services
 			.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refusedOther)).toBe("session_open_in_tab");
+		expect(tabHolderOf(refusedOther)).toEqual(holder);
 		const refusedSame = await services
 			.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after)
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(refusedSame)).toBe("session_open_in_tab");
+		expect(tabHolderOf(refusedSame)).toEqual(holder);
 		expect(sidecars).toHaveLength(1);
 	});
 

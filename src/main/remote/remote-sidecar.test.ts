@@ -515,6 +515,36 @@ describe("RemoteSidecar", () => {
 		expect(statuses.map(entry => entry.status)).not.toContain("error");
 	});
 
+	// The owner's report (7 Nov 2026): a session another device's tab held on the host opened here as a dead tab whose
+	// banner said omp failed to start.
+	it("hands a host's session_open_in_tab refusal to the pool with the tab that holds it, never an error tab", async () => {
+		const holder = { device: "device-y", rtab: "y1", name: "Laptop" };
+		const named = setup();
+		const shown: unknown[] = [];
+		named.sidecar.on("shownElsewhere", (held: unknown) => shown.push(held));
+		named.link.handlers["tab.open"] = () => {
+			throw Object.assign(codedError("session_open_in_tab", "Session is already open in another tab on the host"), {
+				holder,
+			});
+		};
+		named.sidecar.restart(undefined, "/s/held.jsonl");
+		await settle();
+		expect(shown).toEqual([holder]);
+		expect(named.statuses.map(entry => entry.status)).not.toContain("error");
+
+		// An older host names no holder: the pool still closes the tab.
+		const older = setup();
+		const unnamed: unknown[] = [];
+		older.sidecar.on("shownElsewhere", (held: unknown) => unnamed.push(held));
+		older.link.handlers["tab.open"] = () => {
+			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
+		};
+		older.sidecar.restart(undefined, "/s/held.jsonl");
+		await settle();
+		expect(unnamed).toEqual([null]);
+		expect(older.statuses.map(entry => entry.status)).not.toContain("error");
+	});
+
 	// The user's report (29 Oct 2026): a device's relaunch restored its tabs on two sessions whose worktrees the host's
 	// disk care had removed once their work landed; the one on screen opened, was refused, and stayed an error tab that
 	// kept the finished session listed.

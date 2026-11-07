@@ -667,7 +667,7 @@ describe("useRpcEvents context usage sync", () => {
 		expect(session.getState().contextUsage).toMatchObject({ tokens: 900 });
 		expect(session.getState().statsPulse).toBeGreaterThan(0);
 	});
-	it("refreshes visible unfocused panes and keeps their failure diagnostics independent", async () => {
+	it("refreshes visible unfocused panes independently", async () => {
 		const { emitTabStatus, commandForTab } = installTabRoutedMockOmp();
 		const first = seedReadyTab("t-first");
 		ensureTabRuntime("t-second");
@@ -691,10 +691,6 @@ describe("useRpcEvents context usage sync", () => {
 		await elapse(80);
 		expect(first.getState().contextUsage?.tokens).toBe(100);
 		expect(second.getState().contextUsage?.tokens).toBe(800);
-		emitTabStatus({ status: "error", cwd: "/beta", message: "Second pane failed" }, "t-second");
-		await flush();
-		expect(second.getState().sidecarError).toBe("Second pane failed");
-		expect(first.getState().sidecarError).toBeNull();
 		expect(useTabsStore.getState().activeTabId).toBe("t-first");
 	});
 
