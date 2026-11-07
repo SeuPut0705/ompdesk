@@ -493,7 +493,9 @@ test("a session's row says the same on this computer, a paired computer and the 
 		});
 
 		await runCase("6", "the tab's omp is killed with subagents running", async () => {
-			test.skip(process.platform === "win32", "the omp's pid comes from ps");
+			// The omp's pid comes from ps. Not `test.skip`: inside a case it throws into `runCase`, which records it as a
+			// failed setup (every Windows run of the matrix failed so).
+			if (process.platform === "win32") return;
 			await startTurn(hidden);
 			await startSubagents(hidden);
 			await expectRow("6", "subagents running before the crash", hidden, { signal: "running", running: 2 });
