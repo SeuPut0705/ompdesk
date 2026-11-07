@@ -133,9 +133,19 @@ test("the text shows once after coming back to a run that went on with a reply t
 		await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 		await capture(page, "then-work-back");
 		await expect(narration).toHaveCount(1);
-		const textBox = await narration.boundingBox();
-		const cardBox = await pane.locator(".omp-work-narrative").filter({ hasText: "Reviewing the diff" }).boundingBox();
-		expect(textBox && cardBox && textBox.y < cardBox.y).toBe(true);
+		// Both rows are read in one frame: the rows are still moving when the card shows (nightly 7 Nov 2026: the text
+		// read at 362 and the card, a moment later, at 317, though the rows settled with the text at 211 over the card
+		// at 296), so two reads apart can straddle the move.
+		await expect
+			.poll(() =>
+				narration.evaluate(text => {
+					const card = [
+						...(text.closest(".omp-session-pane")?.querySelectorAll(".omp-work-narrative") ?? []),
+					].find(element => element.textContent?.includes("Reviewing the diff"));
+					return card ? text.getBoundingClientRect().y < card.getBoundingClientRect().y : null;
+				}),
+			)
+			.toBe(true);
 
 		await page.reload();
 		await expect(narration).toHaveCount(1, { timeout: 30_000 });
