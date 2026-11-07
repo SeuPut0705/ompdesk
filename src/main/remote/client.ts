@@ -77,8 +77,22 @@ export class RemoteError extends Error {
 	}
 }
 
+/**
+ * Tests only (an unpackaged build's loopback mode, index.ts): the loopback address this app dials from, so the host's
+ * fake `whois` tells two device apps on one machine apart (`OMP_GUI_TEST_REMOTE_SOURCE`, e.g. 127.0.0.2).
+ */
+let loopbackSource: string | undefined;
+
+export function setLoopbackSource(address: string | undefined): void {
+	loopbackSource = address;
+}
+
 function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS, signal?: AbortSignal): Promise<Socket> {
-	const socket = connect({ host: target.host, port: target.port });
+	const socket = connect({
+		host: target.host,
+		port: target.port,
+		...(loopbackSource ? { localAddress: loopbackSource } : {}),
+	});
 	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
 	const cancelled = () => fail(new Error("dial cancelled"));
 	const fail = (error: Error) => {

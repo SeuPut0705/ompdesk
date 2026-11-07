@@ -1269,6 +1269,34 @@ describe("tabs store close", () => {
 		expect(isTabClosed("t9")).toBe(true);
 	});
 
+	// The owner's report (7 Nov 2026): after a paired host refused a session clicked several times, the window toasted
+	// "Tab … is no longer available": main had closed the tab and answered the open's route with false before the
+	// window applied the tab list that says so.
+	it("leaves a tab main closed while the window still routed to it quietly, and still says where it is open", async () => {
+		seedTabs("t0");
+		useToastStore.setState({ toasts: [] });
+		const left = [tabInfo("t0", "/alpha"), tabInfo("t1", "/beta"), tabInfo("t2", "/gamma")];
+		omp.tabs.list.mockResolvedValue(left);
+		omp.tabs.close.mockResolvedValue(false);
+		omp.tabs.spawn.mockResolvedValue({ tabId: "refused", cwd: "/host" });
+		const route = Promise.withResolvers<boolean>();
+		omp.tabs.setActive.mockImplementation(async id => (id === "refused" ? route.promise : true));
+
+		const opening = useTabsStore.getState().openTab({ device: "host-b", sessionPath: "/host/s.jsonl" });
+		await vi.waitFor(() => expect(omp.tabs.setActive).toHaveBeenCalledWith("refused"));
+		// Main closed it first: its route answers false, and the list naming it closed comes after.
+		route.resolve(false);
+		await opening;
+		await useTabsStore.getState().applyTabList(left, ["refused"], { host: "host-b", holder: "Laptop" });
+
+		expect(useToastStore.getState().toasts.map(toast => toast.message)).toEqual([
+			translate("tabs.openElsewhere", { device: "Laptop" }),
+		]);
+		const state = useTabsStore.getState();
+		expect(state.tabs.map(tab => tab.id)).toEqual(["t0", "t1", "t2"]);
+		expect(state.activeTabId).not.toBe("refused");
+	});
+
 	it("puts a tab's failure reason on its banner from main's status, shown or not, without re-raising a closed one", () => {
 		seedTabs("t0");
 		const banner = () => sessionRuntimeStore<SessionStore>("t1", "session")?.getState();

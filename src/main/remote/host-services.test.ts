@@ -1313,16 +1313,13 @@ describe("LocalHostServices", () => {
 			.catch((error: unknown) => error);
 		expect(ipcErrorCode(old)).toBe("unknown_tab");
 
-		// Another device's open of that path, or this connection's own under a second rtab, is refused:
-		// never a second omp on the same file. The refusal names the tab that holds it, for the device to show
-		// that tab or say where the session is open.
+		// Another device's open of that path views this tab (one omp); this connection's own under a second rtab is
+		// refused, naming the tab that holds it, for the device to show that tab.
 		const holder = { device: "device-x", rtab: "new", name: "device-x" };
 		const other = new FakeConnection(peer("device-y"));
-		const refusedOther = await services
-			.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other)
-			.catch((error: unknown) => error);
-		expect(ipcErrorCode(refusedOther)).toBe("session_open_in_tab");
-		expect(tabHolderOf(refusedOther)).toEqual(holder);
+		expect(
+			await services.call(other.peer, "tab.open", { rtab: "y1", cwd: workDir, sessionPath: "/s/one.jsonl" }, other),
+		).toMatchObject({ attached: true, viewing: true });
 		const refusedSame = await services
 			.call(after.peer, "tab.open", { rtab: "again", cwd: workDir, sessionPath: "/s/one.jsonl" }, after)
 			.catch((error: unknown) => error);
@@ -3188,6 +3185,101 @@ describe("LocalHostServices: a device opening a session a window of this compute
 			services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "branch", entryId: "e1" } }, x),
 		).rejects.toThrow("sidecar exited");
 		expect(local.moveLog).toEqual(["begin:w1", "end:w1"]);
+	});
+});
+
+// The owner's report (7 Nov 2026): a session the Mac mini ran in SeuPut's tab could not be opened from the Windows
+// desktop ("Session is already open in another tab on the host"). Every device views it, as every device views a
+// window's session: one omp on the file, the holder device's.
+describe("LocalHostServices: a device opening a session another device's tab runs here", () => {
+	const SESSION = "/s/held.jsonl";
+	const ask = { type: "extension_ui_request", id: "ask-1", method: "confirm", title: "Deploy?", message: "" };
+
+	async function held() {
+		const context = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "RNGAN" });
+		const y = new FakeConnection(peer("device-y"));
+		const opened = await context.services.call(
+			y.peer,
+			"tab.open",
+			{ rtab: "u1", cwd: workDir, sessionPath: SESSION },
+			y,
+		);
+		return { ...context, x, y, sidecar, opened };
+	}
+
+	it("attaches the second device to the holder's omp: its stream, its prompts named after that device", async () => {
+		const { services, sidecars, sidecar, y, opened } = await held();
+		expect(opened).toEqual({ cwd: workDir, kind: "agent", attached: true, viewing: true });
+		expect(sidecars).toHaveLength(1);
+		expect(y.tabEvents().find(event => event.name === "status")?.arg).toMatchObject({ status: "ready" });
+		sidecar.emit("events", [{ type: "agent_start" }]);
+		expect(y.tabEvents().at(-1)).toMatchObject({ rtab: "u1", name: "events" });
+		await services.call(y.peer, "tab.command", { rtab: "u1", command: { type: "prompt", message: "from y" } }, y);
+		expect(
+			sidecar.commands.filter(command => command.type === "prompt_origin_set" || command.type === "prompt"),
+		).toEqual([
+			{ type: "prompt_origin_set", origin: { deviceId: "device-y", name: "device-y" }, text: "from y" },
+			{ type: "prompt", message: "from y" },
+		]);
+		// The holder's tab is the one this computer lists, resumes and restarts; the view is none of those.
+		expect(services.hostedSessions().map(session => session.device)).toEqual(["device-x"]);
+		expect(services.resumeFacts().map(fact => fact.tabId)).toEqual(["peer:device-x:t1"]);
+		// The holder's omp moving to another file moves the view with it: neither tab is closed as a duplicate.
+		sidecar.emit("session", { sessionId: "s2", sessionFile: "/s/next.jsonl" });
+		expect(sidecar.disposed).toBe(false);
+		expect(y.tabEvents().map(event => event.name)).not.toContain("viewEnded");
+	});
+
+	it("the first answer to an ask wins, whichever device gives it", async () => {
+		const { services, sidecar, x, y } = await held();
+		sidecar.emit("extensionUi", ask);
+		const answer = { type: "extension_ui_response", id: "ask-1", confirmed: true };
+		await services.call(y.peer, "tab.sideChannel", { rtab: "u1", frame: answer }, y);
+		expect(sidecar.sideFrames).toEqual([answer]);
+		expect(x.tabEvents().at(-1)).toMatchObject({ name: "extensionUi", arg: { id: "answered:ask-1" } });
+		const late = await services
+			.call(x.peer, "tab.sideChannel", { rtab: "t1", frame: answer }, x)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(late)).toBe("already_answered");
+		expect(sidecar.sideFrames).toHaveLength(1);
+	});
+
+	it("the viewer's close only leaves; the holder's close ends the view quietly", async () => {
+		const first = await held();
+		await first.services.call(first.y.peer, "tab.close", { rtab: "u1" }, first.y);
+		expect(first.sidecar.disposed).toBe(false);
+		await first.services.call(first.x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, first.x);
+		expect(first.sidecar.commands.at(-1)).toEqual({ type: "get_state" });
+
+		const { services, sidecar, x, y } = await held();
+		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
+		expect(sidecar.disposed).toBe(true);
+		expect(y.tabEvents().at(-1)).toMatchObject({ rtab: "u1", name: "viewEnded" });
+		const gone = await services
+			.call(y.peer, "tab.command", { rtab: "u1", command: { type: "get_state" } }, y)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(gone)).toBe("unknown_tab");
+	});
+
+	it("the same connection asking again under another rtab is refused, naming its own tab", async () => {
+		const { services, y } = await held();
+		const refused = await services
+			.call(y.peer, "tab.open", { rtab: "u2", cwd: workDir, sessionPath: SESSION }, y)
+			.catch((error: unknown) => error);
+		expect(ipcErrorCode(refused)).toBe("session_open_in_tab");
+		expect(tabHolderOf(refused)).toEqual({ device: "device-y", rtab: "u1", name: "device-y" });
+		// y relaunches (a new connection, a new rtab): it takes its own view over.
+		const y2 = new FakeConnection(peer("device-y"));
+		expect(
+			await services.call(y2.peer, "tab.open", { rtab: "u3", cwd: workDir, sessionPath: SESSION }, y2),
+		).toMatchObject({ attached: true });
 	});
 });
 

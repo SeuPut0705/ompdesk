@@ -125,14 +125,29 @@ export async function linkProxy(targetPort: number): Promise<LinkProxy> {
 	};
 }
 
-/** A fake Tailscale on which this app is node `n-<name>`, signed in as `REMOTE_LOGIN`, with one peer at 127.0.0.1. */
-export function remoteTailscale(root: string, name: string): Promise<FixtureTailscale> {
+/**
+ * A fake Tailscale on which this app is node `n-<name>`, signed in as `REMOTE_LOGIN`, with one peer at 127.0.0.1
+ * and, for a host two device apps use, one more per `devices` address (each device app dials from its own, `source`).
+ */
+export function remoteTailscale(
+	root: string,
+	name: string,
+	devices: readonly string[] = [],
+): Promise<FixtureTailscale> {
 	return fixtureTailscale(root, {
 		login: REMOTE_LOGIN,
 		selfIps: ["127.0.0.1"],
 		selfStableId: `n-${name}`,
 		peers: [
 			{ hostName: "peer", os: "macOS", online: true, userId: 1001, ip: "127.0.0.1", stableId: `n-peer-${name}` },
+			...devices.map((ip, index) => ({
+				hostName: `peer-${index + 2}`,
+				os: "windows",
+				online: true,
+				userId: 1001,
+				ip,
+				stableId: `n-peer-${name}-${index + 2}`,
+			})),
 		],
 	});
 }
@@ -145,6 +160,13 @@ export async function makeRemoteProfile(
 		theme: Theme;
 		/** Listened on as a host and probed as a client: a client takes its host's (or a `linkProxy`'s). Default: free. */
 		port?: number;
+		/**
+		 * A device app's loopback address to dial from (127.0.0.2, …), so its host tells it from the device on 127.0.0.1;
+		 * the host lists the same addresses as `devices`.
+		 */
+		source?: string;
+		/** On a host: the `source` addresses of the device apps beyond the first. */
+		devices?: readonly string[];
 		env?: Record<string, string>;
 		prefs?: Record<string, unknown>;
 	},
@@ -171,7 +193,7 @@ export async function makeRemoteProfile(
 		process.env.OMP_GUI_TEST_NATIVES ||
 		path.join(os.homedir(), ".bun/install/global/node_modules/@oh-my-pi/pi-natives");
 	await fs.symlink(natives, path.join(path.dirname(bin), "node_modules/@oh-my-pi/pi-natives"), "junction");
-	const tailscale = await remoteTailscale(root, name);
+	const tailscale = await remoteTailscale(root, name, options.devices);
 	const port = options.port ?? (await freePort());
 	const env: Record<string, string> = {};
 	for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
@@ -185,6 +207,7 @@ export async function makeRemoteProfile(
 		OMP_GUI_TEST_SESSION_FILES: "1",
 		OMP_GUI_REMOTE_PORT: String(port),
 		OMP_GUI_TEST_REMOTE_LOOPBACK: "1",
+		...(options.source ? { OMP_GUI_TEST_REMOTE_SOURCE: options.source } : {}),
 		...tailscale.env,
 		...options.env,
 	});

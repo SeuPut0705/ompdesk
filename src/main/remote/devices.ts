@@ -850,7 +850,8 @@ export class RemoteDevices {
 
 	/** Who may connect, from Tailscale: a tailnet address, a node of an allowed login, not blocked. */
 	async #gate(ip: string): Promise<GateResult> {
-		const loopback = this.#deps.loopback === true && (ip === "127.0.0.1" || ip === "::1");
+		// Every 127.x address: a test's second device dials from its own one (client.ts `setLoopbackSource`).
+		const loopback = this.#deps.loopback === true && (ip.startsWith("127.") || ip === "::1");
 		if (!isTailnetAddress(ip) && !loopback) return { ok: false, code: "not_tailnet" };
 		const peer = await this.#deps.tailnet.whois(ip);
 		if (!peer?.nodeId || !peer.login) return { ok: false, code: "no_identity" };
