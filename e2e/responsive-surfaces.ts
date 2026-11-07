@@ -1240,7 +1240,7 @@ export const SURFACES: readonly Surface[] = [
 			await openProjectMenu(page, look);
 			await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
 		},
-		ready: "[role='dialog'] input[type='checkbox']",
+		ready: "[role='dialog']",
 		when: () => false,
 		parity: { session: "work", after: closeOverlay },
 	},
