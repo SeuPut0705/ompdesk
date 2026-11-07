@@ -12,8 +12,8 @@
 
 import type { Billing } from "../../../../../resources/gui-bridge/model-setup-contracts";
 import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
-import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { SessionSummary } from "../../../../shared/session-summary";
 import { type CostKinds, costKinds, NO_COST } from "../../../lib/spend";
 import { isTabFailed } from "../../../lib/tab-signal";
 import type { SessionTab } from "../../../stores/tabs";
@@ -76,8 +76,8 @@ export interface WorkTreeInput {
 	/** Session file → what an opened session runs on and has cost (main's review push). */
 	usage: Readonly<Record<string, AgentChildUsage>>;
 	closed: readonly ClosedChild[];
-	/** Sessions paired devices run on this computer. */
-	hosted: readonly IpcHostedSession[];
+	/** The sessions this computer runs for paired devices: their summaries (`openFor` names the device). */
+	hosted: readonly SessionSummary[];
 	deviceName: (deviceId: string) => string;
 	/** Provider → billing class (`session_spend`), to class a cost no host split; undefined until read. */
 	billing?: Readonly<Record<string, Billing>>;
@@ -238,7 +238,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 	const shown = new Set(live.flatMap(tab => (tab.sessionPath ? [tab.sessionPath] : [])));
 	for (const session of hosted) {
 		if (shown.has(session.sessionPath)) continue;
-		const state: FamilyState = session.awaitingInput
+		const state: FamilyState = session.ask
 			? "waiting"
 			: session.status === "running"
 				? "running"
@@ -254,7 +254,7 @@ export function buildWorkTree(input: WorkTreeInput): WorkTreeFamily[] {
 				state,
 				depth: 0,
 				usage: {},
-				device: session.device,
+				device: session.openFor ?? "",
 				target: { kind: "stored", sessionPath: session.sessionPath, cwd: session.cwd },
 			},
 			rows: [],

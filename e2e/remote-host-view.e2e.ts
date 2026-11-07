@@ -68,12 +68,31 @@ test("the host's own window lists, views and works in a session its paired devic
 
 		await test.step("the host lists it once, in its project group, with the device tab's state", async () => {
 			await expect
-				.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).length, { timeout: 30_000 })
+				.poll(
+					async () =>
+						(
+							await b.evaluate(() =>
+								window.omp.sessions
+									.summaries()
+									.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+							)
+						).length,
+					{ timeout: 30_000 },
+				)
 				.toBe(1);
-			const [hosted] = await b.evaluate(() => window.omp.sessions.hosted());
-			expect(hosted).toMatchObject({ cwd: hostProfile.project, kind: "agent", status: "ready", device: "PC-A" });
+			const [hosted] = await b.evaluate(() =>
+				window.omp.sessions.summaries().then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+			);
+			expect(hosted).toMatchObject({ cwd: hostProfile.project, kind: "agent", status: "ready", openFor: "PC-A" });
 		});
-		const sessionPath = (await b.evaluate(() => window.omp.sessions.hosted()))[0]?.sessionPath ?? "";
+		const sessionPath =
+			(
+				await b.evaluate(() =>
+					window.omp.sessions
+						.summaries()
+						.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+				)
+			)[0]?.sessionPath ?? "";
 		expect(sessionPath).not.toBe("");
 		const hostRow = b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`);
 		await expect(b.locator(`[data-session-group=${cssString(hostProfile.project)}]`).locator(hostRow)).toHaveCount(
@@ -156,7 +175,13 @@ test("the host's own window lists, views and works in a session its paired devic
 			expect(tabs.length).toBeGreaterThan(0);
 			expect(tabs.filter(tab => tab.status === "error" || tab.status === "exited")).toEqual([]);
 			expect(tabs.some(tab => tab.sessionPath === sessionPath)).toBe(false);
-			expect(await b.evaluate(() => window.omp.sessions.hosted())).toEqual([]);
+			expect(
+				await b.evaluate(() =>
+					window.omp.sessions
+						.summaries()
+						.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+				),
+			).toEqual([]);
 			expect(await launches()).toBe(launchedBefore);
 			await capture(b, "host-view-ended");
 		});

@@ -48,7 +48,6 @@ import type {
 	CustomProvidersConfig,
 	DeepLinkPayload,
 	HostDesktopState,
-	HostLiveSession,
 	HostUpdateAction,
 	HostView,
 	IpcActiveTabEnvelope,
@@ -67,7 +66,6 @@ import type {
 	IpcFsSaveCopyResult,
 	IpcFsUploadToHostResult,
 	IpcHostBotDesk,
-	IpcHostedSession,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
 	IpcInstallBrowserRelayPayload,
@@ -174,6 +172,7 @@ import type {
 } from "./rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, SCHEDULES_STATE, type SchedulesState } from "./schedules";
 import type { VersionedSessionList } from "./session-list-delta";
+import type { SummariesChanged, VersionedSummaries } from "./session-summary";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import { type IpcSidebarProjects, SIDEBAR_PROJECTS_COMMAND, SIDEBAR_PROJECTS_STATE } from "./sidebar-projects";
 import {
@@ -355,10 +354,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				subscribeActiveTab<ConfigUpdateFrame>(IPC_EVENTS.CONFIG_UPDATE, callback),
 			onSessionsChanged: (callback: (change: IpcSessionsChanged) => void) =>
 				subscribe<IpcSessionsChanged | undefined>(IPC_EVENTS.SESSIONS_CHANGED, change => callback(change ?? {})),
-			onHostedSessionsChanged: (callback: (sessions: IpcHostedSession[]) => void) =>
-				subscribe<IpcHostedSession[]>(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, callback),
-			onLiveSessionsChanged: (callback: (sessions: HostLiveSession[]) => void) =>
-				subscribe<HostLiveSession[]>(IPC_EVENTS.LIVE_SESSIONS_CHANGED, callback),
+			onSummariesChanged: (callback: (change: SummariesChanged) => void) =>
+				subscribe<SummariesChanged>(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, callback),
 			onRemoteOpenedChanged: (callback: (tabs: RemoteOpenedTab[]) => void) =>
 				subscribe<RemoteOpenedTab[]>(IPC_EVENTS.REMOTE_OPENED_TABS_CHANGED, callback),
 			onHeldSessionsChanged: (callback: (files: string[]) => void) =>
@@ -578,8 +575,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			openInNewWindow: (payload: IpcSessionOpenNewWindowPayload) =>
 				transport.invoke(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, payload) as Promise<boolean>,
 			consumePendingOpen: () => transport.invoke(IPC_COMMANDS.SESSION_CONSUME_PENDING) as Promise<string | null>,
-			hosted: () => transport.invoke(IPC_COMMANDS.HOSTED_SESSIONS) as Promise<IpcHostedSession[]>,
-			live: () => transport.invoke(IPC_COMMANDS.LIVE_SESSIONS) as Promise<HostLiveSession[]>,
+			summaries: (device?: string) =>
+				transport.invoke(IPC_COMMANDS.SESSION_SUMMARIES, device) as Promise<VersionedSummaries | null>,
 			remoteOpened: () => transport.invoke(IPC_COMMANDS.REMOTE_OPENED_TABS) as Promise<RemoteOpenedTab[]>,
 			held: () => transport.invoke(IPC_COMMANDS.SESSIONS_HELD) as Promise<string[]>,
 			ensureBot: () => transport.invoke(IPC_COMMANDS.SESSIONS_ENSURE_BOT) as Promise<string>,

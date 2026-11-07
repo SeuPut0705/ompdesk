@@ -5,8 +5,8 @@
  */
 
 import type { CostSplit } from "../../../../shared/agent-control";
+import { RESTART_CUT_STATUS } from "../../../../shared/restart-cuts";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
-import { RESTART_CUT_STATUS } from "../../../lib/restart-cuts";
 import { isLiveSubagentStatus } from "../../panels/subagent-graph";
 
 /** What a child is: a subagent of the session, a session opened in a worktree, or a plain opened session. */

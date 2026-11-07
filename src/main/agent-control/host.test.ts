@@ -24,6 +24,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
+import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
 import { createControlBackend } from "../control-socket/backend";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
@@ -67,7 +68,7 @@ function setup(
 		sendOutboxFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
-		hosted?: AgentControlHostDeps["hosted"];
+		summaries?: AgentControlHostDeps["summaries"];
 		app?: AgentControlHostDeps["app"];
 		/** Windows viewing a tab (a paired phone's page), by tab id. */
 		viewers?: Record<string, ClientWindow[]>;
@@ -152,7 +153,7 @@ function setup(
 		},
 		sessions: options.sessions,
 		remote: options.remote,
-		hosted: options.hosted,
+		summaries: options.summaries,
 		app: options.app,
 		dispatch: async (target, _sidecar, tabId, command) => {
 			commands.push({ tabId, command, win: target });
@@ -854,6 +855,18 @@ describe("AgentControlRuntime", () => {
 			firstMessage: "hi",
 			...extra,
 		});
+		const summariesOf = (
+			sessions: { sessionPath: string; status: SessionSummary["status"]; ask?: "input"; openFor?: string }[],
+		): VersionedSummaries => ({
+			version: "e.1",
+			sessions: sessions.map(session => ({
+				tabId: "tab",
+				cwd: "/s",
+				kind: "agent",
+				agents: [],
+				...session,
+			})),
+		});
 		/** A transcript whose last tool call has no result yet: the step it runs. */
 		const runningTool = (name: string, intent: string) => [
 			{ role: "user", content: "go", timestamp: 1 },
@@ -873,15 +886,16 @@ describe("AgentControlRuntime", () => {
 					return runningTool("bash", "vitest");
 				return null;
 			});
-			const live = [
-				{ sessionPath: "/far/busy.jsonl", state: "turn" as const },
-				{ sessionPath: "/far/asks.jsonl", state: "waiting" as const },
-			];
+			const live = summariesOf([
+				{ sessionPath: "/far/busy.jsonl", status: "running" },
+				{ sessionPath: "/far/asks.jsonl", status: "running", ask: "input" },
+			]);
 			const { runtime, win } = setup({
 				remote: {
-					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online", live }],
+					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online" }],
 					request: request as never,
 				},
+				summaries: device => (device === "dev-1" ? live : null),
 			});
 			const text = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
 			expect(text).toMatch(/busy "busy"\n[^\n]*; open in a tab on device dev-1: running, running bash \(vitest\)\n/);
@@ -900,10 +914,14 @@ describe("AgentControlRuntime", () => {
 					read: async sessionPath =>
 						(sessionPath === "/s/run.jsonl" ? runningTool("grep", "find it") : []) as never,
 				},
-				hosted: () => [
-					{ sessionPath: "/s/run.jsonl", cwd: "/s", kind: "agent", status: "running", device: "SeuPut" },
-					{ sessionPath: "/s/rest.jsonl", cwd: "/s", kind: "agent", status: "ready", device: "SeuPut" },
-				],
+				summaries: device =>
+					device
+						? null
+						: summariesOf([
+								{ sessionPath: "/s/run.jsonl", status: "running", openFor: "SeuPut" },
+								{ sessionPath: "/s/rest.jsonl", status: "ready", openFor: "SeuPut" },
+								{ sessionPath: "/s/window.jsonl", status: "running" },
+							]),
 			});
 			const text = (await runtime.run(win, "main0001", T.list, { scope: "stored" })).text;
 			expect(text).toMatch(
@@ -915,15 +933,16 @@ describe("AgentControlRuntime", () => {
 
 		it("reads a saved session's header as the stored list says it, as of the read", async () => {
 			let rows = [row("/far", "there", { heldOnHost: true })];
-			let live: { sessionPath: string; state: "turn" | "background" | "waiting" }[] = [];
+			let live = summariesOf([]);
 			const request = vi.fn(async (_device: string, method: string) =>
 				method === "sessions.list" ? rows : method === "sessions.messages" ? runningTool("read", "notes") : null,
 			);
 			const { runtime, win } = setup({
 				remote: {
-					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online", live }],
+					hosts: () => [{ deviceId: "dev-1", name: "SeuPut", state: "online" }],
 					request: request as never,
 				},
+				summaries: device => (device === "dev-1" ? live : null),
 			});
 			const list = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "SeuPut" })).text;
 			expect(list).toContain("; open in a tab on device dev-1: idle");
@@ -931,13 +950,13 @@ describe("AgentControlRuntime", () => {
 				(await runtime.run(win, "main0001", T.read, { session: "there" })).text.split("\n")[0] ?? "";
 			expect(await header()).toContain('"there" (saved on device dev-1, open in a tab on device dev-1: idle)');
 			// Its turn started there since the list: the read says so, with the step its saved transcript shows.
-			live = [{ sessionPath: "/far/there.jsonl", state: "turn" }];
+			live = summariesOf([{ sessionPath: "/far/there.jsonl", status: "running" }]);
 			expect(await header()).toContain(
 				"(saved on device dev-1, open in a tab on device dev-1: running, running read (notes))",
 			);
 			// The device closed its tab.
 			rows = [row("/far", "there")];
-			live = [];
+			live = summariesOf([]);
 			expect(await header()).toContain('"there" (saved on device dev-1, not open)');
 		});
 	});

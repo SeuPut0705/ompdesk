@@ -423,7 +423,7 @@ describe("SidecarPool tabs", () => {
 		).toEqual(["agent_start", "running", "agent_end", "ready"]);
 	});
 
-	it("routes a hidden tab's plan proposals and subagent lifecycle to its own runtime, once", () => {
+	it("routes a hidden tab's plan proposals to its own runtime, once, and a shown tab's subagent frames on the full channel", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);
 		pool.acquire("/a", fw.win, "tab-a");
@@ -432,17 +432,12 @@ describe("SidecarPool tabs", () => {
 		fw.sent.length = 0;
 
 		// Hidden B: what its sidebar row reads still arrives, tagged with B's id;
-		// the rest of its event stream and its progress frames stay home.
+		// the rest of its event stream stays home.
 		const proposal = { type: "plan_proposal", planFilePath: "/plans/b.md" };
 		const started = { type: "subagent_lifecycle", payload: { id: "sa-1", status: "started" } };
 		b?.emitEvents([{ type: "message_update" }, proposal, { type: "agent_end" }]);
-		b?.emit("subagentFrame", started);
-		b?.emit("subagentFrame", { type: "subagent_progress", payload: { progress: { id: "sa-1" } } });
 		expect(fw.sentTo(IPC_EVENTS.EVENTS_BATCH).map(entry => entry.data)).toEqual([
 			{ tabId: "tab-b", payload: [proposal] },
-		]);
-		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [started] },
 		]);
 
 		// Shown, B's full channel carries them: no second copy from the light one.
@@ -2401,11 +2396,6 @@ describe("SidecarPool background tabs", () => {
 		b?.emitStatus("restarting");
 		b?.emitStatus("ready");
 		expect(b?.subagentLevels).toEqual(["progress", "progress"]);
-		const started = { type: "subagent_lifecycle", payload: { id: "sa-1", status: "started" } };
-		b?.emit("subagentFrame", started);
-		expect(fw.sentTo(IPC_EVENTS.SUBAGENT_FRAMES).map(entry => entry.data)).toEqual([
-			{ tabId: "tab-b", payload: [started] },
-		]);
 	});
 
 	// The same report: a background session's row kept its waiting mark after an agent (`ompdesk_session_answer`) or
@@ -2803,43 +2793,61 @@ describe("SidecarPool background tabs", () => {
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("awaitingConnection");
 		});
 
-		it("lists the sessions its windows work on for the paired devices: a turn, background work, an open ask", async () => {
+		it("gives the summary builder a facts source per window tab with a session file, and follows each tab's omp", async () => {
 			const { pool, sidecars } = fakePool();
+			const track = vi.fn();
+			pool.summaries = { track, changed: vi.fn() };
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
 			pool.acquire("/b", fw.win, "tab-b");
 			const a = sidecars[0];
 			a?.emitStatus("ready");
 			sidecars[1]?.emitStatus("ready");
-			// A tab with no file yet has nothing a device could list.
+			expect(track.mock.calls.map(call => call[0])).toEqual(sidecars);
+			const factsOf = (tabId: string) => {
+				const source = pool.summarySources().find(entry => entry.sidecar === sidecars[tabId === "tab-a" ? 0 : 1]);
+				return source?.facts();
+			};
+			// A tab with no file yet has nothing a row could show.
 			sidecars[1]?.emitAgentEvents(["agent_start"]);
-			expect(pool.liveSessions()).toEqual([]);
+			expect(factsOf("tab-b")).toBeNull();
 
+			expect(factsOf("tab-a")).toMatchObject({
+				sessionPath: "/sessions/a.jsonl",
+				tabId: "tab-a",
+				cwd: "/a",
+				kind: "agent",
+				status: "ready",
+			});
 			a?.emitAgentEvents(["agent_start"]);
-			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "turn" }]);
+			expect(factsOf("tab-a")).toMatchObject({ status: "running", since: expect.any(Number) });
+			expect(factsOf("tab-a")).not.toHaveProperty("settling");
 			a?.emitUiRequest({ id: "ask-1", method: "confirm", title: "Deploy?", message: "" });
-			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "waiting" }]);
+			expect(factsOf("tab-a")).toMatchObject({ status: "running", ask: "input" });
 			await pool.routeSideChannel("ask-1", { type: "extension_ui_response", id: "ask-1", confirmed: true });
+			expect(factsOf("tab-a")).not.toHaveProperty("ask");
 			a?.emitAgentEvents(["agent_end"]);
 			a?.emit("promptResult", { type: "prompt_result", sessionSettled: false });
-			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "background" }]);
+			expect(factsOf("tab-a")).toMatchObject({ status: "running", settling: true });
 			a?.emit("sessionSettled", { type: "session_settled" });
-			expect(pool.liveSessions()).toEqual([]);
+			expect(factsOf("tab-a")).toMatchObject({ status: "ready" });
+			expect(factsOf("tab-a")).not.toHaveProperty("settling");
 		});
 
-		it("lists a tab its relaunch restored asleep once the resume's continued turn runs, and announces it", () => {
+		it("lists a tab its relaunch restored asleep in the summaries, running once the resume's continued turn runs, and announces it", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
 			const announced = vi.fn();
 			pool.onRunningChange = announced;
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl", "agent", undefined, false, false, true);
-			expect(pool.liveSessions()).toEqual([]);
+			const facts = () => pool.summarySources()[0]?.facts();
+			expect(facts()).toMatchObject({ status: "asleep" });
 
-			// TurnResume starts the deferred tab and continues its turn (index.ts pushes the list on each announce).
+			// TurnResume starts the deferred tab and continues its turn (index.ts announces each change).
 			pool.startTab("tab-a");
 			sidecars[0]?.emitStatus("ready");
 			sidecars[0]?.emitAgentEvents(["agent_start"]);
-			expect(pool.liveSessions()).toEqual([{ sessionPath: "/sessions/a.jsonl", state: "turn" }]);
+			expect(facts()).toMatchObject({ status: "running" });
 			expect(announced).toHaveBeenCalled();
 		});
 

@@ -3,12 +3,12 @@
  * read again, from the host, everything the missed pushes would have changed — what a page load would have read at
  * start — without touching the composer, the scroll position or an open sheet.
  *
- * - the tab list, as the whole truth (`reconcileTabs({resync})`: a restarted host gave its tabs new ids), and the
- *   subagent roster of each hidden tab that runs or still counts a live subagent, which its sidebar row shows;
+ * - the tab list, as the whole truth (`reconcileTabs({resync})`: a restarted host gave its tabs new ids);
  * - every visible tab's session: state, transcript tail, queue, subagents, goal and settings (`hydrateTabSession`
  *   merges into what is shown and runs while a reply streams); a background tab reads the rest when shown;
  * - the status texts, widgets and title the tabs show, and the asks and approvals main still holds (`settleTabExtensionUiRequests`: missed ones appear, answered ones go);
- * - the paired-host snapshot, the sessions paired devices' tabs run on the computer and the shown session lists;
+ * - the paired-host snapshot, every computer's session summaries (what each row shows of a session's run and its
+ *   subagents, whole: `loadHostedSessions`) and the shown session lists;
  * - each visible tab's opened sessions (`agent_control_review`): main's pushes of that list were lost with the socket,
  *   and a phone holds no tab of those sessions, so the list is all its board and strip have of them.
  *

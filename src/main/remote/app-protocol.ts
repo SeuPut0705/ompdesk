@@ -96,15 +96,17 @@
  *   replays `query` only to the callback of the open_url its tab's running sign-in raised, and only on that path with
  *   that flow's `state`, once; refused `sign_in_unavailable` otherwise. Free. An older host answers `unsupported`.
  *
- * - The sessions the host works on now (any of its windows' tabs, the tabs it runs for any device):
- *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
+ * - What every session row shows of the host's sessions, as the host built it (`shared/session-summary.ts`):
+ *   `sessions.summaries {}` → VersionedSummaries; each change comes as the `host.summaries` event (a SummaryDelta on
+ *   the version the device holds; a device on another version reads again). An older host answers `unsupported`, and
+ *   its section shows no live state; an older device asks `sessions.live`, which this host no longer serves.
  * - The tabs the host's windows hold on a paired device that a session of the host opened: `sessions.remoteOpened {}`
  *   → RemoteOpenedReply; every change comes as the `host.remoteOpened` event. An older host answers `unsupported`.
  * - Sessions the host deleted: `sessions.deleted {paths}` → SessionsDeletedReply (which of the paths a device's tabs
  *   hold are deleted); each delete is pushed as the `host.sessionsDeleted` event. An older host answers `unsupported`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.liveSessions`,
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.summaries`,
  * `host.sessionsDeleted` and `host.remoteOpened`.
  * Both sides parse what crosses the link with the schemas below.
  */
@@ -245,17 +247,31 @@ export const SignInCallbackReply = z.object({
 	body: z.string().max(SIGN_IN_PAGE_MAX_CHARS),
 });
 /**
- * The sessions this computer works on now changed (data: {@link LiveSessionsReply}): its windows' tabs and the tabs it
- * runs for any device, sent to every connected device so a row no tab of theirs holds still shows the work. An older
- * device drops the name. `sessions.live {}` answers the same list (a device reads it as its link comes up).
+ * This computer's session summaries changed (data: a `SummaryDelta`), sent to every connected device; `sessions.summaries
+ * {}` answers the whole set (a device reads it as its link comes up and whenever a change does not apply on its copy).
  */
-export const LIVE_SESSIONS_EVENT = "host.liveSessions";
-export const LIVE_SESSIONS_METHOD = "sessions.live";
-export const HostLiveSessionSchema = z.object({
-	sessionPath: z.string().min(1),
-	state: z.enum(["turn", "background", "waiting"]),
+export const SUMMARIES_EVENT = "host.summaries";
+export const SUMMARIES_METHOD = "sessions.summaries";
+const SummaryAgentSchema = z
+	.object({ id: z.string().min(1), index: z.number(), agent: z.string(), status: z.string(), startedAt: z.number() })
+	.passthrough();
+const SessionSummarySchema = z
+	.object({
+		sessionPath: z.string().min(1),
+		tabId: z.string().min(1),
+		cwd: z.string(),
+		kind: z.enum(["agent", "chat"]),
+		status: z.enum(["asleep", "starting", "ready", "running", "exited", "error", "restarting", "waiting"]),
+		agents: z.array(SummaryAgentSchema),
+	})
+	.passthrough();
+export const VersionedSummariesSchema = z.object({ version: z.string(), sessions: z.array(SessionSummarySchema) });
+export const SummaryDeltaSchema = z.object({
+	base: z.string(),
+	version: z.string(),
+	set: z.array(SessionSummarySchema),
+	remove: z.array(z.string()),
 });
-export const LiveSessionsReply = z.object({ sessions: z.array(z.unknown()) });
 /**
  * The tabs this computer's windows hold on a paired device that a session of this computer opened changed (data:
  * {@link RemoteOpenedReply}), sent to every connected device, so its section of this computer nests each under its

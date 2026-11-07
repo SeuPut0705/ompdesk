@@ -46,8 +46,9 @@ import {
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { SIDEBAR_WIDTH } from "../../../../shared/boot-shell-geometry";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
-import type { HostView, IpcHostedSession, SessionInfo } from "../../../../shared/ipc-types";
+import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
+import type { SessionSummary } from "../../../../shared/session-summary";
 import {
 	CHATS_ORDER_KEY,
 	familyRows,
@@ -58,7 +59,6 @@ import {
 	type SidebarFacts,
 } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
-import { useSessionAttention } from "../../../hooks/use-session-attention";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { requestSessionSwitch } from "../../../hooks/use-session-switch";
 import { useShellInput } from "../../../hooks/use-shell-mode";
@@ -89,14 +89,20 @@ import { clampSidebarWidth, readSidebarWidth, writeSidebarWidth } from "../../..
 import { snapshotNs, snapshots } from "../../../lib/snapshot-cache";
 import { performTabClose } from "../../../lib/tab-close";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { isSessionDown, isTabFailed, tabSignalPresentation } from "../../../lib/tab-signal";
+import { isTabFailed } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotPath, useBotStore } from "../../../stores/bot";
 import { ensureBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
-import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
+import {
+	ensureHostSummaries,
+	LOCAL_SUMMARIES,
+	summariesOf,
+	useHostedSessionsStore,
+	useSummaryMap,
+} from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
 import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
@@ -135,10 +141,11 @@ import { TimeAgo } from "../../common/TimeAgo";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
+import { workingAgentCount } from "../live-work";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
-import { hostRowState, remoteOpenedTab } from "./host-row-state";
+import { type RowFacts, remoteOpenedTab, summaryRowState } from "./host-row-state";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { deleteProject, isStoredRow } from "./project-delete";
 import { projectMenuItems } from "./project-menu";
@@ -151,13 +158,7 @@ import { SidebarFoldButton } from "./SidebarFoldButton";
 import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
-import {
-	type FamilyOpened,
-	SidebarLooseChildren,
-	SidebarSubagents,
-	SidebarSubagentsToggle,
-	sidebarSubagentCount,
-} from "./SidebarSubagents";
+import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
 import { SidebarUpdateCard } from "./SidebarUpdateCard";
 import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
@@ -536,23 +537,30 @@ export function Sidebar() {
 	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
 	const localTabs = useMemo(() => tabs.filter(tab => tab.device === undefined), [tabs]);
 	const activeTabRemote = activeTab?.device !== undefined;
-	// Sessions paired devices' tabs run on this computer: rows of this device's list with that tab's live state.
-	const hostedSessions = useHostedSessionsStore(s => s.sessions);
+	// What every row shows of the sessions this computer runs (its windows' tabs, and those it runs for paired devices),
+	// built once by main: a row's run state, prompt and subagents, whether or not a tab of this window holds it.
+	const summaryByPath = useSummaryMap(undefined);
+	const summaryList = useHostedSessionsStore(s => summariesOf(s, undefined));
+	// Sessions paired devices' tabs run on this computer: rows of this device's list, also before the index lists them.
+	const hostedSessions = useMemo(() => summaryList.filter(summary => summary.openFor !== undefined), [summaryList]);
 	const hostedByKey = useMemo(() => {
-		const index = new Map<string, IpcHostedSession>();
+		const index = new Map<string, SessionSummary>();
 		for (const hosted of hostedSessions) {
 			index.set(hosted.sessionPath, hosted);
 			if (hosted.sessionId) index.set(hosted.sessionId, hosted);
 		}
 		return index;
 	}, [hostedSessions]);
-	// What this computer works on now: a row no tab of this window holds (another window's) by its file.
-	const workingNow = useHostedSessionsStore(s => s.live);
-	const liveByPath = useMemo(
-		() => new Map(workingNow.map(session => [session.sessionPath, session.state])),
-		[workingNow],
-	);
 	const hosts = usePairedHosts();
+	// Every computer's summaries this window holds: a session a host runs reads its row from that host's.
+	const allSummaries = useHostedSessionsStore(s => s.summaries);
+	const onlineHosts = hosts
+		.filter(host => host.state === "online")
+		.map(host => host.deviceId)
+		.join("\n");
+	useEffect(() => {
+		for (const device of onlineHosts ? onlineHosts.split("\n") : []) ensureHostSummaries(device);
+	}, [onlineHosts]);
 	// This computer's own name: a session a host's agent opened here is named by it in that host's section.
 	const selfName = useRemoteStore(s => s.state?.host.name);
 	// A tab another window of this computer holds on a paired device that a session here opened (this page's computer's,
@@ -614,12 +622,7 @@ export function Sidebar() {
 	const sessionName = useSessionStore(s => s.sessionName);
 	const sessionFile = useSessionStore(s => s.sessionFile);
 	const cwd = useSessionStore(s => s.cwd);
-	const isStreaming = useSessionStore(s => s.isStreaming);
-	const isCompacting = useSessionStore(s => s.isCompacting);
 	const destination = useUiStore(s => s.destination);
-	// What the attached session needs from the person (`sessionAttention`: its question or approval, a child waiting
-	// on an answer, a failed check) outranks "running": it needs the user, not just time.
-	const attention = useSessionAttention();
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -788,9 +791,9 @@ export function Sidebar() {
 					openedBySession: recordedOpeners.get(session.path) ?? null,
 				})),
 			tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
-			// A paired device's tab here runs an omp for it: held and in use, whatever its state. Another window's tab at
-			// work is too: this window sees no tab of it, so what this computer works on now says it.
-			usedThere: new Set([...hostedByKey.keys(), ...liveByPath.keys(), ...heldByOtherWindows]),
+			// A session this computer runs (a paired device's tab here, another window's tab) is in use, whatever its
+			// state: its summary says so though this window holds no tab of it.
+			usedThere: new Set([...hostedByKey.keys(), ...summaryByPath.keys(), ...heldByOtherWindows]),
 			closed: new Set(closedChildren.map(row => row.path)),
 			projects: projectList.projects,
 			removed: projectList.removed,
@@ -846,7 +849,7 @@ export function Sidebar() {
 			recordedOpeners,
 			rowTabs,
 			hostedByKey,
-			liveByPath,
+			summaryByPath,
 			closedChildren,
 			projectList,
 			projectName,
@@ -1074,29 +1077,25 @@ export function Sidebar() {
 		localTabs.find(tab => tab.sessionPath === session.path) ??
 		localTabs.find(tab => tab.sessionId === session.id) ??
 		(isCurrentSession(session) ? activeTab : undefined);
-	/** The paired device's tab on this computer that runs the session (its live state when no tab here shows it). */
-	const hostedFor = (session: SidebarSession) => hostedByKey.get(session.path) ?? hostedByKey.get(session.id);
-	const sessionTabSignal = (session: SidebarSession) => {
+	/**
+	 * The facts a session's row reads: the summary of this computer, which runs it (a tab of any window, or one it runs
+	 * for a paired device). A tab of this window with no session file yet has no summary: its own facts stand in.
+	 */
+	const rowFactsOf = (session: SidebarSession): RowFacts | undefined => {
+		const summary = summaryByPath.get(session.path) ?? hostedByKey.get(session.id);
+		if (summary) return summary;
 		const tab = tabForSession(session);
-		if (tab) return tabSignalPresentation(tab, isCurrentSession(session) && (isStreaming || isCompacting));
-		const hosted = hostedFor(session);
-		return hosted
-			? tabSignalPresentation({
-					status: hosted.status,
-					awaitingInput: hosted.awaitingInput ? "input" : undefined,
-					awaitingConnection: hosted.awaitingConnection,
-					sessionHeld: hosted.sessionHeld,
-					unreadDone: false,
-				})
-			: null;
+		if (!tab || tab.sessionPath) return undefined;
+		return {
+			status: tab.status,
+			...(tab.awaitingInput ? { ask: tab.awaitingInput } : {}),
+			...(tab.settling ? { settling: true as const } : {}),
+		};
 	};
-	const isSessionBusy = (session: SidebarSession) => {
-		if (isCurrentSession(session) && isAsk(attention?.kind)) return true;
-		const signal = sessionTabSignal(session);
-		if (signal) return signal.active;
-		if (isCurrentSession(session) && (isStreaming || isCompacting)) return true;
-		return session.status === "pending" || liveByPath.has(session.path);
-	};
+	const sessionRun = (session: SidebarSession) =>
+		summaryRowState(rowFactsOf(session), tabForSession(session)?.unreadDone === true);
+	const isSessionBusy = (session: SidebarSession) =>
+		sessionRun(session).signal?.active ?? session.status === "pending";
 
 	const openSession = (session: SidebarSession) => {
 		useUiStore.getState().closeDestination();
@@ -1438,37 +1437,26 @@ export function Sidebar() {
 		const inVisibleSplit = !isCurrent && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (isCurrent || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
-		const tabSignal = sessionTabSignal(session);
-		// Background tabs park their dialogs in their own runtime; the tab entry carries the flag. A paired device's
-		// tab here that no tab of this window shows says it through its hosted state.
-		const hosted = tab === undefined ? hostedFor(session) : undefined;
-		// Another window's tab (or, on a phone's page, the computer's): main's list of what this computer works on.
-		const live = tab === undefined && hosted === undefined ? liveByPath.get(session.path) : undefined;
-		// A session that is not up says that, never what it needs from the person (the title bar's order).
-		const down = tab ? isSessionDown(tab) : hosted ? isSessionDown(hosted) : false;
-		// What the session needs from the person: the attached one's from `sessionAttention`, another tab's own prompt
-		// from its tab entry, then a child of its waiting, a paired device's from its hosted state (which only knows a
-		// question waits), another window's from the live list.
-		const waiting: AttentionKind | undefined = down
-			? undefined
-			: ((isCurrent ? attention?.kind : undefined) ??
-				(tab?.awaitingInput ? (tab.awaitingInput === "approval" ? "approval" : "question") : undefined) ??
-				(tab && childrenWaitingOf.has(tab.id) ? "childWaiting" : undefined) ??
-				(hosted?.awaitingInput || live === "waiting" ? "question" : undefined));
-		// Only its own prompt stops the session's run; a waiting child or a failed check leaves a running turn running.
-		const running =
-			!isAsk(waiting) && (tabSignal?.running === true || (tabSignal === null && isSessionBusy(session)));
-		// Of `running`: its turn ended and only stock's background work keeps it on (the light's `background`).
-		const settling = running && (tab?.settling === true || hosted?.settling === true || live === "background");
+		// What this computer runs of it (its summary: any window's tab, or one it runs for a paired device), the same on
+		// every window and phone page whatever tab events each happened to receive.
+		const summary = summaryByPath.get(session.path) ?? hostedByKey.get(session.id);
+		const run = sessionRun(session);
+		// Its own prompt first; a child of its waiting next (the family's own rows say which).
+		const waiting: AttentionKind | undefined =
+			run.ask ?? (!run.down && tab && childrenWaitingOf.has(tab.id) ? "childWaiting" : undefined);
+		const { settling, done: unseen } = run;
+		// A session no tab of this computer runs, whose journal reads as mid-turn (another omp, an archived row): the
+		// index's `pending` says it works, as `isSessionBusy` does.
+		const running = run.running || (!run.signal && session.status === "pending");
 		const failed =
 			!waiting &&
 			!running &&
-			(tabSignal ? tabSignal.labelKey === "titlebar.status.error" : session.status === "error");
-		const done = !waiting && !running && !failed && tabSignal?.labelKey === "tabs.done";
+			(run.signal ? run.signal.labelKey === "titlebar.status.error" : session.status === "error");
+		const done = !waiting && !failed && unseen;
 		const openElsewhere = tab !== undefined && !isCurrent && !inVisibleSplit;
 		// Busy (no delete, the project busy) only while it runs or its own prompt waits: an idle parent whose child waits
 		// is not.
-		const busy = isAsk(waiting) || running || tabSignal?.active === true;
+		const busy = isAsk(waiting) || running || run.signal?.active === true;
 		const waitingLabel = waiting ? t(ATTENTION_LABEL_KEY[waiting]) : null;
 		const statusLabel =
 			waitingLabel ??
@@ -1484,8 +1472,7 @@ export function Sidebar() {
 		return {
 			isCurrent,
 			tab,
-			hosted,
-			live,
+			summary,
 			active,
 			indexed,
 			waiting,
@@ -1546,8 +1533,8 @@ export function Sidebar() {
 			t(row.indexed ? "sidebar.untitled" : "sidebar.newSession");
 		const deletable = row.indexed && !row.busy;
 		const lastRun = row.tab?.lastRun;
-		// No tab here and none a paired device runs: another window holds it, and main's review list says how it is.
-		const elsewhere = row.tab === undefined && row.hosted === undefined ? reviewOfPath.get(child.path) : undefined;
+		// No tab here and nothing this computer runs of it: another computer's window holds it, and main's review list says how it is.
+		const elsewhere = row.tab === undefined && row.summary === undefined ? reviewOfPath.get(child.path) : undefined;
 		const review = openTabId ? reviewOf.get(openTabId) : elsewhere;
 		const failed =
 			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
@@ -1559,7 +1546,7 @@ export function Sidebar() {
 				? elsewhere.state !== "running"
 				: lastRun !== undefined ||
 					closedTitleOf.has(child.path) ||
-					(row.tab === undefined && row.hosted === undefined) ||
+					(row.tab === undefined && row.summary === undefined) ||
 					(!row.busy && child.messageCount >= 2),
 			failed,
 			unmerged: reviewUnmerged(review),
@@ -1662,12 +1649,13 @@ export function Sidebar() {
 			tab.lastRun?.stopReason === "aborted";
 		const host = hosts.find(entry => entry.deviceId === tab.device);
 		const here = hosts.some(entry => entry.remoteOpened?.some(opened => opened.here && opened.tabId === tab.id));
-		// The host's row rule: what the tab heard, or what the computer it runs on says it runs now.
-		const run = hostRowState(
-			tab,
-			here
-				? liveByPath.get(tab.sessionPath ?? "")
-				: host?.live?.find(session => session.sessionPath === tab.sessionPath)?.state,
+		// The row rule over the summary of the computer it runs on (this one, for a session a host opened here).
+		const run = summaryRowState(
+			tab.sessionPath
+				? allSummaries[here ? LOCAL_SUMMARIES : (tab.device ?? "")]?.sessions.find(
+						summary => summary.sessionPath === tab.sessionPath,
+					)
+				: undefined,
 		);
 		const waiting = run.waiting || review?.waiting === true;
 		const status = openedChildStatus({
@@ -1768,8 +1756,7 @@ export function Sidebar() {
 			active,
 			indexed,
 			waiting,
-			hosted,
-			live,
+			summary,
 			running,
 			settling,
 			failed,
@@ -1793,12 +1780,16 @@ export function Sidebar() {
 						),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
-		// The tab's own report outranks the row's (null: none); a stand-in for a device's tab here only has what that says.
+		// The name the running omp reports (its summary) outranks the index's, which follows the journal later.
 		const shownParts = sessionDisplayParts(
 			{
 				...session,
-				autoTitle:
-					tab?.autoTitle === undefined ? (session.autoTitle ?? hosted?.autoTitle) : (tab.autoTitle ?? undefined),
+				...(summary?.title ? { title: summary.title } : {}),
+				autoTitle: summary
+					? summary.autoTitle
+					: tab?.autoTitle === undefined
+						? session.autoTitle
+						: (tab.autoTitle ?? undefined),
 			},
 			"",
 		);
@@ -1846,17 +1837,9 @@ export function Sidebar() {
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
 		// The bot's state in the words of its row's tooltip and screen-reader text (the home says them too), and as the
 		// motion of its avatar.
+		const rowFacts = rowFactsOf(session);
 		const botCondition = bot
-			? botState(
-					tab
-						? tabBotFacts(tab)
-						: {
-								open: hosted !== undefined || live !== undefined,
-								asleep: false,
-								waiting: isAsk(waiting),
-								running,
-							},
-				)
+			? botState(tabBotFacts(rowFacts ? { status: rowFacts.status, awaitingInput: rowFacts.ask } : undefined))
 			: null;
 		const marker: ReactNode = done ? (
 			<SidebarDoneMark fresh={doneBefore.current.get(session.path) === false} />
@@ -1891,6 +1874,7 @@ export function Sidebar() {
 		// The age slot: the waiting token, else the working arc while the session or anything it started works, else
 		// the time since it last did something.
 		const runningOpened = opened.filter(child => child.status === "running").length;
+		const workingAgents = workingAgentCount(summary?.agents ?? []);
 		const age = waiting ? (
 			<Badge className="omp-sidebar-approval" variant="warning">
 				{/* The glyph stays when the word has no room left beside the title (it truncates, then hides). */}
@@ -1903,11 +1887,11 @@ export function Sidebar() {
 			<BotDecisionsBadge count={botDecisions} />
 		) : (
 			<SessionLiveAge
+				agents={workingAgents}
 				iso={indexed ? session.modified : null}
 				opened={runningOpened}
 				running={signal === "running"}
 				settling={settling}
-				tabId={openTabId ?? null}
 				waiting={false}
 			/>
 		);
@@ -1948,7 +1932,7 @@ export function Sidebar() {
 								setPendingDelete({ kind: "session", session });
 							} else if (
 								(event.key === "ArrowRight" || event.key === "ArrowLeft") &&
-								sidebarSubagentCount(openTabId ?? "") + opened.length > 0
+								(summary?.agents.length ?? 0) + opened.length > 0
 							) {
 								const open = event.key === "ArrowRight";
 								const subagents = useSidebarSubagentsStore.getState();
@@ -1969,8 +1953,7 @@ export function Sidebar() {
 					}
 					onClick={() => {
 						// Clicking the session already in view folds/unfolds its family rows.
-						if (active && openTabId && sidebarSubagentCount(openTabId) + opened.length > 0)
-							toggleSidebarSubagents(session.path);
+						if (active && (summary?.agents.length ?? 0) + opened.length > 0) toggleSidebarSubagents(session.path);
 						if (bot) {
 							// The count says a decision waits: its card above the composer opens and flashes.
 							if (botDecisions > 0) useUiStore.getState().focusDockCard("decisions");
@@ -2002,12 +1985,12 @@ export function Sidebar() {
 					title={
 						<>
 							<SessionLiveTitle
+								agents={workingAgents}
 								opened={runningOpened}
 								parts={titleParts}
 								running={signal === "running"}
 								settling={settling}
 								swapScope={session.path}
-								tabId={openTabId ?? null}
 								waiting={signal === "waiting"}
 							/>
 							{fork?.parentTitle && <ForkParent name={fork.parentTitle} />}
@@ -2030,13 +2013,23 @@ export function Sidebar() {
 						.filter(Boolean)
 						.join("\n")}
 					trailing={
-						openTabId || opened.length > 0 ? (
-							<SidebarSubagentsToggle opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
+						openTabId || opened.length > 0 || (summary?.agents.length ?? 0) > 0 ? (
+							<SidebarSubagentsToggle
+								agents={summary?.agents}
+								opened={opened}
+								sessionKey={session.path}
+								tabId={openTabId ?? null}
+							/>
 						) : undefined
 					}
 				/>
-				{(openTabId || opened.length > 0) && (
-					<SidebarSubagents opened={opened} sessionKey={session.path} tabId={openTabId ?? null} />
+				{(openTabId || opened.length > 0 || (summary?.agents.length ?? 0) > 0) && (
+					<SidebarSubagents
+						agents={summary?.agents}
+						opened={opened}
+						sessionKey={session.path}
+						tabId={openTabId ?? null}
+					/>
 				)}
 			</Fragment>
 		);

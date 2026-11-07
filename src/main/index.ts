@@ -193,6 +193,7 @@ import { whenSessionFree } from "./session-free";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { setSessionDeleteLog } from "./session-mutations";
+import { SessionSummaries, type SummarySource } from "./session-summaries";
 import { SettleWatch } from "./settle-watch";
 import { registerSetupIpc } from "./setup/ipc";
 import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } from "./setup/paths";
@@ -1189,6 +1190,13 @@ app.whenReady().then(() => {
 			? { releaseQuietMs: Number(process.env.OMP_GUI_TEST_IDLE_RELEASE_MS) }
 			: {}),
 	});
+	// The one builder of what every row shows of this computer's sessions, its windows' tabs and the ones it runs for
+	// paired devices alike: this computer's windows and phone pages, every paired computer and `ompdesk_sessions` read it.
+	const sessionSummaries: SessionSummaries = new SessionSummaries((): SummarySource[] => [
+		...sidecarPool.summarySources(),
+		...hostServices.summarySources(),
+	]);
+	sidecarPool.summaries = sessionSummaries;
 	const hostServices = new LocalHostServices({
 		createSidecar: createLocalSidecar,
 		// A paired computer's attached files land in the phones' upload folder (24 h); `webHost` is made later.
@@ -1208,7 +1216,7 @@ app.whenReady().then(() => {
 		launchProfiles: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		machine,
 		localTabs: sidecarPool,
-		windowLiveSessions: () => sidecarPool.liveSessions(),
+		summaries: sessionSummaries,
 		windowRemoteOpened: () => sidecarPool.remoteOpenedTabs(),
 		sessionOpeners: () => {
 			// A record of a child main closed, for one on this computer; a tab that holds the session again wins.
@@ -1226,7 +1234,7 @@ app.whenReady().then(() => {
 		runChargesFile: join(app.getPath("userData"), "autopilot-device-runs.json"),
 	});
 	// Orphaned worktrees (worktree-orphans.ts): a folder is open when a tab of this computer or a tab it hosts for a
-	// paired device runs in it (`hostServices.workspaceDirs()` is the cwd of every hosted tab, a superset of `hostedSessions()`).
+	// paired device runs in it (`hostServices.workspaceDirs()` is the cwd of every hosted tab, a superset of its `summarySources()`).
 	setOpenFoldersSource(() => [...sidecarPool.workspaceDirs(), ...hostServices.workspaceDirs()]);
 	let hostOmpVersion: string | null = null;
 	void systemOmp().then(resolution => {
@@ -1280,6 +1288,7 @@ app.whenReady().then(() => {
 			// in a host's list reaches it as it reaches a window, or a rename or delete made anywhere stayed until a reload.
 			if (
 				channel === IPC_EVENTS.SESSIONS_CHANGED ||
+				channel === IPC_EVENTS.SESSION_SUMMARIES_CHANGED ||
 				channel === IPC_EVENTS.MODELS_CONFIG_CHANGED ||
 				channel === SIDEBAR_PROJECTS_STATE
 			)
@@ -1350,7 +1359,7 @@ app.whenReady().then(() => {
 		// A window's tab took or let go of a session, or learned who opened it: paired devices may list it otherwise, and
 		// a tab on a paired device that a session here opened is every other view's family row.
 		hostServices.listingChanged();
-		hostServices.liveSessionsChanged();
+		hostServices.workChanged();
 		if (win instanceof WebClientWindow) {
 			if (!quitApproved()) webTabLayouts.save(win.deviceId, layout);
 			return;
@@ -1361,7 +1370,7 @@ app.whenReady().then(() => {
 	// the devices' "held on this host" follows each one, so no device's read in the gap can hide a later close.
 	sidecarPool.onSessionFilesChanged = () => {
 		hostServices.listingChanged();
-		hostServices.liveSessionsChanged();
+		hostServices.workChanged();
 	};
 	// A closed window's tabs have to leave the saved session with it, or the next
 	// launch resurrects a window the user deliberately shut.
@@ -2177,12 +2186,10 @@ app.whenReady().then(() => {
 	sidecarPool.onRunningChange = () => {
 		syncWorkAwake();
 		turnResume.sync();
-		hostServices.liveSessionsChanged();
+		hostServices.workChanged();
 	};
-	// An ask opening or answered in a window changes what the paired devices show of its session's row.
-	sidecarPool.observeTabs(activity => {
-		if (activity.type !== "step") hostServices.liveSessionsChanged();
-	});
+	// An ask opening or answered, a title, a step: what the rows show of the session may have changed.
+	sidecarPool.observeTabs(() => hostServices.workChanged());
 	sidecarPool.settleWatch = new SettleWatch({
 		facts: tabId => sidecarPool.settleFacts(tabId),
 		log: details => writeRuntimeLog({ source: "settle-watch", message: "still settling", details }),
@@ -2238,6 +2245,7 @@ app.whenReady().then(() => {
 		windowManager,
 		remoteDevices: devices,
 		hostedTabs: hostServices,
+		summaries: sessionSummaries,
 		webTabNotice,
 		botAnswers,
 		sessionWake,

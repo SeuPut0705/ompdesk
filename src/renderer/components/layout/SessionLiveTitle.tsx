@@ -4,11 +4,9 @@
  * while the turn is idle and work it started still runs; `waiting`, a still warning colour, while it waits on the
  * person; plain text while nothing works.
  *
- * Background work is what already reaches every window, for a hidden tab and a paired host's tab alike, with no poll:
- * main's `settling` (stock's own word that its subagents, async shells or a queued wake keep the session unsettled
- * after the turn ended), the tab runtime's subagent roster (main keeps a hidden tab's current), and the sessions its
- * agent opened that run now. Each title subscribes to its own tab's roster, so a subagent's progress re-renders that
- * title only, and no runtime provider wraps the card (its other parts keep the focused tab's stores).
+ * A sidebar row reads its background work from the session's summary (`shared/session-summary.ts`: main's `settling`
+ * and its working subagents, as the computer running it built them) and the sessions its agent opened that run now; a
+ * split pane's header shows its own tab, whose full stream it has, so it reads that tab's roster.
  */
 import { memo, type ReactElement } from "react";
 import { useStore } from "zustand";
@@ -23,8 +21,6 @@ import { WorkingArc } from "../common/WorkingArc";
 import { liveWorkState, workingAgentCount } from "./live-work";
 
 interface SessionLiveProps {
-	/** The tab holding the session; null for a session no tab of this window holds (its own state only). */
-	tabId: string | null;
 	/** Main reports it running (a turn, or background work keeping it unsettled). */
 	running: boolean;
 	/** Of `running`: the turn ended and only background work keeps it on (main's `settling`). */
@@ -33,16 +29,11 @@ interface SessionLiveProps {
 	waiting: boolean;
 	/** How many of the sessions its agent opened run now (not waiting). */
 	opened: number;
+	/** How many of its subagents work now (`workingAgentCount` of its summary's agents). */
+	agents: number;
 }
 
-/** A roster with nobody in it, for a session no tab of this window holds. */
-const NO_ROSTER = createStore<Pick<SubagentsStore, "subagents">>(() => ({ subagents: new Map() }));
-
-export function useSessionLive({ tabId, running, settling, waiting, opened }: SessionLiveProps): LiveState | null {
-	const roster = useTabSessionRuntime(tabId)?.stores.get("subagents") as
-		| StoreApi<Pick<SubagentsStore, "subagents">>
-		| undefined;
-	const agents = useStore(roster ?? NO_ROSTER, s => workingAgentCount(s.subagents.values()));
+function sessionLive({ running, settling, waiting, opened, agents }: SessionLiveProps): LiveState | null {
 	return liveWorkState({
 		streaming: running && !settling,
 		waiting: waiting ? 1 : 0,
@@ -50,10 +41,19 @@ export function useSessionLive({ tabId, running, settling, waiting, opened }: Se
 	});
 }
 
-/** For a card that knows only its tab (a pane header): the sessions it opened come from the tabs. */
-export function useTabLive(props: Omit<SessionLiveProps, "opened">): LiveState | null {
+/** A roster with nobody in it, for a pane whose tab has no runtime yet. */
+const NO_ROSTER = createStore<Pick<SubagentsStore, "subagents">>(() => ({ subagents: new Map() }));
+
+/** For a card that knows only its tab (a pane header): its roster and the sessions it opened come from the tab. */
+export function useTabLive(
+	props: Omit<SessionLiveProps, "opened" | "agents"> & { tabId: string | null },
+): LiveState | null {
 	const opened = useOpenedChildren(props.tabId).counts.running;
-	return useSessionLive({ ...props, opened });
+	const roster = useTabSessionRuntime(props.tabId)?.stores.get("subagents") as
+		| StoreApi<Pick<SubagentsStore, "subagents">>
+		| undefined;
+	const agents = useStore(roster ?? NO_ROSTER, s => workingAgentCount(s.subagents.values()));
+	return sessionLive({ ...props, opened, agents });
 }
 
 export const SessionLiveTitle = memo(function SessionLiveTitle({
@@ -61,7 +61,7 @@ export const SessionLiveTitle = memo(function SessionLiveTitle({
 	swapScope,
 	...props
 }: SessionLiveProps & { parts: TitleParts; swapScope?: string }): ReactElement {
-	return <SessionTitle live={useSessionLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
+	return <SessionTitle live={sessionLive(props)} noTooltip parts={parts} swapScope={swapScope} />;
 });
 
 /**
@@ -85,5 +85,5 @@ export const SessionLiveAge = memo(function SessionLiveAge({
 	iso,
 	...props
 }: SessionLiveProps & { iso: string | null }): ReactElement | null {
-	return <LiveAge iso={iso} state={useSessionLive(props)} />;
+	return <LiveAge iso={iso} state={sessionLive(props)} />;
 });

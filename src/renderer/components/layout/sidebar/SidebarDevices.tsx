@@ -54,6 +54,7 @@ import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureBotDesk, releaseBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
+import { summariesOf, useHostedSessionsStore, useSummaryMap } from "../../../stores/hosted-sessions";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import type { SessionStore } from "../../../stores/session";
 import { sessionListFeed } from "../../../stores/session-list";
@@ -73,9 +74,10 @@ import { Collapse } from "../../common/Collapse";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
 import { TimeAgo } from "../../common/TimeAgo";
+import { workingAgentCount } from "../live-work";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";
-import { hostRowState, hostSectionSummary, remoteOpenedTab } from "./host-row-state";
+import { hostSectionSummary, remoteOpenedTab, summaryRowState } from "./host-row-state";
 import { useHostWorkspace } from "./host-workspace";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { deleteProject, isStoredRow } from "./project-delete";
@@ -91,8 +93,6 @@ import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
-
-const NO_TABS: readonly SessionTab[] = [];
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
 type DeviceSession = RowSession;
@@ -297,8 +297,8 @@ export function SidebarDeviceSection({
 }) {
 	const t = useT();
 	const collapsed = useSidebarFolds(s => s.devices[host.deviceId] === true);
-	// Only a folded section reads them (its summary); an open one's rows read their own.
-	const tabs = useTabsStore(s => (collapsed ? s.tabs : NO_TABS));
+	// A folded section counts what the host's summaries say its sessions do (an open one's rows read their own).
+	const hostSummaryList = useHostedSessionsStore(s => summariesOf(s, host.deviceId));
 	const online = host.state === "online";
 	const webPage = webPwa() !== null;
 	const stateLabel = t(`remote.state.${host.state}`);
@@ -350,7 +350,7 @@ export function SidebarDeviceSection({
 				}
 				folded={collapsed}
 				name={host.name}
-				summary={() => hostSectionSummary(host, tabs, nested)}
+				summary={() => hostSectionSummary(hostSummaryList, nested)}
 				onAction={() =>
 					void pickRemoteDirectory(host.deviceId).then(path => {
 						if (path) void openRemote({ cwd: path, kind: "agent" });
@@ -411,6 +411,9 @@ function DeviceSessions({
 	read: boolean;
 }) {
 	const t = useT();
+	// What every row shows of the host's sessions, as the host built it (its windows' tabs, the tabs it runs for any
+	// device): a row reads its run, prompt and subagents from it whether or not a tab here holds the session.
+	const hostSummaries = useSummaryMap(host.deviceId);
 	const { sessions, isLoading, error, refresh, deleteSession, renameSession } = useSessionList(
 		"global",
 		host.deviceId,
@@ -509,7 +512,7 @@ function DeviceSessions({
 			{
 				sessions: listed,
 				tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
-				usedThere: new Set(host.live?.map(session => session.sessionPath)),
+				usedThere: new Set(hostSummaries.keys()),
 				// The host names an opener beside a row its windows' tabs hold (then `heldOnHost`) or that its records say
 				// it closed: a row no tab holds that names one is a closed child.
 				closed: new Set(
@@ -567,7 +570,7 @@ function DeviceSessions({
 		deviceTabs,
 		hostTabs,
 		remoteTabs,
-		host.live,
+		hostSummaries,
 		host.deviceId,
 		projectList,
 		hostWorkspace,
@@ -655,12 +658,6 @@ function DeviceSessions({
 		return true;
 	};
 
-	// What the host works on now (its windows' tabs, the tabs it runs for any device): a row no tab here holds still
-	// wears the working cue, without a tap to open it first.
-	const hostLive = useMemo(
-		() => new Map(host.live?.map(session => [session.sessionPath, session.state])),
-		[host.live],
-	);
 	// A window viewing an opener here hears main's review list of what its agent opened (Sidebar.tsx): the child's
 	// state when no tab here holds it. Child session file → its item.
 	const reviewByTab = useAgentReviewStore(s => s.byTab);
@@ -698,15 +695,14 @@ function DeviceSessions({
 	 * this window views the opener, the indexed failure), by the local rows' status rule (Sidebar.tsx).
 	 */
 	const familyChildFor = (child: DeviceSession): FamilyOpened => {
-		// An asleep tab knows nothing of the host's run (renderRow): the host's list says it.
 		const tab = tabFor(child);
-		if (tab && tab.status !== "asleep") return childForTab(tab);
-		const live = hostLive.get(child.path);
+		if (tab) return childForTab(tab);
+		const run = summaryRowState(hostSummaries.get(child.path));
 		const review = reviewOfPath.get(child.path);
 		const failed = review?.failed === true || child.childProblem === "failed" || child.status === "error";
-		const running = live === "turn" || live === "background" || review?.state === "running";
+		const running = run.running || review?.state === "running";
 		const status = openedChildStatus({
-			waiting: live === "waiting" || review?.waiting === true,
+			waiting: run.waiting || review?.waiting === true,
 			running,
 			finished: !running,
 			failed,
@@ -974,14 +970,14 @@ function DeviceSessions({
 
 	/** What a folded header of this host's list counts of a row: its own token, then its family's (`fold-summary.ts`). */
 	const hostFoldSignals = (session: DeviceSession): (FoldSignal | null)[] => [
-		hostRowState(tabFor(session), hostLive.get(session.path)).fold,
+		summaryRowState(hostSummaries.get(session.path)).fold,
 		...openedOf(session).map(childFoldSignal),
 	];
 
 	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
-		const { known, signal, waiting, running, settling } = hostRowState(tab, hostLive.get(session.path));
-		const live = known ? undefined : hostLive.get(session.path);
+		const summary = hostSummaries.get(session.path);
+		const { signal, waiting, running, settling } = summaryRowState(summary);
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
@@ -991,10 +987,11 @@ function DeviceSessions({
 		const titleParts: TitleParts = bot
 			? { title: botDisplayName(session, t("sidebar.botBadge")) }
 			: sessionDisplayParts(
-					// The tab's own report outranks the host's row (null: none); the row's stands in until it reports.
+					// The name the host's running omp reports (its summary) outranks the host's indexed row.
 					{
 						...session,
-						autoTitle: tab?.autoTitle === undefined ? session.autoTitle : (tab.autoTitle ?? undefined),
+						...(summary?.title ? { title: summary.title } : {}),
+						autoTitle: summary ? summary.autoTitle : session.autoTitle,
 					},
 					indexed ? t("sidebar.untitled") : t("sidebar.newSession"),
 				);
@@ -1047,11 +1044,11 @@ function DeviceSessions({
 				<BotDecisionsBadge count={botDecisions} />
 			) : (
 				<SessionLiveAge
+					agents={workingAgentCount(summary?.agents ?? [])}
 					iso={indexed ? session.modified : null}
 					opened={runningOpened}
 					running={running}
 					settling={settling}
-					tabId={tab?.id ?? null}
 					waiting={waiting}
 				/>
 			);
@@ -1064,17 +1061,13 @@ function DeviceSessions({
 				device={host.deviceId}
 				label={t("sidebar.botBadge")}
 				size="inline"
-				state={botState(
-					known
-						? tabBotFacts(known)
-						: { open: live !== undefined, asleep: false, waiting: live === "waiting", running },
-				)}
+				state={botState(tabBotFacts(summary ? { status: summary.status, awaitingInput: summary.ask } : undefined))}
 				tabId={tab?.id}
 			/>
 		) : (
 			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
 		);
-		const family = tab !== undefined || opened.length > 0;
+		const family = tab !== undefined || opened.length > 0 || (summary?.agents.length ?? 0) > 0;
 		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
 		const familyKey = `device:${host.deviceId}:${session.path}`;
 		return (
@@ -1154,11 +1147,11 @@ function DeviceSessions({
 					title={
 						<>
 							<SessionLiveTitle
+								agents={workingAgentCount(summary?.agents ?? [])}
 								opened={runningOpened}
 								parts={titleParts}
 								running={running}
 								settling={settling}
-								tabId={tab?.id ?? null}
 								waiting={waiting}
 							/>
 							{working && <span className="sr-only">, {t("sidebar.signal.running")}</span>}
@@ -1176,11 +1169,23 @@ function DeviceSessions({
 						.join("\n")}
 					trailing={
 						family ? (
-							<SidebarSubagentsToggle opened={opened} sessionKey={familyKey} tabId={tab?.id ?? null} />
+							<SidebarSubagentsToggle
+								agents={summary?.agents}
+								opened={opened}
+								sessionKey={familyKey}
+								tabId={tab?.id ?? null}
+							/>
 						) : undefined
 					}
 				/>
-				{family && <SidebarSubagents opened={opened} sessionKey={familyKey} tabId={tab?.id ?? null} />}
+				{family && (
+					<SidebarSubagents
+						agents={summary?.agents}
+						opened={opened}
+						sessionKey={familyKey}
+						tabId={tab?.id ?? null}
+					/>
+				)}
 			</Fragment>
 		);
 	};

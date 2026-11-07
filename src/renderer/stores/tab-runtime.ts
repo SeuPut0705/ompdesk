@@ -1,6 +1,6 @@
 import type { StoreApi } from "zustand/vanilla";
+import { restartCutsOf } from "../../shared/restart-cuts";
 import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
-import { restartCutsOf } from "../lib/restart-cuts";
 import { createAutopilotStore } from "./autopilot";
 import { type ComposerStore, createComposerStore } from "./composer";
 import { createExtensionUiStore } from "./extension-ui";

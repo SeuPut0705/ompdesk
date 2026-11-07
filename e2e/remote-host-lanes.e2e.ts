@@ -49,9 +49,21 @@ test("a host's work-folder sessions sit among the chats on the host and on the d
 		const [child] = openedSessions(open.text);
 		await call("ompdesk_session_result", { session: child, wait: true, timeout_seconds: 60 });
 		await expect
-			.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).length, { timeout: 30_000 })
+			.poll(
+				async () =>
+					(
+						await b.evaluate(() =>
+							window.omp.sessions
+								.summaries()
+								.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+						)
+					).length,
+				{ timeout: 30_000 },
+			)
 			.toBe(1);
-		const [hosted] = await b.evaluate(() => window.omp.sessions.hosted());
+		const [hosted] = await b.evaluate(() =>
+			window.omp.sessions.summaries().then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+		);
 		expect(hosted?.cwd).toBe(hostWork);
 		const hostRow = b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(hosted?.sessionPath ?? "")}]`);
 		await expect(b.locator('[data-sidebar-chats="local"] [data-chat-lane]').locator(hostRow)).toHaveCount(1, {

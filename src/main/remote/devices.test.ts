@@ -9,14 +9,16 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
+import { IPC_EVENTS } from "../../shared/ipc-types";
+import type { SessionSummary } from "../../shared/session-summary";
 import {
 	BOT_DESK_EVENT,
-	LIVE_SESSIONS_EVENT,
 	MOBILE_WEB_LINK_EVENT,
 	MODELS_CHANGED_EVENT,
 	PREVIEW_RELAY_EVENT,
 	SESSIONS_DELETED_EVENT,
 	SessionsDeletedParams,
+	SUMMARIES_EVENT,
 	TAB_EVENT,
 } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
@@ -24,7 +26,7 @@ import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
-import { DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
+import { type Computer, DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
 import { WAKE_CHECK_MS } from "./wire";
 
 const rig = new DevicesRig();
@@ -56,6 +58,27 @@ function hold(port: number): Promise<void> {
 	server.once("error", reject);
 	server.listen(port, LOOPBACK, () => resolve());
 	return promise;
+}
+
+function summary(sessionPath: string, status: SessionSummary["status"] = "running"): SessionSummary {
+	return { sessionPath, tabId: "t1", cwd: "/s", kind: "agent", status, agents: [] };
+}
+
+/** What this computer's windows heard of session summaries, in order. */
+function summariesPushed(computer: Computer): unknown[] {
+	return computer.broadcasts
+		.filter(entry => entry.channel === IPC_EVENTS.SESSION_SUMMARIES_CHANGED)
+		.map(entry => entry.data);
+}
+
+/** Waits until the link handled every event emitted before: a change on a version nobody holds ends in one more read of the set. */
+async function eventsHandled(a: Computer, b: Computer, conn: HostConnection): Promise<void> {
+	const before = summariesPushed(a).length;
+	b.services.call.mockImplementation(async (_peer, method) =>
+		method === "sessions.summaries" ? { version: "marker.1", sessions: [] } : null,
+	);
+	conn.emit(SUMMARIES_EVENT, { base: "missed", version: "marker.2", set: [], remove: [] });
+	await vi.waitFor(() => expect(summariesPushed(a).length).toBeGreaterThan(before));
 }
 
 describe("computers of the tailnet", () => {
@@ -492,24 +515,34 @@ describe("the tabs a host keeps for this device", () => {
 		expect(await a.devices.deletedOnHost(hostId, ["/s/a.jsonl"])).toBeNull();
 	});
 
-	it("shows what the host works on now: read as the link comes up, then as the host pushes it, gone while offline", async () => {
+	it("holds the host's session summaries: read as the link comes up, a delta on the held version applied, any other version read whole, quiet while offline", async () => {
 		const { a, b } = await rig.pair();
-		b.services.call.mockImplementation(async (_peer, method) =>
-			method === "sessions.live" ? { sessions: [{ sessionPath: "/s/a.jsonl", state: "turn" }, { state: 7 }] } : null,
-		);
-		await a.devices.connect("nSTUDIO");
-		const read = await until(a, state => state.hosts[0]?.live !== undefined);
-		expect(read.hosts[0]?.live).toEqual([{ sessionPath: "/s/a.jsonl", state: "turn" }]);
+		let whole = { version: "e.1", sessions: [summary("/s/a.jsonl")] };
+		b.services.call.mockImplementation(async (_peer, method) => (method === "sessions.summaries" ? whole : null));
+		const { deviceId } = await a.devices.connect("nSTUDIO");
+		await vi.waitFor(() => expect(a.devices.summaries(deviceId)).toEqual(whole));
+		expect(summariesPushed(a)).toEqual([{ device: deviceId, change: whole }]);
 
-		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
-		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [{ sessionPath: "/s/b.jsonl", state: "waiting" }] });
-		const pushed = await until(a, state => state.hosts[0]?.live?.[0]?.sessionPath === "/s/b.jsonl");
-		expect(pushed.hosts[0]?.live).toEqual([{ sessionPath: "/s/b.jsonl", state: "waiting" }]);
+		// A delta made on the version held applies and goes on to the windows with the device.
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.summaries")?.[3] as HostConnection;
+		const delta = { base: "e.1", version: "e.2", set: [summary("/s/b.jsonl", "waiting")], remove: ["/s/a.jsonl"] };
+		conn.emit(SUMMARIES_EVENT, delta);
+		await vi.waitFor(() => expect(summariesPushed(a)).toHaveLength(2));
+		expect(summariesPushed(a)[1]).toEqual({ device: deviceId, change: delta });
+		expect(a.devices.summaries(deviceId)).toEqual({ version: "e.2", sessions: delta.set });
 
-		// While the link is down nobody knows what the host does: its rows go quiet instead of staying lit.
+		// A delta on another version: it missed a change, so it reads the whole set and broadcasts that.
+		whole = { version: "e.7", sessions: [summary("/s/c.jsonl")] };
+		conn.emit(SUMMARIES_EVENT, { base: "e.5", version: "e.6", set: [], remove: [] });
+		await vi.waitFor(() => expect(summariesPushed(a)).toHaveLength(3));
+		expect(summariesPushed(a)[2]).toEqual({ device: deviceId, change: whole });
+		expect(a.devices.summaries(deviceId)).toEqual(whole);
+
+		// While the link is down nobody knows what the host does: an empty set goes out and none is held.
 		await b.devices.setHostEnabled(false);
-		const offline = await until(a, state => state.hosts[0]?.state !== "online");
-		expect(offline.hosts[0]?.live).toBeUndefined();
+		await until(a, state => state.hosts[0]?.state !== "online");
+		expect(a.devices.summaries(deviceId)).toBeNull();
+		expect(summariesPushed(a).at(-1)).toEqual({ device: deviceId, change: { version: "offline", sessions: [] } });
 	});
 
 	it("knows the host's own Mobile web address: read as the link comes up, then as the host pushes it", async () => {
@@ -527,19 +560,25 @@ describe("the tabs a host keeps for this device", () => {
 		expect(off.hosts[0]?.webUrl).toBeUndefined();
 		// Never an address that is not https.
 		conn.emit(MOBILE_WEB_LINK_EVENT, { url: "http://studio:47831" });
-		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [] });
-		const after = await until(a, state => state.hosts[0]?.live !== undefined);
+		await eventsHandled(a, b, conn);
+		const after = a.devices.state();
 		expect(after.hosts[0]?.webUrl).toBeUndefined();
 	});
 
-	it("shows no live sessions from a host that does not know them (an older OMPdesk)", async () => {
+	it("shows no live state from a host that does not know summaries (an older OMPdesk)", async () => {
 		const { a, b } = await rig.pair();
 		b.services.call.mockImplementation(async () => {
-			throw codedError("unsupported", "Unknown method sessions.live");
+			throw codedError("unsupported", "Unknown method sessions.summaries");
 		});
-		await a.devices.connect("nSTUDIO");
-		const online = await until(a, state => state.hosts[0]?.state === "online");
-		expect(online.hosts[0]?.live).toBeUndefined();
+		const { deviceId } = await a.devices.connect("nSTUDIO");
+		await until(a, state => state.hosts[0]?.state === "online");
+		await vi.waitFor(() =>
+			expect(b.services.call.mock.calls.some(call => call[1] === "sessions.summaries")).toBe(true),
+		);
+		// A later request on the same link answers after the refused read did: nothing is left in flight.
+		expect(await a.devices.keptTabs(deviceId)).toBeNull();
+		expect(a.devices.summaries(deviceId)).toBeNull();
+		expect(summariesPushed(a)).toEqual([]);
 	});
 
 	it("answers null for a host that does not know the method (an older OMPdesk), and rejects for one that is away", async () => {
@@ -564,8 +603,10 @@ describe("a host's bot desk", () => {
 
 	it("reaches this computer's windows with the host's id, and a host's own push is its own devices'", async () => {
 		const { a, b, hostId } = await rig.connected();
-		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
-		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		await vi.waitFor(() =>
+			expect(b.services.call.mock.calls.some(call => call[1] === "sessions.summaries")).toBe(true),
+		);
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.summaries")?.[3] as HostConnection;
 		const heard: [string, unknown][] = [];
 		a.devices.onHostBotDesk((device, state) => heard.push([device, state]));
 
@@ -579,8 +620,7 @@ describe("a host's bot desk", () => {
 
 		// A desk the link cannot read changes nothing.
 		conn.emit(BOT_DESK_EVENT, { duties: "none" });
-		conn.emit(LIVE_SESSIONS_EVENT, { sessions: [] });
-		await until(a, state => state.hosts[0]?.live !== undefined);
+		await eventsHandled(a, b, conn);
 		expect(a.broadcasts.filter(entry => entry.channel === "host-bot-desk:state")).toHaveLength(1);
 
 		// This computer's own desk goes out to the devices that use it as a host.
@@ -590,8 +630,10 @@ describe("a host's bot desk", () => {
 
 	it("tells this computer's windows once when a host's models.yml changed by itself, and sends this computer's own change to its devices", async () => {
 		const { a, b } = await rig.connected();
-		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
-		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		await vi.waitFor(() =>
+			expect(b.services.call.mock.calls.some(call => call[1] === "sessions.summaries")).toBe(true),
+		);
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.summaries")?.[3] as HostConnection;
 		const pushes = () => a.broadcasts.filter(entry => entry.channel === "models-config:changed");
 		conn.emit(MODELS_CHANGED_EVENT, {});
 		await vi.waitFor(() => expect(pushes()).toHaveLength(1));
@@ -628,8 +670,10 @@ describe("agent browsing's tunnel to a host tab's relay", () => {
 	async function tunnelled() {
 		const connected = await rig.connected();
 		const { b } = connected;
-		await vi.waitFor(() => expect(b.services.call.mock.calls.some(call => call[1] === "sessions.live")).toBe(true));
-		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.live")?.[3] as HostConnection;
+		await vi.waitFor(() =>
+			expect(b.services.call.mock.calls.some(call => call[1] === "sessions.summaries")).toBe(true),
+		);
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.summaries")?.[3] as HostConnection;
 		const asked = () =>
 			b.services.call.mock.calls
 				.filter(call => String(call[1]).startsWith("host.previewRelay."))

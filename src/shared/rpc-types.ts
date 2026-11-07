@@ -1909,7 +1909,7 @@ export interface SubagentSnapshot {
 	kind?: "sub" | "advisor";
 	/**
 	 * Set by the renderer's subagents store, never by the wire: a `failed` agent the transcript says a restart ended
-	 * has status `restart-cut`, stock's own status here and what the stop cut it in below (`lib/restart-cuts.ts`).
+	 * has status `restart-cut`, stock's own status here and what the stop cut it in below (`shared/restart-cuts.ts`).
 	 */
 	stockStatus?: string;
 	restartCut?: { intent?: string; doing?: string };

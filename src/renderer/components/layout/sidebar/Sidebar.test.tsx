@@ -18,6 +18,7 @@ import { type AgentReviewItem, wrapAgentMessage } from "../../../../shared/agent
 import { type BotDecision, type BotDeskState, EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
+import type { SessionSummary } from "../../../../shared/session-summary";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { CHATS_ORDER_KEY } from "../../../../shared/sidebar-rows";
 import { TOUCH_QUERY } from "../../../hooks/shell-queries";
@@ -33,7 +34,7 @@ import { useBotStore } from "../../../stores/bot";
 import { useBotDeskStore } from "../../../stores/bot-desk";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
-import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
+import { LOCAL_SUMMARIES, useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useProjectOrigins } from "../../../stores/project-origins";
 import { useQueueStore } from "../../../stores/queue";
@@ -212,6 +213,26 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 	return omp;
 }
 
+/** A session's summary as its computer's main builds it (`session-summaries.ts`). */
+function summary(sessionPath: string, fields: Partial<SessionSummary> = {}): SessionSummary {
+	return {
+		sessionPath,
+		tabId: `tab:${sessionPath}`,
+		cwd: sessionPath.slice(0, sessionPath.lastIndexOf("/")),
+		kind: "agent",
+		status: "ready",
+		agents: [],
+		...fields,
+	};
+}
+
+/** One computer's summaries as main last pushed them (`device` absent: this computer's). */
+function setSummaries(sessions: SessionSummary[], device?: string): void {
+	useHostedSessionsStore.setState(state => ({
+		summaries: { ...state.summaries, [device ?? LOCAL_SUMMARIES]: { version: "test.1", sessions } },
+	}));
+}
+
 function session(path: string, cwd: string, overrides: Partial<SessionInfo> = {}): SessionInfo {
 	return {
 		path,
@@ -387,7 +408,13 @@ afterEach(async () => {
 	useClosedChildrenStore.getState().reset();
 	useProjectOrigins.getState().reset();
 	useRemoteStore.getState().reset();
-	useHostedSessionsStore.setState({ sessions: [], live: [], held: [], revision: 0, remoteOpened: [] });
+	useHostedSessionsStore.setState({
+		summaries: {},
+		held: [],
+		heldRevision: 0,
+		remoteOpened: [],
+		remoteOpenedRevision: 0,
+	});
 	useUiStore.setState({
 		panelVisible: false,
 		sessionPickerOpen: false,
@@ -842,6 +869,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		setSummaries([summary("/work/beta/bg.jsonl", { cwd: "/work/beta", tabId: "t1", status: "running" })]);
 		await mount(<Sidebar />);
 
 		expect(container.textContent).not.toContain("No code sessions yet");
@@ -980,6 +1008,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			],
 			activeTabId: "t0",
 		});
+		setSummaries([summary("/work/beta/three.jsonl", { tabId: "t1", status: "running" })]);
 		await mount(<Sidebar />);
 
 		const row = rowFor("Session /work/beta/three");
@@ -1022,6 +1051,10 @@ describe("Sidebar menus and pinned ordering", () => {
 			],
 			activeTabId: "t0",
 		});
+		setSummaries([
+			summary("/work/beta/three.jsonl", { tabId: "t1", status: "running", ask: "input" }),
+			summary("/work/alpha/one.jsonl", { tabId: "t2", status: "error" }),
+		]);
 		await mount(<Sidebar />);
 
 		const waiting = rowFor("Session /work/beta/three");
@@ -1081,8 +1114,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		installMockOmp([...LIST, opened]);
 		seedStores();
-		const hosted = { sessionPath: opened.path, cwd: "/work/beta", kind: "agent" as const, device: "Mac" };
-		useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running" }] });
+		const hosted = { cwd: "/work/beta", openFor: "Mac", status: "running" as const };
+		setSummaries([summary(opened.path, hosted)]);
 		await mount(<Sidebar />);
 
 		const rows = () =>
@@ -1093,52 +1126,46 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rowFor("Fix login").closest('[data-session-group="/work/beta"]')).not.toBeNull();
 		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("running");
 
-		act(() => useHostedSessionsStore.setState({ sessions: [{ ...hosted, status: "running", awaitingInput: true }] }));
+		act(() => setSummaries([summary(opened.path, { ...hosted, ask: "input" })]));
 		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
 		expect(rowFor("Fix login").textContent).toContain("Needs input");
 
 		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
-		act(() => useHostedSessionsStore.setState({ sessions: [] }));
+		act(() => setSummaries([]));
 		expect(rows()).toHaveLength(0);
 	});
 
 	it("lists a hosted session the index does not have yet, once, under its project", async () => {
 		installMockOmp(LIST);
 		seedStores();
-		useHostedSessionsStore.setState({
-			sessions: [
-				{
-					sessionPath: "/work/beta/new.jsonl",
-					sessionId: "new-id",
-					title: "Brand new",
-					cwd: "/work/beta",
-					kind: "agent",
-					status: "running",
-					device: "Mac",
-				},
-			],
-		});
+		setSummaries([
+			summary("/work/beta/new.jsonl", {
+				sessionId: "new-id",
+				title: "Brand new",
+				status: "running",
+				openFor: "Mac",
+			}),
+		]);
 		await mount(<Sidebar />);
 		expect(rowFor("Brand new").closest('[data-session-group="/work/beta"]')).not.toBeNull();
 		expect(rowFor("Brand new").getAttribute("data-signal")).toBe("running");
 	});
 
 	// 26 Oct 2026, the user's phone: three sessions worked in the computer's window and their rows showed only an age
-	// until each was tapped. A row no tab of this window holds wears the working cue from main's list of what this
-	// computer works on now, as a paired host's section does from `host.live`.
+	// until each was tapped. A row no tab of this window holds reads its state from this computer's summaries.
 	it("lights a row another window of this computer works on, with no tap to open it first", async () => {
 		installMockOmp(LIST);
 		seedStores();
 		const path = "/work/alpha/two.jsonl";
-		useHostedSessionsStore.setState({ live: [{ sessionPath: path, state: "turn" }] });
+		setSummaries([summary(path, { status: "running" })]);
 		await mount(<Sidebar />);
 		const row = () => rowFor(`Session ${path}`);
 		expect(row().getAttribute("data-signal")).toBe("running");
 
-		act(() => useHostedSessionsStore.setState({ live: [{ sessionPath: path, state: "waiting" }] }));
+		act(() => setSummaries([summary(path, { status: "running", ask: "input" })]));
 		expect(row().getAttribute("data-signal")).toBe("waiting");
 
-		act(() => useHostedSessionsStore.setState({ live: [] }));
+		act(() => setSummaries([summary(path)]));
 		expect(row().getAttribute("data-signal")).toBeNull();
 	});
 
@@ -1575,6 +1602,10 @@ describe("Sidebar menus and pinned ordering", () => {
 				activeTabId: "t0",
 				bundles: new Map(),
 			});
+			setSummaries([
+				summary(KID, { cwd: "/work/alpha", tabId: "tkid", status: "running" }),
+				summary(GRANDKID, { cwd: "/work/alpha", tabId: "tgrand", status: "running" }),
+			]);
 			ensureTabRuntime("tbot");
 			useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
 			await mount(<Sidebar />);
@@ -1652,6 +1683,11 @@ describe("Sidebar menus and pinned ordering", () => {
 					activeTabId: "t0",
 					bundles: new Map(),
 				});
+				setSummaries(
+					status === "running"
+						? [summary(BOT, { cwd: "/default/work", kind: "chat", tabId: "tbot", status: "running" })]
+						: [],
+				);
 				ensureTabRuntime("tbot");
 			};
 
@@ -1920,6 +1956,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 		seedStores();
 		useSessionStore.setState({ isStreaming: true });
+		setSummaries([summary("/work/alpha/mine.jsonl", { status: "running" })]);
 		await mount(<Sidebar />);
 
 		// The attached running task: one ⋯, whose menu keeps rename available and delete protected.
@@ -2160,6 +2197,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		installMockOmp([attached]);
 		seedStores();
 		useSessionStore.setState({ isCompacting: true });
+		setSummaries([summary("/work/alpha/mine.jsonl", { status: "running" })]);
 		await mount(<Sidebar />);
 
 		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
@@ -2679,16 +2717,42 @@ describe("Sidebar session-list failures", () => {
 });
 
 describe("Sidebar subagents", () => {
-	afterEach(async () => {
-		// The runtime registry notifies on a microtask: settle it inside act.
-		await act(async () => {
-			deleteSessionRuntime("t1");
-		});
-	});
-
 	const TWO = "/work/alpha/two.jsonl";
 
-	/** Session two open in tab t1 with one live and one finished subagent; `current` makes t1 the active tab. */
+	/**
+	 * What main says of session two in tab t1: its turn (`turn`) and the one subagent it lists while it works. A
+	 * finished subagent is never in a summary, so `aborted` lists none.
+	 */
+	function setSubagentStatus(
+		status: "running" | "aborted",
+		turn: "running" | "ready" = "running",
+		extra: Partial<SessionSummary> = {},
+	): void {
+		act(() => {
+			setSummaries([
+				summary(TWO, {
+					tabId: "t1",
+					status: turn,
+					agents:
+						status === "running"
+							? [
+									{
+										id: "sa",
+										index: 1,
+										agent: "scout",
+										title: "map the repo",
+										status: "running",
+										startedAt: Date.now(),
+									},
+								]
+							: [],
+					...extra,
+				}),
+			]);
+		});
+	}
+
+	/** Session two open in tab t1 with one live subagent; `current` makes t1 the active tab. */
 	function seedSubagentTab(current: boolean): void {
 		useSessionStore.setState({ sessionId: current ? TWO : "attached-id", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
@@ -2699,26 +2763,7 @@ describe("Sidebar subagents", () => {
 			activeTabId: current ? "t1" : "t0",
 			bundles: new Map(),
 		});
-		ensureTabRuntime("t1");
 		setSubagentStatus("running");
-	}
-
-	function setSubagentStatus(status: "running" | "aborted"): void {
-		act(() => {
-			sessionRuntimeStore<SubagentsStore>("t1", "subagents")!
-				.getState()
-				.setSnapshots([
-					{ id: "sa", index: 1, agent: "scout", description: "map the repo", status, lastUpdate: Date.now() },
-					{
-						id: "done",
-						index: 2,
-						agent: "task",
-						description: "already finished",
-						status: "completed",
-						lastUpdate: Date.now(),
-					},
-				]);
-		});
 	}
 
 	const disclosure = () => container.querySelector(`[data-sidebar-subagents-toggle="${TWO}"]`);
@@ -2836,17 +2881,13 @@ describe("Sidebar subagents", () => {
 		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("turn");
 
 		// The turn ends; the subagent it started runs on: the same sweep, the background form.
-		await act(async () => {
-			useTabsStore.setState(state => ({
-				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
-			}));
-		});
+		setSubagentStatus("running", "ready");
 		await flush();
 		expect(rowFor("Session /work/alpha/two").getAttribute("data-signal")).toBeNull();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
 		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("background");
 
-		setSubagentStatus("aborted");
+		setSubagentStatus("aborted", "ready");
 		await flush();
 		// The work ended: the title is plain text again.
 		expect(edge()?.hasAttribute("data-working")).toBe(false);
@@ -2863,11 +2904,7 @@ describe("Sidebar subagents", () => {
 		await mount(<Sidebar />);
 		expect(edge()?.getAttribute("data-working")).toBe("turn");
 
-		await act(async () => {
-			useTabsStore.setState(state => ({
-				tabs: state.tabs.map(tab => (tab.id === "t1" ? { ...tab, settling: true as const } : tab)),
-			}));
-		});
+		setSubagentStatus("aborted", "running", { settling: true });
 		await flush();
 		expect(edge()?.getAttribute("data-working")).toBe("background");
 		expect(slotOf(rowFor("Session /work/alpha/two"))).toBe("background");
@@ -2884,6 +2921,10 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		worktree: { kind: "agent", branch: `omp/agent/${slug}`, slug },
 	});
 
+	/** Main's summary of the worktree session in tab `ta`. */
+	const summaryA = (fields: Partial<SessionSummary> = {}) =>
+		summary("/wt/a.jsonl", { cwd: WT_A, tabId: "ta", status: "running", ...fields });
+
 	afterEach(async () => {
 		await act(async () => {
 			deleteSessionRuntime("t1");
@@ -2899,10 +2940,13 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		tabsExtra = [],
 		sessionsExtra = [],
 		open = true,
+		hosted = {},
 	}: {
 		tabsExtra?: Array<Record<string, unknown>>;
 		sessionsExtra?: ReturnType<typeof session>[];
 		open?: boolean;
+		/** What each paired host's main says of its sessions at work. */
+		hosted?: Record<string, SessionSummary[]>;
 	} = {}) {
 		const omp = installMockOmp([
 			...sessionsExtra,
@@ -2993,6 +3037,9 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		// Main's word: the worktree session in tab ta works; the live tab tc has no file yet and speaks for itself.
+		setSummaries([summaryA()]);
+		for (const [device, sessions] of Object.entries(hosted)) setSummaries(sessions, device);
 		ensureTabRuntime("t1");
 		useSidebarSubagentsStore.setState({ expanded: open ? new Set([BOSS]) : new Set() });
 		return omp;
@@ -3049,6 +3096,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 	it("nests a session it opened on a paired device under the opener, named by that device, not in the device's list", async () => {
 		mountFamily({
+			hosted: { "dev-studio": [summary("C:\\s\\remote.jsonl", { cwd: "C:\\work\\app", status: "running" })] },
 			tabsExtra: [
 				{
 					id: "tw",
@@ -3098,6 +3146,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	it("nests a session a paired device's own session opened there under that session's row in the device's list", async () => {
 		const HOST_BOSS = "C:\\s\\host-boss.jsonl";
 		mountFamily({
+			hosted: { "dev-studio": [summary("C:\\s\\host-child.jsonl", { cwd: "C:\\work\\app", status: "running" })] },
 			tabsExtra: [
 				{
 					id: "th",
@@ -3160,6 +3209,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 
 	it("keeps the working arc on the idle boss while only a session it opened on a paired device runs", async () => {
 		mountFamily({
+			hosted: { "dev-studio": [summary("C:\\s\\remote.jsonl", { cwd: "C:\\work\\app", status: "running" })] },
 			tabsExtra: [
 				{
 					id: "tw",
@@ -3183,13 +3233,15 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			await flush();
 		};
 		await mount(<Sidebar />);
-		await setTab("ta", { status: "ready" });
+		await act(async () => setSummaries([]));
+		await flush();
 		await setTab("tc", { status: "ready" });
 		const boss = () => rowFor("Session /work/alpha/two");
 		expect(boss().getAttribute("data-signal")).toBeNull();
 		expect(slotOf(boss())).toBe("background");
 
-		await setTab("tw", { status: "ready" });
+		await act(async () => setSummaries([], "dev-studio"));
+		await flush();
 		expect(slotOf(boss())).toBe("age");
 	});
 
@@ -3343,6 +3395,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 						: tab,
 				),
 			}));
+			setSummaries([summaryA({ status: "ready" })]);
 		});
 		await flush();
 		// Everything it opened is finished: nothing is listed, no fold and no chip say so.
@@ -3362,6 +3415,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 					tab.id === "ta" ? { ...tab, status: "ready", lastRun: { stopReason: "error", text: "boom" } } : tab,
 				),
 			}));
+			setSummaries([summaryA({ status: "ready" })]);
 		});
 		await flush();
 		const failed = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
@@ -3399,6 +3453,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 					tab.id === "ta" ? { ...tab, status: "ready", lastRun: { stopReason: "stop", text: "ok" } } : tab,
 				),
 			}));
+			setSummaries([summaryA({ status: "ready" })]);
 		});
 		await flush();
 		const row = familyRows().find(entry => entry.getAttribute("data-session-path") === "/wt/a.jsonl");
@@ -3438,6 +3493,8 @@ describe("Sidebar families: the sessions an agent opened", () => {
 	/** A relaunch: the tabs that came back, and no tab for anything the boss opened. */
 	function relaunchedWith(...ids: string[]) {
 		useTabsStore.setState(state => ({ tabs: state.tabs.filter(tab => ids.includes(tab.id)) }));
+		// Main's summaries restart with the tabs: nothing runs a session whose tab did not come back.
+		setSummaries(ids.includes("ta") ? [summaryA()] : []);
 	}
 	const doneFold = (key: string) => container.querySelector(`[data-family-done="${key}"]`);
 	const openedPaths = (scope: string) =>
@@ -3624,6 +3681,8 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		// One now waits for the person: its row keeps the warning look and no light; the other still runs. The boss
 		// says so too, though this window looks at another session.
 		await setTab("ta", { awaitingInput: "input" });
+		await act(async () => setSummaries([summaryA({ ask: "input" })]));
+		await flush();
 		const waiting = familyRows().find(row => row.getAttribute("data-session-path") === "/wt/a.jsonl");
 		expect(waiting?.getAttribute("data-signal")).toBe("waiting");
 		expect(waiting?.querySelector('[data-working="turn"], [data-working="background"]')).toBeNull();
@@ -3650,6 +3709,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 				useTabsStore.setState(state => ({
 					tabs: state.tabs.map(tab => (tab.id === "ta" ? { ...tab, awaitingInput: "input" as const } : tab)),
 				}));
+				setSummaries([summaryA({ ask: "input" })]);
 			});
 			await flush();
 			expect(boss().getAttribute("data-signal")).toBe("waiting");
@@ -3952,41 +4012,29 @@ describe("Sidebar device sections", () => {
 			) as unknown as Element;
 		expect(slotOf(row())).toBe("age");
 
-		const live = (state: "turn" | "background" | "waiting") =>
-			act(async () => {
-				const remote = useRemoteStore.getState().state;
-				if (!remote) throw new Error("no remote state");
-				useRemoteStore.getState().apply({
-					...remote,
-					hosts: [
-						{
-							deviceId: "dev-studio",
-							name: "studio",
-							state: "online",
-							live: [{ sessionPath: "/Users/kim/.omp/agent/sessions/app/one.jsonl", state }],
-						},
-					],
-				});
-			});
-		await live("turn");
+		const path = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		const live = (fields: Partial<SessionSummary>) =>
+			act(async () => setSummaries([summary(path, { cwd: "/Users/kim/code/app", ...fields })], "dev-studio"));
+		await live({ status: "running" });
 		expect(slotOf(row())).toBe("turn");
 		expect(row().textContent).toContain(translate("sidebar.signal.running"));
-		await live("background");
+		await live({ status: "running", settling: true });
 		expect(slotOf(row())).toBe("background");
-		await live("waiting");
+		await live({ status: "running", ask: "input" });
 		expect(slotOf(row())).toBe("age");
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
 
-		// The host no longer says it works on it (or the link went down): the row goes quiet.
-		await act(async () => pairHost("online"));
+		// The host no longer works on it (or the link went down: no summaries): the row goes quiet.
+		await act(async () => setSummaries([], "dev-studio"));
+
 		expect(slotOf(row())).toBe("age");
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBeNull();
 	});
 
 	// The user's report (27 Oct 2026): after either computer relaunched, a host's session at work showed nothing here
-	// until it was tapped. A relaunch restores this computer's tabs asleep (no omp attached until shown), and the row
-	// read that tab, which knows nothing of the host's run, instead of what the host says it works on.
-	it("lights a host's session at work whose tab here is asleep since this computer relaunched, before anyone opens it", async () => {
+	// until it was tapped, since the row read the tab here (restored asleep, it never heard of the host's run). A host's
+	// row reads only the host's summary of the session, whatever tab here holds it.
+	it("lights a host's session at work by the host's summary alone, whatever the tab here says", async () => {
 		installWithRemote();
 		seedStores();
 		const remotePath = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
@@ -4004,33 +4052,23 @@ describe("Sidebar device sections", () => {
 			activeTabId: "t0",
 		});
 		pairHost("online");
-		const live = (state: "turn" | "waiting" | null) =>
-			act(async () => {
-				const remote = useRemoteStore.getState().state;
-				if (!remote) throw new Error("no remote state");
-				useRemoteStore.getState().apply({
-					...remote,
-					hosts: [
-						{
-							deviceId: "dev-studio",
-							name: "studio",
-							state: "online",
-							live: state ? [{ sessionPath: remotePath, state }] : [],
-						},
-					],
-				});
-			});
-		await live("turn");
+		const live = (fields: Partial<SessionSummary> | null) =>
+			act(async () =>
+				setSummaries(fields ? [summary(remotePath, { cwd: "/Users/kim/code/app", ...fields })] : [], "dev-studio"),
+			);
+		await live({ status: "running" });
 		await mount(<Sidebar />);
 		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`) as unknown as Element;
 		expect(slotOf(row())).toBe("turn");
 		expect(row().textContent).toContain(translate("sidebar.signal.running"));
-		await live("waiting");
+		await live({ status: "running", ask: "input" });
 		expect(row().querySelector(".omp-live-text")?.getAttribute("data-working")).toBe("waiting");
 
-		// Shown, the tab attaches and its own state is the row's again.
+		// The tab here attached and still says it runs; the host's word is the row's.
 		await act(async () => useTabsStore.setState({ tabs: [useTabsStore.getState().tabs[0]!, hostTab("running")] }));
-		await live(null);
+		await live({ status: "ready" });
+		expect(slotOf(row())).toBe("age");
+		await live({ status: "running" });
 		expect(slotOf(row())).toBe("turn");
 	});
 
@@ -4064,23 +4102,14 @@ describe("Sidebar device sections", () => {
 			omp.sessions.list.mockImplementation(async (_scope, device) => (device === "dev-studio" ? rows : LIST));
 			seedStores();
 			pairHost("online");
-			const remote = useRemoteStore.getState().state;
-			if (!remote) throw new Error("no remote state");
 			// The host works on two of them in its own windows; no tab of this computer holds any.
-			useRemoteStore.getState().apply({
-				...remote,
-				hosts: [
-					{
-						deviceId: "dev-studio",
-						name: "studio",
-						state: "online",
-						live: [
-							{ sessionPath: AT_WORK, state: "turn" },
-							{ sessionPath: ASKING, state: "waiting" },
-						],
-					},
+			setSummaries(
+				[
+					summary(AT_WORK, { cwd: APP, status: "running" }),
+					summary(ASKING, { cwd: APP, status: "running", ask: "input" }),
 				],
-			});
+				"dev-studio",
+			);
 			return mount(<Sidebar />);
 		}
 		const device = () => container.querySelector('[data-sidebar-device="dev-studio"]');
@@ -4189,6 +4218,7 @@ describe("Sidebar device sections", () => {
 			// Neither is live on the host in this case.
 			const remote = useRemoteStore.getState().state;
 			if (!remote) throw new Error("no remote state");
+			await act(async () => setSummaries([], "dev-studio"));
 			await act(async () =>
 				useRemoteStore.getState().apply({
 					...remote,
@@ -5412,9 +5442,23 @@ describe("Sidebar device sections", () => {
 						: {}),
 					...(device ? { device } : {}),
 				}));
-		const working = placed
-			.filter(cell => cell.holder === "wrk")
-			.map(cell => ({ sessionPath: cell.path, state: "turn" as const }));
+		// What the host's main says of its sessions: the ones it works on, and the ones it runs for a paired phone.
+		const worldSummaries = [
+			...placed
+				.filter(cell => cell.holder === "wrk")
+				.map(cell => summary(cell.path, { cwd: cell.cwd, status: "running" })),
+			...placed
+				.filter(cell => cell.holder === "els" || cell.holder === "hsl")
+				.map(cell =>
+					summary(cell.path, {
+						sessionId: cell.path,
+						title: cell.token,
+						cwd: cell.cwd,
+						status: cell.holder === "hsl" ? "asleep" : "error",
+						openFor: "phone",
+					}),
+				),
+		];
 		const tokenOf = new Map<string, string>([
 			[BOSS, "Boss"],
 			[CHAT_BOSS, "ChatBoss"],
@@ -5517,21 +5561,8 @@ describe("Sidebar device sections", () => {
 				uncommitted: 0,
 				answer: "",
 			});
-			useHostedSessionsStore.setState({
-				sessions: placed
-					.filter(cell => cell.holder === "els" || cell.holder === "hsl")
-					.map(cell => ({
-						sessionPath: cell.path,
-						sessionId: cell.path,
-						title: cell.token,
-						cwd: cell.cwd,
-						kind: "agent" as const,
-						status: cell.holder === "hsl" ? ("asleep" as const) : ("error" as const),
-						device: "phone",
-					})),
-				live: working,
-				held: placed.filter(cell => cell.holder === "idl").map(cell => cell.path),
-			});
+			setSummaries(worldSummaries);
+			useHostedSessionsStore.setState({ held: placed.filter(cell => cell.holder === "idl").map(cell => cell.path) });
 			await mount(<Sidebar />);
 			// Main's records, set after the sidebar's own first read of them (an empty pref here).
 			act(() => {
@@ -5588,9 +5619,10 @@ describe("Sidebar device sections", () => {
 					keepingAwake: false,
 					usedBy: [],
 				},
-				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online", live: working }],
+				hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 				forgotten: [],
 			});
+			setSummaries(worldSummaries, "dev-studio");
 			await mount(<Sidebar />);
 			act(() => useSidebarSubagentsStore.setState({ expanded: new Set([`device:dev-studio:${BOSS}`]) }));
 			await flush();
@@ -5838,7 +5870,7 @@ describe("Sidebar device sections", () => {
 			container.remove();
 			useClosedChildrenStore.getState().reset();
 			useAgentReviewStore.getState().reset();
-			useHostedSessionsStore.setState({ sessions: [], live: [], held: [] });
+			useHostedSessionsStore.setState({ summaries: {}, held: [] });
 			expect(await drawnByDevice()).toEqual(host);
 		});
 
@@ -6630,11 +6662,7 @@ describe("Sidebar worktree sessions", () => {
 		};
 		seedStores();
 		openTab("tl", DISCARDED, "/wt/local.jsonl");
-		useHostedSessionsStore.setState({
-			sessions: [
-				{ sessionPath: "/wt/hosted.jsonl", cwd: DISCARDED, kind: "agent", status: "exited", device: "Mac" },
-			],
-		});
+		setSummaries([summary("/wt/hosted.jsonl", { cwd: DISCARDED, status: "exited", openFor: "Mac" })]);
 		await mount(<Sidebar />);
 		const rows = [...container.querySelectorAll(".omp-sidebar-session-row")].map(row => row.textContent ?? "");
 		expect(rows.some(text => text.includes("Held by the device"))).toBe(true);
@@ -7000,6 +7028,14 @@ describe("Sidebar folded headers say what works inside", () => {
 		}),
 	];
 
+	/** What main says of seedWork's tabs: one works, two waits on the person, the chat works. */
+	const workSummaries = (one: SessionSummary["status"] = "running") => [
+		summary("/work/alpha/one.jsonl", { tabId: "t1", status: one }),
+		summary("/work/alpha/two.jsonl", { tabId: "t2", status: "running", ask: "input" }),
+		summary("/work/alpha/four.jsonl", { tabId: "t3", status: "ready" }),
+		summary("/work/chat-1.jsonl", { tabId: "t4", cwd: "/work/chat-home", kind: "chat", status: "running" }),
+	];
+
 	function seedWork(): void {
 		useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/gamma", isStreaming: false });
 		useTabsStore.setState({
@@ -7043,9 +7079,10 @@ describe("Sidebar folded headers say what works inside", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		setSummaries(workSummaries());
 	}
 
-	function pairStudio(live?: HostView["live"]): void {
+	function pairStudio(): void {
 		useRemoteStore.getState().apply({
 			tailnet: "ready",
 			host: {
@@ -7059,7 +7096,7 @@ describe("Sidebar folded headers say what works inside", () => {
 				keepingAwake: false,
 				usedBy: [],
 			},
-			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online", ...(live ? { live } : {}) }],
+			hosts: [{ deviceId: "dev-studio", name: "studio", state: "online" }],
 			forgotten: [],
 		});
 	}
@@ -7100,6 +7137,7 @@ describe("Sidebar folded headers say what works inside", () => {
 			useTabsStore.setState({
 				tabs: useTabsStore.getState().tabs.map(tab => (tab.id === "t1" ? { ...tab, status: "ready" } : tab)),
 			});
+			setSummaries(workSummaries("ready"));
 		});
 		await flush();
 		expect(counts(summaryIn('[data-workspace-group="/work/alpha"]'))).toEqual({
@@ -7155,12 +7193,16 @@ describe("Sidebar folded headers say what works inside", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
+		setSummaries([
+			summary("/work/alpha/kid-a.jsonl", { cwd: "/work/alpha", tabId: "ka", status: "running", ask: "approval" }),
+			summary("/work/alpha/kid-b.jsonl", { cwd: "/work/alpha", tabId: "kb", status: "running" }),
+		]);
 		await mount(<Sidebar />);
 		await fire(groupToggle("/work/alpha"), "onClick");
-		const summary = summaryIn('[data-workspace-group="/work/alpha"]');
+		const folded = summaryIn('[data-workspace-group="/work/alpha"]');
 		// The opener waits only on its child: the child is the one waiting, by its own prompt's word.
-		expect(counts(summary)).toEqual({ waiting: "1", running: "1", done: null });
-		expect(summary?.getAttribute("title")).toBe(
+		expect(counts(folded)).toEqual({ waiting: "1", running: "1", done: null });
+		expect(folded?.getAttribute("title")).toBe(
 			`${translate("attention.approval")} · ${translate("workBoard.head.running", { count: 1 })}`,
 		);
 	});
@@ -7207,7 +7249,14 @@ describe("Sidebar folded headers say what works inside", () => {
 			],
 		});
 		// The host also works on a session no tab here holds.
-		pairStudio([{ sessionPath: "/Users/kim/.omp/agent/sessions/app/other.jsonl", state: "turn" }]);
+		setSummaries(
+			[
+				summary(REMOTE_PATH, { cwd: "/Users/kim/code/app", status: "running", ask: "approval" }),
+				summary("/Users/kim/.omp/agent/sessions/app/other.jsonl", { cwd: "/Users/kim/code/app", status: "running" }),
+			],
+			"dev-studio",
+		);
+		pairStudio();
 		await mount(<Sidebar />);
 		expect(summaryIn('[data-sidebar-device-header="local"]')).toBeNull();
 
@@ -7246,7 +7295,19 @@ describe("Sidebar folded headers say what works inside", () => {
 				},
 			],
 		});
-		pairStudio([{ sessionPath: "/Users/kim/.omp/agent/sessions/app/chat.jsonl", state: "background" }]);
+		setSummaries(
+			[
+				summary(REMOTE_PATH, { cwd: "/Users/kim/code/app", status: "running", ask: "approval" }),
+				summary("/Users/kim/.omp/agent/sessions/app/chat.jsonl", {
+					cwd: "/Users/kim/.omp/work",
+					kind: "chat",
+					status: "running",
+					settling: true,
+				}),
+			],
+			"dev-studio",
+		);
+		pairStudio();
 		await mount(<Sidebar />);
 		await flush();
 		const hostGroup = '[data-sidebar-device="dev-studio"] [data-device-group="/Users/kim/code/app"]';
@@ -7301,7 +7362,8 @@ describe("Sidebar folded headers say what works inside", () => {
 		});
 		ensureTabRuntime("tbot");
 		useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
-		pairStudio([{ sessionPath: CHILD, state: "turn" }]);
+		setSummaries([summary(CHILD, { cwd: "/Users/kim/code/app", status: "running" })], "dev-studio");
+		pairStudio();
 		await mount(<Sidebar />);
 		await flush();
 
@@ -7346,7 +7408,8 @@ describe("Sidebar folded headers say what works inside", () => {
 			activeTabId: "t0",
 			bundles: new Map(),
 		});
-		pairStudio([{ sessionPath: REMOTE_PATH, state: "turn" }]);
+		setSummaries([summary(REMOTE_PATH, { cwd: "/Users/kim/code/app", status: "running" })], "dev-studio");
+		pairStudio();
 		await mount(<Sidebar />);
 		await flush();
 
@@ -7399,7 +7462,8 @@ describe("Sidebar folded headers say what works inside", () => {
 			],
 		});
 		useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
-		pairStudio([{ sessionPath: CHILD, state: "turn" }]);
+		setSummaries([summary(CHILD, { cwd: "/Users/kim/code/app", status: "running" })], "dev-studio");
+		pairStudio();
 		await mount(<Sidebar />);
 		await act(async () => useBotStore.setState({ enabled: true, path: BOT }));
 		await flush();
@@ -7462,20 +7526,15 @@ describe("Sidebar folded headers say what works inside", () => {
 			bundles: new Map(),
 		});
 		// This computer runs the child for the host's tab, mid-turn.
-		useHostedSessionsStore.setState({
-			sessions: [
-				{
-					sessionPath: CHILD,
-					sessionId: CHILD,
-					cwd: "/work/alpha",
-					kind: "agent",
-					status: "running",
-					device: "studio",
-					title: "Test omp on Windows",
-				} as never,
-			],
-			live: [{ sessionPath: CHILD, state: "turn" }],
-		});
+		setSummaries([
+			summary(CHILD, {
+				sessionId: CHILD,
+				cwd: "/work/alpha",
+				status: "running",
+				openFor: "studio",
+				title: "Test omp on Windows",
+			}),
+		]);
 		useRemoteStore.getState().apply({
 			tailnet: "ready",
 			host: {

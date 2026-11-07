@@ -31,6 +31,8 @@ import {
 	memoryRecallDetails,
 	parseRecallText,
 } from "../../../../resources/gui-bridge/modes/memory-recall-contracts";
+import { asyncJobResults, asyncResultJobs, completionNoticeText } from "../../../shared/async-results";
+import type { RestartCut } from "../../../shared/restart-cuts";
 import type { AgentMessage } from "../../../shared/rpc-types";
 import {
 	cx,
@@ -46,7 +48,6 @@ import { useT } from "../../lib/i18n";
 import { rememberedMailOpen, rememberMailOpen } from "../../lib/mail-open";
 import { MarkdownRenderer } from "../../lib/markdown";
 import { rateRecall, recallRatedKey, useRecallRate } from "../../lib/recall-rated";
-import type { RestartCut } from "../../lib/restart-cuts";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { asArray } from "../../lib/wire-value";
 import { useMemoryPageStore } from "../../stores/memory-page";
@@ -63,13 +64,7 @@ import {
 	diagnosticsCount,
 	type FileDiagnostics,
 } from "../tools/renderers/Diagnostics";
-import {
-	asyncJobResults,
-	asyncResultJobs,
-	completionNoticeText,
-	exitCodeOf,
-	launchCompletionDaemons,
-} from "./completion-events";
+import { exitCodeOf, launchCompletionDaemons } from "./completion-events";
 import { useDeliveryCuts } from "./work/use-restart-cuts";
 import { agentResultSummary } from "./work/work-view";
 

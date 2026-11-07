@@ -57,7 +57,6 @@ import { BOT_RULES_PREF, botRulesText, parseBotRules } from "../../shared/bot-ru
 import { botToolActivity } from "../../shared/bot-tool-activity";
 import type {
 	HostView,
-	IpcHostedSession,
 	IpcSpawnTabPayload,
 	IpcSpawnTabResult,
 	IpcTabInfo,
@@ -83,6 +82,7 @@ import type {
 	SchedulesRequest,
 	SchedulesState,
 } from "../../shared/schedules";
+import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
 import { approvalChoices } from "../../shared/tool-approval";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { deletedSessions } from "../deleted-sessions";
@@ -163,11 +163,11 @@ const SWEEP_INTERVAL_MS = 10_000;
 /** A receiver's bridge answers which messages its journal holds within this (a socket request, no omp command queue). */
 const SENT_MARKS_TIMEOUT_MS = 8_000;
 
-/** What a tab this computer runs for a paired device does now, by `LocalHostServices.liveSessions`' rule; unknown before it is up. */
-function hostedWork(session: IpcHostedSession): StoredWork | undefined {
-	if (session.awaitingInput) return "waiting";
-	if (session.status === "running") return session.settling ? "background" : "turn";
-	return session.status === "ready" ? "idle" : undefined;
+/** What a session does now, by its summary (the one rows read); unknown before its omp is up. */
+function summaryWork(summary: SessionSummary): StoredWork | undefined {
+	if (summary.ask) return "waiting";
+	if (summary.status === "running") return summary.settling ? "background" : "turn";
+	return summary.status === "ready" ? "idle" : undefined;
 }
 
 export interface AgentControlHostDeps {
@@ -204,8 +204,11 @@ export interface AgentControlHostDeps {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
 	};
-	/** The sessions this computer runs for paired devices (`LocalHostServices.hostedSessions`), with their tabs' state. */
-	hosted?: () => readonly IpcHostedSession[];
+	/**
+	 * The session summaries of this computer (no device) or of a paired host as this computer holds them: what every
+	 * row shows, so a list line and a row cannot disagree. Null for a host offline or too old to send them.
+	 */
+	summaries?: (device?: string) => VersionedSummaries | null;
 	/** The same dispatcher the renderer's RPC commands go through (local handlers, host link, quota). */
 	dispatch: (
 		win: ClientWindow,
@@ -1620,6 +1623,11 @@ export class AgentControlRuntime {
 			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			approveEnabled: () => this.#approveEnabled(),
+			summaryOf: tab =>
+				tab.sessionPath
+					? deps.summaries?.(tab.device)?.sessions.find(session => session.sessionPath === tab.sessionPath)
+					: undefined,
+			localSummaries: () => deps.summaries?.()?.sessions ?? [],
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
 				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
@@ -1720,21 +1728,21 @@ export class AgentControlRuntime {
 				}
 				const snippets = new Map((matches ?? []).map(match => [match.path, match.snippet]));
 				const needle = query?.toLowerCase();
-				// Where a row no tab here holds is open, and what that tab does: on the paired host, its own list
-				// (`heldOnHost`) and what it works on now (`HostView.live`, unknown from an older host or offline); here, a
-				// tab this computer runs for a paired device.
-				const live = device ? deps.remote?.hosts().find(host => host.deviceId === device)?.live : undefined;
-				const working = new Map(live?.map(session => [session.sessionPath, session.state]));
-				const hosted = new Map(device ? [] : deps.hosted?.().map(session => [session.sessionPath, session]));
+				// Where a row no tab here holds is open, and what that tab does, from the summaries of the computer it runs
+				// on: on the paired host, its own list (`heldOnHost`) and its summaries (unknown from an older host or
+				// offline); here, a tab this computer runs for a paired device.
+				const summaries = deps.summaries?.(device) ?? null;
+				const summaryOf = new Map(summaries?.sessions.map(session => [session.sessionPath, session]));
 				const elsewhere = (row: SessionInfo): Pick<StoredSession, "openThere" | "openFor" | "work"> => {
+					const summary = summaryOf.get(row.path);
 					if (device) {
-						if (!row.heldOnHost && !working.has(row.path)) return {};
-						return { openThere: true, ...(live ? { work: working.get(row.path) ?? "idle" } : {}) };
+						if (!row.heldOnHost && !summary) return {};
+						const work = summary ? summaryWork(summary) : summaries ? "idle" : undefined;
+						return { openThere: true, ...(work ? { work } : {}) };
 					}
-					const tab = hosted.get(row.path);
-					if (!tab) return {};
-					const work = hostedWork(tab);
-					return { openFor: tab.device, ...(work ? { work } : {}) };
+					if (!summary?.openFor) return {};
+					const work = summaryWork(summary);
+					return { openFor: summary.openFor, ...(work ? { work } : {}) };
 				};
 				return rows.flatMap(row => {
 					const named =

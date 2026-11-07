@@ -553,14 +553,26 @@ test("daily flow c: a host's question survives a cut link, is answered on the de
 				)
 				.toBe(1);
 			await expect
-				.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).map(s => s.status), {
-					timeout: 30_000,
-				})
+				.poll(
+					async () =>
+						(
+							await b.evaluate(() =>
+								window.omp.sessions
+									.summaries()
+									.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+							)
+						).map(s => s.status),
+					{
+						timeout: 30_000,
+					},
+				)
 				.toEqual(["ready"]);
 			await expect(b.locator("[data-prompt-card]")).toHaveCount(0);
 		});
 
-		const [hosted] = await b.evaluate(() => window.omp.sessions.hosted());
+		const [hosted] = await b.evaluate(() =>
+			window.omp.sessions.summaries().then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+		);
 		const sessionPath = hosted?.sessionPath ?? "";
 		expect(sessionPath).not.toBe("");
 		await test.step("the host's sidebar lists the hosted session once", async () => {
@@ -611,7 +623,13 @@ test("daily flow c: a host's question survives a cut link, is answered on the de
 			);
 			await expect(after.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(0);
 			expect(await exists()).toBe(false);
-			expect(await b.evaluate(() => window.omp.sessions.hosted())).toEqual([]);
+			expect(
+				await b.evaluate(() =>
+					window.omp.sessions
+						.summaries()
+						.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+				),
+			).toEqual([]);
 			await expect(b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`)).toHaveCount(
 				0,
 			);

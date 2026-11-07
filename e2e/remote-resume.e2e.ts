@@ -518,9 +518,19 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 		await expect(a.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible({ timeout: 30_000 });
 		// The host's omp finishes the reply while the device is away.
 		await expect
-			.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).map(entry => entry.status), {
-				timeout: 30_000,
-			})
+			.poll(
+				async () =>
+					(
+						await b.evaluate(() =>
+							window.omp.sessions
+								.summaries()
+								.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+						)
+					).map(entry => entry.status),
+				{
+					timeout: 30_000,
+				},
+			)
 			.toEqual(["ready"]);
 		const restoredAt = Date.now();
 		await proxy.restore();
@@ -1104,9 +1114,19 @@ test("a suggestion a host's tab made while the link was down shows once the link
 		await expect(a.locator(`[data-remote-reconnecting="${deviceId}"]`)).toBeVisible({ timeout: 30_000 });
 		// The host's omp finishes the reply, and makes its suggestion, while the device is away.
 		await expect
-			.poll(async () => (await b.evaluate(() => window.omp.sessions.hosted())).map(entry => entry.status), {
-				timeout: 30_000,
-			})
+			.poll(
+				async () =>
+					(
+						await b.evaluate(() =>
+							window.omp.sessions
+								.summaries()
+								.then(all => all?.sessions.filter(row => row.openFor !== undefined) ?? []),
+						)
+					).map(entry => entry.status),
+				{
+					timeout: 30_000,
+				},
+			)
 			.toEqual(["ready"]);
 		await b.waitForTimeout(1_000);
 		await proxy.restore();

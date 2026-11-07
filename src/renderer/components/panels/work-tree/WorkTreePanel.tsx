@@ -20,7 +20,7 @@ import { useProjectNames } from "../../../lib/project-origin";
 import { costKinds, costWords } from "../../../lib/spend";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
-import { useHostedSessionsStore } from "../../../stores/hosted-sessions";
+import { summariesOf, useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import { useRemoteStore } from "../../../stores/remote";
 import { onSessionRuntimesChange, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import type { SubagentsStore } from "../../../stores/subagents";
@@ -88,7 +88,8 @@ function useWorkTree(billing: Readonly<Record<string, Billing>> | undefined): Wo
 	const review = useAgentReviewStore(state => state.byTab);
 	const usage = useAgentReviewStore(state => state.usage);
 	const closed = useClosedChildrenStore(state => state.rows);
-	const hosted = useHostedSessionsStore(state => state.sessions);
+	const summaries = useHostedSessionsStore(state => summariesOf(state, undefined));
+	const hosted = useMemo(() => summaries.filter(summary => summary.openFor !== undefined), [summaries]);
 	const hosts = useRemoteStore(state => state.state?.hosts);
 	const tabIds = useMemo(() => tabs.filter(tab => !tab.ghost).map(tab => tab.id), [tabs]);
 	const rosters = useRosters(tabIds);

@@ -9,12 +9,12 @@
 
 import { Bot, Check, MessageSquare, Pause, Play, RefreshCw, RotateCcw, Square, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { RESTART_CUT_STATUS, restartCutNote } from "../../../shared/restart-cuts";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
 import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { abortActiveTurn } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
-import { RESTART_CUT_STATUS, restartCutNote } from "../../lib/restart-cuts";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useSubagentsStore } from "../../stores/subagents";

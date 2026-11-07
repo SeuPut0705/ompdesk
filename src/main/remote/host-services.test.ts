@@ -19,7 +19,6 @@ import type {
 	CustomProvidersConfig,
 	CustomProviderView,
 	HostDesktopState,
-	HostLiveSession,
 	HostUpdateAction,
 	IpcBenchmarkRunOptions,
 	IpcBenchmarkRunResult,
@@ -40,6 +39,7 @@ import type {
 	SubagentFrame,
 } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import { applySummaryChange, type SummaryDelta, type VersionedSummaries } from "../../shared/session-summary";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { BotActivityLog } from "../agent-control/bot-activity";
 import { type AnsweredDecision, BotDesk } from "../agent-control/bot-desk";
@@ -53,6 +53,7 @@ import { SavedWorktreeStore, setSavedWorktreeStore } from "../disk/saved-worktre
 import { gitSync, initRepo } from "../local/git/test-repos";
 import type { MachineServices } from "../machine-services";
 import { RpcTimeoutError } from "../rpc-client";
+import { SessionSummaries, SUMMARY_DEBOUNCE_MS } from "../session-summaries";
 import { SidebarProjects } from "../sidebar-projects";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "../sidecar-types";
 import { setTurnStopLog } from "../turn-stop-log";
@@ -64,7 +65,6 @@ import {
 	BOT_DESK_EVENT,
 	decodeBinaryRead,
 	type KeptTab,
-	LIVE_SESSIONS_EVENT,
 	MemoryConclusionPullReply,
 	MemoryPullReply,
 	MOBILE_WEB_LINK_EVENT,
@@ -76,6 +76,7 @@ import {
 	SCHEDULES_EVENT,
 	SESSIONS_DELETED_EVENT,
 	SIGN_IN_CALLBACK_METHOD,
+	SUMMARIES_EVENT,
 	type TabEventMessage,
 	TabRunArg,
 	TabStatusArg,
@@ -84,7 +85,6 @@ import type { HostConnection } from "./host-server";
 import {
 	type HostedBotDesk,
 	type HostServicesDeps,
-	LIVE_SESSIONS_DEBOUNCE_MS,
 	LocalHostServices,
 	UPLOAD_PART_IDLE_MS,
 	UPLOAD_PARTS_PER_DEVICE,
@@ -1069,7 +1069,7 @@ describe("LocalHostServices", () => {
 		await services.call(x.peer, "tab.close", { rtab: "t" }, x);
 		expect(ipcErrorCode(await opening)).toBe("unknown_tab");
 		expect(sidecars.every(sidecar => sidecar.disposed)).toBe(true);
-		expect(services.hostedSessions()).toEqual([]);
+		expect(services.summarySources()).toEqual([]);
 		// The same rtab opens again afterwards.
 		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
 		expect(sidecars.at(-1)?.disposed).toBe(false);
@@ -1204,7 +1204,7 @@ describe("LocalHostServices", () => {
 		});
 		await new Promise<void>(resolve => setImmediate(resolve));
 		expect(sidecars[0]?.disposed).toBe(true);
-		expect(services.hostedSessions()).toEqual([]);
+		expect(services.summarySources()).toEqual([]);
 		expect(notify).toBeUndefined();
 		// Closed, not yet deleted: the device's tab ends, but no tombstone until the file is gone.
 		expect(x.tabEvents().map(event => event.name)).not.toContain("sessionDeleted");
@@ -1226,7 +1226,7 @@ describe("LocalHostServices", () => {
 		sidecars[0]?.setStatus("ready");
 		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
 		// y holds no tab here (an asleep one its layout restored is the device's own, unknown to this computer).
-		await services.call(y.peer, "sessions.live", {}, y);
+		await services.call(y.peer, "sessions.summaries", {}, y);
 
 		const pushed = (conn: FakeConnection) =>
 			conn.events.filter(entry => entry.event === SESSIONS_DELETED_EVENT).map(entry => entry.data);
@@ -2757,11 +2757,41 @@ describe("LocalHostServices for this computer's own windows", () => {
 		return view;
 	}
 
-	it("lists the sessions its hosted tabs run with their live state, and says when that changes", async () => {
-		const { services, sidecar, x } = await hosted();
-		const changed = vi.fn();
-		services.onHostedSessionsChange(changed);
-		expect(services.hostedSessions()).toEqual([
+	/** The one builder of this computer's summaries wired to these services as `index.ts` wires it. */
+	function withSummaries(graceMs?: number) {
+		let builder: SessionSummaries | undefined;
+		const live = (): SessionSummaries => {
+			if (!builder) throw new Error("summaries not built yet");
+			return builder;
+		};
+		const context = setup(graceMs, {
+			summaries: {
+				track: sidecar => live().track(sidecar),
+				changed: () => live().changed(),
+				current: () => live().current(),
+			},
+		});
+		builder = new SessionSummaries(() => context.services.summarySources());
+		builder.onChange(delta => context.services.summariesChanged(delta));
+		return { ...context, builder };
+	}
+
+	/** A device's agent opened a session here, with this computer's summaries built from it. */
+	async function hostedWithSummaries(graceMs?: number) {
+		const context = withSummaries(graceMs);
+		const x = new FakeConnection(peer("device-x"));
+		await context.services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await context.services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		const sidecar = context.sidecars[0];
+		if (!sidecar) throw new Error("expected a sidecar");
+		sidecar.setStatus("ready");
+		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "Fix login" });
+		return { ...context, x, sidecar };
+	}
+
+	it("summarizes the sessions its hosted tabs run for the device, with their live state", async () => {
+		const { builder, sidecar, x, services } = await hostedWithSummaries();
+		expect(builder.current().sessions).toMatchObject([
 			{
 				sessionPath: SESSION,
 				sessionId: "s1",
@@ -2769,46 +2799,39 @@ describe("LocalHostServices for this computer's own windows", () => {
 				cwd: workDir,
 				kind: "agent",
 				status: "ready",
-				device: "device-x",
+				openFor: "device-x",
+				agents: [],
 			},
 		]);
 
 		sidecar.emit("events", [{ type: "agent_start" }]);
-		expect(services.hostedSessions()[0]?.status).toBe("running");
+		expect(builder.current().sessions[0]).toMatchObject({ status: "running" });
 		sidecar.emit("extensionUi", ask("ask-1"));
-		expect(services.hostedSessions()[0]?.awaitingInput).toBe(true);
-		expect(changed).toHaveBeenCalled();
+		expect(builder.current().sessions[0]).toMatchObject({ ask: "input" });
 
 		// Another omp still holds the session: a wait this computer's sidebar shows as one, never as a failure.
 		sidecar.held = true;
 		sidecar.setStatus("error");
-		expect(services.hostedSessions()[0]).toMatchObject({ status: "error", sessionHeld: true });
+		expect(builder.current().sessions[0]).toMatchObject({ status: "error", sessionHeld: true });
 		sidecar.held = false;
 		sidecar.setStatus("error");
-		expect(services.hostedSessions()[0]).not.toHaveProperty("sessionHeld");
+		expect(builder.current().sessions[0]).not.toHaveProperty("sessionHeld");
 
-		changed.mockClear();
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
-		expect(services.hostedSessions()).toEqual([]);
-		expect(changed).toHaveBeenCalled();
+		expect(builder.current().sessions).toEqual([]);
 	});
 
-	it("shows the connection wait this computer holds a hosted tab's turn for on its sidebar row, and says when it starts and ends", async () => {
-		const { services } = await hosted();
-		const changed = vi.fn();
-		services.onHostedSessionsChange(changed);
+	it("shows the connection wait this computer holds a hosted tab's turn for in the tab's summary, and says when it starts and ends", async () => {
+		const { services, builder } = await hostedWithSummaries();
 		services.setAwaitingConnection("peer:device-x:t1", true);
-		expect(services.hostedSessions()[0]).toMatchObject({ status: "ready", awaitingConnection: true });
-		expect(changed).toHaveBeenCalledTimes(1);
+		expect(builder.current().sessions[0]).toMatchObject({ status: "ready", awaitingConnection: true });
 		services.setAwaitingConnection("peer:device-x:t1", false);
-		expect(services.hostedSessions()[0]).not.toHaveProperty("awaitingConnection");
-		expect(changed).toHaveBeenCalledTimes(2);
+		expect(builder.current().sessions[0]).not.toHaveProperty("awaitingConnection");
 	});
 
-	it("tells every device and every window which of its sessions work now, from its windows and the tabs it runs for devices", async () => {
+	it("sends every connected device one `host.summaries` delta per burst of a device tab's turn and ask, and answers `sessions.summaries` with the whole set", async () => {
 		vi.useFakeTimers();
-		let windows: HostLiveSession[] = [{ sessionPath: "/s/window.jsonl", state: "background" }];
-		const { services, sidecars } = setup(60_000, { windowLiveSessions: () => windows });
+		const { services, sidecars } = withSummaries();
 		const x = new FakeConnection(peer("device-x"));
 		const y = new FakeConnection(peer("device-y"));
 		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
@@ -2817,46 +2840,48 @@ describe("LocalHostServices for this computer's own windows", () => {
 		if (!sidecar) throw new Error("expected a sidecar");
 		sidecar.setStatus("ready");
 		sidecar.emit("session", { sessionId: "s1", sessionFile: SESSION, sessionName: "Fix login" });
-		// Another device, which runs nothing here, reads the list as its link comes up.
-		expect(await services.call(y.peer, "sessions.live", {}, y)).toEqual({
-			sessions: [{ sessionPath: "/s/window.jsonl", state: "background" }],
-		});
+		// Another device, which runs nothing here, reads the set as its link comes up.
+		const whole = (await services.call(y.peer, "sessions.summaries", {}, y)) as VersionedSummaries;
+		expect(whole.sessions).toMatchObject([{ sessionPath: SESSION, status: "ready", openFor: "device-x" }]);
 		const pushed = (conn: FakeConnection) =>
-			conn.events.filter(entry => entry.event === LIVE_SESSIONS_EVENT).map(entry => entry.data);
-		// Every window hears the same list (another window's or a phone page's sidebar lights rows no tab of it holds).
-		const heard: HostLiveSession[][] = [];
-		services.onLiveSessionsChange(() => heard.push(services.liveSessions()));
+			conn.events.filter(entry => entry.event === SUMMARIES_EVENT).map(entry => entry.data as SummaryDelta);
+		const heard = { x: pushed(x).length, y: pushed(y).length };
 
-		// x's tab starts a turn, then an ask opens in it: one push per burst, to both devices.
+		// x's tab starts a turn, then an ask opens in it: one delta per burst, to both devices.
 		sidecar.emit("events", [{ type: "agent_start" }]);
 		sidecar.emit("extensionUi", ask("ask-1"));
-		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
-		const waiting = {
-			sessions: [
-				{ sessionPath: "/s/window.jsonl", state: "background" },
-				{ sessionPath: SESSION, state: "waiting" },
-			],
+		vi.advanceTimersByTime(SUMMARY_DEBOUNCE_MS);
+		const delta = {
+			base: whole.version,
+			version: expect.any(String),
+			set: [expect.objectContaining({ sessionPath: SESSION, status: "running", ask: "input" })],
+			remove: [],
 		};
-		expect(pushed(x)).toEqual([waiting]);
-		expect(pushed(y)).toEqual([waiting]);
-		expect(heard).toEqual([waiting.sessions]);
-
-		// A window's turn ends, and a window takes up the same session the device's tab waits on: waiting still wins.
-		windows = [{ sessionPath: SESSION, state: "turn" }];
-		services.liveSessionsChanged();
-		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
-		expect(pushed(y).at(-1)).toEqual({ sessions: [{ sessionPath: SESSION, state: "waiting" }] });
+		expect(pushed(x).slice(heard.x)).toEqual([delta]);
+		expect(pushed(y).slice(heard.y)).toEqual([delta]);
+		// A device that applies it holds what the host answers whole.
+		const next = applySummaryChange(whole, pushed(y).at(-1) as SummaryDelta);
+		expect(next).toEqual(await services.call(y.peer, "sessions.summaries", {}, y));
 
 		// Nothing changed: nothing is sent again.
-		services.liveSessionsChanged();
-		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
-		expect(pushed(y)).toHaveLength(2);
-		expect(heard).toHaveLength(2);
+		services.workChanged();
+		vi.advanceTimersByTime(SUMMARY_DEBOUNCE_MS);
+		expect(pushed(y).slice(heard.y)).toHaveLength(1);
 
-		windows = [];
+		// The device closes its tab: the session leaves the set.
 		await services.call(x.peer, "tab.close", { rtab: "t1" }, x);
-		vi.advanceTimersByTime(LIVE_SESSIONS_DEBOUNCE_MS);
-		expect(pushed(y).at(-1)).toEqual({ sessions: [] });
+		vi.advanceTimersByTime(SUMMARY_DEBOUNCE_MS);
+		expect(pushed(y).at(-1)).toMatchObject({ set: [], remove: [SESSION] });
+		expect(await services.call(y.peer, "sessions.summaries", {}, y)).toMatchObject({ sessions: [] });
+	});
+
+	it("answers an older device's `sessions.live` as an unknown method, and `sessions.summaries` with null while no builder runs", async () => {
+		const { services } = setup();
+		const y = new FakeConnection(peer("device-y"));
+		expect(ipcErrorCode(await services.call(y.peer, "sessions.live", {}, y).catch((error: unknown) => error))).toBe(
+			"unsupported",
+		);
+		expect(await services.call(y.peer, "sessions.summaries", {}, y)).toBeNull();
 	});
 
 	it("tells devices its own Mobile web address, and every connected device when it changes", async () => {
@@ -2909,7 +2934,7 @@ describe("LocalHostServices for this computer's own windows", () => {
 		expect(seen).toEqual(["events"]);
 		expect(sidecar.disposed).toBe(false);
 		expect(x.tabEvents().length).toBe(before + 1);
-		expect(services.hostedSessions()).toHaveLength(1);
+		expect(services.summarySources()).toHaveLength(1);
 	});
 
 	it("labels a transcript page for this computer: its own prompts plain, the device's named", async () => {
@@ -2990,7 +3015,7 @@ describe("LocalHostServices for this computer's own windows", () => {
 		const refused = await sideChannelError(() => view.sendSideChannel({ ...no, confirmed: true }));
 		expect(ipcErrorCode(refused)).toBe("already_answered");
 		expect(sidecar.sideFrames).toEqual([yes, no]);
-		expect(services.hostedSessions()[0]?.awaitingInput).toBeUndefined();
+		expect(services.summarySources()[0]?.facts()?.ask).toBeUndefined();
 	});
 
 	it("ends a window's view when the device closes its tab, before that omp goes", async () => {
@@ -3061,7 +3086,7 @@ describe("LocalHostServices: a device opening a session a window of this compute
 		await services.call(x.peer, "tab.command", { rtab: "t1", command: { type: "get_state" } }, x);
 		expect(view.commands).toEqual([{ type: "get_state" }]);
 		// The window's tab is the computer's own: never listed as a device's, never resumed or restarted as one.
-		expect(services.hostedSessions()).toEqual([]);
+		expect(services.summarySources()).toEqual([]);
 		expect(services.resumeFacts()).toEqual([]);
 		services.restartOnNewOmp();
 		expect(view.started).toEqual([]);

@@ -70,7 +70,6 @@ import type {
 	RpcCommand,
 	RpcResponse,
 	RpcSessionState,
-	SubagentSnapshot,
 	TodoPhase,
 	WorktreeSetupReport,
 } from "../../shared/rpc-types";
@@ -81,6 +80,7 @@ import {
 	type ScheduleFrequency,
 	type ScheduleRun,
 } from "../../shared/schedules";
+import { runningAgentCount, type SessionSummary } from "../../shared/session-summary";
 import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
 import {
 	type FamilyEdits,
@@ -370,6 +370,10 @@ export interface AgentControlHost {
 	fullEnabled(): boolean;
 	/** `agentControlApprove`, or full control: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
+	/** What every row shows of the tab's session, from the computer that runs it; undefined while it is not known. */
+	summaryOf(tab: Pick<ControlTab, "sessionPath" | "device">): SessionSummary | undefined;
+	/** What every row shows of the sessions this computer runs, its windows' tabs and the ones it runs for paired devices. */
+	localSummaries(): readonly SessionSummary[];
 	/** `agentControlManage` (default on) or full control: an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open asks unless full control is on. */
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
@@ -1156,7 +1160,8 @@ interface SessionState {
 	state: RpcSessionState | null;
 	last: string | null;
 	step: string | null;
-	subagents: SubagentSnapshot[];
+	/** Its subagents that run now, from the summary every row reads (`AgentControlHost.summaryOf`). */
+	subagents: number;
 }
 
 type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] };
@@ -1651,26 +1656,25 @@ export class AgentControl {
 	}
 
 	async #state(tab: ControlTab): Promise<SessionState> {
-		const empty: SessionState = { state: null, last: null, step: null, subagents: [] };
+		const empty: SessionState = { state: null, last: null, step: null, subagents: 0 };
 		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return empty;
 		const call = <T>(command: RpcCommand, pick: (data: unknown) => T | null): Promise<T | null> =>
 			this.#host
 				.command(tab.tabId, command, STATE_TIMEOUT_MS)
 				.then(response => (response.success ? pick(response.data) : null))
 				.catch(() => null);
-		const [state, last, subagents, page] = await Promise.all([
+		const [state, last, page] = await Promise.all([
 			call({ type: "get_state", brief: true }, data => (data as RpcSessionState | undefined) ?? null),
 			call({ type: "get_last_assistant_text" }, data =>
 				data && typeof data === "object" && "text" in data && typeof data.text === "string" ? data.text : null,
 			),
-			tab.busy ? call({ type: "get_subagents" }, subagentRows) : null,
 			tab.busy ? call({ type: "get_transcript_page", fromEnd: true, limit: 8 }, transcriptPage) : null,
 		]);
 		return {
 			state,
 			last,
 			step: page ? currentStep(page.messages) : null,
-			subagents: (subagents ?? []).filter(row => row.status === "running" && row.live !== false),
+			subagents: runningAgentCount(this.#host.summaryOf(tab)),
 		};
 	}
 
@@ -1853,7 +1857,7 @@ export class AgentControl {
 				const model = session.state?.model;
 				if (model) parts.push(`model ${model.provider}/${model.id}`);
 				if (session.state?.planModeEnabled) parts.push("plan mode");
-				if (session.subagents.length) parts.push(`${session.subagents.length} subagent(s) running`);
+				if (session.subagents) parts.push(`${session.subagents} subagent(s) running`);
 				const todos = todoProgress(session.state?.todoPhases);
 				if (todos) parts.push(todos);
 				if (pace) parts.push(paceShort(pace));
@@ -1867,6 +1871,35 @@ export class AgentControl {
 				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
 			}),
 		);
+		// The sessions this computer runs for a paired device: no window's tab here, but its rows show them, and so does
+		// this list, from the same summaries.
+		if (app && !device && !args.mine) {
+			const held = new Set(tabs.map(tab => tab.sessionPath));
+			for (const summary of this.#host.localSummaries()) {
+				if (!summary.openFor || held.has(summary.sessionPath)) continue;
+				if (args.folder && !summary.cwd.includes(args.folder)) continue;
+				const title = summary.title || summary.autoTitle;
+				if (query && !(title ?? "").toLowerCase().includes(query)) continue;
+				const waiting = summary.ask !== undefined;
+				const running = !waiting && (summary.status === "running" || summary.status === "starting");
+				const state = waiting
+					? "waiting for the user's answer there"
+					: summary.status === "running"
+						? summary.settling
+							? "running (background work still going)"
+							: "running"
+						: summary.status === "ready"
+							? "idle"
+							: summary.status;
+				const agents = runningAgentCount(summary);
+				const parts = [state, `folder ${summary.cwd}`, ...(agents ? [`${agents} subagent(s) running`] : [])];
+				const id = summary.sessionId ? ` (saved id ${summary.sessionId})` : "";
+				rows.push({
+					kind: waiting ? "waiting" : running ? "running" : "idle",
+					text: `- ${title ? `"${oneLine(title, 80)}"` : "(untitled)"}${id} [a tab this computer runs for ${summary.openFor}]\n  ${parts.join("; ")}`,
+				});
+			}
+		}
 		const kept = rows.filter(row => !args.status || row.kind === args.status);
 		const where = device
 			? `on ${device.name}`
@@ -2944,7 +2977,7 @@ export class AgentControl {
 			fail(
 				target.asks.length > 0
 					? "That is a confirmation card for the user (OMPdesk asks the person before an agent action); only the user answers it."
-					: `${label(target)} is not waiting for an answer (${this.#stateLine(target, { state: null, last: null, step: null, subagents: [] })}). See where it is with ompdesk_session_result; only a session ompdesk_sessions lists as waiting can be answered.`,
+					: `${label(target)} is not waiting for an answer (${this.#stateLine(target, { state: null, last: null, step: null, subagents: 0 })}). See where it is with ompdesk_session_result; only a session ompdesk_sessions lists as waiting can be answered.`,
 			);
 		const ask = args.request ? asks.find(entry => entry.id === args.request) : asks[0];
 		if (!ask) fail(`No pending request "${args.request}" there. Pending: ${asks.map(entry => entry.id).join(", ")}.`);
@@ -4601,13 +4634,6 @@ function transcriptPage(data: unknown): MessagesPage | null {
 	return data && typeof data === "object" && "messages" in data && Array.isArray(data.messages)
 		? (data as MessagesPage)
 		: null;
-}
-
-/** `get_subagents` rows from its `{ subagents }` payload. */
-function subagentRows(data: unknown): SubagentSnapshot[] {
-	return data && typeof data === "object" && "subagents" in data && Array.isArray(data.subagents)
-		? (data.subagents as SubagentSnapshot[])
-		: [];
 }
 
 function askTitle(request: ExtensionUIRequest): string {

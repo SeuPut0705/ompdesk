@@ -4,8 +4,8 @@
  * the frame and the transcript's delivery arrives first.
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { RESTART_CUT_STATUS } from "../../shared/restart-cuts";
 import type { AgentMessage, SubagentFrame } from "../../shared/rpc-types";
-import { RESTART_CUT_STATUS } from "../lib/restart-cuts";
 import { routeCommands } from "../test-support/route-commands";
 import type { MessagesStore } from "./messages";
 import { createMessagesStore } from "./messages";

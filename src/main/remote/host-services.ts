@@ -18,8 +18,8 @@
  * A relaunched device reopens its tabs under new rtabs: the open takes over
  * the tab its previous connection left on that session instead of a second omp.
  *
- * This computer's own windows see those tabs too: `hostedSessions` lists each
- * session a tab runs with its live state (their sidebar rows), and
+ * This computer's own windows see those tabs too: each is a source of the
+ * session summaries (`summarySources`, session-summaries.ts), and
  * `viewSession` hands a window a HostedTabView of the tab (hosted-view.ts), so
  * opening the session there views the device's omp instead of starting a
  * second one. The first answer to an ask, from the device or such a window,
@@ -52,8 +52,6 @@ import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPDATE_ACTIONS,
 	HOST_UPLOAD_MAX_BYTES,
-	type HostLiveSession,
-	type IpcHostedSession,
 	type IpcScheduledRetry,
 	type RemoteOpenedTab,
 	type SessionInfo,
@@ -73,8 +71,10 @@ import {
 	type SubagentFrame,
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
+import type { SummaryAsk, SummaryDelta } from "../../shared/session-summary";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
+import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
 import { TURN_COMMANDS, type TurnGate } from "../agent-control/turn-gate";
 import type { BackgroundWorkMember } from "../background-work";
@@ -98,6 +98,7 @@ import { ompRestartDecision } from "../omp-restart";
 import type { SessionIndex } from "../session-index";
 import { SessionListShare } from "../session-list-share";
 import { deleteSession, moveSession, recordSessionDelete, renameSession } from "../session-mutations";
+import type { SessionSummaries, SummaryFacts, SummarySource } from "../session-summaries";
 import type { SidecarSessionIdentity } from "../sidecar";
 import { type SidecarPool, STOP_SESSION_WAIT_MS } from "../sidecar-pool";
 import {
@@ -158,8 +159,6 @@ import {
 	HostUploadPartParams,
 	KEPT_TABS_METHOD,
 	type KeptTab,
-	LIVE_SESSIONS_EVENT,
-	LIVE_SESSIONS_METHOD,
 	MEMORY_METHODS,
 	MemoryConclusionPullParams,
 	type MemoryConclusionPullReply,
@@ -195,6 +194,8 @@ import {
 	SIGN_IN_CALLBACK_METHOD,
 	SignInCallbackParams,
 	type SignInCallbackReply,
+	SUMMARIES_EVENT,
+	SUMMARIES_METHOD,
 	TAB_EVENT,
 	TAB_EVENT_NAMES,
 	type TabBridgeArg,
@@ -224,8 +225,8 @@ const SESSIONS_CHANGED_DEBOUNCE_MS = 300;
 export const UPLOAD_PART_IDLE_MS = 2 * 60_000;
 /** Files one device may be sending in parts at once (each up to HOST_UPLOAD_MAX_BYTES held until its last part). */
 export const UPLOAD_PARTS_PER_DEVICE = 2;
-/** A turn's start, its tool calls' asks and its end come in bursts: one push of the live sessions per burst. */
-export const LIVE_SESSIONS_DEBOUNCE_MS = 250;
+/** The tabs a session opened on paired devices change in bursts (a spawn, its status, its title): one push per burst. */
+export const REMOTE_OPENED_DEBOUNCE_MS = 250;
 /** Answers kept per tab to refuse the other side's late one (`already_answered`); the oldest go first. */
 const ANSWERED_KEPT = 256;
 
@@ -311,8 +312,8 @@ export interface HostServicesDeps {
 	 * after this computer restarts still spends its device's quota. Absent: kept in memory only.
 	 */
 	runChargesFile?: string;
-	/** The sessions this computer's own windows work on now (`SidecarPool.liveSessions`), for `liveSessions`. */
-	windowLiveSessions?: () => HostLiveSession[];
+	/** The one builder of this computer's session summaries, read by a device's `sessions.summaries`. */
+	summaries?: Pick<SessionSummaries, "track" | "changed" | "current">;
 	/** The tabs this computer's windows hold on a paired device that its sessions opened (`SidecarPool.remoteOpenedTabs`). */
 	windowRemoteOpened?: () => RemoteOpenedTab[];
 	/**
@@ -622,8 +623,6 @@ export class LocalHostServices implements HostServices {
 	readonly #opening = new Map<string, number>();
 	readonly #closedWhileOpening = new Set<string>();
 	readonly #runningListeners = new Set<() => void>();
-	readonly #hostedListeners = new Set<() => void>();
-	readonly #liveListeners = new Set<() => void>();
 	readonly #remoteOpenedListeners = new Set<() => void>();
 	readonly #windowHeldListeners = new Set<() => void>();
 	/** `windowHeldSessions` as last announced to the windows. */
@@ -633,10 +632,6 @@ export class LocalHostServices implements HostServices {
 	 * failed or unmerged children (`sessions.list` tells a device, whose tabs hold neither opener nor child).
 	 */
 	readonly #childProblems = new Map<string, Map<string, "failed" | "unmerged">>();
-	/** `hostedSessions` as last announced: a listener hears only a real change. */
-	#hostedSnapshot = "[]";
-	/** `liveSessions` as last sent to the devices, and the timer that batches a burst of changes into one push. */
-	#liveSnapshot = "[]";
 	/** `remoteOpened` as last sent to the devices and the windows, batched with the live list. */
 	#remoteOpenedSnapshot = "[]";
 	/**
@@ -653,7 +648,7 @@ export class LocalHostServices implements HostServices {
 	readonly #deviceList = new SessionListShare(async () =>
 		this.#decorated(await this.#deps.sessionIndex.list("global")),
 	);
-	#liveTimer: NodeJS.Timeout | undefined;
+	#remoteOpenedTimer: NodeJS.Timeout | undefined;
 	#quota: PeerQuota | null = null;
 	#memory: HostMemory | null = null;
 	#resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation"> | null = null;
@@ -868,7 +863,7 @@ export class LocalHostServices implements HostServices {
 		tab.awaitingConnection = awaiting;
 		this.#emit(tab, "awaitingConnection", awaiting);
 		for (const view of tab.views) view.emit("awaitingConnection", awaiting);
-		this.#hostedChanged();
+		this.workChanged();
 	}
 
 	/** The omps here that run for paired devices, for idle release: pid and title. */
@@ -913,29 +908,42 @@ export class LocalHostServices implements HostServices {
 		return null;
 	}
 
-	/** The sessions the tabs here run for paired devices, with their live state: this computer's sidebar rows. */
-	hostedSessions(): IpcHostedSession[] {
-		const sessions: IpcHostedSession[] = [];
-		for (const tab of this.#tabs.values()) {
-			if (tab.sessionFile === undefined || tab.viewing) continue;
-			const { sidecar } = tab;
-			const session: IpcHostedSession = {
-				sessionPath: tab.sessionFile,
-				cwd: sidecar.cwd,
-				kind: sidecar.kind,
-				status: tab.run.running && sidecar.status === "ready" ? "running" : sidecar.status,
-				device: tab.origin.name,
+	/** The sessions the tabs here run for paired devices, for the one summary builder (session-summaries.ts). */
+	summarySources(): SummarySource[] {
+		return [...this.#tabs.values()].flatMap(tab => {
+			// A tab that shows another tab's omp (a window's here, another device's tab here): that tab is the source.
+			if (tab.viewing) return [];
+			const facts = (): SummaryFacts | null => {
+				const { sidecar } = tab;
+				if (tab.sessionFile === undefined) return null;
+				const status = tab.run.running && sidecar.status === "ready" ? "running" : sidecar.status;
+				let ask: SummaryAsk | undefined;
+				for (const request of tab.asks.values())
+					if (ask !== "approval") ask = isApprovalSelect(request) ? "approval" : "input";
+				return {
+					sessionPath: tab.sessionFile,
+					tabId: tab.resumeId,
+					cwd: sidecar.cwd,
+					kind: sidecar.kind,
+					status,
+					...(status === "running" && runSettling(tab.run) ? { settling: true as const } : {}),
+					...(status === "running" && tab.run.since !== undefined ? { since: tab.run.since } : {}),
+					...(ask ? { ask } : {}),
+					...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
+					...(status === "error" && sidecar.statusPayload?.sessionHeld ? { sessionHeld: true as const } : {}),
+					...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
+					...(tab.title ? { title: tab.title } : {}),
+					...(tab.autoTitle ? { autoTitle: tab.autoTitle } : {}),
+					openFor: tab.origin.name,
+				};
 			};
-			if (session.status === "running" && runSettling(tab.run)) session.settling = true;
-			if (session.status === "error" && sidecar.statusPayload?.sessionHeld) session.sessionHeld = true;
-			if (tab.sessionId !== undefined) session.sessionId = tab.sessionId;
-			if (tab.title) session.title = tab.title;
-			if (tab.autoTitle) session.autoTitle = tab.autoTitle;
-			if (tab.asks.size > 0) session.awaitingInput = true;
-			if (tab.awaitingConnection) session.awaitingConnection = true;
-			sessions.push(session);
-		}
-		return sessions;
+			return [{ sidecar: tab.sidecar, facts }];
+		});
+	}
+
+	/** This computer's summaries changed: every connected device hears what changed (`host.summaries`). */
+	summariesChanged(delta: SummaryDelta): void {
+		for (const conn of this.#conns) emitSafely(conn, SUMMARIES_EVENT, delta);
 	}
 
 	/** The omps here that run for paired devices, as members of a shared checkout (`checkout-peers.ts`). */
@@ -971,22 +979,6 @@ export class LocalHostServices implements HostServices {
 		});
 	}
 
-	/** Called whenever `hostedSessions` changed; returns the unsubscribe. */
-	onHostedSessionsChange(listener: () => void): () => void {
-		this.#hostedListeners.add(listener);
-		return () => {
-			this.#hostedListeners.delete(listener);
-		};
-	}
-
-	/** Called whenever `liveSessions` changed, once a burst settles; returns the unsubscribe. */
-	onLiveSessionsChange(listener: () => void): () => void {
-		this.#liveListeners.add(listener);
-		return () => {
-			this.#liveListeners.delete(listener);
-		};
-	}
-
 	/** Called whenever `remoteOpened` changed, once a burst settles; returns the unsubscribe. */
 	onRemoteOpenedChange(listener: () => void): () => void {
 		this.#remoteOpenedListeners.add(listener);
@@ -1003,26 +995,6 @@ export class LocalHostServices implements HostServices {
 		return this.#deps.windowRemoteOpened?.() ?? [];
 	}
 
-	/**
-	 * The sessions this computer works on now, from its windows' tabs and the tabs it runs for every device: what a
-	 * device's section of this computer lights for rows no tab of the device holds. Waiting beats a turn, a turn beats
-	 * background work, when a window and a device's tab name the same file.
-	 */
-	liveSessions(): HostLiveSession[] {
-		const rank = { waiting: 3, turn: 2, background: 1 } as const;
-		const live = new Map<string, HostLiveSession["state"]>();
-		const add = (sessionPath: string, state: HostLiveSession["state"]) => {
-			const known = live.get(sessionPath);
-			if (!known || rank[state] > rank[known]) live.set(sessionPath, state);
-		};
-		for (const session of this.#deps.windowLiveSessions?.() ?? []) add(session.sessionPath, session.state);
-		for (const tab of this.#tabs.values()) {
-			if (tab.sessionFile === undefined || tab.viewing) continue;
-			if (tab.asks.size > 0) add(tab.sessionFile, "waiting");
-			else if (tab.run.running) add(tab.sessionFile, runSettling(tab.run) ? "background" : "turn");
-		}
-		return [...live].map(([sessionPath, state]) => ({ sessionPath, state }));
-	}
 
 	/** This computer's Mobile web address changed: every connected device hears it (`host.mobileWeb.changed`). */
 	mobileWebLinkChanged(url: string | null): void {
@@ -1031,37 +1003,22 @@ export class LocalHostServices implements HostServices {
 
 	/**
 	 * Something a session's work hangs on changed (a turn, background work, an ask, a tab taking or leaving a session,
-	 * here or in a window): every connected device and every window of this computer hears the new lists once a burst
-	 * settles (`LIVE_SESSIONS_DEBOUNCE_MS`), each only when it differs: the live sessions and the tabs its sessions
-	 * opened on paired devices.
+	 * here or in a window): the summaries are built again, and the tabs this computer's sessions opened on paired
+	 * devices go to every device and window once a burst settles (`REMOTE_OPENED_DEBOUNCE_MS`), only when they differ.
 	 */
-	liveSessionsChanged(): void {
-		if (this.#liveTimer) return;
-		this.#liveTimer = setTimeout(() => {
-			this.#liveTimer = undefined;
+	workChanged(): void {
+		this.#deps.summaries?.changed();
+		if (this.#remoteOpenedTimer) return;
+		this.#remoteOpenedTimer = setTimeout(() => {
+			this.#remoteOpenedTimer = undefined;
 			const tabs = this.remoteOpened();
 			const opened = JSON.stringify(tabs);
-			if (opened !== this.#remoteOpenedSnapshot) {
-				this.#remoteOpenedSnapshot = opened;
-				for (const conn of this.#conns) emitSafely(conn, REMOTE_OPENED_EVENT, { tabs });
-				for (const listener of this.#remoteOpenedListeners) listener();
-			}
-			const sessions = this.liveSessions();
-			const snapshot = JSON.stringify(sessions);
-			if (snapshot === this.#liveSnapshot) return;
-			this.#liveSnapshot = snapshot;
-			for (const conn of this.#conns) emitSafely(conn, LIVE_SESSIONS_EVENT, { sessions });
-			for (const listener of this.#liveListeners) listener();
-		}, LIVE_SESSIONS_DEBOUNCE_MS);
-		this.#liveTimer.unref?.();
-	}
-
-	#hostedChanged(): void {
-		this.liveSessionsChanged();
-		const snapshot = JSON.stringify(this.hostedSessions());
-		if (snapshot === this.#hostedSnapshot) return;
-		this.#hostedSnapshot = snapshot;
-		for (const listener of this.#hostedListeners) listener();
+			if (opened === this.#remoteOpenedSnapshot) return;
+			this.#remoteOpenedSnapshot = opened;
+			for (const conn of this.#conns) emitSafely(conn, REMOTE_OPENED_EVENT, { tabs });
+			for (const listener of this.#remoteOpenedListeners) listener();
+		}, REMOTE_OPENED_DEBOUNCE_MS);
+		this.#remoteOpenedTimer.unref?.();
 	}
 
 	/**
@@ -1125,7 +1082,7 @@ export class LocalHostServices implements HostServices {
 		if (side !== "device") this.#emit(tab, "extensionUi", cancel);
 		for (const view of tab.views) if (view !== from) view.emit("extensionUi", cancel);
 		this.#resume?.sync();
-		this.#hostedChanged();
+		this.workChanged();
 	}
 
 	/**
@@ -1184,8 +1141,8 @@ export class LocalHostServices implements HostServices {
 			}
 			case KEPT_TABS_METHOD:
 				return { tabs: this.#keptTabs(peer) };
-			case LIVE_SESSIONS_METHOD:
-				return { sessions: this.liveSessions() };
+			case SUMMARIES_METHOD:
+				return this.#deps.summaries?.current() ?? null;
 			case REMOTE_OPENED_METHOD:
 				return { tabs: this.remoteOpened() };
 			case SESSIONS_DELETED_METHOD: {
@@ -1725,8 +1682,8 @@ export class LocalHostServices implements HostServices {
 		for (const key of [...this.#tabs.keys()]) this.#closeTab(key);
 		clearTimeout(this.#sessionsTimer);
 		this.#sessionsTimer = undefined;
-		clearTimeout(this.#liveTimer);
-		this.#liveTimer = undefined;
+		clearTimeout(this.#remoteOpenedTimer);
+		this.#remoteOpenedTimer = undefined;
 		this.#relays.dispose();
 		this.#conns.clear();
 	}
@@ -2046,6 +2003,8 @@ export class LocalHostServices implements HostServices {
 		this.#trackRun(tab);
 		this.#wire(tab);
 		this.#trackForWindows(tab);
+		// A view of a window's tab is that tab's: its pool entry is the summary's source.
+		if (!view) this.#deps.summaries?.track(sidecar);
 		// A tab opened on a stored session holds it now, though no journal moved.
 		this.listingChanged();
 		if (view) {
@@ -2072,7 +2031,7 @@ export class LocalHostServices implements HostServices {
 	}
 
 	/**
-	 * What this computer's windows read of the tab (`hostedSessions`): its session's id and name, and a
+	 * What the session summaries read of the tab (`summarySources`): its session's id and name, and a
 	 * change notice after the tab's own listeners above have updated its state.
 	 */
 	#trackForWindows(tab: HostTab): void {
@@ -2095,7 +2054,7 @@ export class LocalHostServices implements HostServices {
 			"promptResult",
 			"sessionSettled",
 		])
-			sidecar.on(name, () => this.#hostedChanged());
+			sidecar.on(name, () => this.workChanged());
 	}
 
 	#wire(tab: HostTab): void {
@@ -2812,7 +2771,7 @@ export class LocalHostServices implements HostServices {
 		disposeTerminals(terminalOwner(tab.peerId, tab.rtab));
 		if (runBusy(tab.run)) this.#runningChanged();
 		this.#resume?.sync();
-		this.#hostedChanged();
+		this.workChanged();
 		this.listingChanged();
 	}
 }

@@ -2,11 +2,31 @@ import {
 	RESTART_JOBS_MESSAGE,
 	RESTART_SUBAGENTS_MESSAGE,
 	RESTART_TURN_MESSAGE,
-} from "../../../resources/gui-bridge/restart-core";
-import type { AgentMessage } from "../../shared/rpc-types";
-import { asyncJobResults, asyncResultJobs } from "../components/chat/completion-events";
-import { resultText } from "./format";
-import { asRecord } from "./wire-value";
+} from "../../resources/gui-bridge/restart-core";
+import { asyncJobResults, asyncResultJobs } from "./async-results";
+import type { AgentMessage } from "./rpc-types";
+
+/** `value` as a plain object (not an array), else undefined: a local copy so this module stays import-light. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return value != null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
+}
+
+/**
+ * A custom message's content as text. It reads a custom message's content only (async-result notices are a
+ * string or text blocks): a string as is, text blocks joined with "\n", anything else "".
+ */
+function noticeText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.flatMap(block => {
+			const record = asRecord(block);
+			return record?.type === "text" && typeof record.text === "string" ? [record.text] : [];
+		})
+		.join("\n");
+}
 
 /**
  * The one rule for a subagent a restart ended (2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived
@@ -88,7 +108,7 @@ export function restartCuts(messages: readonly AgentMessage[]): RestartCuts {
 		}
 		if (message.customType !== "async-result") continue;
 		const jobs = asyncResultJobs(message);
-		const texts = asyncJobResults(resultText(message.content), jobs);
+		const texts = asyncJobResults(noticeText(message.content), jobs);
 		const cut = new Map<string, RestartCut>();
 		for (const job of jobs) {
 			const id = [job.agentId, job.jobId].find(candidate => candidate !== undefined && named.has(candidate));

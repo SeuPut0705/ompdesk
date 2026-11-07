@@ -1,9 +1,9 @@
 import type { StoreApi } from "zustand/vanilla";
 import { createStore } from "zustand/vanilla";
 import { assignmentTitle, unwrapStockPrompt } from "../../../resources/gui-bridge/modes/subagent-title-contracts";
+import { markCut, type RestartCut, unmarkCut } from "../../shared/restart-cuts";
 import type { AgentMessage, SubagentFrame, SubagentSnapshot } from "../../shared/rpc-types";
 import { messageText } from "../lib/messages";
-import { markCut, type RestartCut, unmarkCut } from "../lib/restart-cuts";
 import { reportedOutputTokens } from "../lib/turn-meter";
 import { activeTabCommand, createScopedStoreHook, type TabCommand } from "./session-runtime-context";
 import { createSubagentTranscripts, type SubagentTranscripts } from "./subagent-transcripts";
@@ -91,12 +91,6 @@ function normalizeSnapshot(snapshot: SubagentNode): SubagentNode {
  */
 export function settledMark(node: Pick<SubagentNode, "status" | "lastUpdate"> | undefined): string | undefined {
 	return !node || LIVE_STATUSES[node.status] ? undefined : `${node.status}:${node.lastUpdate}`;
-}
-
-/** Whether a roster still holds a subagent that runs (or waits to): what a session row counts. */
-export function holdsLiveSubagent(subagents: ReadonlyMap<string, Pick<SubagentNode, "status">> | undefined): boolean {
-	for (const node of subagents?.values() ?? []) if (LIVE_STATUSES[node.status]) return true;
-	return false;
 }
 
 /**

@@ -12,7 +12,7 @@ import { isLiveSubagentStatus } from "../panels/subagent-graph";
 /** Subagents that are live but waiting for a follow-up, not working (the work board's own split). */
 const WAITING_AGENT: Record<string, true> = { parked: true, idle: true };
 
-export function workingAgentCount(subagents: Iterable<SubagentSnapshot>): number {
+export function workingAgentCount(subagents: Iterable<Pick<SubagentSnapshot, "status">>): number {
 	let count = 0;
 	for (const agent of subagents) if (isLiveSubagentStatus(agent.status) && !WAITING_AGENT[agent.status]) count++;
 	return count;

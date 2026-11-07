@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { AgentMessage } from "../../shared/rpc-types";
 import {
 	endedWithoutMessage,
 	markCut,
@@ -9,6 +8,7 @@ import {
 	transcriptOf,
 	unmarkCut,
 } from "./restart-cuts";
+import type { AgentMessage } from "./rpc-types";
 
 // 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once, stock delivered
 // "failed in 353ms" with its empty-message warning, and the transcript showed a failure.

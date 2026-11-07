@@ -24,7 +24,6 @@ import { z } from "zod";
 import { type BotDeskState, BotDeskStateSchema } from "../../shared/bot-desk";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
-	type HostLiveSession,
 	type HostView,
 	IPC_EVENTS,
 	type IpcHostBotDesk,
@@ -41,6 +40,12 @@ import {
 import type { OmpUpdateState } from "../../shared/omp-update";
 import type { SchedulesState } from "../../shared/schedules";
 import type { VersionedSessionList } from "../../shared/session-list-delta";
+import {
+	applySummaryChange,
+	type SummariesChanged,
+	type SummaryDelta,
+	type VersionedSummaries,
+} from "../../shared/session-summary";
 import {
 	type IpcSidebarProjects,
 	SIDEBAR_PROJECTS_STATE,
@@ -61,13 +66,9 @@ import {
 	DEVICE_RENAME_EVENT,
 	DeviceNameSchema,
 	HOST_NAME_EVENT,
-	HostLiveSessionSchema,
 	KEPT_TABS_METHOD,
 	KeptTab,
 	KeptTabsReply,
-	LIVE_SESSIONS_EVENT,
-	LIVE_SESSIONS_METHOD,
-	LiveSessionsReply,
 	MOBILE_WEB_LINK_EVENT,
 	MOBILE_WEB_LINK_METHOD,
 	MODEL_WAIT_EVENT,
@@ -92,8 +93,12 @@ import {
 	SESSIONS_DELETED_METHOD,
 	SessionsDeletedReply,
 	SidebarProjectsStateSchema,
+	SUMMARIES_EVENT,
+	SUMMARIES_METHOD,
+	SummaryDeltaSchema,
 	TAB_EVENT,
 	TabEventMessage,
+	VersionedSummariesSchema,
 } from "./app-protocol";
 import { connectFirst, type ProbeResult, probeAny, RemoteClient, RemoteError, type WakeTrigger } from "./client";
 import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
@@ -206,6 +211,9 @@ export interface RemoteDevicesDeps {
 	now?: () => number;
 }
 
+/** A host whose link is down: no summaries of it, so its rows show no live state rather than stale state. */
+const OFFLINE_SUMMARIES: VersionedSummaries = { version: "offline", sessions: [] };
+
 interface HostLink {
 	client: RemoteClient;
 	/** rtab → tab on this host. */
@@ -214,8 +222,8 @@ interface HostLink {
 	closes: PendingTabCloses;
 	/** The host's session list, one copy for every window here that shows it. */
 	sessions: HostSessionList;
-	/** The host's sessions whose work goes on now (`host.liveSessions`); unset while offline or from an older host. */
-	live?: HostLiveSession[];
+	/** What the host built of its sessions' live state (`host.summaries`); unset while offline or from an older host. */
+	summaries?: VersionedSummaries;
 	/** The tabs the host's windows hold on a paired device that its sessions opened (`host.remoteOpened`). */
 	remoteOpened?: RemoteOpenedTab[];
 	/** The host's Mobile web address (`host.mobileWeb.link`); unset while offline, not serving, or from an older host. */
@@ -1070,14 +1078,17 @@ export class RemoteDevices {
 			// What the host worked on is unknown while the link is down: its rows go quiet rather than stay lit.
 			if (state !== "online") {
 				this.#deps.modelWait?.setHostCounts(deviceId, undefined);
-				link.live = undefined;
+				if (link.summaries) {
+					link.summaries = undefined;
+					this.#broadcastSummaries(deviceId, OFFLINE_SUMMARIES);
+				}
 				link.remoteOpened = undefined;
 				link.webUrl = undefined;
 			}
 			this.#broadcastState();
 			if (state !== "online") return;
 			link.closes.flush(rtab => client.request("tab.close", { rtab }));
-			void this.#readLiveSessions(deviceId, link);
+			void this.#readSummaries(deviceId, link);
 			void this.#readRemoteOpened(link);
 			void this.#readWebLink(link);
 			// Its session list went stale while it was away (or never loaded).
@@ -1125,8 +1136,17 @@ export class RemoteDevices {
 				this.#deps.broadcast(IPC_EVENTS.MODELS_CONFIG_CHANGED, undefined);
 				return;
 			}
-			if (event === LIVE_SESSIONS_EVENT) {
-				this.#setLiveSessions(link, data);
+			if (event === SUMMARIES_EVENT) {
+				const delta = SummaryDeltaSchema.safeParse(data);
+				if (!delta.success || link.client.state !== "online") return;
+				const next = applySummaryChange(link.summaries ?? null, delta.data as SummaryDelta);
+				// A change made on a version this computer does not hold: it missed one, so it reads the whole set.
+				if (!next) {
+					void this.#readSummaries(deviceId, link);
+					return;
+				}
+				link.summaries = next;
+				this.#broadcastSummaries(deviceId, delta.data as SummaryDelta);
 				return;
 			}
 			if (event === SESSIONS_DELETED_EVENT) {
@@ -1189,13 +1209,31 @@ export class RemoteDevices {
 		this.#links.delete(deviceId);
 	}
 
-	/** The host's live sessions as the link comes up; a host that does not know the method (older OMPdesk) sends none. */
-	async #readLiveSessions(deviceId: string, link: HostLink): Promise<void> {
+	/**
+	 * The host's session summaries, whole: as the link comes up and whenever a change did not apply on the copy here. A
+	 * host that does not know the method (an older OMPdesk) sends none, and its section shows no live state.
+	 */
+	async #readSummaries(deviceId: string, link: HostLink): Promise<void> {
 		try {
-			this.#setLiveSessions(link, await link.client.request<unknown>(LIVE_SESSIONS_METHOD, {}));
+			const read = VersionedSummariesSchema.safeParse(await link.client.request<unknown>(SUMMARIES_METHOD, {}));
+			if (!read.success || link.client.state !== "online") return;
+			const next = applySummaryChange(link.summaries ?? null, read.data as VersionedSummaries);
+			if (!next || next === link.summaries) return;
+			link.summaries = next;
+			this.#broadcastSummaries(deviceId, next);
 		} catch {
 			// unsupported, or the link dropped again: the next push or link-up says it.
 		}
+	}
+
+	#broadcastSummaries(device: string, change: SummaryDelta | VersionedSummaries): void {
+		this.#deps.broadcast(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, { device, change } satisfies SummariesChanged);
+	}
+
+	/** A paired host's session summaries as this computer holds them; null while offline or from an older host. */
+	summaries(deviceId: string): VersionedSummaries | null {
+		const link = this.#links.get(deviceId);
+		return link?.client.state === "online" ? (link.summaries ?? null) : null;
 	}
 
 	/** The tabs the host's sessions opened on paired devices, as the link comes up; an older host does not know the method. */
@@ -1238,17 +1276,6 @@ export class RemoteDevices {
 		this.#broadcastState();
 	}
 
-	#setLiveSessions(link: HostLink, data: unknown): void {
-		const reply = LiveSessionsReply.safeParse(data);
-		if (!reply.success || link.client.state !== "online") return;
-		const live = reply.data.sessions.flatMap(entry => {
-			const session = HostLiveSessionSchema.safeParse(entry);
-			return session.success ? [session.data] : [];
-		});
-		link.live = live;
-		this.#broadcastState();
-	}
-
 	#hostView(deviceId: string): HostView | null {
 		const link = this.#links.get(deviceId);
 		const client = link?.client;
@@ -1260,7 +1287,6 @@ export class RemoteDevices {
 			// Only while connected: the last hello says nothing of a host that may have updated since.
 			if (client.state === "online") view.appVersion = client.hello.appVersion;
 		}
-		if (client.state === "online" && link.live) view.live = link.live;
 		if (client.state === "online" && link.remoteOpened) view.remoteOpened = link.remoteOpened;
 		if (client.state === "online" && link.webUrl) view.webUrl = link.webUrl;
 		return view;

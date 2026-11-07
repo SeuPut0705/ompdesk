@@ -10,10 +10,16 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import {
+	assignmentHeadline,
+	assignmentTitle,
+	stripTitlePrefix,
+} from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
 import type { RpcCommand, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { SessionSummary } from "../../../../shared/session-summary";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
-import type { MessagesStore } from "../../../stores/messages";
+import { LOCAL_SUMMARIES, summariesOf, useHostedSessionsStore } from "../../../stores/hosted-sessions";
 import type { SessionStore } from "../../../stores/session";
 import { deleteSessionRuntime, sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { revealSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
@@ -66,9 +72,52 @@ function snap(overrides: Partial<SubagentSnapshot>): SubagentSnapshot {
 	return { id: "a1", index: 1, agent: "task", status: "running", lastUpdate: Date.now(), ...overrides };
 }
 
+/**
+ * The session's subagents as the computer running it reports them: its summary, which the rows read, and (for the
+ * side panel's Subagent view, which reads the open tab's own stream) the tab's roster.
+ */
 function seed(agents: SubagentSnapshot[], owners: Record<string, string> = {}): void {
 	act(() => {
 		sessionRuntimeStore<SubagentsStore>(TAB, "subagents")!.getState().setSnapshots(agents);
+		const summary: SessionSummary = {
+			sessionPath: SESSION,
+			tabId: TAB,
+			cwd: "/work/alpha",
+			kind: "agent",
+			status: "ready",
+			agents: agents.map(agent => ({
+				id: agent.id,
+				index: agent.index,
+				agent: agent.agent,
+				status: agent.status,
+				startedAt: agent.lastUpdate,
+				...(agent.parentToolCallId ? { parentToolCallId: agent.parentToolCallId } : {}),
+				...(agent.parentSubagentId ? { parentSubagentId: agent.parentSubagentId } : {}),
+				...(agent.kind ? { kind: agent.kind } : {}),
+				...(agent.sessionFile ? { sessionFile: agent.sessionFile } : {}),
+				...(agent.progress
+					? {
+							step: agent.progress.lastIntent ?? agent.progress.currentTool,
+							tokens: agent.progress.tokens,
+							toolCount: agent.progress.toolCount,
+							model: agent.progress.resolvedModel,
+							role: agent.progress.modelRole,
+						}
+					: {}),
+				...(agent.description || agent.assignment
+					? {
+							title:
+								assignmentTitle(agent.assignment) ??
+								(agent.description ? stripTitlePrefix(agent.description) : undefined) ??
+								assignmentHeadline(agent.assignment),
+						}
+					: {}),
+			})),
+		};
+		summaryVersion++;
+		useHostedSessionsStore.setState({
+			summaries: { [LOCAL_SUMMARIES]: { version: `test.${summaryVersion}`, sessions: [summary] } },
+		});
 		for (const [callId, owner] of Object.entries(owners)) {
 			sessionRuntimeStore<SubagentGraphStore>(TAB, "subagentGraph")!
 				.getState()
@@ -76,6 +125,7 @@ function seed(agents: SubagentSnapshot[], owners: Record<string, string> = {}): 
 		}
 	});
 }
+let summaryVersion = 0;
 
 const STATUS_OF_STATE = {
 	running: "running",
@@ -179,10 +229,13 @@ function Session({
 	tabId?: string;
 	kids?: readonly FamilyOpened[];
 }) {
+	const agents = useHostedSessionsStore(
+		state => summariesOf(state, undefined).find(summary => summary.sessionPath === sessionKey)?.agents,
+	);
 	return (
 		<>
-			<SidebarSubagentsToggle opened={kids} sessionKey={sessionKey} tabId={tabId} />
-			<SidebarSubagents opened={kids} sessionKey={sessionKey} tabId={tabId} />
+			<SidebarSubagentsToggle agents={agents} opened={kids} sessionKey={sessionKey} tabId={tabId} />
+			<SidebarSubagents agents={agents} opened={kids} sessionKey={sessionKey} tabId={tabId} />
 		</>
 	);
 }
@@ -651,45 +704,6 @@ describe("a session's family: one-line rows", () => {
 		expect(rowIds()).toEqual(["r1"]);
 		expect(groupText()).toContain("Check the build");
 		expect(doneFold()).toBeNull();
-	});
-
-	// 2 Nov 2026, the 0.94.0 → 0.94.1 update restart: each revived subagent ended at once and stock said `failed`.
-	it("folds an agent a restart ended like a stopped one, while a failed one stays a row", async () => {
-		const warning = "SYSTEM WARNING: Subagent ended without a final message.";
-		seed([
-			snap({ id: "r1", index: 1, status: "running" }),
-			snap({ id: "bad", index: 2, status: "failed" }),
-			snap({ id: "cut", index: 3, status: "failed" }),
-		]);
-		await mount(<Session />);
-		expect(rowIds()).toEqual(["r1", "bad", "cut"]);
-		await act(async () =>
-			sessionRuntimeStore<MessagesStore>(TAB, "messages")!.setState({
-				messages: [
-					{
-						role: "custom",
-						customType: "ompdesk-restart-subagents",
-						timestamp: 1,
-						display: true,
-						content: "These background agents you started are working again",
-						details: { jobs: [], subagents: [{ id: "cut", doing: "bash: probing the stream" }] },
-					},
-					{
-						role: "custom",
-						customType: "async-result",
-						timestamp: 2,
-						display: true,
-						content: `<system-notice>\nBackground job cut has failed.\n<task-result id="cut" agent="task" status="failed (exit 1)" duration="353ms">\n<output>\n${warning}\n</output>\n</task-result>\n</system-notice>`,
-						details: {
-							jobs: [{ jobId: "cut", agentId: "cut", type: "task", status: "failed", durationMs: 353 }],
-						},
-					},
-				],
-			}),
-		);
-		await flush();
-		expect(rowIds()).toEqual(["r1", "bad"]);
-		expect(row("bad").getAttribute("data-status")).toBe("failed");
 	});
 
 	it("nests sub-subagents one more step and keeps the tree connectors", async () => {

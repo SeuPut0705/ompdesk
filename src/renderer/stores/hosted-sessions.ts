@@ -1,30 +1,35 @@
 /**
- * The sessions paired devices' tabs run on this computer (main's LocalHostServices, `IpcHostedSession`):
- * this computer's sidebar keeps each in its project group with the tab's live state, and opening one views
- * that tab (`tabs.spawn` attaches a hosted view) instead of switching another omp onto its file. Main pushes
- * the whole list on every change.
+ * What this window knows of the sessions computers run, from main:
  *
- * Beside it, what this computer works on now (`HostLiveSession`, the list a paired device hears as
- * `host.liveSessions`): a row no tab of this window holds (another window's, the computer's when this is a phone's
- * page) still wears the working cue without a tap to open it first. The session files any window's tab holds
- * (`held`): an idle tab of another window keeps its row here as it does on a paired device's list of this computer.
- * And the tabs any window holds on a paired device that a session here opened (`remoteOpened`): this window nests each
- * under its opener as the window holding it does.
+ * - `summaries`: per computer (`""` this one, else a paired host's device id), what every session row shows of the
+ *   sessions it runs (`shared/session-summary.ts`): run state, prompt, subagents, title. Built once by the computer
+ *   that runs the session; this window holds each computer's at a version, applies the next change on it, and reads
+ *   the whole set when it holds none or a change does not apply (it missed one). No row assembles that state from
+ *   the tab events this window happened to receive.
+ * - `held`: the session files a tab of any window of this computer holds, idle ones too: an idle tab of another
+ *   window keeps its row here as it does on a paired device's list of this computer.
+ * - `remoteOpened`: the tabs any window holds on a paired device that a session here opened: this window nests each
+ *   under its opener as the window holding it does.
  */
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { create } from "zustand";
-import type { HostLiveSession, IpcHostedSession, RemoteOpenedTab } from "../../shared/ipc-types";
+import type { RemoteOpenedTab } from "../../shared/ipc-types";
+import {
+	applySummaryChange,
+	type SessionSummary,
+	type SummariesChanged,
+	type VersionedSummaries,
+} from "../../shared/session-summary";
+
+/** The key of this computer's own summaries. */
+export const LOCAL_SUMMARIES = "";
 
 interface HostedSessionsStore {
-	sessions: readonly IpcHostedSession[];
-	/** Bumped by every push; a read started before a push must not overwrite it. */
-	revision: number;
-	live: readonly HostLiveSession[];
-	/** `revision` of `live`. */
-	liveRevision: number;
+	/** Each computer's summaries as last read or changed, by device id (`LOCAL_SUMMARIES` for this computer's). */
+	summaries: Readonly<Record<string, VersionedSummaries>>;
 	/** The session files a tab of any window of this computer holds, idle ones too (`window.omp.sessions.held`). */
 	held: readonly string[];
-	/** `revision` of `held`. */
+	/** Bumped by every push of `held`; a read started before a push must not overwrite it. */
 	heldRevision: number;
 	/** The tabs any window here holds on a paired device that a session here opened (`sessions.remoteOpened`). */
 	remoteOpened: readonly RemoteOpenedTab[];
@@ -33,32 +38,72 @@ interface HostedSessionsStore {
 }
 
 export const useHostedSessionsStore = create<HostedSessionsStore>()(() => ({
-	sessions: [],
-	revision: 0,
-	live: [],
-	liveRevision: 0,
+	summaries: {},
 	held: [],
 	heldRevision: 0,
 	remoteOpened: [],
 	remoteOpenedRevision: 0,
 }));
 
+const NO_SUMMARIES: readonly SessionSummary[] = [];
+
+/** One computer's summaries (`device` absent: this computer's), as the store holds them. */
+export function summariesOf(
+	state: Pick<HostedSessionsStore, "summaries">,
+	device: string | undefined,
+): readonly SessionSummary[] {
+	return state.summaries[device ?? LOCAL_SUMMARIES]?.sessions ?? NO_SUMMARIES;
+}
+
+/** One computer's summaries by session file, for a list of rows. */
+export function useSummaryMap(device: string | undefined): ReadonlyMap<string, SessionSummary> {
+	const sessions = useHostedSessionsStore(state => summariesOf(state, device));
+	return useMemo(() => new Map(sessions.map(session => [session.sessionPath, session])), [sessions]);
+}
+
+/** Read one computer's summaries whole; null (an older host, a link down) leaves none for it. */
+export async function loadSummaries(device?: string): Promise<void> {
+	const key = device ?? LOCAL_SUMMARIES;
+	try {
+		const read = await window.omp.sessions.summaries(device);
+		const held = useHostedSessionsStore.getState().summaries[key];
+		const next = read ? applySummaryChange(held ?? null, read) : null;
+		if (next === held) return;
+		useHostedSessionsStore.setState(state => {
+			const summaries = { ...state.summaries };
+			if (next) summaries[key] = next;
+			else delete summaries[key];
+			return { summaries };
+		});
+	} catch {
+		// The next change, or the next resync, reads again.
+	}
+}
+
+/** A paired host's summaries, read once for this window (pushes keep them current from then on). */
+const requested = new Set<string>();
+export function ensureHostSummaries(device: string): void {
+	if (requested.has(device)) return;
+	requested.add(device);
+	void loadSummaries(device);
+}
+
+function applyChange({ device, change }: SummariesChanged): void {
+	const key = device ?? LOCAL_SUMMARIES;
+	const held = useHostedSessionsStore.getState().summaries[key];
+	const next = applySummaryChange(held ?? null, change);
+	// A change on a version this window does not hold: it missed one, so it reads the whole set.
+	if (!next) {
+		void loadSummaries(device);
+		return;
+	}
+	if (next === held) return;
+	useHostedSessionsStore.setState(state => ({ summaries: { ...state.summaries, [key]: next } }));
+}
+
 /** Read every list from main (boot, a web page's resync); a push that lands meanwhile wins over the reply. */
 export async function loadHostedSessions(): Promise<void> {
-	const { revision, liveRevision, heldRevision, remoteOpenedRevision } = useHostedSessionsStore.getState();
-	// The rows only gain a live state; the index still lists the sessions.
-	const hosted = async () => {
-		try {
-			const sessions = await window.omp.sessions.hosted();
-			if (useHostedSessionsStore.getState().revision === revision) useHostedSessionsStore.setState({ sessions });
-		} catch {}
-	};
-	const live = async () => {
-		try {
-			const live = await window.omp.sessions.live();
-			if (useHostedSessionsStore.getState().liveRevision === liveRevision) useHostedSessionsStore.setState({ live });
-		} catch {}
-	};
+	const { heldRevision, remoteOpenedRevision, summaries } = useHostedSessionsStore.getState();
 	const held = async () => {
 		try {
 			const held = await window.omp.sessions.held();
@@ -72,18 +117,14 @@ export async function loadHostedSessions(): Promise<void> {
 				useHostedSessionsStore.setState({ remoteOpened });
 		} catch {}
 	};
-	await Promise.all([hosted(), live(), held(), remoteOpened()]);
+	const devices = Object.keys(summaries).filter(key => key !== LOCAL_SUMMARIES);
+	await Promise.all([held(), remoteOpened(), loadSummaries(), ...devices.map(device => loadSummaries(device))]);
 }
 
 /** Boot wiring (App): the first read plus the pushes, once per window. */
 export function useHostedSessionsSync(): void {
 	useEffect(() => {
-		const unsubscribeHosted = window.omp.events.onHostedSessionsChanged(sessions =>
-			useHostedSessionsStore.setState(state => ({ sessions, revision: state.revision + 1 })),
-		);
-		const unsubscribeLive = window.omp.events.onLiveSessionsChanged(live =>
-			useHostedSessionsStore.setState(state => ({ live, liveRevision: state.liveRevision + 1 })),
-		);
+		const unsubscribeSummaries = window.omp.events.onSummariesChanged(applyChange);
 		const unsubscribeHeld = window.omp.events.onHeldSessionsChanged(held =>
 			useHostedSessionsStore.setState(state => ({ held, heldRevision: state.heldRevision + 1 })),
 		);
@@ -95,8 +136,7 @@ export function useHostedSessionsSync(): void {
 		);
 		void loadHostedSessions();
 		return () => {
-			unsubscribeHosted();
-			unsubscribeLive();
+			unsubscribeSummaries();
 			unsubscribeHeld();
 			unsubscribeRemote();
 		};

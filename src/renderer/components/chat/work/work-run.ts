@@ -1,7 +1,7 @@
 import { assignmentTitle } from "../../../../../resources/gui-bridge/modes/subagent-title-contracts";
+import { markCut, RESTART_NOTES, type RestartCut, restartCuts } from "../../../../shared/restart-cuts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { resultDetails, resultText } from "../../../lib/format";
-import { markCut, RESTART_NOTES, type RestartCut, restartCuts } from "../../../lib/restart-cuts";
 import { asRecord } from "../../../lib/wire-value";
 import type { SubagentNode } from "../../../stores/subagents";
 import type { TodoSnapshot } from "../../../stores/todo";

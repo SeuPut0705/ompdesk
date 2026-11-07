@@ -1,5 +1,5 @@
+import { type RestartCut, type RestartCuts, restartCutsOf } from "../../../../shared/restart-cuts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
-import { type RestartCut, type RestartCuts, restartCutsOf } from "../../../lib/restart-cuts";
 import { useMessagesStore } from "../../../stores/messages";
 
 /** The subagents a restart cut in this session's transcript, committed and live (`restartCuts` indexes it once). */

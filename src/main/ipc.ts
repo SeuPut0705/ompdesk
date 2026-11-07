@@ -139,6 +139,7 @@ import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
+import type { SummariesChanged } from "../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import {
@@ -222,6 +223,7 @@ import {
 	renameSession,
 	setSessionDeletedListener,
 } from "./session-mutations";
+import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
@@ -283,16 +285,13 @@ export interface IpcDeps {
 	/** Both remote roles: the paired hosts tabs may run on, and this computer as a host. */
 	remoteDevices: RemoteDevices;
 	/**
-	 * The tabs this computer runs for paired devices (LocalHostServices): this computer's windows list their
-	 * sessions (`HOSTED_SESSIONS`) and open one as a view of that tab, never as a second omp on its file.
+	 * The tabs this computer runs for paired devices (LocalHostServices): this computer's windows open one of their
+	 * sessions as a view of that tab, never as a second omp on its file.
 	 */
 	hostedTabs: Pick<
 		LocalHostServices,
 		| "viewSession"
-		| "hostedSessions"
-		| "onHostedSessionsChange"
-		| "liveSessions"
-		| "onLiveSessionsChange"
+		| "summariesChanged"
 		| "remoteOpened"
 		| "onRemoteOpenedChange"
 		| "windowHeldSessions"
@@ -313,6 +312,8 @@ export interface IpcDeps {
 		| "renameSession"
 		| "listingChanged"
 	>;
+	/** The one builder of what every row shows of this computer's sessions (session-summaries.ts). */
+	summaries: Pick<SessionSummaries, "current" | "onChange">;
 	/** Spawn a window with its own sidecar (index.ts's pool-backed helper). */
 	spawnWindow: SpawnWindow;
 	/** Where to start when the caller has no cwd. Never the volume root: a
@@ -719,14 +720,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remoteDevices.hostSessionsChanged();
 		deps.sidebarProjects?.schedule();
 	};
-	// The sessions this computer runs for paired devices are every window's sidebar rows too.
-	deps.hostedTabs.onHostedSessionsChange(() =>
-		everywhere(IPC_EVENTS.HOSTED_SESSIONS_CHANGED, deps.hostedTabs.hostedSessions()),
-	);
-	// What this computer works on now lights the rows no tab of a window holds (another window's, a phone page's).
-	deps.hostedTabs.onLiveSessionsChange(() =>
-		everywhere(IPC_EVENTS.LIVE_SESSIONS_CHANGED, deps.hostedTabs.liveSessions()),
-	);
+	// What every row shows of this computer's sessions: each change reaches every window and phone page here (a push no
+	// router drops for a hidden page) and every paired device; a view whose copy is on another version reads it whole.
+	deps.summaries.onChange(delta => {
+		everywhere(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, { change: delta } satisfies SummariesChanged);
+		deps.hostedTabs.summariesChanged(delta);
+	});
+	/** The sessions this computer runs for paired devices (a device's tab here), from the one summary builder. */
+	const hostedSummaries = () => deps.summaries.current().sessions.filter(session => session.openFor !== undefined);
 	// The tabs this computer's sessions opened on paired devices: every other window and phone page nests them under
 	// their opener as the window holding them does.
 	deps.hostedTabs.onRemoteOpenedChange(() =>
@@ -1033,11 +1034,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (cmd.type === "switch_session") {
 			const blocker = sidecarPool.foreignSessionOwner(issuerTabId, cmd.sessionPath);
 			// A paired device's tab here runs it: the window opens a view of that tab instead (`tabs.spawn`).
-			if (
-				!blocker &&
-				!sidecar.device &&
-				deps.hostedTabs.hostedSessions().some(s => s.sessionPath === cmd.sessionPath)
-			)
+			if (!blocker && !sidecar.device && hostedSummaries().some(s => s.sessionPath === cmd.sessionPath))
 				return {
 					id: _id,
 					type: "response",
@@ -1400,7 +1397,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		refreshCheckoutPeers,
 		Number(process.env.OMP_GUI_TEST_CHECKOUT_PEERS_MS) || CHECKOUT_PEERS_SWEEP_MS,
 	).unref();
-	deps.hostedTabs.onHostedSessionsChange(refreshCheckoutPeers);
+	deps.summaries.onChange(refreshCheckoutPeers);
 
 	sidecarPool.observeTabs(activity => {
 		autopilot.observeActivity(activity);
@@ -1465,7 +1462,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			const info = owner ? tabInfo(owner.tabId) : undefined;
 			if (info) return { title: info.title || info.task || "", cwd: info.cwd };
 			// A tab this computer runs for a paired device (the device opened the session itself).
-			const hosted = deps.hostedTabs.hostedSessions().find(session => session.sessionPath === sessionPath);
+			const hosted = hostedSummaries().find(session => session.sessionPath === sessionPath);
 			return hosted ? { title: hosted.title ?? "", cwd: hosted.cwd } : null;
 		},
 		stop: sessionPath => agentControl.sessionTakenOver(sessionPath),
@@ -1611,7 +1608,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
 		},
-		hosted: () => deps.hostedTabs.hostedSessions(),
+		summaries: device => (device ? remoteDevices.summaries(device) : deps.summaries.current()),
 		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
 		// A question the bot left open too long: the owner's own "needs you" notice, late, here and on phones.
 		botRemind: (tabId, requestId, title) => {
@@ -1697,11 +1694,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			agentControl.botQuiet(sessionPath) &&
 			botTakeovers.state().length === 0 &&
 			botTeach.state() === null &&
-			!deps.hostedTabs
-				.hostedSessions()
-				.some(
-					hosted => hosted.sessionPath === sessionPath && (hosted.status === "running" || hosted.awaitingInput),
-				),
+			!hostedSummaries().some(
+				hosted => hosted.sessionPath === sessionPath && (hosted.status === "running" || hosted.ask !== undefined),
+			),
 		sideAnswer: (sessionPath, question) => agentControl.botSideAnswer(sessionPath, question, BOT_HANDOFF_TIMEOUT_MS),
 		deskNote: slot => agentControl.botDeskNote(botSlots().find(entry => entry.slot === slot)?.path ?? ""),
 		title: async sessionPath =>
@@ -2182,11 +2177,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		const device = deviceOf(payload.device);
 		const owner = deps.sidecarPool.sessionOwner(payload.sessionPath, device);
 		if (owner || device) return owner;
-		const held = deps.hostedTabs.hostedSessions().some(session => session.sessionPath === payload.sessionPath);
+		const held = hostedSummaries().some(session => session.sessionPath === payload.sessionPath);
 		return held ? ({ tabId: "", winId: 0, hosted: true } satisfies IpcSessionOwner) : null;
 	});
-	ipc.handle(IPC_COMMANDS.HOSTED_SESSIONS, () => deps.hostedTabs.hostedSessions());
-	ipc.handle(IPC_COMMANDS.LIVE_SESSIONS, () => deps.hostedTabs.liveSessions());
+	// One computer's summaries: this computer's, or what this computer holds of a paired host's.
+	ipc.handle(IPC_COMMANDS.SESSION_SUMMARIES, (_caller, device?: string) =>
+		typeof device === "string" ? remoteDevices.summaries(device) : deps.summaries.current(),
+	);
 	ipc.handle(IPC_COMMANDS.REMOTE_OPENED_TABS, () => deps.hostedTabs.remoteOpened());
 	ipc.handle(IPC_COMMANDS.SESSIONS_HELD, () => [...deps.hostedTabs.windowHeldSessions()]);
 

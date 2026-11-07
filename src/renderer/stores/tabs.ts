@@ -99,7 +99,6 @@ import {
 	useRuntimeTabId,
 } from "./session-runtime-context";
 import { useSidebarProjects } from "./sidebar-projects";
-import { holdsLiveSubagent, type SubagentsStore } from "./subagents";
 import { installTabReadyGate, READY_WAIT_CAP_MS } from "./tab-ready-gate";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
@@ -820,21 +819,6 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		for (const info of list) {
 			const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
 			if (session) applyTabFailure(session, info, undefined);
-		}
-		// Nor did a runtime made by this page (this list, or a status push that named the tab first) hear the starts of
-		// the subagents a hidden running tab already runs: one read of its roster per runtime, so the tab's sidebar row
-		// counts them now. A page that missed pushes (`resync`) reads again each hidden roster that may have changed
-		// meanwhile: its tab runs, or the row still counts a subagent that may have ended. A shown tab's hydration reads it.
-		const shown = visibleTabIds(get());
-		for (const info of list) {
-			const runtime = sessionRuntime(info.tabId);
-			if (shown.includes(info.tabId) || !runtime) continue;
-			const subagents = sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents");
-			const running = info.status === "running";
-			const missed = resync && (running || holdsLiveSubagent(subagents?.getState().subagents));
-			if (!missed && (!running || rosterRead.has(runtime))) continue;
-			rosterRead.add(runtime);
-			void subagents?.getState().refresh();
 		}
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
@@ -1619,9 +1603,6 @@ export function settleTabExtensionUiRequests(open: readonly IpcOpenExtensionRequ
 /** Runtimes whose extension-UI and plan stores already feed their tab's `awaitingInput`. */
 const watchedRuntimes = new WeakSet<SessionRuntime>();
 
-/** Runtimes of hidden running tabs whose subagent roster a tab list already had read (`reconcileTabs`). */
-const rosterRead = new WeakSet<SessionRuntime>();
-
 /**
  * Mirror "this tab's session blocks on the user" (a response-bearing extension
  * request or a plan proposal) onto its tab entry, so the sidebar and tab
@@ -1795,11 +1776,6 @@ export function useSessionTabs(): void {
 			const wasUp = previousStatus === "ready" || previousStatus === "running";
 			const state = useTabsStore.getState();
 			const shown = visibleTabIds(state).includes(payload.tabId);
-			// A hidden tab up again (a new omp after one died under it, a paired host's tab back over a link that had
-			// dropped): no frame told this page what its subagents did in between, so its sidebar row reads the roster.
-			// A shown tab's hydration reads it.
-			if (previousStatus && !wasUp && !shown && (payload.status === "ready" || payload.status === "running"))
-				void sessionRuntimeStore<SubagentsStore>(payload.tabId, "subagents")?.getState().refresh();
 			if (payload.status !== "ready") return;
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
 			if (shown) {

@@ -305,7 +305,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // switch-failure toast for a tab main let go; the visible-only route in use-rpc-events.ts went): 2,167,482.
 // A tab main closed while the window still routed to it leaves quietly, with no switch-failure toast, when main's list
 // no longer names it (8 Nov 2026, tabs.ts `focusTab`: a paired host's refusal answered before its tab list): 2,167,699.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_167_699;
+// One summary per session, built in main, the only source of every row's live state (8 Nov 2026: hosted-sessions.ts
+// holds each computer's summaries at a version and applies deltas, `summaryRowState`; the per-view re-reads deleted),
+// and a project's one menu builder and Delete dialog (project-menu.ts, ProjectDeleteDialog.tsx): 2,167,649.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_167_649;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

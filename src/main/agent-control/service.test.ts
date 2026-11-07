@@ -13,6 +13,7 @@ import type {
 	RpcResponse,
 } from "../../shared/rpc-types";
 import type { ScheduleDraft, ScheduleRun } from "../../shared/schedules";
+import type { SessionSummary } from "../../shared/session-summary";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
@@ -48,7 +49,6 @@ const bad = (error: string): RpcResponse => ({ type: "response", success: false,
 interface FakeTab extends ControlTab {
 	last?: string;
 	messages?: AgentMessage[];
-	subagents?: { id: string; status: string }[];
 	/** What `get_turn_edits` answers (its newest turn's edit calls); absent = an older host refusing it. */
 	turn?: RpcTurnEdits;
 	/** What `get_git_unlanded` answers. */
@@ -113,6 +113,11 @@ class FakeHost implements AgentControlHost {
 	approveEnabled = () => this.approve;
 	manageEnabled = () => this.manage || this.full;
 	fullEnabled = () => this.full;
+	/** What every row shows of the sessions this computer runs (`SessionSummaries`), by session file. */
+	summaries: SessionSummary[] = [];
+	summaryOf = (tab: Pick<ControlTab, "sessionPath">) =>
+		tab.sessionPath ? this.summaries.find(summary => summary.sessionPath === tab.sessionPath) : undefined;
+	localSummaries = () => this.summaries;
 	tabs = (): ControlTab[] => [...this.tabsById.values()];
 	isStopping = (callerTabId: string) => this.stopping.has(callerTabId);
 	beforeFirstPrompt = async (child: OpenedChild) => {
@@ -367,8 +372,6 @@ class FakeHost implements AgentControlHost {
 				return tab.spend ? ok({ providers: tab.spend, billing: {} }) : bad("unsupported_omp");
 			case "get_last_assistant_text":
 				return ok({ text: tab.last ?? null });
-			case "get_subagents":
-				return ok({ subagents: tab.subagents ?? [] });
 			case "get_transcript_page":
 				return ok({
 					messages: tab.messages ?? [],
@@ -468,6 +471,23 @@ function prompts(host: FakeHost, tabId: string): string[] {
 		.map(entry => (entry.command as { message: string }).message);
 }
 
+const agent = (id: string, status: string): SessionSummary["agents"][number] => ({
+	id,
+	index: 0,
+	agent: "task",
+	status,
+	startedAt: 1,
+});
+
+const summary = (over: Partial<SessionSummary> & { sessionPath: string }): SessionSummary => ({
+	tabId: "tab",
+	cwd: "/repo",
+	kind: "agent",
+	status: "ready",
+	agents: [],
+	...over,
+});
+
 describe("ompdesk_sessions", () => {
 	it("lists every open session with its step, subagents, todo progress, ask and last answer; hidden ones stay private", async () => {
 		const host = new FakeHost(
@@ -478,7 +498,7 @@ describe("ompdesk_sessions", () => {
 				busy: true,
 				busySince: Date.now() - 12 * 60_000 - 5_000,
 				last: "I fixed the parser and ran the tests.",
-				subagents: [{ id: "s1", status: "running" }],
+				sessionPath: "/s/work.jsonl",
 				todos: [
 					{
 						name: "p",
@@ -498,6 +518,13 @@ describe("ompdesk_sessions", () => {
 			{ tabId: "ask00003", title: "Asker", asks: [select("Allow tool: bash", ["Approve", "Deny"])] },
 			{ tabId: "priv0004", title: "Secret plans", hidden: true, last: "classified" },
 		);
+		host.summaries = [
+			summary({
+				sessionPath: "/s/work.jsonl",
+				status: "running",
+				agents: [agent("s1", "running"), agent("s2", "failed")],
+			}),
+		];
 		const result = await control(host).run("main0001", T.list, {});
 		expect(result.isError).toBe(false);
 		expect(result.text).toContain("4 sessions");
@@ -515,6 +542,49 @@ describe("ompdesk_sessions", () => {
 		const reads = host.sent.filter(entry => entry.command.type === "get_state");
 		expect(reads.length).toBeGreaterThan(0);
 		expect(reads.every(entry => (entry.command as { brief?: boolean }).brief === true)).toBe(true);
+	});
+
+	it("reads a session's subagent count from its summary: only the running ones, and none without one", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
+			{ tabId: "work0002", title: "Worker", busy: true, sessionPath: "/s/work.jsonl" },
+			{ tabId: "bare0003", title: "Bare", busy: true, sessionPath: "/s/bare.jsonl" },
+		);
+		host.summaries = [
+			summary({
+				sessionPath: "/s/work.jsonl",
+				status: "running",
+				agents: [agent("a", "running"), agent("b", "pending"), agent("c", "waiting"), agent("d", "failed")],
+			}),
+		];
+		const text = (await control(host).run("main0001", T.list, {})).text;
+		expect(text).toMatch(/work0002 "Worker"[^\n]*\n[^\n]*2 subagent\(s\) running/);
+		expect(text).not.toMatch(/bare0003 "Bare"[^\n]*\n[^\n]*subagent/);
+		// A listing no longer asks the omp for them.
+		expect(host.sent.some(entry => entry.command.type === "get_subagents")).toBe(false);
+	});
+
+	it("lists with scope app a session this computer runs for a paired device, with its subagent count", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.summaries = [
+			summary({ sessionPath: "/s/boss.jsonl", tabId: "main0001" }),
+			summary({
+				sessionPath: "/s/2026-01-01T00-00-00-000Z_abc123.jsonl",
+				tabId: "phone001",
+				status: "running",
+				title: "Phone work",
+				sessionId: "abc123",
+				cwd: "/work",
+				openFor: "SeuPut",
+				agents: [agent("a", "running"), agent("b", "running")],
+			}),
+		];
+		const app = (await control(host).run("main0001", T.list, { scope: "app" })).text;
+		expect(app).toContain('- "Phone work" (saved id abc123) [a tab this computer runs for SeuPut]');
+		expect(app).toContain("running; folder /work; 2 subagent(s) running");
+		// The default list is this window's tabs: a device's tab here is not one of them.
+		const here = (await control(host).run("main0001", T.list, {})).text;
+		expect(here).not.toContain("Phone work");
 	});
 
 	it("says a session waiting for another omp to let go of it is waiting, not stopped", async () => {

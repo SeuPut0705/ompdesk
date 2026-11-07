@@ -12,11 +12,11 @@
 
 import { Bot, Maximize2, Square } from "lucide-react";
 import { useCallback, useState } from "react";
+import { restartCutNote } from "../../../shared/restart-cuts";
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
 import { cx, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
-import { restartCutNote } from "../../lib/restart-cuts";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { SessionRuntimeProvider, useTabSessionRuntime } from "../../stores/session-runtime-context";
 import { useSubagentsStore } from "../../stores/subagents";

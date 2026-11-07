@@ -1,8 +1,8 @@
 /** The work tree: one family per session with children, live rows listed, finished ones folded, cost summed once. */
 import { describe, expect, it } from "vitest";
 import type { AgentChildUsage, AgentReviewItem, ClosedChild } from "../../../../shared/agent-control";
-import type { IpcHostedSession } from "../../../../shared/ipc-types";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { SessionSummary } from "../../../../shared/session-summary";
 import type { SessionTab } from "../../../stores/tabs";
 import { buildWorkTree, familySpend, type WorkTreeInput } from "./work-tree";
 
@@ -144,16 +144,27 @@ describe("buildWorkTree", () => {
 	});
 
 	it("lists a paired device's session at work on this computer as a root of its own, and nothing idle", () => {
-		const hosted: IpcHostedSession[] = [
+		const hosted: SessionSummary[] = [
 			{
 				sessionPath: "/s/h1.jsonl",
+				tabId: "h1",
 				title: "From phone",
 				cwd: "/repo",
 				kind: "agent",
 				status: "running",
-				device: "Phone",
+				openFor: "Phone",
+				agents: [],
 			},
-			{ sessionPath: "/s/h2.jsonl", title: "Idle", cwd: "/repo", kind: "agent", status: "ready", device: "Phone" },
+			{
+				sessionPath: "/s/h2.jsonl",
+				tabId: "h2",
+				title: "Idle",
+				cwd: "/repo",
+				kind: "agent",
+				status: "ready",
+				openFor: "Phone",
+				agents: [],
+			},
 		];
 		const families = buildWorkTree(input({ tabs: [tab("solo")], hosted }));
 		expect(families.map(family => [family.root.key, family.root.device, family.root.state])).toEqual([
@@ -169,16 +180,26 @@ describe("buildWorkTree", () => {
 		const failed = input({ tabs: [...input().tabs.filter(t => t.id !== "boss"), tab("boss", { status: "error" })] });
 		expect(buildWorkTree(failed)[0]?.root).toMatchObject({ key: "tab:boss", state: "failed" });
 
-		const hosted: IpcHostedSession[] = [
+		const hosted: SessionSummary[] = [
 			{
 				sessionPath: "/s/h1.jsonl",
+				tabId: "h1",
 				cwd: "/repo",
 				kind: "agent",
 				status: "error",
 				sessionHeld: true,
-				device: "Phone",
+				openFor: "Phone",
+				agents: [],
 			},
-			{ sessionPath: "/s/h2.jsonl", cwd: "/repo", kind: "agent", status: "error", device: "Phone" },
+			{
+				sessionPath: "/s/h2.jsonl",
+				tabId: "h2",
+				cwd: "/repo",
+				kind: "agent",
+				status: "error",
+				openFor: "Phone",
+				agents: [],
+			},
 		];
 		expect(buildWorkTree(input({ tabs: [tab("solo")], hosted })).map(family => family.root.key)).toEqual([
 			"hosted:/s/h2.jsonl",

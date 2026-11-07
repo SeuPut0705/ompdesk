@@ -5,6 +5,7 @@
  */
 
 import { elementScroll, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import { asyncResultJobs } from "../../../shared/async-results";
 import type { AgentMessage, MessageContent } from "../../../shared/rpc-types";
 import { messageIdentity } from "../../lib/message-identity";
 import { isRenderableMessageText, messageDisplayText, splitReaction } from "../../lib/messages";
@@ -13,13 +14,7 @@ import type { TodoSnapshot } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey } from "../../stores/tools";
 import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
-import {
-	asyncResultJobs,
-	completionFailureCount,
-	deliveredJobCalls,
-	isCompletionMessage,
-	isRestartNotice,
-} from "./completion-events";
+import { completionFailureCount, deliveredJobCalls, isCompletionMessage, isRestartNotice } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
 import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
 import { skillPromptName } from "./work/work-view";

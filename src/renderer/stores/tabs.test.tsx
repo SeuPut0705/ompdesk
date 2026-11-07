@@ -50,7 +50,7 @@ import { usePlanApprovalStore } from "./plan-approval";
 import { useQueueStore } from "./queue";
 import { type SessionStore, useSessionStore } from "./session";
 import { sessionRuntime, sessionRuntimeStore, setFocusedSessionRuntime } from "./session-runtime-context";
-import { type SubagentsStore, useSubagentsStore } from "./subagents";
+import { useSubagentsStore } from "./subagents";
 import { READY_WAIT_CAP_MS, tabReady } from "./tab-ready-gate";
 import { ensureTabRuntime } from "./tab-runtime";
 import {
@@ -298,60 +298,6 @@ describe("tabs store boot reconciliation", () => {
 		const tabs = useTabsStore.getState().tabs;
 		expect(tabs).toHaveLength(1);
 		expect(tabs[0]?.title).toBe("Alpha");
-	});
-
-	// 6 Nov 2026, the owner: a background session's subagent chip was stale until clicked. A page that loads while a
-	// hidden tab's subagents run heard none of their starts: it reads the roster once, whether the tab's status push or
-	// the tab list names the tab first.
-	for (const order of ["list first", "status first"] as const)
-		it(`reads the roster of a hidden running tab the page learns of (${order})`, async () => {
-			omp.tabs.list.mockResolvedValue([
-				{ ...tabInfo("t0", "/alpha"), active: true },
-				tabInfo("t1", "/beta", "running"),
-			]);
-			omp.rpc.getSubagents.mockResolvedValue(
-				ok({ subagents: [{ id: "sa-1", index: 0, agent: "task", status: "running", lastUpdate: 1 }] }),
-			);
-			if (order === "status first")
-				useTabsStore.getState().applyTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-			await useTabsStore.getState().reconcileTabs();
-			const roster = (tabId: string) =>
-				sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents;
-			await vi.waitFor(() => expect([...(roster("t1")?.keys() ?? [])]).toEqual(["sa-1"]));
-			expect(roster("t0")?.size ?? 0).toBe(0);
-		});
-
-	// 7 Nov 2026, the owner: a paired host's session on the phone counted no subagents until tapped. A page that was
-	// hidden or lost its link missed the starts and ends of a hidden tab's subagents: every catch-up reads such a
-	// roster again, not only the page's first list.
-	it("reads a hidden tab's roster again whenever the page catches up after missed pushes", async () => {
-		const roster = (...ids: string[]) =>
-			ok({ subagents: ids.map((id, index) => ({ id, index, agent: "task", status: "running", lastUpdate: 1 })) });
-		const live = (tabId: string) =>
-			[...(sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents.values() ?? [])]
-				.filter(agent => agent.status === "running")
-				.map(agent => agent.id);
-		omp.tabs.list.mockResolvedValue([
-			{ ...tabInfo("t0", "/alpha"), active: true },
-			tabInfo("t1", "/beta", "running"),
-		]);
-		omp.rpc.getSubagents.mockResolvedValue(roster("sa-1"));
-		await useTabsStore.getState().reconcileTabs();
-		await vi.waitFor(() => expect(live("t1")).toEqual(["sa-1"]));
-		// Another subagent started while the page was hidden.
-		omp.rpc.getSubagents.mockResolvedValue(roster("sa-1", "sa-2"));
-		await useTabsStore.getState().reconcileTabs({ resync: true });
-		await vi.waitFor(() => expect(live("t1")).toEqual(["sa-1", "sa-2"]));
-		// Both ended and so did the turn while it was hidden again: the row counts none.
-		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/alpha"), active: true }, tabInfo("t1", "/beta")]);
-		omp.rpc.getSubagents.mockResolvedValue(roster());
-		await useTabsStore.getState().reconcileTabs({ resync: true });
-		await vi.waitFor(() => expect(live("t1")).toEqual([]));
-		// The shown tab reads its own in its hydration; a hidden tab with nothing running is not asked.
-		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(3);
-		await useTabsStore.getState().reconcileTabs({ resync: true });
-		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(3);
-		expect(live("t0")).toEqual([]);
 	});
 
 	it("keeps renderer-known tabs the reply misses and re-converges active on reload", async () => {
@@ -2178,36 +2124,6 @@ describe("useSessionTabs hook", () => {
 			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("progress");
-	});
-
-	// 7 Nov 2026: a hidden tab's omp died under its running subagents and came back, or a paired host's tab came back
-	// over a link that had dropped: no frame told this page what its subagents did in between.
-	it("reads a hidden tab's roster again when its omp is up again", async () => {
-		seedTabs();
-		await mount();
-		const subagents = sessionRuntimeStore<SubagentsStore>("t1", "subagents");
-		subagents?.getState().applyFrame({
-			type: "subagent_lifecycle",
-			payload: { id: "sa-old", index: 0, agent: "task", agentSource: "bundled", status: "started" },
-		});
-		const live = () =>
-			[...(subagents?.getState().subagents.values() ?? [])].filter(agent => agent.status === "running");
-		expect(live()).toHaveLength(1);
-		omp.rpc.getSubagents.mockClear();
-		omp.rpc.getSubagents.mockResolvedValue(ok({ subagents: [] }));
-		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "restarting" });
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
-		});
-		await vi.waitFor(() => expect(live()).toEqual([]));
-		// A turn that only ends reads nothing.
-		omp.rpc.getSubagents.mockClear();
-		await act(async () => {
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
-			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
-		});
-		expect(omp.rpc.getSubagents).not.toHaveBeenCalled();
 	});
 });
 

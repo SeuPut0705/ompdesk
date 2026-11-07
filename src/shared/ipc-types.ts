@@ -69,6 +69,7 @@ import type {
 } from "./rpc-types";
 import type { SchedulesApi, SchedulesState } from "./schedules";
 import type { SessionListDelta, VersionedSessionList } from "./session-list-delta";
+import type { SummariesChanged, VersionedSummaries } from "./session-summary";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
 import type { SidebarProjectsApi } from "./sidebar-projects";
 import type { SplitLayout } from "./split-layout";
@@ -154,10 +155,11 @@ export const IPC_EVENTS = {
 	BOT_DESK_CHANGED: "bot-desk:changed",
 	/** A paired host's bot desk changed (pushed by the host over the link); payload is an IpcHostBotDesk. */
 	HOST_BOT_DESK_STATE: "host-bot-desk:state",
-	/** The sessions paired devices' tabs run on this computer changed (`IpcHostedSession[]`) */
-	HOSTED_SESSIONS_CHANGED: "sessions:hosted-changed",
-	/** What this computer works on now changed (`HostLiveSession[]`, `LIVE_SESSIONS`) */
-	LIVE_SESSIONS_CHANGED: "sessions:live-changed",
+	/**
+	 * One computer's session summaries changed (`SummariesChanged`): this computer's (no `device`) or a paired host's.
+	 * Every row reads its run state, prompt and subagents from them (`shared/session-summary.ts`).
+	 */
+	SESSION_SUMMARIES_CHANGED: "sessions:summaries-changed",
 	/** The tabs this computer's sessions opened on paired devices changed (`RemoteOpenedTab[]`, `REMOTE_OPENED_TABS`) */
 	REMOTE_OPENED_TABS_CHANGED: "sessions:remote-opened-changed",
 	/** The session files this computer's windows' tabs hold changed (`string[]`, `SESSIONS_HELD`) */
@@ -243,14 +245,12 @@ export const IPC_COMMANDS = {
 	EXTENSION_UI_STATE: "extension-ui:state",
 	/** Get session list */
 	SESSIONS_LIST: "sessions:list",
-	/** The sessions paired devices' tabs run on this computer, for its own sidebar (`IpcHostedSession[]`) */
-	HOSTED_SESSIONS: "sessions:hosted",
 	/**
-	 * The sessions this computer works on now, from any of its windows' tabs or the tabs it runs for devices
-	 * (`HostLiveSession[]`, what a paired device hears as `host.liveSessions`): a window's sidebar lights a row no tab of
-	 * its own holds.
+	 * One computer's session summaries at a version (`VersionedSummaries`; arg: a paired host's device id, absent for this
+	 * computer's): a view reads them when it starts, after a reconnect, and whenever a change does not apply on its copy.
+	 * Null for a host whose summaries are not known (offline, or an older OMPdesk).
 	 */
-	LIVE_SESSIONS: "sessions:live",
+	SESSION_SUMMARIES: "sessions:summaries",
 	/**
 	 * The tabs of any of this computer's windows that run on a paired device and that one of this computer's sessions
 	 * opened (`RemoteOpenedTab[]`, what a paired device hears as `host.remoteOpened`): every view of this computer's
@@ -1797,33 +1797,6 @@ export interface IpcSessionOwner {
 	hosted?: true;
 }
 
-/**
- * A session a paired device's tab runs on this computer (LocalHostServices), for this computer's own
- * sidebar: its row stays in its project group with the tab's live state, and opening it views that tab.
- * Listed once the tab's omp reported its file.
- */
-export interface IpcHostedSession {
-	sessionPath: string;
-	sessionId?: string;
-	title?: string;
-	/** As {@link IpcTabInfo.autoTitle}. */
-	autoTitle?: string;
-	cwd: string;
-	kind: SessionKind;
-	/** The tab's status, `running` while a turn runs or its background work keeps the session unsettled. */
-	status: TabStatus;
-	/** `running` only for background work after the turn ended (as {@link IpcTabInfo.settling}). */
-	settling?: true;
-	/** An ask or approval of the omp waits for an answer (from the device or a window here). */
-	awaitingInput?: true;
-	/** With `status` `error`: another omp still holds the session, a wait (as {@link IpcTabInfo.sessionHeld}). */
-	sessionHeld?: true;
-	/** This computer holds the tab's turn for its internet connection (turn-resume.ts): the row says so the whole wait. */
-	awaitingConnection?: true;
-	/** The paired device's name. */
-	device: string;
-}
-
 export interface IpcSpawnTabResult {
 	/**
 	 * Minted tab id. Null when the requested sessionPath is already attached
@@ -1965,12 +1938,6 @@ export interface HostView {
 	/** The host's OMPdesk version, from its hello; absent while it is not connected. */
 	appVersion?: string;
 	/**
-	 * The host's sessions whose work goes on now, from any of its windows or the tabs it runs for any device: what
-	 * lights a row of the host's section that no tab of this computer holds. Only while connected, and only from a host
-	 * that pushes it (`host.liveSessions`); an older host leaves it absent.
-	 */
-	live?: HostLiveSession[];
-	/**
 	 * The host's own Mobile web address while it serves phones (`https://<MagicDNS name>:<port>`): a phone viewing this
 	 * computer's page can go to the host's page directly. Only while connected, from a host that answers it.
 	 */
@@ -1993,13 +1960,6 @@ export interface IpcSessionsChanged {
 	device?: string;
 	/** What changed (`session-list-delta.ts`): a feed holding `list.base` applies it; any other reads the list again. */
 	list?: SessionListDelta;
-}
-
-/** A session a paired host works on now, by the working cue's rule (`live-work.ts`). */
-export interface HostLiveSession {
-	sessionPath: string;
-	/** `turn`: its own turn runs; `background`: the turn ended and work it started still runs; `waiting`: an ask is open. */
-	state: "turn" | "background" | "waiting";
 }
 
 /**
@@ -2231,10 +2191,8 @@ export interface OmpApi {
 		onTabExtensionError(callback: (frame: ExtensionErrorFrame, tabId: string) => void): () => void;
 		/** A machine's session list changed: this computer's (`device` absent) or a paired host's. */
 		onSessionsChanged(callback: (change: IpcSessionsChanged) => void): () => void;
-		/** The sessions paired devices' tabs run on this computer changed (the whole list). */
-		onHostedSessionsChanged(callback: (sessions: IpcHostedSession[]) => void): () => void;
-		/** What this computer works on now changed (the whole list, `LIVE_SESSIONS`). */
-		onLiveSessionsChanged(callback: (sessions: HostLiveSession[]) => void): () => void;
+		/** One computer's session summaries changed: this computer's (`device` absent) or a paired host's. */
+		onSummariesChanged(callback: (change: SummariesChanged) => void): () => void;
 		/** The tabs this computer's sessions opened on paired devices changed (the whole list, `REMOTE_OPENED_TABS`). */
 		onRemoteOpenedChanged(callback: (tabs: RemoteOpenedTab[]) => void): () => void;
 		/** The session files this computer's windows' tabs hold changed (the whole list, `SESSIONS_HELD`). */
@@ -2428,10 +2386,8 @@ export interface OmpApi {
 		openInNewWindow(payload: IpcSessionOpenNewWindowPayload): Promise<boolean>;
 		/** One-shot: the session this window was opened to display, if any. */
 		consumePendingOpen(): Promise<string | null>;
-		/** The sessions paired devices' tabs run on this computer, with their live state (`IpcHostedSession`). */
-		hosted(): Promise<IpcHostedSession[]>;
-		/** What this computer works on now, from any of its windows or the tabs it runs for devices (`LIVE_SESSIONS`). */
-		live(): Promise<HostLiveSession[]>;
+		/** One computer's session summaries: this computer's, or a paired host's (null while not known). */
+		summaries(device?: string): Promise<VersionedSummaries | null>;
 		/** The tabs this computer's sessions opened on paired devices, as its windows hold them (`REMOTE_OPENED_TABS`). */
 		remoteOpened(): Promise<RemoteOpenedTab[]>;
 		/** The session files this computer's windows' tabs hold, idle or not (`SESSIONS_HELD`): the rows another window keeps. */

@@ -160,13 +160,14 @@ test("a phone viewing a desktop's session lists the sessions its agent opened, r
 		await expect
 			.poll(
 				async () =>
-					(await phone.evaluate(() => window.omp.sessions.live())).find(row => row.sessionPath === plainSession)
-						?.state,
+					(await phone.evaluate(() => window.omp.sessions.summaries()))?.sessions.find(
+						row => row.sessionPath === plainSession,
+					)?.status,
 				{
 					timeout: 20_000,
 				},
 			)
-			.toBe("turn");
+			.toBe("running");
 		await expect(
 			sidebar.locator(`.omp-sidebar-session-row[data-session-path=${cssString(plainSession)}]`),
 		).toHaveAttribute("data-signal", "running", { timeout: 20_000 });

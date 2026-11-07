@@ -16,8 +16,8 @@ import {
 	stripTitlePrefix,
 	unwrapStockPrompt,
 } from "../../../../resources/gui-bridge/modes/subagent-title-contracts";
+import { RESTART_CUT_STATUS } from "../../../shared/restart-cuts";
 import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
-import { RESTART_CUT_STATUS } from "../../lib/restart-cuts";
 import { useSubagentGraphStore } from "../../stores/subagent-graph";
 import type { BadgeVariant } from "../common";
 

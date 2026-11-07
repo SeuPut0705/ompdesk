@@ -30,13 +30,14 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { restartCutNote } from "../../../../shared/restart-cuts";
 import type { SubagentSnapshot } from "../../../../shared/rpc-types";
+import { type SummaryAgent, summaryAgentSnapshot } from "../../../../shared/session-summary";
 import type { AskKind } from "../../../lib/attention";
 import { hideNativeDragImage } from "../../../lib/drag-image";
 import { cx, formatElapsed, formatTimeAgo, formatTokens } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
-import { restartCutNote } from "../../../lib/restart-cuts";
 import { type TabRpc, useTabRpc } from "../../../lib/tab-rpc";
 import { useSessionStore } from "../../../stores/session";
 import {
@@ -46,7 +47,7 @@ import {
 } from "../../../stores/session-runtime-context";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { useSubagentGraphStore } from "../../../stores/subagent-graph";
-import { type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
+import type { SubagentsStore } from "../../../stores/subagents";
 import { useUiStore } from "../../../stores/ui";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common";
 import { SubagentTranscriptSheet } from "../../panels/SubagentTranscriptSheet";
@@ -57,7 +58,6 @@ import {
 	buildSubagentFamilyRows,
 	type ChildStatus,
 	childUsageText,
-	countLiveSubagents,
 	type FamilyCounts,
 	type FamilyState,
 	familyCounts,
@@ -94,32 +94,46 @@ export interface FamilyOpened {
 }
 
 const NO_OPENED: readonly FamilyOpened[] = [];
-const NO_AGENTS: ReadonlyMap<string, SubagentSnapshot> = new Map();
+const NO_AGENTS: readonly SummaryAgent[] = [];
 const NO_OWNERS: ReadonlyMap<string, string> = new Map();
 
-/** What the tab's runtime tells the group; absent runtime (a tab not woken yet) tells it nothing. */
+/**
+ * What the group shows: the session's subagents from its summary (the one source every view reads, whether or not a
+ * tab here holds it), nested by the tab's own spawn record when a tab here has one, and that tab's RPC for their
+ * actions.
+ */
 interface AgentSlice {
 	subagents: ReadonlyMap<string, SubagentSnapshot>;
+	/** Each subagent's summary as sent: what its row's tooltip says (step, tally, model). */
+	details: ReadonlyMap<string, SummaryAgent>;
 	owners: ReadonlyMap<string, string>;
 	ready: boolean;
 	rpc: TabRpc | null;
 }
 
-const DETACHED: AgentSlice = { subagents: NO_AGENTS, owners: NO_OWNERS, ready: false, rpc: null };
+/** A summary's subagents as roster rows, built once per summary (unchanged summaries keep their array). */
+function useSummaryRoster(agents: readonly SummaryAgent[]): Pick<AgentSlice, "subagents" | "details"> {
+	return useMemo(
+		() => ({
+			subagents: new Map(agents.map(agent => [agent.id, summaryAgentSnapshot(agent)])),
+			details: new Map(agents.map(agent => [agent.id, agent])),
+		}),
+		[agents],
+	);
+}
+
+function useDetachedSlice(agents: readonly SummaryAgent[]): AgentSlice {
+	const roster = useSummaryRoster(agents);
+	return useMemo(() => ({ ...roster, owners: NO_OWNERS, ready: false, rpc: null }), [roster]);
+}
 
 /** Inside the tab's `SessionRuntimeProvider`. */
-function useAgentSlice(): AgentSlice {
-	const subagents = useSubagentsStore(s => s.subagents);
+function useAgentSlice(agents: readonly SummaryAgent[]): AgentSlice {
+	const roster = useSummaryRoster(agents);
 	const owners = useSubagentGraphStore(s => s.toolCallOwners);
 	const ready = useSessionStore(s => s.status) === "ready";
 	const rpc = useTabRpc();
-	return useMemo(() => ({ subagents, owners, ready, rpc }), [subagents, owners, ready, rpc]);
-}
-
-/** Live subagents of the session open in `tabId`, read once (event handlers). */
-export function sidebarSubagentCount(tabId: string): number {
-	const store = sessionRuntimeStore<SubagentsStore>(tabId, "subagents");
-	return store ? countLiveSubagents(store.getState().subagents) : 0;
+	return useMemo(() => ({ ...roster, owners, ready, rpc }), [roster, owners, ready, rpc]);
 }
 
 /** Below this sidebar width (px) the summary chip shrinks to its running-count pill (default width is 248). */
@@ -159,6 +173,7 @@ function menuKey(event: ReactKeyboardEvent<HTMLButtonElement>): ContextMenuAncho
 
 const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	agent,
+	detail,
 	tabId,
 	depth,
 	selected,
@@ -167,6 +182,7 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	onMenu,
 }: {
 	agent: SubagentSnapshot;
+	detail: SummaryAgent | undefined;
 	tabId: string;
 	depth: 0 | 1;
 	selected: boolean;
@@ -182,19 +198,17 @@ const SubagentFamilyRow = memo(function SubagentFamilyRow({
 	const statusLabel = t(statusMeta(agent.status).labelKey);
 	const primary = subagentPrimaryLabel(agent);
 	const showRole = primary !== agent.agent;
-	const progress = agent.progress;
 	// A restart ended it: what it was doing in place of stock's empty-message warning.
-	const note = restartCutNote(agent) ?? progress?.lastIntent ?? progress?.currentTool;
+	const note = restartCutNote(agent) ?? detail?.step;
 	// Stock's progress tally: "128.4k tokens · 48 tool calls".
-	const usage =
-		progress && (progress.tokens > 0 || progress.toolCount > 0)
-			? t("sidebar.subagents.usage", { tokens: formatTokens(progress.tokens), tools: progress.toolCount })
-			: null;
+	const tokens = detail?.tokens ?? 0;
+	const tools = detail?.toolCount ?? 0;
+	const usage = tokens > 0 || tools > 0 ? t("sidebar.subagents.usage", { tokens: formatTokens(tokens), tools }) : null;
 	// The one line has no room for any of this: it is all the tooltip.
 	const tooltip = [
 		showRole ? `${agent.agent} · ${subagentPrimaryLabel(agent, Number.POSITIVE_INFINITY)}` : agent.agent,
 		elapsed !== null && elapsed >= 1000 ? `${statusLabel} · ${formatElapsed(elapsed)}` : statusLabel,
-		childUsageText(progress?.resolvedModel, progress?.modelRole),
+		childUsageText(detail?.model, detail?.role),
 		usage,
 		note,
 	]
@@ -518,6 +532,7 @@ function FamilyGroup({
 		<SubagentFamilyRow
 			agent={agent}
 			depth={depth}
+			detail={slice.details.get(agent.id)}
 			key={agent.id}
 			onMenu={openMenu}
 			onOpen={openAgent}
@@ -594,57 +609,79 @@ function FamilyGroup({
 	);
 }
 
-/** The group reading the tab's runtime; only ever rendered inside that runtime's provider. */
-function AttachedGroup(props: { tabId: string; sessionKey: string; opened: readonly FamilyOpened[] }) {
-	return <FamilyGroup {...props} slice={useAgentSlice()} />;
+/** The group with the tab's runtime; only ever rendered inside that runtime's provider. */
+function AttachedGroup(props: {
+	tabId: string;
+	sessionKey: string;
+	opened: readonly FamilyOpened[];
+	agents: readonly SummaryAgent[];
+}) {
+	return <FamilyGroup {...props} slice={useAgentSlice(props.agents)} />;
 }
 
-function AttachedChip(props: { sessionKey: string; opened: readonly FamilyOpened[] }) {
-	return <FamilyChip {...props} slice={useAgentSlice()} />;
+function DetachedGroup(props: {
+	tabId: string;
+	sessionKey: string;
+	opened: readonly FamilyOpened[];
+	agents: readonly SummaryAgent[];
+}) {
+	return <FamilyGroup {...props} slice={useDetachedSlice(props.agents)} />;
+}
+
+function AttachedChip(props: { sessionKey: string; opened: readonly FamilyOpened[]; agents: readonly SummaryAgent[] }) {
+	return <FamilyChip {...props} slice={useAgentSlice(props.agents)} />;
+}
+
+function DetachedChip(props: { sessionKey: string; opened: readonly FamilyOpened[]; agents: readonly SummaryAgent[] }) {
+	return <FamilyChip {...props} slice={useDetachedSlice(props.agents)} />;
 }
 
 /**
- * Mount point under a sidebar session row whose session is open in `tabId`. `opened` are the sessions its agent
- * opened (the sidebar builds their rows); the subagents come from the tab's runtime, when it has one.
- * Primitive props + memo: the sidebar's own re-renders reach the group only when `opened` changes.
+ * Mount point under a sidebar session row. `agents` are the session's subagents from the summary of the computer
+ * that runs it; `opened` the sessions its agent opened (the sidebar builds their rows); `tabId` the tab here that
+ * holds the session, if any (a subagent's transcript and stop go through it).
+ * Primitive props + memo: the sidebar's own re-renders reach the group only when `opened` or `agents` change.
  */
 export const SidebarSubagents = memo(function SidebarSubagents({
 	tabId,
 	sessionKey,
 	opened = NO_OPENED,
+	agents = NO_AGENTS,
 }: {
 	tabId: string | null;
 	sessionKey: string;
 	opened?: readonly FamilyOpened[];
+	agents?: readonly SummaryAgent[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
-	// A stored opener (no tab) still holds the sessions it opened: no roster, no runtime, `""` names no tab.
-	if (!runtime) return <FamilyGroup opened={opened} sessionKey={sessionKey} slice={DETACHED} tabId={tabId ?? ""} />;
+	if (!runtime) return <DetachedGroup agents={agents} opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />;
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<AttachedGroup opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />
+			<AttachedGroup agents={agents} opened={opened} sessionKey={sessionKey} tabId={tabId ?? ""} />
 		</SessionRuntimeProvider>
 	);
 });
 
 /**
- * The summary chip for the session row's `trailing` slot (session open in `tabId`): renders nothing while the
- * session has neither subagents nor opened sessions.
+ * The summary chip for the session row's `trailing` slot: renders nothing while the session has neither subagents
+ * nor opened sessions.
  */
 export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
 	tabId,
 	sessionKey,
 	opened = NO_OPENED,
+	agents = NO_AGENTS,
 }: {
 	tabId: string | null;
 	sessionKey: string;
 	opened?: readonly FamilyOpened[];
+	agents?: readonly SummaryAgent[];
 }) {
 	const runtime = useTabSessionRuntime(tabId);
-	if (!runtime) return <FamilyChip opened={opened} sessionKey={sessionKey} slice={DETACHED} />;
+	if (!runtime) return <DetachedChip agents={agents} opened={opened} sessionKey={sessionKey} />;
 	return (
 		<SessionRuntimeProvider runtime={runtime}>
-			<AttachedChip opened={opened} sessionKey={sessionKey} />
+			<AttachedChip agents={agents} opened={opened} sessionKey={sessionKey} />
 		</SessionRuntimeProvider>
 	);
 });

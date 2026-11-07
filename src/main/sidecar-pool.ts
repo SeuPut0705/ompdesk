@@ -58,7 +58,6 @@ import {
 } from "../shared/agent-control";
 import { codedError } from "../shared/ipc-error-codes";
 import {
-	type HostLiveSession,
 	IPC_EVENTS,
 	type IpcExtensionUiPayload,
 	type IpcModelWaitTogether,
@@ -95,6 +94,7 @@ import {
 	type SubagentFrame,
 	type SubagentSubscriptionLevel,
 } from "../shared/rpc-types";
+import type { SummaryAsk } from "../shared/session-summary";
 import {
 	asSplitLayout,
 	forgetSplitTab,
@@ -105,6 +105,7 @@ import {
 	type SplitLayout,
 	splitTabIds,
 } from "../shared/split-layout";
+import { isApprovalSelect } from "../shared/tool-approval";
 import type { BackgroundWorkMember } from "./background-work";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
@@ -117,6 +118,7 @@ import type { WindowTabFact } from "./quit-guard";
 import { AGENT_REVIEW_EVENT } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
 import type { TabHolder } from "./remote/protocol";
+import type { SessionSummaries, SummaryFacts, SummarySource } from "./session-summaries";
 import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import {
@@ -514,6 +516,8 @@ export class SidecarPool {
 	onAcquire: ((tabId: string, sidecar: SidecarLike) => void) | null = null;
 	/** Diagnostic only: a turn that ended but stays settling past a minute leaves one runtime-log line (settle-watch.ts). */
 	settleWatch: SettleWatch | null = null;
+	/** The one builder of what every view's row shows of this computer's sessions (session-summaries.ts); set at startup. */
+	summaries: Pick<SessionSummaries, "track" | "changed"> | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
 	readonly #toolObservers = new Set<(tabId: string, call: { toolName: string; args: unknown }) => void>();
 
@@ -752,6 +756,7 @@ export class SidecarPool {
 			});
 			if (gate) sidecar.setStartGate?.(gate);
 			this.#wireLight(entry);
+			if (!device) this.summaries?.track(sidecar);
 			this.#entries.add(entry);
 			this.#byTabId.set(tabId, entry);
 			this.onAcquire?.(tabId, sidecar);
@@ -1206,13 +1211,6 @@ export class SidecarPool {
 				tabId: entry.tabId,
 				relay,
 			} satisfies IpcSignInRelayPayload);
-		});
-		// A hidden tab's subagents still start and finish: lifecycle frames keep
-		// its runtime roster (the sidebar row's count) current. Progress frames
-		// stay on the full channel; the roster is re-read when the tab is shown.
-		sidecar.on("subagentFrame", (frame: SubagentFrame) => {
-			if (frame.type !== "subagent_lifecycle") return;
-			this.#forwardToHidden(entry, IPC_EVENTS.SUBAGENT_FRAMES, { tabId: entry.tabId, payload: [frame] });
 		});
 		// A tool call blocks the turn until answered, so a hidden tab's calls are answered too.
 		sidecar.on("hostToolCall", (request: HostToolCallRequest) => {
@@ -2408,29 +2406,51 @@ export class SidecarPool {
 	}
 
 	/**
-	 * The sessions this computer's windows work on now (a turn, background work, an open ask), for the devices paired
-	 * to it (`LocalHostServices.liveSessions`). A tab on a paired host and a view of a device's tab here are left out:
-	 * the host, and this computer's own list of the tabs it runs for devices, say those.
+	 * The sessions this computer's windows run, for the one summary builder (session-summaries.ts). A tab on a paired
+	 * host and a view of a device's tab here are left out: the host, and this computer's own tabs it runs for devices,
+	 * say those.
 	 */
-	liveSessions(): HostLiveSession[] {
-		const asking = new Set(this.#requestOwners.values());
+	summarySources(): SummarySource[] {
+		const asks = new Map<PoolEntry, SummaryAsk>();
+		for (const [id, owner] of this.#requestOwners) {
+			if (this.#signInRequests.has(id)) continue;
+			const body = this.#requestBodies.get(id);
+			if (asks.get(owner) !== "approval") asks.set(owner, body && isApprovalSelect(body) ? "approval" : "input");
+		}
 		return [...this.#entries].flatMap(entry => {
-			if (entry.device || entry.hostedView || !entry.sessionFile) return [];
-			const state: HostLiveSession["state"] | null = asking.has(entry)
-				? "waiting"
-				: entry.run.running
-					? runSettling(entry.run)
-						? "background"
-						: "turn"
-					: null;
-			return state ? [{ sessionPath: entry.sessionFile, state }] : [];
+			if (entry.device || entry.hostedView) return [];
+			return [
+				{
+					sidecar: entry.sidecar,
+					facts: (): SummaryFacts | null => {
+						if (!entry.sessionFile || !this.#byTabId.has(entry.tabId)) return null;
+						const tab = tabStatusPayload(entry);
+						const ask = asks.get(entry) ?? (entry.planProposal ? "approval" : undefined);
+						return {
+							sessionPath: entry.sessionFile,
+							tabId: entry.tabId,
+							cwd: tab.cwd,
+							kind: entry.kind,
+							status: tab.status,
+							...(tab.settling ? { settling: true as const } : {}),
+							...(tab.runningSince === undefined ? {} : { since: tab.runningSince }),
+							...(ask ? { ask } : {}),
+							...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
+							...(tab.sessionHeld ? { sessionHeld: true as const } : {}),
+							...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
+							...(entry.title ? { title: entry.title } : {}),
+							...(entry.autoTitle ? { autoTitle: entry.autoTitle } : {}),
+						};
+					},
+				},
+			];
 		});
 	}
 
 	/**
 	 * Who opened what in this computer's windows (`setTabOpener`): child session file → its opener's file, for the
 	 * devices paired to it (`LocalHostServices` `sessions.list`). A tab on a paired host and a view of a device's tab
-	 * here are left out, as in `liveSessions`.
+	 * here are left out, as in `summarySources`.
 	 */
 	sessionOpeners(): Map<string, string> {
 		const openers = new Map<string, string>();
@@ -2662,6 +2682,29 @@ export class SidecarPool {
 		return asleep.map(entry => entry.tabId);
 	}
 
+	/** The session files the tabs here hold on paired host `device`: what `sessions.deleted` asks that host about. */
+	deviceSessionFiles(device: string): string[] {
+		const files = new Set<string>();
+		for (const entry of this.#entries)
+			if (entry.device === device && !entry.hostedView && entry.sessionFile) files.add(entry.sessionFile);
+		return [...files];
+	}
+
+	/**
+	 * Paired host `device` deleted these sessions (`host.sessionsDeleted`, or its `sessions.deleted` answer as the link
+	 * came up): every tab here on one closes as a delete's does, asleep, ready or running (a running one stops as
+	 * closing a tab does), the tombstones are recorded under that host so no restore brings them back; the ids closed.
+	 */
+	closeHostDeletedSessions(device: string, sessionPaths: readonly string[]): string[] {
+		const deleted = new Set(sessionPaths);
+		for (const sessionPath of deleted) deletedSessions().add(sessionPath, device);
+		const held = [...this.#entries].filter(
+			entry => entry.device === device && !entry.hostedView && entry.sessionFile && deleted.has(entry.sessionFile),
+		);
+		this.#closeFinished(held);
+		return held.map(entry => entry.tabId);
+	}
+
 	/** Tabs of a finished session leave their windows as a deleted session's do: released, the strip told they closed. */
 	#closeFinished(entries: PoolEntry[]): void {
 		const closedByWindow = new Map<ClientWindow, string[]>();
@@ -2689,29 +2732,6 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		return entry?.former && entry.former.file === entry.sessionFile ? entry.former.ids : [];
 	}
-	/** The session files the tabs here hold on paired host `device`: what `sessions.deleted` asks that host about. */
-	deviceSessionFiles(device: string): string[] {
-		const files = new Set<string>();
-		for (const entry of this.#entries)
-			if (entry.device === device && !entry.hostedView && entry.sessionFile) files.add(entry.sessionFile);
-		return [...files];
-	}
-
-	/**
-	 * Paired host `device` deleted these sessions (`host.sessionsDeleted`, or its `sessions.deleted` answer as the link
-	 * came up): every tab here on one closes as a delete's does, asleep, ready or running (a running one stops as
-	 * closing a tab does), the tombstones are recorded under that host so no restore brings them back; the ids closed.
-	 */
-	closeHostDeletedSessions(device: string, sessionPaths: readonly string[]): string[] {
-		const deleted = new Set(sessionPaths);
-		for (const sessionPath of deleted) deletedSessions().add(sessionPath, device);
-		const held = [...this.#entries].filter(
-			entry => entry.device === device && !entry.hostedView && entry.sessionFile && deleted.has(entry.sessionFile),
-		);
-		this.#closeFinished(held);
-		return held.map(entry => entry.tabId);
-	}
-
 	/**
 	 * Record that `openerTabId`'s agent opened `tabId` (`ompdesk_session_open`): the windows nest the session under
 	 * its opener, and the layout keeps the opener's session file so the family survives a relaunch.

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
+import { type RestartCut, transcriptOf } from "../../../../shared/restart-cuts";
 import type { AgentMessage } from "../../../../shared/rpc-types";
 import { useFrameSelector } from "../../../hooks/use-frame-selector";
-import { type RestartCut, transcriptOf } from "../../../lib/restart-cuts";
 import { type MessagesStore, useMessagesStore } from "../../../stores/messages";
 import { useSessionStore } from "../../../stores/session";
 import { useSessionRuntime } from "../../../stores/session-runtime-context";
