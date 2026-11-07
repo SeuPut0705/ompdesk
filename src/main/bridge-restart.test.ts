@@ -21,6 +21,7 @@ import {
 	restartFollowUp,
 	revivedSubagents,
 	shutdownMarks,
+	stoppedSubagents,
 	turnCutBehindNotes,
 } from "../../resources/gui-bridge/restart-core";
 
@@ -162,6 +163,83 @@ describe("revivedSubagents", () => {
 	});
 });
 
+// 7 Nov 2026: an omp died with four background `task` subagents running in their worktrees; stock does not revive an
+// isolated one, and nothing named them to the agent, so their work stayed half done until a person noticed.
+describe("stoppedSubagents", () => {
+	const startedAt = Date.parse("2026-11-07T06:02:55.000Z");
+	const earlier = (entry: JournalEntry): JournalEntry => ({ ...entry, timestamp: "2026-11-07T06:00:30.000Z" });
+	const spawn: JournalEntry = earlier({
+		type: "message",
+		message: {
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "t1",
+					name: "task",
+					arguments: {
+						tasks: [
+							{ name: "CalStoreFix", task: "Title: 캘린더 저장 고치기\nbody" },
+							{ name: "SelectedRow", task: "Fix the selected row" },
+							{ name: "PerfShip", task: "Ship the perf fix" },
+						],
+					},
+				},
+			],
+		},
+	});
+	const backgrounded = (
+		progress: Array<{ id: string; status: string }>,
+		state = "running",
+		type = "task",
+	): JournalEntry =>
+		earlier({
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "t1",
+				details: { progress, async: { state, jobId: progress[0]?.id ?? "", type } },
+			},
+		});
+	const result = backgrounded([
+		{ id: "CalStoreFix", status: "running" },
+		{ id: "SelectedRow", status: "pending" },
+		{ id: "PerfShip", status: "running" },
+	]);
+
+	it("names the background subagents the dead process left running that the restore did not revive", () => {
+		const branch = [spawn, result, earlier(delivered("PerfShip"))];
+		expect(stoppedSubagents(branch, startedAt, ["SelectedRow"])).toEqual([
+			{ id: "CalStoreFix", intent: "캘린더 저장 고치기" },
+		]);
+	});
+
+	it("leaves out a blocking spawn that finished in the call, this process's own spawns, and a bash job", () => {
+		const mixed = backgrounded([
+			{ id: "CalStoreFix", status: "completed" },
+			{ id: "SelectedRow", status: "running" },
+		]);
+		expect(stoppedSubagents([spawn, mixed], startedAt, [])).toEqual([
+			{ id: "SelectedRow", intent: "Fix the selected row" },
+		]);
+		const own = { ...result, timestamp: "2026-11-07T06:03:00.000Z" };
+		expect(stoppedSubagents([spawn, own], startedAt, [])).toEqual([]);
+		expect(
+			stoppedSubagents([spawn, backgrounded([{ id: "bg_1", status: "running" }], "running", "bash")], startedAt, []),
+		).toEqual([]);
+	});
+
+	it("names a subagent once: an earlier restart's notice settled it", () => {
+		const followUp = restartFollowUp([], [], "idle", [{ id: "CalStoreFix" }]);
+		const named: JournalEntry = earlier({
+			type: "custom_message",
+			customType: RESTART_JOBS_MESSAGE,
+			content: followUp?.content,
+		});
+		expect(stoppedSubagents([spawn, result, named], startedAt, ["SelectedRow", "PerfShip"])).toEqual([]);
+	});
+});
+
 describe("restartFollowUp", () => {
 	it("says nothing when the restart left nothing to tell", () => {
 		expect(restartFollowUp([], [])).toBeUndefined();
@@ -240,6 +318,16 @@ describe("restartFollowUp", () => {
 		expect(followUp?.content).toMatch(/keep supervising/i);
 		expect(followUp?.content).not.toMatch(/cut your turn off|tell the user/);
 		expect(followUp?.details).toEqual({ jobs: [], subagents: [{ id: "Release", intent: "v0.38.0 배포" }] });
+	});
+
+	it("names the subagents the restart stopped for good, so the agent starts again only what the work still needs", () => {
+		const followUp = restartFollowUp([], [], "idle", [{ id: "CalStoreFix", intent: "캘린더 저장 고치기" }]);
+		expect(followUp?.customType).toBe(RESTART_JOBS_MESSAGE);
+		expect(followUp?.content).toContain("- CalStoreFix: 캘린더 저장 고치기");
+		expect(followUp?.content).toMatch(/did not come back/);
+		expect(followUp?.content).toMatch(/Say nothing about the restart/);
+		// The transcript's muted line counts them with the stopped jobs, by id and intent.
+		expect(followUp?.details).toEqual({ jobs: [{ id: "CalStoreFix", intent: "캘린더 저장 고치기" }] });
 	});
 });
 
