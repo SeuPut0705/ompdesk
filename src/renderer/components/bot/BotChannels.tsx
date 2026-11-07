@@ -14,15 +14,11 @@ import { useTabsStore } from "../../stores/tabs";
 import { ConfirmDialog, IconButton, Input, LinkButton, MenuButton } from "../common";
 import { BoardRow, KindMark } from "../layout/work-board/board-parts";
 
-/** Its tab when one holds it, else a new tab on the session (on the paired host for a host's bot). */
+/** Its tab when one holds it (main's one owner check, `openTab`), else a new tab on the session (on the paired host for a host's bot). */
 export function openBotChannel(channel: BotChannel, device?: string): void {
-	const tabs = useTabsStore.getState();
-	const held = tabs.tabs.find(tab => tab.sessionPath === channel.sessionPath && tab.device === device);
-	if (held) {
-		void tabs.switchTab(held.id);
-		return;
-	}
-	void tabs.openTab({ sessionPath: channel.sessionPath, kind: "chat", ...(device === undefined ? {} : { device }) });
+	void useTabsStore
+		.getState()
+		.openTab({ sessionPath: channel.sessionPath, kind: "chat", ...(device === undefined ? {} : { device }) });
 }
 
 export function BotChannelRows({ channels, device }: { channels: readonly BotChannel[]; device?: string }) {

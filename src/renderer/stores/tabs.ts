@@ -38,6 +38,7 @@ import type {
 	IpcOpenExtensionRequest,
 	IpcRetrySaga,
 	IpcScheduledRetry,
+	IpcShownElsewhere,
 	IpcSignIn,
 	IpcSignInRelay,
 	IpcSpawnTabResult,
@@ -87,6 +88,7 @@ import {
 	type PlanApprovalSubmitState,
 	usePlanApprovalStore,
 } from "./plan-approval";
+import { useRemoteStore } from "./remote";
 import { type SessionStore, useSessionStore } from "./session";
 import {
 	deleteSessionRuntime,
@@ -279,6 +281,33 @@ function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCoun
 	return { shared: info.shared, viewerCount: info.viewerCount };
 }
 
+const FAILING_STATUSES: Record<string, true> = { error: true, exited: true, restarting: true };
+
+/**
+ * The tab's banner reason (its session store's `sidecarError`) from main's listing of it (TAB_STATUS, GET_TABS): the one
+ * route to every tab's banner, shown or not. Why its omp failed, exited or restarts, as the omp or its paired host said
+ * it; dropped once the tab comes back up (`previous`: the status it had). Written only when it changed, so a push about
+ * anything else (a title, a task) never brings back a banner the person closed.
+ */
+function applyTabFailure(session: { getState(): SessionStore }, info: IpcTabInfo, previous: string | undefined): void {
+	const state = session.getState();
+	if (!FAILING_STATUSES[info.status]) {
+		if (previous !== undefined && FAILING_STATUSES[previous]) state.clearSidecarError();
+		return;
+	}
+	const reason = info.message ?? translate("events.sidecarProcessFailed");
+	const restart = info.restart ?? null;
+	const held = isSessionHeld(info);
+	if (
+		state.sidecarError === reason &&
+		state.sidecarHeld === held &&
+		state.sidecarRestart?.attempt === restart?.attempt &&
+		state.sidecarRestart?.maxAttempts === restart?.maxAttempts
+	)
+		return;
+	state.setSidecarError(reason, restart, held);
+}
+
 /** The tab's automatic title: what a push says (null clears), else the previous one while the same session keeps its title. */
 function projectAutoTitle(info: IpcTabStatusPayload, previous: SessionTab | undefined, sessionChanged: boolean) {
 	if (info.autoTitle !== undefined) return info.autoTitle;
@@ -376,7 +405,9 @@ async function focusTab(
 		const routed = await routeTabView(id, split ? splitTabIds(split) : [id], split);
 		if (!routed) throw new Error(`Tab ${id} is no longer available`);
 	} catch (error) {
-		if (version !== switchVersion) return;
+		// A tab this window let go meanwhile (main closed it: a paired host refused it, and its window hears why with
+		// the tab list) has nothing to re-converge.
+		if (version !== switchVersion || isTabClosed(id)) return;
 		// Routing never re-pointed: main still forwards the PREVIOUS tab's
 		// events, so hydrating here would pull that sidecar's session into
 		// this tab's restored stores. Surface the failure and re-converge
@@ -615,10 +646,12 @@ export interface TabsStore {
 	 * Apply main's tab list for this window (GET_TABS, TAB_LIST_CHANGED): a tab another window now shows
 	 * (or stopped showing) changes `viewerCount`, a tab a viewer window was attached to appears, and one its
 	 * owner closed leaves. `closed`: this window's own tabs main closed because their session was deleted
-	 * from elsewhere (another window, a paired device); each goes as `closeDeletedSession` closes it.
-	 * Otherwise it never touches this window's own tabs' order or the view.
+	 * from elsewhere (another window, a paired device), or because another tab already shows it (`shown`);
+	 * each goes as `closeDeletedSession` closes it. `shown`: the window switches to its tab that shows the
+	 * session, or says on which device the session is open. Otherwise it never touches this window's own
+	 * tabs' order or the view.
 	 */
-	applyTabList: (list: readonly IpcTabInfo[], closed?: readonly string[]) => Promise<void>;
+	applyTabList: (list: readonly IpcTabInfo[], closed?: readonly string[], shown?: IpcShownElsewhere) => Promise<void>;
 	/**
 	 * An agent's view request (`AGENT_CONTROL_VIEW`): focus the tab like a sidebar pick, split it beside the
 	 * focused pane like the row menu, or close it (main already got the person's approval). Waits for the
@@ -770,6 +803,12 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			if (!session) continue;
 			session.getState().setStatus(info.status === "running" ? "ready" : info.status, info.cwd);
 			session.setState({ isStreaming: info.status === "running" });
+		}
+		// Every tab's banner reason comes with the list too: a failure can come before any subscription exists (omp
+		// missing or too old at launch), or while the tab was not shown.
+		for (const info of list) {
+			const session = sessionRuntimeStore<SessionStore>(info.tabId, "session");
+			if (session) applyTabFailure(session, info, undefined);
 		}
 		// Nor did a runtime made by this page (this list, or a status push that named the tab first) hear the starts of
 		// the subagents a hidden running tab already runs: one read of its roster per runtime, so the tab's sidebar row
@@ -1298,13 +1337,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			useSessionStore.getState().setStatus(payload.status === "running" ? "ready" : payload.status, payload.cwd);
 			useSessionStore.setState({ isStreaming: running, ...settled });
 		}
+		const banner = session ?? (active ? useSessionStore : null);
+		if (banner) applyTabFailure(banner, payload, previous?.status);
 		if (completedInBackground && payload.lastRun) notifyRunEnd(payload.tabId, payload.lastRun);
 	},
 
-	applyTabList: async (list, closed) => {
+	applyTabList: async (list, closed, shown) => {
 		for (const id of closed ?? []) {
 			const tab = get().tabs.find(entry => entry.id === id);
 			if (tab && !tab.shared) await get().closeDeletedSession(tab.sessionPath ?? "", id);
+			// Main closed it before this window listed it (a paired host refused a tab `openTab` is still adding): the
+			// open finds it gone instead of adding a tab main no longer has.
+			else if (!tab) closedTabIds.add(id);
 		}
 		const known = new Map(get().tabs.map(tab => [tab.id, tab]));
 		const unseen = list.some(info => !known.has(info.tabId) && !isTabClosed(info.tabId));
@@ -1332,6 +1376,19 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		for (const tab of get().tabs) {
 			if (tab.shared && !listed.has(tab.id)) await get().closeTab(tab.id);
 		}
+		if (!shown) return;
+		if ("tabId" in shown) {
+			if (!get().tabs.some(tab => tab.id === shown.tabId)) await get().reconcileTabs();
+			useUiStore.getState().closeDestination();
+			await get().switchTab(shown.tabId);
+			return;
+		}
+		// The device whose tab holds it, else (an older host names none) the host it runs on.
+		const device =
+			shown.holder ??
+			useRemoteStore.getState().state?.hosts.find(entry => entry.deviceId === shown.host)?.name ??
+			shown.host;
+		toast({ variant: "info", message: translate("tabs.openElsewhere", { device }) });
 	},
 
 	applyAgentView: async ({ tabId, how, auto }) => {
@@ -1698,22 +1755,9 @@ export function useSessionTabs(): void {
 							continue;
 						}
 						if (tab.status === "error" || tab.status === "exited") {
-							// A launch failure (e.g. omp missing or too old) can fire before any
-							// subscription exists; the status snapshot still carries its reason.
+							// A launch failure (e.g. omp missing or too old) can fire before any subscription exists; its
+							// reason came with the list (`applyTabFailure`).
 							session.getState().setStatus(tab.status, tab.cwd);
-							if (tabId !== state.activeTabId) continue;
-							void window.omp.sidecar.getStatus().then(
-								status => {
-									if (status.status !== "error" && status.status !== "exited") return;
-									useSessionStore
-										.getState()
-										.setSidecarError(
-											status.message ?? translate("events.sidecarProcessFailed"),
-											status.restart ?? null,
-										);
-								},
-								() => undefined,
-							);
 							continue;
 						}
 						if (tab.status !== "ready" && tab.status !== "running") continue;
@@ -1727,7 +1771,7 @@ export function useSessionTabs(): void {
 		const offList =
 			typeof window.omp.events.onTabListChanged === "function"
 				? window.omp.events.onTabListChanged(
-						payload => void useTabsStore.getState().applyTabList(payload.tabs, payload.closed),
+						payload => void useTabsStore.getState().applyTabList(payload.tabs, payload.closed, payload.shown),
 					)
 				: undefined;
 		const offView =

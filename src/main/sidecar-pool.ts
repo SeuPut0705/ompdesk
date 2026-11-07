@@ -66,6 +66,7 @@ import {
 	type IpcScheduledRetry,
 	type IpcSessionOwner,
 	type IpcSetTabViewPayload,
+	type IpcShownElsewhere,
 	type IpcSignIn,
 	type IpcSignInEndedPayload,
 	type IpcSignInRelay,
@@ -115,6 +116,7 @@ import { ompRestartDecision } from "./omp-restart";
 import type { WindowTabFact } from "./quit-guard";
 import { AGENT_REVIEW_EVENT } from "./remote/app-protocol";
 import { HostedTabView } from "./remote/hosted-view";
+import type { TabHolder } from "./remote/protocol";
 import type { SettleWatch } from "./settle-watch";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import {
@@ -378,6 +380,8 @@ interface PoolEntry extends RunTracking {
 	awaitingConnection?: boolean;
 	/** The `error` status is a session another omp still holds: a wait that ends by itself (`IpcTabInfo.sessionHeld`). */
 	sessionHeld?: boolean;
+	/** Why the tab's omp failed, exited or restarts, as its last status said (`IpcTabInfo.message`/`restart`). */
+	failure?: Pick<SidecarStatusPayload, "message" | "restart">;
 	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
 	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
@@ -991,6 +995,10 @@ export class SidecarPool {
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			entry.status = payload.status;
 			entry.sessionHeld = payload.status === "error" && payload.sessionHeld === true;
+			entry.failure =
+				payload.status === "error" || payload.status === "exited" || payload.status === "restarting"
+					? { message: payload.message, restart: payload.restart }
+					: undefined;
 			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
 			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
@@ -1061,6 +1069,9 @@ export class SidecarPool {
 		// The host refused the tab because its session's folder is a finished OMPdesk worktree (RemoteSidecar
 		// `folderGone`): it closes as a deleted session's tab does, with no tombstone.
 		sidecar.on("folderGone", () => this.#closeFinished([entry]));
+		// The host refused the tab because another tab there already shows its session (RemoteSidecar `shownElsewhere`):
+		// it closes, and its window shows that tab instead, or hears where the session is open; never an error tab.
+		sidecar.on("shownElsewhere", (holder: TabHolder | null) => this.#shownElsewhere(entry, holder));
 		// A paired host told this tab it views a window of that host (RemoteSidecar `shared`): the lists say so.
 		sidecar.on("shared", () => this.#sendTabLists(entry));
 		// The review list of the host's session this tab views: the sessions its agent opened are tabs of that host's
@@ -1602,12 +1613,43 @@ export class SidecarPool {
 	 * A destroyed window is skipped before its tabs are listed: its webContents can no longer be read.
 	 * `closed`: tabs of this window main itself closed (`closeSessionTab`), which the window drops.
 	 */
-	#sendTabList(win: ClientWindow, closed?: string[]): void {
+	#sendTabList(win: ClientWindow, closed?: string[], shown?: IpcShownElsewhere): void {
 		if (win.isDestroyed()) return;
 		forwardToWindow(win, IPC_EVENTS.TAB_LIST_CHANGED, {
 			tabs: this.tabsForWindow(win),
 			...(closed ? { closed } : {}),
+			...(shown ? { shown } : {}),
 		} satisfies IpcTabListChangedPayload);
+	}
+
+	/**
+	 * One tab per session on a paired host: the host refused `entry` because a tab there holds its session (`holder`,
+	 * null from a host that names none). When that tab is one of this computer's (by its id on the host, or, unnamed,
+	 * by the session file), its window switches to it; otherwise the session is open on another device, and the window
+	 * says so. `entry` closes either way.
+	 */
+	#shownElsewhere(entry: PoolEntry, holder: TabHolder | null): void {
+		if (!this.#byTabId.has(entry.tabId) || entry.device === undefined) return;
+		const ours = holder === null || holder.device === this.selfDeviceId?.();
+		const others = [...this.#entries].filter(other => other !== entry && other.device === entry.device);
+		const owner = ours
+			? (others.find(
+					other =>
+						holder !== null && (other.tabId === holder.rtab || other.former?.ids.includes(holder.rtab) === true),
+				) ?? others.find(other => entry.sessionFile !== undefined && other.sessionFile === entry.sessionFile))
+			: undefined;
+		this.#releaseEntry(entry);
+		this.#notifyWindowTabsChanged(entry.win);
+		if (owner && owner.win !== entry.win) {
+			this.#sendTabList(entry.win, [entry.tabId]);
+			this.#sendTabList(owner.win, undefined, { tabId: owner.tabId });
+			return;
+		}
+		this.#sendTabList(
+			entry.win,
+			[entry.tabId],
+			owner ? { tabId: owner.tabId } : { host: entry.device, ...(holder && !ours ? { holder: holder.name } : {}) },
+		);
 	}
 
 	/** A window last reported a non-empty composer draft for the tab (`noteDraft`). */
@@ -2936,6 +2978,8 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.lastRun !== undefined) payload.lastRun = entry.lastRun;
 	if (entry.awaitingConnection) payload.awaitingConnection = true;
 	if (entry.sessionHeld && payload.status === "error") payload.sessionHeld = true;
+	if (entry.failure?.message !== undefined) payload.message = entry.failure.message;
+	if (entry.failure?.restart !== undefined) payload.restart = entry.failure.restart;
 	if (entry.resuming) payload.resuming = true;
 	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
 	if (entry.device !== undefined) payload.device = entry.device;

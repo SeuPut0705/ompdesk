@@ -815,17 +815,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 						);
 					}
 				})();
-			} else if (payload.status === "error" || payload.status === "exited" || payload.status === "restarting") {
-				withSessionRuntime(statusTabId, () =>
-					useSessionStore
-						.getState()
-						.setSidecarError(
-							payload.message ?? translate("events.sidecarProcessFailed"),
-							payload.restart ?? null,
-							payload.status === "error" && payload.sessionHeld === true,
-						),
-				);
 			}
+			// A failure's reason reaches the banner with the tab's listing (`applyTabFailure` in stores/tabs.ts), shown or not.
 		};
 
 		const unsubStatus = window.omp.events.onTabSidecarStatus(handleStatus);

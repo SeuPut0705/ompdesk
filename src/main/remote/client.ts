@@ -20,6 +20,8 @@ import {
 	HostHelloMessage,
 	PROTOCOL_VERSION,
 	ProbeReply,
+	type TabHolder,
+	tabHolderOf,
 	WireEvent,
 	WireResponse,
 } from "./protocol";
@@ -63,12 +65,15 @@ export class RemoteError extends Error {
 	readonly code: string;
 	/** The dial was refused or reset: the computer answered and nothing listens (not a timeout or no route). */
 	readonly refused: boolean;
+	/** `session_open_in_tab`: the tab that holds the session, when the host named it (`TabHolder`). */
+	readonly holder: TabHolder | undefined;
 
-	constructor(code: string, message: string = code, refused = false) {
+	constructor(code: string, message: string = code, refused = false, holder?: TabHolder) {
 		super(message);
 		this.name = "RemoteError";
 		this.code = code;
 		this.refused = refused;
+		this.holder = holder;
 	}
 }
 
@@ -728,7 +733,10 @@ export class RemoteClient {
 			this.#pending.delete(response.data.id);
 			clearTimeout(pending.timer);
 			if (response.data.ok) pending.resolve(response.data.result);
-			else pending.reject(new RemoteError(response.data.error.code, response.data.error.message));
+			else {
+				const { error } = response.data;
+				pending.reject(new RemoteError(error.code, error.message, false, tabHolderOf(error) ?? undefined));
+			}
 			return;
 		}
 		const event = WireEvent.safeParse(message);

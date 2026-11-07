@@ -300,7 +300,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // "Errors along the way" note and its strings in the English catalog; the work card is the first screen: 2,166,852.
 // A hidden tab's roster read again when its pushes may have been lost (7 Nov 2026, tabs.ts: a page's catch-up after it
 // was hidden or lost its link, `reconcileTabs({resync})`; a hidden tab's omp up again, `useSessionTabs`): 2,167,109.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_167_109;
+// A paired host's refusal of a tab another tab holds shows that tab or says where it is open, and every tab's banner
+// reads its failure's reason from the tab list (7 Nov 2026, tabs.ts `applyTabList` `shown`, `applyTabFailure`, no
+// switch-failure toast for a tab main let go; the visible-only route in use-rpc-events.ts went): 2,167,482.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_167_482;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

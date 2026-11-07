@@ -208,6 +208,7 @@ import { createLinkEventSender, createReadEncoder, encodedReadKey, type LinkEven
 import type { PeerQuota } from "./peer-quota";
 import type { PeerInfo } from "./peers-store";
 import { PreviewRelayTunnels } from "./preview-relay-tunnels";
+import type { TabHolder } from "./protocol";
 import { commandUsesModel } from "./quota-commands";
 import { readJson, writeSecureJson } from "./secure-file";
 import { FrameTooLargeError } from "./wire";
@@ -1887,8 +1888,7 @@ export class LocalHostServices implements HostServices {
 			holders.find(entry => entry.peerId === peer.deviceId) ??
 			holders.find(entry => !(entry.viewsWindow && entry.peerId !== peer.deviceId));
 		if (!tab) return undefined;
-		if (tab.peerId !== peer.deviceId || tab.conn === conn)
-			throw codedError("session_open_in_tab", "Session is already open in another tab on the host");
+		if (tab.peerId !== peer.deviceId || tab.conn === conn) throw heldBy(tab);
 		this.#stopRelay(this.#key(tab.peerId, tab.rtab));
 		this.#tabs.delete(this.#key(tab.peerId, tab.rtab));
 		// Terminals are owned by rtab; the device lost the old one with its previous launch.
@@ -2758,6 +2758,19 @@ function terminalOwner(deviceId: string, rtab: string): string {
 /** A hosted tab's id for this computer's resume coordinator, beside the local tabs' ids (its first rtab). */
 function resumeId(deviceId: string, rtab: string): string {
 	return `peer:${deviceId}:${rtab}`;
+}
+
+/**
+ * `session_open_in_tab` for a `tab.open` of the session `tab` holds, naming that tab (`TabHolder`): the device shows it,
+ * or says where the session is open, instead of an error tab. The message names it too, for the device's log.
+ */
+function heldBy(tab: HostTab): Error {
+	const holder: TabHolder = { device: tab.peerId, rtab: tab.rtab, name: tab.origin.name };
+	const error = codedError(
+		"session_open_in_tab",
+		`Session is already open in another tab on the host (${holder.name}, tab ${holder.rtab})`,
+	);
+	return Object.assign(error, { holder });
 }
 
 /** Who opened what and which sessions a tab here holds, as one comparable string (`listingChanged`). */

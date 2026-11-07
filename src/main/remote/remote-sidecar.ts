@@ -55,6 +55,7 @@ import {
 } from "./app-protocol";
 import type { ImageBlobCache } from "./image-blob-cache";
 import { createLinkEventDecoder, createReadDecoder, encodedReadKey, type WireSubagentFrame } from "./link-events";
+import { tabHolderOf } from "./protocol";
 import { type SignInRelay, type SignInRelayOptions, startSignInRelay } from "./sign-in-relay";
 import type { TranscriptCache } from "./transcript-cache";
 
@@ -638,6 +639,14 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			if (ipcErrorCode(error) === "session_deleted") {
 				this.#settle(null);
 				this.emit("sessionDeleted", this.#resume);
+				return;
+			}
+			// Another tab on the host already shows this session (one of this device's, or another device's): the pool
+			// shows that tab, or says where the session is open, instead of an error tab (`TabHolder`; null from an older
+			// host, which names none).
+			if (ipcErrorCode(error) === "session_open_in_tab") {
+				this.#settle(null);
+				this.emit("shownElsewhere", tabHolderOf(error));
 				return;
 			}
 			// The session's folder on the host is an OMPdesk worktree that is gone (disk care removed it once its work

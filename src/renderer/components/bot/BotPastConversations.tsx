@@ -18,11 +18,9 @@ import { BoardRow, BoardSection, KindMark } from "../layout/work-board/board-par
 
 const WHEN: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
 
+/** Its tab when one holds it (main's one owner check, `openTab`), else a new tab on the session. */
 function openPast(sessionPath: string, device: string | undefined): void {
-	const tabs = useTabsStore.getState();
-	const held = tabs.tabs.find(tab => tab.sessionPath === sessionPath && tab.device === device);
-	if (held) void tabs.switchTab(held.id);
-	else void tabs.openTab({ sessionPath, kind: "chat", ...(device === undefined ? {} : { device }) });
+	void useTabsStore.getState().openTab({ sessionPath, kind: "chat", ...(device === undefined ? {} : { device }) });
 }
 
 export function BotPastConversationsSection({ device }: { device?: string }) {
@@ -78,10 +76,9 @@ async function openCurrentBot(device: string | undefined): Promise<void> {
 			.store.getState()
 			.sessions.find(row => row.bot === "on")?.path;
 	if (!path) return;
-	const tabs = useTabsStore.getState();
-	const held = tabs.tabs.find(tab => tab.sessionPath === path && tab.device === device);
-	if (held) await tabs.switchTab(held.id);
-	else await tabs.openTab({ sessionPath: path, kind: "chat", ...(device === undefined ? {} : { device }) });
+	await useTabsStore
+		.getState()
+		.openTab({ sessionPath: path, kind: "chat", ...(device === undefined ? {} : { device }) });
 }
 
 /** Where the composer would be in a conversation the bot ended (`ended-conversation.tsx`). */

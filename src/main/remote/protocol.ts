@@ -265,13 +265,33 @@ export const WireRequest = z.object({
 	params: z.unknown(),
 });
 
+/**
+ * The tab that holds a session a `tab.open` was refused for (`session_open_in_tab`): its device, its rtab and the name
+ * the host knows that device by, so the device shows that tab, or says where the session is open, instead of an error
+ * tab. A host older than the field sends none.
+ */
+export const TabHolder = z.object({
+	device: z.string().min(1).max(128),
+	rtab: z.string().min(1).max(128),
+	name: z.string().max(128),
+});
+export type TabHolder = z.infer<typeof TabHolder>;
+
+/** The holder a failed call carries (`RemoteError.holder` on a device, the thrown error on the host), if well formed. */
+export function tabHolderOf(error: unknown): TabHolder | null {
+	const holder = typeof error === "object" && error !== null && "holder" in error ? error.holder : undefined;
+	const parsed = TabHolder.safeParse(holder);
+	return parsed.success ? parsed.data : null;
+}
+
 export const WireResponse = z.discriminatedUnion("ok", [
 	z.object({ t: z.literal("res"), id: z.number(), ok: z.literal(true), result: z.unknown() }),
 	z.object({
 		t: z.literal("res"),
 		id: z.number(),
 		ok: z.literal(false),
-		error: z.object({ code: z.string(), message: z.string() }),
+		// `holder` is read with `tabHolderOf`: a malformed one from a newer host must not drop the whole answer.
+		error: z.object({ code: z.string(), message: z.string(), holder: z.unknown().optional() }),
 	}),
 ]);
 

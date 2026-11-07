@@ -90,6 +90,7 @@ export const en: Record<string, string> = {
 	"titlebar.openProjectFailed": "Couldn't open project",
 	"titlebar.renameFailed": "Couldn't rename session",
 
+	"tabs.openElsewhere": "This session is already open on {device}.",
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted, so open it from the session list instead.",
 	"tabs.folderMissing":

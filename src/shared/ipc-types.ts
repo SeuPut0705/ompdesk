@@ -62,6 +62,7 @@ import type {
 	RpcLiveFrame,
 	RpcResponse,
 	SessionInfoUpdateFrame,
+	SidecarRestartProgress,
 	SidecarStatus,
 	SidecarStatusPayload,
 	SubagentFrame,
@@ -969,7 +970,17 @@ export interface IpcTabListChangedPayload {
 	tabs: IpcTabInfo[];
 	/** This window's own tabs main closed because their session was deleted; the window drops them. */
 	closed?: string[];
+	/** A tab main closed because another tab already shows its session: where the window shows or tells it instead. */
+	shown?: IpcShownElsewhere;
 }
+
+/**
+ * Where a session shows that a paired host refused to open in a new tab (`session_open_in_tab`: another tab there holds
+ * it). `tabId`: a tab of this window shows it, and the window switches to it. Otherwise the session is open on another
+ * device: `host` is the paired computer it runs on, `holder` the name of the device whose tab holds it, when the host
+ * named one (an older host does not).
+ */
+export type IpcShownElsewhere = { tabId: string } | { host: string; holder?: string };
 
 /** `PREFS_CHANGED` event payload: the preference key another window wrote. */
 export interface IpcPrefsChangedPayload {
@@ -1684,6 +1695,12 @@ export interface IpcTabInfo {
 	 * omp lets go. A wait, never shown as a failure (sidebar row, pane header, an opener's child row).
 	 */
 	sessionHeld?: true;
+	/**
+	 * With `status` `error`, `exited` or `restarting`: why, as the tab's omp (or its paired host) said it, and the restart
+	 * attempts so far. Every window's banner for the tab reads them from here, shown or not.
+	 */
+	message?: string;
+	restart?: SidecarRestartProgress;
 	/** A relaunch continues the tab's interrupted work and its turn has not started yet (resume, src/main/turn-resume.ts). */
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */

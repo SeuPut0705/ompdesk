@@ -89,6 +89,7 @@ export const ko: Record<string, string> = {
 	"titlebar.openProjectFailed": "프로젝트를 열 수 없어요",
 	"titlebar.renameFailed": "세션 이름을 바꾸지 못했어요",
 
+	"tabs.openElsewhere": "이 세션은 {device}에서 이미 열려 있어요.",
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
 	"tabs.folderMissing":

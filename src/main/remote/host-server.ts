@@ -27,6 +27,8 @@ import {
 	type RefusalCode,
 	SLIM_LOG_NAMES,
 	slimOf,
+	type TabHolder,
+	tabHolderOf,
 	WireRequest,
 } from "./protocol";
 import { Link, type WireMessage } from "./wire";
@@ -143,14 +145,15 @@ class PeerConnection implements HostConnection {
 	}
 }
 
-/** `{code, message}` for a failed call: a `[code]` marker, else the error's own string code. */
-function errorPayload(error: unknown): { code: string; message: string } {
+/** `{code, message}` for a failed call: a `[code]` marker, else the error's own string code; `holder` when it names one. */
+function errorPayload(error: unknown): { code: string; message: string; holder?: TabHolder } {
 	const message = error instanceof Error ? error.message : String(error);
 	const own =
 		typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
 			? error.code
 			: undefined;
-	return { code: ipcErrorCode(error) ?? own ?? "remote_error", message };
+	const holder = tabHolderOf(error);
+	return { code: ipcErrorCode(error) ?? own ?? "remote_error", message, ...(holder ? { holder } : {}) };
 }
 
 function listen(server: Server, port: number, host: string): Promise<number> {
