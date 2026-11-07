@@ -11,11 +11,15 @@ import type { SessionTab } from "../../../stores/tabs";
 import { type FoldSignal, type FoldSummary, foldSummary, sessionFoldSignal } from "./fold-summary";
 
 /** The facts of a summary a row reads (a tab with no session file yet has these too, and no summary). */
-export type RowFacts = Pick<SessionSummary, "status" | "ask" | "settling" | "awaitingConnection" | "sessionHeld">;
+export type RowFacts = Pick<
+	SessionSummary,
+	"status" | "ask" | "settling" | "awaitingConnection" | "sessionHeld" | "failure"
+>;
 
 /**
  * A row's run state: its own prompt first (none while the session is down), then its run. `unreadDone` is this
  * view's own mark of a finish nobody here looked at yet (a host's row has none). `fold` is what a folded header counts.
+ * `reason`: why its omp failed, exited or restarts, as the computer running it said (a wait for the session has none).
  */
 export function summaryRowState(facts: RowFacts | undefined, unreadDone = false) {
 	const signal = facts
@@ -35,7 +39,8 @@ export function summaryRowState(facts: RowFacts | undefined, unreadDone = false)
 	const settling = running && facts?.settling === true;
 	const done = !waiting && !running && signal?.labelKey === "tabs.done";
 	const fold = sessionFoldSignal({ waiting: ask, running, done });
-	return { signal, down, ask, waiting, running, settling, done, fold };
+	const reason = down && !facts?.sessionHeld ? facts?.failure?.message : undefined;
+	return { signal, down, ask, waiting, running, settling, done, fold, reason };
 }
 
 /**

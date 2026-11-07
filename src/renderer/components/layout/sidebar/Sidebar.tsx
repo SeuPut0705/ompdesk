@@ -1463,7 +1463,7 @@ export function Sidebar() {
 			(running
 				? t("sidebar.signal.running")
 				: failed
-					? t("sidebar.row.failed")
+					? [t("sidebar.row.failed"), run.reason].filter(Boolean).join(": ")
 					: done
 						? t("tabs.done")
 						: openElsewhere

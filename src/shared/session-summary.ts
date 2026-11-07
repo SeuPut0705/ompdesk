@@ -5,7 +5,7 @@
  * receive: it holds this computer's summaries at a version and applies the next change on it, or reads them whole
  * when it holds none or missed a change. Dependency-free: main, the renderer and the paired link share it.
  */
-import type { AgentSource, SubagentSnapshot } from "./rpc-types";
+import type { AgentSource, SidecarRestartProgress, SubagentSnapshot } from "./rpc-types";
 
 /** A tab's status as a row reads it: the sidecar's, `running` while a turn or its background work runs. */
 export type SummaryStatus = "asleep" | "starting" | "ready" | "running" | "exited" | "error" | "restarting" | "waiting";
@@ -56,12 +56,36 @@ export interface SessionSummary {
 	awaitingConnection?: true;
 	/** With `error`: another omp still holds the session, a wait that ends by itself. */
 	sessionHeld?: true;
+	/** With `error`, `exited` or `restarting`: why, as the tab's omp said it, and the restart attempts so far. */
+	failure?: SummaryFailure;
 	sessionId?: string;
 	title?: string;
 	autoTitle?: string;
 	/** The paired device this computer runs the session for (a tab of that device's), by its name. */
 	openFor?: string;
 	agents: SummaryAgent[];
+}
+
+/** Why a session's omp failed, exited or restarts (`failureOf`). */
+export interface SummaryFailure {
+	message?: string;
+	restart?: SidecarRestartProgress;
+}
+
+/**
+ * The one rule for what a tab's last status says of a failure: only `error`, `exited` and `restarting` carry one. The
+ * pool's tab listing (every window's banner, `IpcTabInfo.message`/`restart`) and every summary read it from here.
+ */
+export function failureOf(payload: {
+	status: string;
+	message?: string;
+	restart?: SidecarRestartProgress;
+}): SummaryFailure | undefined {
+	if (payload.status !== "error" && payload.status !== "exited" && payload.status !== "restarting") return undefined;
+	return {
+		...(payload.message === undefined ? {} : { message: payload.message }),
+		...(payload.restart === undefined ? {} : { restart: payload.restart }),
+	};
 }
 
 /** Every summary of one computer at one version (`epoch.n`: a new epoch each run, so another run's copy never matches). */

@@ -2889,12 +2889,14 @@ describe("SidecarPool background tabs", () => {
 			expect(listed()).not.toHaveProperty("sessionHeld");
 		});
 
-		it("lists why a tab's omp failed with its status, for every window's banner, until it is back up", () => {
+		it("lists why a tab's omp failed with its status, for every window's banner and its summary, until it is back up", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
 			const a = sidecars[0];
 			const listed = () => pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a");
+			// The summary every row and ompdesk_sessions read says what the banner says, from the same status.
+			const summary = () => pool.summarySources()[0]?.facts();
 
 			a?.emit("status", {
 				status: "restarting",
@@ -2907,11 +2909,17 @@ describe("SidecarPool background tabs", () => {
 				message: "omp crashed",
 				restart: { attempt: 1, maxAttempts: 3 },
 			});
+			expect(summary()).toMatchObject({
+				status: "restarting",
+				failure: { message: "omp crashed", restart: { attempt: 1, maxAttempts: 3 } },
+			});
 			a?.emit("status", { status: "error", cwd: "/a", message: "omp 18.0 is too old" });
 			expect(listed()).toMatchObject({ status: "error", message: "omp 18.0 is too old" });
 			expect(listed()).not.toHaveProperty("restart");
+			expect(summary()?.failure).toEqual({ message: "omp 18.0 is too old" });
 			a?.emitStatus("ready");
 			expect(listed()).not.toHaveProperty("message");
+			expect(summary()).not.toHaveProperty("failure");
 		});
 
 		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {

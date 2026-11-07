@@ -37,6 +37,13 @@ describe("summaryRowState", () => {
 		});
 	});
 
+	it("names why the running computer says its omp failed, never for a wait on the session", () => {
+		const failure = { message: "omp 18.0 is too old" };
+		expect(summaryRowState(summary("a", { status: "error", failure })).reason).toBe("omp 18.0 is too old");
+		expect(summaryRowState(summary("a", { status: "error", sessionHeld: true, failure })).reason).toBeUndefined();
+		expect(summaryRowState(summary("a", { status: "ready" })).reason).toBeUndefined();
+	});
+
 	it("shows an unseen finish only from this view's own mark, and nothing for a session no computer runs", () => {
 		expect(summaryRowState(summary("a"), true)).toMatchObject({ done: true, fold: "done" });
 		expect(summaryRowState(summary("a")).fold).toBeNull();

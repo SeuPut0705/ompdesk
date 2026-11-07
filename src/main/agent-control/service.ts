@@ -1890,7 +1890,9 @@ export class AgentControl {
 							: "running"
 						: summary.status === "ready"
 							? "idle"
-							: summary.status;
+							: summary.failure?.message
+								? `${summary.status}: ${oneLine(summary.failure.message, SUMMARY_CHARS)}`
+								: summary.status;
 				const agents = runningAgentCount(summary);
 				const parts = [state, `folder ${summary.cwd}`, ...(agents ? [`${agents} subagent(s) running`] : [])];
 				const id = summary.sessionId ? ` (saved id ${summary.sessionId})` : "";

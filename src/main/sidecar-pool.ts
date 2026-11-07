@@ -94,7 +94,7 @@ import {
 	type SubagentFrame,
 	type SubagentSubscriptionLevel,
 } from "../shared/rpc-types";
-import type { SummaryAsk } from "../shared/session-summary";
+import { failureOf, type SummaryAsk, type SummaryFailure } from "../shared/session-summary";
 import {
 	asSplitLayout,
 	forgetSplitTab,
@@ -383,7 +383,7 @@ interface PoolEntry extends RunTracking {
 	/** The `error` status is a session another omp still holds: a wait that ends by itself (`IpcTabInfo.sessionHeld`). */
 	sessionHeld?: boolean;
 	/** Why the tab's omp failed, exited or restarts, as its last status said (`IpcTabInfo.message`/`restart`). */
-	failure?: Pick<SidecarStatusPayload, "message" | "restart">;
+	failure?: SummaryFailure;
 	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
 	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
@@ -1000,10 +1000,7 @@ export class SidecarPool {
 		sidecar.on("status", (payload: SidecarStatusPayload) => {
 			entry.status = payload.status;
 			entry.sessionHeld = payload.status === "error" && payload.sessionHeld === true;
-			entry.failure =
-				payload.status === "error" || payload.status === "exited" || payload.status === "restarting"
-					? { message: payload.message, restart: payload.restart }
-					: undefined;
+			entry.failure = failureOf(payload);
 			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
 			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
@@ -2437,6 +2434,7 @@ export class SidecarPool {
 							...(ask ? { ask } : {}),
 							...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
 							...(tab.sessionHeld ? { sessionHeld: true as const } : {}),
+							...(entry.failure ? { failure: entry.failure } : {}),
 							...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
 							...(entry.title ? { title: entry.title } : {}),
 							...(entry.autoTitle ? { autoTitle: entry.autoTitle } : {}),

@@ -52,6 +52,7 @@ import type {
 } from "../../shared/ipc-types";
 import { pathBaseName, worktreeKindOf } from "../../shared/project-origin";
 import { BLOCKING_UI_METHODS, type ExtensionUIRequest, type RpcSessionState } from "../../shared/rpc-types";
+import { failureOf } from "../../shared/session-summary";
 import {
 	attachTabSession,
 	hydrateTabSession,
@@ -280,8 +281,6 @@ function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCoun
 	return { shared: info.shared, viewerCount: info.viewerCount };
 }
 
-const FAILING_STATUSES: Record<string, true> = { error: true, exited: true, restarting: true };
-
 /**
  * The tab's banner reason (its session store's `sidecarError`) from main's listing of it (TAB_STATUS, GET_TABS): the one
  * route to every tab's banner, shown or not. Why its omp failed, exited or restarts, as the omp or its paired host said
@@ -290,12 +289,13 @@ const FAILING_STATUSES: Record<string, true> = { error: true, exited: true, rest
  */
 function applyTabFailure(session: { getState(): SessionStore }, info: IpcTabInfo, previous: string | undefined): void {
 	const state = session.getState();
-	if (!FAILING_STATUSES[info.status]) {
-		if (previous !== undefined && FAILING_STATUSES[previous]) state.clearSidecarError();
+	const failure = failureOf(info);
+	if (!failure) {
+		if (previous !== undefined && failureOf({ status: previous })) state.clearSidecarError();
 		return;
 	}
-	const reason = info.message ?? translate("events.sidecarProcessFailed");
-	const restart = info.restart ?? null;
+	const reason = failure.message ?? translate("events.sidecarProcessFailed");
+	const restart = failure.restart ?? null;
 	const held = isSessionHeld(info);
 	if (
 		state.sidecarError === reason &&

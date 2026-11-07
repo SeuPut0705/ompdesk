@@ -71,7 +71,7 @@ import {
 	type SubagentFrame,
 } from "../../shared/rpc-types";
 import type { SchedulesState } from "../../shared/schedules";
-import type { SummaryAsk, SummaryDelta } from "../../shared/session-summary";
+import { failureOf, type SummaryAsk, type SummaryDelta } from "../../shared/session-summary";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
 import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
@@ -920,6 +920,7 @@ export class LocalHostServices implements HostServices {
 				let ask: SummaryAsk | undefined;
 				for (const request of tab.asks.values())
 					if (ask !== "approval") ask = isApprovalSelect(request) ? "approval" : "input";
+				const failure = sidecar.statusPayload ? failureOf(sidecar.statusPayload) : undefined;
 				return {
 					sessionPath: tab.sessionFile,
 					tabId: tab.resumeId,
@@ -931,6 +932,7 @@ export class LocalHostServices implements HostServices {
 					...(ask ? { ask } : {}),
 					...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
 					...(status === "error" && sidecar.statusPayload?.sessionHeld ? { sessionHeld: true as const } : {}),
+					...(failure ? { failure } : {}),
 					...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
 					...(tab.title ? { title: tab.title } : {}),
 					...(tab.autoTitle ? { autoTitle: tab.autoTitle } : {}),

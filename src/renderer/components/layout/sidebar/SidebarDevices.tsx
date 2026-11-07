@@ -977,7 +977,7 @@ function DeviceSessions({
 	const renderRow = (session: DeviceSession, bot = false) => {
 		const tab = tabFor(session);
 		const summary = hostSummaries.get(session.path);
-		const { signal, waiting, running, settling } = summaryRowState(summary);
+		const { signal, waiting, running, settling, reason } = summaryRowState(summary);
 		const working = signal?.running === true || running;
 		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
@@ -1162,6 +1162,7 @@ function DeviceSessions({
 						title,
 						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
 						openElsewhere && !working ? t("sidebar.row.open") : null,
+						reason ?? null,
 						// The age slot reads "3w"; the exact time is here, since hovering puts the ⋯ in the age's place.
 						indexed ? formatClock(session.modified) : null,
 					]

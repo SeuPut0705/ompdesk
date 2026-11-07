@@ -19,6 +19,7 @@ import {
 } from "../../resources/gui-bridge/modes/subagent-title-contracts";
 import { asyncResultJobs } from "../shared/async-results";
 import { RESTART_NOTES, restartCuts } from "../shared/restart-cuts";
+import type { AgentMessage, AgentSessionEvent, SubagentFrame, SubagentSnapshot } from "../shared/rpc-types";
 import {
 	diffSummaries,
 	type SessionSummary,
