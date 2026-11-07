@@ -22,7 +22,12 @@ import type {
 	SubagentLifecyclePayload,
 	SubagentSnapshot,
 } from "../../shared/rpc-types";
-import { type SummaryDelta, unsavedSessionKey, type VersionedSummaries } from "../../shared/session-summary";
+import {
+	type SessionSummary,
+	type SummariesChanged,
+	unsavedSessionKey,
+	type VersionedSummaries,
+} from "../../shared/session-summary";
 import { PROJECT, tabsFixture } from "./fixture";
 import { BOARD_BUSY, BOARD_FAMILY } from "./fixture-board";
 
@@ -44,15 +49,22 @@ export interface HarnessSummaries {
 	lifecycle(tabId: string, agent: Pick<SubagentLifecyclePayload, "id" | "index" | "status" | "description">): void;
 	/** A tab's omp starts again with `registry` as its subagents (what `get_subagents` answers once it is ready). */
 	restart(tabId: string, registry: SubagentSnapshot[]): void;
-	/** Every summary now, as `window.omp.sessions.summaries()` reads them. */
+	/**
+	 * A paired computer's summaries as that computer's main built them (plain data: the harness runs no host): the
+	 * whole set goes out as that device's change. `[]` is a host with nothing running.
+	 */
+	host(deviceId: string, sessions: SessionSummary[]): void;
+	/** This computer's summaries now, as `window.omp.sessions.summaries()` reads them. */
 	current(): VersionedSummaries;
+	/** A paired computer's summaries as `host` last set them; null for one never set (an older or offline host). */
+	hostCurrent(deviceId: string): VersionedSummaries | null;
 }
 
 export interface HarnessSummariesOptions {
 	/** The subagents a tab's omp holds when it starts. */
 	subagentsOf(tabId: string): SubagentSnapshot[];
-	/** A change out of the builder, to push to the page (`SESSION_SUMMARIES_CHANGED`). */
-	onChange(change: SummaryDelta): void;
+	/** A change out of the builder or a host's driver, to push to the page (`SESSION_SUMMARIES_CHANGED`). */
+	onChange(change: SummariesChanged): void;
 }
 
 /** A subagent of a tab as stock's progress frame carries it. */
@@ -64,6 +76,10 @@ export interface HarnessSubagent {
 	task?: string;
 	assignment?: string;
 	sessionFile?: string;
+	model?: string;
+	role?: string;
+	tokens?: number;
+	cost?: number;
 }
 
 type Listener = (...args: unknown[]) => void;
@@ -115,7 +131,9 @@ const OPEN_TURN_RUNS = (BOARD_BUSY && !BOARD_FAMILY) || query.get("card") === "l
 export function createHarnessSummaries(options: HarnessSummariesOptions): HarnessSummaries {
 	const tabs = new Map<string, HarnessTab>();
 	const summaries = new SessionSummaries(() => [...tabs.values()].map(tab => tab.source));
-	summaries.onChange(options.onChange);
+	summaries.onChange(change => options.onChange({ change }));
+	const hosts = new Map<string, VersionedSummaries>();
+	let hostVersion = 0;
 
 	const open = (tabId: string, facts: SummaryFacts): HarnessTab => {
 		const omp = new FakeOmp(options.subagentsOf(tabId));
@@ -192,12 +210,14 @@ export function createHarnessSummaries(options: HarnessSummariesOptions): Harnes
 						status,
 						task,
 						assignment: agent.assignment,
+						...(agent.model ? { resolvedModel: agent.model } : {}),
+						...(agent.role ? { modelRole: agent.role } : {}),
 						recentTools: [],
 						recentOutput: [],
 						toolCount: 2,
 						requests: 1,
-						tokens: 1200,
-						cost: 0,
+						tokens: agent.tokens ?? 1200,
+						cost: agent.cost ?? 0,
 						durationMs: 60_000,
 					},
 				},
@@ -209,6 +229,11 @@ export function createHarnessSummaries(options: HarnessSummariesOptions): Harnes
 				payload: { ...agent, agent: "task", agentSource: "bundled", detached: true },
 			});
 		},
+		host(deviceId, sessions) {
+			const set = { version: `harness-host.${++hostVersion}`, sessions };
+			hosts.set(deviceId, set);
+			options.onChange({ device: deviceId, change: set });
+		},
 		restart(tabId, registry) {
 			const tab = tabs.get(tabId);
 			if (!tab) return;
@@ -217,5 +242,6 @@ export function createHarnessSummaries(options: HarnessSummariesOptions): Harnes
 			tab.omp.emit("status", { status: "ready" });
 		},
 		current: () => summaries.current(),
+		hostCurrent: deviceId => hosts.get(deviceId) ?? null,
 	};
 }

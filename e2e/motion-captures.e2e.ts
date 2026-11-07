@@ -45,6 +45,7 @@ import {
 	test,
 } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
+import type { SummaryFacts } from "../src/main/session-summaries";
 
 const SHOTS = process.env.OMP_GUI_MOTION_SHOTS;
 const VIDEO = process.env.OMP_GUI_MOTION_VIDEO === "1";
@@ -216,6 +217,15 @@ async function patchTabs(page: Page, patch: Record<string, Record<string, unknow
 		};
 		tabs.setState({ tabs: tabs.getState().tabs.map(tab => ({ ...tab, ...patch[tab.id] })) });
 	}, patch);
+}
+
+/** Tabs' run facts as the pool reports them: the sidebar's rows read them from the harness's summaries. */
+async function setSummaries(page: Page, change: Record<string, Partial<SummaryFacts>>): Promise<void> {
+	await page.evaluate(change => {
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		for (const [tabId, facts] of Object.entries(change)) summaries.tab(tabId, facts);
+	}, change);
 }
 
 async function addTab(page: Page, tab: Record<string, unknown>): Promise<void> {
@@ -788,6 +798,8 @@ const FLOWS: readonly Flow[] = [
 		id: "turn-finish",
 		title: "a running turn finishes",
 		prepare: async ({ page, viewport }) => {
+			// The rows read the summaries; the header's mark and the tab strip read the window's own tabs.
+			await setSummaries(page, { "tab-1": { status: "running" }, "tab-2": { status: "running" } });
 			await patchTabs(page, { "tab-1": { status: "running" }, "tab-2": { status: "running" } });
 			await page.evaluate(() => window.__stores?.session?.setState({ isStreaming: true }));
 			if (viewport === "phone") await openDrawer(page);
@@ -798,6 +810,7 @@ const FLOWS: readonly Flow[] = [
 				what: "Running marks becoming done marks on the rows and the header",
 				region: async ({ viewport }) => (viewport === "wide" ? { x: 0, y: 0, width: 720, height: 420 } : undefined),
 				trigger: async ({ page }) => {
+					await setSummaries(page, { "tab-1": { status: "ready" }, "tab-2": { status: "ready" } });
 					await patchTabs(page, { "tab-1": { status: "ready" }, "tab-2": { status: "ready", unreadDone: true } });
 					await page.evaluate(() => window.__stores?.session?.setState({ isStreaming: false }));
 				},
@@ -946,21 +959,34 @@ const FLOWS: readonly Flow[] = [
 		title: "a bot task finishes and is marked done",
 		query: "&bot=1",
 		prepare: async ({ page }) => {
+			// The work board lists the sessions a tab opened from its tabs; the sidebar's row reads the summaries.
 			await addTab(page, { ...BOT_CHILD, status: "running", runningSince: Date.now() - 30_000 });
+			await setSummaries(page, {
+				[BOT_CHILD.id]: {
+					status: "running",
+					cwd: "/Users/dev/projects/ompdesk",
+					sessionPath: BOT_CHILD.sessionPath,
+					sessionId: BOT_CHILD.sessionId,
+					title: BOT_CHILD.title,
+					since: Date.now() - 30_000,
+				},
+			});
 			await page.getByText("Triage the flaky nightly").first().waitFor({ state: "visible", timeout: 20_000 });
 		},
 		steps: [
 			{
 				id: "bot-task-finish",
 				what: "Task row going from Running to Done?",
-				trigger: ({ page }) =>
-					patchTabs(page, {
+				trigger: async ({ page }) => {
+					await setSummaries(page, { [BOT_CHILD.id]: { status: "ready", since: undefined } });
+					await patchTabs(page, {
 						"tab-child": {
 							status: "ready",
 							runningSince: undefined,
 							lastRun: { at: Date.now(), stopReason: "stop", durationMs: 30_000 },
 						},
-					}),
+					});
+				},
 			},
 			{
 				id: "bot-task-done",

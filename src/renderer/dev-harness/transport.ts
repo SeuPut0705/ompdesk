@@ -37,7 +37,6 @@ import {
 } from "../../shared/preview";
 import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
-import type { SummariesChanged } from "../../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
@@ -325,7 +324,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	};
 	const summaries = createHarnessSummaries({
 		subagentsOf: tabId => (tabId === "tab-1" ? openSessionSubagents() : []),
-		onChange: change => emit(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, { change } satisfies SummariesChanged),
+		onChange: change => emit(IPC_EVENTS.SESSION_SUMMARIES_CHANGED, change),
 	});
 	// This computer's project list, edited in place: a project's Delete takes it out.
 	let projects = projectsFixture();
@@ -550,9 +549,9 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return rpc({ command: (payload as RpcPayload).command });
 			case IPC_COMMANDS.RPC_COMMAND_FOR_TAB:
 				return rpc(payload as RpcPayload);
-			// This computer's summaries; a paired host's are not known to the harness (an older host answers none).
+			// A paired host's summaries are what its main built: whatever `harness.summaries.host` set, else none known.
 			case IPC_COMMANDS.SESSION_SUMMARIES:
-				return payload === undefined ? summaries.current() : null;
+				return payload === undefined ? summaries.current() : summaries.hostCurrent(payload as string);
 			case IPC_COMMANDS.SESSIONS_LIST: {
 				// The feed's read (`listShared`) takes the list with its version (`epoch.n`, n only grows): it moves only with
 				// `harness.sessions`, whose newest `modified` grows with every push and touch.

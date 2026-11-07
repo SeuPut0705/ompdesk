@@ -82,54 +82,58 @@ async function openHarness(surface: Surface, theme: "light" | "dark"): Promise<P
 
 /**
  * This computer: in ompdesk a finished run nobody looked at (tab-2), a new session at work and one waiting for an
- * approval; website (tab-3) idle. The paired computer: a tab here waits on a question in its ompdesk session, and its
- * live list says it works on its website session.
+ * approval; website (tab-3) idle. The paired computer's own summaries: its ompdesk session waits on a question and
+ * its website session works. Run state comes from the harness's summaries; the tabs are the window's own.
  */
 async function seedWork(page: Page): Promise<void> {
 	await page.evaluate(
 		({ project, sess2, host, hostWaiting, hostWorking }) => {
 			const stores = window.__stores;
-			if (!stores) throw new Error("no stores");
+			const summaries = window.__harness?.summaries;
+			if (!stores || !summaries) throw new Error("no stores");
 			type Tab = Record<string, unknown> & { id: string };
 			const tabs = (stores.tabs.getState() as { tabs: Tab[] }).tabs;
 			const tab = (id: string, extra: Record<string, unknown>) => ({
 				id,
 				cwd: project,
+				status: "ready",
 				kind: "agent",
 				unreadDone: false,
 				...extra,
 			});
 			stores.tabs.setState({
 				tabs: [
-					...tabs.map(entry =>
-						entry.sessionPath === sess2 ? { ...entry, status: "ready", unreadDone: true } : entry,
-					),
-					tab("tab-run", { status: "running", sessionPath: `${project}/run.jsonl`, title: "Run the e2e suite" }),
-					tab("tab-ask", {
-						status: "running",
-						sessionPath: `${project}/ask.jsonl`,
-						title: "Push the release",
-						awaitingInput: "approval",
-					}),
-					tab("tab-host", {
-						status: "running",
-						device: host,
-						sessionPath: hostWaiting,
-						awaitingInput: "input",
-					}),
+					...tabs.map(entry => (entry.sessionPath === sess2 ? { ...entry, unreadDone: true } : entry)),
+					tab("tab-run", { sessionPath: `${project}/run.jsonl`, title: "Run the e2e suite" }),
+					tab("tab-ask", { sessionPath: `${project}/ask.jsonl`, title: "Push the release" }),
 				],
 			});
-			const remote = stores.remote.getState() as {
-				state: { hosts: { deviceId: string }[] } | null;
-				apply(state: unknown): void;
-			};
-			if (!remote.state) throw new Error("no remote state");
-			remote.apply({
-				...remote.state,
-				hosts: remote.state.hosts.map(entry =>
-					entry.deviceId === host ? { ...entry, live: [{ sessionPath: hostWorking, state: "turn" }] } : entry,
-				),
+			summaries.tab("tab-run", {
+				cwd: project,
+				status: "running",
+				sessionPath: `${project}/run.jsonl`,
+				title: "Run the e2e suite",
 			});
+			summaries.tab("tab-ask", {
+				cwd: project,
+				status: "running",
+				sessionPath: `${project}/ask.jsonl`,
+				title: "Push the release",
+				ask: "approval",
+			});
+			const hostSession = (tabId: string, sessionPath: string, cwd: string, ask?: "input") => ({
+				sessionPath,
+				tabId,
+				cwd,
+				kind: "agent" as const,
+				status: "running" as const,
+				...(ask ? { ask } : {}),
+				agents: [],
+			});
+			summaries.host(host, [
+				hostSession("tab-host", hostWaiting, project, "input"),
+				hostSession("tab-host-2", hostWorking, "/Users/dev/projects/website"),
+			]);
 		},
 		{
 			project: PROJECT,

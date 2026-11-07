@@ -166,6 +166,39 @@ async function seed(page: Page): Promise<void> {
 				},
 			],
 		});
+		// What runs is the summaries': this computer's kid1, the paired computer's own kid2, and the parent's subagents
+		// as the frames stock writes carry them.
+		const summaries = window.__harness?.summaries;
+		if (!summaries) throw new Error("no harness summaries");
+		summaries.tab("kid1", {
+			cwd: "/Users/me/.omp/wt/gui-agent-parser-1a2b3c4",
+			status: "running",
+			sessionPath: "/s/kid1.jsonl",
+			title: "Parser fix",
+		});
+		summaries.host("pc1", [
+			{
+				sessionPath: "C:\\s\\kid2.jsonl",
+				tabId: "kid2",
+				cwd: "C:\\Users\\me\\acme-web",
+				kind: "agent",
+				status: "running",
+				title: "Windows build check",
+				agents: [],
+			},
+		]);
+		const running = (id: string, index: number, title: string, role: string, model: string, cost: number) =>
+			summaries.progress(parent.id, {
+				id,
+				index,
+				assignment: `Title: ${title}\n\nbody`,
+				role,
+				model,
+				cost,
+				tokens: 24_000,
+			});
+		running("s1", 1, "Read the config loader", "smol", "anthropic/claude-haiku-5", 0.03);
+		running("s2", 2, "Trace the cache miss", "task", "anthropic/claude-sonnet-5", 0.07);
 		stores.agentReview.setState({
 			byTab: {
 				[parent.id]: [
