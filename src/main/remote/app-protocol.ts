@@ -100,10 +100,12 @@
  *   `sessions.live {}` → LiveSessionsReply; the host pushes every change as the `host.liveSessions` event.
  * - The tabs the host's windows hold on a paired device that a session of the host opened: `sessions.remoteOpened {}`
  *   → RemoteOpenedReply; every change comes as the `host.remoteOpened` event. An older host answers `unsupported`.
+ * - Sessions the host deleted: `sessions.deleted {paths}` → SessionsDeletedReply (which of the paths a device's tabs
+ *   hold are deleted); each delete is pushed as the `host.sessionsDeleted` event. An older host answers `unsupported`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.liveSessions`
- * and `host.remoteOpened`.
+ * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.liveSessions`,
+ * `host.sessionsDeleted` and `host.remoteOpened`.
  * Both sides parse what crosses the link with the schemas below.
  */
 import { z } from "zod";
@@ -930,3 +932,19 @@ export function decodeBinaryRead(raw: unknown, method = "host.fs.readBinary"): I
 	Buffer.from(bytes.buffer).write(data, "base64");
 	return { ...rest, data: bytes, ...(isIpcErrorCode(code) ? { code } : {}) };
 }
+
+/**
+ * Sessions this computer's own person (or a device) deleted here (data: {@link SessionsDeletedReply}), sent to every
+ * connected device as they are deleted: a device closes every tab it holds of them, asleep ones too, and records the
+ * delete under this host. `sessions.deleted {paths}` answers, for the session paths a device's tabs on this host hold
+ * (`SessionsDeletedParams`), which of them are deleted (the tombstones, `deleted-sessions.ts`), so a device that was
+ * off the link at the delete learns it as its link comes up. An older host answers `unsupported` and sends no push;
+ * an older device drops the event name.
+ */
+export const SESSIONS_DELETED_EVENT = "host.sessionsDeleted";
+export const SESSIONS_DELETED_METHOD = "sessions.deleted";
+export const SESSIONS_DELETED_MAX_PATHS = 2000;
+export const SessionsDeletedParams = z
+	.object({ paths: z.array(z.string().min(1).max(4096)).max(SESSIONS_DELETED_MAX_PATHS) })
+	.strict();
+export const SessionsDeletedReply = z.object({ paths: z.array(z.unknown()) });

@@ -2689,6 +2689,29 @@ export class SidecarPool {
 		const entry = this.#byTabId.get(tabId);
 		return entry?.former && entry.former.file === entry.sessionFile ? entry.former.ids : [];
 	}
+	/** The session files the tabs here hold on paired host `device`: what `sessions.deleted` asks that host about. */
+	deviceSessionFiles(device: string): string[] {
+		const files = new Set<string>();
+		for (const entry of this.#entries)
+			if (entry.device === device && !entry.hostedView && entry.sessionFile) files.add(entry.sessionFile);
+		return [...files];
+	}
+
+	/**
+	 * Paired host `device` deleted these sessions (`host.sessionsDeleted`, or its `sessions.deleted` answer as the link
+	 * came up): every tab here on one closes as a delete's does, asleep, ready or running (a running one stops as
+	 * closing a tab does), the tombstones are recorded under that host so no restore brings them back; the ids closed.
+	 */
+	closeHostDeletedSessions(device: string, sessionPaths: readonly string[]): string[] {
+		const deleted = new Set(sessionPaths);
+		for (const sessionPath of deleted) deletedSessions().add(sessionPath, device);
+		const held = [...this.#entries].filter(
+			entry => entry.device === device && !entry.hostedView && entry.sessionFile && deleted.has(entry.sessionFile),
+		);
+		this.#closeFinished(held);
+		return held.map(entry => entry.tabId);
+	}
+
 	/**
 	 * Record that `openerTabId`'s agent opened `tabId` (`ompdesk_session_open`): the windows nest the session under
 	 * its opener, and the layout keeps the opener's session file so the family survives a relaunch.

@@ -1556,6 +1556,52 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		expect(deletedSessions().has("/s/b.jsonl", "host-b")).toBe(false);
 	});
 
+	it("closes every tab a paired host's deleted sessions leave here, asleep or running, and remembers the delete under that host", () => {
+		const { pool, sidecars } = fakePool();
+		const fw = fakeWindow(1);
+		initDeletedSessions(null);
+		const open = (tabId: string, sessionPath: string, device: string | undefined, deferStart: boolean) =>
+			pool.acquire(
+				"/w",
+				fw.win,
+				tabId,
+				sessionPath,
+				"agent",
+				undefined,
+				false,
+				false,
+				deferStart,
+				undefined,
+				device,
+			);
+		open("asleep", "/s/gone.jsonl", "host-b", true);
+		open("running", "/s/gone-too.jsonl", "host-b", false);
+		open("kept", "/s/kept.jsonl", "host-b", true);
+		open("same-path-elsewhere", "/s/gone.jsonl", "host-c", true);
+		open("local", "/s/gone.jsonl", undefined, true);
+		expect(pool.deviceSessionFiles("host-b").sort()).toEqual(["/s/gone-too.jsonl", "/s/gone.jsonl", "/s/kept.jsonl"]);
+		expect(sidecars[0]?.status).toBe("asleep");
+		expect(sidecars[1]?.status).not.toBe("asleep");
+
+		const closed = pool.closeHostDeletedSessions("host-b", ["/s/gone.jsonl", "/s/gone-too.jsonl", "/s/other.jsonl"]);
+		expect(closed.sort()).toEqual(["asleep", "running"]);
+		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["kept", "same-path-elsewhere", "local"]);
+		expect(sidecars[0]?.disposed).toBe(true);
+		expect(sidecars[1]?.disposed).toBe(true);
+		expect(sidecars[2]?.disposed).toBe(false);
+		// The window drops them as a deleted session's tabs.
+		expect(fw.sentTo(IPC_EVENTS.TAB_LIST_CHANGED).at(-1)?.data).toMatchObject({
+			closed: expect.arrayContaining(["asleep", "running"]),
+		});
+		// Remembered under that host only: no restore brings the sessions back, and no other file is hidden.
+		expect(deletedSessions().has("/s/gone.jsonl", "host-b")).toBe(true);
+		expect(deletedSessions().has("/s/other.jsonl", "host-b")).toBe(true);
+		expect(deletedSessions().has("/s/gone.jsonl", "host-c")).toBe(false);
+		expect(deletedSessions().has("/s/gone.jsonl")).toBe(false);
+		expect(open("again", "/s/gone.jsonl", "host-b", true)).toBeNull();
+		initDeletedSessions(null);
+	});
+
 	it("passes a paired host's review list of the session a tab views to its windows, each item opening on that host", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

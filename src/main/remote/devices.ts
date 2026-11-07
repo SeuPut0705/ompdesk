@@ -87,6 +87,10 @@ import {
 	SCHEDULES_EVENT,
 	SchedulesStateSchema,
 	SESSIONS_CHANGED_EVENT,
+	SESSIONS_DELETED_EVENT,
+	SESSIONS_DELETED_MAX_PATHS,
+	SESSIONS_DELETED_METHOD,
+	SessionsDeletedReply,
 	SidebarProjectsStateSchema,
 	TAB_EVENT,
 	TabEventMessage,
@@ -253,6 +257,7 @@ export class RemoteDevices {
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
+	readonly #hostSessionsDeleted = new Set<(hostId: string, paths: string[]) => void>();
 	readonly #hostBotDesks = new Set<(hostId: string, state: BotDeskState) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
@@ -621,6 +626,41 @@ export class RemoteDevices {
 			const tab = KeptTab.safeParse(entry);
 			return tab.success ? [tab.data] : [];
 		});
+	}
+
+	/**
+	 * Which of `paths` (session paths on the host, the ones this computer's tabs on it hold) the host has deleted
+	 * (`sessions.deleted`). Null from a host that does not know the method (an older OMPdesk).
+	 */
+	async deletedOnHost(deviceId: string, paths: readonly string[]): Promise<string[] | null> {
+		const deleted: string[] = [];
+		for (let at = 0; at < paths.length; at += SESSIONS_DELETED_MAX_PATHS) {
+			let reply: unknown;
+			try {
+				reply = await this.request<unknown>(deviceId, SESSIONS_DELETED_METHOD, {
+					paths: paths.slice(at, at + SESSIONS_DELETED_MAX_PATHS),
+				});
+			} catch (error) {
+				if (ipcErrorCode(error) === "unsupported") return null;
+				throw error;
+			}
+			const parsed = SessionsDeletedReply.safeParse(reply);
+			if (!parsed.success) return null;
+			for (const path of parsed.data.paths) if (typeof path === "string") deleted.push(path);
+		}
+		return deleted;
+	}
+
+	/** The sessions a paired host deleted (`host.sessionsDeleted`), as its person deletes them. */
+	onHostSessionsDeleted(listener: (hostId: string, paths: string[]) => void): () => void {
+		this.#hostSessionsDeleted.add(listener);
+		return () => this.#hostSessionsDeleted.delete(listener);
+	}
+
+	#sessionsDeleted(hostId: string, raw: readonly unknown[]): void {
+		const paths = raw.filter((path): path is string => typeof path === "string" && path !== "");
+		if (paths.length === 0) return;
+		for (const listener of this.#hostSessionsDeleted) listener(hostId, paths);
 	}
 
 	/** A tab on a known host; throws `remote_unknown_device` when the host is not known. */
@@ -1087,6 +1127,11 @@ export class RemoteDevices {
 			}
 			if (event === LIVE_SESSIONS_EVENT) {
 				this.#setLiveSessions(link, data);
+				return;
+			}
+			if (event === SESSIONS_DELETED_EVENT) {
+				const reply = SessionsDeletedReply.safeParse(data);
+				if (reply.success) this.#sessionsDeleted(deviceId, reply.data.paths);
 				return;
 			}
 			if (event === REMOTE_OPENED_EVENT) {

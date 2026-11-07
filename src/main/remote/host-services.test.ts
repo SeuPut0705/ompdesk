@@ -74,6 +74,7 @@ import {
 	PREVIEW_RELAY_METHODS,
 	PROJECTS_EVENT,
 	SCHEDULES_EVENT,
+	SESSIONS_DELETED_EVENT,
 	SIGN_IN_CALLBACK_METHOD,
 	type TabEventMessage,
 	TabRunArg,
@@ -1213,6 +1214,40 @@ describe("LocalHostServices", () => {
 		// The stored file went: the device drops its tab and saved layout entry, and records the delete.
 		notify?.();
 		expect(x.tabEvents()).toContainEqual({ rtab: "t", name: "sessionDeleted", arg: "/s/x.jsonl" });
+	});
+
+	it("announces a session deleted here to every connected device, one with no tab on it too, and answers the link-up read", async () => {
+		const { services, sidecars } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		initDeletedSessions(null);
+		await services.call(x.peer, "tab.open", { rtab: "t", cwd: workDir, fresh: false }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t" }, x);
+		sidecars[0]?.setStatus("ready");
+		sidecars[0]?.emit("session", { sessionId: "s", sessionFile: "/s/x.jsonl" });
+		// y holds no tab here (an asleep one its layout restored is the device's own, unknown to this computer).
+		await services.call(y.peer, "sessions.live", {}, y);
+
+		const pushed = (conn: FakeConnection) =>
+			conn.events.filter(entry => entry.event === SESSIONS_DELETED_EVENT).map(entry => entry.data);
+		const closing = services.closeSessionTabs("/s/x.jsonl");
+		await new Promise<void>(resolve => setImmediate(resolve));
+		sidecars[0]?.exited.resolve();
+		const told = await closing;
+		// Nothing is announced before the stored file is gone.
+		expect(pushed(x)).toEqual([]);
+		expect(pushed(y)).toEqual([]);
+		deletedSessions().add("/s/x.jsonl");
+		told();
+		expect(pushed(x)).toEqual([{ paths: ["/s/x.jsonl"] }]);
+		expect(pushed(y)).toEqual([{ paths: ["/s/x.jsonl"] }]);
+
+		// A device that was off the link at the delete asks as its link comes up: only deleted ones come back.
+		expect(await services.call(y.peer, "sessions.deleted", { paths: ["/s/x.jsonl", "/s/kept.jsonl"] }, y)).toEqual({
+			paths: ["/s/x.jsonl"],
+		});
+		await expect(services.call(y.peer, "sessions.deleted", { paths: [7] }, y)).rejects.toThrow();
+		initDeletedSessions(null);
 	});
 
 	it("resumes the requested session on start and works out its kind on the host", async () => {

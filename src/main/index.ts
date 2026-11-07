@@ -674,6 +674,17 @@ function closeFinishedTabs(device: string | undefined, state: Pick<SidebarProjec
 	});
 }
 
+/** Paired host `host` deleted these sessions: the tabs here on them close and the delete is remembered under that host. */
+function closeHostDeletedTabs(host: string, paths: readonly string[]): void {
+	const closed = sidecarPool.closeHostDeletedSessions(host, paths);
+	if (closed.length === 0) return;
+	writeRuntimeLog({
+		source: "tab-layout",
+		message: "closed tabs of sessions their host deleted",
+		details: { level: "info", device: host, tabs: closed.length },
+	});
+}
+
 /**
  * Rewrite the saved session from the live windows. Runs on every tab change and
  * every window close, so a window the user closed for good never comes back and
@@ -1847,6 +1858,26 @@ app.whenReady().then(() => {
 			);
 	});
 	devices.onHostProjects(closeFinishedTabs);
+	// A session its host deleted closes every tab here on it, asleep ones too: told as it is deleted
+	// (`host.sessionsDeleted`) and, for a delete this computer was off the link for, asked as the link comes up
+	// (`sessions.deleted`, the paths this computer's tabs on that host hold; an older host answers none).
+	devices.onHostSessionsDeleted((host, paths) => closeHostDeletedTabs(host, paths));
+	devices.onHostOnline(host => {
+		const held = sidecarPool.deviceSessionFiles(host);
+		if (held.length === 0) return;
+		void devices
+			.deletedOnHost(host, held)
+			.then(deleted => {
+				if (deleted && deleted.length > 0) closeHostDeletedTabs(host, deleted);
+			})
+			.catch((error: unknown) =>
+				writeRuntimeLog({
+					source: "tab-layout",
+					message: "deleted sessions read failed",
+					details: { level: "warn", device: host, error: error instanceof Error ? error.message : String(error) },
+				}),
+			);
+	});
 	aiMemorySync.start();
 	// The term corpus of memory recall's coverage gate: read at memory-ready (onState above) and every ten minutes.
 	recallTerms = new RecallTermsIndex({

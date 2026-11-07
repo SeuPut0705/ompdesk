@@ -189,6 +189,9 @@ import {
 	SchedulesCreateParams,
 	SchedulesLogParams,
 	SESSIONS_CHANGED_EVENT,
+	SESSIONS_DELETED_EVENT,
+	SESSIONS_DELETED_METHOD,
+	SessionsDeletedParams,
 	SIGN_IN_CALLBACK_METHOD,
 	SignInCallbackParams,
 	type SignInCallbackReply,
@@ -1185,6 +1188,12 @@ export class LocalHostServices implements HostServices {
 				return { sessions: this.liveSessions() };
 			case REMOTE_OPENED_METHOD:
 				return { tabs: this.remoteOpened() };
+			case SESSIONS_DELETED_METHOD: {
+				// Which of the paths this device's tabs hold were deleted here (`deleted-sessions.ts`): a device that was
+				// off the link at the delete learns it as its link comes up.
+				const { paths } = parse(SessionsDeletedParams, method, params);
+				return { paths: paths.filter(path => deletedSessions().has(path)) };
+			}
 			case MOBILE_WEB_LINK_METHOD:
 				return { url: this.#deps.mobileWebUrl?.() ?? null };
 			case "tab.cancelWait": {
@@ -2641,7 +2650,10 @@ export class LocalHostServices implements HostServices {
 	 * them runs a turn or compacts; otherwise their tabs end (`exited`) and this resolves, once their omps have
 	 * exited, to the notice that the file is gone: the caller runs it only after the stored delete succeeded, so a
 	 * device never records a delete of a file still there. Then each device drops the tab and its saved layout entry
-	 * and records the delete. A device off the link learns it at its next `tab.open` (`session_deleted`).
+	 * and records the delete. Every connected device also hears it as `host.sessionsDeleted`, whether or not it holds a
+	 * tab on the file here (an asleep tab it restored, one the host never started): it closes every tab it holds of the
+	 * session. A device off the link learns it as its link comes up (`sessions.deleted`) or at its next `tab.open`
+	 * (`session_deleted`).
 	 */
 	async closeSessionTabs(sessionPath: string): Promise<() => void> {
 		const held = [...this.#tabs.values()].filter(tab => tab.sessionFile === sessionPath);
@@ -2657,6 +2669,7 @@ export class LocalHostServices implements HostServices {
 		return () => {
 			for (const { conn, rtab } of told)
 				emitSafely(conn, TAB_EVENT, { rtab, name: "sessionDeleted", arg: sessionPath } satisfies TabEventMessage);
+			for (const conn of this.#conns) emitSafely(conn, SESSIONS_DELETED_EVENT, { paths: [sessionPath] });
 		};
 	}
 

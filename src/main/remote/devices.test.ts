@@ -15,6 +15,8 @@ import {
 	MOBILE_WEB_LINK_EVENT,
 	MODELS_CHANGED_EVENT,
 	PREVIEW_RELAY_EVENT,
+	SESSIONS_DELETED_EVENT,
+	SessionsDeletedParams,
 	TAB_EVENT,
 } from "./app-protocol";
 import { generateKeyPair } from "./crypto";
@@ -463,6 +465,31 @@ describe("the tabs a host keeps for this device", () => {
 		);
 		expect(await a.devices.keptTabs(hostId)).toEqual([KEPT]);
 		expect(b.services.call.mock.calls.some(call => call[1] === "tabs.kept")).toBe(true);
+	});
+
+	it("hears the sessions the host deletes as it deletes them, and asks which of its tabs' sessions are deleted", async () => {
+		const { a, b, hostId } = await rig.connected();
+		const heard: Array<[string, string[]]> = [];
+		a.devices.onHostSessionsDeleted((host, paths) => heard.push([host, paths]));
+		b.services.call.mockImplementation(async (_peer, method, params) =>
+			method === "sessions.deleted"
+				? { paths: SessionsDeletedParams.parse(params).paths.filter(path => path.includes("gone")) }
+				: null,
+		);
+		expect(await a.devices.deletedOnHost(hostId, ["/s/gone.jsonl", "/s/kept.jsonl"])).toEqual(["/s/gone.jsonl"]);
+		const conn = b.services.call.mock.calls.find(call => call[1] === "sessions.deleted")?.[3] as HostConnection;
+		conn.emit(SESSIONS_DELETED_EVENT, { paths: ["/s/a.jsonl", 7, "/s/b.jsonl"] });
+		conn.emit(SESSIONS_DELETED_EVENT, { paths: [] });
+		conn.emit(SESSIONS_DELETED_EVENT, "not a list");
+		await vi.waitFor(() => expect(heard).toEqual([[hostId, ["/s/a.jsonl", "/s/b.jsonl"]]]));
+	});
+
+	it("ignores a host that does not know `sessions.deleted` (an older OMPdesk)", async () => {
+		const { a, b, hostId } = await rig.connected();
+		b.services.call.mockImplementation(async () => {
+			throw codedError("unsupported", "Unknown method sessions.deleted");
+		});
+		expect(await a.devices.deletedOnHost(hostId, ["/s/a.jsonl"])).toBeNull();
 	});
 
 	it("shows what the host works on now: read as the link comes up, then as the host pushes it, gone while offline", async () => {
