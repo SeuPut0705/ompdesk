@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.118.3] - 2026-11-07
+
+앱이 켜진 채 omp만 갑자기 꺼져도, 그 세션의 작업이 조용히 멈추지 않고 다시 켜진 omp에서 이어져요.
+
+### 고친 것
+- omp가 앱 실행 중에 꺼지면 OMPdesk가 omp를 다시 켜면서 무엇이 돌고 있었는지를 잊어버려, 진행 중이던 턴도 백그라운드 하위 에이전트도 그대로 사라졌어요. 세션은 '준비됨'으로 돌아와 하위 작업이 아직 돈다고 믿은 채 멈춰 있었어요. 이제 앱을 다시 실행했을 때와 똑같이 이어서 진행해요. 턴이 이미 끝나고 하위 작업만 돌던 세션은 하위 작업만 되살리고, 끝난 턴을 다시 실행하지는 않아요. '다시 열 때 중단된 작업 이어서 하기' 설정, 사람이 누른 멈춤, 그 사이 직접 보낸 메시지는 전과 같이 지켜요.
+- omp가 되살리지 못하는 하위 에이전트(자기 워크트리에서 돌던 것 등)도 이름을 붙여 에이전트에게 알려요. 에이전트는 이미 한 일을 확인하고 필요한 것만 다시 시작해요.
+
+<!-- en -->
+
+When omp alone dies while the app keeps running, its session's work now goes on in the new omp instead of stopping silently.
+
+### Fixed
+- An omp that died while the app ran was restarted with no memory of what it was running: a turn in flight and background subagents were lost, and the session came back as ready, still believing its subagents ran. It now continues as after a relaunch. A session whose turn had ended with only background subagents left gets those revived and its ended turn is never retried. The "Resume interrupted work" setting, the person's Stop and a prompt of their own since are honored as before.
+- Background subagents stock cannot revive (one in its own worktree, for example) are now named to the agent too, so it checks what they did and restarts only what is needed.
+
 ## [0.118.2] - 2026-11-06
 
 휴대폰이 네트워크가 끊겼다 돌아온 뒤에도 컴퓨터에 다시 연결하지 못하고 계속 '다시 연결하는 중'에 머물던 문제를 고쳤어요.
