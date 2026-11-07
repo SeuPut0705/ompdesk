@@ -19,6 +19,18 @@ const rowOf = (page: Page, file: string) =>
 	page.locator(`.omp-session-sidebar .omp-sidebar-session-row[data-session-path=${cssString(file)}]`);
 const groupOf = (page: Page, cwd: string) =>
 	page.locator(`.omp-session-sidebar [data-workspace-group=${cssString(cwd)}]`);
+/**
+ * Opens a project's fold. The folds are one saved set every window reads when it opens (`useSidebarFolds.hydrate`), so
+ * a window that opens or hydrates after another one's clicks starts with those projects already open, and a plain
+ * click would fold them again. Click only a folded one, and look again until it is open.
+ */
+async function openProject(page: Page, name: string): Promise<void> {
+	const fold = page.locator(".omp-session-sidebar").getByRole("button", { name, exact: true });
+	await expect(async () => {
+		if ((await fold.getAttribute("aria-expanded")) === "false") await fold.click();
+		await expect(fold).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+	}).toPass({ timeout: 30_000 });
+}
 
 /** A stored session in the fake omp's journal format (title slot, header, one exchange) under `agent`; no tab holds it. */
 async function seedSession(agent: string, id: string, cwd: string, title: string): Promise<string> {
@@ -88,9 +100,8 @@ test("a deleted session or project leaves every window's sidebar with no click",
 		await second.waitForFunction(() => window.omp?.rpc != null);
 		for (const page of [first, second]) {
 			await page.setViewportSize({ width: 1180, height: 820 });
-			// Seeded projects start folded: open each so its rows show.
-			for (const name of ["alpha", "beta", "gamma"])
-				await page.locator(".omp-session-sidebar").getByRole("button", { name, exact: true }).click();
+			// Seeded projects start folded unless another window opened them first.
+			for (const name of ["alpha", "beta", "gamma"]) await openProject(page, name);
 			for (const file of [byWindow, byAgent, kept, betaOne, betaTwo, gammaOne])
 				await expect(rowOf(page, file)).toBeVisible({ timeout: 30_000 });
 		}
