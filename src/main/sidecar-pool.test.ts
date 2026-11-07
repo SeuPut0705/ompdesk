@@ -19,6 +19,7 @@ import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
 import { SidecarPool, type TabActivity } from "./sidecar-pool";
 import { type SidecarLike, VIEW_ENDED_EVENT } from "./sidecar-types";
 import type { PersistedTabLayout } from "./tab-layout";
+import { InterruptedTurnStore, TurnResume } from "./turn-resume";
 import type { ClientWindow } from "./web/client-window";
 import { withRemovalClaim } from "./worktree-removals";
 
@@ -58,12 +59,16 @@ class FakeSidecar extends EventEmitter {
 	/** Stock's settle predicate as `get_state` reports it. */
 	settled = true;
 	slept = 0;
+	/** The `data` the next commands of a type answer with (a restore's outcome); default `{ cancelled: false }`. */
+	answers: Partial<Record<string, unknown>> = {};
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
 			if (command.type === "set_subagent_subscription") this.subagentLevels.push(command.level);
 			else this.rpcCommands.push(command);
 			const data =
-				command.type === "get_state" ? { isSettled: this.settled, isStreaming: false } : { cancelled: false };
+				command.type === "get_state"
+					? { isSettled: this.settled, isStreaming: false }
+					: (this.answers[command.type] ?? { cancelled: false });
 			return { type: "response", command: command.type, success: true, data };
 		},
 	};
@@ -3031,6 +3036,110 @@ describe("SidecarPool background tabs", () => {
 			expect(pool.tabsForWindow(fw.win)[0]?.scheduledRetry).toEqual(retry);
 			a?.emit("scheduledRetry", undefined);
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).not.toHaveProperty("scheduledRetry");
+		});
+	});
+
+	// 7 Nov 2026, a paired host: a tab's turn ended with four background subagents still working, its omp died of an
+	// uncaught exception two minutes later, OMPdesk started it again, and the session sat idle: nothing revived the
+	// subagents or told the agent they had stopped. Its omp ending under the work is a relaunch for that tab.
+	describe("an omp that ends under its work continues on the next one (turn-resume.ts)", () => {
+		const CONTINUING: Record<string, true> = { restore_interrupted: true, retry: true, prompt: true };
+		/** Let the resume's async chain (ready → command → sync) finish. */
+		const settle = async () => {
+			for (let i = 0; i < 40; i++) await Promise.resolve();
+		};
+
+		function world(options: { enabled?: boolean } = {}) {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0] as FakeSidecar;
+			a.emitStatus("ready");
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-exit-"));
+			const store = new InterruptedTurnStore(path.join(dir, "interrupted-turns.json"));
+			const resume = new TurnResume({
+				store,
+				pool,
+				network: { online: true, shouldWait: () => false, verify: async () => true },
+				enabled: () => options.enabled ?? true,
+				frozen: () => false,
+				scheduledRetry: { delays: [30_000], schedule: () => () => {} },
+				now: () => 1_000,
+				openTab: () => null,
+			});
+			pool.onRunningChange = () => resume.sync();
+			resume.launch();
+			const finished = { role: "assistant", content: [], stopReason: "stop" };
+			return {
+				pool,
+				a,
+				store,
+				continued: () => a.rpcCommands.filter(command => CONTINUING[command.type]).map(command => command.type),
+				/** A turn that answered and ended; `background` work (a subagent, a job) keeps the session unsettled. */
+				turnEnds: (background: boolean) => {
+					a.emitEvents([{ type: "agent_start" }]);
+					a.emitEvents([{ type: "agent_end", messages: [finished] }]);
+					a.emit("promptResult", { type: "prompt_result", sessionSettled: !background });
+				},
+				/** The omp died (an uncaught exception) and its manager starts the next one on the same session. */
+				ompDies: async () => {
+					a.emitStatus("restarting");
+					a.emitStatus("starting");
+					a.emitStatus("ready");
+					await settle();
+				},
+			};
+		}
+
+		it("revives the background subagents of an idle session and tells its agent, without retrying the ended turn", async () => {
+			const w = world();
+			w.a.answers.restore_interrupted = { turn: false, subagents: ["0-CalStoreFix"], jobs: [], followUp: true };
+			w.turnEnds(true);
+			await w.ompDies();
+			expect(w.continued()).toEqual(["restore_interrupted"]);
+		});
+
+		it("tells the agent of an idle session which background job the dead omp took down", async () => {
+			const w = world();
+			w.a.answers.restore_interrupted = { turn: false, subagents: [], jobs: ["bash-3"], followUp: true };
+			w.turnEnds(true);
+			await w.ompDies();
+			expect(w.continued()).toEqual(["restore_interrupted"]);
+		});
+
+		it("never retries a turn that had ended, when the restore finds nothing to go on with", async () => {
+			const w = world();
+			w.a.answers.restore_interrupted = { turn: false, subagents: [], jobs: [], followUp: false };
+			w.turnEnds(true);
+			await w.ompDies();
+			expect(w.continued()).toEqual(["restore_interrupted"]);
+			expect(w.store.read()).toEqual([]);
+		});
+
+		it("continues a turn the omp died in", async () => {
+			const w = world();
+			w.a.answers.restore_interrupted = { turn: true, subagents: [] };
+			w.a.emitEvents([{ type: "agent_start" }]);
+			await w.ompDies();
+			expect(w.continued()).toEqual(["restore_interrupted"]);
+		});
+
+		it("leaves alone a session with no work left, a stopped one, and any when the setting is off", async () => {
+			const idle = world();
+			idle.turnEnds(false);
+			await idle.ompDies();
+			expect(idle.continued()).toEqual([]);
+
+			const stopped = world();
+			stopped.a.emitEvents([{ type: "agent_start" }]);
+			stopped.pool.noteStopped("tab-a");
+			await stopped.ompDies();
+			expect(stopped.continued()).toEqual([]);
+
+			const off = world({ enabled: false });
+			off.turnEnds(true);
+			await off.ompDies();
+			expect(off.continued()).toEqual([]);
 		});
 	});
 
