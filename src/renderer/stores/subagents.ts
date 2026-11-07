@@ -93,6 +93,12 @@ export function settledMark(node: Pick<SubagentNode, "status" | "lastUpdate"> | 
 	return !node || LIVE_STATUSES[node.status] ? undefined : `${node.status}:${node.lastUpdate}`;
 }
 
+/** Whether a roster still holds a subagent that runs (or waits to): what a session row counts. */
+export function holdsLiveSubagent(subagents: ReadonlyMap<string, Pick<SubagentNode, "status">> | undefined): boolean {
+	for (const node of subagents?.values() ?? []) if (LIVE_STATUSES[node.status]) return true;
+	return false;
+}
+
 /**
  * Merge one fetched row over the local one: the fetch wins EXCEPT it may never
  * blank a populated label/progress field. Server rows discovered late (bare

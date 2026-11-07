@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-	reconcileTabs: vi.fn<(options?: { dropUnlisted?: boolean }) => Promise<boolean>>(),
+	reconcileTabs: vi.fn<(options?: { resync?: boolean }) => Promise<boolean>>(),
 	state: {
 		activeTabId: "a" as string | null,
 		tabs: [] as { id: string; status: string }[],
@@ -49,7 +49,7 @@ beforeEach(() => {
 describe("resyncPage (one in-place catch-up pass after a reconnect that missed events)", () => {
 	it("takes the host's tab list as the whole truth, then re-reads every visible live tab, the asks and the snapshots", async () => {
 		expect(await resyncPage()).toBe(true);
-		expect(mocks.reconcileTabs).toHaveBeenCalledWith({ dropUnlisted: true });
+		expect(mocks.reconcileTabs).toHaveBeenCalledWith({ resync: true });
 		// Visible and ready or running: a mid-reply tab merges what it missed; an errored one and a background tab
 		// (which reads its own when shown) are left alone.
 		expect(mocks.hydrateTabSession.mock.calls.map(call => call[0])).toEqual(["a", "b"]);

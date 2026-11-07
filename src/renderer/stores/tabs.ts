@@ -97,7 +97,7 @@ import {
 	useRuntimeTabId,
 } from "./session-runtime-context";
 import { useSidebarProjects } from "./sidebar-projects";
-import type { SubagentsStore } from "./subagents";
+import { holdsLiveSubagent, type SubagentsStore } from "./subagents";
 import { installTabReadyGate, READY_WAIT_CAP_MS } from "./tab-ready-gate";
 import { ensureTabRuntime, replaceTabRuntime } from "./tab-runtime";
 import { toast, toastError } from "./toast";
@@ -563,10 +563,12 @@ export interface TabsStore {
 	/** Boot reconciliation with the main-process pool: the window's initial
 	 * sidecar arrives as tab 0 and must never be duplicated — entries merge by
 	 * id, preserving local flags (unreadDone, pendingSessionPath). Entries the
-	 * list doesn't name survive (a spawn reply raced it) unless `dropUnlisted`:
-	 * a web page catching up after a reconnect (web/resync-page.ts) takes the
-	 * host's list as the whole truth, since a restarted host gave its tabs new ids. */
-	reconcileTabs: (options?: { dropUnlisted?: boolean }) => Promise<boolean>;
+	 * list doesn't name survive (a spawn reply raced it) unless `resync`: a web
+	 * page catching up after it missed pushes (web/resync-page.ts) takes the
+	 * host's list as the whole truth, since a restarted host gave its tabs new
+	 * ids, and reads the subagent roster of every hidden tab that runs or still
+	 * counts a live subagent again (its starts and ends went by unheard). */
+	reconcileTabs: (options?: { resync?: boolean }) => Promise<boolean>;
 	/** Spawn a new background tab (same cwd unless given) and switch to it.
 	 * Returns the tabId, or null when the tab cannot be opened. `kind` is immutable once
 	 * the tab's sidecar is spawned ("agent" default; "chat" = a conversation
@@ -655,8 +657,8 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		// A tab this window is closing is gone for it even while main still lists
 		// it (its release is in flight): reviving it would recreate its runtime.
 		const list = listed.filter(info => !isTabClosed(info.tabId));
-		const dropUnlisted = options?.dropUnlisted === true;
-		if (dropUnlisted) {
+		const resync = options?.resync === true;
+		if (resync) {
 			// Outside set(): dropping a runtime fires the focus listeners synchronously (see applyTabStatus).
 			const keep = new Set(list.map(info => info.tabId));
 			const gone = get().tabs.filter(tab => !keep.has(tab.id) && !tab.ghost);
@@ -724,7 +726,7 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 			});
 			// Entries the reply doesn't know (a spawn reply raced this reconcile)
 			// survive appended at the end.
-			const tabs = dropUnlisted ? merged : [...merged, ...leftovers.values()];
+			const tabs = resync ? merged : [...merged, ...leftovers.values()];
 			const mainActiveTabId = list.find(info => info.active)?.tabId;
 			// A ghost's selection is the snapshot's, written after a quiet moment (a quit right after a pick leaves the
 			// one before it): main's restored layout wins; it holds only when main names no active tab.
@@ -771,13 +773,18 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 		}
 		// Nor did a runtime made by this page (this list, or a status push that named the tab first) hear the starts of
 		// the subagents a hidden running tab already runs: one read of its roster per runtime, so the tab's sidebar row
-		// counts them now. A shown tab's hydration reads it.
+		// counts them now. A page that missed pushes (`resync`) reads again each hidden roster that may have changed
+		// meanwhile: its tab runs, or the row still counts a subagent that may have ended. A shown tab's hydration reads it.
 		const shown = visibleTabIds(get());
 		for (const info of list) {
 			const runtime = sessionRuntime(info.tabId);
-			if (info.status !== "running" || shown.includes(info.tabId) || !runtime || rosterRead.has(runtime)) continue;
+			if (shown.includes(info.tabId) || !runtime) continue;
+			const subagents = sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents");
+			const running = info.status === "running";
+			const missed = resync && (running || holdsLiveSubagent(subagents?.getState().subagents));
+			if (!missed && (!running || rosterRead.has(runtime))) continue;
 			rosterRead.add(runtime);
-			void sessionRuntimeStore<SubagentsStore>(info.tabId, "subagents")?.getState().refresh();
+			void subagents?.getState().refresh();
 		}
 		for (const tab of get().tabs) watchTabAwaitingInput(tab.id);
 		const activeTabId = get().activeTabId;
@@ -1730,14 +1737,21 @@ export function useSessionTabs(): void {
 		const offStatus = subscribe.call(window.omp.events, payload => {
 			const previousStatus = useTabsStore.getState().tabs.find(entry => entry.id === payload.tabId)?.status;
 			useTabsStore.getState().applyTabStatus(payload);
-			if (payload.status !== "ready") return;
+			const wasUp = previousStatus === "ready" || previousStatus === "running";
 			const state = useTabsStore.getState();
+			const shown = visibleTabIds(state).includes(payload.tabId);
+			// A hidden tab up again (a new omp after one died under it, a paired host's tab back over a link that had
+			// dropped): no frame told this page what its subagents did in between, so its sidebar row reads the roster.
+			// A shown tab's hydration reads it.
+			if (previousStatus && !wasUp && !shown && (payload.status === "ready" || payload.status === "running"))
+				void sessionRuntimeStore<SubagentsStore>(payload.tabId, "subagents")?.getState().refresh();
+			if (payload.status !== "ready") return;
 			const tab = state.tabs.find(entry => entry.id === payload.tabId);
-			if (visibleTabIds(state).includes(payload.tabId)) {
+			if (shown) {
 				const runtime = ensureTabRuntime(payload.tabId);
 				// Best effort, as hydration's: a call a dropped link failed is asked again by the next ready or hydrate.
 				void runtime.command({ type: "set_subagent_subscription", level: "progress" }).catch(() => undefined);
-				if (!tab?.pendingSessionPath && previousStatus !== "ready" && previousStatus !== "running") {
+				if (!tab?.pendingSessionPath && !wasUp) {
 					// Light TAB_STATUS is registered before the full active-tab channel.
 					// If ready raced SET_ACTIVE_TAB, the full ready event was already
 					// missed. Restore history on the connection transition, including
@@ -1749,7 +1763,7 @@ export function useSessionTabs(): void {
 					}, 0);
 				}
 			}
-			if (!tab?.pendingSessionPath || !visibleTabIds(state).includes(tab.id)) return;
+			if (!tab?.pendingSessionPath || !shown) return;
 			// Clear before the RPC so a duplicate ready push can't re-enter.
 			const sessionPath = tab.pendingSessionPath;
 			useTabsStore.setState(current => ({

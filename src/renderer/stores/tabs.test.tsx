@@ -1757,7 +1757,7 @@ describe("tabs store background tab signals", () => {
 	it("takes the host's list as the whole truth after a reconnect: a restarted host's old tab ids go", async () => {
 		seedTabs("t1");
 		omp.tabs.list.mockResolvedValue([{ ...tabInfo("n0", "/alpha"), active: true }, tabInfo("n1", "/beta")]);
-		await useTabsStore.getState().reconcileTabs({ dropUnlisted: true });
+		await useTabsStore.getState().reconcileTabs({ resync: true });
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["n0", "n1"]);
 		expect(useTabsStore.getState().activeTabId).toBe("n0");
 		expect(sessionRuntime("t1")).toBeNull();
@@ -1769,7 +1769,7 @@ describe("tabs store background tab signals", () => {
 			{ ...tabInfo("n0", "/alpha"), active: true },
 			tabInfo("n1", "/beta", "running"),
 		]);
-		await useTabsStore.getState().reconcileTabs({ dropUnlisted: true });
+		await useTabsStore.getState().reconcileTabs({ resync: true });
 		const session = (id: string) => sessionRuntimeStore<SessionStore>(id, "session")?.getState();
 		expect(session("n0")).toMatchObject({ status: "ready", cwd: "/alpha", isStreaming: false });
 		expect(session("n1")).toMatchObject({ status: "ready", cwd: "/beta", isStreaming: true });

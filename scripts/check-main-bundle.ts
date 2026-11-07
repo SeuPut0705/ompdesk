@@ -298,7 +298,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A work card is red only when the work ended in an error (6 Nov 2026): each card's failures judged in its turn
 // (chat-stream-utils.ts `workTurns`, `useTurnScope`, work-findings.ts `turnScope`, work-checks.ts `TurnScope`), the
 // "Errors along the way" note and its strings in the English catalog; the work card is the first screen: 2,166,852.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_166_852;
+// A hidden tab's roster read again when its pushes may have been lost (7 Nov 2026, tabs.ts: a page's catch-up after it
+// was hidden or lost its link, `reconcileTabs({resync})`; a hidden tab's omp up again, `useSessionTabs`): 2,167,109.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_167_109;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
