@@ -1,6 +1,6 @@
 /**
  * Captures of the sidebar's project list (src/main/sidebar-projects.ts): a project with no session keeps its header and
- * its +, a project whose folder is gone is dimmed and says so, and Remove from sidebar takes one out. Opt-in:
+ * its +, a project whose folder is gone is dimmed and says so, and Delete takes one out. Opt-in:
  * `OMP_GUI_SIDEBAR_PROJECTS=<dir>` writes `desktop-<state>-<theme>-<lang>.png` from the dev harness (`?projects=1`,
  * `src/renderer/dev-harness/fixture.ts` `projectsFixture`). The rules themselves are pinned by `Sidebar.test.tsx`
  * and `src/main/sidebar-projects.test.ts`.
@@ -86,8 +86,10 @@ if (CAPTURES) {
 						Promise.all(menu.getAnimations({ subtree: true }).map(animation => animation.finished)),
 					);
 				await capture(page, "menu", theme, lang);
+				await page.getByRole("menuitem", { name: lang === "ko" ? "삭제" : "Delete", exact: true }).click();
 				await page
-					.getByRole("menuitem", { name: lang === "ko" ? "사이드바에서 제거" : "Remove from sidebar" })
+					.getByRole("dialog")
+					.getByRole("button", { name: lang === "ko" ? "삭제" : "Delete", exact: true })
 					.click();
 				await expect(empty).toHaveCount(0);
 				await capture(page, "removed", theme, lang);

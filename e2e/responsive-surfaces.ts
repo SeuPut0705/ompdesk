@@ -239,6 +239,25 @@ async function openDrawer(page: Page, look: Look): Promise<void> {
 }
 
 /**
+ * The menu of the project header the view's open session sits under: this computer's list, or the paired computer's
+ * section for the host. A mouse right-clicks the header; a finger has no right click, so it taps the header's ⋯.
+ */
+async function openProjectMenu(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	const cwd = (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.cwd;
+	if (!cwd) throw new Error("no open session to find its project by");
+	const folder = JSON.stringify(cwd);
+	const header = page.locator(`[data-workspace-group=${folder}], [data-device-group=${folder}] .group\\/head`).first();
+	if ((look.device ?? "touch") === "touch") await header.locator(".omp-sidebar-project-menu").click();
+	else await header.click({ button: "right" });
+}
+
+/** Closes the menu or dialog a surface left open (Escape), so the next starts from the same window. */
+async function closeOverlay(page: Page): Promise<void> {
+	await page.keyboard.press("Escape");
+}
+
+/**
  * The bot's row with its family opened by its chip (folded by default), and every device section but the one holding
  * that row folded, so its header's marks say what it hides.
  */
@@ -1201,6 +1220,29 @@ export const SURFACES: readonly Surface[] = [
 			if ((look.device ?? "touch") !== "touch") await row.hover();
 			await row.locator("[data-sidebar-row-menu]").first().click();
 		},
+	},
+	{
+		id: "sidebar-project-menu",
+		area: "A",
+		title: "A project header's action menu: its one Delete last",
+		open: openProjectMenu,
+		ready: "[role='menu'] [role='menuitem']",
+		// The shown session's project, in this computer's list or the paired computer's section for the host: the parity
+		// sheet's views all show a session of the host's project; the audits' harness page has no such session.
+		when: () => false,
+		parity: { session: "work", after: closeOverlay },
+	},
+	{
+		id: "sidebar-project-delete",
+		area: "A",
+		title: "A project's Delete confirm: its opt-in box to also delete the saved sessions, off as it opens",
+		open: async (page, look) => {
+			await openProjectMenu(page, look);
+			await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+		},
+		ready: "[role='dialog'] input[type='checkbox']",
+		when: () => false,
+		parity: { session: "work", after: closeOverlay },
 	},
 	{
 		id: "card-ask",

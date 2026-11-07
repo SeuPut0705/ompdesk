@@ -122,19 +122,22 @@ test("a deleted session or project leaves every window's sidebar with no click",
 		await expect(rowOf(first, kept)).toBeVisible();
 		await captureTo(CAPTURES, first, "3-agent-deleted-first");
 
-		// The first window deletes a whole project: its group goes in both windows.
+		// The first window deletes a whole project with its sessions (the dialog's box ticked): both leave both windows.
 		await groupOf(first, beta).click({ button: "right" });
 		await first.getByRole("menuitem", { name: "Delete", exact: true }).click();
+		await first.getByRole("dialog").getByRole("checkbox").check();
 		await first.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
-		// Its sessions leave both windows; the project stays listed, as the dialog says.
-		for (const page of [first, second])
+		for (const page of [first, second]) {
 			for (const file of [betaOne, betaTwo]) await expect(rowOf(page, file)).toHaveCount(0, { timeout: 5_000 });
+			await expect(groupOf(page, beta)).toHaveCount(0, { timeout: 5_000 });
+		}
 		await captureTo(CAPTURES, first, "4-project-deleted-first");
 		await captureTo(CAPTURES, second, "4-project-deleted-second");
 
-		// "Remove from sidebar" in the second window: the first window's group goes too.
+		// Delete without the box in the second window: the first window's group goes too, its sessions stay saved.
 		await groupOf(second, gamma).click({ button: "right" });
-		await second.getByRole("menuitem", { name: "Remove from sidebar", exact: true }).click();
+		await second.getByRole("menuitem", { name: "Delete", exact: true }).click();
+		await second.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
 		for (const page of [second, first]) await expect(groupOf(page, gamma)).toHaveCount(0, { timeout: 5_000 });
 		await captureTo(CAPTURES, first, "5-project-removed-first");
 		await captureTo(CAPTURES, second, "5-project-removed-second");
