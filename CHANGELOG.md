@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.119.0] - 2026-11-08
+
+사이드바의 세션 행이 이 컴퓨터 창, 페어링한 컴퓨터, 휴대폰 어디서나 같은 상태를 보여요. 세션을 실행하는 컴퓨터가 상태를 한 번 만들어 모든 화면에 보내요.
+
+### 고친 것
+- 탭이 없거나 숨겨진 세션, 다른 창만 가진 세션, 페어링한 컴퓨터가 열지 않은 세션의 하위 에이전트 수와 실행 상태가 페어링한 컴퓨터와 휴대폰에서 눌러 열기 전까지 비어 있었어요. 이제 세션을 실행하는 컴퓨터가 세션마다 요약(실행·질문·백그라운드 작업·하위 에이전트) 하나를 만들고, 모든 창과 휴대폰 페이지, 페어링한 컴퓨터가 그 요약만으로 행을 그려요. 화면을 끄거나, 페이지를 다시 불러오거나, 연결이 끊겼다 돌아오거나, omp가 죽었다 다시 떠도 놓친 것은 요약 전체를 다시 읽어 맞춰요. 화면마다 따로 다시 읽던 규칙들은 지웠어요.
+- `ompdesk_sessions`가 페어링한 컴퓨터를 위해 이 컴퓨터가 실행하는 세션을 목록에 넣고, 하위 에이전트 수도 사이드바와 같은 요약에서 읽어요.
+- 재시작으로 끊긴 하위 에이전트는 사이드바에 실패로 남지 않아요(실행하는 컴퓨터가 같은 규칙으로 판단해요).
+- 프로젝트 메뉴에는 "삭제" 하나만 있어요. 이 컴퓨터, 페어링한 컴퓨터의 섹션, 휴대폰 모두 같은 메뉴예요. 삭제하면 프로젝트가 그 프로젝트를 가진 컴퓨터의 목록에서 빠지고, 확인 창에서 고르면(기본은 꺼짐) 저장된 세션도 함께 영구 삭제해요.
+- 한 컴퓨터에서 지운 세션은 페어링한 다른 컴퓨터의 탭에서도, 잠든 탭까지 바로 닫혀요.
+- 실패한 세션의 행이 omp가 왜 실패했는지(탭 배너와 같은 이유)를 툴팁에 보여 주고, `ompdesk_sessions`도 같은 이유를 알려 줘요.
+
+### 바뀐 것
+- 봇이 같은 버그가 다시 돌아왔을 때 사례를 하나 더 고치게 하지 않고, 구조적인 원인을 고치도록 지시해요.
+- 버전이 다른 컴퓨터끼리 페어링해도 오류 없이 동작해요. 요약을 모르는 쪽은 실시간 상태만 보이지 않아요.
+
+<!-- en -->
+
+A session's sidebar row now says the same in this computer's windows, on a paired computer and on the phone: the computer that runs the session builds its state once and every view shows that.
+
+### Fixed
+- A session with no tab, a hidden tab, a tab only another window holds or one the paired computer never opened showed no subagent count or run state on a paired computer and on the phone until it was tapped open. The computer that runs a session now builds one summary per session (run, question, background work, subagents), and every window, phone page and paired computer draws the row from it alone. A hidden screen, a page reload, a dropped link or an omp that died and came back costs at most one whole read of the summaries; the per-view re-read rules are gone.
+- `ompdesk_sessions` lists the sessions this computer runs for a paired computer, and reads every subagent count from the same summaries as the sidebar.
+- A subagent a restart cut no longer stays in the sidebar as failed (the computer running it applies the same rule).
+- A project's menu has one Delete, the same on this computer, a paired computer's section and the phone. It takes the project off its own computer's list; a box in the confirm (off by default) also deletes its saved sessions for good.
+- A session deleted on one computer closes at once on every paired computer's tabs, asleep ones included.
+- A failed session's row names why its omp failed (the reason its tab's banner shows) in its tooltip, and `ompdesk_sessions` says the same.
+
+### Changed
+- The bot briefs a returning bug's structural cause instead of one more case.
+- Paired computers on different versions keep working: one that does not know summaries just shows no live state.
+
 ## [0.118.8] - 2026-11-08
 
 페어링한 컴퓨터에서 다른 기기의 탭이 열고 있는 세션도 이제 이 컴퓨터에서 열어 함께 쓸 수 있어요.
