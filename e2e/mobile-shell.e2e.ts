@@ -422,7 +422,14 @@ for (const { engine, device } of variants(
 			if (device.shell === "phone") {
 				await expect(dialog).toHaveAttribute("data-presentation", "sheet");
 				expect(box.width).toBe(viewport.width);
-				expect(Math.round(box.y + box.height)).toBe(viewport.height);
+				// The sheet slides up from below the screen. Two equal boxes 60 ms apart can be its held first frame
+				// (nightly 7 Nov 2026: bottom edge 1306 for 659), so wait for it to arrive.
+				await expect
+					.poll(async () => {
+						const current = await dialog.boundingBox();
+						return current ? Math.round(current.y + current.height) : null;
+					})
+					.toBe(viewport.height);
 				await expect(dialog.locator("[data-sheet-handle]")).toBeVisible();
 			} else {
 				await expect(dialog).not.toHaveAttribute("data-presentation", "sheet");
