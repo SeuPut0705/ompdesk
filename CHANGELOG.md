@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.118.8] - 2026-11-08
+
+페어링한 컴퓨터에서 다른 기기의 탭이 열고 있는 세션도 이제 이 컴퓨터에서 열어 함께 쓸 수 있어요.
+
+### 고친 것
+- 맥미니처럼 페어링한 컴퓨터의 세션을 다른 기기(예: 노트북)의 탭이 그 컴퓨터에서 열고 있으면, 이 컴퓨터에서는 "이 세션은 <기기>에서 이미 열려 있어요"라는 안내만 뜨고 열 수 없었어요. 이제 그 탭을 함께 보는 탭으로 열려요. 그 컴퓨터에서 omp를 하나 더 띄우지 않고 같은 omp를 함께 쓰기 때문에, 이 컴퓨터에서 보낸 메시지가 그 기기에도 보이고 그 반대도 마찬가지예요. 질문에는 먼저 답한 쪽의 답이 쓰여요. 이 컴퓨터에서 탭을 닫으면 이 컴퓨터만 빠지고 세션은 그대로 돌아가며, 세션을 연 기기가 탭을 닫으면 이 컴퓨터의 탭도 오류 없이 닫혀요. 그 컴퓨터가 0.118.7 이하면 지금처럼 안내만 떠요.
+- 같은 세션 행을 빠르게 여러 번 누르면, 방금 닫힌 탭으로 전환하려다 "탭을 전환할 수 없어요 (Tab … is no longer available)" 오류가 함께 뜰 수 있었어요. 이제 이미 닫힌 탭은 조용히 정리돼요.
+
+<!-- en -->
+
+A session another device's tab has open on a paired computer now opens here too, and both work in it together.
+
+### Fixed
+- Opening a paired computer's session (a Mac mini's, say) while another device's tab (a laptop's) had it open on that computer only showed "This session is already open on <device>". It now opens as a tab that views that one: the computer runs no second omp, so a message sent here shows on the other device and the other way round, and the first answer to a question wins from either side. Closing it here only leaves, and the session runs on; when the device that opened it closes its tab, the tab here closes without an error. A computer on 0.118.7 or older still only shows the note.
+- Clicking the same session's row quickly several times could add a "Couldn't switch tab (Tab … is no longer available)" error to the note, from switching to a tab that had just been closed. A tab already closed now goes quietly.
+
 ## [0.118.7] - 2026-11-08
 
 다른 기기의 탭이 이미 열고 있는 세션을 페어링한 컴퓨터에서 열어도, "omp를 시작하지 못했어요"라는 오류 탭이 생기지 않아요.
