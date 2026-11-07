@@ -4,8 +4,6 @@ import {
 	AlertTriangle,
 	Archive,
 	ArchiveRestore,
-	ArrowDown,
-	ArrowUp,
 	BarChart3,
 	Bot,
 	ChevronDown,
@@ -14,11 +12,9 @@ import {
 	Compass,
 	Download,
 	Folder,
-	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	GitBranch,
-	GitBranchPlus,
 	GitFork,
 	Info,
 	Keyboard,
@@ -27,16 +23,13 @@ import {
 	MoreHorizontal,
 	PanelLeft,
 	PanelLeftClose,
-	Pencil,
 	Pin,
-	PinOff,
 	Plus,
 	RefreshCw,
 	Rocket,
 	Search,
 	Settings,
 	Sparkles,
-	SquareTerminal,
 	Trash2,
 } from "lucide-react";
 import {
@@ -111,7 +104,7 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
-import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
+import { useProjectList } from "../../../stores/sidebar-projects";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
@@ -146,6 +139,9 @@ import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { openedChildCounts, openedChildRows } from "../work-board/opened-children";
 import { childFoldSignal, type FoldSignal, foldSummary, sessionFoldSignal } from "./fold-summary";
 import { hostRowState, remoteOpenedTab } from "./host-row-state";
+import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
+import { deleteProject, isStoredRow } from "./project-delete";
+import { projectMenuItems } from "./project-menu";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
@@ -1330,44 +1326,18 @@ export function Sidebar() {
 		}
 	};
 
-	const confirmDeleteGroup = async (group: WorkspaceGroup) => {
-		if (group.sessions.some(isSessionBusy)) {
-			toast({ variant: "warning", message: t("sidebar.deleteGroupStreaming") });
-			setPendingDelete(null);
-			return;
-		}
+	const confirmDeleteGroup = async (group: WorkspaceGroup, alsoSessions: boolean) => {
 		setDeleting(true);
 		try {
-			// Close the project's open tabs first: a tab keeps a row (and so the
-			// project) in the list, and closing it releases its session file.
-			const paths = new Set(group.sessions.map(session => session.path));
-			const ids = new Set(group.sessions.map(session => session.id));
-			const projectTabs = useTabsStore
-				.getState()
-				.tabs.filter(
-					tab =>
-						tab.kind !== "chat" &&
-						tab.device === undefined &&
-						(group.members.includes(tab.cwd) ||
-							(tab.sessionPath !== undefined && paths.has(tab.sessionPath)) ||
-							(tab.sessionId !== undefined && ids.has(tab.sessionId))),
-				);
-			// Each closes as a deleted session's tab does: the window's last one gives way to the empty start
-			// tab, never to a new session somewhere else.
-			for (const tab of projectTabs) {
-				// eslint-disable-next-line no-await-in-loop -- each close switches the active tab
-				if (!(await useTabsStore.getState().closeDeletedSession(tab.sessionPath ?? "", tab.id))) {
-					setPendingDelete(null);
-					return;
-				}
-			}
-			// Then delete every session file in the project. Live-only rows have no file.
-			for (const session of group.sessions.filter(entry => entry.liveTabId === undefined)) {
-				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
-				await useTabsStore.getState().closeDeletedSession(session.path, undefined);
-				// eslint-disable-next-line no-await-in-loop -- sequential, keep FS load bounded
-				await deleteSession(session.path);
-			}
+			await deleteProject({
+				device: undefined,
+				cwd: group.cwd,
+				members: group.members,
+				sessions: group.sessions,
+				alsoSessions,
+				isBusy: isSessionBusy,
+				deleteSession,
+			});
 			setPendingDelete(null);
 		} catch (error) {
 			toastError({ title: t("sidebar.deleteFailed"), error });
@@ -2538,132 +2508,65 @@ export function Sidebar() {
 				thisDevice
 			/>
 
-			{/* Project menu: rename (alias), new sessions, pin, delete. */}
+			{/* Project menu: the one builder every computer's project headers use (project-menu.ts). */}
 			{groupMenu &&
 				(() => {
-					const groupHasBusySession = groupMenu.group.sessions.some(isSessionBusy);
+					const { group } = groupMenu;
+					const index = allGroups.findIndex(item => item.cwd === group.cwd);
+					const archivable = group.sessions.filter(
+						session => session.liveTabId === undefined && tabForSession(session) === undefined,
+					);
+					// Every action closes the menu first.
+					const then = (run: () => void) => () => {
+						setGroupMenu(null);
+						run();
+					};
+					const move = (to: number) => {
+						const target = allGroups[to];
+						if (!target) return;
+						const prefs = useSidebarPrefs.getState();
+						void prefs.setGroupOrder(
+							withLocalProjectOrder(
+								prefs.groupOrder,
+								reorderProjects(
+									allGroups.map(item => item.cwd),
+									group.cwd,
+									target.cwd,
+								),
+							),
+						);
+					};
 					return (
 						<ContextMenu
 							ariaLabel={t("sidebar.groupMenu")}
 							x={groupMenu.anchor.x}
 							y={groupMenu.anchor.y}
 							onClose={() => setGroupMenu(null)}
-							items={[
-								{
-									id: "group-new-agent",
-									label: t("sidebar.menu.newAgentHere"),
-									icon: SquareTerminal,
-									onSelect: () => {
-										setGroupMenu(null);
+							items={projectMenuItems({
+								facts: {
+									pinned: pinnedGroups.includes(group.cwd),
+									canMoveUp: index > 0,
+									canMoveDown: index !== -1 && index < allGroups.length - 1,
+									archivable: archivable.length,
+								},
+								actions: {
+									newAgent: then(() => {
 										useUiStore.getState().closeDestination();
-										void openTab({ cwd: groupMenu.group.cwd });
-									},
+										void openTab({ cwd: group.cwd });
+									}),
+									newWorktree: then(() => useUiStore.getState().openWorktreeDialog({ baseCwd: group.cwd })),
+									rename: then(() => {
+										setGroupRenameDraft(group.name);
+										setRenamingGroupCwd(group.cwd);
+									}),
+									moveUp: then(() => move(index - 1)),
+									moveDown: then(() => move(index + 1)),
+									togglePin: then(() => useSidebarPrefs.getState().toggleGroupPin(group.cwd)),
+									archiveAll: then(() => setArchived(archivable, true)),
+									remove: then(() => setPendingDelete({ kind: "group", group })),
 								},
-								{
-									id: "group-new-worktree",
-									label: t("sidebar.menu.newWorktreeHere"),
-									icon: GitBranchPlus,
-									onSelect: () => {
-										setGroupMenu(null);
-										useUiStore.getState().openWorktreeDialog({ baseCwd: groupMenu.group.cwd });
-									},
-								},
-								{
-									id: "group-rename",
-									separatorBefore: true,
-									label: t("sidebar.menu.rename"),
-									icon: Pencil,
-									onSelect: () => {
-										setGroupRenameDraft(groupMenu.group.name);
-										setRenamingGroupCwd(groupMenu.group.cwd);
-										setGroupMenu(null);
-									},
-								},
-								...(() => {
-									const index = allGroups.findIndex(item => item.cwd === groupMenu.group.cwd);
-									const move = (to: number) => {
-										const target = allGroups[to];
-										setGroupMenu(null);
-										if (!target) return;
-										const prefs = useSidebarPrefs.getState();
-										void prefs.setGroupOrder(
-											withLocalProjectOrder(
-												prefs.groupOrder,
-												reorderProjects(
-													allGroups.map(item => item.cwd),
-													groupMenu.group.cwd,
-													target.cwd,
-												),
-											),
-										);
-									};
-									return [
-										{
-											id: "group-move-up",
-											label: t("sidebar.menu.moveUp"),
-											icon: ArrowUp,
-											disabled: index <= 0,
-											onSelect: () => move(index - 1),
-										},
-										{
-											id: "group-move-down",
-											label: t("sidebar.menu.moveDown"),
-											icon: ArrowDown,
-											disabled: index === -1 || index >= allGroups.length - 1,
-											onSelect: () => move(index + 1),
-										},
-									];
-								})(),
-								{
-									id: "group-pin",
-									label: pinnedGroups.includes(groupMenu.group.cwd)
-										? t("sidebar.menu.unpin")
-										: t("sidebar.menu.pin"),
-									icon: pinnedGroups.includes(groupMenu.group.cwd) ? PinOff : Pin,
-									onSelect: () => {
-										useSidebarPrefs.getState().toggleGroupPin(groupMenu.group.cwd);
-										setGroupMenu(null);
-									},
-								},
-								(() => {
-									const archivable = groupMenu.group.sessions.filter(
-										session => session.liveTabId === undefined && tabForSession(session) === undefined,
-									);
-									return {
-										id: "group-archive-all",
-										label: t("sidebar.menu.archiveAll"),
-										icon: Archive,
-										disabled: archivable.length === 0,
-										disabledReason: t("sidebar.archiveAllNone"),
-										onSelect: () => {
-											setGroupMenu(null);
-											setArchived(archivable, true);
-										},
-									};
-								})(),
-								{
-									id: "group-remove",
-									label: t("sidebar.menu.removeProject"),
-									icon: FolderMinus,
-									onSelect: () => {
-										setGroupMenu(null);
-										void useSidebarProjects.getState().remove(undefined, groupMenu.group.cwd);
-									},
-								},
-								{
-									id: "group-delete",
-									separatorBefore: true,
-									label: t("common.delete"),
-									icon: Trash2,
-									danger: true,
-									disabled: groupHasBusySession,
-									disabledReason: t("sidebar.deleteGroupStreaming"),
-									onSelect: () => {
-										setPendingDelete({ kind: "group", group: groupMenu.group });
-										setGroupMenu(null);
-									},
-								},
-							]}
+								t,
+							})}
 						/>
 					);
 				})()}
@@ -2821,36 +2724,42 @@ export function Sidebar() {
 			)}
 
 			<ConfirmDialog
-				open={pendingDelete !== null}
-				title={
-					pendingDelete?.kind === "group"
-						? t("sidebar.deleteGroupConfirm")
-						: pendingDelete?.kind === "archived"
-							? t("sidebar.deleteArchivedConfirm")
-							: t("sidebar.deleteConfirm")
-				}
+				open={pendingDelete !== null && pendingDelete.kind !== "group"}
+				title={pendingDelete?.kind === "archived" ? t("sidebar.deleteArchivedConfirm") : t("sidebar.deleteConfirm")}
 				message={
-					pendingDelete?.kind === "group"
-						? t("sidebar.deleteGroupMessage", {
-								name: pendingDelete.group.name,
-								count: pendingDelete.group.sessions.filter(session => session.liveTabId === undefined).length,
-							})
-						: pendingDelete?.kind === "archived"
-							? t("sidebar.deleteArchivedMessage", { count: pendingDelete.sessions.length })
-							: pendingDelete?.kind === "session"
-								? t("sidebar.deleteMessage", {
-										name: sessionDisplayTitle(pendingDelete.session, t("sidebar.untitled")),
-									})
-								: ""
+					pendingDelete?.kind === "archived"
+						? t("sidebar.deleteArchivedMessage", { count: pendingDelete.sessions.length })
+						: pendingDelete?.kind === "session"
+							? t("sidebar.deleteMessage", {
+									name: sessionDisplayTitle(pendingDelete.session, t("sidebar.untitled")),
+								})
+							: ""
 				}
-				warning={pendingDelete && pendingDelete.kind !== "session" ? t("sidebar.deleteGroupWarning") : undefined}
+				warning={pendingDelete?.kind === "archived" ? t("sidebar.deleteGroupWarning") : undefined}
 				busy={deleting}
 				onConfirm={() => {
-					if (pendingDelete?.kind === "group") void confirmDeleteGroup(pendingDelete.group);
-					else if (pendingDelete?.kind === "archived") void confirmDeleteArchived(pendingDelete.sessions);
-					else if (pendingDelete) void confirmDeleteSession(pendingDelete.session);
+					if (pendingDelete?.kind === "archived") void confirmDeleteArchived(pendingDelete.sessions);
+					else if (pendingDelete?.kind === "session") void confirmDeleteSession(pendingDelete.session);
 				}}
 				onCancel={() => setPendingDelete(null)}
+			/>
+			<ProjectDeleteDialog
+				busy={deleting}
+				onCancel={() => setPendingDelete(null)}
+				onConfirm={alsoSessions => {
+					if (pendingDelete?.kind === "group") void confirmDeleteGroup(pendingDelete.group, alsoSessions);
+				}}
+				project={
+					pendingDelete?.kind === "group"
+						? {
+								name: pendingDelete.group.name,
+								saved: pendingDelete.group.sessions.filter(isStoredRow).length,
+								open: pendingDelete.group.sessions.filter(
+									session => session.liveTabId !== undefined || tabForSession(session) !== undefined,
+								).length,
+							}
+						: null
+				}
 			/>
 		</>
 	);

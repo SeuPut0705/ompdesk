@@ -125,7 +125,6 @@ export const en: Record<string, string> = {
 	"sidebar.menu.restoreAll": "Restore all",
 	"sidebar.menu.deleteArchived": "Delete all archived",
 	"sidebar.archiveAllNone": "Every session here is open in a tab",
-	"sidebar.menu.removeProject": "Remove from sidebar",
 	"sidebar.removeProjectFailed": "Couldn't remove the project from the sidebar",
 	"sidebar.project.missing": "Folder not found",
 	"sidebar.archiveOpenTab": "Close its tab first to archive it",
@@ -880,9 +879,11 @@ export const en: Record<string, string> = {
 	"project.worktree.tooltip": "Worktree of {project} · {path}",
 	"sidebar.rename": "Rename session",
 	"sidebar.renameFailed": "Couldn't rename session",
-	"sidebar.deleteGroupConfirm": "Delete project sessions?",
-	"sidebar.deleteGroupMessage":
-		'Close the open tabs of the project "{name}" and delete all {count} of its sessions. The project stays in the sidebar.',
+	"sidebar.deleteProjectConfirm": "Delete project?",
+	"sidebar.deleteProjectMessage":
+		'Remove the project "{name}" from the sidebar on every window and device. Its folder is not touched, and its sessions stay saved unless you tick the box below.',
+	"sidebar.deleteProjectSessions": "Also delete its {count} saved sessions and close their tabs",
+	"sidebar.deleteProjectOpenNote": "Sessions open in a tab stay listed until you close the tab.",
 	"sidebar.deleteGroupWarning": "This permanently deletes the session files. It cannot be undone.",
 	"sidebar.loading": "Loading sessions…",
 	"sidebar.loadFailed": "Couldn't load sessions",

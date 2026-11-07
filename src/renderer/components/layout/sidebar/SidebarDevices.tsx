@@ -12,13 +12,10 @@ import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor,
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
 	Archive,
-	ArrowDown,
-	ArrowUp,
 	ChevronDown,
 	ChevronRight,
 	ExternalLink,
 	Folder,
-	FolderMinus,
 	FolderOpen,
 	FolderPlus,
 	MessageCircle,
@@ -33,7 +30,7 @@ import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
-import { CHATS_ORDER_KEY, familyRows, type RowSession } from "../../../../shared/sidebar-rows";
+import { CHATS_ORDER_KEY, familyRows, type RowGroup, type RowSession } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
@@ -63,7 +60,7 @@ import { sessionListFeed } from "../../../stores/session-list";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useSidebarPrefs } from "../../../stores/sidebar-prefs";
-import { useProjectList, useSidebarProjects } from "../../../stores/sidebar-projects";
+import { useProjectList } from "../../../stores/sidebar-projects";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -80,6 +77,9 @@ import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";
 import { hostRowState, hostSectionSummary, remoteOpenedTab } from "./host-row-state";
 import { useHostWorkspace } from "./host-workspace";
+import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
+import { deleteProject, isStoredRow } from "./project-delete";
+import { projectMenuItems } from "./project-menu";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
@@ -419,6 +419,7 @@ function DeviceSessions({
 		},
 	);
 	const [pendingDelete, setPendingDelete] = useState<DeviceSession | null>(null);
+	const [pendingProject, setPendingProject] = useState<RowGroup | null>(null);
 	const [deleting, setDeleting] = useState(false);
 	// A finger has no hover, so Close and Delete would sit on every row for good: one ⋯ opens them as an action sheet
 	// instead, as on this computer's own rows (Sidebar.tsx).
@@ -799,6 +800,33 @@ function DeviceSessions({
 		} catch (cause) {
 			if (ipcErrorCode(cause) === "session_running") refuseRunning(session);
 			else toastError({ title: t("sidebar.deleteFailed"), error: cause });
+		} finally {
+			setDeleting(false);
+		}
+	};
+
+	/** A turn running on the host in a tab here (a host window's or another device's is refused by the host). */
+	const isHostBusy = (session: DeviceSession) => {
+		const tab = tabFor(session);
+		return tab !== undefined && tab.status !== "asleep" && tabSignalPresentation(tab).active;
+	};
+
+	/** The project's one Delete (project-delete.ts): off the host's project list, its sessions too when asked. */
+	const confirmDeleteProject = async (group: RowGroup, alsoSessions: boolean) => {
+		setDeleting(true);
+		try {
+			await deleteProject({
+				device: host.deviceId,
+				cwd: group.cwd,
+				members: group.members,
+				sessions: group.sessions,
+				alsoSessions,
+				isBusy: isHostBusy,
+				deleteSession,
+			});
+			setPendingProject(null);
+		} catch (cause) {
+			toastError({ title: t("sidebar.deleteFailed"), error: cause });
 		} finally {
 			setDeleting(false);
 		}
@@ -1211,6 +1239,22 @@ function DeviceSessions({
 				open={pendingDelete !== null}
 				title={t("sidebar.deleteConfirm")}
 			/>
+			<ProjectDeleteDialog
+				busy={deleting}
+				onCancel={() => setPendingProject(null)}
+				onConfirm={alsoSessions => {
+					if (pendingProject) void confirmDeleteProject(pendingProject, alsoSessions);
+				}}
+				project={
+					pendingProject
+						? {
+								name: basename(pendingProject.cwd) || pendingProject.cwd,
+								saved: pendingProject.sessions.filter(isStoredRow).length,
+								open: pendingProject.sessions.filter(session => tabFor(session) !== undefined).length,
+							}
+						: null
+				}
+			/>
 			{rowMenu && (
 				<ContextMenu
 					ariaLabel={rowMenu.label}
@@ -1266,33 +1310,21 @@ function DeviceSessions({
 						const FolderIcon = groupCollapsed ? Folder : FolderOpen;
 						const name = basename(group.cwd) || group.cwd;
 						const groupIndex = query ? -1 : groups.indexOf(group);
-						const groupItems: ContextMenuItem[] = [
-							...(groupIndex === -1
-								? []
-								: [
-										{
-											id: "group-move-up",
-											label: t("sidebar.menu.moveUp"),
-											icon: ArrowUp,
-											disabled: groupIndex <= 0,
-											onSelect: () => moveGroup(group.cwd, -1),
-										},
-										{
-											id: "group-move-down",
-											label: t("sidebar.menu.moveDown"),
-											icon: ArrowDown,
-											disabled: groupIndex >= groups.length - 1,
-											onSelect: () => moveGroup(group.cwd, 1),
-										},
-									]),
-							{
-								id: "remove",
-								separatorBefore: groupIndex !== -1,
-								label: t("sidebar.menu.removeProject"),
-								icon: FolderMinus,
-								onSelect: () => void useSidebarProjects.getState().remove(host.deviceId, group.cwd),
+						const groupItems = projectMenuItems({
+							facts: {
+								pinned: false,
+								canMoveUp: groupIndex > 0,
+								canMoveDown: groupIndex !== -1 && groupIndex < groups.length - 1,
+								archivable: 0,
 							},
-						];
+							actions: {
+								...(groupIndex === -1
+									? {}
+									: { moveUp: () => moveGroup(group.cwd, -1), moveDown: () => moveGroup(group.cwd, 1) }),
+								remove: () => setPendingProject(group),
+							},
+							t,
+						});
 						return (
 							<SortableProject className="" disabled={query.length > 0} id={group.cwd} key={group.cwd}>
 								{dragHandle => (

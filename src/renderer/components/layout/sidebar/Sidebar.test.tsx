@@ -308,6 +308,25 @@ function menuItem(label: string): Element {
 	return item;
 }
 
+/** Confirm the open project Delete dialog; `alsoSessions` ticks its opt-in box first (off every time it opens). */
+async function confirmProjectDelete(alsoSessions = false): Promise<void> {
+	if (alsoSessions) {
+		const box = document.body.querySelector('[role="dialog"] input[type="checkbox"]');
+		if (!box) throw new Error("project delete: opt-in box missing");
+		await act(async () =>
+			reactProps<{ onChange: (event: { target: { checked: boolean } }) => void }>(box).onChange({
+				target: { checked: true },
+			}),
+		);
+	}
+	await fire(
+		[...document.body.querySelectorAll('[role="dialog"] button')].find(
+			button => (button.textContent ?? "").trim() === "Delete",
+		) as unknown as Element,
+		"onClick",
+	);
+}
+
 /** Open a session row's ⋯ menu, the row's only action button. */
 async function openRowMenu(row: Element | TestElement | null | undefined): Promise<void> {
 	await fire(row?.querySelector("[data-sidebar-row-menu]") ?? null, "onClick");
@@ -1156,9 +1175,10 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(labels.some(label => label.includes("Move down"))).toBe(true);
 		expect(labels.some(label => label.includes("Pin to top"))).toBe(true);
 		expect(labels.some(label => label.includes("Archive all"))).toBe(true);
-		expect(labels.some(label => label.includes("Remove from sidebar"))).toBe(true);
-		expect(labels.some(label => label.includes("Delete"))).toBe(true);
-		expect(labels).toHaveLength(9);
+		expect(labels.some(label => label.includes("Remove from sidebar"))).toBe(false);
+		expect(labels.filter(label => label.includes("Delete"))).toEqual(["Delete"]);
+		expect(labels.at(-1)).toBe("Delete");
+		expect(labels).toHaveLength(8);
 	});
 
 	it("each project header offers + in place of a count, and Move moves the project", async () => {
@@ -2427,7 +2447,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(rows.some(text => text.includes("/work/alpha/one"))).toBe(false);
 	});
 
-	it("closes the project's tabs and deletes its sessions; the project stays listed, empty", async () => {
+	it("Delete with the box ticked closes the project's tabs and deletes its sessions, and the project leaves the list", async () => {
 		const omp = installMockOmp(LIST);
 		// Main lists every folder sessions ran in (src/main/sidebar-projects.ts).
 		omp.sidebarProjects.lists.local = {
@@ -2452,17 +2472,18 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(items.find(b => (b.textContent ?? "").includes("Delete")) as unknown as Element, "onClick");
 
 		expect(omp.sessions.delete).not.toHaveBeenCalled();
+		expect(omp.sidebarProjects.command).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "remove" }),
+			undefined,
+		);
 		const dialog = document.body.querySelector('[role="dialog"]');
 		expect(dialog?.textContent).toContain("alpha");
-		expect(dialog?.textContent).toContain("2");
-		expect(dialog?.textContent).toContain("permanently deletes the session files");
+		// The opt-in is off every time the dialog opens, and the warning appears only once it is ticked.
+		expect(dialog?.querySelector('input[type="checkbox"]')).not.toBeNull();
+		expect(dialog?.textContent).toContain("Also delete its 2 saved sessions");
+		expect(dialog?.textContent).not.toContain("permanently deletes the session files");
 
-		await fire(
-			[...document.body.querySelectorAll('[role="dialog"] button')].find(
-				b => (b.textContent ?? "").trim() === "Delete",
-			) as unknown as Element,
-			"onClick",
-		);
+		await confirmProjectDelete(true);
 		// Both alpha sessions, and nothing from the other workspace.
 		expect(omp.sessions.delete.mock.calls.map(call => call[0]).sort()).toEqual([
 			"/work/alpha/one.jsonl",
@@ -2475,14 +2496,14 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		expect(omp.tabs.close).toHaveBeenCalledWith("t0");
 		expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["t-new"]);
-		// The project and its sessions are two things: the folder keeps its header, with + and no rows.
-		const kept = container.querySelector('[data-workspace-group="/work/alpha"]');
-		expect(kept).not.toBeNull();
-		expect(kept?.querySelector("[data-sidebar-group-new]")).not.toBeNull();
+		// Sessions first, then the project: one Delete, the project is gone from the list as well.
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "remove", path: "/work/alpha" }, undefined);
+		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).toBeNull();
 		expect(container.querySelectorAll('[data-session-path^="/work/alpha/"]')).toHaveLength(0);
+		expect(container.querySelector('[data-workspace-group="/work/beta"]')).not.toBeNull();
 	});
 
-	it("lists a project with no session, and Remove from sidebar takes it out without deleting anything", async () => {
+	it("lists a project with no session, and Delete takes it out without deleting anything unless asked to", async () => {
 		const omp = installMockOmp(LIST);
 		omp.sidebarProjects.lists.local = {
 			projects: [
@@ -2504,10 +2525,12 @@ describe("Sidebar menus and pinned ordering", () => {
 		);
 		expect(order.slice(0, 3)).toEqual(["/work/empty", "/work/beta", "/work/alpha"]);
 
-		// Removing a project that still has sessions takes them off the sidebar too; nothing is deleted.
+		// Delete without the box takes a project off the sidebar, with the sessions it listed; nothing is deleted.
 		for (const cwd of ["/work/empty", "/work/beta"]) {
 			await fire(container.querySelector(`[data-workspace-group="${cwd}"]`), "onContextMenu");
-			await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+			await fire(menuItem(translate("common.delete")), "onClick");
+			expect(omp.sidebarProjects.command).not.toHaveBeenCalledWith({ action: "remove", path: cwd }, undefined);
+			await confirmProjectDelete();
 			expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "remove", path: cwd }, undefined);
 			expect(container.querySelector(`[data-workspace-group="${cwd}"]`)).toBeNull();
 		}
@@ -2516,7 +2539,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(container.querySelector('[data-workspace-group="/work/alpha"]')).not.toBeNull();
 	});
 
-	it("dims a project whose folder is gone and keeps offering Remove", async () => {
+	it("dims a project whose folder is gone and keeps offering Delete", async () => {
 		const omp = installMockOmp([]);
 		omp.sidebarProjects.lists.local = {
 			projects: [{ path: "/work/gone", addedAt: 1, missing: true }],
@@ -2531,7 +2554,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(header?.textContent).toContain(translate("sidebar.project.missing"));
 		expect(header?.querySelector("[data-sidebar-group-new]")?.getAttribute("disabled")).not.toBeNull();
 		await fire(header, "onContextMenu");
-		expect(menuItemLabels()).toContain(translate("sidebar.menu.removeProject"));
+		expect(menuItemLabels()).toContain(translate("common.delete"));
 	});
 
 	it("adds the folder of a session started in it to the project list", async () => {
@@ -4749,7 +4772,8 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelectorAll("[data-device-group]")).toHaveLength(1);
 
 		await fire(app?.querySelector(".group\\/head") ?? null, "onContextMenu");
-		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		await fire(menuItem(translate("common.delete")), "onClick");
+		await confirmProjectDelete();
 		expect(section?.querySelector("[data-device-group]")).toBeNull();
 		expect(section?.textContent).not.toContain("Worktree fix");
 	});
@@ -5137,13 +5161,72 @@ describe("Sidebar device sections", () => {
 		expect(container.querySelector('[data-workspace-group="/Users/kim/code/empty"]')).toBeNull();
 
 		await fire(empty?.querySelector(".group\\/head") ?? null, "onContextMenu");
-		await fire(menuItem(translate("sidebar.menu.removeProject")), "onClick");
+		await fire(menuItem(translate("common.delete")), "onClick");
+		await confirmProjectDelete();
 		expect(omp.sidebarProjects.command).toHaveBeenCalledWith(
 			{ action: "remove", path: "/Users/kim/code/empty" },
 			"dev-studio",
 		);
 		expect(section?.querySelector('[data-device-group="/Users/kim/code/empty"]')).toBeNull();
 		expect(omp.sidebarProjects.lists["dev-studio"]?.removed).toEqual(["/Users/kim/code/empty"]);
+	});
+
+	it("a host project's Delete leaves the host's list with its sessions kept, or deletes them on the host when the box is ticked", async () => {
+		const omp = installWithRemote();
+		const APP = "/Users/kim/code/app";
+		const ONE = "/Users/kim/.omp/agent/sessions/app/one.jsonl";
+		omp.sessions.list.mockImplementation(async (_scope, device) =>
+			device === "dev-studio"
+				? [...REMOTE, session("/Users/kim/.omp/agent/sessions/app/two.jsonl", APP, { title: "Second fix", device })]
+				: LIST,
+		);
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [
+				{ path: APP, addedAt: 2 },
+				{ path: "/Users/kim/code/other", addedAt: 1 },
+			],
+			removed: [],
+			worktrees: {},
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+
+		const section = () => container.querySelector('[data-sidebar-device="dev-studio"]');
+		const openDelete = async (path: string) => {
+			await fire(section()?.querySelector(`[data-device-group="${path}"] .group\\/head`) ?? null, "onContextMenu");
+			// The host's menu is the one builder: its Delete is its last item, and there is no Remove from sidebar.
+			expect(menuItemLabels().at(-1)).toBe("Delete");
+			expect(menuItemLabels()).not.toContain("Remove from sidebar");
+			await fire(menuItem(translate("common.delete")), "onClick");
+		};
+
+		// Box off: the project leaves the host's list; its two saved sessions are not touched.
+		await openDelete("/Users/kim/code/other");
+		await confirmProjectDelete();
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith(
+			{ action: "remove", path: "/Users/kim/code/other" },
+			"dev-studio",
+		);
+		expect(omp.sessions.delete).not.toHaveBeenCalled();
+
+		// Box ticked: the host's sessions go through the delete path to the host, then the project leaves its list.
+		await openDelete(APP);
+		const dialog = document.body.querySelector('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Also delete its 2 saved sessions");
+		await confirmProjectDelete(true);
+		expect(omp.sessions.delete.mock.calls.map(call => [...call]).sort()).toEqual([
+			[ONE, "dev-studio"],
+			["/Users/kim/.omp/agent/sessions/app/two.jsonl", "dev-studio"],
+		]);
+		expect(omp.sidebarProjects.command).toHaveBeenCalledWith({ action: "remove", path: APP }, "dev-studio");
+		expect(section()?.querySelector(`[data-device-group="${APP}"]`)).toBeNull();
+		expect(omp.sidebarProjects.lists["dev-studio"]?.removed).toEqual(["/Users/kim/code/other", APP]);
+		// This computer's own list was never asked.
+		expect(omp.sidebarProjects.command).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "remove" }),
+			undefined,
+		);
 	});
 
 	it("shows an offline host as one offline line with no sessions", async () => {

@@ -795,7 +795,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "sidebar.remove_project",
 		area: "sidebar",
 		description:
-			"Remove projects from the sidebar of the computer this session runs on, as the project's menu 'Remove from sidebar' does. No folder and no session is touched; opening the folder again in OMPdesk lists it again. path or paths must be listed by sidebar.projects: any other path is reported and left alone.",
+			"Remove projects from the sidebar of the computer this session runs on, as the project menu's Delete does without its 'also delete saved sessions' box ticked. No folder and no session is touched; opening the folder again in OMPdesk lists it again. path or paths must be listed by sidebar.projects: any other path is reported and left alone.",
 		args: objectSchema({
 			path: { type: "string", minLength: 1, maxLength: 4096, description: "One project folder path." },
 			paths: {

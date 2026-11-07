@@ -311,7 +311,7 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 	const note = (key: string) => {
 		if (!unhandled.includes(key)) unhandled.push(key);
 	};
-	// This computer's project list, edited in place: Remove from sidebar takes a project out.
+	// This computer's project list, edited in place: a project's Delete takes it out.
 	let projects = projectsFixture();
 	const harnessProjects = (request: SidebarProjectsRequest) => {
 		if (request.action === "remove")

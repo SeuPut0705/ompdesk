@@ -124,7 +124,6 @@ export const ko: Record<string, string> = {
 	"sidebar.menu.restoreAll": "모두 보관 해제",
 	"sidebar.menu.deleteArchived": "보관한 세션 모두 삭제",
 	"sidebar.archiveAllNone": "여기 있는 세션이 모두 탭에 열려 있어요",
-	"sidebar.menu.removeProject": "사이드바에서 제거",
 	"sidebar.removeProjectFailed": "사이드바에서 프로젝트를 제거하지 못했어요",
 	"sidebar.project.missing": "폴더를 찾을 수 없어요",
 	"sidebar.archiveOpenTab": "탭을 먼저 닫아야 보관할 수 있어요",
@@ -868,9 +867,11 @@ export const ko: Record<string, string> = {
 	"project.worktree.tooltip": "{project}의 워크트리 · {path}",
 	"sidebar.rename": "세션 이름 변경",
 	"sidebar.renameFailed": "세션 이름을 바꾸지 못했어요",
-	"sidebar.deleteGroupConfirm": "프로젝트 세션을 삭제할까요?",
-	"sidebar.deleteGroupMessage":
-		'프로젝트 "{name}"의 열린 탭을 닫고 세션 {count}개를 모두 삭제해요. 프로젝트는 사이드바에 남아요.',
+	"sidebar.deleteProjectConfirm": "프로젝트를 삭제할까요?",
+	"sidebar.deleteProjectMessage":
+		'"{name}" 프로젝트를 모든 창과 기기의 사이드바에서 제거해요. 폴더는 그대로 두고, 아래 칸을 체크하지 않으면 세션도 저장된 채 남아요.',
+	"sidebar.deleteProjectSessions": "저장된 세션 {count}개도 삭제하고 탭을 닫기",
+	"sidebar.deleteProjectOpenNote": "탭에 열린 세션은 탭을 닫을 때까지 목록에 남아요.",
 	"sidebar.deleteGroupWarning": "세션 파일이 영구 삭제되며 되돌릴 수 없어요.",
 	"sidebar.loading": "세션 불러오는 중…",
 	"sidebar.loadFailed": "세션을 불러오지 못했어요",
