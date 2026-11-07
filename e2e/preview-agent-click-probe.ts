@@ -14,7 +14,7 @@
  * Electron main process of the computer that owns the page), so no product hook is needed. The log goes into the
  * failure's message (nightly logs and the flake-probe summary print it) and the Playwright report as an attachment.
  */
-import type { ElectronApplication } from "@playwright/test";
+import type { ElectronApplication, Page } from "@playwright/test";
 import { test } from "@playwright/test";
 import type { PuppeteerPage } from "./preview-agent-fixture";
 
@@ -42,7 +42,7 @@ const LOGGED_EVENTS = [
 	"Inspector.targetCrashed",
 ] as const;
 
-const FAILURE_TEXT_LIMIT = 6000;
+const FAILURE_TEXT_LIMIT = 10000;
 const STATE_TIMEOUT_MS = 5000;
 
 const short = (value: unknown, limit = 400): string => {
@@ -123,11 +123,22 @@ function armMain(electron: { webContents: { getAllWebContents(): unknown[] } }, 
 	interface Contents {
 		getURL(): string;
 		on(event: string, handler: (...args: unknown[]) => void): void;
+		getZoomFactor(): number;
+		getOwnerBrowserWindow?: () => {
+			on(event: string, handler: () => void): void;
+			getContentSize(): number[];
+		} | null;
 	}
 	for (const candidate of electron.webContents.getAllWebContents()) {
 		const contents = candidate as Contents;
 		if (!contents.getURL().startsWith(origin) || armed.has(contents)) continue;
 		armed.add(contents);
+		const owner = contents.getOwnerBrowserWindow?.() ?? null;
+		owner?.on("resize", () => {
+			log.push(
+				`${stamp()} main window resize content=${owner.getContentSize().join("x")} zoom=${contents.getZoomFactor()}`,
+			);
+		});
 		for (const event of [
 			"did-start-loading",
 			"did-stop-loading",
@@ -153,6 +164,27 @@ function armMain(electron: { webContents: { getAllWebContents(): unknown[] } }, 
 			});
 		}
 	}
+}
+
+/** The phone page's own layout commands to the host (what sizes the streamed page), stamped on the main log's clock. */
+function armLayoutLog() {
+	const scope = window as unknown as {
+		clickProbeLayout?: string[];
+		omp: { preview: { command(request: { action: string }): Promise<unknown> } };
+	};
+	if (scope.clickProbeLayout) return;
+	scope.clickProbeLayout = [];
+	const log = scope.clickProbeLayout;
+	const original = scope.omp.preview.command;
+	scope.omp.preview.command = request => {
+		if (request.action === "layout") log.push(`${Date.now() % 1_000_000} ${JSON.stringify(request)}`);
+		return original(request);
+	};
+}
+
+/** The layout commands logged so far. */
+function readLayoutLog() {
+	return (window as unknown as { clickProbeLayout?: string[] }).clickProbeLayout ?? [];
 }
 
 /** The state of the page's `webContents` in its Electron main process. */
@@ -182,7 +214,7 @@ function readMain(electron: { webContents: { getAllWebContents(): unknown[] } },
 					: null,
 			};
 		});
-	return { pages, events: scope.clickProbe ?? [] };
+	return { pages, events: (scope.clickProbe ?? []).slice(-16) };
 }
 
 /** What one agent click on `#next` did, from the agent's connection, the page and the main process that owns it. */
@@ -191,25 +223,36 @@ export class ClickProbe {
 	readonly #origin: string;
 	readonly #app: ElectronApplication;
 	readonly #page: PuppeteerPage;
+	readonly #phone: Page | null;
 	readonly #client: ProbeClient | null;
 	readonly #began = Date.now();
 	readonly #listeners: [string, (params: unknown) => void][] = [];
 	#armedSend: ProbeClient["send"] | null = null;
 
-	private constructor(page: PuppeteerPage, app: ElectronApplication, origin: string) {
+	private constructor(page: PuppeteerPage, app: ElectronApplication, origin: string, phone: Page | null) {
 		this.#page = page;
 		this.#app = app;
 		this.#origin = origin;
+		this.#phone = phone;
 		// `_client()` is puppeteer's own accessor of the page's CDP session; there is no public one for it.
 		const internal = page as unknown as { _client?: () => ProbeClient };
 		this.#client = internal._client?.() ?? null;
 	}
 
-	/** Start before the agent's `goto`, so the navigation that led to the click is in the log. */
-	static async start(page: PuppeteerPage, app: ElectronApplication, site: string): Promise<ClickProbe> {
-		const probe = new ClickProbe(page, app, new URL(site).origin);
+	/**
+	 * Start before the agent's `goto`, so the navigation that led to the click is in the log. `phone` is the paired
+	 * phone's page when the panel is a streamed one: its layout commands size the host's offscreen window.
+	 */
+	static async start(
+		page: PuppeteerPage,
+		app: ElectronApplication,
+		site: string,
+		phone: Page | null,
+	): Promise<ClickProbe> {
+		const probe = new ClickProbe(page, app, new URL(site).origin, phone);
 		probe.#hookClient();
 		await probe.#hookMain();
+		if (phone) await probe.#within("layout log", () => phone.evaluate(armLayoutLog));
 		return probe;
 	}
 
@@ -268,7 +311,14 @@ export class ClickProbe {
 		const page = await this.#within("page", () => this.#page.evaluate(readPage));
 		this.#note(`${label} page ${short(page, 900)}`);
 		const main = await this.#within("main", () => this.#app.evaluate(readMain, this.#origin));
-		this.#note(`${label} main ${short(main, 900)}`);
+		this.#note(`${label} main ${short(main, 2400)}`);
+		const phone = this.#phone;
+		if (phone) {
+			const layouts = await this.#within("phone layouts", () => phone.evaluate(readLayoutLog));
+			this.#note(
+				`${label} phone layout commands ${short(Array.isArray(layouts) ? layouts.slice(-12) : layouts, 2400)}`,
+			);
+		}
 	}
 
 	/** After the agent's `goto` and before its click: the page's event log starts and its state is recorded. */

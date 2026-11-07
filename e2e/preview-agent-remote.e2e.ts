@@ -58,6 +58,8 @@ interface AgentView {
 	banner: Locator;
 	robot: Locator;
 	takeOver: Locator;
+	/** The paired phone's page when the panel is its streamed sheet: its layout commands size the host's page. */
+	phone?: Page;
 }
 
 function viewOf(panel: Locator): AgentView {
@@ -75,7 +77,7 @@ function viewOf(panel: Locator): AgentView {
  * whose Electron owns the page the agent drives: a click that never navigates carries the evidence of issue #21.
  */
 async function agentWalks(view: AgentView, driven: PuppeteerPage, site: string, pageHost: RemoteInstance) {
-	const probe = await ClickProbe.start(driven, pageHost.app, site);
+	const probe = await ClickProbe.start(driven, pageHost.app, site, view.phone ?? null);
 	try {
 		await driven.goto(site);
 		await expect(view.status).toHaveText("Agent fixture", { timeout: 30_000 });
@@ -175,7 +177,7 @@ async function phonePreview(phone: Page, address: string): Promise<AgentView> {
 	const sheet = phone.locator("[data-sheet-panel]");
 	await expect(sheet).toBeVisible();
 	await phone.locator("[data-panel-tabbar]").getByRole("button", { name: "Preview", exact: true }).click();
-	const view = viewOf(sheet);
+	const view = { ...viewOf(sheet), phone };
 	await view.address.fill(address);
 	await view.address.press("Enter");
 	await expect(view.status).toHaveText("Agent fixture", { timeout: 30_000 });
