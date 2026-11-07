@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.118.4] - 2026-11-07
+
+사이드바에서 보이지 않는 세션의 하위 에이전트 수가, 그 세션을 눌러 열기 전까지 비어 있거나 틀려 있던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰 페이지가 화면 밖에 있던 사이(앱 전환, 화면 꺼짐)나 연결이 끊겼던 사이에 백그라운드 세션이 하위 에이전트를 시작하면, 휴대폰으로 돌아와도 그 세션 줄에 하위 에이전트 수가 나오지 않았어요. 처음 한 번만 다시 읽었기 때문이에요. 이제 놓친 알림을 따라잡을 때마다, 돌고 있거나 하위 에이전트가 남아 있는 숨은 세션의 목록을 다시 읽어요. 연결된 다른 컴퓨터와의 연결이 끊겼다 돌아왔을 때도 같아요.
+- 보이지 않는 세션의 omp가 하위 에이전트를 돌리던 중에 꺼졌다 다시 켜지면, 함께 끝난 하위 에이전트를 줄이 계속 세고 있었어요. 이제 새 omp가 켜지면 그 목록을 다시 읽어요.
+
+<!-- en -->
+
+A session row the sidebar does not show no longer misses or miscounts its subagents until the session is opened.
+
+### Fixed
+- A background session that started subagents while the phone's page was hidden (another app, the screen off) or its link was down showed no subagent count on its row after the page came back: only the first catch-up read the roster. Every catch-up now reads it again for each hidden session that runs or still counts a subagent, and so does a paired computer whose link came back.
+- A hidden session whose omp died while its subagents ran kept counting them after the omp came back. Its roster is now read again when the new omp is up.
+
 ## [0.118.3] - 2026-11-07
 
 앱이 켜진 채 omp만 갑자기 꺼져도, 그 세션의 작업이 조용히 멈추지 않고 다시 켜진 omp에서 이어져요.
