@@ -8,6 +8,7 @@
  * unfocused pane follows too. Then the phone's page: a tab of its own it does not show. `OMP_GUI_SIDEBAR_LIVE=<dir>`
  * writes captures.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -225,10 +226,129 @@ test("a session no window shows keeps its sidebar row current: subagents, run st
 		await expect.poll(() => running(hiddenRow), { timeout: 15_000 }).toBe(1);
 		await send(phone, phoneBack, { type: "bash", command: "fixture:subagents:finish:sa-nested" });
 		await expect.poll(() => running(hiddenRow), { timeout: 15_000 }).toBe(0);
+		// The page goes to the background while the session works, every time (the owner's report, 7 Nov 2026: a paired
+		// host's session on the phone, its row with no count until tapped): the computer drops a hidden page's stream
+		// pushes, these subagents' starts among them. Back in front, the row counts them with no tap. The first time, the
+		// tab list's one read of a hidden running tab's roster covers it; the next time nothing did.
+		const presence = (state: "hidden" | "visible") =>
+			phone.evaluate(next => {
+				Object.defineProperty(document, "visibilityState", { value: next, configurable: true });
+				Object.defineProperty(document, "hidden", { value: next === "hidden", configurable: true });
+				document.dispatchEvent(new Event("visibilitychange"));
+			}, state);
+		await send(phone, phoneBack, { type: "prompt", message: "fixture running" });
+		await expect(hiddenRow).toHaveAttribute("data-signal", "running", { timeout: 15_000 });
+		for (const round of [1, 2]) {
+			await presence("hidden");
+			await send(phone, phoneBack, { type: "bash", command: "fixture:subagents" });
+			await presence("visible");
+			await expect.poll(() => running(hiddenRow), { timeout: 15_000, message: `round ${round}` }).toBe(2);
+			expect(await running(shownRow)).toBe(0);
+			expect((await tabsOf(phone)).find(tab => tab.active)?.tabId).toBe(phoneFront);
+			if (round === 2) await captureTo(CAPTURES, phone, "phone-2-subagents-started-while-hidden");
+			// They end while the page is in front: the count goes with them.
+			for (const id of ["sa-explore", "sa-nested"])
+				await send(phone, phoneBack, { type: "bash", command: `fixture:subagents:finish:${id}` });
+			await expect.poll(() => running(hiddenRow), { timeout: 15_000 }).toBe(0);
+		}
 		await context.close();
 	} finally {
 		await proxy?.close();
 		await browser.close();
+		if (app) await exitApp(app);
+		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+});
+
+test("a hidden session's row counts the subagents its agent starts after its omp died and came back", async () => {
+	test.skip(process.platform === "win32", "the omp's pid comes from ps");
+	test.setTimeout(180_000);
+	const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-restart-")));
+	const project = path.join(root, "project");
+	const desktop = path.join(root, "desktop");
+	const agent = path.join(root, "agent");
+	await Promise.all([fs.mkdir(project), fs.mkdir(desktop), fs.mkdir(agent)]);
+	await fs.writeFile(
+		path.join(desktop, "prefs.json"),
+		JSON.stringify({ language: "en", themeName: "light", firstRunComplete: true, lastProject: project }),
+	);
+	const env: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+	Object.assign(env, {
+		PI_CODING_AGENT_DIR: agent,
+		PI_CONFIG_DIR: path.relative(os.homedir(), root),
+		OMP_PROFILE: "",
+		PI_PROFILE: "",
+		OMP_GUI_OMP: await fixtureOmp(root),
+		OMP_GUI_TEST_SESSION_FILES: "1",
+	});
+	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
+	let app: ElectronApplication | null = null;
+	try {
+		app = await electron.launch({
+			args: [path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${desktop}`],
+			env,
+		});
+		const desk = await app.firstWindow();
+		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860));
+		await desk.waitForFunction(() => window.omp?.rpc != null);
+		await expect
+			.poll(async () => (await desk.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
+			.toBe("ready");
+		const shown = (await tabsOf(desk)).find(tab => tab.active)?.tabId ?? "";
+		await send(desk, shown, { type: "prompt", message: "hello" });
+		await answered(desk, shown);
+		await desk.keyboard.press("ControlOrMeta+t");
+		await expect.poll(async () => (await tabsOf(desk)).length).toBe(2);
+		const back = (await tabsOf(desk)).find(tab => tab.tabId !== shown)?.tabId ?? "";
+		await expect.poll(async () => (await tabsOf(desk)).find(tab => tab.tabId === back)?.status).toBe("ready");
+		await send(desk, back, { type: "prompt", message: "hello" });
+		await answered(desk, back);
+		const sidebar = desk.locator(".omp-session-sidebar");
+		await (await rowOf(desk, sidebar, shown)).click();
+		await expect.poll(async () => (await tabsOf(desk)).find(tab => tab.active)?.tabId).toBe(shown);
+		const backRow = await rowOf(desk, sidebar, back);
+
+		// It runs subagents when its omp dies (the owner's report, 7 Nov 2026: an uncaught exception) and the app starts
+		// another: those died with it.
+		await send(desk, back, { type: "prompt", message: "fixture running" });
+		await expect(backRow).toHaveAttribute("data-signal", "running", { timeout: 15_000 });
+		await send(desk, back, { type: "bash", command: "fixture:subagents" });
+		await expect.poll(() => running(backRow), { timeout: 15_000 }).toBe(2);
+		const state = await desk.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "get_state", brief: true }),
+			back,
+		);
+		const pid = Number((state.data as { sessionId?: string } | undefined)?.sessionId?.replace("fixture-", ""));
+		expect(pid).toBeGreaterThan(0);
+		process.kill(pid, "SIGKILL");
+		// The app starts another omp for the tab: two fake omps run again, the killed one not among them.
+		await expect
+			.poll(
+				() => {
+					const now = execFileSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" })
+						.split("\n")
+						.filter(line => line.includes(root) && line.includes("rpc-ui"))
+						.map(line => Number.parseInt(line, 10));
+					return now.length === 2 && !now.includes(pid);
+				},
+				{ timeout: 60_000 },
+			)
+			.toBe(true);
+		await expect
+			.poll(async () => (await tabsOf(desk)).find(tab => tab.tabId === back)?.status, { timeout: 60_000 })
+			.toBe("ready");
+		// The row no longer counts the agents that died with the omp.
+		await expect.poll(() => running(backRow), { timeout: 15_000 }).toBe(0);
+		expect((await tabsOf(desk)).find(tab => tab.active)?.tabId).toBe(shown);
+
+		// A later turn of the new omp starts subagents: the row counts them with no click.
+		await send(desk, back, { type: "prompt", message: "fixture running" });
+		await expect(backRow).toHaveAttribute("data-signal", "running", { timeout: 15_000 });
+		await send(desk, back, { type: "bash", command: "fixture:subagents" });
+		await expect.poll(() => running(backRow), { timeout: 15_000 }).toBe(2);
+		await captureTo(CAPTURES, desk, "desktop-5-after-omp-restart");
+	} finally {
 		if (app) await exitApp(app);
 		await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}

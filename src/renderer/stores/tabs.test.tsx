@@ -321,6 +321,39 @@ describe("tabs store boot reconciliation", () => {
 			expect(roster("t0")?.size ?? 0).toBe(0);
 		});
 
+	// 7 Nov 2026, the owner: a paired host's session on the phone counted no subagents until tapped. A page that was
+	// hidden or lost its link missed the starts and ends of a hidden tab's subagents: every catch-up reads such a
+	// roster again, not only the page's first list.
+	it("reads a hidden tab's roster again whenever the page catches up after missed pushes", async () => {
+		const roster = (...ids: string[]) =>
+			ok({ subagents: ids.map((id, index) => ({ id, index, agent: "task", status: "running", lastUpdate: 1 })) });
+		const live = (tabId: string) =>
+			[...(sessionRuntimeStore<SubagentsStore>(tabId, "subagents")?.getState().subagents.values() ?? [])]
+				.filter(agent => agent.status === "running")
+				.map(agent => agent.id);
+		omp.tabs.list.mockResolvedValue([
+			{ ...tabInfo("t0", "/alpha"), active: true },
+			tabInfo("t1", "/beta", "running"),
+		]);
+		omp.rpc.getSubagents.mockResolvedValue(roster("sa-1"));
+		await useTabsStore.getState().reconcileTabs();
+		await vi.waitFor(() => expect(live("t1")).toEqual(["sa-1"]));
+		// Another subagent started while the page was hidden.
+		omp.rpc.getSubagents.mockResolvedValue(roster("sa-1", "sa-2"));
+		await useTabsStore.getState().reconcileTabs({ resync: true });
+		await vi.waitFor(() => expect(live("t1")).toEqual(["sa-1", "sa-2"]));
+		// Both ended and so did the turn while it was hidden again: the row counts none.
+		omp.tabs.list.mockResolvedValue([{ ...tabInfo("t0", "/alpha"), active: true }, tabInfo("t1", "/beta")]);
+		omp.rpc.getSubagents.mockResolvedValue(roster());
+		await useTabsStore.getState().reconcileTabs({ resync: true });
+		await vi.waitFor(() => expect(live("t1")).toEqual([]));
+		// The shown tab reads its own in its hydration; a hidden tab with nothing running is not asked.
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(3);
+		await useTabsStore.getState().reconcileTabs({ resync: true });
+		expect(omp.rpc.getSubagents).toHaveBeenCalledTimes(3);
+		expect(live("t0")).toEqual([]);
+	});
+
 	it("keeps renderer-known tabs the reply misses and re-converges active on reload", async () => {
 		seedTabs("t1");
 		// Main knows only two of three tabs (the third spawned mid-reply).
@@ -2067,6 +2100,36 @@ describe("useSessionTabs hook", () => {
 			emitTabStatus({ kind: "agent", tabId: "t0", cwd: "/alpha", status: "ready" });
 		});
 		expect(omp.rpc.setSubagentSubscription).toHaveBeenCalledWith("progress");
+	});
+
+	// 7 Nov 2026: a hidden tab's omp died under its running subagents and came back, or a paired host's tab came back
+	// over a link that had dropped: no frame told this page what its subagents did in between.
+	it("reads a hidden tab's roster again when its omp is up again", async () => {
+		seedTabs();
+		await mount();
+		const subagents = sessionRuntimeStore<SubagentsStore>("t1", "subagents");
+		subagents?.getState().applyFrame({
+			type: "subagent_lifecycle",
+			payload: { id: "sa-old", index: 0, agent: "task", agentSource: "bundled", status: "started" },
+		});
+		const live = () =>
+			[...(subagents?.getState().subagents.values() ?? [])].filter(agent => agent.status === "running");
+		expect(live()).toHaveLength(1);
+		omp.rpc.getSubagents.mockClear();
+		omp.rpc.getSubagents.mockResolvedValue(ok({ subagents: [] }));
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "restarting" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		await vi.waitFor(() => expect(live()).toEqual([]));
+		// A turn that only ends reads nothing.
+		omp.rpc.getSubagents.mockClear();
+		await act(async () => {
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "running" });
+			emitTabStatus({ kind: "agent", tabId: "t1", cwd: "/beta", status: "ready" });
+		});
+		expect(omp.rpc.getSubagents).not.toHaveBeenCalled();
 	});
 });
 
