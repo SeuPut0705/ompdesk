@@ -325,9 +325,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 2,170,873.
 // Every model list beside a provider's mark reads its compact name, a suffix only where two would read alike (8 Nov
 // 2026, provider-marks.ts `compactModelLabels`; the composer's model picker is on the first screen): 2,171,893.
-// The model "Find more evidence" researches with is picked beside it (8 Nov 2026, ModelSetupDialog.tsx; only its three
-// strings in the English catalog reach the first screen): 2,171,896.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_171_896;
+// The model "Find more evidence" researches with is picked beside it and kept on the machine it runs on (8 Nov 2026,
+// ModelSetupDialog.tsx; its strings in the English catalog and omp-api.ts `modelSetup.researchPick|setResearchPick`
+// with their two channels reach the first screen): 2,172,134.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_172_134;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

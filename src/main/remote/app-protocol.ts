@@ -33,6 +33,8 @@
  *   `host.bench.run {rtab?, cwd?, options}` → IpcBenchmarkRunResult, `host.bench.abort {}` → boolean,
  *   `host.modelSetup.run {request: ModelSetupRequest}` → IpcModelSetupRunResult,
  *   `host.modelSetup.status {}` → ModelSetupStatus, `host.modelSetup.abort {}` → boolean,
+ *   `host.modelSetup.pick.get {}` / `host.modelSetup.pick.set {pick: string | null}` → ModelSetupResearchPick
+ *   (the host's own pref: the model its "Find more evidence" runs on, one value for every view of the host)
  *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
  *   (the host's own pref; its sessions follow it)
  * - OMPdesk on the host: `host.desktop.get {}` → HostDesktopState (version, updater state,

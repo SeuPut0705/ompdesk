@@ -127,10 +127,13 @@ type RunResearch = (request: ModelSetupRequest, device?: string) => Promise<IpcM
 
 function install({
 	stored,
+	pick = null,
 	reports = [],
 	roles = ROLES,
 }: {
 	stored?: unknown;
+	/** The research pick the machine holds (`modelSetup.researchPick`). */
+	pick?: string | null;
 	reports?: UsageReport[];
 	roles?: ModelRoleEntry[];
 } = {}) {
@@ -152,18 +155,24 @@ function install({
 	const abort = vi.fn(async () => true);
 	const status = vi.fn<() => Promise<ModelSetupStatus>>(async () => ({ running: true }));
 	const prefsSet = vi.fn<(key: string, value: unknown) => Promise<void>>(async () => {});
+	let held = pick;
+	const researchPick = vi.fn(async (_device?: string) => ({ pick: held }));
+	const setResearchPick = vi.fn(async (next: string | null, _device?: string) => {
+		held = next;
+		return { pick: held };
+	});
 	(window as unknown as { omp?: unknown }).omp = {
 		rpc,
 		prefs: {
 			get: vi.fn(async (key: string) => (key === MODEL_SETUP_PREFS_KEY ? stored : undefined)),
 			set: prefsSet,
 		},
-		modelSetup: { run, abort, status },
+		modelSetup: { run, abort, status, researchPick, setResearchPick },
 		system: { openExternal: vi.fn(async () => {}) },
 	};
 	/** Settle the pending research run. */
 	const finish = (result: IpcModelSetupRunResult) => pending.resolve(result);
-	return { rpc, run, abort, prefsSet, finish, status };
+	return { rpc, run, abort, prefsSet, finish, status, researchPick, setResearchPick };
 }
 
 let root: Root | undefined;
@@ -565,9 +574,9 @@ describe("ModelSetupDialog Find more evidence", () => {
 		expect(researchTrigger().textContent).toContain("Opus");
 		await chooseResearchModel("DeepSeek");
 		expect(researchTrigger().textContent).toContain("DeepSeek");
-		expect(harness.prefsSet).toHaveBeenLastCalledWith(MODEL_SETUP_PREFS_KEY, {
-			local: { researchPick: "openrouter/deepseek" },
-		});
+		// Stored on the machine the research runs on (here this one), not in this window's prefs.
+		expect(harness.setResearchPick).toHaveBeenLastCalledWith("openrouter/deepseek", undefined);
+		expect(harness.prefsSet).not.toHaveBeenCalled();
 
 		await click(button(translate("modelSetup.evidence.open")));
 		// (0.1M × $0.3 + 0.005M × $0.5) = $0.0325 → "$0.03".
@@ -582,7 +591,7 @@ describe("ModelSetupDialog Find more evidence", () => {
 	});
 
 	it("opens on the remembered pick and runs it", async () => {
-		const harness = install({ stored: { local: { researchPick: "openai/gpt-5" } } });
+		const harness = install({ pick: "openai/gpt-5" });
 		await mount();
 		expect(researchTrigger().textContent).toContain("GPT-5");
 		expect(researchTrigger().hasAttribute("data-notice")).toBe(false);
@@ -593,7 +602,7 @@ describe("ModelSetupDialog Find more evidence", () => {
 	});
 
 	it("falls back to the default role's model when the remembered pick is gone, and says so", async () => {
-		const harness = install({ stored: { local: { researchPick: "google/gemini-gone" } } });
+		const harness = install({ pick: "google/gemini-gone" });
 		await mount();
 		const trigger = researchTrigger();
 		expect(trigger.textContent).toContain("Opus");
@@ -608,16 +617,16 @@ describe("ModelSetupDialog Find more evidence", () => {
 		await click(button(translate("modelSetup.evidence.run")));
 		expect(harness.run.mock.calls[0]?.[0].researchModel).toBe("anthropic/opus");
 		// The pick stays remembered: it is used again once its account is back.
-		expect(harness.prefsSet.mock.calls.some(([key]) => key === MODEL_SETUP_PREFS_KEY)).toBe(false);
+		expect(harness.setResearchPick).not.toHaveBeenCalled();
 		await act(async () => harness.finish({ success: false, error: "cancelled", cancelled: true }));
 	});
 
 	it("picking the default role's model again forgets the pick", async () => {
-		const harness = install({ stored: { local: { researchPick: "openai/gpt-5", signature: "s0" } } });
+		const harness = install({ pick: "openai/gpt-5" });
 		await mount();
 		await chooseResearchModel("Opus");
 		expect(researchTrigger().textContent).toContain("Opus");
-		expect(harness.prefsSet).toHaveBeenLastCalledWith(MODEL_SETUP_PREFS_KEY, { local: { signature: "s0" } });
+		expect(harness.setResearchPick).toHaveBeenLastCalledWith(null, undefined);
 	});
 
 	it("cancel during the research aborts the run and leaves the proposal alone", async () => {

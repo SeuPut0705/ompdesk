@@ -142,6 +142,8 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.MODEL_SETUP_RUN]: never(DENY),
 	[C.MODEL_SETUP_STATUS]: never(DENY),
 	[C.MODEL_SETUP_ABORT]: never(DENY),
+	[C.MODEL_SETUP_PICK_GET]: never(DENY),
+	[C.MODEL_SETUP_PICK_SET]: never(DENY),
 	[C.SYSTEM_INFO]: never(DENY),
 	[C.SYSTEM_OPEN_EXTERNAL]: never(OWN_TOOLS),
 	[C.SYSTEM_OPEN_PATH]: never(OWN_TOOLS),

@@ -522,6 +522,8 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		}
 	};
 
+	/** The machine's research pick (`MODEL_SETUP_PICK_*`), as the host's pref would hold it. */
+	let researchPick: string | null = null;
 	const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => {
 		calls.push({ channel, args });
 		// Each case reads the one payload shape its channel carries.
@@ -627,6 +629,11 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 				return { enabled: true };
 			case IPC_COMMANDS.LOCAL_ENGINES_SET:
 				return { enabled: args[0] === true };
+			case IPC_COMMANDS.MODEL_SETUP_PICK_GET:
+				return { pick: researchPick };
+			case IPC_COMMANDS.MODEL_SETUP_PICK_SET:
+				researchPick = typeof args[0] === "string" ? args[0] : null;
+				return { pick: researchPick };
 			case IPC_COMMANDS.SETUP_GET_STATE:
 				return SETUP_STATE;
 			case IPC_COMMANDS.REMOTE_GET_STATE:

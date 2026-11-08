@@ -446,12 +446,6 @@ const SetupRecordSchema = z.object({
 export type SetupRecord = z.infer<typeof SetupRecordSchema>;
 const Records = z.record(z.unknown());
 
-/**
- * The research model the person picked, kept in the machine's entry beside the apply record's fields. Not
- * `researchModel`: an old proposal record holds that name for the model its run used, which nobody picked.
- */
-const ResearchPickSchema = z.object({ researchPick: z.string().min(1) });
-
 async function readRecords(): Promise<Record<string, unknown>> {
 	const parsed = Records.safeParse(await window.omp.prefs.get(MODEL_SETUP_PREFS_KEY));
 	return parsed.success ? parsed.data : {};
@@ -464,34 +458,10 @@ export async function loadSetupRecord(device: string | undefined): Promise<Setup
 	return parsed.data;
 }
 
-/** Writes the machine's entry; an empty one is removed. Other machines' entries stay. */
-async function writeEntry(device: string | undefined, entry: Record<string, unknown>): Promise<void> {
-	const { [device ?? LOCAL_DEVICE]: _replaced, ...others } = await readRecords();
-	await window.omp.prefs.set(
-		MODEL_SETUP_PREFS_KEY,
-		Object.keys(entry).length > 0 ? { ...others, [device ?? LOCAL_DEVICE]: entry } : others,
-	);
-}
-
-/** The research model the person picked on the machine `device` names, or undefined (follow the default role). */
-export async function loadResearchModel(device: string | undefined): Promise<string | undefined> {
-	const parsed = ResearchPickSchema.safeParse((await readRecords())[device ?? LOCAL_DEVICE]);
-	return parsed.success ? parsed.data.researchPick : undefined;
-}
-
-/** Stores `record` for the machine; undefined removes it. The picked research model stays. */
+/** Stores `record` for the machine; undefined removes it. Other machines' records stay. */
 export async function saveSetupRecord(device: string | undefined, record: SetupRecord | undefined): Promise<void> {
-	const researchPick = await loadResearchModel(device);
-	await writeEntry(device, { ...record, ...(researchPick !== undefined ? { researchPick } : {}) });
-}
-
-/** Remembers the research model for the machine; undefined forgets it. The apply record stays. */
-export async function saveResearchModel(device: string | undefined, selector: string | undefined): Promise<void> {
-	const parsed = SetupRecordSchema.safeParse((await readRecords())[device ?? LOCAL_DEVICE]);
-	await writeEntry(device, {
-		...(parsed.success ? parsed.data : {}),
-		...(selector !== undefined ? { researchPick: selector } : {}),
-	});
+	const { [device ?? LOCAL_DEVICE]: _replaced, ...others } = await readRecords();
+	await window.omp.prefs.set(MODEL_SETUP_PREFS_KEY, record ? { ...others, [device ?? LOCAL_DEVICE]: record } : others);
 }
 
 /**

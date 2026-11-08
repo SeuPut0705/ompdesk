@@ -56,7 +56,7 @@ import {
 	type RemoteOpenedTab,
 	type SessionInfo,
 } from "../../shared/ipc-types";
-import { ModelSetupRequestSchema } from "../../shared/model-setup";
+import { ModelSetupRequestSchema, ModelSetupResearchPickSchema } from "../../shared/model-setup";
 import type { OmpUpdateState } from "../../shared/omp-update";
 import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import {
@@ -1374,6 +1374,12 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.modelSetupStatus(benchCaller(peer.deviceId));
 			case "host.modelSetup.abort":
 				return this.#deps.machine.abortModelSetup(benchCaller(peer.deviceId));
+			case "host.modelSetup.pick.get":
+				return this.#deps.machine.modelSetupResearchPick();
+			case "host.modelSetup.pick.set":
+				return this.#deps.machine.setModelSetupResearchPick(
+					parse(ModelSetupResearchPickSchema, method, params).pick,
+				);
 			case "host.accountRotation.get":
 				return this.#deps.machine.accountRotation();
 			case "host.accountRotation.set":

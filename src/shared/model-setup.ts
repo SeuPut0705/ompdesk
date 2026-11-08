@@ -124,6 +124,28 @@ export const ModelSetupPlanSchema: z.ZodType<ModelSetupPlan> = z.object({
 });
 
 /**
+ * Pref of the machine the research runs on: the model the person picked beside "Find more evidence" (absent: the
+ * default role's). It lives on that machine, so its own window, its phone page and a paired computer viewing it
+ * read and write the one value (`MODEL_SETUP_PICK_GET|SET`, `host.modelSetup.pick.*`).
+ */
+export const MODEL_SETUP_RESEARCH_PICK_PREF = "modelSetupResearchPick";
+
+/** The research pick, as `MODEL_SETUP_PICK_GET|SET` and `host.modelSetup.pick.*` carry it; null = none. */
+export interface ModelSetupResearchPick {
+	pick: string | null;
+}
+
+export const ModelSetupResearchPickSchema: z.ZodType<ModelSetupResearchPick> = z.object({
+	pick: Selector.nullable(),
+});
+
+/** A stored pick, or null when nothing (or something unreadable) is stored. */
+export function parseResearchPick(value: unknown): string | null {
+	const parsed = Selector.safeParse(value);
+	return parsed.success ? parsed.data : null;
+}
+
+/**
  * What each of stock's built-in roles does. A role not listed here (one a newer omp or OMPdesk adds) is described
  * by its name and section.
  */

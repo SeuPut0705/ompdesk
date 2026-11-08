@@ -79,6 +79,7 @@ import {
 	parseLocalEnginesLedger,
 } from "../shared/local-engines";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
+import { MODEL_SETUP_RESEARCH_PICK_PREF } from "../shared/model-setup";
 import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
@@ -1098,6 +1099,13 @@ app.whenReady().then(() => {
 				prefsStore().set(LOCAL_ENGINE_DETECT_PREF, enabled);
 				await detector.setEnabled(enabled);
 			},
+		},
+		modelSetupPick: {
+			read: () => prefsStore().get(MODEL_SETUP_RESEARCH_PICK_PREF),
+			write: pick =>
+				pick === null
+					? prefsStore().delete(MODEL_SETUP_RESEARCH_PICK_PREF)
+					: prefsStore().set(MODEL_SETUP_RESEARCH_PICK_PREF, pick),
 		},
 		builtinRea: {
 			read: () => prefsStore().get(REA_PREF),

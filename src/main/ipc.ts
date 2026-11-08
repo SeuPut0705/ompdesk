@@ -135,7 +135,7 @@ import {
 import { LOCAL_ENGINE_DETECT_PREF } from "../shared/local-engines";
 import { isMacPermission } from "../shared/mac-permissions";
 import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-accounts";
-import type { ModelSetupRequest } from "../shared/model-setup";
+import { type ModelSetupRequest, parseResearchPick } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import type { AgentMessage, AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
@@ -2270,6 +2270,16 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.MODEL_SETUP_ABORT, (caller, device?: unknown) =>
 		machineFor(caller, device).abortModelSetup(benchCaller(caller.sender.id)),
 	);
+	// The research pick lives on the machine the research runs on, so every view of that machine reads the one value.
+	ipc.handle(IPC_COMMANDS.MODEL_SETUP_PICK_GET, (caller, device?: unknown) =>
+		machineFor(caller, device).modelSetupResearchPick(),
+	);
+	ipc.handle(IPC_COMMANDS.MODEL_SETUP_PICK_SET, (caller, pick: unknown, device?: unknown) => {
+		if (pick !== null && parseResearchPick(pick) === null) {
+			throw codedError("invalid_preference_key", "Invalid research model");
+		}
+		return machineFor(caller, device).setModelSetupResearchPick(pick as string | null);
+	});
 
 	// Renderer-initiated quit (the `quit` command). Straight to the guard, never
 	// `window.close()`: closing the focused window only hides the rest of the

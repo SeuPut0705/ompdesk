@@ -29,7 +29,14 @@ import type {
 	UpdateStatus,
 } from "../shared/ipc-types";
 import { type LocalEngineDetectState, localEngineDetectEnabled } from "../shared/local-engines";
-import { MODEL_SETUP_TIMEOUT_MS, type ModelSetupRequest, type ModelSetupStatus } from "../shared/model-setup";
+import {
+	MODEL_SETUP_TIMEOUT_MS,
+	type ModelSetupRequest,
+	type ModelSetupResearchPick,
+	ModelSetupResearchPickSchema,
+	type ModelSetupStatus,
+	parseResearchPick,
+} from "../shared/model-setup";
 import type { OmpUpdateState } from "../shared/omp-update";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../shared/schedules";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../shared/sidebar-projects";
@@ -77,6 +84,10 @@ export interface MachineServices {
 	/** Whether `caller`'s research runs, since when, and its latest tool call (polled for progress). */
 	modelSetupStatus(caller: string): Promise<ModelSetupStatus>;
 	abortModelSetup(caller: string): Promise<boolean>;
+	/** prefs `modelSetupResearchPick` of this machine: the model its "Find more evidence" runs on; null = default role's. */
+	modelSetupResearchPick(): Promise<ModelSetupResearchPick>;
+	/** Store the pick (null forgets it), for every window, phone page and paired computer viewing this machine. */
+	setModelSetupResearchPick(pick: string | null): Promise<ModelSetupResearchPick>;
 	/** prefs `accountRotation` of this machine, and whether its omp can rotate evenly. */
 	accountRotation(): Promise<AccountRotationState>;
 	/** Store the mode; every session this machine runs follows from its next prompt. */
@@ -158,6 +169,12 @@ export interface LocalMachineDeps {
 		read(): unknown;
 		/** Store the switch and let the detector follow it (`LocalEngineDetector.setEnabled`). */
 		set(enabled: boolean): Promise<void>;
+	};
+	modelSetupPick: {
+		/** The stored pref `MODEL_SETUP_RESEARCH_PICK_PREF`, unparsed. */
+		read(): unknown;
+		/** Store the pick; null removes it. */
+		write(pick: string | null): void;
 	};
 	builtinRea: {
 		read(): unknown;
@@ -296,6 +313,18 @@ export class LocalMachine implements MachineServices {
 		const aborted = runner.abort();
 		if (!runner.running) this.#modelSetups.delete(caller);
 		return aborted;
+	}
+
+	async modelSetupResearchPick(): Promise<ModelSetupResearchPick> {
+		return { pick: parseResearchPick(this.#deps.modelSetupPick.read()) };
+	}
+
+	async setModelSetupResearchPick(pick: string | null): Promise<ModelSetupResearchPick> {
+		if (pick !== null && parseResearchPick(pick) === null) {
+			throw codedError("invalid_preference_key", "Invalid research model");
+		}
+		this.#deps.modelSetupPick.write(pick);
+		return this.modelSetupResearchPick();
 	}
 
 	async accountRotation(): Promise<AccountRotationState> {
@@ -497,6 +526,14 @@ export class RemoteMachine implements MachineServices {
 
 	abortModelSetup(): Promise<boolean> {
 		return this.#request("host.modelSetup.abort", {});
+	}
+
+	async modelSetupResearchPick(): Promise<ModelSetupResearchPick> {
+		return ModelSetupResearchPickSchema.parse(await this.#request<unknown>("host.modelSetup.pick.get", {}));
+	}
+
+	async setModelSetupResearchPick(pick: string | null): Promise<ModelSetupResearchPick> {
+		return ModelSetupResearchPickSchema.parse(await this.#request<unknown>("host.modelSetup.pick.set", { pick }));
 	}
 
 	async accountRotation(): Promise<AccountRotationState> {

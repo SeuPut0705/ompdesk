@@ -42,7 +42,7 @@ import type { LocalEngineDetectState } from "./local-engines";
 import type { MacPermission, MacPermissionStatus } from "./mac-permissions";
 import type { MailAccountsApi } from "./mail-accounts";
 import type { MobileWebApi } from "./mobile-web";
-import type { ModelSetupPlan, ModelSetupRequest, ModelSetupStatus } from "./model-setup";
+import type { ModelSetupPlan, ModelSetupRequest, ModelSetupResearchPick, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import type { PreviewApi } from "./preview";
 import type { ProjectOrigin } from "./project-origin";
@@ -305,6 +305,9 @@ export const IPC_COMMANDS = {
 	MODEL_SETUP_RUN: "model-setup:run",
 	MODEL_SETUP_STATUS: "model-setup:status",
 	MODEL_SETUP_ABORT: "model-setup:abort",
+	/** The model "Find more evidence" researches with, kept on the machine it runs on. */
+	MODEL_SETUP_PICK_GET: "model-setup:pick-get",
+	MODEL_SETUP_PICK_SET: "model-setup:pick-set",
 	/** Open external URL */
 	SYSTEM_INFO: "system:info",
 	SYSTEM_OPEN_EXTERNAL: "system:open-external",
@@ -2501,6 +2504,9 @@ export interface OmpApi {
 		run(request: ModelSetupRequest, device?: string): Promise<IpcModelSetupRunResult>;
 		status(device?: string): Promise<ModelSetupStatus>;
 		abort(device?: string): Promise<boolean>;
+		/** The research model picked on `device`'s machine (one value for every view of it); null = the default role's. */
+		researchPick(device?: string): Promise<ModelSetupResearchPick>;
+		setResearchPick(pick: string | null, device?: string): Promise<ModelSetupResearchPick>;
 	};
 	system: {
 		info(): Promise<SystemInfo>;

@@ -134,7 +134,7 @@ import {
 	type WebDeviceInfo,
 	type WebPairingRequest,
 } from "./mobile-web";
-import type { ModelSetupRequest, ModelSetupStatus } from "./model-setup";
+import type { ModelSetupRequest, ModelSetupResearchPick, ModelSetupStatus } from "./model-setup";
 import type { OmpUpdatedNotice, OmpUpdateState } from "./omp-update";
 import {
 	PREVIEW_COMMAND,
@@ -701,6 +701,10 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			status: (device?: string) =>
 				transport.invoke(IPC_COMMANDS.MODEL_SETUP_STATUS, device) as Promise<ModelSetupStatus>,
 			abort: (device?: string) => transport.invoke(IPC_COMMANDS.MODEL_SETUP_ABORT, device) as Promise<boolean>,
+			researchPick: (device?: string) =>
+				transport.invoke(IPC_COMMANDS.MODEL_SETUP_PICK_GET, device) as Promise<ModelSetupResearchPick>,
+			setResearchPick: (pick: string | null, device?: string) =>
+				transport.invoke(IPC_COMMANDS.MODEL_SETUP_PICK_SET, pick, device) as Promise<ModelSetupResearchPick>,
 		},
 
 		system: {

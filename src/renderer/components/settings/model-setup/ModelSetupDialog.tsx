@@ -46,7 +46,6 @@ import {
 	currentDefaultModel,
 	distinctModels,
 	groupByProvider,
-	loadResearchModel,
 	loadSetupRecord,
 	mergeApplied,
 	type ProposalRow,
@@ -60,7 +59,6 @@ import {
 	resolveResearchModel,
 	type SetupModelOption,
 	type SetupRecord,
-	saveResearchModel,
 	saveSetupRecord,
 	setupModelOptions,
 	usageHeadroom,
@@ -71,8 +69,8 @@ import {
 interface SetupData {
 	roles: ModelRoleEntry[];
 	facts: ModelSetupFacts;
-	/** The research model the person picked last on this machine (undefined: follow the default role). */
-	researchPick: string | undefined;
+	/** The research model picked on this machine (`modelSetup.researchPick`); null: follow the default role. */
+	researchPick: string | null;
 }
 
 /** What a finished research run leaves: its plan (laid over the rules' rows) and what it dropped. */
@@ -124,7 +122,10 @@ export function ModelSetupDialog() {
 					tabRpc.getModelRoles(),
 					tabRpc.getModelSetupFacts(),
 					loadSetupRecord(device).catch(() => undefined),
-					loadResearchModel(device).catch(() => undefined),
+					window.omp.modelSetup
+						.researchPick(device)
+						.then(state => state.pick)
+						.catch(() => null),
 				]);
 				if (!current()) return;
 				if (!rolesRes.success) {
@@ -206,7 +207,7 @@ export function ModelSetupDialog() {
 	const research = useMemo(
 		() =>
 			resolveResearchModel({
-				remembered: data?.researchPick,
+				remembered: data?.researchPick ?? undefined,
 				defaultModel: defaultModel ?? ruleRows.find(row => row.role === "default")?.model ?? undefined,
 				options,
 			}),
@@ -256,9 +257,9 @@ export function ModelSetupDialog() {
 
 	const pickResearchModel = (selector: string) => {
 		// Picking the default role's model (or "use the default") forgets the pick: it then follows the role.
-		const pick = selector === "" || selector === defaultModel ? undefined : selector;
+		const pick = selector === "" || selector === defaultModel ? null : selector;
 		setData(current => (current ? { ...current, researchPick: pick } : current));
-		void saveResearchModel(device, pick).catch(() => {});
+		void window.omp.modelSetup.setResearchPick(pick, device).catch(() => {});
 	};
 
 	const runResearch = async () => {

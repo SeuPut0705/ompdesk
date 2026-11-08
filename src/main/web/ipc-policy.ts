@@ -196,6 +196,9 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.MODEL_SETUP_RUN]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.MODEL_SETUP_STATUS]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.MODEL_SETUP_ABORT]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	// Which model the research runs on: whoever may run it may choose it.
+	[C.MODEL_SETUP_PICK_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.MODEL_SETUP_PICK_SET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 
 	// The host's own desktop.
 	[C.SYSTEM_INFO]: { dir: "invoke", permission: "workspace", mode: "pass" },

@@ -19,7 +19,6 @@ import {
 	currentDefaultModel,
 	distinctModels,
 	effectiveAdvisorModel,
-	loadResearchModel,
 	loadSetupRecord,
 	MODEL_SETUP_PREFS_KEY,
 	mergeApplied,
@@ -31,7 +30,6 @@ import {
 	researchPool,
 	researchRequest,
 	resolveResearchModel,
-	saveResearchModel,
 	saveSetupRecord,
 	setupModelOptions,
 	undoSteps,
@@ -437,32 +435,6 @@ describe("apply record in prefs", () => {
 		await saveSetupRecord("device-1", undefined);
 		expect(stored()).toEqual({ local: { applied, signature: "s0" } });
 		expect(set).toHaveBeenCalledTimes(2);
-	});
-
-	it("keeps the picked research model through apply-record writes and apart per machine", async () => {
-		const { stored } = prefs({ "device-1": { signature: "s1" } });
-		await saveResearchModel(undefined, "a/pick");
-		await saveResearchModel("device-1", "b/pick");
-		const applied: AppliedSetup = { at: 5, values: { default: "a/b" }, before: { default: null } };
-		await saveSetupRecord(undefined, { applied, signature: "s0" });
-		expect(stored()).toEqual({
-			"device-1": { signature: "s1", researchPick: "b/pick" },
-			local: { applied, signature: "s0", researchPick: "a/pick" },
-		});
-		expect(await loadSetupRecord(undefined)).toEqual({ applied, signature: "s0" });
-		expect(await loadResearchModel(undefined)).toBe("a/pick");
-		// Removing the apply record (Undo of everything) keeps the pick; forgetting the pick keeps the record.
-		await saveSetupRecord(undefined, undefined);
-		expect(await loadResearchModel(undefined)).toBe("a/pick");
-		await saveResearchModel("device-1", undefined);
-		expect(stored()).toEqual({ "device-1": { signature: "s1" }, local: { researchPick: "a/pick" } });
-		await saveResearchModel(undefined, undefined);
-		expect(stored()).toEqual({ "device-1": { signature: "s1" } });
-	});
-
-	it("never reads an old proposal record's research model as a pick", async () => {
-		prefs({ local: { savedAt: 1, researchModel: "a/b", models: [] } });
-		expect(await loadResearchModel(undefined)).toBeUndefined();
 	});
 });
 

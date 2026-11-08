@@ -84,6 +84,10 @@ function localMachine(
 		read: () => undefined,
 		set: async () => {},
 	},
+	modelSetupPick: ConstructorParameters<typeof LocalMachine>[0]["modelSetupPick"] = {
+		read: () => undefined,
+		write: () => {},
+	},
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -93,6 +97,7 @@ function localMachine(
 		benchmarkEnv: async () => ({}),
 		accountRotation,
 		localEngines,
+		modelSetupPick,
 		builtinRea,
 		desktop: desktop ?? {
 			version: () => "1.2.3",
@@ -267,6 +272,40 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.localEngineDetect()).rejects.toThrow();
+	});
+
+	it("keeps one research pick per machine in its own pref, and a paired host's in the host's", async () => {
+		const stored: unknown[] = [undefined];
+		const local = localMachine(0, "scheduled", undefined, undefined, undefined, undefined, undefined, undefined, {
+			read: () => stored.at(-1),
+			write: pick => stored.push(pick ?? undefined),
+		});
+		await expect(local.modelSetupResearchPick()).resolves.toEqual({ pick: null });
+		await expect(local.setModelSetupResearchPick("anthropic/claude-opus-4-1")).resolves.toEqual({
+			pick: "anthropic/claude-opus-4-1",
+		});
+		await expect(local.setModelSetupResearchPick(null)).resolves.toEqual({ pick: null });
+		await expect(local.setModelSetupResearchPick("not a selector")).rejects.toThrow(/Invalid research model/);
+		expect(stored).toEqual([undefined, "anthropic/claude-opus-4-1", undefined]);
+
+		const host = fakeHost((method, params) =>
+			method === "host.modelSetup.pick.set" && typeof params === "object" && params !== null && "pick" in params
+				? { pick: params.pick }
+				: { pick: "openai/gpt-5" },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.modelSetupResearchPick()).resolves.toEqual({ pick: "openai/gpt-5" });
+		await expect(remote.setModelSetupResearchPick(null)).resolves.toEqual({ pick: null });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.modelSetup.pick.get", params: {} },
+			{ method: "host.modelSetup.pick.set", params: { pick: null } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ pick: 3 })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.modelSetupResearchPick()).rejects.toThrow();
 	});
 
 	it("sends Settings › Schedules to a paired host's own service and checks its state", async () => {

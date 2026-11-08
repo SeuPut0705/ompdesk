@@ -318,6 +318,8 @@ function fakeMachine() {
 		),
 		modelSetupStatus: vi.fn(async (_caller: string): Promise<ModelSetupStatus> => ({ running: false })),
 		abortModelSetup: vi.fn(async (_caller: string) => true),
+		modelSetupResearchPick: vi.fn(async () => ({ pick: null as string | null })),
+		setModelSetupResearchPick: vi.fn(async (pick: string | null) => ({ pick })),
 		accountRotation: vi.fn(async (): Promise<AccountRotationState> => ({ mode: "quota", evenSupported: true })),
 		setAccountRotation: vi.fn(
 			async (mode: AccountRotationMode): Promise<AccountRotationState> => ({ mode, evenSupported: true }),
@@ -3716,6 +3718,23 @@ describe("LocalHostServices host.* calls", () => {
 			);
 		}
 		expect(machine.setLocalEngineDetect).toHaveBeenCalledTimes(1);
+	});
+
+	it("reads the host's research pick and validates writes", async () => {
+		const { services, machine } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		await expect(services.call(x.peer, "host.modelSetup.pick.get", {}, x)).resolves.toEqual({ pick: null });
+		await expect(
+			services.call(x.peer, "host.modelSetup.pick.set", { pick: "anthropic/claude-opus-4-1" }, x),
+		).resolves.toEqual({ pick: "anthropic/claude-opus-4-1" });
+		await services.call(x.peer, "host.modelSetup.pick.set", { pick: null }, x);
+		expect(machine.setModelSetupResearchPick.mock.calls).toEqual([["anthropic/claude-opus-4-1"], [null]]);
+		for (const bad of [{}, { pick: "--help" }, { pick: 1 }]) {
+			await expect(services.call(x.peer, "host.modelSetup.pick.set", bad, x)).rejects.toThrow(
+				/Invalid host.modelSetup.pick.set/,
+			);
+		}
+		expect(machine.setModelSetupResearchPick).toHaveBeenCalledTimes(2);
 	});
 
 	it("reads this machine's stats server", async () => {
