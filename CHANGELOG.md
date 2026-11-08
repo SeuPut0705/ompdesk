@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.119.4] - 2026-11-08
+
+다른 세션에 보낸 메시지가 전달되지 않았거나 턴을 시작하지 않았는데도 "받았고 시작한다"고 답하던 문제를 고쳤어요.
+
+### 고친 것
+- `ompdesk_session_send`는 받는 세션의 omp가 메시지를 거절해도(봇이 끝낸 이전 대화처럼, 읽기만 되는 대화) "받았고 쉬고 있어서 바로 시작한다"고 답했어요. 보낸 쪽은 기다리기만 했고 아무 일도 일어나지 않았어요. 이제 거절되면 "전달되지 않음"과 거절한 이유를 오류로 돌려줘요.
+- 받아들였지만 1.5초 안에 턴이 시작되지 않으면 "시작한다"고 약속하지 않고, 아직 턴이 시작되지 않았다고 말해요. 다시 보내기 전에 `ompdesk_session_result`로 확인하라고 알려요.
+
+<!-- en -->
+
+A message sent to another session no longer says it started work when it was refused or no turn started.
+
+### Fixed
+- `ompdesk_session_send` answered "accepted; it was idle and starts on it" even when the receiving session's omp refused the message (a conversation the bot ended, kept to read), so the sender waited on a turn that never came. A refusal now returns an error saying it was not delivered, with the reason.
+- A message taken but with no turn seen starting within 1.5 s no longer promises one: the reply says no turn started and to check with `ompdesk_session_result` before sending again.
+
 ## [0.119.3] - 2026-11-08
 
 휴대폰 페이지가 새 빌드로 바뀌는 도중에 화면을 쓰기 시작하면, 그 브라우저 세션 동안 옛 빌드에 갇히던 문제를 고쳤어요.
