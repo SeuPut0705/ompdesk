@@ -16,7 +16,7 @@ import type { OmpResolution } from "./omp-runtime";
 import { OmpStartQueue } from "./omp-start-queue";
 import { STOP_GRACE_MS } from "./omp-stop";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
-import { ANSWERS_COMMANDS, ompRuns, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { ANSWERS_COMMANDS, HOLDS_PORT, ompHoldsPort, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
 function ompAt(bin: string): () => Promise<OmpResolution> {
@@ -1362,12 +1362,13 @@ describe("SidecarManager", () => {
 			"reports the omp exited only once the omp itself is gone, not its shim, when taskkill fails",
 			async () => {
 				const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-late-"));
-				const pidPath = path.join(tempDir, "pid");
+				const portPath = path.join(tempDir, "port");
 				const binaryPath = await writeFakeOmp(
 					tempDir,
 					[
 						'import * as fs from "node:fs";',
-						`fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+						HOLDS_PORT,
+						`fs.writeFileSync(${JSON.stringify(portPath)}, String(holder.port));`,
 						// The graceful shutdown of a real omp: it still writes its session file after stdin ended.
 						'process.stdin.on("end", () => setTimeout(() => process.exit(0), 1500));',
 						'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
@@ -1387,11 +1388,11 @@ describe("SidecarManager", () => {
 					const ready = waitForReady(sidecar);
 					sidecar.start();
 					await ready;
-					const pid = Number(await fs.readFile(pidPath, "utf8"));
+					const port = Number(await fs.readFile(portPath, "utf8"));
 					const exited = sidecar.whenExited();
 					sidecar.dispose();
 					await exited;
-					expect(await ompRuns(pid, Date.now())).toBe(false);
+					expect(await ompHoldsPort(port)).toBe(false);
 				} finally {
 					process.env.PATH = realPath;
 					await fs.rm(fakeBin, RM_TEMP);
@@ -1415,9 +1416,10 @@ describe("SidecarManager", () => {
 				tempDir,
 				[
 					'import * as fs from "node:fs";',
+					HOLDS_PORT,
 					'import { createInterface } from "node:readline";',
 					`const config = ${config};`,
-					'const log = (word: string) => fs.appendFileSync(config.logPath, word + " " + process.pid + " " + Date.now() + "\\n");',
+					'const log = (word: string) => fs.appendFileSync(config.logPath, word + " " + process.pid + " " + Date.now() + " " + holder.port + "\\n");',
 					'log("spawn");',
 					"const onTerm = () => {",
 					'\tif (config.onTerm === "ignore") return log("sigterm");',
@@ -1442,8 +1444,8 @@ describe("SidecarManager", () => {
 					.split("\n")
 					.filter(Boolean)
 					.map(line => {
-						const [word, pid, at] = line.split(" ");
-						return { word, pid: Number(pid), at: Number(at) };
+						const [word, pid, at, port] = line.split(" ");
+						return { word, pid: Number(pid), at: Number(at), port: Number(port) };
 					});
 			return { tempDir, binaryPath, lines };
 		}
@@ -1557,7 +1559,8 @@ describe("SidecarManager", () => {
 		}, 20_000);
 
 		it("stops a started omp that answers nothing and starts it again, reading starting until its retries run out", async () => {
-			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit", answers: "never" });
+			// It ends 300 ms after the stop reaches it: a stop that resolved before that would find its listener open.
+			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit-late", answers: "never" });
 			const statuses: SidecarStatus[] = [];
 			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, startAnswerMs: 400 });
 			sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
@@ -1572,15 +1575,8 @@ describe("SidecarManager", () => {
 				const spawns = (await lines()).filter(line => line.word === "spawn");
 				// The first start and two more, each after the one before it exited.
 				expect(spawns).toHaveLength(3);
-				// A freed pid goes to the next process Windows creates, so a live pid is the omp only if it started
-				// before the omp logged its exit (`ompRuns`).
-				const exitedAt = new Map(
-					(await lines()).filter(line => line.word === "exit").map(line => [line.pid, line.at]),
-				);
-				const runs = await Promise.all(
-					spawns.map(spawn => ompRuns(spawn.pid, exitedAt.get(spawn.pid) ?? Date.now())),
-				);
-				expect(runs).toEqual([false, false, false]);
+				// Each omp's own listener, not its pid: Windows hands a freed pid to the next process it creates.
+				expect(await Promise.all(spawns.map(spawn => ompHoldsPort(spawn.port)))).toEqual([false, false, false]);
 				expect(statuses.filter(status => status !== "starting")).toEqual(["error"]);
 			} finally {
 				sidecar.dispose();

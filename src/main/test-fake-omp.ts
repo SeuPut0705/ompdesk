@@ -6,12 +6,9 @@
  * sits in a directory with a space so the quoting of both the shim path and
  * its argv is exercised, as under `C:\Users\First Last\...`.
  */
-import { execFile } from "node:child_process";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 import { join } from "node:path";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
 
 /** Write `source` (TypeScript run by bun) as a fake omp under `dir`; returns the bin path. */
 export async function writeFakeOmp(dir: string, source: string): Promise<string> {
@@ -43,35 +40,25 @@ export const ANSWERS_COMMANDS =
 export const RM_TEMP = { recursive: true, force: true, maxRetries: 20, retryDelay: 50 } as const;
 
 /**
- * Whether the omp that ran as `pid` still runs, `exitedAt` (ms since the epoch) being a moment it had already ended by:
- * its own last log line, or the clock right after its stop was reported. A pid that answers `kill(pid, 0)` is not
- * enough on Windows, which hands a freed pid to the next process created, within a second (the suite creates many a
- * second: cmd.exe, conhost.exe, bun.exe of the tests beside it; the sidecar stop test failed on CI with the omp's pid
- * held by another test's conhost.exe or bun.exe, gone 0.2 to 0.4 s later). A process that started before `exitedAt`
- * is the omp; one that started after it is a stranger on a reused pid.
+ * Fake omp source that opens a loopback listener (`holder`, its port in `holder.port`) before anything else, for
+ * `ompHoldsPort`. The kernel closes it when the process ends, never earlier or later.
  */
-export async function ompRuns(pid: number, exitedAt: number): Promise<boolean> {
-	const alive = () => {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch {
-			return false;
-		}
-	};
-	if (!alive()) return false;
-	if (process.platform !== "win32") return true;
-	const { stdout } = await run(
-		"powershell.exe",
-		[
-			"-NoProfile",
-			"-NonInteractive",
-			"-Command",
-			`Get-Process -Id ${pid} -ErrorAction SilentlyContinue | ForEach-Object { ([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds() }`,
-		],
-		{ windowsHide: true },
-	).catch(() => ({ stdout: "" }));
-	const startedAt = Number.parseInt(stdout.trim(), 10);
-	// No start time: the process ended meanwhile (gone), or its start time cannot be read (still counts as running).
-	return Number.isNaN(startedAt) ? alive() : startedAt < exitedAt;
+export const HOLDS_PORT = 'const holder = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });';
+
+/**
+ * Whether the fake omp that opened `port` (`HOLDS_PORT`) still runs. A pid cannot say: `process.kill(pid, 0)` also
+ * answers for any process Windows later gives the freed pid, and the suite creates many a second (cmd.exe, conhost.exe,
+ * bun.exe of the tests beside it; the sidecar stop test failed on CI with the omp's pid held by another process, gone
+ * 0.2 to 0.4 s later). The listener belongs to the omp alone, is there from before its stop, and closes with its
+ * process, so a connect that succeeds means the omp is still alive at that moment, with no lookup to outlast it.
+ */
+export function ompHoldsPort(port: number): Promise<boolean> {
+	const { promise, resolve } = Promise.withResolvers<boolean>();
+	const socket = connect({ host: "127.0.0.1", port });
+	socket.once("connect", () => {
+		socket.destroy();
+		resolve(true);
+	});
+	socket.once("error", () => resolve(false));
+	return promise;
 }
