@@ -93,3 +93,34 @@ describe.skipIf(process.platform === "win32")("OmpProcesses", () => {
 		await vi.waitFor(async () => expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ omps: [] }));
 	}, 20_000);
 });
+
+describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
+	it("a launch stops a leftover whose start time matches the file, and leaves a pid whose start time does not", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-reap-win-"));
+		dirs.push(dir);
+		const idle = () => {
+			const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+				stdio: "ignore",
+				windowsHide: true,
+			});
+			if (child.pid !== undefined) started.push(child.pid);
+			child.unref();
+			return { pid: child.pid ?? 0, at: Date.now() };
+		};
+		const leftover = idle();
+		// A reused pid: the file names it, but the process running under it started a minute away from that spawn.
+		const reused = idle();
+		const file = path.join(dir, "omp-pids.json");
+		await fs.writeFile(
+			file,
+			JSON.stringify({ omps: [leftover, { pid: reused.pid, at: reused.at - 60_000 }, { pid: 999_999_999, at: 0 }] }),
+		);
+
+		const reaped = await new OmpProcesses(file, path.join(dir, "gui-bridge")).reapLeftovers();
+
+		expect(reaped).toEqual([leftover.pid]);
+		await vi.waitFor(() => expect(pidAlive(leftover.pid)).toBe(false), { timeout: 10_000 });
+		expect(pidAlive(reused.pid)).toBe(true);
+		await vi.waitFor(async () => expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ omps: [] }));
+	}, 30_000);
+});
