@@ -61,7 +61,13 @@ describe.skipIf(!existsSync(stockPath))("copy picker using installed stock extra
 
 	it("keeps stock quote extraction and masks quotes inside fences", () => {
 		const targets = targetsFor([assistant("> quoted\n>tight\n```ts\n> not a quote\n```\n```js\nunclosed")]);
-		expect(targets[0]?.children?.map(child => child.content)).toEqual(["quoted\ntight", "> not a quote"]);
+		const children = targets[0]?.children ?? [];
+		// The one quote is stock's; a `>` line inside a fence stays that block's code. What else stock offers beside them
+		// (18.18 adds an unclosed fence's block and an "All N blocks" child) is stock's to choose.
+		expect(children.filter(child => child.id.includes(":quote:")).map(child => child.content)).toEqual([
+			"quoted\ntight",
+		]);
+		expect(children.find(child => child.language === "ts")?.content).toBe("> not a quote");
 	});
 
 	it("falls back to the displayed handoff when no assistant text exists", () => {
