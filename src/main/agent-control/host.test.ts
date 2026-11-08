@@ -856,7 +856,14 @@ describe("AgentControlRuntime", () => {
 			...extra,
 		});
 		const summariesOf = (
-			sessions: { sessionPath: string; status: SessionSummary["status"]; ask?: "input"; openFor?: string }[],
+			sessions: {
+				sessionPath: string;
+				sessionId?: string;
+				status: SessionSummary["status"];
+				ask?: "input";
+				openFor?: string;
+				title?: string;
+			}[],
 		): VersionedSummaries => ({
 			version: "e.1",
 			sessions: sessions.map(session => ({
@@ -958,6 +965,108 @@ describe("AgentControlRuntime", () => {
 			rows = [row("/far", "there")];
 			live = summariesOf([]);
 			expect(await header()).toContain('"there" (saved on device dev-1, not open)');
+		});
+
+		/**
+		 * A paired host whose saved session "메인" another device's tab (Desktop's) holds there. The host answers this
+		 * computer's `tab.open` of it with a view of that tab (host-services.ts `#open`): here that is a tab like any, on
+		 * the host, holding the file.
+		 */
+		function heldByDesktop() {
+			const request = vi.fn(async (_device: string, method: string) =>
+				method === "sessions.list" ? [row("/far", "s-main", { title: "메인", heldOnHost: true })] : null,
+			);
+			const live = summariesOf([
+				{
+					sessionPath: "/far/s-main.jsonl",
+					sessionId: "s-main",
+					title: "메인",
+					status: "ready",
+					openFor: "Desktop",
+				},
+			]);
+			const world = setup({
+				remote: {
+					hosts: () => [{ deviceId: "dev-1", name: "Mac mini", state: "online" }],
+					request: request as never,
+				},
+				sessions: { list: async () => [], search: async () => [], read: async () => [] as never },
+				summaries: device => (device === "dev-1" ? live : null),
+			});
+			world.deps.spawnTab = async (_win, payload) => {
+				world.spawned.push(payload);
+				world.tabs.push({
+					tabId: "view0004",
+					cwd: "/far",
+					status: "ready",
+					kind: "agent",
+					shared: true,
+					...(payload.sessionPath ? { sessionPath: payload.sessionPath } : {}),
+					...(payload.device ? { device: payload.device } : {}),
+				});
+				return { tabId: "view0004", attached: true };
+			};
+			return world;
+		}
+
+		it("lists a paired computer's session another device's tab holds as open there, naming that device", async () => {
+			const { runtime, win } = heldByDesktop();
+			const text = (await runtime.run(win, "main0001", T.list, { scope: "app" })).text;
+			expect(text).toMatch(/"메인" \(saved id s-main\) \[open in a tab Mac mini runs for Desktop\]\n {2}idle/);
+			const stored = (await runtime.run(win, "main0001", T.list, { scope: "stored", device: "Mac mini" })).text;
+			expect(stored).toContain("; open in a tab device dev-1 runs for Desktop: idle");
+		});
+
+		it("sends to that session through a view of the tab that holds it, never nesting it under the caller", async () => {
+			const { runtime, win, spawned, commands, openers } = heldByDesktop();
+			const sent = await runtime.run(win, "main0001", T.send, {
+				session: "s-main",
+				message: "clean up the child sessions",
+			});
+			expect(sent.isError, sent.text).toBe(false);
+			expect(spawned).toEqual([{ sessionPath: "/far/s-main.jsonl", device: "dev-1" }]);
+			const prompt = commands.find(entry => entry.command.type === "prompt");
+			expect(prompt?.tabId).toBe("view0004");
+			expect(JSON.stringify(prompt?.command)).toContain("clean up the child sessions");
+			expect(openers).not.toHaveBeenCalled();
+			const mine = (await runtime.run(win, "main0001", T.list, { scope: "app", mine: true })).text;
+			expect(mine).toMatch(/^0 sessions/);
+			// Sent again: the view this computer holds now takes it, no second view.
+			await runtime.run(win, "main0001", T.send, { session: "s-main", message: "and the worktrees" });
+			expect(spawned).toHaveLength(1);
+		});
+
+		it("reopens that session as a view of the tab that holds it, not as the caller's child", async () => {
+			const { runtime, win, spawned, openers } = heldByDesktop();
+			const opened = await runtime.run(win, "main0001", T.open, { reopen: "s-main" });
+			expect(opened.isError, opened.text).toBe(false);
+			expect(opened.text).toContain("view0004");
+			expect(spawned).toEqual([{ sessionPath: "/far/s-main.jsonl", device: "dev-1" }]);
+			expect(openers).not.toHaveBeenCalled();
+			const mine = (await runtime.run(win, "main0001", T.list, { scope: "app", mine: true })).text;
+			expect(mine).toMatch(/^0 sessions/);
+		});
+
+		it("sends to this computer's session a tab it runs for a paired device holds, through a window's view of it", async () => {
+			const { runtime, win, deps, spawned, commands, openers, tabs } = setup({
+				sessions: {
+					list: async () => [row("/s", "hosted") as never],
+					search: async () => [],
+					read: async () => [] as never,
+				},
+				summaries: device =>
+					device ? null : summariesOf([{ sessionPath: "/s/hosted.jsonl", status: "ready", openFor: "Desktop" }]),
+			});
+			deps.spawnTab = async (_win, payload) => {
+				spawned.push(payload);
+				tabs.push({ tabId: "view0005", cwd: "/s", status: "ready", kind: "agent", sessionPath: "/s/hosted.jsonl" });
+				return { tabId: "view0005", attached: true };
+			};
+			const sent = await runtime.run(win, "main0001", T.send, { session: "hosted", message: "hello" });
+			expect(sent.isError, sent.text).toBe(false);
+			expect(spawned).toEqual([{ sessionPath: "/s/hosted.jsonl" }]);
+			expect(commands.find(entry => entry.command.type === "prompt")?.tabId).toBe("view0005");
+			expect(openers).not.toHaveBeenCalled();
 		});
 	});
 
