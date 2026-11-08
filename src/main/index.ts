@@ -1871,9 +1871,23 @@ app.whenReady().then(() => {
 	// (`host.sessionsDeleted`) and, for a delete this computer was off the link for, asked as the link comes up
 	// (`sessions.deleted`, the paths this computer's tabs on that host hold; an older host answers none).
 	devices.onHostSessionsDeleted((host, paths) => closeHostDeletedTabs(host, paths));
+	// The host's bot renewed: its tabs here on the ended conversation close, not deleted (it stays to read). Seen as the
+	// copy of the host's list first shows a conversation ended, so a renewal this computer was away for closes them as
+	// the link comes back, and one a relaunch restored at the first read; opened later to read it, a tab stays.
+	devices.onHostBotEnded((host, paths) => {
+		const closed = sidecarPool.closeHostEndedSessions(host, paths);
+		if (closed.length > 0)
+			writeRuntimeLog({
+				source: "tab-layout",
+				message: "closed tabs of conversations their host's bot ended",
+				details: { level: "info", device: host, tabs: closed.length },
+			});
+	});
 	devices.onHostOnline(host => {
 		const held = sidecarPool.deviceSessionFiles(host);
 		if (held.length === 0) return;
+		// The copy of its list says which of them its bot ended meanwhile (`onHostBotEnded` above), whoever shows it.
+		devices.hostSessions(host).catch(() => undefined);
 		void devices
 			.deletedOnHost(host, held)
 			.then(deleted => {

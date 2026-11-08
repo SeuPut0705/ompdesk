@@ -500,38 +500,60 @@ export function tabAutoTitle(tab: SessionTab, listed?: Pick<SessionInfo, "title"
 	return listed && shown && shownSessionName(listed.title ?? "") === shown ? listed.autoTitle : undefined;
 }
 
+/** What a listed row says of a conversation the bot ended (absent from an older host's rows). */
+type BotRowFacts = Partial<Pick<SessionInfo, "bot" | "created">>;
+/** The listed row fields a tab's name reads: the automatic title, and whether the bot ended the conversation. */
+type TabRow = Pick<SessionInfo, "title" | "autoTitle"> & BotRowFacts;
+
+/**
+ * A conversation the bot ended (`SessionInfo.bot` past, as the computer the bot runs on lists it) reads as an earlier
+ * one, with the day it began, wherever its tab shows: "봇봇이 · 지난 대화 11-02". It carries the bot's name, so the
+ * live bot and its earlier conversations would otherwise read alike.
+ */
+function endedBotMark(parts: TitleParts, row: BotRowFacts | undefined): TitleParts {
+	if (row?.bot !== "past") return parts;
+	const began = row.created ? new Date(row.created) : null;
+	const day =
+		began && !Number.isNaN(began.getTime())
+			? `${String(began.getMonth() + 1).padStart(2, "0")}-${String(began.getDate()).padStart(2, "0")}`
+			: "";
+	return { ...parts, title: `${parts.title} · ${translate("tabs.endedBotConversation", { day }).trim()}` };
+}
+
 /**
  * `tabChipLabel` as parts: the tab's own title with its automatic title beside it. Untitled and task names stand
  * alone. `listed` is the session's row in the list the tab's computer keeps.
  */
-export function tabChipParts(
-	tab: SessionTab,
-	tabs: readonly SessionTab[],
-	listed?: Pick<SessionInfo, "title" | "autoTitle">,
-): TitleParts {
+export function tabChipParts(tab: SessionTab, tabs: readonly SessionTab[], listed?: TabRow): TitleParts {
 	const label = tabChipLabel(tab, tabs);
-	return shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label };
+	return endedBotMark(
+		shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label },
+		listed,
+	);
 }
 
 /**
- * `tabDisplayTitle` as parts. An indexed row names the session (this computer's, for a local tab); the tab's own
+ * `tabDisplayParts` as parts. An indexed row names the session (this computer's, for a local tab); the tab's own
  * report of the automatic title outranks the row's. A paired host's tab has no indexed row: it shows its own title,
  * with `listed` (the host's row for it) standing in until the tab reports the automatic one.
  */
 export function tabDisplayParts(
 	tab: SessionTab,
 	tabs: readonly SessionTab[],
-	indexedSession: Pick<SessionInfo, "title" | "firstMessage" | "autoTitle"> | undefined,
+	indexedSession: (Pick<SessionInfo, "title" | "firstMessage" | "autoTitle"> & BotRowFacts) | undefined,
 	untitled: string,
-	listed?: Pick<SessionInfo, "title" | "autoTitle">,
+	listed?: TabRow,
 ): TitleParts {
 	return indexedSession
-		? sessionDisplayParts(
-				{
-					...indexedSession,
-					autoTitle: tab.autoTitle === undefined ? indexedSession.autoTitle : (tab.autoTitle ?? undefined),
-				},
-				untitled,
+		? endedBotMark(
+				sessionDisplayParts(
+					{
+						...indexedSession,
+						autoTitle: tab.autoTitle === undefined ? indexedSession.autoTitle : (tab.autoTitle ?? undefined),
+					},
+					untitled,
+				),
+				listed ?? indexedSession,
 			)
 		: tabChipParts(tab, tabs, listed);
 }

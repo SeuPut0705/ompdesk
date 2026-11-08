@@ -119,6 +119,7 @@ export const en: Record<string, string> = {
 	"tabs.closeFailed": "Couldn't close tab",
 	"tabs.confirmClose": "This session is running. Press again to stop its turn and close it.",
 	"tabs.reopenNone": "No closed tab to reopen",
+	"tabs.endedBotConversation": "earlier conversation {day}",
 	"sidebar.archiveFailed": "Couldn't save the archive",
 	"tabs.menu.closeOthers": "Close other tabs",
 	"sidebar.menu.archive": "Archive",

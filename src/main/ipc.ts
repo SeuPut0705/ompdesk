@@ -1608,6 +1608,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remote: {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
+			botOf: (device, sessionPath) => remoteDevices.hostBotOf(device, sessionPath),
 		},
 		summaries: device => (device ? remoteDevices.summaries(device) : deps.summaries.current()),
 		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
@@ -1707,8 +1708,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		gate: botTurns,
 		adopt: async ({ slot, from, to, note, reason }) => {
 			// A paired device's own tab on the old conversation here closes (refused, so the renewal stops, while it
-			// runs); the device opens the bot's row anew. Then the commit: the bot's tab moves (refused under a turn).
-			(await deps.hostedTabs.closeSessionTabs(from))();
+			// runs). The device is told no delete (the conversation stays to read): its copy of this computer's list
+			// shows the conversation ended and closes its tabs on it (`onHostBotEnded`). Then the commit: the bot's tab
+			// moves (refused under a turn).
+			await deps.hostedTabs.closeSessionTabs(from);
 			await agentControl.botMoveTab(from, to);
 			if (slot === BOT_MAIN_SLOT) deps.botHome.moveBot(to);
 			else deps.botDesk.moveChannel(slot, to);

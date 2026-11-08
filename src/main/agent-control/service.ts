@@ -46,6 +46,7 @@ import {
 	MAX_CLOSED_TAB_IDS,
 	parseAgentMessage,
 	parseWorkerResult,
+	type SessionBotState,
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
@@ -174,6 +175,11 @@ export interface ControlTab {
 	worktree?: IpcTabWorktree;
 	/** The session file; absent until the session has one. */
 	sessionPath?: string;
+	/**
+	 * What the session is to the bot of the computer it runs on (`botRowOf` there): `past` for a conversation the bot
+	 * ended, kept to read; such a tab is never the bot, and the bot's name never resolves to it.
+	 */
+	bot?: SessionBotState;
 	/** What an agent opened the session for (`agentTaskTitle`) until it has a title. */
 	task?: string;
 	/** How its last finished turn ended; absent while one runs or before the first. */
@@ -232,6 +238,8 @@ export interface StoredSession {
 	work?: StoredWork;
 	/** Text around a search hit. */
 	snippet?: string;
+	/** What the session is to the bot of the computer it is saved on (`SessionInfo.bot`). */
+	bot?: SessionBotState;
 }
 
 /** What the tab holding a saved session elsewhere does with it: its turn, background work, an open ask, nothing. */
@@ -748,6 +756,13 @@ function callIntent(tool: AgentControlToolName, args: unknown, caller: ControlTa
 			},
 		};
 	return undefined;
+}
+
+/** How a list names a session that is the bot or a conversation it ended (`SessionBotState`); null for any other. */
+function botMark(bot: SessionBotState | undefined): string | null {
+	if (bot === "past")
+		return "earlier conversation of the bot, read-only; the bot's name reaches its current conversation";
+	return bot === "on" ? "the bot" : null;
 }
 
 function label(tab: ControlTab): string {
@@ -1840,6 +1855,7 @@ export class AgentControl {
 					tab.tabId === caller.tabId ? "this session" : null,
 					opened.has(tab.tabId) ? "opened by you" : null,
 					tab.here ? null : "another window",
+					botMark(tab.bot),
 				].filter(Boolean);
 				if (tab.hidden && tab.tabId !== caller.tabId)
 					return {
@@ -1949,7 +1965,8 @@ export class AgentControl {
 				const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
 				// Before `changed`: the row ends with when it changed and where it is open, as every reader of it expects.
 				const pace = paces[index] ? `; ${paceShort(paces[index])}` : "";
-				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
+				const mark = botMark(row.bot);
+				return `- ${row.id} "${oneLine(title, 80)}"${mark ? ` [${mark}]` : ""}\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
 			}),
 		);
 		const where = device ? `saved on ${device.name}` : "saved on this computer";
@@ -2877,7 +2894,8 @@ export class AgentControl {
 				: undefined);
 		if (closed) return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
 		const wanted = name.toLowerCase();
-		const titled = tabs.filter(entry => !entry.hidden);
+		// A conversation the bot ended carries its name too: the name is the bot's current conversation, never one of them.
+		const titled = tabs.filter(entry => !entry.hidden && entry.bot !== "past");
 		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
 		const byTitle =
 			only(titled.filter(entry => titleOf(entry) === wanted)) ??
@@ -2919,7 +2937,11 @@ export class AgentControl {
 				(session.length >= SESSION_PREFIX_MIN
 					? several(rows.filter(row => row.id.startsWith(session)))
 					: undefined) ??
-				several(rows.filter(row => !row.hidden && storedTitle(row).trim().toLowerCase() === wanted))
+				several(
+					rows.filter(
+						row => !row.hidden && row.bot !== "past" && storedTitle(row).trim().toLowerCase() === wanted,
+					),
+				)
 			);
 		};
 		const known = find();

@@ -41,6 +41,7 @@ import {
 	agentHiddenPaths,
 	BOT_CONVERSATIONS_PREF,
 	botConversationsOf,
+	botRowOf,
 	type ClosedChild,
 	currentBotConversation,
 	isAgentControlTool,
@@ -49,6 +50,7 @@ import {
 	type PrivacyPane,
 	parseClosedChildren,
 	parseDeletedIds,
+	type SessionBotState,
 	sidebarViewOf,
 } from "../../shared/agent-control";
 import { type BotRoutine, botRoleDesk, EMPTY_BOT_DESK_FILE, openBotDecisions } from "../../shared/bot-desk";
@@ -203,6 +205,8 @@ export interface AgentControlHostDeps {
 	remote?: {
 		hosts(): HostView[];
 		request<T>(deviceId: string, method: string, params: unknown, timeoutMs?: number): Promise<T>;
+		/** What a host's session is to its bot, as this computer's copy of its list has it (`HostSessionList.botOf`). */
+		botOf?(deviceId: string, sessionPath: string): SessionBotState | undefined;
 	};
 	/**
 	 * The session summaries of this computer (no device) or of a paired host as this computer holds them: what every
@@ -1358,6 +1362,12 @@ export class AgentControlRuntime {
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
 		const facts = this.#deps.pool.tabFacts(info.tabId);
 		const owner = this.#deps.pool.windowOfTab(info.tabId);
+		// What its session is to the bot of the computer it runs on: that computer's own record, the one source.
+		const bot = info.sessionPath
+			? info.device
+				? this.#deps.remote?.botOf?.(info.device, info.sessionPath)
+				: (botRowOf(info.sessionPath, key => this.#deps.prefs.get(key)) ?? undefined)
+			: undefined;
 		// A paired web page's tab: what its page last said about unsaved Files edits in it (never assumed clean).
 		const webEdits =
 			owner && isWebWindow(owner.webContents.id)
@@ -1379,6 +1389,7 @@ export class AgentControlRuntime {
 			here,
 			...(info.worktree ? { worktree: info.worktree } : {}),
 			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
+			...(bot ? { bot } : {}),
 			...(info.task ? { task: info.task } : {}),
 			...(info.lastRun ? { lastRun: info.lastRun } : {}),
 			autoClosable,
@@ -1764,6 +1775,7 @@ export class AgentControlRuntime {
 							...(device ? { device, deviceName: deps.deviceName(device) } : {}),
 							...(tab ? { tabId: tab } : elsewhere(row)),
 							...(snippet ? { snippet } : {}),
+							...(row.bot ? { bot: row.bot } : {}),
 						},
 					];
 				});

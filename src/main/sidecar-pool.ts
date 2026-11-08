@@ -2695,10 +2695,19 @@ export class SidecarPool {
 	 * closing a tab does), the tombstones are recorded under that host so no restore brings them back; the ids closed.
 	 */
 	closeHostDeletedSessions(device: string, sessionPaths: readonly string[]): string[] {
-		const deleted = new Set(sessionPaths);
-		for (const sessionPath of deleted) deletedSessions().add(sessionPath, device);
+		for (const sessionPath of sessionPaths) deletedSessions().add(sessionPath, device);
+		return this.closeHostEndedSessions(device, sessionPaths);
+	}
+
+	/**
+	 * Paired host `device`'s bot ended these conversations (`RemoteDevices.onHostBotEnded`): every tab here on one
+	 * closes as a deleted session's does, but nothing is recorded, since an ended conversation stays to read for 7 days
+	 * (opened again from the bot's earlier conversations, it opens). The ids closed.
+	 */
+	closeHostEndedSessions(device: string, sessionPaths: readonly string[]): string[] {
+		const ended = new Set(sessionPaths);
 		const held = [...this.#entries].filter(
-			entry => entry.device === device && !entry.hostedView && entry.sessionFile && deleted.has(entry.sessionFile),
+			entry => entry.device === device && !entry.hostedView && entry.sessionFile && ended.has(entry.sessionFile),
 		);
 		this.#closeFinished(held);
 		return held.map(entry => entry.tabId);

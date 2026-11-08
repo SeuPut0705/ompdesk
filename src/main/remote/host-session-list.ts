@@ -7,6 +7,7 @@
  * change (128 KB of JSON on this Mac, 30 Oct 2026).
  */
 import { z } from "zod";
+import type { SessionBotState } from "../../shared/agent-control";
 import type { IpcSessionsChanged, SessionInfo } from "../../shared/ipc-types";
 import {
 	applySessionListDelta,
@@ -32,6 +33,11 @@ export interface HostSessionListDeps {
 	read: (params: { scope: "global"; versioned: true }) => Promise<unknown>;
 	/** Tells this computer's windows (`SESSIONS_CHANGED` with this host's `device`). */
 	broadcast: (change: IpcSessionsChanged) => void;
+	/**
+	 * Conversations the host's bot ended (`SessionInfo.bot` past) this copy shows for the first time: every one at the
+	 * first copy of this launch, then each as it turns past (a renewal, seen live or once the link is back).
+	 */
+	ended?: (paths: readonly string[]) => void;
 }
 
 export class HostSessionList {
@@ -43,6 +49,8 @@ export class HostSessionList {
 	#reads = 0;
 	/** The newest host version a change announced while a read was under way. */
 	#announced: string | null = null;
+	/** What each listed session is to the host's bot (`botRowOf`), as of the last copy; null before the first. */
+	#bots: Map<string, SessionBotState> | null = null;
 
 	constructor(device: string, deps: HostSessionListDeps) {
 		this.#device = device;
@@ -67,6 +75,7 @@ export class HostSessionList {
 			this.#hostVersion = delta.data.version;
 			const change = delta.data as unknown as Pick<SessionListDelta, "set" | "remove">;
 			this.#share.set(applySessionListDelta(held.sessions, { set: this.#own(change.set), remove: change.remove }));
+			this.#noteBots(this.#share.held()?.sessions ?? []);
 			return;
 		}
 		if (delta.success && this.#hostVersion === delta.data.version) return;
@@ -76,6 +85,11 @@ export class HostSessionList {
 			return;
 		}
 		this.stale();
+	}
+
+	/** What `sessionPath` is to the host's bot as of the copy (`on`/`off`/`past`); undefined for any other or no copy. */
+	botOf(sessionPath: string): SessionBotState | undefined {
+		return this.#bots?.get(sessionPath);
 	}
 
 	/** The host's list may have changed unseen (the link came back, a change made through it): read it on the next ask. */
@@ -102,7 +116,9 @@ export class HostSessionList {
 			// An older host answers the rows alone, in its own order.
 			const rows = versioned.success ? versioned.data.sessions : z.array(Row).parse(reply);
 			this.#hostVersion = versioned.success ? versioned.data.version : null;
-			return this.#own(rows as unknown as SessionInfo[]).sort(compareSessionRows);
+			const own = this.#own(rows as unknown as SessionInfo[]).sort(compareSessionRows);
+			this.#noteBots(own);
+			return own;
 		} finally {
 			this.#reads--;
 			const announced = this.#announced;
@@ -111,6 +127,16 @@ export class HostSessionList {
 			if (announced && this.#hostVersion && olderSessionListVersion(this.#hostVersion, announced))
 				queueMicrotask(() => this.stale());
 		}
+	}
+
+	#noteBots(rows: readonly SessionInfo[]): void {
+		const before = this.#bots;
+		const bots = new Map(rows.flatMap(row => (row.bot ? [[row.path, row.bot] as const] : [])));
+		this.#bots = bots;
+		const ended = [...bots].flatMap(([path, state]) =>
+			state === "past" && before?.get(path) !== "past" ? [path] : [],
+		);
+		if (ended.length > 0) this.#deps.ended?.(ended);
 	}
 
 	/** Rows as this computer lists them: tagged with the host they live on. */

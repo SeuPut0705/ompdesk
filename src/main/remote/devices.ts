@@ -21,6 +21,7 @@ import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import type { SessionBotState } from "../../shared/agent-control";
 import { type BotDeskState, BotDeskStateSchema } from "../../shared/bot-desk";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
@@ -266,6 +267,7 @@ export class RemoteDevices {
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
 	readonly #hostSessionsDeleted = new Set<(hostId: string, paths: string[]) => void>();
+	readonly #hostBotEnded = new Set<(hostId: string, paths: readonly string[]) => void>();
 	readonly #hostBotDesks = new Set<(hostId: string, state: BotDeskState) => void>();
 
 	constructor(deps: RemoteDevicesDeps) {
@@ -603,6 +605,20 @@ export class RemoteDevices {
 	/** A request changed the host's sessions (a delete, a move, a rename): the next read asks the host, not the copy. */
 	hostSessionsStale(deviceId: string): void {
 		this.#links.get(deviceId)?.sessions.stale();
+	}
+
+	/** What a paired host's session is to its bot (`on`/`off`/`past`), as this computer's copy of its list has it. */
+	hostBotOf(deviceId: string, sessionPath: string): SessionBotState | undefined {
+		return this.#links.get(deviceId)?.sessions.botOf(sessionPath);
+	}
+
+	/**
+	 * Conversations a paired host's bot ended, as this computer's copy of its list first shows them so (`HostSessionList`
+	 * `ended`): every one at the first copy of this launch, then each as it turns past.
+	 */
+	onHostBotEnded(listener: (hostId: string, paths: readonly string[]) => void): () => void {
+		this.#hostBotEnded.add(listener);
+		return () => this.#hostBotEnded.delete(listener);
 	}
 
 	/**
@@ -1068,6 +1084,9 @@ export class RemoteDevices {
 			sessions: new HostSessionList(deviceId, {
 				read: params => this.request(deviceId, "sessions.list", params),
 				broadcast: change => this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, change),
+				ended: paths => {
+					for (const listener of this.#hostBotEnded) listener(deviceId, paths);
+				},
 			}),
 			relays: new Map(),
 		};

@@ -3,12 +3,13 @@ import type { SessionInfo } from "../../shared/ipc-types";
 import { sessionListFeed } from "../stores/session-list";
 import { type SessionTab, useTabsStore } from "../stores/tabs";
 
-type ListedRow = Pick<SessionInfo, "path" | "id" | "title" | "autoTitle">;
+type ListedRow = Pick<SessionInfo, "path" | "id" | "title" | "autoTitle" | "bot" | "created">;
 
 /**
  * The row a tab's session has in the list its computer keeps (this computer's global list for a local tab, the
  * host's for a paired device's), for what a tab alone does not carry: the automatic title of a tab whose omp has not
- * reported it yet. Reads the feeds as they are (the sidebar holds them live); nothing here asks the host.
+ * reported it yet, and whether the bot of that computer ended the conversation. Reads the feeds as they are (the
+ * sidebar holds them live); nothing here asks the host.
  */
 export function useTabListRows(): (tab: SessionTab) => ListedRow | undefined {
 	const devices = useTabsStore(state =>
