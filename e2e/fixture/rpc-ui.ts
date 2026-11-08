@@ -531,10 +531,14 @@ export function runRpcUi(): void {
 		: [];
 	// `OMP_GUI_TEST_MANY_PROVIDERS=1` (with OMP_GUI_TEST_MODELS) starts with several long-tail providers
 	// connected and one the brand marks do not know, for the provider list's captures and tests.
+	// `OMP_GUI_TEST_OPENROUTER=1` (with OMP_GUI_TEST_MODELS) starts with OpenRouter connected by API key and
+	// offering models that read like the Anthropic subscription's (the model lists' provider groups).
+	const openRouterModels = modelsData && process.env.OMP_GUI_TEST_OPENROUTER === "1";
 	/** Long-tail providers connected through the API-key sign-in below (`login` with an `input` for the key). */
-	const apiKeyProviders = new Set<string>(
-		process.env.OMP_GUI_TEST_MANY_PROVIDERS === "1" ? ["deepseek", "groq", "openrouter", "acme-gateway"] : [],
-	);
+	const apiKeyProviders = new Set<string>([
+		...(process.env.OMP_GUI_TEST_MANY_PROVIDERS === "1" ? ["deepseek", "groq", "openrouter", "acme-gateway"] : []),
+		...(openRouterModels ? ["openrouter"] : []),
+	]);
 	/** Ids a later "Add another account" sign-in hands out, after the two seeded accounts. */
 	let nextCredentialId = 3;
 	/** Background jobs `composer.cancel_job` stopped; they then list as cancelled, the way stock reports them. */
@@ -1121,10 +1125,39 @@ export function runRpcUi(): void {
 			modelCount: 0,
 		},
 	];
+	// OpenRouter's catalog names models as their makers do. Stock appends a model a provider discovers after the
+	// bundled ones (model-registry `#mergeResolvedModels`), so Anthropic's newest model comes after OpenRouter's.
+	const routerModels = [
+		{
+			...model,
+			id: "anthropic/claude-opus-4.1",
+			name: "Claude Opus 4.1",
+			provider: "openrouter",
+			contextWindow: 200000,
+		},
+		{ ...model, id: "openai/gpt-5.4", name: "GPT-5.4", provider: "openrouter", contextWindow: 400000 },
+		{
+			...model,
+			id: "anthropic/claude-sonnet-4.5",
+			name: "Claude Sonnet 4.5",
+			provider: "openrouter",
+			contextWindow: 1000000,
+		},
+	];
+	const discoveredClaude = {
+		...model,
+		id: "claude-opus-5",
+		name: "Claude Opus 5",
+		provider: "anthropic",
+		contextWindow: 1000000,
+	};
 	// A first-time user (`OMP_GUI_TEST_SIGNED_OUT`) who signs in to Anthropic gets its models, as stock lists them.
 	const firstRunSignIn = process.env.OMP_GUI_TEST_SIGNED_OUT === "1";
-	const catalogModels = () =>
-		(modelsData || firstRunSignIn) && anthropicSignedIn ? [model, ...claudeModels] : [model];
+	const catalogModels = () => {
+		const claude = (modelsData || firstRunSignIn) && anthropicSignedIn ? claudeModels : [];
+		if (!openRouterModels || !apiKeyProviders.has("openrouter")) return [model, ...claude];
+		return [model, ...claude, ...routerModels, ...(claude.length > 0 ? [discoveredClaude] : [])];
+	};
 	const accountQuota: Record<
 		number,
 		{
