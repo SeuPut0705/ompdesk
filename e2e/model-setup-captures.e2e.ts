@@ -5,8 +5,8 @@ import { type Browser, chromium, expect, type Page, test } from "@playwright/tes
 import { createServer, type ViteDevServer } from "vite";
 
 // Model setup ("자동으로 구성") on the dev harness: full auto opens onto its proposal, picked mode, the evidence
-// confirm line, the entry's applied + Undo line and its "set up again?" offer. Behaviour is pinned by the
-// component tests in src/renderer/components/settings/model-setup/; this only writes captures:
+// confirm line and the research model's list beside it, the entry's applied + Undo line and its "set up again?" offer.
+// Behaviour is pinned by the component tests in src/renderer/components/settings/model-setup/; this only writes captures:
 // OMP_GUI_MODEL_SETUP_SHOTS=<dir> (ko/en × light/dark × desktop 1280×800 / phone 390×844).
 
 const captures = process.env.OMP_GUI_MODEL_SETUP_SHOTS;
@@ -109,6 +109,12 @@ for (const lang of ["ko", "en"] as const) {
 					.click();
 				await expect(page.locator("[data-model-setup-confirm]")).toBeVisible();
 				await shoot(page, `${tag}-2-evidence-confirm`);
+				// The research model beside the button: its list, grouped by provider.
+				await page.locator("[data-model-setup-evidence] [aria-haspopup=listbox]").click();
+				await expect(page.getByRole("listbox")).toBeVisible();
+				await shoot(page, `${tag}-2b-research-model`);
+				await page.keyboard.press("Escape");
+				await expect(page.getByRole("listbox")).toBeHidden();
 				await dialog
 					.page()
 					.getByRole("button", { name: lang === "ko" ? "근거 더 찾기" : "Find more evidence" })

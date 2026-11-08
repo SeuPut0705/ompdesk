@@ -500,8 +500,25 @@ describe("ModelSetupDialog picked mode", () => {
 	});
 });
 
+function researchTrigger(): TestElement {
+	const found = [...document.querySelectorAll("[data-model-setup-evidence] button[aria-haspopup='listbox']")][0];
+	if (!found) throw new Error("no research model selector");
+	return found as unknown as TestElement;
+}
+
+/** Open the research model selector and pick the option whose label starts with `label`. */
+async function chooseResearchModel(label: string): Promise<void> {
+	await click(researchTrigger());
+	const option = [...document.querySelectorAll("button[role='option']")].find(candidate =>
+		(candidate.textContent ?? "").startsWith(label),
+	);
+	if (!option) throw new Error(`no research model option "${label}"`);
+	await click(option as unknown as TestElement);
+	await act(async () => {});
+}
+
 describe("ModelSetupDialog Find more evidence", () => {
-	it("shows the cost and time before anything runs, then researches with the plan's default model", async () => {
+	it("shows the cost and time before anything runs, then researches with the default role's model", async () => {
 		const harness = install();
 		await mount();
 
@@ -542,21 +559,65 @@ describe("ModelSetupDialog Find more evidence", () => {
 		expect(harness.rpc.setModelRole).not.toHaveBeenCalled();
 	});
 
-	it("says billed with a price when the research model is metered", async () => {
-		install();
+	it("researches with the model picked beside the button, says what it bills and remembers it", async () => {
+		const harness = install();
 		await mount();
-		await pickMode();
-		const deepseek = document.querySelector('input[data-model-setup-model="openrouter/deepseek"]');
-		if (!deepseek) throw new Error("no deepseek checkbox");
-		// Only the metered model picked: it becomes the default row's model, so it researches.
-		for (const input of document.querySelectorAll("input[data-model-setup-model]")) {
-			await setChecked(input, input === deepseek);
-		}
+		expect(researchTrigger().textContent).toContain("Opus");
+		await chooseResearchModel("DeepSeek");
+		expect(researchTrigger().textContent).toContain("DeepSeek");
+		expect(harness.prefsSet).toHaveBeenLastCalledWith(MODEL_SETUP_PREFS_KEY, {
+			local: { researchPick: "openrouter/deepseek" },
+		});
+
 		await click(button(translate("modelSetup.evidence.open")));
 		// (0.1M × $0.3 + 0.005M × $0.5) = $0.0325 → "$0.03".
-		expect(document.querySelector("[data-model-setup-confirm]")?.textContent).toContain(
-			translate("modelSetup.evidence.costBilled", { usd: "$0.03" }),
-		);
+		const confirm = document.querySelector("[data-model-setup-confirm]")?.textContent;
+		expect(confirm).toContain("DeepSeek");
+		expect(confirm).toContain(translate("modelSetup.evidence.costBilled", { usd: "$0.03" }));
+		await click(button(translate("modelSetup.evidence.run")));
+		expect(harness.run.mock.calls[0]?.[0].researchModel).toBe("openrouter/deepseek");
+		// The proposal's default stays the default role's model: only the research changes model.
+		expect(harness.run.mock.calls[0]?.[0].defaultModel).toBe("anthropic/opus");
+		await act(async () => harness.finish({ success: false, error: "cancelled", cancelled: true }));
+	});
+
+	it("opens on the remembered pick and runs it", async () => {
+		const harness = install({ stored: { local: { researchPick: "openai/gpt-5" } } });
+		await mount();
+		expect(researchTrigger().textContent).toContain("GPT-5");
+		expect(researchTrigger().hasAttribute("data-notice")).toBe(false);
+		await click(button(translate("modelSetup.evidence.open")));
+		await click(button(translate("modelSetup.evidence.run")));
+		expect(harness.run.mock.calls[0]?.[0].researchModel).toBe("openai/gpt-5");
+		await act(async () => harness.finish({ success: false, error: "cancelled", cancelled: true }));
+	});
+
+	it("falls back to the default role's model when the remembered pick is gone, and says so", async () => {
+		const harness = install({ stored: { local: { researchPick: "google/gemini-gone" } } });
+		await mount();
+		const trigger = researchTrigger();
+		expect(trigger.textContent).toContain("Opus");
+		const notice = translate("modelSetup.evidence.modelGone", { model: "google/gemini-gone" });
+		expect(trigger.getAttribute("data-notice")).toBe("");
+		expect(trigger.getAttribute("title")).toBe(notice);
+		await click(trigger);
+		expect(document.querySelector("[data-model-value-notice]")?.textContent).toBe(notice);
+		await click(trigger);
+
+		await click(button(translate("modelSetup.evidence.open")));
+		await click(button(translate("modelSetup.evidence.run")));
+		expect(harness.run.mock.calls[0]?.[0].researchModel).toBe("anthropic/opus");
+		// The pick stays remembered: it is used again once its account is back.
+		expect(harness.prefsSet.mock.calls.some(([key]) => key === MODEL_SETUP_PREFS_KEY)).toBe(false);
+		await act(async () => harness.finish({ success: false, error: "cancelled", cancelled: true }));
+	});
+
+	it("picking the default role's model again forgets the pick", async () => {
+		const harness = install({ stored: { local: { researchPick: "openai/gpt-5", signature: "s0" } } });
+		await mount();
+		await chooseResearchModel("Opus");
+		expect(researchTrigger().textContent).toContain("Opus");
+		expect(harness.prefsSet).toHaveBeenLastCalledWith(MODEL_SETUP_PREFS_KEY, { local: { signature: "s0" } });
 	});
 
 	it("cancel during the research aborts the run and leaves the proposal alone", async () => {

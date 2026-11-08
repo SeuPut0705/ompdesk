@@ -149,6 +149,7 @@ export function ModelSetupEntry() {
 							</Button>
 						)}
 						<Button
+							data-model-setup-open
 							disabled={!sidecarReady}
 							icon={<Sparkles />}
 							onClick={() => useUiStore.getState().openModelSetup()}

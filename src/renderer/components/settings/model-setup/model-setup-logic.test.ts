@@ -19,6 +19,7 @@ import {
 	currentDefaultModel,
 	distinctModels,
 	effectiveAdvisorModel,
+	loadResearchModel,
 	loadSetupRecord,
 	MODEL_SETUP_PREFS_KEY,
 	mergeApplied,
@@ -29,6 +30,8 @@ import {
 	researchEstimate,
 	researchPool,
 	researchRequest,
+	resolveResearchModel,
+	saveResearchModel,
 	saveSetupRecord,
 	setupModelOptions,
 	undoSteps,
@@ -434,6 +437,68 @@ describe("apply record in prefs", () => {
 		await saveSetupRecord("device-1", undefined);
 		expect(stored()).toEqual({ local: { applied, signature: "s0" } });
 		expect(set).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the picked research model through apply-record writes and apart per machine", async () => {
+		const { stored } = prefs({ "device-1": { signature: "s1" } });
+		await saveResearchModel(undefined, "a/pick");
+		await saveResearchModel("device-1", "b/pick");
+		const applied: AppliedSetup = { at: 5, values: { default: "a/b" }, before: { default: null } };
+		await saveSetupRecord(undefined, { applied, signature: "s0" });
+		expect(stored()).toEqual({
+			"device-1": { signature: "s1", researchPick: "b/pick" },
+			local: { applied, signature: "s0", researchPick: "a/pick" },
+		});
+		expect(await loadSetupRecord(undefined)).toEqual({ applied, signature: "s0" });
+		expect(await loadResearchModel(undefined)).toBe("a/pick");
+		// Removing the apply record (Undo of everything) keeps the pick; forgetting the pick keeps the record.
+		await saveSetupRecord(undefined, undefined);
+		expect(await loadResearchModel(undefined)).toBe("a/pick");
+		await saveResearchModel("device-1", undefined);
+		expect(stored()).toEqual({ "device-1": { signature: "s1" }, local: { researchPick: "a/pick" } });
+		await saveResearchModel(undefined, undefined);
+		expect(stored()).toEqual({ "device-1": { signature: "s1" } });
+	});
+
+	it("never reads an old proposal record's research model as a pick", async () => {
+		prefs({ local: { savedAt: 1, researchModel: "a/b", models: [] } });
+		expect(await loadResearchModel(undefined)).toBeUndefined();
+	});
+});
+
+describe("research model", () => {
+	const options = [
+		{ selector: "a/default", kind: "chat" },
+		{ selector: "b/other", kind: "chat" },
+		{ selector: "j/judge", kind: "judge" },
+	];
+
+	it("follows the default role's model while nothing was picked", () => {
+		expect(resolveResearchModel({ remembered: undefined, defaultModel: "a/default", options })).toEqual({
+			model: "a/default",
+			remembered: false,
+		});
+	});
+
+	it("uses the remembered pick while it is an offered chat model", () => {
+		expect(resolveResearchModel({ remembered: "b/other", defaultModel: "a/default", options })).toEqual({
+			model: "b/other",
+			remembered: true,
+		});
+	});
+
+	it("falls back to the default role's model and names the pick that is gone", () => {
+		expect(resolveResearchModel({ remembered: "c/gone", defaultModel: "a/default", options })).toEqual({
+			model: "a/default",
+			remembered: false,
+			unavailable: "c/gone",
+		});
+		// A judge-kind model cannot run the research.
+		expect(resolveResearchModel({ remembered: "j/judge", defaultModel: "a/default", options })).toEqual({
+			model: "a/default",
+			remembered: false,
+			unavailable: "j/judge",
+		});
 	});
 });
 

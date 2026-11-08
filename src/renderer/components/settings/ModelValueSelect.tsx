@@ -19,8 +19,9 @@
  * Commits go through the caller (`""` clears).
  */
 
-import { Check, ChevronDown, RefreshCw, Search } from "lucide-react";
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, RefreshCw, Search, TriangleAlert } from "lucide-react";
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AvailableModelsResult, ProvidersResult } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -177,6 +178,15 @@ interface ModelValueSelectBaseProps {
 	title?: string;
 	/** Label of the row that commits "" (defaults to "Clear (use default)"). */
 	clearLabel?: string;
+	/** Offer the row that commits "" while a value is set (default true). */
+	clearable?: boolean;
+	/**
+	 * Chip-sized trigger with no field frame, for a toolbar or a dialog footer. Its list renders on `document.body`:
+	 * a dialog's panel (`overflow-hidden`, its entry animation's transform) would clip and misplace it.
+	 */
+	compact?: boolean;
+	/** A warning about the value (a remembered pick that is gone): a mark on the trigger, a line above the list. */
+	notice?: string;
 }
 
 type ModelValueSelectProps = ModelValueSelectBaseProps &
@@ -203,6 +213,9 @@ export function ModelValueSelect({
 	ariaLabel,
 	title,
 	clearLabel,
+	clearable = true,
+	compact = false,
+	notice,
 }: ModelValueSelectProps) {
 	const t = useT();
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
@@ -292,9 +305,9 @@ export function ModelValueSelect({
 	useEffect(() => {
 		if (!open) return;
 		const onMouseDown = (event: MouseEvent) => {
-			if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) {
-				setOpen(false);
-			}
+			if (!(event.target instanceof Node)) return;
+			if (rootRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
+			setOpen(false);
 		};
 		const onScroll = (event: Event) => {
 			if (listRef.current && event.target instanceof Node && listRef.current.contains(event.target)) return;
@@ -372,6 +385,7 @@ export function ModelValueSelect({
 		const known = storeModels.find(model => `${model.provider}/${model.id}` === value);
 		return known ? modelValueOption(known, compactModelLabels(storeModels)) : undefined;
 	}, [currentOption, kind, storeModels, value]);
+	const portal = (panel: ReactNode) => (compact ? createPortal(panel, document.body) : panel);
 
 	const moveFocus = (direction: 1 | -1, edge?: "first" | "last") => {
 		const options = listRef.current
@@ -448,14 +462,21 @@ export function ModelValueSelect({
 	return (
 		<div className="relative" ref={rootRef}>
 			<button
+				aria-description={notice}
 				aria-expanded={open}
 				aria-haspopup="listbox"
 				aria-label={ariaLabel}
-				className="flex h-(--sc-control-md) w-full items-center gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border) bg-(--sc-field) px-2.5 text-left text-sc-md transition-colors duration-(--sc-duration-instant) hover:border-(--sc-border-strong) disabled:cursor-not-allowed disabled:opacity-50"
+				className={cx(
+					"flex items-center gap-1.5 text-left transition-colors duration-(--sc-duration-instant) disabled:cursor-not-allowed disabled:opacity-50",
+					compact
+						? "h-(--sc-control-sm) max-w-56 rounded-(--sc-radius-sm) px-2 text-sc-sm hover:bg-(--sc-hover) [&>svg]:shrink-0"
+						: "h-(--sc-control-md) w-full rounded-(--sc-radius-md) border border-(--sc-border) bg-(--sc-field) px-2.5 text-sc-md hover:border-(--sc-border-strong)",
+				)}
+				data-notice={notice !== undefined ? "" : undefined}
 				disabled={disabled}
 				onClick={() => (open ? setOpen(false) : openPanel())}
 				ref={triggerRef}
-				title={title ?? (shownOption ? optionTitle(shownOption) : undefined)}
+				title={title ?? notice ?? (shownOption ? optionTitle(shownOption) : undefined)}
 				type="button"
 			>
 				{value === "" ? (
@@ -467,91 +488,113 @@ export function ModelValueSelect({
 						<OptionLabel option={shownOption ?? { value }} />
 					</span>
 				)}
+				{notice !== undefined && (
+					<TriangleAlert aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-warning)" />
+				)}
 				<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			</button>
-			{open && placement !== null && (
-				<div
-					className="fixed z-(--sc-z-popover) flex flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
-					onKeyDown={onListKeyDown}
-					ref={panelRef}
-					style={{ top: placement.top, left: placement.left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
-				>
-					<div className="flex items-center gap-2 border-b border-(--sc-divider) px-2.5 py-2">
-						<Search aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-						<input
-							aria-label={t("modelValue.searchAria", { noun })}
-							className="min-w-0 flex-1 bg-transparent text-sc-md text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle)"
-							onChange={event => setQuery(event.target.value)}
-							onKeyDown={onSearchKeyDown}
-							placeholder={t("modelValue.searchPlaceholder", { noun })}
-							ref={searchRef}
-							value={query}
-						/>
-					</div>
-					<div className="min-h-0 flex-1 overflow-y-auto p-1" ref={listRef} role={ready ? "listbox" : undefined}>
-						{!ready && fetchState === "error" ? (
-							<div className="flex flex-col items-center gap-2 py-6">
-								<span className="px-3 text-center text-sc-sm text-(--sc-danger)">
-									{fetchError ?? t("modelValue.loadFailed", { noun })}
-								</span>
-								<Button icon={<RefreshCw />} onClick={() => void fetchOptions()} size="sm" variant="secondary">
-									{t("common.retry")}
-								</Button>
-							</div>
-						) : !ready ? (
-							<div className="flex items-center justify-center py-6">
-								<Spinner label={t("modelValue.loading", { noun })} size="sm" />
-							</div>
-						) : (
-							<>
-								{currentIsCustom && (
-									<>
-										<div className={GROUP_LABEL_CLASS}>{t("modelValue.currentCustom")}</div>
-										{renderOption({ value })}
-									</>
-								)}
-								{filteredGroups.map(group => (
-									<div key={group.label || "options"} role="group" aria-label={group.label || undefined}>
-										{group.label && <div className={GROUP_LABEL_CLASS}>{group.label}</div>}
-										{group.options.map(renderOption)}
-									</div>
-								))}
-								{filteredCount === 0 && !queryIsCustom && (
-									<div className="px-2 py-6 text-center text-sc-sm text-(--sc-text-muted)">
-										{allOptions.length === 0
-											? t("modelValue.noneAvailable", { noun })
-											: t("modelValue.noMatch", { noun, query: trimmedQuery })}
-									</div>
-								)}
-								{queryIsCustom && (
-									<OptionRow
-										active={false}
-										className={ROW_CLASS}
-										onClick={() => choose(trimmedQuery)}
-										size="sm"
-									>
-										<span className="min-w-0 flex-1 truncate">
-											{t("modelValue.useCustom", { query: trimmedQuery })}
-										</span>
-									</OptionRow>
-								)}
-								{value !== "" && (
-									<OptionRow
-										active={false}
-										className={cx(ROW_CLASS, "mt-0.5 rounded-t-none border-t border-(--sc-divider)")}
-										onClick={() => choose("")}
-										size="sm"
-									>
-										<span className="min-w-0 flex-1 text-(--sc-text-muted)">
-											{clearLabel ?? t("modelValue.clear")}
-										</span>
-									</OptionRow>
-								)}
-							</>
+			{open &&
+				placement !== null &&
+				portal(
+					<div
+						className="fixed z-(--sc-z-popover) flex flex-col overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-elevated) shadow-(--sc-shadow-md)"
+						onKeyDown={onListKeyDown}
+						ref={panelRef}
+						style={{ top: placement.top, left: placement.left, width: PANEL_WIDTH, maxHeight: PANEL_MAX_HEIGHT }}
+					>
+						<div className="flex items-center gap-2 border-b border-(--sc-divider) px-2.5 py-2">
+							<Search aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+							<input
+								aria-label={t("modelValue.searchAria", { noun })}
+								className="min-w-0 flex-1 bg-transparent text-sc-md text-(--sc-text) outline-none placeholder:text-(--sc-text-subtle)"
+								onChange={event => setQuery(event.target.value)}
+								onKeyDown={onSearchKeyDown}
+								placeholder={t("modelValue.searchPlaceholder", { noun })}
+								ref={searchRef}
+								value={query}
+							/>
+						</div>
+						{notice !== undefined && (
+							<p
+								className="border-b border-(--sc-divider) px-2.5 py-1.5 text-sc-xs text-(--sc-warning)"
+								data-model-value-notice
+							>
+								{notice}
+							</p>
 						)}
-					</div>
-				</div>
-			)}
+						<div
+							className="min-h-0 flex-1 overflow-y-auto p-1"
+							ref={listRef}
+							role={ready ? "listbox" : undefined}
+						>
+							{!ready && fetchState === "error" ? (
+								<div className="flex flex-col items-center gap-2 py-6">
+									<span className="px-3 text-center text-sc-sm text-(--sc-danger)">
+										{fetchError ?? t("modelValue.loadFailed", { noun })}
+									</span>
+									<Button
+										icon={<RefreshCw />}
+										onClick={() => void fetchOptions()}
+										size="sm"
+										variant="secondary"
+									>
+										{t("common.retry")}
+									</Button>
+								</div>
+							) : !ready ? (
+								<div className="flex items-center justify-center py-6">
+									<Spinner label={t("modelValue.loading", { noun })} size="sm" />
+								</div>
+							) : (
+								<>
+									{currentIsCustom && (
+										<>
+											<div className={GROUP_LABEL_CLASS}>{t("modelValue.currentCustom")}</div>
+											{renderOption({ value })}
+										</>
+									)}
+									{filteredGroups.map(group => (
+										<div key={group.label || "options"} role="group" aria-label={group.label || undefined}>
+											{group.label && <div className={GROUP_LABEL_CLASS}>{group.label}</div>}
+											{group.options.map(renderOption)}
+										</div>
+									))}
+									{filteredCount === 0 && !queryIsCustom && (
+										<div className="px-2 py-6 text-center text-sc-sm text-(--sc-text-muted)">
+											{allOptions.length === 0
+												? t("modelValue.noneAvailable", { noun })
+												: t("modelValue.noMatch", { noun, query: trimmedQuery })}
+										</div>
+									)}
+									{queryIsCustom && (
+										<OptionRow
+											active={false}
+											className={ROW_CLASS}
+											onClick={() => choose(trimmedQuery)}
+											size="sm"
+										>
+											<span className="min-w-0 flex-1 truncate">
+												{t("modelValue.useCustom", { query: trimmedQuery })}
+											</span>
+										</OptionRow>
+									)}
+									{value !== "" && clearable && (
+										<OptionRow
+											active={false}
+											className={cx(ROW_CLASS, "mt-0.5 rounded-t-none border-t border-(--sc-divider)")}
+											onClick={() => choose("")}
+											size="sm"
+										>
+											<span className="min-w-0 flex-1 text-(--sc-text-muted)">
+												{clearLabel ?? t("modelValue.clear")}
+											</span>
+										</OptionRow>
+									)}
+								</>
+							)}
+						</div>
+					</div>,
+				)}
 		</div>
 	);
 }

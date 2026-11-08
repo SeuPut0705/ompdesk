@@ -5,7 +5,8 @@
  * wide dialog; its reason sits behind ⓘ.
  * Apply writes only the ticked rows and stores what it wrote (for Undo) with the signature "new models or
  * accounts since" is judged against. "Find more evidence" is the one action that spends tokens: it shows its cost
- * first, then runs the research on the focused tab's machine and lays its picks over the rules' rows.
+ * first, then runs the research on the focused tab's machine with the model picked beside it (the default role's
+ * model unless the person picked another, remembered per machine) and lays its picks over the rules' rows.
  */
 
 import { ExternalLink, Search } from "lucide-react";
@@ -38,11 +39,14 @@ import {
 	Spinner,
 	Tabs,
 } from "../../common";
+import { ModelValueSelect, modelValueOption } from "../ModelValueSelect";
+import { compactModelLabels } from "../providers/provider-marks";
 import { modelRoleName } from "../schema-i18n";
 import {
 	currentDefaultModel,
 	distinctModels,
 	groupByProvider,
+	loadResearchModel,
 	loadSetupRecord,
 	mergeApplied,
 	type ProposalRow,
@@ -53,8 +57,10 @@ import {
 	researchEstimate,
 	researchPool,
 	researchRequest,
+	resolveResearchModel,
 	type SetupModelOption,
 	type SetupRecord,
+	saveResearchModel,
 	saveSetupRecord,
 	setupModelOptions,
 	usageHeadroom,
@@ -65,6 +71,8 @@ import {
 interface SetupData {
 	roles: ModelRoleEntry[];
 	facts: ModelSetupFacts;
+	/** The research model the person picked last on this machine (undefined: follow the default role). */
+	researchPick: string | undefined;
 }
 
 /** What a finished research run leaves: its plan (laid over the rules' rows) and what it dropped. */
@@ -112,10 +120,11 @@ export function ModelSetupDialog() {
 	const loadSetup = useCallback(
 		async (current: () => boolean) => {
 			try {
-				const [rolesRes, factsRes, stored] = await Promise.all([
+				const [rolesRes, factsRes, stored, researchPick] = await Promise.all([
 					tabRpc.getModelRoles(),
 					tabRpc.getModelSetupFacts(),
 					loadSetupRecord(device).catch(() => undefined),
+					loadResearchModel(device).catch(() => undefined),
 				]);
 				if (!current()) return;
 				if (!rolesRes.success) {
@@ -132,7 +141,7 @@ export function ModelSetupDialog() {
 					return;
 				}
 				setLoadError(null);
-				setData({ roles: (rolesRes.data as ModelRolesResult).roles, facts });
+				setData({ roles: (rolesRes.data as ModelRolesResult).roles, facts, researchPick });
 				setRecord(stored);
 			} catch (cause) {
 				if (current()) setLoadError(cause instanceof Error ? cause.message : String(cause));
@@ -193,7 +202,33 @@ export function ModelSetupDialog() {
 		[ruleRows, evidence, pool, roleInputs],
 	);
 	const groups = useMemo(() => groupByProvider(options), [options]);
-	const researchModel = ruleRows.find(row => row.role === "default")?.model ?? defaultModel;
+	// The research runs on the person's remembered pick, else on what the default role runs on now.
+	const research = useMemo(
+		() =>
+			resolveResearchModel({
+				remembered: data?.researchPick,
+				defaultModel: defaultModel ?? ruleRows.find(row => row.role === "default")?.model ?? undefined,
+				options,
+			}),
+		[data?.researchPick, defaultModel, ruleRows, options],
+	);
+	const researchModel = research.model;
+	// The research can run on any chat model offered, metered ones too; rows read as every model list beside a mark.
+	const researchChoices = useMemo(() => {
+		const refs = options
+			.filter(option => option.kind === "chat")
+			.map(option => ({
+				provider: option.provider,
+				id: option.selector.slice(option.provider.length + 1),
+				name: option.label,
+			}));
+		const labels = compactModelLabels(refs);
+		const groups = groupByProvider(options.filter(option => option.kind === "chat")).map(group => ({
+			label: providers.find(provider => provider.id === group.provider)?.name ?? group.provider,
+			options: refs.filter(ref => ref.provider === group.provider).map(ref => modelValueOption(ref, labels)),
+		}));
+		return { labels, groups };
+	}, [options, providers]);
 
 	const providerName = (id: string) => providers.find(provider => provider.id === id)?.name ?? id;
 	const labelOf = (selector: string | undefined) =>
@@ -219,7 +254,14 @@ export function ModelSetupDialog() {
 		useUiStore.getState().closeModelSetup();
 	};
 
-	const research = async () => {
+	const pickResearchModel = (selector: string) => {
+		// Picking the default role's model (or "use the default") forgets the pick: it then follows the role.
+		const pick = selector === "" || selector === defaultModel ? undefined : selector;
+		setData(current => (current ? { ...current, researchPick: pick } : current));
+		void saveResearchModel(device, pick).catch(() => {});
+	};
+
+	const runResearch = async () => {
 		if (!facts || !roles || !researchModel) return;
 		const request = researchRequest({
 			researchModel,
@@ -339,16 +381,37 @@ export function ModelSetupDialog() {
 		</Button>
 	) : (
 		<>
-			<Button
-				aria-expanded={confirmOpen}
-				className="mr-auto"
-				disabled={!canResearch}
-				icon={<Search />}
-				onClick={() => setConfirmOpen(open => !open)}
-				variant="ghost"
-			>
-				{t("modelSetup.evidence.open")}
-			</Button>
+			<div className="mr-auto flex min-w-0 items-center gap-1" data-model-setup-evidence>
+				<Button
+					aria-expanded={confirmOpen}
+					disabled={!canResearch}
+					icon={<Search />}
+					onClick={() => setConfirmOpen(open => !open)}
+					variant="ghost"
+				>
+					{t("modelSetup.evidence.open")}
+				</Button>
+				{researchModel !== undefined && (
+					<ModelValueSelect
+						ariaLabel={t("modelSetup.evidence.model", { model: labelOf(researchModel) })}
+						clearable={research.remembered}
+						clearLabel={t("modelSetup.evidence.useDefault", {
+							model: (defaultModel && researchChoices.labels.get(defaultModel)?.name) || labelOf(defaultModel),
+						})}
+						compact
+						disabled={!sidecarReady || data === null}
+						groups={researchChoices.groups}
+						kind="model"
+						notice={
+							research.unavailable !== undefined
+								? t("modelSetup.evidence.modelGone", { model: labelOf(research.unavailable) })
+								: undefined
+						}
+						onCommit={pickResearchModel}
+						value={researchModel}
+					/>
+				)}
+			</div>
 			<Button onClick={close} variant="secondary">
 				{t("common.cancel")}
 			</Button>
@@ -467,7 +530,7 @@ export function ModelSetupDialog() {
 										minutes: RESEARCH_MINUTES,
 									})}
 								</span>
-								<Button onClick={() => void research()} size="sm" variant="primary">
+								<Button onClick={() => void runResearch()} size="sm" variant="primary">
 									{t("modelSetup.evidence.run")}
 								</Button>
 							</div>

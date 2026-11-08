@@ -383,6 +383,15 @@ async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
 	await page.locator("[data-settings-page] #setting-gui-language").waitFor({ state: "visible", timeout: 30_000 });
 }
 
+/** The model setup dialog through Settings › Models & accounts and its "Set up automatically" button, as a person opens it. */
+async function openModelSetup(page: Page, look: Look): Promise<void> {
+	await openSettingsModels(page, look);
+	await page.locator("#settings-models-setup [data-model-setup-open]").click();
+	await page
+		.locator("[role=dialog] [data-model-setup-evidence] [aria-haspopup=listbox]")
+		.waitFor({ state: "visible", timeout: 30_000 });
+}
+
 /** Press `shortcut` until `target` shows: the first press can land before the page's key handler is in place. */
 async function pressUntilVisible(page: Page, shortcut: string, target: Locator): Promise<void> {
 	for (let attempt = 0; attempt < 3 && !(await target.isVisible()); attempt++) {
@@ -1286,13 +1295,21 @@ export const SURFACES: readonly Surface[] = [
 			id: dialog.id,
 			area: "B",
 			title: dialog.title,
-			open: page =>
+			open: (page, look) =>
 				dialog.id === "dialog-command-palette"
 					? clickCommandPalette(page)
-					: ui(page, dialog.action, ...(dialog.args ?? [])),
+					: dialog.id === "dialog-model-setup"
+						? openModelSetup(page, look)
+						: ui(page, dialog.action, ...(dialog.args ?? [])),
 			...(dialog.id === "dialog-command-palette"
 				? { ready: "[role=dialog] [role=listbox]", parity: { session: "work" as const } }
-				: {}),
+				: dialog.id === "dialog-model-setup"
+					? {
+							// Ready at the research model selector beside "Find more evidence".
+							ready: "[role=dialog] [data-model-setup-evidence] [aria-haspopup=listbox]",
+							parity: { session: "work" as const, after: closeOverlay },
+						}
+					: {}),
 			settle: 700,
 		}),
 	),
