@@ -16,7 +16,7 @@ import type { OmpResolution } from "./omp-runtime";
 import { OmpStartQueue } from "./omp-start-queue";
 import { STOP_GRACE_MS } from "./omp-stop";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
-import { ANSWERS_COMMANDS, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { ANSWERS_COMMANDS, ompRuns, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
 function ompAt(bin: string): () => Promise<OmpResolution> {
@@ -1391,15 +1391,7 @@ describe("SidecarManager", () => {
 					const exited = sidecar.whenExited();
 					sidecar.dispose();
 					await exited;
-					const running = (() => {
-						try {
-							process.kill(pid, 0);
-							return true;
-						} catch {
-							return false;
-						}
-					})();
-					expect(running).toBe(false);
+					expect(await ompRuns(pid, Date.now())).toBe(false);
 				} finally {
 					process.env.PATH = realPath;
 					await fs.rm(fakeBin, RM_TEMP);
@@ -1580,7 +1572,15 @@ describe("SidecarManager", () => {
 				const spawns = (await lines()).filter(line => line.word === "spawn");
 				// The first start and two more, each after the one before it exited.
 				expect(spawns).toHaveLength(3);
-				expect(spawns.map(spawn => alive(spawn.pid))).toEqual([false, false, false]);
+				// A freed pid goes to the next process Windows creates, so a live pid is the omp only if it started
+				// before the omp logged its exit (`ompRuns`).
+				const exitedAt = new Map(
+					(await lines()).filter(line => line.word === "exit").map(line => [line.pid, line.at]),
+				);
+				const runs = await Promise.all(
+					spawns.map(spawn => ompRuns(spawn.pid, exitedAt.get(spawn.pid) ?? Date.now())),
+				);
+				expect(runs).toEqual([false, false, false]);
 				expect(statuses.filter(status => status !== "starting")).toEqual(["error"]);
 			} finally {
 				sidecar.dispose();
