@@ -2443,20 +2443,28 @@ export class AgentControl {
 			}
 			held = true;
 		}
-		if (!held && response && !response.success && entry) kept?.outbox.settle(entry);
+		if (!held && response && !response.success) {
+			if (entry) kept?.outbox.settle(entry);
+			// A refusal (an ended bot conversation, an omp that is not ready) runs nothing there: never a success receipt.
+			fail(
+				`Not delivered to ${label(target)}: its omp refused the message (${response.error ?? "no reason given"}). Nothing runs there; nothing was sent.`,
+			);
+		}
 		if (entry) kept?.outbox.handed(entry, instance);
 		if (running && !steer && dispatch && !held)
 			this.#queuedFollowUp.set(target.tabId, { n: Number(dispatch.slice(1)), id: dispatch, from: caller.tabId });
+		const started = !running && !held && (await this.#turnStarts(caller.tabId, target.tabId));
 		const how = held
 			? "queued: its omp is busy with another command (a provider sign-in, for one), and the message runs once that ends, so do not send it again"
 			: !running
-				? "it was idle and starts on it"
+				? started
+					? "it was idle and starts on it"
+					: `it was idle, but no turn started within ${TURN_START_WAIT_MS / 1000} s: see ompdesk_session_result before sending it again`
 				: promoted
 					? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
 					: steer
 						? "delivered as steer (it reads it between steps)"
 						: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
-		const started = !running && !held && (await this.#turnStarts(caller.tabId, target.tabId));
 		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
 		return receipt;
