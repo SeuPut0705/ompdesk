@@ -3698,6 +3698,51 @@ describe("ompdesk_sessions scopes", () => {
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
 	});
+
+	it("names the bot's live conversation by its name, and lists an ended one's tab as an earlier conversation", async () => {
+		// A paired device's window still holds a tab of the host's ended bot conversation; the live one is the host's.
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{
+				tabId: "past0002",
+				title: "봇봇이",
+				device: desktop.id,
+				deviceName: desktop.name,
+				sessionPath: "C:/s/bot-old.jsonl",
+				bot: "past",
+				last: "the old conversation",
+			},
+		);
+		host.deviceList = [desktop];
+		host.storedRows = [
+			storedRow({
+				id: "aaaa1111-old",
+				path: "C:/s/bot-old.jsonl",
+				title: "봇봇이",
+				device: desktop.id,
+				bot: "past",
+			}),
+			storedRow({
+				id: "bbbb2222-now",
+				path: "C:/s/bot-now.jsonl",
+				title: "봇봇이",
+				device: desktop.id,
+				bot: "on",
+				openThere: true,
+			}),
+		];
+		host.storedTranscripts.set("C:/s/bot-now.jsonl", [
+			{ role: "assistant", content: "the live conversation" },
+		] as AgentMessage[]);
+		const service = control(host);
+		const listed = (await service.run("main0001", T.list, {})).text;
+		expect(listed).toMatch(/past0002 "봇봇이" \[[^\]]*earlier conversation of the bot, read-only/);
+		const result = (await service.run("main0001", T.result, { session: "봇봇이" })).text;
+		expect(result).toContain("the live conversation");
+		expect(result).not.toContain("the old conversation");
+		// Its own id still reaches the ended conversation, to read it.
+		expect((await service.run("main0001", T.result, { session: "past0002" })).text).toContain("the old conversation");
+	});
 });
 
 describe("ompdesk_session_read of a saved session", () => {

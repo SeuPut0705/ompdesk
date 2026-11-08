@@ -19,6 +19,7 @@ const row = (path: string, title: string | null = null, modified = "2026-10-30T0
 function rig() {
 	const asked: Array<(reply: unknown) => void> = [];
 	const told: IpcSessionsChanged[] = [];
+	const ended: string[][] = [];
 	const list = new HostSessionList("studio", {
 		read: () => {
 			const { promise, resolve } = Promise.withResolvers<unknown>();
@@ -26,6 +27,7 @@ function rig() {
 			return promise;
 		},
 		broadcast: change => told.push(change),
+		ended: paths => ended.push([...paths]),
 	});
 	const answer = async (reply: unknown) => {
 		const next = asked.shift();
@@ -33,7 +35,7 @@ function rig() {
 		next(reply);
 		await new Promise(resolve => setImmediate(resolve));
 	};
-	return { list, asked, told, answer };
+	return { list, asked, told, ended, answer };
 }
 
 describe("HostSessionList", () => {
@@ -203,5 +205,27 @@ describe("HostSessionList", () => {
 		asked.shift()?.({ version: "h.4", sessions: [row("/b"), row("/d")] });
 		list.hostChanged({ base: "h.2", version: "h.3", set: [row("/c")], remove: [] });
 		expect((await newer).sessions.map(entry => entry.path)).toEqual(["/b", "/d"]);
+	});
+
+	it("names the bot conversations the host ended: every one at the first copy, then each once as it turns past", async () => {
+		const { list, ended, answer } = rig();
+		const bot = (path: string, state: SessionInfo["bot"]) => ({ ...row(path, "봇봇이"), bot: state });
+		const reading = list.current();
+		await answer({ version: "h.1", sessions: [bot("/old", "past"), bot("/now", "on"), row("/work")] });
+		await reading;
+		expect(ended).toEqual([["/old"]]);
+		expect(list.botOf("/now")).toBe("on");
+		expect(list.botOf("/work")).toBeUndefined();
+		// The bot renews: its conversation turns past and a new one is the bot.
+		list.hostChanged({ base: "h.1", version: "h.2", set: [bot("/now", "past"), bot("/next", "on")], remove: [] });
+		expect(ended).toEqual([["/old"], ["/now"]]);
+		expect(list.botOf("/now")).toBe("past");
+		// Rows that were past already never count again, whatever else changes.
+		list.hostChanged({ base: "h.2", version: "h.3", set: [row("/work", "Renamed")], remove: [] });
+		list.stale();
+		const again = list.current();
+		await answer({ version: "h.3", sessions: [bot("/old", "past"), bot("/now", "past"), bot("/next", "on")] });
+		await again;
+		expect(ended).toEqual([["/old"], ["/now"]]);
 	});
 });

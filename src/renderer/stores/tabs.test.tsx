@@ -2265,6 +2265,21 @@ describe("a tab's name beside its automatic title", () => {
 		const none = { ...named, autoTitle: null };
 		expect(tabChipParts(none, [none], hostRow)).toEqual({ title: "Release prep" });
 	});
+
+	it("names a tab of a conversation the bot ended as an earlier one, with the day it began, on every surface", () => {
+		const bot = { ...named, title: "봇봇이", autoTitle: undefined, kind: "chat" as const };
+		const created = new Date(2026, 10, 2, 9, 30).toISOString();
+		const ended = { title: "봇봇이", bot: "past" as const, created };
+		expect(tabChipParts(bot, [bot], ended)).toEqual({ title: "봇봇이 · earlier conversation 11-02" });
+		expect(tabDisplayParts(bot, [bot], undefined, "Untitled", ended)).toEqual({
+			title: "봇봇이 · earlier conversation 11-02",
+		});
+		expect(tabDisplayParts(bot, [bot], { ...ended, firstMessage: "hi" }, "Untitled", ended)).toEqual({
+			title: "봇봇이 · earlier conversation 11-02",
+		});
+		// The bot's live conversation reads as itself.
+		expect(tabChipParts(bot, [bot], { ...ended, bot: "on" })).toEqual({ title: "봇봇이" });
+	});
 });
 
 describe("tab runtime lifecycle guards", () => {
