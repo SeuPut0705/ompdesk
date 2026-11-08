@@ -48,6 +48,7 @@ import type { PreviewApi } from "./preview";
 import type { ProjectOrigin } from "./project-origin";
 import type { SessionRpcClient } from "./rpc-client";
 import type {
+	AgentMessage,
 	AgentSessionEvent,
 	AvailableCommand,
 	CommandOutputFrame,
@@ -271,6 +272,8 @@ export const IPC_COMMANDS = {
 	SESSIONS_RENAME: "sessions:rename",
 	/** Full-content search over session files; returns matching paths with an excerpt */
 	SESSIONS_SEARCH: "sessions:search",
+	/** One stored session's messages along its persisted leaf, read without an omp (the missing-folder sheet's transcript) */
+	SESSIONS_MESSAGES: "sessions:messages",
 	/** Move a stored session (no tab holds it) to another project folder */
 	SESSIONS_MOVE: "sessions:move",
 	/** Save one open session's diagnostic bundle: stock's `/dump all|anon` zip plus OMPdesk's diagnostics text (`DiagnosticBundleRequest` → `DiagnosticBundleResult`) */
@@ -1193,6 +1196,12 @@ export interface IpcSessionsMovePayload {
 export interface IpcSessionsSearchPayload {
 	query: string;
 	scope: "local" | "global";
+	device?: string;
+}
+
+export interface IpcSessionsMessagesPayload {
+	sessionPath: string;
+	/** Paired host deviceId whose journal holds the session; absent = this computer. */
 	device?: string;
 }
 
@@ -2370,6 +2379,8 @@ export interface OmpApi {
 		stop(sessionPath: string, device?: string): Promise<void>;
 		rename(sessionPath: string, name: string, device?: string): Promise<void>;
 		search(query: string, scope: "local" | "global", device?: string): Promise<SessionContentMatch[]>;
+		/** One stored session's messages along its persisted leaf, read with no omp (this computer's journal, or `device`'s). */
+		messages(sessionPath: string, device?: string): Promise<AgentMessage[]>;
 		/** Move a stored session to `cwd`; resolves with its new path. */
 		move(sessionPath: string, cwd: string, device?: string): Promise<string>;
 		/**

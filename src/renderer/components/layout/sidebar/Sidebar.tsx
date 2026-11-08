@@ -150,6 +150,7 @@ import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
 import { SidebarDoneMark } from "./SidebarDoneMark";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarFolderMissingMark } from "./SidebarFolderMissingMark";
 import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { PinMenu, type PinMenuState, pinMenuHandlers, SidebarPinsSheet } from "./SidebarPinsSheet";
 import { SidebarRenameField } from "./SidebarRenameField";
@@ -237,6 +238,9 @@ function activeTabUntouched(): boolean {
 function focusComposer(): void {
 	requestAnimationFrame(() => activeComposerInput()?.focus());
 }
+
+/** This computer's lists leave out no session another section nests: each is a row of its own project too. */
+const NO_SESSIONS: ReadonlySet<string> = new Set();
 
 /** Destinations in the sidebar footer: the only three. */
 const DESTINATIONS: { id: PageDestination; labelKey: string; icon: typeof Bot }[] = [
@@ -559,19 +563,6 @@ export function Sidebar() {
 		const standIns = remoteOpened.filter(tab => !own.has(tab.tabId)).map(remoteOpenedTab);
 		return standIns.length === 0 ? tabs : [...tabs, ...standIns];
 	}, [tabs, remoteOpened]);
-	// What a paired host's sessions opened on this computer nests under its opener in that host's section: this list
-	// leaves it, the session and the hosted tab that runs it.
-	const openedHere = useMemo(
-		() =>
-			new Set(
-				hosts.flatMap(host =>
-					(host.remoteOpened ?? []).flatMap(tab =>
-						tab.here ? [tab.sessionPath, `hosted:${tab.sessionPath}`] : [],
-					),
-				),
-			),
-		[hosts],
-	);
 	const pinnedGroups = useSidebarPrefs(s => s.pinnedGroups);
 	const groupOrder = useSidebarPrefs(s => s.groupOrder);
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
@@ -768,6 +759,8 @@ export function Sidebar() {
 			]),
 		[sessions, botPath],
 	);
+	// Session folders main found missing on disk: git's origin only marks a gone OMPdesk worktree.
+	const goneFolders = useMemo(() => new Set(projectList.gone ?? []), [projectList.gone]);
 	const rowFacts = useMemo<SidebarFacts>(
 		() => ({
 			// What main recorded of who opened each, as a host says it of its rows to a device.
@@ -794,7 +787,7 @@ export function Sidebar() {
 					...(project === undefined ? {} : { project }),
 					root: shown.root,
 					...(kind === undefined ? {} : { kind }),
-					gone: shown.gone,
+					gone: shown.gone || goneFolders.has(at),
 				};
 			},
 			workspace: defaultWorkspace,
@@ -821,7 +814,7 @@ export function Sidebar() {
 					: null;
 			},
 			archived: archivedIds,
-			nested: openedHere,
+			nested: NO_SESSIONS,
 			order: {
 				pinnedSessions,
 				pinnedGroups,
@@ -840,6 +833,7 @@ export function Sidebar() {
 			summaryByPath,
 			closedChildren,
 			projectList,
+			goneFolders,
 			projectName,
 			defaultWorkspace,
 			localTabs,
@@ -848,16 +842,15 @@ export function Sidebar() {
 			pinnedGroups,
 			groupOrder,
 			heldByOtherWindows,
-			openedHere,
 			sessionOrder,
 			filter,
 			groupAliases,
 		],
 	);
 	// What the bot opened, and what those opened, nests under its fixed row (`renderSessionRow` "bot") like any opener's
-	// family and leaves the lists, and a session an agent here opened on a paired device is that opener's child too (one
-	// family, whatever the computer): its tab, or a stand-in for one another window holds, nests where a local child of
-	// that opener would, named by its device, and leaves the device's own list (`familyRows`, every view's one rule).
+	// family, and a session an agent here opened on a paired device is that opener's child too (one family, whatever the
+	// computer): its tab, or a stand-in for one another window holds, nests where a local child of that opener would,
+	// named by its device. Each stays a row of its own project too (`familyRows`, every view's one rule).
 	const endedBotFiles = useMemo(
 		() => new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
 		[sessions],
@@ -881,7 +874,12 @@ export function Sidebar() {
 	);
 	const { rows, bot: botKids, remote: remoteChildTabs } = family;
 	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
-	const { runParent: runParentOf, children: familyChildrenOf, archived: archivedRows } = rows;
+	const {
+		runParent: runParentOf,
+		children: familyChildrenOf,
+		archived: archivedRows,
+		folderMissing: missingFolders,
+	} = rows;
 	const named = useCallback(
 		(group: RowGroup): WorkspaceGroup => {
 			const shown = projectName(group.cwd);
@@ -906,19 +904,6 @@ export function Sidebar() {
 			else byRoot.set(root, [tab]);
 		}
 		return byRoot;
-	}, [familyTabs, remoteChildTabs]);
-	// What each device's section leaves out: those children's tabs and session files, per device (two hosts can keep
-	// a session at the same path). A session a device's own agent opened there nests in that device's section.
-	const nestedRemote = useMemo(() => {
-		const byDevice = new Map<string, Set<string>>();
-		for (const tab of familyTabs) {
-			if (tab.device === undefined || !remoteChildTabs.has(tab.id)) continue;
-			const keys = byDevice.get(tab.device) ?? new Set<string>();
-			keys.add(tab.id);
-			if (tab.sessionPath) keys.add(tab.sessionPath);
-			byDevice.set(tab.device, keys);
-		}
-		return byDevice;
 	}, [familyTabs, remoteChildTabs]);
 	const totalCount = groups.length + chatSessions.length;
 	// Projects with an open tab, or one a paired device's tab here works in, start expanded so every open session is
@@ -1503,6 +1488,7 @@ export function Sidebar() {
 		const key = `session:${child.path}`;
 		const row = sessionRowState(child);
 		const origin = projectName(child.cwd);
+		const folderMissing = missingFolders.has(child.path);
 		const openTabId = row.tab?.id;
 		// An opened session reads as its task until it has a title, even when the index lists it without its first
 		// message yet; a closed one keeps the title main recorded.
@@ -1564,7 +1550,13 @@ export function Sidebar() {
 					<TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} />
 				) : undefined,
 			// The one line has no room for the status in words, the folder or the model: they are the tooltip.
-			tooltip: [combinedTitle({ title, auto: childParts.auto }), statusLabel, origin.tooltip, model]
+			tooltip: [
+				combinedTitle({ title, auto: childParts.auto }),
+				statusLabel,
+				origin.tooltip,
+				folderMissing ? t("sidebar.folderMissingTip", { folder: child.cwd }) : null,
+				model,
+			]
 				.filter(Boolean)
 				.join("\n"),
 			selected: row.active,
@@ -1602,6 +1594,7 @@ export function Sidebar() {
 				"data-live": row.indexed ? undefined : true,
 				"data-session-kind": child.kind ?? "agent",
 				"data-session-path": child.path,
+				"data-folder-missing": folderMissing || undefined,
 				"data-sidebar-opened-session": true,
 				"data-signal":
 					status === "waiting"
@@ -1855,6 +1848,7 @@ export function Sidebar() {
 		const botDecisions = bot ? openDecisions.length : 0;
 		const botDecisionsTip = botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : undefined;
 		const openTabId = tab?.id;
+		const folderMissing = missingFolders.has(session.path);
 		// The age slot: the waiting token, else the working arc while the session or anything it started works, else
 		// the time since it last did something.
 		const runningOpened = opened.filter(child => child.status === "running").length;
@@ -1928,10 +1922,12 @@ export function Sidebar() {
 					}}
 					className={cx("omp-sidebar-session-row", runChild && "omp-sidebar-session-run-child")}
 					meta={
-						marker || age ? (
+						folderMissing || marker || age ? (
 							<span className="inline-flex min-w-0 items-center gap-1.5" data-sidebar-row-end>
+								{folderMissing && <SidebarFolderMissingMark />}
 								{marker}
-								{age}
+								{/* The mark takes the age's place: the title keeps the room, the time is in the tooltip. */}
+								{folderMissing ? null : age}
 							</span>
 						) : undefined
 					}
@@ -1962,6 +1958,7 @@ export function Sidebar() {
 						"data-session-kind": session.kind ?? "agent",
 						"data-signal": signal,
 						"data-session-path": session.path,
+						"data-folder-missing": folderMissing || undefined,
 						"data-session-run-child": runChild || undefined,
 						"data-flip-key": `session:${session.path}`,
 					}}
@@ -1991,6 +1988,7 @@ export function Sidebar() {
 						worktree?.label,
 						fork?.tooltip,
 						statusLabel,
+						folderMissing ? t("sidebar.folderMissingTip", { folder: session.cwd }) : null,
 						botDecisionsTip,
 						indexed ? formatClock(session.modified) : null,
 					]
@@ -2431,7 +2429,6 @@ export function Sidebar() {
 									<SidebarDeviceSection
 										host={host}
 										childForTab={remoteFamilyChildFor}
-										nested={nestedRemote.get(host.deviceId)}
 										onNewChat={startChat}
 										pending={host.pending === true}
 										query={query}

@@ -495,10 +495,73 @@ if (dir) {
 				);
 			};
 
+			/**
+			 * What a `crossProject` surface shows, set up once before the first: B's work session opens "Parity
+			 * cross-project" in another folder of B's (`seuoffice`), and that session's turn stays running, so its row is
+			 * under its opener (a finished child is no family row) and of its own project.
+			 */
+			let crossProjectLeft = false;
+			const leaveCrossProject = async () => {
+				crossProjectLeft = true;
+				const folder = path.join(parent, "seuoffice");
+				await fs.mkdir(folder, { recursive: true });
+				const callWork = await controlToolCaller(b, hostProfile.record, start);
+				const open = await callWork("ompdesk_session_open", {
+					folder,
+					message: "Title: Parity cross-project\nSet the office project up",
+					show: "background",
+				});
+				expect(open.isError, open.text).toBe(false);
+				const [child] = openedSessions(open.text);
+				if (!child) throw new Error(`the work session opened nothing in ${folder}: ${open.text}`);
+				await untilAnswered(b, child);
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity cross-project" }),
+					child,
+				);
+				// The fake holds "fixture running" open until `fixture:finish`.
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
+					child,
+				);
+			};
+
+			/**
+			 * What a `folderMissing` surface shows, set up once before the first: B's session "Parity folder gone" answered
+			 * one turn in `moda-office`, its tab closed and the folder was deleted. It is made from B's phone page, which
+			 * every view loads afresh, so no window of B keeps a tab of it (a desktop window's own tab closed through
+			 * `tabs.close` rather than its tab strip stays in that window's list). A turn of the work session afterwards
+			 * makes main look at the sessions' folders again (sidebar-projects.ts `schedule`).
+			 */
+			let folderMissingLeft = false;
+			const leaveFolderMissing = async () => {
+				folderMissingLeft = true;
+				const folder = path.join(parent, "moda-office");
+				await fs.mkdir(folder, { recursive: true });
+				const tabId = (await phone.evaluate(cwd => window.omp.tabs.spawn({ cwd }), folder))?.tabId ?? "";
+				if (!tabId) throw new Error("the phone opened no tab in the folder to delete");
+				const goneTab = async () =>
+					(await phone.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId);
+				await expect.poll(async () => (await goneTab())?.status, { timeout: 60_000 }).toBe("ready");
+				await phone.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity folder gone" }),
+					tabId,
+				);
+				await phone.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), tabId);
+				await expect.poll(async () => (await goneTab())?.sessionPath ?? "", { timeout: 30_000 }).not.toBe("");
+				await untilAnswered(phone, tabId);
+				expect(await phone.evaluate(id => window.omp.tabs.close(id), tabId)).toBe(true);
+				await fs.rm(folder, { recursive: true, force: true, maxRetries: 40, retryDelay: 250 });
+				await b.evaluate(id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "hello" }), start);
+				await untilAnswered(b, start, { after: "hello" });
+			};
+
 			const records: SurfaceRecord[] = [];
 			for (const surface of surfaces) {
 				if (surface.parity.remoteChild && !remoteChildLeft) await leaveRemoteChild();
 				if (surface.parity.hiddenRoster && !hiddenRosterLeft) await leaveHiddenRoster();
+				if (surface.parity.crossProject && !crossProjectLeft) await leaveCrossProject();
+				if (surface.parity.folderMissing && !folderMissingLeft) await leaveFolderMissing();
 				const record: SurfaceRecord = {
 					id: surface.id,
 					title: surface.title,

@@ -172,8 +172,15 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 		for (const cell of cells) {
 			const where = at.get(cell.path) ?? [];
 			const rule = `${cell.path} shows at [${where.join(", ")}]`;
-			// A session is at most one row.
-			expect(where.length, rule).toBeLessThanOrEqual(1);
+			// A session is at most one row, but one nested under an opener in another project is a row of its own
+			// project too (the opener BOSS is APP's; a linked worktree of APP is APP's).
+			const ownProject = cell.folder === "scr" || cell.folder === "old" ? FOLDERS[cell.folder] : APP;
+			if (rows.rootOf.get(cell.path) === BOSS && ownProject !== APP)
+				expect(
+					where.filter(place => place !== "child"),
+					rule,
+				).toEqual(cell.folder === "old" && !heldBy(cell.holder) ? [] : [`group:${ownProject}`]);
+			else expect(where.length, rule).toBeLessThanOrEqual(1);
 			// A chat is its Chats section's row whoever holds it: never nested, folded or in a project.
 			if (cell.folder === "chat") {
 				expect(where, rule).toEqual(["chat"]);
@@ -184,8 +191,11 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 			if (finishedFolder(cell) && !usedBy(cell.holder)) expect(where, rule).toEqual([]);
 			// A session a tab the person uses holds is always a row: never hidden, never folded away.
 			if (usedBy(cell.holder)) {
-				expect(where.length, rule).toBe(1);
-				expect(where[0]?.startsWith("folded:"), rule).toBe(false);
+				expect(where.length, rule).toBeGreaterThan(0);
+				expect(
+					where.some(place => place.startsWith("folded:")),
+					rule,
+				).toBe(false);
 			}
 			// A removed project's session leaves with it unless a tab holds it.
 			if (cell.folder === "old" && !heldBy(cell.holder))
@@ -320,8 +330,9 @@ describe("remoteOpenedChildren: a session opened on a paired device nests where 
 			tabs,
 			sessions: sidebarRows(facts).sessions,
 			recordedOpeners,
+			workspace: base.workspace,
 		});
-		const rows = sidebarRows({ ...facts, nested: bot.keys });
+		const rows = sidebarRows({ ...facts, nested: bot.keys, openedElsewhere: bot.placed });
 		return { rows, bot, nest: (id: string) => remoteOpenedChildren(tabs, rows, bot).get(id) };
 	}
 

@@ -126,7 +126,7 @@ export function isSteerableSubagent(agent: SubagentSnapshot): boolean {
 /** The sheet's transcript: its own read of the subagent, so the sheet follows a running one too. */
 function SheetTranscript({ agent }: { agent: SubagentSnapshot }) {
 	const transcript = useSubagentTranscript(agent);
-	return <SubagentTranscript agent={agent} transcript={transcript} />;
+	return <SubagentTranscript live={isLiveSubagentStatus(agent.status)} transcript={transcript} />;
 }
 
 export function SubagentTranscriptSheet({ agent, onClose }: { agent: SubagentSnapshot | null; onClose: () => void }) {

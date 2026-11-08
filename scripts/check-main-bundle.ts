@@ -317,7 +317,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // `hello.build` against the page's `omp-build` meta; the `web-reload` line names both builds, noted at the reload),
 // less the per-view summary reads (`ensureHostSummaries`) the one boot read replaced: 2,169,501.
 // The move recorded only as the page reloads, one at a time (8 Nov 2026, sw-update.ts `HostBuildMove`): 2,169,691.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_169_691;
+// A session whose folder is gone wears "Folder missing" on its row and opens read-only (8 Nov 2026,
+// `SidebarRows.folderMissing`, `SidebarFolderMissingMark`, the `missingFolder` request and its lazy sheet's host),
+// and a child opened in another folder is a row of its own project too (`openedElsewhere`): 2,170,453.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_170_453;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

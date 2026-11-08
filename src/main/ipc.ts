@@ -105,6 +105,7 @@ import type {
 	IpcSessionOwner,
 	IpcSessionsDeletePayload,
 	IpcSessionsListPayload,
+	IpcSessionsMessagesPayload,
 	IpcSessionsMovePayload,
 	IpcSessionsRenamePayload,
 	IpcSessionsSearchPayload,
@@ -137,7 +138,7 @@ import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-acc
 import type { ModelSetupRequest } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
-import type { AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
 import { hostedSummaries, type SummariesChanged } from "../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
@@ -2210,6 +2211,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				query,
 				candidates.map(info => info.path),
 			);
+		},
+	);
+
+	// One stored session's transcript with no omp: this computer's journal, or the paired host's (`sessions.messages`).
+	ipc.handle(
+		IPC_COMMANDS.SESSIONS_MESSAGES,
+		async (_caller, payload: IpcSessionsMessagesPayload): Promise<AgentMessage[]> => {
+			if (typeof payload?.sessionPath !== "string") throw new Error("A session path is required.");
+			const device = deviceOf(payload.device);
+			if (device)
+				return remoteDevices.request<AgentMessage[]>(device, "sessions.messages", {
+					sessionPath: payload.sessionPath,
+				});
+			return sessionIndex.readMessages(payload.sessionPath);
 		},
 	);
 

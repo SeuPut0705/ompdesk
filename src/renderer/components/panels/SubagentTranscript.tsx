@@ -5,7 +5,8 @@
  * switch, read groups, the editorial transcript styles and its scroll
  * behaviour (follows the live edge, "jump to latest" when the reader leaves
  * it). It is the body of the side panel's Subagent view and of the transcript
- * sheet.
+ * sheet, and of the missing-folder sheet's read-only view of a stored session
+ * (`live` false, no owning tab: the runtime has no parent).
  *
  * The tool cards and work card read their stores through the nearest session
  * runtime, so the view mounts them in a runtime of its own: the owning tab's
@@ -17,7 +18,7 @@
 import { FileWarning, RefreshCw } from "lucide-react";
 import { memo, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StoreApi } from "zustand/vanilla";
-import type { AgentMessage, SubagentSnapshot } from "../../../shared/rpc-types";
+import type { AgentMessage } from "../../../shared/rpc-types";
 import { errorDetail } from "../../lib/error-detail";
 import { basename, extractResultImages, resultDetails } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -46,17 +47,18 @@ import {
 	workTurns,
 } from "../chat/chat-stream-utils";
 import { MessageBubble } from "../chat/MessageBubble";
-import { Banner, Button, EmptyState, JumpToLatest, Spinner } from "../common";
+import { Banner, Button, EmptyState, JumpToLatest, SkeletonRows } from "../common";
 import { ToolImage } from "../tools/media/ToolImage";
 import { ToolResultMedia } from "../tools/media/ToolMedia";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
-import { isLiveSubagentStatus } from "./subagent-graph";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import type { SubagentTranscriptState } from "./use-subagent-transcript";
 
 /** The main transcript's attached-picture size (MessageBubble's InlineImage). */
 const PICTURE_CLASS = "max-h-48 max-w-64 rounded-(--sc-radius-md) border border-(--sc-border-subtle) object-contain";
 const NO_KEYS: ReadonlySet<string> = new Set();
+/** The first read's placeholder: the shape of a few transcript lines. */
+const LOADING_WIDTHS = [62, 88, 74, 45, 80, 58] as const;
 
 interface PrivateStores {
 	tools: StoreApi<ToolsStore>;
@@ -176,15 +178,15 @@ function pairResults(
 }
 
 export const SubagentTranscript = memo(function SubagentTranscript({
-	agent,
+	live,
 	transcript,
 }: {
-	agent: SubagentSnapshot;
+	/** The reader is following a run still going: its last work card is live, a settled one is final. */
+	live: boolean;
 	transcript: SubagentTranscriptState;
 }) {
 	const t = useT();
 	const { messages, loading, error } = transcript;
-	const live = isLiveSubagentStatus(agent.status);
 	const runtime = useSubagentRuntime(messages, live);
 	const detail = useUiStore(s => s.transcriptDetail);
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(NO_KEYS);
@@ -237,7 +239,11 @@ export const SubagentTranscript = memo(function SubagentTranscript({
 				>
 					<div className="py-2" ref={stick.contentRef}>
 						{loading && messages.length === 0 && (
-							<Spinner className="px-3 py-3" label={t("subagent.loadingTranscript")} size="sm" />
+							<SkeletonRows
+								className="px-3 py-3"
+								label={t("subagent.loadingTranscript")}
+								widths={LOADING_WIDTHS}
+							/>
 						)}
 						{error &&
 							(messages.length === 0 ? (

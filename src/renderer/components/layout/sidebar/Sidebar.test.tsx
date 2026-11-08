@@ -415,6 +415,7 @@ afterEach(async () => {
 		sessionPickerOpen: false,
 		commandPaletteOpen: false,
 		destination: "session",
+		missingFolder: null,
 	});
 });
 
@@ -1567,7 +1568,7 @@ describe("Sidebar menus and pinned ordering", () => {
 			});
 		});
 
-		it("nests the sessions the bot opened under its row, and in no list", async () => {
+		it("nests the sessions the bot opened under its row, each still a row of its own project", async () => {
 			const KID = "/work/alpha/kid.jsonl";
 			const GRANDKID = "/work/alpha/grandkid.jsonl";
 			installMockOmp([
@@ -1612,7 +1613,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				summary(GRANDKID, { cwd: "/work/alpha", tabId: "tgrand", status: "running" }),
 			]);
 			ensureTabRuntime("tbot");
-			useSidebarSubagentsStore.setState({ expanded: new Set([BOT]) });
+			useSidebarSubagentsStore.setState({ expanded: new Set([BOT, KID]) });
 			await mount(<Sidebar />);
 
 			const family = botRow().nextElementSibling;
@@ -1623,9 +1624,13 @@ describe("Sidebar menus and pinned ordering", () => {
 				"Check the build",
 				"Dig into the failure",
 			]);
-			// Neither is also a row of its project, and the bot's own row is still first and once.
-			expect(document.querySelectorAll(`[data-session-path="${KID}"]`)).toHaveLength(1);
-			expect(document.querySelectorAll(`[data-session-path="${GRANDKID}"]`)).toHaveLength(1);
+			// The bot's row is in no project: each stays a row of its own (KID's, with GRANDKID in KID's family there).
+			const inAlpha = (path: string) =>
+				document.querySelectorAll(`[data-session-group="/work/alpha"] [data-session-path="${path}"]`);
+			expect(inAlpha(KID)).toHaveLength(1);
+			expect(inAlpha(GRANDKID)).toHaveLength(1);
+			expect(document.querySelectorAll(`[data-session-path="${KID}"]`)).toHaveLength(2);
+			expect(document.querySelectorAll(`[data-session-path="${GRANDKID}"]`)).toHaveLength(2);
 			expect([...document.querySelectorAll(".omp-sidebar-session-row")][0]).toBe(botRow());
 			expect(document.querySelectorAll(`[data-session-path="${BOT}"]`)).toHaveLength(1);
 		});
@@ -2600,6 +2605,44 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(menuItemLabels()).toContain(translate("common.delete"));
 	});
 
+	it("marks a session whose folder is gone, keeps it listed and opens the missing-folder sheet instead of resuming", async () => {
+		const omp = installMockOmp(LIST);
+		omp.sidebarProjects.lists.local = {
+			projects: [
+				{ path: "/work/alpha", addedAt: 1 },
+				{ path: "/work/beta", addedAt: 1 },
+			],
+			removed: [],
+			worktrees: {},
+			gone: ["/work/alpha"],
+		};
+		useToastStore.setState({ toasts: [] });
+		seedStores();
+		// A running turn keeps the tab, so a pick opens the session as a tab of its own (`openTab`).
+		useSessionStore.setState({ isStreaming: true });
+		await mount(<Sidebar />);
+
+		const rows = [
+			...container.querySelectorAll(
+				'[data-session-group="/work/alpha"] .omp-sidebar-session-row[data-session-path^="/work/alpha/"]',
+			),
+		];
+		expect(rows).toHaveLength(2);
+		for (const row of rows) {
+			expect(row.getAttribute("data-folder-missing")).toBe("true");
+			expect(row.querySelector("[data-folder-missing-mark]")?.textContent).toBe(translate("sessionFolder.gone"));
+			expect(row.querySelector("button")?.getAttribute("title")).toContain("/work/alpha");
+		}
+
+		omp.tabs.spawn.mockResolvedValueOnce({ tabId: null, refusal: "folder-missing", folder: "/work/alpha" } as never);
+		await fire(rowButton("Session /work/alpha/one"), "onClick");
+		expect(useUiStore.getState().missingFolder).toEqual({
+			sessionPath: "/work/alpha/one.jsonl",
+			folder: "/work/alpha",
+		});
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
 	it("adds the folder of a session started in it to the project list", async () => {
 		const omp = installMockOmp(LIST);
 		seedStores();
@@ -3106,7 +3149,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(container.textContent).not.toContain("Plain helper");
 	});
 
-	it("nests a session it opened on a paired device under the opener, named by that device, not in the device's list", async () => {
+	it("nests a session it opened on a paired device under the opener, named by that device, and in the device's own project", async () => {
 		mountFamily({
 			hosted: { "dev-studio": [summary("C:\\s\\remote.jsonl", { cwd: "C:\\work\\app", status: "running" })] },
 			tabsExtra: [
@@ -3150,9 +3193,14 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		expect(rowFor("Session /work/alpha/two").querySelector("[data-family-running]")?.textContent).toBe("3");
 		// A running child's token is the working arc.
 		expect(remote?.querySelector('[data-family-status="running"] .omp-working-arc')).not.toBeNull();
-		// It is the boss's child: the device's own list does not repeat it.
+		// Its project is the device's folder: the device's list holds it there too, the same tab's session.
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
-		expect(device?.textContent ?? "").not.toContain("Build it on Windows");
+		const own = [...(device?.querySelectorAll("[data-device-session]") ?? [])].find(
+			row => row.getAttribute("data-device-session") === "C:\\s\\remote.jsonl",
+		);
+		expect(
+			(own as unknown as Element | undefined)?.closest("[data-device-group]")?.getAttribute("data-device-group"),
+		).toBe("C:\\work\\app");
 	});
 
 	it("nests a session a paired device's own session opened there under that session's row in the device's list", async () => {
@@ -4844,6 +4892,29 @@ describe("Sidebar device sections", () => {
 		expect(section?.querySelector(`[data-device-group="${WT}"]`)).toBeNull();
 		expect(section?.textContent).not.toContain("Old agent work");
 		expect(section?.textContent).toContain("Remote fix");
+	});
+
+	it("marks a host session whose folder is gone there and opens the sheet for that device", async () => {
+		const omp = installWithRemote();
+		const APP = "/Users/kim/code/app";
+		omp.sidebarProjects.lists["dev-studio"] = {
+			projects: [{ path: APP, addedAt: 1 }],
+			removed: [],
+			worktrees: {},
+			gone: [APP],
+		};
+		seedStores();
+		pairHost("online");
+		await mount(<Sidebar />);
+		const section = container.querySelector('[data-sidebar-device="dev-studio"]');
+		const row = section?.querySelector("[data-device-session]");
+		expect(row?.getAttribute("data-folder-missing")).toBe("true");
+		expect(row?.querySelector("[data-folder-missing-mark]")?.textContent).toBe(translate("sessionFolder.gone"));
+		expect(row?.querySelector("button")?.getAttribute("title")).toContain(APP);
+
+		omp.tabs.spawn.mockResolvedValueOnce({ tabId: null, refusal: "folder-missing", folder: APP } as never);
+		await fire(row?.querySelector("button") ?? null, "onClick");
+		expect(useUiStore.getState().missingFolder).toMatchObject({ device: "dev-studio", folder: APP });
 	});
 
 	// The user's report (29 Oct 2026, "remote-only session bug again"): the desktop's section for the Mac showed
@@ -7389,8 +7460,11 @@ describe("Sidebar folded headers say what works inside", () => {
 		expect(child?.textContent).toContain("Test omp on Windows");
 		expect(child?.getAttribute("data-child-status")).toBe("running");
 		expect(container.querySelector("[data-sidebar-bot-row] [data-family-running]")?.textContent).toBe("1");
+		// It is also a row of its own project in the device's list: the same session, running there too.
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
-		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).toBeNull();
+		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)?.textContent).toContain(
+			translate("sidebar.signal.running"),
+		);
 
 		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
 		expect(counts(summaryIn('[data-sidebar-device-header="local"]'))).toEqual({
@@ -7398,9 +7472,13 @@ describe("Sidebar folded headers say what works inside", () => {
 			running: "1",
 			done: null,
 		});
-		// The host's own section leaves it to this computer's: it is counted once.
+		// The host's own section counts it too: it is a row of both.
 		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
-		expect(summaryIn('[data-sidebar-device="dev-studio"]')).toBeNull();
+		expect(counts(summaryIn('[data-sidebar-device="dev-studio"]'))).toEqual({
+			waiting: null,
+			running: "1",
+			done: null,
+		});
 	});
 
 	it("says a host's turn on a row whose tab here missed its start, and counts it folded", async () => {
@@ -7494,9 +7572,13 @@ describe("Sidebar folded headers say what works inside", () => {
 				?.getAttribute("data-working"),
 		).toBe("background");
 		const device = container.querySelector('[data-sidebar-device="dev-studio"]');
-		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).toBeNull();
+		expect(device?.querySelector(`[data-device-session="${CHILD}"]`)).not.toBeNull();
 		await fire(container.querySelector("[data-sidebar-device-toggle='dev-studio']"), "onClick");
-		expect(summaryIn('[data-sidebar-device="dev-studio"]')).toBeNull();
+		expect(counts(summaryIn('[data-sidebar-device="dev-studio"]'))).toEqual({
+			waiting: null,
+			running: "1",
+			done: null,
+		});
 		await fire(container.querySelector("[data-sidebar-device-toggle='local']"), "onClick");
 		expect(counts(summaryIn('[data-sidebar-device-header="local"]'))).toEqual({
 			waiting: null,
@@ -7506,9 +7588,9 @@ describe("Sidebar folded headers say what works inside", () => {
 	});
 
 	// The paired computer the child runs on, viewing its host: the host's section nests it under the host's bot, and
-	// this computer's own list, which runs it for the host, does not list it again. The bot's row reads as on the host:
-	// its family chip, its open decision and the light of the child it started, all at once.
-	it("nests what a host's bot opened on this computer under the host's bot, not in this computer's own list", async () => {
+	// this computer's own list, which runs it for the host, lists it in its project too. The bot's row reads as on the
+	// host: its family chip, its open decision and the light of the child it started, all at once.
+	it("nests what a host's bot opened on this computer under the host's bot, and in this computer's own project", async () => {
 		const HOST_BOT = "/Users/kim/.omp/agent/sessions/bot.jsonl";
 		const HOST_PAST = "/Users/kim/.omp/agent/sessions/bot-before.jsonl";
 		const CHILD = "/work/alpha/for-the-host.jsonl";
@@ -7602,7 +7684,8 @@ describe("Sidebar folded headers say what works inside", () => {
 		expect(child?.textContent).toContain("Test omp on Windows");
 		expect(child?.getAttribute("data-child-status")).toBe("running");
 		expect(child?.querySelector("[data-family-device]")?.textContent).toBe("laptop");
-		// This computer's own list leaves it to the host's section: one row for it, under the host's bot.
-		expect(container.querySelectorAll(`[data-session-path="${CHILD}"]`)).toHaveLength(1);
+		// This computer's own list holds it in its project too: the same session, running.
+		const own = container.querySelector(`[data-session-group="/work/alpha"] [data-session-path="${CHILD}"]`);
+		expect(own?.getAttribute("data-signal")).toBe("running");
 	});
 });

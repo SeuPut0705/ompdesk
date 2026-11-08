@@ -266,6 +266,7 @@ function resetAll(): void {
 	usePlanApprovalStore.getState().clearProposal();
 	useExtensionUiStore.getState().clearAll();
 	useUiStore.getState().closeSessionOverlays();
+	useUiStore.getState().closeMissingFolder();
 	useUiStore.getState().closeDestination();
 	useForkHandoffStore.getState().closeHandoffDialog();
 }
@@ -625,38 +626,58 @@ describe("tabs store switch", () => {
 		expect(omp.tabs.setActive).not.toHaveBeenCalledWith("t5");
 	});
 
-	it("offers Restore for a session whose folder disk care saved, and restoring opens it there", async () => {
+	it("opens the missing-folder sheet for a session whose folder disk care saved, and restoring opens it there", async () => {
 		seedTabs();
+		useToastStore.setState({ toasts: [] });
+		const saved = { id: "sv1", branch: "omp/agent/x", removedAt: 1_800_000_000_000 };
 		omp.tabs.spawn.mockResolvedValueOnce({
 			tabId: null,
 			refusal: "folder-missing",
 			folder: "/wt/gui-agent-x",
-			saved: { id: "sv1", branch: "omp/agent/x", removedAt: 1_800_000_000_000 },
+			saved,
 		});
 
 		expect(await useTabsStore.getState().openTab({ sessionPath: "/sessions/worktree.jsonl" })).toBeNull();
-		const offer = useToastStore.getState().toasts.find(toast => toast.action);
-		expect(offer?.message).toContain("/wt/gui-agent-x");
-		expect(offer?.action?.label).toBe("Restore");
+		expect(useUiStore.getState().missingFolder).toEqual({
+			sessionPath: "/sessions/worktree.jsonl",
+			folder: "/wt/gui-agent-x",
+			saved,
+		});
+		expect(useToastStore.getState().toasts).toEqual([]);
 		expect(omp.tabs.spawn).toHaveBeenCalledTimes(1);
 
 		omp.tabs.spawn.mockResolvedValueOnce({ tabId: "t5" });
-		offer?.action?.run();
-		await vi.waitFor(() => expect(omp.tabs.spawn).toHaveBeenCalledTimes(2));
+		await useTabsStore.getState().openTab({ sessionPath: "/sessions/worktree.jsonl", restoreSaved: true });
 		expect(omp.tabs.spawn.mock.calls[1]?.[0]).toMatchObject({
 			sessionPath: "/sessions/worktree.jsonl",
 			restoreSaved: true,
 		});
 	});
 
-	it("says a session's folder is gone with nothing saved to restore, and offers no Restore", async () => {
+	it("opens the sheet with nothing saved to restore, naming the paired device, and toasts nothing", async () => {
 		seedTabs();
+		useToastStore.setState({ toasts: [] });
 		omp.tabs.spawn.mockResolvedValue({ tabId: null, refusal: "folder-missing", folder: "/wt/gui-agent-y" });
 
-		expect(await useTabsStore.getState().openTab({ sessionPath: "/sessions/gone.jsonl" })).toBeNull();
-		const told = useToastStore.getState().toasts.find(toast => toast.message.includes("/wt/gui-agent-y"));
-		expect(told?.message).toContain("wasn't saved");
-		expect(told?.action?.label).not.toBe("Restore");
+		expect(
+			await useTabsStore.getState().openTab({ sessionPath: "/sessions/gone.jsonl", device: "dev-1" }),
+		).toBeNull();
+		expect(useUiStore.getState().missingFolder).toEqual({
+			sessionPath: "/sessions/gone.jsonl",
+			device: "dev-1",
+			folder: "/wt/gui-agent-y",
+		});
+		expect(useToastStore.getState().toasts).toEqual([]);
+	});
+
+	it("says a restore that failed, and keeps the sheet open to try again", async () => {
+		seedTabs();
+		const saved = { id: "sv1", branch: "omp/agent/x", removedAt: 1 };
+		omp.tabs.spawn.mockResolvedValue({ tabId: null, refusal: "folder-missing", folder: "/wt/gui-agent-x", saved });
+
+		await useTabsStore.getState().openTab({ sessionPath: "/sessions/worktree.jsonl", restoreSaved: true });
+		expect(useUiStore.getState().missingFolder?.saved).toEqual(saved);
+		expect(useToastStore.getState().toasts.some(toast => toast.message.includes("/wt/gui-agent-x"))).toBe(true);
 	});
 
 	it("an owned refusal naming a tab of this window it has not listed yet switches to that tab, never asks for another window", async () => {

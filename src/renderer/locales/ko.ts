@@ -92,15 +92,17 @@ export const ko: Record<string, string> = {
 	"tabs.openElsewhere": "이 세션은 {device}에서 이미 열려 있어요.",
 	"tabs.kindMismatch":
 		"이 세션은 유형이 달라요. 에이전트 세션과 채팅 세션은 서로 변환할 수 없으니 세션 목록에서 여세요.",
-	"tabs.folderMissing":
-		"이 세션이 작업하던 폴더({folder})가 없어졌고 저장해 둔 것도 없어서 다른 폴더에서는 열 수 없어요. 세션은 지울 때까지 목록에 남아요.",
-	"tabs.folderSaved.title": "이 세션의 폴더가 정리됐어요",
-	"tabs.folderSaved":
-		"디스크 정리가 {folder}를 저장한 뒤 지웠어요. 브랜치, 커밋하지 않은 작업, 개인 파일이 남아 있어요. 복원하면 그 폴더에서 세션을 이어 갈 수 있어요.",
-	"tabs.folderSaved.restore": "복원",
 	"sessionFolder.gone": "폴더 없음",
 	"sessionFolder.goneTip":
-		"이 세션이 작업하던 폴더가 없어졌어요. 열면, 디스크 정리가 저장해 둔 경우 복원할 수 있어요.",
+		"이 세션이 작업하던 폴더가 없어졌어요. 열면 기록을 읽기 전용으로 보여 주고, 디스크 정리가 폴더를 저장해 둔 경우 되살리기, 아니면 보관을 할 수 있어요.",
+	"sidebar.folderMissingTip": "폴더 없음: {folder}",
+	"missingFolder.banner":
+		"이 세션이 작업하던 폴더({folder})가 없어져서 거기서 이어 갈 수 없어요. 기록은 읽기만 할 수 있어요.",
+	"missingFolder.bannerSaved":
+		"이 세션이 작업하던 폴더({folder})가 없어졌어요. 디스크 정리가 먼저 저장해 뒀어요: 브랜치, 커밋하지 않은 작업, 개인 파일이에요. 되살리면 그 폴더에서 세션을 이어 갈 수 있고, 그때까지 기록은 읽기만 할 수 있어요.",
+	"missingFolder.restore": "되살리기",
+	"missingFolder.archive": "보관",
+	"missingFolder.restoreFailed": "되살리지 못했어요: {folder}. 저장해 둔 것은 그대로 있으니 다시 시도할 수 있어요.",
 	"tabs.menu.splitRight": "오른쪽으로 분할",
 	"tabs.menu.splitBottom": "아래로 분할",
 	"tabs.menu.removeSplit": "분할 보기 종료",

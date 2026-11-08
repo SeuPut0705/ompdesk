@@ -163,7 +163,7 @@ function SubagentView({ agent }: { agent: SubagentSnapshot }) {
 	return (
 		<div className="omp-subagent-view flex min-h-0 flex-1 flex-col" data-panel-subagent={agent.id}>
 			<SubagentHeader agent={agent} onOpenFull={() => setFull(true)} transcript={transcript} />
-			<SubagentTranscript agent={agent} transcript={transcript} />
+			<SubagentTranscript live={isLiveSubagentStatus(agent.status)} transcript={transcript} />
 			{isSteerableSubagent(agent) && (
 				<div className="shrink-0 px-3 pt-1 pb-3">
 					<SteerSubagentForm agent={agent} key={agent.id} />

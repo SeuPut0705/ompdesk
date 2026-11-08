@@ -35,6 +35,7 @@ import { EdgeSwipeZone, SidebarDrawer } from "./SidebarDrawer";
 // The session list's look stays on the first screen, where the list's own chunk (sidebar-chunk.ts) is not: 7.6 KB,
 // one request less for a page that waits for the list, and the stylesheet keeps its place in the cascade.
 import "../../styles/sidebar.css";
+import { MissingFolderSheetHost } from "./MissingFolderSheetHost";
 import { SplitWorkspace } from "./SplitWorkspace";
 import { loadSidebar, useSidebar } from "./sidebar-chunk";
 import { TabHousekeeping } from "./TabHousekeeping";
@@ -431,6 +432,7 @@ export function AppShell() {
 
 			{panel.mounted && panelSide === "right" && <PanelContainer closing={panel.closing} />}
 			<ViewSheetHost />
+			<MissingFolderSheetHost />
 		</div>
 	);
 }

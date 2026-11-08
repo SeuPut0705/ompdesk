@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { CustomProviderView, SessionInfo } from "../../shared/ipc-types";
+import type { CustomProviderView, IpcSavedFolder, SessionInfo } from "../../shared/ipc-types";
 import { KEYMAP_ACTIONS, type KeymapOverrides, sanitizeOverrides } from "../lib/keymap";
 import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { readSidebarVisible, writeSidebarVisible } from "../lib/sidebar-memory";
@@ -18,6 +18,15 @@ export type PanelTab = (typeof PANEL_TABS)[number];
  */
 export const VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as const;
 export type ViewSheetId = (typeof VIEW_SHEETS)[number];
+/** A stored session whose folder is gone, as main's `folder-missing` refusal names it: what the missing-folder sheet shows. */
+export interface MissingFolderRequest {
+	sessionPath: string;
+	/** Paired host deviceId the session lives on; absent = this computer. */
+	device?: string;
+	folder: string;
+	/** Disk care saved that worktree before removing it: Restore puts it back. */
+	saved?: IpcSavedFolder;
+}
 /** The Files view with nothing open: what a session switch (or the end of edits that outlived one) leaves. */
 export const CLOSED_FILE_VIEW: Pick<
 	UiStore,
@@ -333,6 +342,10 @@ interface UiStore {
 	viewSheet: { view: ViewSheetId; tabId: string | null } | null;
 	openViewSheet: (view: ViewSheetId) => void;
 	closeViewSheet: () => void;
+	/** The session a click found with no folder: open read-only with Restore or Archive; null while none is open. */
+	missingFolder: MissingFolderRequest | null;
+	openMissingFolder: (request: MissingFolderRequest) => void;
+	closeMissingFolder: () => void;
 	openForceTool: () => void;
 	closeForceTool: () => void;
 	openProjectPicker: () => void;
@@ -650,8 +663,12 @@ export const useUiStore = create<UiStore>()((set, get) => ({
 	closeShareSession: () => set({ shareSessionOpen: false }),
 	openJobs: () => get().openViewSheet("jobs"),
 	viewSheet: null,
-	openViewSheet: view => set({ viewSheet: { view, tabId: focusedRuntimeTabId() } }),
+	openViewSheet: view => set({ viewSheet: { view, tabId: focusedRuntimeTabId() }, missingFolder: null }),
 	closeViewSheet: () => set({ viewSheet: null }),
+	missingFolder: null,
+	// One sheet at a time: it replaces a view sheet.
+	openMissingFolder: request => set({ missingFolder: request, viewSheet: null }),
+	closeMissingFolder: () => set({ missingFolder: null }),
 	forceToolOpen: false,
 	openForceTool: () => set({ forceToolOpen: true }),
 	closeForceTool: () => set({ forceToolOpen: false }),

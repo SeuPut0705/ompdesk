@@ -86,6 +86,7 @@ import { projectMenuItems } from "./project-menu";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
+import { SidebarFolderMissingMark } from "./SidebarFolderMissingMark";
 import { SidebarFoldSummary } from "./SidebarFoldSummary";
 import { SidebarRenameField } from "./SidebarRenameField";
 import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubagentsToggle } from "./SidebarSubagents";
@@ -280,15 +281,12 @@ export function SidebarLocalHeader({
 export function SidebarDeviceSection({
 	host,
 	query,
-	nested,
 	childForTab,
 	pending = false,
 	onNewChat,
 }: {
 	host: HostView;
 	query: string;
-	/** Tab ids and session files of sessions a session of this computer opened here: they are rows of its family. */
-	nested?: ReadonlySet<string>;
 	/** The family row of a session here a tab of this computer holds (its live state is the tab's). */
 	childForTab: (tab: SessionTab) => FamilyOpened;
 	/** A host the last host-list read named, drawn before this launch's first read: still, as it will look. */
@@ -351,7 +349,7 @@ export function SidebarDeviceSection({
 				}
 				folded={collapsed}
 				name={host.name}
-				summary={() => hostSectionSummary(hostSummaryList, nested)}
+				summary={() => hostSectionSummary(hostSummaryList)}
 				onAction={() =>
 					void pickRemoteDirectory(host.deviceId).then(path => {
 						if (path) void openRemote({ cwd: path, kind: "agent" });
@@ -375,7 +373,6 @@ export function SidebarDeviceSection({
 					<DeviceSessions
 						childForTab={childForTab}
 						host={host}
-						nested={nested}
 						onNewChat={() => onNewChat(host.deviceId)}
 						onOpen={openRemote}
 						query={query}
@@ -397,7 +394,6 @@ export function SidebarDeviceSection({
 function DeviceSessions({
 	host,
 	query,
-	nested,
 	childForTab,
 	onNewChat,
 	onOpen,
@@ -405,7 +401,6 @@ function DeviceSessions({
 }: {
 	host: HostView;
 	query: string;
-	nested: ReadonlySet<string> | undefined;
 	childForTab: (tab: SessionTab) => FamilyOpened;
 	onNewChat: () => void;
 	onOpen: (args: RemoteOpenArgs) => Promise<string | null>;
@@ -460,7 +455,6 @@ function DeviceSessions({
 		[archivedSessions, prefix],
 	);
 	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
-	const hostTabs = useMemo(() => deviceTabs.filter(tab => !nested?.has(tab.id)), [deviceTabs, nested]);
 	// The host's bot, marked in its list on or off: while on, one fixed row first, as on the host; on or off, never one
 	// of the lists' rows, nor is a tab here holding it (it would come back as a plain chat once the host's bot is off).
 	const hostBot = useMemo(() => sessions.find(session => session.bot === "on"), [sessions]);
@@ -507,7 +501,7 @@ function DeviceSessions({
 				seenAt = new Date(stamp++).toISOString();
 				since.set(tab.id, seenAt);
 			}
-			return { ...tab, title: tab.title ?? tabChipLabel(tab, hostTabs), seenAt };
+			return { ...tab, title: tab.title ?? tabChipLabel(tab, deviceTabs), seenAt };
 		});
 		return familyRows(
 			{
@@ -541,7 +535,7 @@ function DeviceSessions({
 					return run && project ? { child: run.child, key: `${project}\n${run.run}` } : null;
 				},
 				archived: hostArchived,
-				nested: nested ?? NO_PATHS,
+				nested: NO_PATHS,
 				// Kept in this computer's prefs under the host's id, so this computer's own lists never move with it.
 				order: {
 					pinnedSessions: hostPins,
@@ -569,13 +563,11 @@ function DeviceSessions({
 		hostBot,
 		hostDesk.channels,
 		deviceTabs,
-		hostTabs,
 		remoteTabs,
 		hostSummaries,
 		host.deviceId,
 		projectList,
 		hostWorkspace,
-		nested,
 		groupOrder,
 		sessionOrder,
 		hostPins,
@@ -583,7 +575,13 @@ function DeviceSessions({
 		prefix,
 		query,
 	]);
-	const { chats, groups, children: familyChildrenOf, archived: archivedRows } = tree.rows;
+	const {
+		chats,
+		groups,
+		children: familyChildrenOf,
+		archived: archivedRows,
+		folderMissing: missingFolders,
+	} = tree.rows;
 	// The host's tabs on paired devices its sessions opened, by the row they nest under.
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
@@ -675,7 +673,7 @@ function DeviceSessions({
 	);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
-		hostTabs.find(
+		deviceTabs.find(
 			tab => tab.id === session.liveTabId || tab.sessionPath === session.path || tab.sessionId === session.id,
 		);
 
@@ -735,12 +733,20 @@ function DeviceSessions({
 			auto: childParts.auto,
 			age: status !== "running" ? <TimeAgo className="text-(--sc-text-subtle)" iso={child.modified} /> : undefined,
 			device: host.name,
-			tooltip: [combinedTitle(childParts), statusLabel, `${host.name} · ${child.cwd}`].filter(Boolean).join("\n"),
+			tooltip: [
+				combinedTitle(childParts),
+				statusLabel,
+				`${host.name} · ${child.cwd}`,
+				missingFolders.has(child.path) ? t("sidebar.folderMissingTip", { folder: child.cwd }) : null,
+			]
+				.filter(Boolean)
+				.join("\n"),
 			selected: false,
 			onOpen: () => openSession(child),
 			buttonProps: { tabIndex: -1, "data-roving-item": key },
 			rowProps: {
 				"data-session-path": child.path,
+				"data-folder-missing": missingFolders.has(child.path) || undefined,
 				"data-sidebar-opened-session": true,
 				"data-device": host.deviceId,
 				"data-signal":
@@ -988,6 +994,7 @@ function DeviceSessions({
 		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
 		const active = (current || inVisibleSplit) && destination === "session";
 		const indexed = session.liveTabId === undefined;
+		const folderMissing = missingFolders.has(session.path);
 		const titleParts: TitleParts = bot
 			? { title: botDisplayName(session, t("sidebar.botBadge")) }
 			: sessionDisplayParts(
@@ -1118,10 +1125,11 @@ function DeviceSessions({
 					className="omp-sidebar-session-row"
 					key={session.path}
 					meta={
-						marker || age ? (
+						folderMissing || marker || age ? (
 							<span className="inline-flex min-w-0 items-center gap-1.5">
+								{folderMissing && <SidebarFolderMissingMark />}
 								{marker}
-								{age}
+								{folderMissing ? null : age}
 							</span>
 						) : undefined
 					}
@@ -1145,6 +1153,7 @@ function DeviceSessions({
 						"data-current": current || undefined,
 						"data-pane-focus": (current && splitIds !== null) || undefined,
 						"data-pane-shown": (active && !current && splitIds !== null) || undefined,
+						"data-folder-missing": folderMissing || undefined,
 						"data-live": indexed ? undefined : true,
 					}}
 					selected={active}
@@ -1166,6 +1175,7 @@ function DeviceSessions({
 						title,
 						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
 						openElsewhere && !working ? t("sidebar.row.open") : null,
+						folderMissing ? t("sidebar.folderMissingTip", { folder: session.cwd }) : null,
 						reason ?? null,
 						// The age slot reads "3w"; the exact time is here, since hovering puts the ⋯ in the age's place.
 						indexed ? formatClock(session.modified) : null,

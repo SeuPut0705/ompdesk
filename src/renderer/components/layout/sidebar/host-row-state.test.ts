@@ -61,17 +61,11 @@ describe("summaryRowState", () => {
 
 describe("hostSectionSummary", () => {
 	it("counts what the host's summaries say its sessions do, whatever tab this computer holds", () => {
-		const folded = hostSectionSummary(
-			[summary("a", { status: "running" }), summary("b", { ask: "approval" }), summary("c")],
-			undefined,
-		);
+		const folded = hostSectionSummary([
+			summary("a", { status: "running" }),
+			summary("b", { ask: "approval" }),
+			summary("c"),
+		]);
 		expect(folded).toMatchObject({ running: 1, waiting: 1 });
-	});
-
-	it("leaves a session opened from this computer to its opener's section", () => {
-		expect(hostSectionSummary([summary("child", { status: "running" })], new Set(["child"]))).toMatchObject({
-			running: 0,
-			waiting: 0,
-		});
 	});
 });

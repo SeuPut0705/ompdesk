@@ -44,6 +44,16 @@ export interface Surface {
 		 */
 		hiddenRoster?: boolean;
 		/**
+		 * Before it is captured, B's work session opens "Parity cross-project" in another folder of B's (`seuoffice`) and
+		 * leaves its turn running, so it is a row under its opener and of its own project (e2e/parity.e2e.ts).
+		 */
+		crossProject?: boolean;
+		/**
+		 * Before it is captured, B has a session, "Parity folder gone", whose folder (`moda-office`) was deleted after
+		 * its one answered turn (e2e/parity.e2e.ts).
+		 */
+		folderMissing?: boolean;
+		/**
 		 * Runs in each view after its capture (also when the capture failed): puts back what `open` changed beyond the
 		 * page (the host's settings, a take waiting on the fake omp), so the next surface starts from the same host.
 		 */
@@ -273,6 +283,69 @@ async function openBotFamily(page: Page, look: Look): Promise<void> {
 	const open = await toggles.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-sidebar-device-toggle")));
 	for (const id of open)
 		if (id !== kept) await page.locator(`[data-sidebar-device-toggle="${id}"][aria-expanded='true']`).click();
+}
+
+/**
+ * Keeps open only the sidebar section holding the project group whose folder ends with `folder` (this computer's, or
+ * the paired computer's), expands that group and waits for `row`. A group with no open tab of the view's starts
+ * folded, and one can fold again when what main says of its folder arrives (a folder found gone), so it is expanded
+ * again until the row shows.
+ */
+async function showProjectRows(page: Page, look: Look, folder: string, row: string): Promise<void> {
+	await openDrawer(page, look);
+	const group = `:is([data-workspace-group$="${folder}"], [data-device-group$="${folder}"])`;
+	await page.locator(group).first().waitFor({ state: "attached", timeout: 30_000 });
+	const section = page.locator(`[data-sidebar-device]:has([data-device-group$="${folder}"])`).first();
+	const kept = (await section.count()) > 0 ? await section.getAttribute("data-sidebar-device") : "local";
+	const toggles = page.locator("[data-sidebar-device-toggle][aria-expanded='true']");
+	const open = await toggles.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-sidebar-device-toggle")));
+	for (const id of open)
+		if (id !== kept) await page.locator(`[data-sidebar-device-toggle="${id}"][aria-expanded='true']`).click();
+	const header = page
+		.locator(
+			`[data-workspace-group$="${folder}"] button[aria-expanded='false'], [data-device-group$="${folder}"] > .group\\/head button[aria-expanded='false']`,
+		)
+		.first();
+	const target = page.locator(row).first();
+	const until = Date.now() + 30_000;
+	while (!(await target.isVisible())) {
+		if (Date.now() > until) throw new Error(`no ${row} in the ${folder} group`);
+		if ((await header.count()) > 0) await header.click();
+		await page.waitForTimeout(250);
+	}
+	// Settled: the row has stayed put for a moment, so a click lands on it.
+	await page.waitForTimeout(500);
+	await target.waitFor({ state: "visible", timeout: 5_000 });
+}
+
+/** The work session's family open, and the project of the session it opened in another folder expanded. */
+async function openOwnProject(page: Page, look: Look): Promise<void> {
+	await showProjectRows(
+		page,
+		look,
+		"seuoffice",
+		':is([data-session-group$="seuoffice"] .omp-sidebar-session-row, [data-device-group$="seuoffice"] [data-device-session]):has-text("Parity cross-project")',
+	);
+	const chip = page
+		.locator(
+			':is(.omp-sidebar-session-row, [data-device-session]):has-text("Parity work") [data-sidebar-subagents-toggle][aria-expanded="false"]',
+		)
+		.first();
+	if ((await chip.count()) > 0) await chip.click();
+	await page
+		.locator('[data-sidebar-opened-session]:has-text("Parity cross-project")')
+		.first()
+		.waitFor({ state: "visible", timeout: 30_000 });
+}
+
+/** The row of the session whose folder was deleted, marked missing, in its expanded project. */
+async function openFolderMissing(page: Page, look: Look): Promise<void> {
+	await showProjectRows(
+		page,
+		look,
+		"moda-office",
+		':is(.omp-sidebar-session-row, [data-device-session])[data-folder-missing]:has-text("Parity folder gone")',
+	);
 }
 
 /** Settings › Models & accounts through the sidebar's Settings row and the section's own nav entry, as a person does; the local engine switch under Custom endpoints in view. */
@@ -768,6 +841,48 @@ export const SURFACES: readonly Surface[] = [
 		// Two paired apps only: the parity sheet sets it up (`hiddenRoster`); the audits' harness page has no such session.
 		when: () => false,
 		parity: { session: "work", hiddenRoster: true },
+	},
+	{
+		id: "sidebar-own-project",
+		area: "A",
+		title: "Session list with a session the work session opened in another folder: under its opener and in its own project",
+		open: openOwnProject,
+		ready: ':is([data-session-group$="seuoffice"] .omp-sidebar-session-row, [data-device-group$="seuoffice"] [data-device-session]):has-text("Parity cross-project")',
+		// Two paired apps only: the parity sheet sets it up (`crossProject`); the audits' harness page has no such session.
+		when: () => false,
+		parity: { session: "work", crossProject: true },
+	},
+	{
+		id: "sidebar-folder-missing",
+		area: "A",
+		title: "Session list with a session whose folder was deleted: its row says the folder is missing",
+		open: openFolderMissing,
+		ready: ':is(.omp-sidebar-session-row, [data-device-session]):has-text("Parity folder gone") [data-folder-missing], :is(.omp-sidebar-session-row, [data-device-session])[data-folder-missing]:has-text("Parity folder gone")',
+		when: () => false,
+		parity: { session: "work", folderMissing: true },
+	},
+	{
+		id: "missing-folder-sheet",
+		area: "A",
+		title: "A session whose folder was deleted, selected: its transcript read-only, with Archive (nothing saved to restore)",
+		open: async (page, look) => {
+			await openFolderMissing(page, look);
+			await page
+				.locator(
+					':is(.omp-sidebar-session-row, [data-device-session])[data-folder-missing]:has-text("Parity folder gone") button',
+				)
+				.first()
+				.click();
+			// The sheet's body holds the stored transcript (read with no omp); its footer the action.
+			await page
+				.locator("[data-missing-folder-sheet] .omp-transcript-row")
+				.first()
+				.waitFor({ state: "visible", timeout: 15_000 });
+		},
+		ready: "[data-missing-folder-archive]",
+		settle: 800,
+		when: () => false,
+		parity: { session: "work", folderMissing: true, after: closeOverlay },
 	},
 	{
 		id: "transcript-top",

@@ -134,9 +134,9 @@ test("the host's own window lists, views and works in a session its paired devic
 					timeout: 30_000,
 				})
 				.toBe(deviceOmp);
-			// The device's agent opened it, so it is a child of the opener there (not a row of PC-B's list): the
-			// agent shows it.
-			await expect(a.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(0);
+			// The device's agent opened it, so it is a child of the opener there, and its folder on PC-B is no project of
+			// the opener's: it is a row of PC-B's list too, the same session. The agent shows it.
+			await expect(a.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(1);
 			expect((await call("ompdesk_tab_focus", { session: child })).isError).toBe(false);
 			await expect(a.getByText("Hello from the host").first()).toBeVisible({ timeout: 30_000 });
 		});

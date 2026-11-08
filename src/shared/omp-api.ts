@@ -154,6 +154,7 @@ import {
 import type { ProjectOrigin } from "./project-origin";
 import { createSessionRpcClient, timeoutForCommand } from "./rpc-client";
 import type {
+	AgentMessage,
 	AgentSessionEvent,
 	AvailableCommand,
 	CommandOutputFrame,
@@ -568,6 +569,8 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.SESSIONS_RENAME, { sessionPath, name, device }) as Promise<void>,
 			search: (query: string, scope: "local" | "global", device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_SEARCH, { query, scope, device }) as Promise<SessionContentMatch[]>,
+			messages: (sessionPath: string, device?: string) =>
+				transport.invoke(IPC_COMMANDS.SESSIONS_MESSAGES, { sessionPath, device }) as Promise<AgentMessage[]>,
 			move: (sessionPath: string, cwd: string, device?: string) =>
 				transport.invoke(IPC_COMMANDS.SESSIONS_MOVE, { sessionPath, cwd, device }) as Promise<string>,
 			saveDiagnosticBundle: (request: DiagnosticBundleRequest) =>

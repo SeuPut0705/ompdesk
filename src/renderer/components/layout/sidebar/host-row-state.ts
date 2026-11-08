@@ -30,14 +30,8 @@ export function remoteOpenedTab(tab: RemoteOpenedTab): SessionTab {
 
 /**
  * A folded host section's summary, read without its list (a folded host's list is not read): the host's summaries,
- * each session once, by the rows' rule. A session a session here opened there is that opener's child (`nested`),
- * counted in this computer's section.
+ * each session once, by the rows' rule. A session a session here opened there is a row of both sections.
  */
-export function hostSectionSummary(
-	summaries: readonly SessionSummary[],
-	nested: ReadonlySet<string> | undefined,
-): FoldSummary {
-	const signals: (FoldSignal | null)[] = [];
-	for (const summary of summaries) if (!nested?.has(summary.sessionPath)) signals.push(summaryRowState(summary).fold);
-	return foldSummary(signals);
+export function hostSectionSummary(summaries: readonly SessionSummary[]): FoldSummary {
+	return foldSummary(summaries.map(summary => summaryRowState(summary).fold));
 }

@@ -79,8 +79,13 @@ export interface SidebarFacts {
 	/** An Autopilot run's own session (`child: false`) or one of its children, keyed by run. */
 	runOf: (session: RowSession) => { key: string; child: boolean } | null;
 	archived: ReadonlySet<string>;
-	/** Session files and tab ids another section shows (a child nested under its opener elsewhere). */
+	/** Session files and tab ids another section shows (a child nested under its opener elsewhere): no row here. */
 	nested: ReadonlySet<string>;
+	/**
+	 * Sessions nested under a row outside this computer's projects (the bot's fixed row): children with an opener, so
+	 * never a loose child, and rows of their own project like any session.
+	 */
+	openedElsewhere?: ReadonlySet<string>;
 	order: RowOrder;
 	query: string;
 	nameOf: (group: string) => string;
@@ -120,6 +125,8 @@ export interface SidebarRows {
 	rootOf: ReadonlyMap<string, string>;
 	/** An Autopilot child's path → its run's folder. */
 	runParent: ReadonlyMap<string, string>;
+	/** The listed code rows whose folder is gone (never the finished OMPdesk worktrees, which no row lists). */
+	folderMissing: ReadonlySet<string>;
 }
 
 /** The key the sidebar orders a device's Chats section under. */
@@ -277,14 +284,21 @@ export interface BotFamilyFacts {
 	/** Every row before families take theirs (`SidebarRows.sessions` with nothing nested). */
 	sessions: readonly RowSession[];
 	recordedOpeners: ReadonlyMap<string, string>;
+	/** The computer's no-project workspace: a session there is a chat. */
+	workspace: string | null;
 }
 
 export interface BotFamily {
 	bot: string;
 	/** The rows that nest under the bot's fixed row, oldest first. */
 	sessions: RowSession[];
-	/** Their files, ids and the tabs that hold them: what the lists leave out (`SidebarFacts.nested`). */
+	/**
+	 * What the lists leave out (`SidebarFacts.nested`): the files, ids and tabs of its side chats and of the chats it
+	 * opened, which no project holds.
+	 */
 	keys: ReadonlySet<string>;
+	/** The other sessions of its family: rows of their own project too (`SidebarFacts.openedElsewhere`). */
+	placed: ReadonlySet<string>;
 	/**
 	 * Whether a session of this computer is the bot's: its own file, a conversation it ended, or one of its family. What
 	 * such a session opened, here or on a paired device, nests under the bot's row.
@@ -293,9 +307,9 @@ export interface BotFamily {
 }
 
 /**
- * What the bot opened, and what those opened, nests under its fixed row like any opener's family and leaves the lists:
- * the opener rule runs over the rows with the bot's session and its ended conversations as candidates, which no list
- * holds.
+ * What the bot opened, and what those opened, nests under its fixed row like any opener's family: the opener rule runs
+ * over the rows with the bot's session and its ended conversations as candidates, which no list holds. Its side chats
+ * and the chats it opened leave the lists; the bot's row is in no project, so every other one stays a row of its own.
  */
 export function botFamily(facts: BotFamilyFacts): BotFamily {
 	const { bot, ended, channels } = facts;
@@ -320,11 +334,13 @@ export function botFamily(facts: BotFamilyFacts): BotFamily {
 	const sessions = facts.sessions
 		.filter(session => owns(session.path))
 		.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
-	const keys = new Set(sessions.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
+	const left = sessions.filter(kid => channels.has(kid.path) || isChatSession(kid, facts.workspace));
+	const keys = new Set(left.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
 	for (const tab of facts.tabs)
 		if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
 			keys.add(tab.id);
-	return { bot, sessions, keys, owns };
+	const placed = new Set(sessions.flatMap(kid => (left.includes(kid) ? [] : [kid.path])));
+	return { bot, sessions, keys, placed, owns };
 }
 
 /**
@@ -359,10 +375,10 @@ export function remoteOpenedChildren(
 
 /**
  * The rows every view of one computer's sessions draws (its windows, its phone pages, a paired device's section of it):
- * `sidebarRows`, with the bot's family (`botFamily`, its tabs `bot.tabs`) left out of the lists for the bot's fixed
- * row, and where each tab a session of that computer opened on a paired device nests (`remoteOpenedChildren`): a tab
- * the view holds, or a stand-in for one another view of the computer holds. The openers the bot's rule reads are the
- * ones the rows record (`openedBySession`).
+ * `sidebarRows`, with the bot's family (`botFamily`, its tabs `bot.tabs`) under the bot's fixed row (its side chats and
+ * chats out of the lists, the rest rows of their own project too), and where each tab a session of that computer opened
+ * on a paired device nests (`remoteOpenedChildren`): a tab the view holds, or a stand-in for one another view of the
+ * computer holds. The openers the bot's rule reads are the ones the rows record (`openedBySession`).
  */
 export function familyRows(
 	facts: SidebarFacts,
@@ -380,10 +396,15 @@ export function familyRows(
 					typeof session.openedBySession === "string" ? [[session.path, session.openedBySession] as const] : [],
 				),
 			),
+			workspace: facts.workspace,
 		});
 	const rows =
-		family && family.keys.size > 0
-			? sidebarRows({ ...facts, nested: new Set([...facts.nested, ...family.keys]) })
+		family && family.sessions.length > 0
+			? sidebarRows({
+					...facts,
+					nested: new Set([...facts.nested, ...family.keys]),
+					openedElsewhere: family.placed,
+				})
 			: base;
 	return { rows, bot: family, remote: remoteOpenedChildren(remoteTabs, rows, family) };
 }
@@ -406,9 +427,10 @@ function byCreated(a: RowSession, b: RowSession): number {
  *   keeps its live row. A new tab nobody wrote to (`unstarted`) and the empty start tab have no row.
  * - Who holds a session: any tab of the viewer's (asleep and ghost ones too), and any the computer says it holds
  *   (`heldOnHost`, `usedThere`). Who uses it: those, but never a tab of the viewer's restored asleep or a ghost.
- * - A session another session's agent opened is a row of that opener's family, whatever its folder; one no opener row
- *   holds and nobody holds folds into its project's group, listed there only while it needs a look: one main recorded
- *   closing (`closed`), one an agent's brief opened, or one in an agent's worktree.
+ * - A session's project is its own folder's. A session another session's agent opened is also a row of that opener's
+ *   family, whatever its folder: only one in its opener's project lists there alone. One no opener row holds and
+ *   nobody holds folds into its project's group, listed there only while it needs a look: one main recorded closing
+ *   (`closed`), one an agent's brief opened, or one in an agent's worktree.
  * - A session whose OMPdesk worktree is gone is finished: no row anywhere, neither a project's nor a family's, unless
  *   a tab the person uses holds it; then it is a row of the project the worktree was cut from.
  * - Any other gone folder is still a project (dimmed) with its sessions; a project the person removed takes its
@@ -512,12 +534,25 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 			spelled.set(root, session.cwd);
 	}
 	const keyOf = (path: string) => spelled.get(path) ?? path;
+	// The group a session is a row of: an Autopilot child goes where its run goes; a linked worktree's session is a row
+	// of its project.
+	const groupOf = (session: RowSession): string => {
+		const project = facts.folder(runParent.get(session.path) ?? session.cwd).project;
+		return project === undefined ? session.cwd : keyOf(project);
+	};
 
 	const foldedRoot = new Map<string, string>();
 	for (const session of code) {
-		// Held or finished: never a loose child. A finished worktree's session is no row anywhere unless a tab the person
-		// uses holds it, whatever a record says of the checkout its work went to.
-		if (rootOf.has(session.path) || runParent.has(session.path) || held(session) || finished(session)) continue;
+		// Held, finished or nested under an opener: never a loose child. A finished worktree's session is no row anywhere
+		// unless a tab the person uses holds it, whatever a record says of the checkout its work went to.
+		if (
+			rootOf.has(session.path) ||
+			facts.openedElsewhere?.has(session.path) ||
+			runParent.has(session.path) ||
+			held(session) ||
+			finished(session)
+		)
+			continue;
 		const folder = facts.folder(session.cwd);
 		if (
 			facts.closed.has(session.path) ||
@@ -564,11 +599,14 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 		if (!draft.members.includes(member)) draft.members.push(member);
 		return draft;
 	};
+	const byPath = new Map(code.map(session => [session.path, session]));
 	for (const session of code) {
-		if (rootOf.has(session.path) || foldedRoot.has(session.path) || finished(session)) continue;
-		// An Autopilot child goes where its run goes; a linked worktree's session is a row of its project.
-		const project = facts.folder(runParent.get(session.path) ?? session.cwd).project;
-		const key = project === undefined ? session.cwd : keyOf(project);
+		if (foldedRoot.has(session.path) || finished(session)) continue;
+		const key = groupOf(session);
+		// Nested under its opener: a row of its own project too, unless that is its opener's.
+		const root = rootOf.get(session.path);
+		const opener = root === undefined ? undefined : byPath.get(root);
+		if (opener !== undefined && groupOf(opener) === key) continue;
 		if (removed.has(key) && !held(session)) continue;
 		draftOf(key, session.cwd).sessions.push(session);
 	}
@@ -658,5 +696,8 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 			session => facts.archived.has(session.id) && facts.hasContent(session) && !held(session) && matches(session),
 		)
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
-	return { sessions, listed, code, allGroups, groups, chats, archived, children, rootOf, runParent };
+	const folderMissing = new Set(
+		code.flatMap(session => (facts.folder(session.cwd).gone && !finished(session) ? [session.path] : [])),
+	);
+	return { sessions, listed, code, allGroups, groups, chats, archived, children, rootOf, runParent, folderMissing };
 }

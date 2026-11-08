@@ -93,15 +93,17 @@ export const en: Record<string, string> = {
 	"tabs.openElsewhere": "This session is already open on {device}.",
 	"tabs.kindMismatch":
 		"That session has a different type. Agent and chat sessions can't be converted, so open it from the session list instead.",
-	"tabs.folderMissing":
-		"The folder this session worked in ({folder}) is gone and wasn't saved, so the session won't open in another folder. It stays in your list until you delete it.",
-	"tabs.folderSaved.title": "This session's folder was tidied away",
-	"tabs.folderSaved":
-		"Disk care removed {folder} after saving it: its branch, uncommitted work and private files. Restore it to continue the session there.",
-	"tabs.folderSaved.restore": "Restore",
-	"sessionFolder.gone": "Folder removed",
+	"sessionFolder.gone": "Folder missing",
 	"sessionFolder.goneTip":
-		"The folder this session worked in is gone. Opening it offers Restore when disk care saved it.",
+		"The folder this session worked in is gone. Opening it shows the transcript, with Restore when disk care saved the folder, else Archive.",
+	"sidebar.folderMissingTip": "Folder missing: {folder}",
+	"missingFolder.banner":
+		"The folder this session worked in ({folder}) is gone, so it can't continue there. Its transcript is read-only.",
+	"missingFolder.bannerSaved":
+		"The folder this session worked in ({folder}) is gone. Disk care saved it first: its branch, uncommitted work and private files. Restore it to continue the session there; until then the transcript is read-only.",
+	"missingFolder.restore": "Restore",
+	"missingFolder.archive": "Archive",
+	"missingFolder.restoreFailed": "Couldn't restore {folder}. The saved copy is still kept, so you can try again.",
 	"tabs.menu.splitRight": "Split right",
 	"tabs.menu.splitBottom": "Split below",
 	"tabs.menu.removeSplit": "Exit split view",

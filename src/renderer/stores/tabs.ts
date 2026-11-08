@@ -883,24 +883,21 @@ export const useTabsStore = create<TabsStore>()((set, get) => ({
 					toast({ variant: "error", title: translate("tabs.newFailed"), message: translate("tabs.kindMismatch") });
 					return null;
 				}
-				if (result.tabId === null && result.refusal === "folder-missing") {
+				// A stored session whose folder is gone never resumes there: its transcript opens read-only with Restore (disk
+				// care saved the worktree) or Archive.
+				if (result.tabId === null && result.refusal === "folder-missing" && args?.sessionPath) {
 					const folder = result.folder ?? "";
-					// Disk care saved the folder before it removed it: Restore puts the worktree back and opens the session there.
-					if (result.saved && !args?.restoreSaved) {
-						const again = { ...args, restoreSaved: true };
+					if (args.restoreSaved)
 						toast({
-							variant: "warning",
-							title: translate("tabs.folderSaved.title"),
-							message: translate("tabs.folderSaved", { folder }),
-							action: { label: translate("tabs.folderSaved.restore"), run: () => void get().openTab(again) },
-							durationMs: Number.POSITIVE_INFINITY,
+							variant: "error",
+							title: translate("tabs.newFailed"),
+							message: translate("missingFolder.restoreFailed", { folder }),
 						});
-						return null;
-					}
-					toast({
-						variant: "error",
-						title: translate("tabs.newFailed"),
-						message: translate("tabs.folderMissing", { folder }),
+					useUiStore.getState().openMissingFolder({
+						sessionPath: args.sessionPath,
+						...(device === undefined ? {} : { device }),
+						folder,
+						...(result.saved ? { saved: result.saved } : {}),
 					});
 					return null;
 				}
