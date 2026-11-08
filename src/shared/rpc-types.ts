@@ -169,6 +169,7 @@ export type RpcCommand =
 	| { id?: string; type: "agent_control_confirm"; title: string; message: string }
 	| { id?: string; type: "agent_control_note"; text: string }
 	| { id?: string; type: "agent_control_worker"; from: string }
+	| { id?: string; type: "agent_control_turn" }
 	| {
 			id?: string;
 			type: "agent_control_bot";

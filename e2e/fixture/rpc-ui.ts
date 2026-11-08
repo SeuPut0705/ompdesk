@@ -1361,6 +1361,12 @@ export function runRpcUi(): void {
 	let relayServer: { server: { stop(): void }; url: string; token: string } | null = null;
 	/** `prompt_origin_set` calls whose prompt has not been sent yet. */
 	const pendingOrigins: Array<{ deviceId: string; name: string; text: string }> = [];
+	/**
+	 * gui-bridge turn-origin.ts: the text main last said a person typed (`typed_prompt`), and whether the person's typed
+	 * message started the current run (a prompt that starts one with that text; a report's woken turn never).
+	 */
+	let typedNext: string | undefined;
+	let personRun = false;
 	/** OMPdesk control tools' confirmation cards (`agent_control.confirm`) waiting for the person's answer. */
 	const agentCards = new Map<string, Reply>();
 	/**
@@ -1498,6 +1504,7 @@ export function runRpcUi(): void {
 		},
 		"agent_control.note": () => ({}),
 		"agent_control.worker": () => ({}),
+		"agent_control.turn": () => ({ person: personRun }),
 		// gui-bridge agent-control.ts: which markers of main's messages the journal holds, and this process. As stock,
 		// a follow-up queued while a turn runs lives only in this process (`lanes`): a quit loses it.
 		"agent_control.sent": params => ({
@@ -1531,6 +1538,7 @@ export function runRpcUi(): void {
 			write({ type: "message_end", message: mail });
 			if (params.triggerTurn === true && !isStreaming) {
 				isStreaming = true;
+				personRun = false;
 				write({ type: "agent_start" });
 				const answer: AgentMessage = {
 					role: "assistant",
@@ -1574,7 +1582,10 @@ export function runRpcUi(): void {
 		},
 		// gui-bridge typed-prompts.ts: main's word that a person typed the message about to come, and whether it joins the
 		// running turn (recorded like every bridge request: specs read `typed_prompt {text, steer}` before the command).
-		typed_prompt: () => ({ ok: true }),
+		typed_prompt: params => {
+			typedNext = String(params.text ?? "").trim();
+			return { ok: true };
+		},
 		capabilities: () => ({
 			ompVersion: FIXTURE_OMP_VERSION,
 			unavailable:
@@ -6651,6 +6662,10 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 						"Agent is already processing. Use steer() or followUp() to queue messages, or wait for completion.",
 					);
 					break;
+				}
+				if (!isStreaming) {
+					personRun = typedNext !== undefined && typedNext === text("message").trim();
+					typedNext = undefined;
 				}
 				if (autopilot.childPrompt(text("message"), ok)) break;
 				if (process.env.OMP_GUI_TEST_AUTO_PLAN_PROPOSES && autoPlan && planModeEnabled) {

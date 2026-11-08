@@ -45,6 +45,11 @@ export const handlers: Record<string, LocalHandler> = {
 		await ctx.bridge.request("agent_control.worker", { from });
 		return {};
 	},
+	/** Whether the person's own typed message started this tab's current run (gui-bridge turn-origin.ts). */
+	agent_control_turn: async (_command, ctx) => {
+		const { person } = await ctx.bridge.request<{ person?: unknown }>("agent_control.turn", {});
+		return { person: person === true };
+	},
 	/**
 	 * This session is the owner's bot (or one of its side chats, `channel` = its topic): these are the owner's rules for
 	 * its actions and its desk as its prompt carries it (duties, memories, identity: `botRoleDesk`, each empty when there

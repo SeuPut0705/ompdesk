@@ -598,6 +598,8 @@ const LINK_POLL_MS = 250;
 const ABORT_BEFORE_CLOSE_MS = 3_000;
 /** A plain stop waits this long for stock's abort to confirm; a delete, which needs the turn over, as long. */
 const STOP_WAIT_MS = 30_000;
+/** The caller's omp says who started its run within this; a bridge request, no model call. */
+const PERSON_TURN_WAIT_MS = 5_000;
 /** A close is confirmed by the window dropping the tab within this. */
 const CLOSE_WAIT_MS = 5_000;
 /** After the tab is gone, its omp gets this long to exit before the close is reported anyway. */
@@ -790,6 +792,12 @@ function label(tab: ControlTab): string {
 	if (tab.hidden) return `${tab.tabId} (hidden from agents)`;
 	const folder = tab.cwd.split(/[\\/]/).filter(Boolean).pop() ?? tab.cwd;
 	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
+}
+
+/** Why a session the person looks at or typed into is not stopped, closed or deleted. */
+function inUseRefusal(tab: ControlTab, args: { close?: boolean; delete?: boolean }): string {
+	const outcome = args.delete ? "it was not deleted" : args.close ? "it stays open" : "it keeps running";
+	return `${label(tab)} is in the user's view or they typed into it, and your current turn was not started by the user's own message (another agent's message, a report, a schedule or Autopilot started it): ${outcome}. Only a turn the user's own message starts may stop, close or delete it; ask the user.`;
 }
 
 /** "next 2026-…" ("next —" while every schedule is paused), "off", "done" (a once that ran), "waits for its event". */
@@ -3233,7 +3241,8 @@ export class AgentControl {
 
 	/**
 	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
-	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone.
+	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone. A session the person
+	 * looks at or typed into is stopped, closed or deleted only in a turn their own message started (`#personTurn`).
 	 */
 	async #stop(
 		caller: ControlTab,
@@ -3244,12 +3253,14 @@ export class AgentControl {
 		this.#refuseHidden(target, caller);
 		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
 		const params = { caller: caller.title || "—", target: target.title || target.tabId };
+		let byPerson: boolean | undefined;
+		const personAsked = async () => (byPerson ??= await this.#personTurn(caller));
+		const inUse = (tab: ControlTab) => tab.looked === true || tab.userTouched === true;
+		if (inUse(target) && !(await personAsked())) fail(inUseRefusal(target, args));
 		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
 		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
-		const resting = !target.busy && !waits(target) && !target.looked && !target.userTouched;
+		const resting = !target.busy && !waits(target) && !inUse(target);
 		const harmless = args.close === true && !args.delete && resting;
-		if (args.close && !args.delete && (target.looked || target.userTouched))
-			fail(`${label(target)} is in the user's view or they typed into it; leave it open, or ask the user.`);
 		if (!own && !harmless && !this.#host.fullEnabled() && (args.delete === true || !this.#host.manageEnabled())) {
 			const approved = await this.#host.confirm(
 				caller.tabId,
@@ -3272,14 +3283,18 @@ export class AgentControl {
 					args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS,
 				);
 			if (args.delete) {
+				// The card and the lines took time: the person may have opened it meanwhile.
+				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
+				if (now && inUse(now) && !(await personAsked())) fail(inUseRefusal(target, args));
 				await this.#deleteWhenIdle(caller, target);
 				this.#rememberDeleted(idsOf(target));
 			} else if (args.close) {
-				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && (now.looked || now.userTouched))
-					fail(`${label(target)} came into the user's view meanwhile; it stays open.`);
-				const outcome = await this.#closeTab(caller.tabId, target.tabId, { waitMs: CLOSE_WAIT_MS });
+				if (now && inUse(now) && !(await personAsked())) fail(inUseRefusal(target, args));
+				const outcome = await this.#closeTab(caller.tabId, target.tabId, {
+					waitMs: CLOSE_WAIT_MS,
+					...(byPerson ? { byPerson } : {}),
+				});
 				if (outcome === "kept")
 					fail(
 						`${label(target)} is still open: its window kept the tab (it is that window's last tab, or it holds unsaved Files edits). Ask the user to close it; its session is saved either way.`,
@@ -3305,6 +3320,20 @@ export class AgentControl {
 		if (confirmed || !this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId)?.busy)
 			return `Stopped ${label(target)}.`;
 		return `Asked ${label(target)} to stop; it has not confirmed after ${STOP_WAIT_MS / 1000} s (a tool or subagent is still unwinding) and stops once that ends. Check it with ompdesk_session_result {"session":"${target.tabId}"}, or end it now with ompdesk_session_stop {"session":"${target.tabId}","close": true} (closing ends its omp; the session stays saved).`;
+	}
+
+	/**
+	 * Whether the person's own typed message started the caller's current run, as its omp's bridge says (gui-bridge
+	 * turn-origin.ts, from main's `typed_prompt` word, never the text). Another agent's message, a report, a schedule,
+	 * Autopilot or a relaunch's continuation did not; an outside process has no omp to ask, and an omp that cannot say
+	 * counts as not.
+	 */
+	async #personTurn(caller: ControlTab): Promise<boolean> {
+		const response = await this.#host
+			.command(caller.tabId, { type: "agent_control_turn" }, PERSON_TURN_WAIT_MS)
+			.catch(() => undefined);
+		const data = response?.success === true ? response.data : undefined;
+		return typeof data === "object" && data !== null && "person" in data && data.person === true;
 	}
 
 	/** Stock's abort, answered within `waitMs` (true) or not yet (false); it is sent either way and never fails. */
@@ -3997,14 +4026,19 @@ export class AgentControl {
 
 	/**
 	 * Close one open tab and wait for it to be gone, as `tabCloseStep` decides from the tab now. `kept`: the tab is
-	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's.
+	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's. `byPerson`: the
+	 * person's own message asked for the close (`#personTurn`).
 	 */
-	async #closeTab(callerTabId: string, tabId: string, how: { auto?: boolean; waitMs: number }): Promise<TabClose> {
+	async #closeTab(
+		callerTabId: string,
+		tabId: string,
+		how: { auto?: boolean; waitMs: number; byPerson?: boolean },
+	): Promise<TabClose> {
 		const tabs = this.#host.tabs(callerTabId);
 		if (!tabs) return "kept";
 		const tab = tabs.find(entry => entry.tabId === tabId);
 		if (!tab) return "closed";
-		const step = tabCloseStep(tab);
+		const step = tabCloseStep(tab, how.byPerson === true);
 		if (step.action === "keep") return step.reason === "dirty" ? "dirty" : "kept";
 		if (step.action === "ask-window")
 			this.#host.view(callerTabId, { tabId, how: "close", ...(how.auto ? { auto: true } : {}) });

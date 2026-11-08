@@ -101,6 +101,7 @@ const AREAS: readonly Area[] = [
 	{ name: "stream-metadata", features: ["streamMetadata"], load: () => import("./stream-metadata") },
 	{ name: "browser-relay", features: ["agentBrowser"], load: () => import("./browser-relay") },
 	{ name: "agent-control", features: ["agentControl"], load: () => import("./agent-control") },
+	{ name: "turn-origin", features: ["agentControl"], load: () => import("./turn-origin") },
 	{ name: "modes/autopilot", features: ["autopilot"], load: () => import("./modes/autopilot") },
 	{ name: "desktop-slot", features: ["desktopSlot"], load: () => import("./desktop-slot") },
 	{ name: "session-dump", features: ["sessionDump"], load: () => import("./session-dump") },

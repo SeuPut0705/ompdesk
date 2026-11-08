@@ -570,7 +570,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Stop OMPdesk session",
 		description:
 			"Stop another session's work; optionally close or delete it.\n" +
-			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, or the id its tab had before it closed this launch, with device for a paired device's). Sessions you opened, closed ones included: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final).",
+			"Stop another session's running work; close: true also closes its tab (the session stays saved), delete: true also deletes the saved session (also one no tab holds: its stored id, or the id its tab had before it closed this launch, with device for a paired device's). Sessions you opened, closed ones included: no question asked. Other sessions: stop and close need no card by default (the user may turn that off); deleting one's saved session always asks the user first (a refusal is final). A session the user looks at or typed into is stopped, closed or deleted only in a turn the user's own message to you started; in a turn another agent's message, a report, a schedule or Autopilot started it is refused.",
 		parameters: {
 			type: "object",
 			properties: {

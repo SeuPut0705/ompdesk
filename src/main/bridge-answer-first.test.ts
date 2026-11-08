@@ -169,13 +169,15 @@ describe("answer-first gate", () => {
 });
 
 describe("typed prompts", () => {
-	it("lets each reader take a note once and drops it once both did", () => {
+	it("lets each reader take a note once and drops it once every reader did", () => {
 		const typed = createTypedPrompts();
 		typed.note("  a question \n", true);
 		expect(typed.take("a question", "recall")).toEqual([{ text: "a question", steer: true }]);
 		expect(typed.take("a question", "recall")).toEqual([]);
 		expect(typed.size()).toBe(1);
 		expect(typed.take("a question", "answerFirst")).toEqual([{ text: "a question", steer: true }]);
+		expect(typed.size()).toBe(1);
+		expect(typed.take("a question", "turn")).toEqual([{ text: "a question", steer: true }]);
 		expect(typed.size()).toBe(0);
 	});
 

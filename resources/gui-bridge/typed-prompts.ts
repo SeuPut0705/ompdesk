@@ -5,10 +5,11 @@
  * an agent's wrapped message, Autopilot's own prompts, a relaunch's continuation or a retry). `steer` says the sender
  * meant it to join the running turn (stock `steer`, or `prompt` with `streamingBehavior: "steer"`).
  *
- * Two readers find a note at the turn that delivers its text (`before_agent_start`, whose `prompt` is the text or,
- * for a batch of queued messages, the texts joined): memory recall in an Autopilot run (modes/memory-recall.ts) and
- * the answer-first companion (answer-first.ts). Each takes a note once for itself; a note is dropped once every
- * reader took it, or after {@link TYPED_TTL_MS}, or past {@link TYPED_MAX} newer ones.
+ * Readers find a note at the turn that delivers its text (`before_agent_start`, whose `prompt` is the text or, for a
+ * batch of queued messages, the texts joined): memory recall in an Autopilot run (modes/memory-recall.ts) and the
+ * answer-first companion (answer-first.ts); and at the user message itself (`message_start`): who started the run
+ * (turn-origin.ts). Each takes a note once for itself; a note is dropped once every reader took it, or after
+ * {@link TYPED_TTL_MS}, or past {@link TYPED_MAX} newer ones.
  *
  * No omp imports: the GUI's vitest loads this file directly (src/main/bridge-answer-first.test.ts).
  */
@@ -17,8 +18,8 @@
 export const TYPED_TTL_MS = 30 * 60_000;
 export const TYPED_MAX = 16;
 
-export type TypedReader = "recall" | "answerFirst";
-const READERS: readonly TypedReader[] = ["recall", "answerFirst"];
+export type TypedReader = "recall" | "answerFirst" | "turn";
+const READERS: readonly TypedReader[] = ["recall", "answerFirst", "turn"];
 
 export interface TypedPrompt {
 	text: string;

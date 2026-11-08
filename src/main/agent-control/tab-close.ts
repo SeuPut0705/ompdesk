@@ -5,9 +5,9 @@
  *
  * A desktop window closes its own tab when asked and refuses one in use, with unsaved Files edits or its last. A
  * paired web page's window may have no socket (the ask would be dropped), so main releases that tab itself, unless a
- * live connection of the page reported unsaved Files edits in it (`FileEditReports`) or the person is at it. A page
- * that is offline or has said nothing since launch (`unreported`) does not hold the tab: the user's rule is that a
- * finished child closes.
+ * live connection of the page reported unsaved Files edits in it (`FileEditReports`) or the person is at it and did not
+ * ask for the close in their own message (`byPerson`). A page that is offline or has said nothing since launch
+ * (`unreported`) does not hold the tab: the user's rule is that a finished child closes.
  */
 import type { FileEdits } from "../web/file-edit-reports";
 
@@ -28,9 +28,9 @@ export type TabCloseStep =
 	/** `dirty`: a live connection of its page reported unsaved Files edits in it; `in-use`: the person is at it. */
 	| { action: "keep"; reason: "dirty" | "in-use" };
 
-export function tabCloseStep(tab: TabCloseFacts): TabCloseStep {
+export function tabCloseStep(tab: TabCloseFacts, byPerson = false): TabCloseStep {
 	if (tab.webEdits === undefined) return { action: "ask-window" };
 	if (tab.webEdits === "dirty") return { action: "keep", reason: "dirty" };
-	if (tab.looked || tab.userTouched) return { action: "keep", reason: "in-use" };
+	if (!byPerson && (tab.looked || tab.userTouched)) return { action: "keep", reason: "in-use" };
 	return { action: "release" };
 }
