@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.119.5] - 2026-11-08
+
+내가 직접 닫으라고 한 세션은 이제 에이전트가 닫을 수 있고, 다른 기기의 탭이 열고 있는 세션에도 메시지가 닿아요. 게시되지 못한 0.119.4의 고침도 이 버전에 들어 있어요.
+
+### 고친 것
+- 내가 보고 있거나 입력하던 세션은 에이전트가 멈추거나 닫거나 지우지 못하게 막는데, 내가 직접 "닫아"라고 시켜도 막혀서 탭을 손으로 닫아야 했어요. 이제 내가 보낸 메시지로 시작한 턴은 그렇게 할 수 있어요. 다른 에이전트의 메시지, 보고, 예약 실행, 오토파일럿, 이어하기로 시작한 턴은 여전히 막히고, 오류가 그 이유를 말해요.
+- 페어링한 컴퓨터에서 다른 기기의 탭이 열고 있는 세션에 메시지를 보내거나 답하거나 보여 달라고 하면 "저장됐지만 어느 탭에도 열려 있지 않음"으로 실패했고, 다시 열면 그 세션이 부른 쪽의 하위 세션이 됐어요. 이제 그 탭에 합류해서(두 번째 omp 없이) 닿고, 하위 세션이 되지 않아요. `ompdesk_sessions`는 이 앱이 열지 않은 탭에 열린 모든 컴퓨터의 세션을 그 기기와 함께 보여 줘요.
+- 다른 프로젝트 폴더나 페어링한 컴퓨터에서 열린 하위 세션은 연 세션 아래와 자기 프로젝트 양쪽에 같은 세션으로 보여요.
+- 폴더가 사라진 세션은 프로젝트에 "폴더 없음"으로 남고, 누르면 오류 알림 대신 기록을 읽기 전용으로 열어요. 디스크 정리가 폴더를 저장해 두었으면 되살리기, 아니면 보관 버튼이 나와요.
+- 봇의 이름은 끝난 이전 대화가 아니라 지금 대화로 이어져요. 끝난 대화는 탭 이름과 제목 줄에 "<이름> · 지난 대화 MM-DD"로 보이고, 페어링한 기기에서는 그 대화의 탭이 닫혀요. 봇이 대화를 새로 바꿔도 이전 대화가 지워졌다고 기기에 알리지 않아요(7일 동안 읽을 수 있어요).
+- 0.119.4: 다른 세션에 보낸 메시지가 거절되면 "전달되지 않음"과 이유를 돌려주고, 1.5초 안에 턴이 시작되지 않으면 시작한다고 약속하지 않아요.
+
+<!-- en -->
+
+An agent may now close a session you told it to close, and a message reaches a session another device's tab holds. The fixes of 0.119.4, which was never published, are in this version too.
+
+### Fixed
+- The guard that keeps an agent from stopping, closing or deleting a session you look at or typed into refused even when you had just told it to close it, so you closed the tab by hand. A turn your own message started may now do it. A turn another agent's message, a report, a schedule, Autopilot or a continuation started is still refused, and the error says why.
+- On a paired computer, a send, an answer or a show aimed at a session another device's tab held failed with "saved but not open in any tab", and reopening it made it the caller's child. It now joins that tab (no second omp) and records no parent. `ompdesk_sessions` lists every computer's sessions open in tabs this app does not hold, with the holding device.
+- A child opened in another project's folder, or on a paired computer, is a row under its opener and of its own project, the same session in both places.
+- A session whose folder is gone stays a row of its project marked "Folder missing". Selecting it opens its transcript read-only instead of a toast, with Restore when disk care saved the folder, else Archive.
+- The bot's name reaches its live conversation, never an ended one. Tab names and the title bar read an ended one as "<name> · earlier conversation MM-DD", and a paired device closes its tabs on it. The bot's renewal no longer tells devices the old conversation was deleted (it stays to read for 7 days).
+- From 0.119.4: a send the receiving omp refused returns an error saying it was not delivered, with the reason, and one with no turn seen starting within 1.5 s no longer promises a turn.
+
 ## [0.119.4] - 2026-11-08
 
 다른 세션에 보낸 메시지가 전달되지 않았거나 턴을 시작하지 않았는데도 "받았고 시작한다"고 답하던 문제를 고쳤어요.
