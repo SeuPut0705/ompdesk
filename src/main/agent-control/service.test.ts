@@ -924,6 +924,52 @@ describe("ompdesk_session_send", () => {
 		expect(prompts(host, "work0002")).toEqual([wrapAgentMessage("please review", "Boss")]);
 	});
 
+	it("says nothing was delivered when the target's omp refuses the message (an ended bot conversation)", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Old bot" });
+		const command = host.command;
+		host.command = async (tabId, request, timeoutMs) => {
+			if (tabId === "work0002" && request.type === "prompt") {
+				host.sent.push({ tabId, command: request });
+				return {
+					...bad(
+						"This is an earlier conversation of the bot, kept to read. Write to the bot in its current conversation.",
+					),
+					code: "bot_conversation_ended",
+				} as RpcResponse;
+			}
+			return command.call(host, tabId, request, timeoutMs);
+		};
+		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("Not delivered");
+		expect(result.text).toContain("earlier conversation of the bot, kept to read");
+		expect(result.text).not.toContain("accepted");
+		expect((host.tabsById.get("work0002") as FakeTab).busy).toBeFalsy();
+	});
+
+	it("never promises a turn it did not see start", async () => {
+		vi.useFakeTimers();
+		try {
+			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
+			const command = host.command;
+			// The omp takes the prompt but no turn follows (its busy flag never rises).
+			host.command = async (tabId, request, timeoutMs) => {
+				if (tabId === "work0002" && request.type === "prompt") {
+					host.sent.push({ tabId, command: request });
+					return ok();
+				}
+				return command.call(host, tabId, request, timeoutMs);
+			};
+			const sending = control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
+			await vi.advanceTimersByTimeAsync(5_000);
+			const result = await sending;
+			expect(result.text).not.toContain("starts on it");
+			expect(result.text).toContain("no turn started");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("waits while the person types into the target, then sends; gives up after a minute with nothing sent", async () => {
 		vi.useFakeTimers();
 		try {
