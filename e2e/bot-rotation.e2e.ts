@@ -12,7 +12,7 @@ import { chromium, expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
 import { fixtureTailscale } from "./fixture/fake-tailscale-install";
 import { phonePaired, ServeProxy, serveSites } from "./fixture/phone-serve";
-import { captureTo, cssString, exitApp, fixtureOmp, launchApp } from "./harness";
+import { captureTo, controlToolCaller, cssString, exitApp, fixtureOmp, launchApp, untilAnswered } from "./harness";
 import { connectHost, launchRemote, makeRemoteProfile, type RemoteInstance } from "./remote-harness";
 
 const SHOTS = process.env.OMPDESK_BOT_SHOTS;
@@ -224,6 +224,119 @@ test("a paired computer's bot row follows the host's renewal, and opens the fres
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
 	for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
+});
+
+test("a paired computer away for the renewal closes its tab on the ended conversation, and the bot's name reaches the live one", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-bot-rotation-away-"));
+	let host: RemoteInstance | undefined;
+	let client: RemoteInstance | undefined;
+	const errors: string[] = [];
+	try {
+		const hostProfile = await makeRemoteProfile(parent, "host", {
+			language: "en",
+			theme: "light",
+			prefs: { botEnabled: true },
+		});
+		const clientProfile = await makeRemoteProfile(parent, "client", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const deviceId = await connectHost(host.page, client.page, "PC-B");
+		const hostPage = host.page;
+		await expect.poll(() => prefPath(hostPage, "bot"), { timeout: 30_000 }).not.toBe("");
+		const first = await prefPath(hostPage, "bot");
+		const hostBotTab = await openBot(hostPage, first);
+		const botName =
+			(await hostPage.evaluate(() => window.omp.sessions.list("global"))).find(row => row.path === first)?.title ??
+			"";
+		expect(botName).not.toBe("");
+		// The device opens the host's bot: a tab of its own on the conversation.
+		const section = client.page.locator(`[data-sidebar-device=${cssString(deviceId)}]`);
+		await section.locator("[data-sidebar-bot-row]").click();
+		const deviceTabsOn = async (page: Page, sessionPath: string) =>
+			(await page.evaluate(() => window.omp.tabs.list())).filter(
+				tab => tab.device === deviceId && tab.sessionPath === sessionPath,
+			);
+		await expect
+			.poll(async () => (await deviceTabsOn(client?.page as Page, first)).length, { timeout: 60_000 })
+			.toBe(1);
+
+		// It quits (its layout keeps that tab); the host's bot renews while it is away.
+		await exitApp(client.app);
+		errors.push(...client.errors);
+		client = undefined;
+		await hostPage.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
+		const second = await renewedFrom(hostPage, first);
+		// The live conversation answers a turn; the ended one never did, so a read tells them apart.
+		await expect
+			.poll(
+				async () =>
+					(await hostPage.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === hostBotTab)
+						?.sessionPath,
+			)
+			.toBe(second);
+		await hostPage.evaluate(
+			id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "Live bot check" }),
+			hostBotTab,
+		);
+		await untilAnswered(hostPage, hostBotTab, { after: "Live bot check" });
+
+		// Relaunched, its restored tab on the ended conversation closes once its copy of the host's list says so (that
+		// tab is its only one and starts with the link, so nothing waits for a ready start tab here).
+		client = await launchRemote(clientProfile, { project: false, ready: false });
+		const clientPage = client.page;
+		await expect
+			.poll(async () => (await clientPage.evaluate(() => window.omp.remote.getState())).hosts[0]?.state, {
+				timeout: 30_000,
+			})
+			.toBe("online");
+		await expect.poll(async () => (await deviceTabsOn(clientPage, first)).length, { timeout: 60_000 }).toBe(0);
+
+		// Nothing was deleted: it opens again to read, from the host's bot's earlier conversations, named as an earlier one.
+		await clientPage.locator(`[data-sidebar-device=${cssString(deviceId)}] [data-sidebar-bot-row]`).click();
+		const past = clientPage.locator(`[data-bot-past-open=${cssString(first)}]`);
+		await expect(past).toBeVisible({ timeout: 60_000 });
+		await past.click();
+		let reading = "";
+		await expect
+			.poll(async () => (reading = (await deviceTabsOn(clientPage, first))[0]?.tabId ?? ""), { timeout: 60_000 })
+			.not.toBe("");
+		await expect(clientPage.locator("[data-bot-ended-note]")).toBeVisible({ timeout: 60_000 });
+		await expect(clientPage.locator("[data-titlebar-session-name] [data-title-name]")).toHaveText(
+			/· earlier conversation \d\d-\d\d$/,
+			{ timeout: 30_000 },
+		);
+		await captureTo(SHOTS, clientPage, "bot-rotation-device-earlier");
+
+		// An agent on the device: the ended conversation's tab is marked, and the bot's name reaches the live one.
+		const own =
+			(await clientPage.evaluate(cwd => window.omp.tabs.spawn({ cwd }), clientProfile.project))?.tabId ?? "";
+		await expect
+			.poll(
+				async () =>
+					(await clientPage.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === own)?.status,
+				{
+					timeout: 60_000,
+				},
+			)
+			.toBe("ready");
+		const callTool = await controlToolCaller(clientPage, clientProfile.record, own);
+		const listed = await callTool("ompdesk_sessions", { scope: "app" });
+		expect(listed.text).toMatch(new RegExp(`${reading} "[^"\\n]+" \\[[^\\]\\n]*earlier conversation of the bot`));
+		// Read by the bot's name: the live conversation's reply, on the host.
+		const read = await callTool("ompdesk_session_read", { session: botName });
+		expect(read.isError, read.text).toBe(false);
+		expect(read.text).toContain("Local fixture reply");
+	} finally {
+		for (const instance of [client, host]) if (instance) await exitApp(instance.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+	}
+	for (const instance of [client, host]) errors.push(...(instance?.errors ?? []));
+	expect(errors).toEqual([]);
 });
 
 test("the phone's page (390 px) renews the bot and shows the fresh conversation with its handoff", async () => {

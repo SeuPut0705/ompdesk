@@ -65,11 +65,13 @@ import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import {
+	type BotRowFacts,
 	sessionDisplayParts,
 	sessionDisplayTitle,
 	sessionTitleParts,
 	shownSessionName,
 	type TitleParts,
+	withEndedBotMark,
 } from "../lib/session-title";
 import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { isSessionHeld } from "../lib/tab-signal";
@@ -500,25 +502,8 @@ export function tabAutoTitle(tab: SessionTab, listed?: Pick<SessionInfo, "title"
 	return listed && shown && shownSessionName(listed.title ?? "") === shown ? listed.autoTitle : undefined;
 }
 
-/** What a listed row says of a conversation the bot ended (absent from an older host's rows). */
-type BotRowFacts = Partial<Pick<SessionInfo, "bot" | "created">>;
 /** The listed row fields a tab's name reads: the automatic title, and whether the bot ended the conversation. */
 type TabRow = Pick<SessionInfo, "title" | "autoTitle"> & BotRowFacts;
-
-/**
- * A conversation the bot ended (`SessionInfo.bot` past, as the computer the bot runs on lists it) reads as an earlier
- * one, with the day it began, wherever its tab shows: "봇봇이 · 지난 대화 11-02". It carries the bot's name, so the
- * live bot and its earlier conversations would otherwise read alike.
- */
-function endedBotMark(parts: TitleParts, row: BotRowFacts | undefined): TitleParts {
-	if (row?.bot !== "past") return parts;
-	const began = row.created ? new Date(row.created) : null;
-	const day =
-		began && !Number.isNaN(began.getTime())
-			? `${String(began.getMonth() + 1).padStart(2, "0")}-${String(began.getDate()).padStart(2, "0")}`
-			: "";
-	return { ...parts, title: `${parts.title} · ${translate("tabs.endedBotConversation", { day }).trim()}` };
-}
 
 /**
  * `tabChipLabel` as parts: the tab's own title with its automatic title beside it. Untitled and task names stand
@@ -526,7 +511,7 @@ function endedBotMark(parts: TitleParts, row: BotRowFacts | undefined): TitlePar
  */
 export function tabChipParts(tab: SessionTab, tabs: readonly SessionTab[], listed?: TabRow): TitleParts {
 	const label = tabChipLabel(tab, tabs);
-	return endedBotMark(
+	return withEndedBotMark(
 		shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label },
 		listed,
 	);
@@ -545,7 +530,7 @@ export function tabDisplayParts(
 	listed?: TabRow,
 ): TitleParts {
 	return indexedSession
-		? endedBotMark(
+		? withEndedBotMark(
 				sessionDisplayParts(
 					{
 						...indexedSession,

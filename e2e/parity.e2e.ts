@@ -197,6 +197,24 @@ if (dir) {
 				const value = await b.evaluate(() => window.omp.prefs.get("bot"));
 				return typeof value === "string" ? value : "";
 			};
+			/** The newest conversation the bot ended; the bot renews first when it has ended none yet. */
+			const endedBotConversation = async () => {
+				const newestEnded = () =>
+					b.evaluate(
+						async () =>
+							(await window.omp.sessions.list("global"))
+								.filter(row => row.bot === "past")
+								.sort((x, y) => y.created.localeCompare(x.created))[0]?.path ?? "",
+					);
+				if (!(await newestEnded())) {
+					const before = await botConversation();
+					await b.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
+					await expect.poll(botConversation, { timeout: 60_000 }).not.toBe(before);
+				}
+				let ended = "";
+				await expect.poll(async () => (ended = await newestEnded()), { timeout: 30_000 }).not.toBe("");
+				return ended;
+			};
 			let botPath = "";
 			await expect.poll(async () => (botPath = await botConversation()), { timeout: 30_000 }).not.toBe("");
 			await b.locator("[data-sidebar-bot-row]").first().click();
@@ -353,13 +371,36 @@ if (dir) {
 					? work
 					: session === "reply"
 						? replySession()
-						: { path: await botConversation(), cwd: botCwd };
+						: session === "bot-ended"
+							? { path: await endedBotConversation(), cwd: botCwd }
+							: { path: await botConversation(), cwd: botCwd };
+			/**
+			 * Open the bot's ended conversation `sessionPath` on `page` as its owner does: the bot's row (`botRow`, on the
+			 * bot's current conversation), then that conversation in the bot's earlier conversations.
+			 */
+			const openEnded = async (page: Page, botRow: Locator, sessionPath: string) => {
+				await openRow(page, botRow, await botConversation());
+				await page
+					.locator(`[data-bot-past-open=${cssString(sessionPath)}]`)
+					.first()
+					.click({ timeout: 30_000 });
+				await expect
+					.poll(
+						async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.sessionPath,
+						{ timeout: 30_000 },
+					)
+					.toBe(sessionPath);
+			};
 			/** The phone's tab on each of B's session files. */
 			const phoneTabs = new Map<string, string>();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
 				local: async session => {
 					const { path: sessionPath } = await hostSession(session);
+					if (session === "bot-ended") {
+						await openEnded(b, b.locator("[data-sidebar-bot-row]").first(), sessionPath);
+						return;
+					}
 					await openRow(
 						b,
 						session === "bot"
@@ -370,11 +411,12 @@ if (dir) {
 				},
 				remote: async session => {
 					const { path: sessionPath } = await hostSession(session);
-					await openRow(
-						a,
-						a.locator(`[data-sidebar-device="${deviceId}"] [data-device-session=${cssString(sessionPath)}]`),
-						sessionPath,
-					);
+					const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
+					if (session === "bot-ended") {
+						await openEnded(a, section.locator("[data-sidebar-bot-row]").first(), sessionPath);
+						return;
+					}
+					await openRow(a, section.locator(`[data-device-session=${cssString(sessionPath)}]`), sessionPath);
 				},
 				phone: async session => {
 					// A fresh load: nothing a surface before opened survives it.
@@ -385,7 +427,9 @@ if (dir) {
 					if (!tabId) {
 						const viewed = await phone.evaluate(
 							spawn => window.omp.tabs.spawn(spawn),
-							session === "bot" ? { cwd, kind: "chat" as const, sessionPath } : { cwd, sessionPath },
+							session === "bot" || session === "bot-ended"
+								? { cwd, kind: "chat" as const, sessionPath }
+								: { cwd, sessionPath },
 						);
 						tabId = viewed?.tabId ?? undefined;
 						if (!tabId) throw new Error(`the phone could not view ${session}: ${JSON.stringify(viewed)}`);
@@ -577,7 +621,13 @@ if (dir) {
 						const page = pages[view];
 						try {
 							await show[view](surface.parity.session);
-							await page.locator("[data-composer-input]").first().waitFor({ state: "visible", timeout: 60_000 });
+							// An ended conversation has no composer: its note stands in its place.
+							await page
+								.locator(
+									surface.parity.session === "bot-ended" ? "[data-bot-ended-note]" : "[data-composer-input]",
+								)
+								.first()
+								.waitFor({ state: "visible", timeout: 60_000 });
 							await surface.open(page, VIEW_LOOK[view]);
 							if (surface.ready)
 								await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 15_000 });

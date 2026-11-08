@@ -65,6 +65,24 @@ export function combinedTitle(parts: TitleParts): string {
 	return parts.auto ? `${parts.title} · ${parts.auto}` : parts.title;
 }
 
+/** What a listed row says of a conversation the bot ended (absent from an older host's rows). */
+export type BotRowFacts = Partial<Pick<SessionInfo, "bot" | "created">>;
+
+/**
+ * A conversation the bot ended (`SessionInfo.bot` past, as the computer the bot runs on lists it) reads as an earlier
+ * one, with the day it began, wherever it shows as a tab or the window's title: "봇봇이 · 지난 대화 11-02". It
+ * carries the bot's name, so the live bot and its earlier conversations would otherwise read alike.
+ */
+export function withEndedBotMark(parts: TitleParts, row: BotRowFacts | undefined): TitleParts {
+	if (row?.bot !== "past") return parts;
+	const began = row.created ? new Date(row.created) : null;
+	const day =
+		began && !Number.isNaN(began.getTime())
+			? `${String(began.getMonth() + 1).padStart(2, "0")}-${String(began.getDate()).padStart(2, "0")}`
+			: "";
+	return { ...parts, title: `${parts.title} · ${translate("tabs.endedBotConversation", { day }).trim()}` };
+}
+
 /**
  * `sessionDisplayTitle` as parts: the automatic title joins only a title the session stores. A first-prompt, task or
  * placeholder name stands alone: nothing was renamed, so there is no second name to show.

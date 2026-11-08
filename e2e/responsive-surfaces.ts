@@ -25,7 +25,8 @@ export interface Surface {
 	when?: (look: Look) => boolean;
 	/**
 	 * The parity sheet (`bun run parity`, e2e/parity.e2e.ts) can capture this surface: every view first shows this
-	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `reply`: a session whose turns
+	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `bot-ended`: a conversation the
+	 * bot ended, renewed first when it has none, `reply`: a session whose turns
 	 * show what an agent presents in a reply, e2e/fixture/rpc-ui.ts `replyImages` and `REPLY_SHOWCASE`), then `open` runs. Only for a
 	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
 	 * `window.__stores`, which only the dev harness has.
@@ -67,7 +68,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "bot" | "reply";
+export type ParitySession = "work" | "bot" | "bot-ended" | "reply";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -704,6 +705,16 @@ export const SURFACES: readonly Surface[] = [
 		open: async () => {},
 		ready: "[data-bot-bar] [data-bot-state]",
 		parity: { session: "bot" },
+	},
+	{
+		id: "bot-ended",
+		area: "A",
+		title: "An earlier conversation of the bot, opened to read: its name says it is an earlier one, and a note with the way to the current conversation stands where the composer was",
+		open: async () => {},
+		ready: "[data-bot-ended-note]",
+		// The ended conversation exists only in the parity sheet's apps (it renews the bot); the harness page has none.
+		when: () => false,
+		parity: { session: "bot-ended" },
 	},
 	{
 		id: "bot-call-preparing",
