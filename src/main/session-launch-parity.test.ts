@@ -113,6 +113,8 @@ class FakeOmp extends EventEmitter {
 				});
 			}
 		});
+		// Stock disposes its session and exits when its stdin ends: how a stop ends an omp on Windows (no signals).
+		this.stdin.on("end", () => this.exit(0));
 		queueMicrotask(() => this.#write({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));
 	}
 	#write(frame: object): void {
