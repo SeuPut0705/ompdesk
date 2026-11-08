@@ -79,11 +79,7 @@ describe.skipIf(process.platform === "win32")("OmpProcesses", () => {
 		other.unref();
 		process.kill(leftoverPid, "SIGSTOP");
 		const file = path.join(dir, "omp-pids.json");
-		const at = Date.now();
-		await fs.writeFile(
-			file,
-			JSON.stringify({ omps: [leftoverPid, otherPid, 999_999_999].map(pid => ({ pid, at })) }),
-		);
+		await fs.writeFile(file, JSON.stringify({ omps: [leftoverPid, otherPid, 999_999_999].map(pid => ({ pid })) }));
 
 		const reaped = await new OmpProcesses(file, bridgeDir).reapLeftovers();
 
@@ -95,32 +91,62 @@ describe.skipIf(process.platform === "win32")("OmpProcesses", () => {
 });
 
 describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
-	it("a launch stops a leftover whose start time matches the file, and leaves a pid whose start time does not", async () => {
+	const idle = () => {
+		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+			stdio: "ignore",
+			windowsHide: true,
+		});
+		if (child.pid !== undefined) started.push(child.pid);
+		child.unref();
+		return child;
+	};
+	const read = async (file: string) =>
+		JSON.parse(await fs.readFile(file, "utf8")) as { omps: { pid: number; started?: number }[] };
+
+	it("a launch stops a leftover the file names with its creation time, and only that one", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-reap-win-"));
 		dirs.push(dir);
-		const idle = () => {
-			const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-				stdio: "ignore",
-				windowsHide: true,
-			});
-			if (child.pid !== undefined) started.push(child.pid);
-			child.unref();
-			return { pid: child.pid ?? 0, at: Date.now() };
-		};
-		const leftover = idle();
-		// A reused pid: the file names it, but the process running under it started a minute away from that spawn.
-		const reused = idle();
 		const file = path.join(dir, "omp-pids.json");
-		await fs.writeFile(
-			file,
-			JSON.stringify({ omps: [leftover, { pid: reused.pid, at: reused.at - 60_000 }, { pid: 999_999_999, at: 0 }] }),
+		const bridge = path.join(dir, "gui-bridge");
+		const leftover = idle();
+		const pid = leftover.pid ?? 0;
+		const strangerAhead = idle();
+		const strangerBehind = idle();
+		const unrecorded = idle();
+
+		// The earlier instance: tracks the omp, which records its creation time in the file after the spawn.
+		const earlier = new OmpProcesses(file, bridge);
+		earlier.track(leftover);
+		let recorded = 0;
+		await vi.waitFor(
+			async () => {
+				recorded = (await read(file)).omps.find(entry => entry.pid === pid)?.started ?? 0;
+				expect(recorded).toBeGreaterThan(0);
+			},
+			{ timeout: 15_000 },
 		);
 
-		const reaped = await new OmpProcesses(file, path.join(dir, "gui-bridge")).reapLeftovers();
+		// Programs that took a pid the file names a few hundred ms from when the omp started (earlier and later), and an
+		// entry whose creation time was never recorded: none is this app's omp.
+		await fs.writeFile(
+			file,
+			JSON.stringify({
+				omps: [
+					{ pid, started: recorded },
+					{ pid: strangerAhead.pid, started: recorded + 300 },
+					{ pid: strangerBehind.pid, started: recorded - 300 },
+					{ pid: unrecorded.pid },
+					{ pid: 999_999_999, started: recorded },
+				],
+			}),
+		);
 
-		expect(reaped).toEqual([leftover.pid]);
-		await vi.waitFor(() => expect(pidAlive(leftover.pid)).toBe(false), { timeout: 10_000 });
-		expect(pidAlive(reused.pid)).toBe(true);
-		await vi.waitFor(async () => expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ omps: [] }));
-	}, 30_000);
+		const reaped = await new OmpProcesses(file, bridge).reapLeftovers();
+
+		expect(reaped).toEqual([pid]);
+		await vi.waitFor(() => expect(pidAlive(pid)).toBe(false), { timeout: 10_000 });
+		for (const stranger of [strangerAhead, strangerBehind, unrecorded])
+			expect(pidAlive(stranger.pid ?? 0)).toBe(true);
+		await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [] }));
+	}, 60_000);
 });
