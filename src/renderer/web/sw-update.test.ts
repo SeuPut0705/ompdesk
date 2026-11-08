@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	appGoneMoment,
+	BUILD_MOVE_KEY,
 	CHUNK_RELOAD_KEY,
 	CHUNK_RELOAD_LOOP_MS,
 	chunkReloadRepeats,
+	HostBuildMove,
 	PURGE_CLEANUP_MS,
 	purgeAndReload,
 	RESUME_AFTER_HIDDEN_MS,
@@ -524,5 +526,70 @@ describe("appGoneMoment (a chunk error took the whole app down: the root boundar
 		page.askOpen = false;
 		vi.advanceTimersByTime(500);
 		expect(reload).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("HostBuildMove (a page behind its host's build moves to it at an unused, safe moment)", () => {
+	/** The purge as web-boot.ts runs it: the cleanup, then the reload only if the page is still safe. */
+	const rig = () => {
+		const items = new Map<string, string>();
+		const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: items.set.bind(items) };
+		const reloads: string[] = [];
+		let pending: { cleanup: () => void; moved: Promise<boolean> } | null = null;
+		const move = new HostBuildMove(storage, (to, safe, beforeReload) => {
+			const cleanup = Promise.withResolvers<void>();
+			const moved = cleanup.promise.then(() => {
+				if (!safe()) return false;
+				beforeReload();
+				reloads.push(to);
+				return true;
+			});
+			pending = { cleanup: cleanup.resolve, moved };
+			return moved;
+		});
+		/** The cleanup ends; resolves once the move started by the last `start` has reloaded or been called off. */
+		const cleanupDone = async () => {
+			const current = pending;
+			pending = null;
+			current?.cleanup();
+			await current?.moved;
+		};
+		return { move, items, reloads, cleanupDone };
+	};
+
+	it("moves to the host's build once per build: a page that reloaded there and still differs does not loop", async () => {
+		const { move, reloads, cleanupDone } = rig();
+		expect(move.start("b", "a", calm)).toBe(true);
+		await cleanupDone();
+		expect(reloads).toEqual(["b"]);
+		// The reloaded page still names another build than the host's hello: no second move for "b".
+		expect(move.start("b", "a", calm)).toBe(true);
+		await cleanupDone();
+		expect(reloads).toEqual(["b"]);
+	});
+
+	it("moves at the next safe moment when the person started using the page during the cleanup", async () => {
+		const { move, items, reloads, cleanupDone } = rig();
+		const page = { draftEmpty: true };
+		const live: SafeMoment = { ...calm, draftEmpty: () => page.draftEmpty };
+		expect(move.start("b", "a", live)).toBe(true);
+		// A draft is typed while the worker and caches are being dropped: the reload is called off.
+		page.draftEmpty = false;
+		await cleanupDone();
+		expect(reloads).toEqual([]);
+		expect(items.has(BUILD_MOVE_KEY)).toBe(false);
+		// The next unused, safe moment moves the page after all.
+		page.draftEmpty = true;
+		expect(move.start("b", "a", live)).toBe(true);
+		await cleanupDone();
+		expect(reloads).toEqual(["b"]);
+	});
+
+	it("leaves a page on the host's build, or with no build to compare, to the worker's update", () => {
+		const { move, reloads } = rig();
+		expect(move.start("a", "a", calm)).toBe(false);
+		expect(move.start(null, "a", calm)).toBe(false);
+		expect(move.start("b", null, calm)).toBe(false);
+		expect(reloads).toEqual([]);
 	});
 });

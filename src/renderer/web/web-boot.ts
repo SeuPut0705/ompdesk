@@ -31,6 +31,7 @@ import {
 	appGoneMoment,
 	CHUNK_RELOAD_KEY,
 	chunkReloadRepeats,
+	HostBuildMove,
 	purgeAndReload,
 	ResumeGate,
 	reloadWhenUnused,
@@ -44,11 +45,6 @@ import { type ResyncCause, type WsLike, WsTransport } from "./ws-transport";
 /** Marks a reload the page made to pick up a newer bundle; a second one within the window shows the notice instead. */
 const RELOAD_FLAG = "omp.web.reloaded-at";
 const RELOAD_LOOP_MS = 30_000;
-/**
- * `sessionStorage`: the host build this page last reloaded to reach. One move per host build per browser session, so
- * a host whose served page names another build than its `hello` cannot loop it.
- */
-const BUILD_MOVE_KEY = "omp.web.build-move";
 /** The install hint waits for the browser's prompt, and stays up long enough to read and act on. */
 const INSTALL_HINT_DELAY_MS = 6000;
 const INSTALL_HINT_MS = 15_000;
@@ -69,11 +65,13 @@ function purge(
 	safe: () => boolean,
 	reason: ReloadReason,
 	details?: Record<string, string | number | boolean | null>,
+	beforeReload?: () => void,
 ): Promise<boolean> {
 	return purgeAndReload(
 		navigator.serviceWorker,
 		typeof caches === "undefined" ? undefined : caches,
 		() => {
+			beforeReload?.();
 			noteReason(reason, details);
 			location.reload();
 		},
@@ -203,6 +201,9 @@ async function bootApp(): Promise<void> {
 			forChunk ? { cause: useChunkFailureStore.getState().cause ?? null } : undefined,
 		);
 	};
+	const buildMove = new HostBuildMove(sessionStorage, (to, safe, beforeReload) =>
+		purge(safe, "update", { to }, beforeReload),
+	);
 
 	window.omp = web.api;
 	setWebRuntime({
@@ -252,13 +253,7 @@ async function bootApp(): Promise<void> {
 		// new build only when the page asks (`check`, at a return) and needs seconds to install it, so the person's
 		// first touch closed the moment first and the page ran the old build one more visit, and a reload meanwhile
 		// got the old worker's cached shell. Dropping the worker and its caches makes the next load the host's.
-		const hostBuild = transport.hostBuild;
-		if (hostBuild && PAGE_BUILD && hostBuild !== PAGE_BUILD) {
-			if (!safeToReload(moment) || sessionStorage.getItem(BUILD_MOVE_KEY) === hostBuild) return;
-			sessionStorage.setItem(BUILD_MOVE_KEY, hostBuild);
-			void purge(() => !moment || safeToReload(moment), "update", { to: hostBuild });
-			return;
-		}
+		if (buildMove.start(transport.hostBuild, PAGE_BUILD, moment)) return;
 		if (pwa.update) pwa.update.resume(moment);
 		else if (chunkStale && safeToReload(moment)) void purgeNow();
 	};

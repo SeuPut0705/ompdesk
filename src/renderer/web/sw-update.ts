@@ -101,6 +101,42 @@ export function safeToReload(moment: SafeMoment): boolean {
 }
 
 /**
+ * `sessionStorage`: the host build this page last reloaded to reach. One move per host build per browser session, so
+ * a host whose served page names another build than its `hello` cannot loop it.
+ */
+export const BUILD_MOVE_KEY = "omp.web.build-move";
+
+/** Drop the worker and caches and reload toward `to` once the cleanup is done and `safe()`; `beforeReload` runs first. */
+export type MoveToBuild = (to: string, safe: () => boolean, beforeReload: () => void) => Promise<boolean>;
+
+/**
+ * The page behind the build its host serves (`hello.build`, web-boot.ts): at an unused, safe moment it goes straight
+ * to the host's build, past its worker.
+ */
+export class HostBuildMove {
+	readonly #storage: Pick<Storage, "getItem" | "setItem">;
+	readonly #move: MoveToBuild;
+
+	constructor(storage: Pick<Storage, "getItem" | "setItem">, move: MoveToBuild) {
+		this.#storage = storage;
+		this.#move = move;
+	}
+
+	/** True when the page is behind its host and this call dealt with it; false leaves the update to the worker's. */
+	start(hostBuild: string | null, pageBuild: string | null, moment: SafeMoment): boolean {
+		if (!hostBuild || !pageBuild || hostBuild === pageBuild) return false;
+		if (!safeToReload(moment) || this.#storage.getItem(BUILD_MOVE_KEY) === hostBuild) return true;
+		this.#storage.setItem(BUILD_MOVE_KEY, hostBuild);
+		void this.#move(
+			hostBuild,
+			() => safeToReload(moment),
+			() => {},
+		);
+		return true;
+	}
+}
+
+/**
  * Whether a reload now would lose nothing only this page holds: no file pick in progress (a phone hides the page
  * behind its picker, and the page's return is when the files arrive), no picture in the composer, no upload on its
  * way, no unsaved edit or open host dialog. Typed text outlives a reload (draft-persistence.ts) and the host hands
