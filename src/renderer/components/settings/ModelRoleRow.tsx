@@ -29,7 +29,13 @@ import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
 import { type ModelValueGroup, ModelValueSelect, modelValueOption } from "./ModelValueSelect";
 import { roleFallback, rolePurpose } from "./model-role-text";
 import { ProviderMark } from "./providers/ProviderMark";
-import { type CompactModelLabel, compactModelLabel, compactModelLabels } from "./providers/provider-marks";
+import {
+	type CompactModelLabel,
+	compactModelLabel,
+	compactModelLabels,
+	compactModelText,
+	modelRefOf,
+} from "./providers/provider-marks";
 import { SettingsRow } from "./SettingsLayout";
 
 const KIND_ORDER: readonly ModelRoleEntry["candidates"][number]["kind"][] = [
@@ -191,7 +197,8 @@ function SkippedLine({
 	const skipped = effective.skipped;
 	if (!skipped) return null;
 	const slot = "\u0001";
-	const [before = "", after = ""] = t("modelRoles.skipped", { model: skipped.name, providers: slot }).split(slot);
+	const skippedText = compactModelText(compactModelLabel(modelRefOf(skipped.model, skipped.name)));
+	const [before = "", after = ""] = t("modelRoles.skipped", { model: skippedText, providers: slot }).split(slot);
 	const listed = skipped.providers.map(id => providers.find(provider => provider.id === id));
 	const parts = new Intl.ListFormat(lang, { type: "disjunction" }).formatToParts(
 		skipped.providers.map((id, index) => listed[index]?.name ?? id),

@@ -328,7 +328,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The model "Find more evidence" researches with is picked beside it and kept on the machine it runs on (8 Nov 2026,
 // ModelSetupDialog.tsx; its strings in the English catalog and omp-api.ts `modelSetup.researchPick|setResearchPick`
 // with their two channels reach the first screen): 2,172,134.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_172_134;
+// The remaining long model names read the same compact label (8 Nov 2026, provider-marks.ts `compactModelText`,
+// `modelRefOf`, `modelTextAmong`, `ModelLabel`; the usage row under a reply is on the first screen): 2,173,209.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_173_209;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

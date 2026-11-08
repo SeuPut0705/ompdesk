@@ -16,6 +16,7 @@ import { fuzzyScore } from "../../../lib/fuzzy-score";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { useModelStore } from "../../../stores/model";
+import { compactModelLabel, compactModelLabels, compactModelText } from "../../settings/providers/provider-marks";
 import { fileMentionFor } from "./composer-files";
 import {
 	MAX_LIST_MENU_ITEMS,
@@ -505,13 +506,15 @@ export function useCompletionMenu({
 					return score === null ? [] : [{ model, selector, score }];
 				});
 				scored.sort((a, b) => b.score - a.score);
+				const shown = scored.slice(0, MAX_MENU_ITEMS);
+				const labels = compactModelLabels(shown.map(({ model }) => model));
 				apply({
 					source: "model",
 					rangeStart,
-					items: scored.slice(0, MAX_MENU_ITEMS).map(({ model, selector }) => ({
+					items: shown.map(({ model, selector }) => ({
 						value: `^${selector} `,
 						label: `^${selector}`,
-						description: model.name || model.id,
+						description: compactModelText(labels.get(selector) ?? compactModelLabel(model)),
 					})),
 				});
 			};

@@ -2,7 +2,7 @@
  * Models: usage bar chart, performance series, and per-model table.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Bar, Line } from "react-chartjs-2";
 import {
 	baseChartOptions,
@@ -18,6 +18,8 @@ import type { ModelRow, ModelsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { ModelLabel } from "../settings/ModelLabel";
+import { compactModelLabels, compactModelText } from "../settings/providers/provider-marks";
 import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 const tokenCountFormatter = new Intl.NumberFormat("en-US");
@@ -30,15 +32,26 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 	const { data, isLoading, error, serverDown, refetch } = useStats<ModelsData>("/api/stats/model-dashboard", params);
 
 	const stats = data;
-
+	const labels = useMemo(
+		() => compactModelLabels((stats?.byModel ?? []).map(row => ({ provider: row.provider, id: row.model }))),
+		[stats],
+	);
+	const modelText = useCallback(
+		(row: ModelRow) => compactModelText(labels.get(`${row.provider}/${row.model}`) ?? { name: row.model }),
+		[labels],
+	);
 	const columns: StatColumn<ModelRow>[] = useMemo(
 		() => [
 			{
 				key: "model",
 				label: t("stats.col.model"),
 				render: row => (
-					<span>
-						<span className="block font-mono font-medium whitespace-nowrap text-(--sc-text)">{row.model}</span>
+					<span title={`${row.provider}/${row.model}`}>
+						<ModelLabel
+							className="font-medium whitespace-nowrap text-(--sc-text)"
+							provider={row.provider}
+							label={labels.get(`${row.provider}/${row.model}`) ?? { name: row.model }}
+						/>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
@@ -93,7 +106,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 				render: row => (row.avgTokensPerSecond !== null ? Math.round(row.avgTokensPerSecond) : "—"),
 			},
 		],
-		[t],
+		[t, labels],
 	);
 
 	const byModel = useMemo(
@@ -105,7 +118,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 		const colors = chartColors();
 		const top = byModel.slice(0, 10);
 		return {
-			labels: top.map(row => row.model),
+			labels: top.map(row => modelText(row)),
 			datasets: [
 				{
 					label: t("stats.col.requests"),
@@ -116,20 +129,20 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 				},
 			],
 		};
-	}, [byModel, t, themeKey]);
+	}, [byModel, t, themeKey, modelText]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey repaints the series colors on a theme switch.
 	const perfChart = useMemo(() => {
 		const colors = chartColors();
 		const points = stats?.modelPerformanceSeries ?? [];
-		const topModels = byModel.slice(0, 5).map(row => row.model);
+		const topModels = byModel.slice(0, 5);
 		const timestamps = [...new Set(points.map(point => point.timestamp))].sort((a, b) => a - b);
 		return {
 			labels: bucketLabels(timestamps, locale),
-			datasets: topModels.map((model, index) => ({
-				label: model,
+			datasets: topModels.map((row, index) => ({
+				label: modelText(row),
 				data: timestamps.map(ts => {
-					const point = points.find(p => p.timestamp === ts && p.model === model);
+					const point = points.find(p => p.timestamp === ts && p.model === row.model);
 					return point?.avgTokensPerSecond ?? null;
 				}),
 				borderColor: colors[index % colors.length],
@@ -140,7 +153,7 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 				spanGaps: true,
 			})),
 		};
-	}, [stats, byModel, locale, themeKey]);
+	}, [stats, byModel, locale, themeKey, modelText]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: themeKey re-reads the axis tokens on a theme switch.
 	const { usageOptions, perfOptions } = useMemo(() => {

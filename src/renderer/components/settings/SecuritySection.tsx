@@ -35,6 +35,7 @@ import {
 	Spinner,
 } from "../common";
 import { SettingsSection } from "./SettingsLayout";
+import { useModelText } from "./use-model-text";
 
 const ACTIVE_PHASES: Record<string, true> = { queued: true, preparing: true, reviewing: true, publishing: true };
 const SEVERITIES = ["critical", "high", "medium", "low", "informational"] as const;
@@ -84,6 +85,7 @@ export function SecuritySection() {
 	const tabRpc = useTabRpc();
 	const t = useT();
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
+	const modelText = useModelText();
 	const [dashboard, setDashboard] = useState<RpcSecurityDashboardResult>();
 	// When each scan ran, newest first, moving on while the page stays open.
 	const scanTimes = useAgeLabels(
@@ -351,7 +353,9 @@ export function SecuritySection() {
 					</Badge>
 					<Badge dot={!dashboard.modelReady} variant={dashboard.modelReady ? "default" : "warning"}>
 						{dashboard.modelReady
-							? t("security.ready.model", { model: dashboard.modelLabel ?? "—" })
+							? t("security.ready.model", {
+									model: dashboard.modelLabel ? modelText(dashboard.modelLabel) : "—",
+								})
 							: t("security.ready.noModel")}
 					</Badge>
 					<Badge dot={!dashboard.repositoryRoot} variant={dashboard.repositoryRoot ? "default" : "warning"}>

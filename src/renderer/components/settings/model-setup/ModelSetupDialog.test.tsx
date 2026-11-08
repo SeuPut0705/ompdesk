@@ -42,8 +42,8 @@ const { ModelSetupDialog } = await import("./ModelSetupDialog");
 type TestElement = InstanceType<typeof HTMLElement>;
 
 const POOL: ModelRoleEntry["candidates"] = [
-	{ provider: "anthropic", id: "opus", name: "Opus", kind: "chat" },
-	{ provider: "anthropic", id: "haiku", name: "Haiku", kind: "chat" },
+	{ provider: "anthropic", id: "opus", name: "Claude Opus", kind: "chat" },
+	{ provider: "anthropic", id: "haiku", name: "Claude Haiku", kind: "chat" },
 	{ provider: "openai", id: "gpt-5", name: "GPT-5", kind: "chat" },
 	{ provider: "openrouter", id: "deepseek", name: "DeepSeek", kind: "chat" },
 ];
@@ -87,14 +87,14 @@ const FACTS: ModelSetupFacts = {
 		openrouter: { billing: "metered", basis: "api-key" },
 	},
 	models: {
-		"anthropic/opus": model("anthropic", "opus", "Opus", {
+		"anthropic/opus": model("anthropic", "opus", "Claude Opus", {
 			int: 80,
 			inputPrice: 5,
 			outputPrice: 25,
 			family: "claude",
 			image: true,
 		}),
-		"anthropic/haiku": model("anthropic", "haiku", "Haiku", {
+		"anthropic/haiku": model("anthropic", "haiku", "Claude Haiku", {
 			int: 60,
 			inputPrice: 1,
 			outputPrice: 5,
@@ -207,7 +207,8 @@ function row(role: string): TestElement {
 
 const rowIds = () =>
 	[...document.querySelectorAll("[data-model-setup-role]")].map(el => el.getAttribute("data-model-setup-role"));
-const rowModel = (role: string) => row(role).querySelector("[data-model-setup-model]")?.textContent;
+/** The compact name a row draws (its mark and muted suffix excluded). */
+const rowModel = (role: string) => row(role).querySelector("[data-model-setup-model] [data-model-name]")?.textContent;
 const rowState = (role: string) => row(role).getAttribute("data-model-setup-state");
 const tickBox = (role: string) =>
 	row(role).querySelector("input[data-model-setup-tick]") as unknown as { checked: boolean } | null;
@@ -282,6 +283,19 @@ describe("ModelSetupDialog full auto", () => {
 		const models = rowIds().map(role => rowModel(role ?? ""));
 		expect(models).toEqual(["Opus", "Haiku", "Opus", "GPT-5", "DALL·E"]);
 		expect(document.body.textContent).not.toContain("DeepSeek");
+	});
+
+	it("names each role's model as every picker does: provider mark and compact name, the full name in the tooltip", async () => {
+		install();
+		await mount();
+		const target = row("default").querySelector("[data-model-setup-model]");
+		expect(target?.querySelector('[data-provider-mark="anthropic"]')).not.toBeNull();
+		expect(target?.textContent).toBe("Opus");
+		expect(target?.getAttribute("title")).toBe("Claude Opus · anthropic/opus");
+		expect(row("image").querySelector("[data-model-setup-model]")?.getAttribute("title")).toBe(
+			"DALL·E · openai/dalle",
+		);
+		expect(row("default").textContent).not.toContain("Claude");
 	});
 
 	it("groups the rows under their purpose headings", async () => {

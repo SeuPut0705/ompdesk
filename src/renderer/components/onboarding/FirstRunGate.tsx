@@ -17,7 +17,8 @@ import { focusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
-import { hasUsableModelProvider, modelDisplayName, toProviderInfo } from "../settings/providers/provider-catalog";
+import { hasUsableModelProvider, toProviderInfo } from "../settings/providers/provider-catalog";
+import { modelTextAmong } from "../settings/providers/provider-marks";
 import { ensureServingDefault } from "./default-model";
 
 export function FirstRunGate() {
@@ -123,8 +124,8 @@ export function FirstRunGate() {
 						variant: "info",
 						title: t("setup.defaultSwitched.title"),
 						message: t("setup.defaultSwitched.message", {
-							model: modelDisplayName(outcome.model),
-							from: modelDisplayName(outcome.from),
+							model: modelTextAmong(outcome.model, catalogResult.value.models),
+							from: modelTextAmong(outcome.from, catalogResult.value.models),
 						}),
 					});
 				}

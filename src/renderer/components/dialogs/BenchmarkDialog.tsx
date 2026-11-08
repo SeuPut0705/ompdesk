@@ -7,7 +7,9 @@ import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { Button, ErrorDetail, Input, Modal, Select } from "../common";
+import { ModelLabel } from "../settings/ModelLabel";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
+import { compactModelLabels, modelRefOf } from "../settings/providers/provider-marks";
 
 function formatMetric(value: number, suffix = ""): string {
 	return Number.isFinite(value) ? `${value.toFixed(value >= 100 ? 0 : 1)}${suffix}` : "—";
@@ -85,6 +87,10 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 			setRunning(false);
 		}
 	};
+	const reportRefs = result?.success
+		? result.summary.models.map(report => modelRefOf(report.selector, report.model))
+		: [];
+	const reportLabels = compactModelLabels(reportRefs);
 
 	return (
 		<Modal
@@ -215,8 +221,13 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 									const succeeded = report.results.filter(item => item.ok).length;
 									return (
 										<tr key={report.selector} title={report.stats ? undefined : resultError(report)}>
-											<td className="px-3 py-2 font-mono text-(--sc-text)">
-												{report.model}
+											<td className="px-3 py-2 text-(--sc-text)">
+												<span title={`${report.model} · ${report.selector}`}>
+													<ModelLabel
+														provider={modelRefOf(report.selector).provider}
+														label={reportLabels.get(report.selector) ?? { name: report.model }}
+													/>
+												</span>
 												{report.results.some(item => !item.ok) && (
 													<ErrorDetail
 														className="mt-1 max-w-64 whitespace-pre-wrap"

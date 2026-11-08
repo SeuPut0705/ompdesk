@@ -412,7 +412,8 @@ describe("FirstRunSetup connect step", () => {
 		expect(FIRST_RUN_STEP_PREF in prefs).toBe(false);
 		const toasts = useToastStore.getState().toasts;
 		expect(toasts.map(toast => toast.title)).toContain(translate("setup.ready.title"));
-		expect(toasts.map(toast => toast.message).join("\n")).toContain("Claude Opus 5");
+		expect(toasts.map(toast => toast.message).join("\n")).toContain("Opus 5");
+		expect(toasts.map(toast => toast.message).join("\n")).not.toContain("Claude");
 	});
 
 	it("picks the model for a provider that connected somewhere else meanwhile", async () => {
@@ -463,7 +464,8 @@ describe("FirstRunSetup connect step", () => {
 		expect(document.querySelector('[data-first-run-step="model"]')).not.toBeNull();
 		expect(text()).toContain(translate("setup.model.saveFailed"));
 		expect(text()).toContain("config.yml is read-only");
-		expect(text()).toContain("Claude Opus 5");
+		expect(text()).toContain("Opus 5");
+		expect(text()).not.toContain("Claude Opus 5");
 		expect(useToastStore.getState().toasts).toEqual([]);
 	});
 

@@ -13,6 +13,8 @@ import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
+import { ModelLabel } from "../settings/ModelLabel";
+import { compactModelLabel, compactModelLabels, compactModelText } from "../settings/providers/provider-marks";
 import { projectLabel } from "./ProjectsRoute";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
@@ -27,7 +29,7 @@ function RequestDetailSheet({ row, onClose }: { row: RequestRow | null; onClose:
 			onClose={onClose}
 			open={row !== null}
 			size="lg"
-			title={shown?.model ?? ""}
+			title={shown ? compactModelText(compactModelLabel({ provider: shown.provider, id: shown.model })) : ""}
 		>
 			{shown && <RequestDetailBody row={shown} />}
 		</Sheet>
@@ -124,6 +126,10 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 	const [selected, setSelected] = useState<RequestRow | null>(null);
 
 	const rows = data?.rows ?? [];
+	const labels = useMemo(
+		() => compactModelLabels(rows.map(row => ({ provider: row.provider, id: row.model }))),
+		[rows],
+	);
 	const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
 
 	const columns: StatColumn<RequestRow>[] = useMemo(
@@ -147,8 +153,12 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 				key: "model",
 				label: t("stats.col.model"),
 				render: row => (
-					<span>
-						<span className="block font-mono whitespace-nowrap text-(--sc-text)">{row.model}</span>
+					<span title={`${row.provider}/${row.model}`}>
+						<ModelLabel
+							className="whitespace-nowrap text-(--sc-text)"
+							provider={row.provider}
+							label={labels.get(`${row.provider}/${row.model}`) ?? { name: row.model }}
+						/>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
@@ -182,7 +192,7 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 				),
 			},
 		],
-		[t],
+		[t, labels],
 	);
 
 	return (

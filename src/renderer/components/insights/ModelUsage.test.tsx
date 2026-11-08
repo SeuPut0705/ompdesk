@@ -83,7 +83,7 @@ describe("ModelUsage", () => {
 		expect(rows).toHaveLength(2);
 		expect(rows.some(row => row.startsWith("Main agent"))).toBe(true);
 		expect(rows.some(row => row.startsWith("Subagents: 2"))).toBe(true);
-		expect(rows.every(row => row.includes("anthropic/claude-sonnet-5-5"))).toBe(true);
+		expect(rows.every(row => row.includes("claude-sonnet-5-5") && !row.includes("anthropic/"))).toBe(true);
 		// The section carries its own top margin: SectionTitle drops it as a first child.
 		expect(container.querySelector("section")?.getAttribute("class")).toContain("mt-8");
 	});

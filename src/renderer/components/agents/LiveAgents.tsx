@@ -24,6 +24,7 @@ import { Badge, Button, EmptyState, ErrorDetail, IconButton, ListRow } from "../
 import { SubagentTranscriptSheet } from "../panels/SubagentTranscriptSheet";
 import { runSubagentAction } from "../panels/subagent-actions";
 import { isLiveSubagentStatus, statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../panels/subagent-graph";
+import { compactModelLabel, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
 import { agentSourceLabel } from "./agent-settings";
 
 /**
@@ -74,7 +75,9 @@ const AgentRow = memo(function AgentRow({
 		agent.agent,
 		agent.agentSource ? agentSourceLabel(t, agent.agentSource) : undefined,
 		agent.kind === "advisor" ? t("agentHub.hub.readOnly") : t("agentHub.hub.kind.sub"),
-		agent.progress?.resolvedModel,
+		agent.progress?.resolvedModel
+			? compactModelText(compactModelLabel(modelRefOf(agent.progress.resolvedModel)))
+			: undefined,
 		// What it is doing, unless the title already says it (the title often is that description).
 		agent.progress?.description !== title ? agent.progress?.description : undefined,
 		// A restart ended it: what it was doing, in place of stock's empty-message warning.

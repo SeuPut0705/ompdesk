@@ -42,7 +42,9 @@ import {
 	TextArea,
 	TextEditor,
 } from "../common";
+import { ModelLabel } from "../settings/ModelLabel";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
+import { compactModelLabels, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
 import { type AgentAuthoringData, useAgentAuthoring } from "./agent-authoring";
 
 export type AgentEditorTarget =
@@ -327,6 +329,15 @@ function AgentEditorForm({
 	const targetPath = joinAgentPath(data.info.dirs[scope], fileName);
 	const agentNames = definitions.map(definition => definition.name).filter(name => name !== draft.name.trim());
 	const roleByValue = new Map(data.roles.map(role => [role.value, role]));
+	const modelLabels = compactModelLabels(
+		[
+			...draft.model.filter(entry => !entry.startsWith("@")),
+			...data.roles.flatMap(role => (role.model ? [role.model] : [])),
+		]
+			.filter(selector => selector.includes("/"))
+			.map(selector => modelRefOf(selector)),
+	);
+	const modelLabelOf = (selector: string) => modelLabels.get(selector) ?? { name: selector };
 
 	const noticeText = (notice: AgentNameNotice) =>
 		t(`agentStudio.name.notice.${notice.kind}`, { name: draft.name.trim() });
@@ -578,11 +589,22 @@ function AgentEditorForm({
 									<li className="flex items-center gap-2 py-1 pr-1 pl-3" key={entry}>
 										<span className="w-5 shrink-0 text-sc-xs text-(--sc-text-subtle)">{index + 1}</span>
 										<span className="min-w-0 flex-1">
-											<span className="block truncate font-mono text-sc-sm text-(--sc-text)">{entry}</span>
+											{role || !entry.includes("/") ? (
+												<span className="block truncate font-mono text-sc-sm text-(--sc-text)">
+													{entry}
+												</span>
+											) : (
+												<span className="block text-sc-sm text-(--sc-text)" title={entry}>
+													<ModelLabel provider={modelRefOf(entry).provider} label={modelLabelOf(entry)} />
+												</span>
+											)}
 											{role && (
 												<span className="block truncate text-sc-xs text-(--sc-text-muted)">
 													{role.model
-														? t("agentStudio.model.roleResolved", { role: role.name, model: role.model })
+														? t("agentStudio.model.roleResolved", {
+																role: role.name,
+																model: compactModelText(modelLabelOf(role.model)),
+															})
 														: t("agentStudio.model.roleUnset", { role: role.name })}
 												</span>
 											)}

@@ -24,6 +24,37 @@ import {
 } from "../../../../shared/role-plan";
 import type { ModelInfo, ModelRoleEntry, UsageReport } from "../../../../shared/rpc-types";
 import { formatPricePerMillion } from "../../../lib/format";
+import { type CompactModelLabel, compactModelLabel, compactModelText, modelRefOf } from "../providers/provider-marks";
+
+/** A model as the dialog draws it: the shared compact label beside its provider's mark, the full name in the tooltip. */
+export interface SetupModelView {
+	provider: string;
+	label: CompactModelLabel;
+	/** The label as one string (name, then suffix) for sentences that cannot hold a mark. */
+	text: string;
+	/** Full name and `provider/id`. */
+	title: string;
+}
+
+/**
+ * `selector` (`provider/id`) as the pickers show it: `labels` is the compact label map over the whole offered list,
+ * so a look-alike keeps its suffix here too; a model outside it (an image model, a role's fallback) is labelled alone.
+ * `name` is stock's display name for it, when known.
+ */
+export function setupModelView(
+	selector: string,
+	labels: ReadonlyMap<string, CompactModelLabel>,
+	name?: string,
+): SetupModelView {
+	const ref = modelRefOf(selector, name);
+	const label = labels.get(selector) ?? compactModelLabel(ref);
+	return {
+		provider: ref.provider,
+		label,
+		text: compactModelText(label),
+		title: [name && name !== ref.id ? name : undefined, selector].filter(Boolean).join(" · "),
+	};
+}
 
 export interface SetupModelOption {
 	/** `provider/id`, the value a role is set to. */

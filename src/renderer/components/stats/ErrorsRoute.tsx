@@ -9,6 +9,8 @@ import { compact } from "../../lib/chart";
 import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge } from "../common";
+import { ModelLabel } from "../settings/ModelLabel";
+import { compactModelLabels } from "../settings/providers/provider-marks";
 import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 export function ErrorsRoute({ range }: { range: StatsRange }) {
@@ -20,6 +22,10 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 		const list = data ?? [];
 		return [...list].sort((a, b) => b.timestamp - a.timestamp);
 	}, [data]);
+	const labels = useMemo(
+		() => compactModelLabels(rows.map(row => ({ provider: row.provider, id: row.model }))),
+		[rows],
+	);
 
 	const columns: StatColumn<ErrorRow>[] = useMemo(
 		() => [
@@ -41,8 +47,12 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 				key: "model",
 				label: t("stats.col.model"),
 				render: row => (
-					<span>
-						<span className="block font-mono whitespace-nowrap text-(--sc-text)">{row.model}</span>
+					<span title={`${row.provider}/${row.model}`}>
+						<ModelLabel
+							className="whitespace-nowrap text-(--sc-text)"
+							provider={row.provider}
+							label={labels.get(`${row.provider}/${row.model}`) ?? { name: row.model }}
+						/>
 						<span className="block text-sc-2xs text-(--sc-text-subtle)">{row.provider}</span>
 					</span>
 				),
@@ -68,7 +78,7 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 				render: row => compact(row.usage?.totalTokens ?? 0),
 			},
 		],
-		[t],
+		[t, labels],
 	);
 
 	return (

@@ -41,11 +41,16 @@ import { ProviderLoginPanel, useProviderLogin } from "../settings/providers/Prov
 import { ProviderPicker } from "../settings/providers/ProviderPicker";
 import {
 	canServe,
-	modelDisplayName,
 	pickDefaultModel,
 	STARTER_PROVIDERS,
 	servingProviderIds,
 } from "../settings/providers/provider-catalog";
+import {
+	compactModelLabel,
+	compactModelLabels,
+	compactModelText,
+	modelTextAmong,
+} from "../settings/providers/provider-marks";
 import { applyDefaultModel } from "./default-model";
 
 /** The step's primary action, which ⌘/Ctrl+Enter runs; null while it has none. */
@@ -138,7 +143,7 @@ function ConnectStep() {
 				return;
 			}
 			setPhase("idle", null);
-			announceReady(t, pick);
+			announceReady(t, pick, models);
 		})();
 	}, [
 		connected,
@@ -280,12 +285,13 @@ type TestState =
 /** The last step is done: say which model the first request goes to. */
 function announceReady(
 	t: (key: string, params?: Record<string, string | number>) => string,
-	model: Pick<ModelInfo, "id" | "name">,
+	model: ModelInfo,
+	among: readonly ModelInfo[],
 ): void {
 	toast({
 		variant: "success",
 		title: t("setup.ready.title"),
-		message: t("setup.ready.message", { model: modelDisplayName(model) }),
+		message: t("setup.ready.message", { model: modelTextAmong(model, among) }),
 	});
 }
 
@@ -313,6 +319,8 @@ function ModelStep() {
 		[catalog.providers, catalog.customConfigs],
 	);
 	const candidates = useMemo(() => models.filter(model => canServe(model, serving)), [models, serving]);
+	// Rows are named as every model list names them, look-alikes told apart by their suffix.
+	const labels = useMemo(() => compactModelLabels(candidates), [candidates]);
 	const recommended = useMemo(
 		() => pickDefaultModel(models, serving, connectedProvider ?? undefined),
 		[models, serving, connectedProvider],
@@ -378,7 +386,7 @@ function ModelStep() {
 		try {
 			await applyDefaultModel(tabRpc, useTabsStore.getState().activeTabId, model);
 			setPhase("idle", null);
-			announceReady(t, model);
+			announceReady(t, model, models);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		} finally {
@@ -451,7 +459,7 @@ function ModelStep() {
 								}
 								onClick={() => setSelected(key)}
 								selected={isChosen}
-								title={modelDisplayName(model)}
+								title={compactModelText(labels.get(key) ?? compactModelLabel(model))}
 								titleText={key}
 							/>
 						);

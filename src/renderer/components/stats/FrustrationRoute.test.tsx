@@ -83,7 +83,7 @@ describe("FrustrationRoute", () => {
 		expect(text).toContain("50 of 200 messages have a model verdict");
 		// busiest model first; merged spellings listed under the label
 		expect(text.indexOf("gpt 5.6")).toBeLessThan(text.indexOf("opus 5"));
-		expect(text).toContain("gpt-5.6, openai/gpt-5.6");
+		expect(text).toContain("gpt-5.6, gpt-5.6");
 	});
 
 	it("shows the empty state when the range has no messages", async () => {

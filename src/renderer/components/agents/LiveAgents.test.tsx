@@ -217,7 +217,8 @@ describe("LiveAgents", () => {
 		expect(bodyText()).toContain(`${"x".repeat(59)}…`);
 		expect(bodyText()).toContain("short second task");
 		// Secondary line: agent type, kind badges, resolved model, progress note.
-		expect(bodyText()).toContain("openai/gpt-5.2-codex");
+		expect(bodyText()).toContain("gpt-5.2-codex");
+		expect(bodyText()).not.toContain("openai/gpt-5.2-codex");
 		expect(bodyText()).toContain("editing files");
 		expect(bodyText()).toContain("Read-only");
 		expect(bodyText()).toContain("Subagent");

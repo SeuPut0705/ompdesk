@@ -9,6 +9,7 @@ import type { FrustrationData, FrustrationModelRow } from "../../../shared/stats
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { compactModelLabels, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
 import {
 	MetricCard,
 	MetricGrid,
@@ -30,6 +31,7 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 
 	const overall = data?.overall;
 	const rows = useMemo(() => [...(data?.byModel ?? [])].sort((a, b) => b.messages - a.messages), [data]);
+	const labels = useMemo(() => compactModelLabels(rows.flatMap(row => row.models.map(m => modelRefOf(m)))), [rows]);
 
 	const columns: StatColumn<FrustrationModelRow>[] = useMemo(
 		() => [
@@ -40,8 +42,13 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 					<span>
 						<span className="block font-medium text-(--sc-text)">{row.label}</span>
 						{row.models.length > 1 && (
-							<span className="block font-mono text-sc-2xs text-(--sc-text-subtle)">
-								{row.models.join(", ")}
+							<span className="block text-sc-2xs text-(--sc-text-subtle)" title={row.models.join(", ")}>
+								{row.models
+									.map(m => {
+										const ref = modelRefOf(m);
+										return compactModelText(labels.get(`${ref.provider}/${ref.id}`) ?? { name: m });
+									})
+									.join(", ")}
 							</span>
 						)}
 					</span>
@@ -78,7 +85,7 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 				render: row => rate(row.judged, row.messages),
 			},
 		],
-		[t],
+		[t, labels],
 	);
 
 	return (

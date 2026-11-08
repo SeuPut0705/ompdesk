@@ -30,6 +30,7 @@ import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { Button, EmptyState, IconButton, InlineNotice, SettingInfo, SkeletonRows } from "../common";
 import { ModelRoleRow } from "./ModelRoleRow";
+import { compactModelLabel, compactModelLabels, compactModelText, modelRefOf } from "./providers/provider-marks";
 import { SettingsSection } from "./SettingsLayout";
 import { modelRoleName } from "./schema-i18n";
 
@@ -121,8 +122,12 @@ export function ModelRolesSection() {
 		if (!sidecarReady) return;
 		const roleLabel = roleName(role);
 		const entry = roles.find(candidate => candidate.id === role);
-		const modelLabel =
-			entry?.candidates?.find(candidate => `${candidate.provider}/${candidate.id}` === modelId)?.name ?? modelId;
+		// Named as the row's picker names it: the compact label over the role's own candidates.
+		const modelLabel = modelId
+			? compactModelText(
+					compactModelLabels(entry?.candidates ?? []).get(modelId) ?? compactModelLabel(modelRefOf(modelId)),
+				)
+			: modelId;
 		setBusyRole(role);
 		try {
 			const res = await tabRpc.setModelRole(role, modelId);

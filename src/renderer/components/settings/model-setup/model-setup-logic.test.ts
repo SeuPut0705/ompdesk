@@ -14,6 +14,7 @@ import type { ModelSetupPlan } from "../../../../shared/model-setup";
 import { baseSelector, type PlanRow } from "../../../../shared/role-plan";
 import type { ModelRoleCandidate, ModelRoleEntry, UsageReport } from "../../../../shared/rpc-types";
 import { translate } from "../../../lib/i18n";
+import { compactModelLabels } from "../providers/provider-marks";
 import {
 	type AppliedSetup,
 	currentDefaultModel,
@@ -32,6 +33,7 @@ import {
 	resolveResearchModel,
 	saveSetupRecord,
 	setupModelOptions,
+	setupModelView,
 	undoSteps,
 	usageHeadroom,
 	withResearch,
@@ -471,6 +473,38 @@ describe("research model", () => {
 			remembered: false,
 			unavailable: "j/judge",
 		});
+	});
+});
+
+describe("setupModelView", () => {
+	const named = (id: string, name: string) => ({ provider: "anthropic", id, name });
+	const labels = compactModelLabels([
+		named("claude-haiku-4-5", "Claude Haiku 4.5"),
+		named("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
+		named("claude-opus-4-5", "Claude Opus 4.5"),
+	]);
+
+	it("names a model as the pickers do and keeps the full name and selector for the tooltip", () => {
+		const view = setupModelView("anthropic/claude-opus-4-5", labels, "Claude Opus 4.5");
+		expect(view).toEqual({
+			provider: "anthropic",
+			label: { name: "Opus 4.5" },
+			text: "Opus 4.5",
+			title: "Claude Opus 4.5 · anthropic/claude-opus-4-5",
+		});
+	});
+
+	it("carries the collision suffix the list gives a look-alike, in the sentence text too", () => {
+		const dated = setupModelView("anthropic/claude-haiku-4-5-20251001", labels, "Claude Haiku 4.5");
+		expect(dated.label).toEqual({ name: "Haiku 4.5", suffix: "20251001" });
+		expect(dated.text).toBe("Haiku 4.5 20251001");
+		expect(setupModelView("anthropic/claude-haiku-4-5", labels).text).toBe("Haiku 4.5");
+	});
+
+	it("labels a model outside the list alone, by its stock name, else by its id", () => {
+		expect(setupModelView("anthropic/claude-sonnet-5", labels, "Claude Sonnet 5").text).toBe("Sonnet 5");
+		const bare = setupModelView("openai/dalle", labels);
+		expect(bare).toMatchObject({ provider: "openai", text: "dalle", title: "openai/dalle" });
 	});
 });
 

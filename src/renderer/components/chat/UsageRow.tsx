@@ -2,6 +2,8 @@ import { ArrowDown, ArrowUp, Clock, DollarSign, Zap } from "lucide-react";
 import { useDisplayPreference } from "../../lib/display-preferences";
 import { formatDuration, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { ModelLabel } from "../settings/ModelLabel";
+import { compactModelLabel } from "../settings/providers/provider-marks";
 
 /** Below this the rate is nonsense (cached/instant responses yield absurd tok/s). */
 const MIN_DURATION_MS = 100;
@@ -23,6 +25,8 @@ export interface UsageSource {
 	role?: string;
 	usage?: unknown;
 	model?: string;
+	/** Provider id the model ran on; absent on slices that only carry the bare model id. */
+	provider?: string;
 	duration?: number;
 	ttft?: number;
 	timestamp?: string | number;
@@ -77,6 +81,7 @@ export function UsageRow({ message }: { message: UsageSource }) {
 	if (!usage) return null;
 
 	const model = typeof message.model === "string" ? message.model : "";
+	const provider = typeof message.provider === "string" ? message.provider : "";
 	const durationMs = typeof message.duration === "number" && Number.isFinite(message.duration) ? message.duration : 0;
 	const ttftMs = typeof message.ttft === "number" && Number.isFinite(message.ttft) ? message.ttft : 0;
 	const totalInput = usage.input + usage.cacheWrite;
@@ -100,7 +105,11 @@ export function UsageRow({ message }: { message: UsageSource }) {
 
 	return (
 		<div className="omp-usage-row mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sc-xs tabular-nums text-(--sc-text-subtle) [&_svg]:size-(--sc-icon-sm) [&_svg]:shrink-0">
-			{model && <span className="font-mono">{model}</span>}
+			{model && (
+				<span title={provider ? `${provider}/${model}` : model}>
+					<ModelLabel provider={provider} label={compactModelLabel({ provider, id: model })} />
+				</span>
+			)}
 			<span
 				className="flex items-center gap-1"
 				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString(uiLocale()) })}

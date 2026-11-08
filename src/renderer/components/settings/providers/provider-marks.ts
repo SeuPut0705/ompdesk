@@ -303,6 +303,26 @@ export function compactModelLabel(model: ModelRef): CompactModelLabel {
 	return { name: chipModelName({ id: model.provider, name: model.provider }, modelDisplayName(model)) };
 }
 
+/** A label as one string, name then suffix, for a sentence or toast that cannot hold a mark. */
+export function compactModelText({ name, suffix }: CompactModelLabel): string {
+	return suffix ? `${name} ${suffix}` : name;
+}
+
+/** A `provider/id` selector as a `ModelRef`, split at the first slash; `name` is stock's display name when known. */
+export function modelRefOf(selector: string, name?: string): ModelRef {
+	const slash = selector.indexOf("/");
+	return {
+		provider: slash > 0 ? selector.slice(0, slash) : "",
+		id: selector.slice(slash + 1),
+		...(name ? { name } : {}),
+	};
+}
+
+/** `model` as compact text with its suffix decided among `among` (the list it was picked from), as a picker there names it. */
+export function modelTextAmong(model: ModelRef, among: readonly ModelRef[]): string {
+	return compactModelText(compactModelLabels(among).get(`${model.provider}/${model.id}`) ?? compactModelLabel(model));
+}
+
 const ID_SEPARATOR = /[-_./:@]/;
 
 /** What a row draws before the name: the vendored mark, else the fallback glyph's letter (`ProviderMark`). */

@@ -12,6 +12,7 @@ import { modelSelector, usageByModel } from "../../lib/model-usage";
 import { useModelStore } from "../../stores/model";
 import { useSubagentsStore } from "../../stores/subagents";
 import { ProgressBar } from "../common";
+import { compactModelLabels, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
 import { SectionTitle } from "../stats/shared";
 
 export function ModelUsage({ stats }: { stats: SessionStats }) {
@@ -31,6 +32,7 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 		subagents.values(),
 	);
 	if (!rows.some(row => !row.main)) return null;
+	const labels = compactModelLabels(rows.map(row => modelRefOf(row.model)));
 
 	return (
 		// SectionTitle drops its top margin as a first child, so the section carries it (as AdvisorInsights does).
@@ -51,7 +53,10 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 							<div className="flex min-w-0 items-baseline gap-3 text-sc-sm">
 								<span className="min-w-0 flex-1 truncate" title={row.model}>
 									<span className="text-(--sc-text)">{role}</span>
-									<span className="text-(--sc-text-muted)"> · {row.model}</span>
+									<span className="text-(--sc-text-muted)">
+										{" "}
+										· {compactModelText(labels.get(row.model) ?? { name: row.model })}
+									</span>
 								</span>
 								<span className="shrink-0 tabular-nums text-(--sc-text)">{formatTokens(row.tokens)}</span>
 								<span className="w-16 shrink-0 text-right tabular-nums text-(--sc-text-muted)">

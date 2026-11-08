@@ -39,6 +39,7 @@ import {
 	Spinner,
 	Tabs,
 } from "../../common";
+import { ModelLabel } from "../ModelLabel";
 import { ModelValueSelect, modelValueOption } from "../ModelValueSelect";
 import { compactModelLabels } from "../providers/provider-marks";
 import { modelRoleName } from "../schema-i18n";
@@ -58,9 +59,11 @@ import {
 	researchRequest,
 	resolveResearchModel,
 	type SetupModelOption,
+	type SetupModelView,
 	type SetupRecord,
 	saveSetupRecord,
 	setupModelOptions,
+	setupModelView,
 	usageHeadroom,
 	withResearch,
 	writable,
@@ -214,26 +217,49 @@ export function ModelSetupDialog() {
 		[data?.researchPick, defaultModel, ruleRows, options],
 	);
 	const researchModel = research.model;
+	// Every model of the offered list is labelled over the whole list, so look-alikes carry their suffix wherever a
+	// model appears here (role targets, the checklist, the research picker, the sentences) as in the other pickers.
+	const labels = useMemo(
+		() =>
+			compactModelLabels(
+				options.map(option => ({
+					provider: option.provider,
+					id: option.selector.slice(option.provider.length + 1),
+					name: option.label,
+				})),
+			),
+		[options],
+	);
 	// The research can run on any chat model offered, metered ones too; rows read as every model list beside a mark.
-	const researchChoices = useMemo(() => {
-		const refs = options
-			.filter(option => option.kind === "chat")
-			.map(option => ({
-				provider: option.provider,
-				id: option.selector.slice(option.provider.length + 1),
-				name: option.label,
-			}));
-		const labels = compactModelLabels(refs);
-		const groups = groupByProvider(options.filter(option => option.kind === "chat")).map(group => ({
-			label: providers.find(provider => provider.id === group.provider)?.name ?? group.provider,
-			options: refs.filter(ref => ref.provider === group.provider).map(ref => modelValueOption(ref, labels)),
-		}));
-		return { labels, groups };
-	}, [options, providers]);
+	const researchGroups = useMemo(
+		() =>
+			groupByProvider(options.filter(option => option.kind === "chat")).map(group => ({
+				label: providers.find(provider => provider.id === group.provider)?.name ?? group.provider,
+				options: group.models.map(option =>
+					modelValueOption(
+						{
+							provider: option.provider,
+							id: option.selector.slice(option.provider.length + 1),
+							name: option.label,
+						},
+						labels,
+					),
+				),
+			})),
+		[options, providers, labels],
+	);
 
 	const providerName = (id: string) => providers.find(provider => provider.id === id)?.name ?? id;
-	const labelOf = (selector: string | undefined) =>
-		selector ? facts?.models[selector]?.name || options.find(o => o.selector === selector)?.label || selector : "";
+	// `hint` is stock's name for a model outside the offered list (an image model, a role's fallback).
+	const viewOf = (selector: string | undefined, hint?: string) =>
+		selector
+			? setupModelView(
+					selector,
+					labels,
+					options.find(option => option.selector === selector)?.label || facts?.models[selector]?.name || hint,
+				)
+			: undefined;
+	const textOf = (selector: string | undefined) => viewOf(selector)?.text ?? "";
 	const isTicked = (row: ProposalRow) => writable(row) && (ticks[row.role] ?? row.checked);
 
 	const changeMode = (next: string) => {
@@ -394,18 +420,19 @@ export function ModelSetupDialog() {
 				</Button>
 				{researchModel !== undefined && (
 					<ModelValueSelect
-						ariaLabel={t("modelSetup.evidence.model", { model: labelOf(researchModel) })}
+						ariaLabel={t("modelSetup.evidence.model", { model: textOf(researchModel) })}
 						clearable={research.remembered}
 						clearLabel={t("modelSetup.evidence.useDefault", {
-							model: (defaultModel && researchChoices.labels.get(defaultModel)?.name) || labelOf(defaultModel),
+							model: textOf(defaultModel),
 						})}
 						compact
 						disabled={!sidecarReady || data === null}
-						groups={researchChoices.groups}
+						groups={researchGroups}
 						kind="model"
 						notice={
 							research.unavailable !== undefined
-								? t("modelSetup.evidence.modelGone", { model: labelOf(research.unavailable) })
+								? // The pick is gone from the catalog: its selector is the one thing that still names it.
+									t("modelSetup.evidence.modelGone", { model: research.unavailable })
 								: undefined
 						}
 						onCommit={pickResearchModel}
@@ -502,6 +529,7 @@ export function ModelSetupDialog() {
 															key={option.selector}
 															onChange={checked => togglePicked(option.selector, checked)}
 															option={option}
+															view={setupModelView(option.selector, labels, option.label)}
 														/>
 													))}
 												</div>
@@ -519,7 +547,7 @@ export function ModelSetupDialog() {
 							>
 								<span className="min-w-0 flex-1">
 									{t("modelSetup.evidence.confirm", {
-										model: labelOf(researchModel),
+										model: textOf(researchModel),
 										cost:
 											estimate.billing === "subscription"
 												? t("modelSetup.evidence.costSubscription")
@@ -543,7 +571,7 @@ export function ModelSetupDialog() {
 									<Spinner />
 									<div className="min-w-0">
 										<p className="truncate text-sc-md font-medium text-(--sc-text)">
-											{t("modelSetup.research.running", { model: labelOf(researchModel) })}
+											{t("modelSetup.research.running", { model: textOf(researchModel) })}
 										</p>
 										<p className="text-sc-sm tabular-nums text-(--sc-text-muted)">
 											{t("modelSetup.research.elapsed", {
@@ -590,7 +618,7 @@ export function ModelSetupDialog() {
 										{group.rows.map(row => (
 											<RoleRow
 												key={row.role}
-												labelOf={labelOf}
+												viewOf={viewOf}
 												mode={mode}
 												onTick={checked => setTicks(current => ({ ...current, [row.role]: checked }))}
 												role={roles?.find(role => role.id === row.role)}
@@ -673,7 +701,7 @@ function RoleRow({
 	mode,
 	ticked,
 	keepsDefault,
-	labelOf,
+	viewOf,
 	onTick,
 }: {
 	row: ProposalRow;
@@ -681,7 +709,7 @@ function RoleRow({
 	mode: PlanMode;
 	ticked: boolean;
 	keepsDefault: boolean;
-	labelOf: (selector: string | undefined) => string;
+	viewOf: (selector: string | undefined, hint?: string) => SetupModelView | undefined;
 	onTick: (checked: boolean) => void;
 }) {
 	const t = useT();
@@ -689,7 +717,7 @@ function RoleRow({
 	const name = role ? modelRoleName(lang, role.name) : row.role;
 	const stock = row.model === null;
 	const unchanged = !stock && !writable(row);
-	const effective = role?.effective?.name || labelOf(role?.effective?.model) || t("modelSetup.row.noModel");
+	const effective = viewOf(role?.effective?.model, role?.effective?.name);
 	const reason = [
 		reasonText(t, row, {
 			mode,
@@ -700,7 +728,7 @@ function RoleRow({
 	]
 		.filter(Boolean)
 		.join(" ");
-	const label = stock ? effective : labelOf(row.model ?? undefined);
+	const view = stock ? effective : viewOf(row.model ?? undefined);
 	return (
 		<li
 			className={cx(
@@ -729,14 +757,11 @@ function RoleRow({
 				→
 			</span>
 			<span
-				className={cx(
-					"min-w-0 flex-1 truncate",
-					stock || unchanged ? "text-(--sc-text-muted)" : "text-(--sc-text)",
-				)}
+				className={cx("flex min-w-0 flex-1", stock || unchanged ? "text-(--sc-text-muted)" : "text-(--sc-text)")}
 				data-model-setup-model
-				title={label}
+				title={view?.title}
 			>
-				{label}
+				{view ? <ModelLabel label={view.label} provider={view.provider} /> : t("modelSetup.row.noModel")}
 			</span>
 			{stock ? (
 				<Badge className="shrink-0" variant="muted">
@@ -758,12 +783,14 @@ function RoleRow({
 
 function ModelCheckbox({
 	option,
+	view,
 	checked,
 	disabled,
 	isDefault,
 	onChange,
 }: {
 	option: SetupModelOption;
+	view: SetupModelView;
 	checked: boolean;
 	disabled: boolean;
 	isDefault: boolean;
@@ -776,7 +803,7 @@ function ModelCheckbox({
 				"flex min-h-7 items-center gap-2 rounded-(--sc-radius-sm) px-1 hover:bg-(--sc-hover) [html[data-input=touch]_&]:min-h-9",
 				disabled && "opacity-60",
 			)}
-			title={option.selector}
+			title={view.title}
 		>
 			<Checkbox
 				checked={checked}
@@ -784,7 +811,7 @@ function ModelCheckbox({
 				disabled={disabled}
 				onChange={event => onChange(event.target.checked)}
 			/>
-			<span className="min-w-0 truncate text-sc-sm text-(--sc-text)">{option.label}</span>
+			<ModelLabel label={view.label} provider={view.provider} />
 			{isDefault && <Badge variant="success">{t("modelSetup.pick.default")}</Badge>}
 			{option.billing === "metered" && (
 				<Badge className="shrink-0" variant="muted">
