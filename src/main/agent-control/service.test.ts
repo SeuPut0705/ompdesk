@@ -59,6 +59,8 @@ interface FakeTab extends ControlTab {
 	cost?: number;
 	/** What the fake omp answers `get_session_spend.providers` with (its own host's billing); absent = an older omp. */
 	spend?: Record<string, { billing: string; name?: string; cost: number; today: number }>;
+	/** What its omp's bridge answers `agent_control_turn` with: its current run was started by the person's own message. */
+	personTurn?: boolean;
 }
 
 class FakeHost implements AgentControlHost {
@@ -398,6 +400,8 @@ class FakeHost implements AgentControlHost {
 				return tab.turn ? ok(tab.turn) : bad("unknown command: get_turn_edits");
 			case "get_git_unlanded":
 				return ok(tab.unlanded ?? null);
+			case "agent_control_turn":
+				return ok({ person: tab.personTurn === true });
 			case "prompt":
 				tab.busy = true;
 				return ok();
@@ -4553,6 +4557,56 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 			expect(refused.text).toMatch(/user's view or they typed/);
 		}
 		expect(host.views).toEqual([]);
+	});
+
+	it("stops, closes or deletes a session the user looks at or typed into when the user's own message started the turn", async () => {
+		for (const args of [{}, { close: true }, { delete: true }]) {
+			const host = new FakeHost(
+				{ tabId: "boss0001", title: "Boss", busy: true, personTurn: true },
+				{
+					tabId: "seen0002",
+					title: "Seen",
+					looked: true,
+					busy: true,
+					status: "running",
+					sessionPath: "/s/a.jsonl",
+				},
+				{ tabId: "typed003", title: "Typed", userTouched: true, sessionPath: "/s/b.jsonl" },
+			);
+			host.parents.set("seen0002", "boss0001");
+			const service = control(host);
+			for (const session of ["seen0002", "typed003"]) {
+				const result = await service.run("boss0001", T.stop, { session, ...args });
+				expect(result.isError, result.text).toBe(false);
+			}
+			if ("close" in args) expect(host.views.map(view => view.tabId).sort()).toEqual(["seen0002", "typed003"]);
+		}
+	});
+
+	it("refuses to stop, close or delete a session the user looks at or typed into in a turn an agent's message started", async () => {
+		for (const args of [{}, { close: true }, { delete: true }]) {
+			const host = new FakeHost(
+				{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false },
+				{
+					tabId: "seen0002",
+					title: "Seen",
+					looked: true,
+					busy: true,
+					status: "running",
+					sessionPath: "/s/a.jsonl",
+				},
+				{ tabId: "typed003", title: "Typed", userTouched: true, sessionPath: "/s/b.jsonl" },
+			);
+			host.parents.set("seen0002", "boss0001");
+			const service = control(host);
+			for (const session of ["seen0002", "typed003"]) {
+				const refused = await service.run("boss0001", T.stop, { session, ...args });
+				expect(refused.isError).toBe(true);
+				expect(refused.text).toMatch(/not started by the user's own message/);
+			}
+			expect(host.views).toEqual([]);
+			expect(host.sent.filter(entry => entry.command.type === "abort")).toEqual([]);
+		}
 	});
 
 	it("joins two same-request sends arriving together into one delivery", async () => {
