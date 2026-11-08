@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipModelName } from "./provider-marks";
+import { chipModelName, compactModelLabels, type ModelRef } from "./provider-marks";
 
 const of = (provider: string, name: string) => chipModelName({ id: provider, name: provider }, name);
 
@@ -23,5 +23,100 @@ describe("chipModelName", () => {
 		["anthropic", "Claude", "Claude"],
 	])("%s · %s → %s", (provider, name, shown) => {
 		expect(of(provider, name)).toBe(shown);
+	});
+});
+
+describe("compactModelLabels", () => {
+	const labels = (models: ModelRef[]) => Object.fromEntries(compactModelLabels(models));
+
+	it("drops the brand word and adds no suffix while every name reads differently", () => {
+		expect(
+			labels([
+				{ provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" },
+				{ provider: "anthropic", id: "claude-fable-5", name: "Claude Fable 5" },
+				{ provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5.1" },
+				{ provider: "google", id: "gemini-3-pro", name: "Gemini 3 Pro" },
+				{ provider: "openai", id: "gpt-6.1", name: "GPT-6.1" },
+				{ provider: "fixture", id: "local-fixture" },
+			]),
+		).toEqual({
+			"anthropic/claude-opus-5-5": { name: "Opus 5.5" },
+			"anthropic/claude-fable-5": { name: "Fable 5" },
+			"anthropic/claude-fable-5-1": { name: "Fable 5.1" },
+			"google/gemini-3-pro": { name: "Gemini 3 Pro" },
+			"openai/gpt-6.1": { name: "GPT-6.1" },
+			"fixture/local-fixture": { name: "local-fixture" },
+		});
+	});
+
+	it("tells a dated id from its alias by the date, and a version step by its digit", () => {
+		expect(
+			labels([
+				{ provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+				{ provider: "anthropic", id: "claude-haiku-4-5-20251001", name: "Haiku 4.5" },
+				{ provider: "anthropic", id: "claude-fable-5", name: "Claude Fable 5" },
+				{ provider: "anthropic", id: "claude-fable-5-1", name: "Claude Fable 5" },
+			]),
+		).toEqual({
+			"anthropic/claude-haiku-4-5": { name: "Haiku 4.5" },
+			"anthropic/claude-haiku-4-5-20251001": { name: "Haiku 4.5", suffix: "20251001" },
+			"anthropic/claude-fable-5": { name: "Fable 5" },
+			"anthropic/claude-fable-5-1": { name: "Fable 5", suffix: "1" },
+		});
+	});
+
+	it("cuts ids at whole tokens, so a shared leading digit stays in the suffix", () => {
+		expect(
+			labels([
+				{ provider: "google", id: "gemini-3-pro-preview", name: "Gemini 3 Pro" },
+				{ provider: "google", id: "gemini-3-pro-preview-06", name: "Gemini 3 Pro" },
+				{ provider: "google", id: "gemini-3-pro-preview-0605", name: "Gemini 3 Pro" },
+			]),
+		).toEqual({
+			"google/gemini-3-pro-preview": { name: "Gemini 3 Pro" },
+			"google/gemini-3-pro-preview-06": { name: "Gemini 3 Pro", suffix: "06" },
+			"google/gemini-3-pro-preview-0605": { name: "Gemini 3 Pro", suffix: "0605" },
+		});
+	});
+
+	it("names the provider when one id sits under two providers drawn with the same mark", () => {
+		expect(
+			labels([
+				{ provider: "openai", id: "gpt-6.1", name: "GPT-6.1" },
+				{ provider: "openai-codex", id: "gpt-6.1", name: "GPT-6.1" },
+				{ provider: "openai", id: "gpt-6.1-2026-01-15", name: "GPT-6.1" },
+			]),
+		).toEqual({
+			"openai/gpt-6.1": { name: "GPT-6.1", suffix: "openai" },
+			"openai-codex/gpt-6.1": { name: "GPT-6.1", suffix: "openai-codex" },
+			"openai/gpt-6.1-2026-01-15": { name: "GPT-6.1", suffix: "2026-01-15" },
+		});
+	});
+
+	it("leaves rows alone whose marks already differ, and lists a repeated model once", () => {
+		expect(
+			labels([
+				{ provider: "google", id: "gemini-3-pro", name: "Gemini 3 Pro" },
+				{ provider: "google-vertex", id: "gemini-3-pro", name: "Gemini 3 Pro" },
+				{ provider: "google", id: "gemini-3-pro", name: "Gemini 3 Pro" },
+			]),
+		).toEqual({
+			"google/gemini-3-pro": { name: "Gemini 3 Pro" },
+			"google-vertex/gemini-3-pro": { name: "Gemini 3 Pro" },
+		});
+	});
+
+	it("tells apart two unknown providers whose fallback glyphs draw the same letter", () => {
+		expect(
+			labels([
+				{ provider: "acme-east", id: "chat-1", name: "Chat 1" },
+				{ provider: "acme-west", id: "chat-1", name: "Chat 1" },
+				{ provider: "bolt", id: "chat-1", name: "Chat 1" },
+			]),
+		).toEqual({
+			"acme-east/chat-1": { name: "Chat 1", suffix: "acme-east" },
+			"acme-west/chat-1": { name: "Chat 1", suffix: "acme-west" },
+			"bolt/chat-1": { name: "Chat 1" },
+		});
 	});
 });

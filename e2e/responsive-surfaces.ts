@@ -955,9 +955,10 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "model-picker",
 		area: "A",
-		title: "Model picker",
-		open: page => ui(page, "openModelPicker"),
+		title: "Model picker: each model its provider's mark and compact name, opened from the composer's model chip",
+		open: page => page.locator("[data-model-chip]").first().click(),
 		ready: "[data-model-option]",
+		parity: { session: "work", after: closeOverlay },
 	},
 	{
 		id: "composer-slash-menu",
@@ -1094,6 +1095,23 @@ export const SURFACES: readonly Surface[] = [
 		ready: "[data-settings-page] [data-local-engine-detect]",
 		settle: 900,
 		parity: { session: "work" },
+	},
+	{
+		id: "settings-model-role-picker",
+		area: "B",
+		title: "Settings › Model roles with the Default role's picker open: mark and compact name per model",
+		open: async (page, look) => {
+			await openSettingsModels(page, look);
+			const trigger = page.locator("[data-settings-page] #model-role-default [aria-haspopup='listbox']");
+			await trigger.waitFor({ state: "visible", timeout: 30_000 });
+			await trigger.scrollIntoViewIfNeeded();
+			await trigger.click();
+		},
+		ready: "[role='listbox'] [role='option']",
+		settle: 600,
+		// Parity only: the audits measure the model picker through the composer's chip above.
+		when: () => false,
+		parity: { session: "work", after: closeOverlay },
 	},
 	{
 		id: "settings-computer-use",

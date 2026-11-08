@@ -206,8 +206,9 @@ describe("Model roles grouped by purpose", () => {
 		expect(rowText("tiny")).toContain("GPT");
 		expect(rowText("tiny")).toContain("from Fast");
 		expect(rowText("tiny")).toContain(translate("modelRoles.fallback.tiny"));
-		// Empty Plan keeps the session's model.
-		expect(rowText("plan")).toContain("Claude Sonnet");
+		// Empty Plan keeps the session's model, named beside the provider's mark without the brand word.
+		expect(rowText("plan")).toContain("Sonnet");
+		expect(rowText("plan")).not.toContain("Claude Sonnet");
 		expect(rowText("plan")).toContain("session model");
 		// A role whose model is gone says so instead of looking empty.
 		expect(rowText("slow")).toContain("Not available");
@@ -258,7 +259,9 @@ describe("Model roles grouped by purpose", () => {
 
 		const trigger = button("Model for Image generation");
 		await act(async () => trigger?.click());
-		const options = [...document.body.querySelectorAll('[role="option"]')].map(option => option.textContent ?? "");
+		const options = [...document.body.querySelectorAll('[role="option"]')].map(
+			option => option.getAttribute("title") ?? "",
+		);
 		expect(options.join(" ")).toContain("openai/dalle");
 		expect(options.join(" ")).not.toContain("anthropic/sonnet");
 	});

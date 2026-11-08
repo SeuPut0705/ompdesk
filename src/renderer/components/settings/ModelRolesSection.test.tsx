@@ -183,10 +183,13 @@ describe("ModelRolesSection", () => {
 		const listbox = document.body.querySelector('[role="listbox"]');
 		expect(listbox).not.toBeNull();
 		expect(listbox?.textContent).toContain("Chat");
+		// Rows read mark + compact name; the selector is the row's tooltip, never text beside the name.
 		expect(listbox?.textContent).toContain("Claude");
-		expect(listbox?.textContent).toContain("openai/gpt");
+		expect(listbox?.textContent).not.toContain("openai/gpt");
+		const titles = [...(listbox?.querySelectorAll('[role="option"]') ?? [])].map(row => row.getAttribute("title"));
+		expect(titles).toContain("GPT · openai/gpt");
 		const selected = listbox?.querySelector('[role="option"][aria-selected="true"]');
-		expect(selected?.textContent).toContain("anthropic/claude");
+		expect(selected?.getAttribute("title")).toContain("anthropic/claude");
 	});
 
 	it("says why the list cannot refresh instead of claiming no roles are configured", async () => {
@@ -284,7 +287,7 @@ describe("ModelRolesSection", () => {
 
 		await act(async () => roleTrigger("Default")?.click());
 		const option = [...document.body.querySelectorAll('[role="option"]')].find(button =>
-			(button.textContent ?? "").includes("openai/gpt"),
+			(button.getAttribute("title") ?? "").endsWith(" · openai/gpt"),
 		);
 		expect(option).toBeDefined();
 		await act(async () => option?.dispatchEvent(new Event("click", { bubbles: true })));

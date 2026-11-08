@@ -14,7 +14,8 @@
  *   `allowCustom`. A saved value outside the pool is still pinned so it stays
  *   visible and clearable.
  *
- * Models show their display name with the `provider/id` selector beside it.
+ * Models show their provider's mark and compact name (`compactModelLabels`); the full name and `provider/id` are the
+ * row's tooltip and still match a search.
  * Commits go through the caller (`""` clears).
  */
 
@@ -27,6 +28,14 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { useModelStore } from "../../stores/model";
 import { Button, OptionRow, Spinner } from "../common";
 import { isTopmostDialog, registerDialogLayer } from "../common/dialog-layer";
+import { ProviderMark } from "./providers/ProviderMark";
+import { modelDisplayName } from "./providers/provider-catalog";
+import {
+	type CompactModelLabel,
+	compactModelLabel,
+	compactModelLabels,
+	type ModelRef,
+} from "./providers/provider-marks";
 
 export type SettingRefKind = "model" | "provider";
 
@@ -48,9 +57,28 @@ export interface ModelValueOption {
 	value: string;
 	/** Display name; the value itself is shown when absent. */
 	label?: string;
-	/** Secondary text (the selector under a display name, a provider's name). */
+	/** Muted tail telling this model from another with the same label (`CompactModelLabel.suffix`). */
+	suffix?: string;
+	/** A model's provider: its mark leads the row. */
+	provider?: string;
+	/** A model's full name: tooltip with the value, and a search match. */
+	fullName?: string;
+	/** Secondary text (a provider's name). */
 	detail?: string;
 	disabled?: boolean;
+}
+
+/** A model as a row: compact label from `labels` (computed over the whole list, so collisions get a suffix). */
+export function modelValueOption(model: ModelRef, labels: ReadonlyMap<string, CompactModelLabel>): ModelValueOption {
+	const value = `${model.provider}/${model.id}`;
+	const { name, suffix } = labels.get(value) ?? compactModelLabel(model);
+	return {
+		value,
+		label: name,
+		provider: model.provider,
+		fullName: modelDisplayName(model),
+		...(suffix ? { suffix } : {}),
+	};
 }
 
 export interface ModelValueGroup {
@@ -66,16 +94,14 @@ type FetchState = "idle" | "loading" | "error" | "ready";
  * catalog and these options can never disagree. */
 async function modelOptions(read: () => Promise<AvailableModelsResult>): Promise<ModelValueOption[]> {
 	const { models } = await read();
+	const labels = compactModelLabels(models);
 	const seen = new Set<string>();
-	const options: ModelValueOption[] = [];
-	for (const model of models) {
-		const value = `${model.provider}/${model.id}`;
-		if (seen.has(value)) continue;
-		seen.add(value);
-		const named = typeof model.name === "string" && model.name.length > 0 && model.name !== model.id;
-		options.push(named ? { value, label: model.name, detail: value } : { value });
-	}
-	return options;
+	return models.flatMap(model => {
+		const option = modelValueOption(model, labels);
+		if (seen.has(option.value)) return [];
+		seen.add(option.value);
+		return [option];
+	});
 }
 
 async function providerOptions(read: () => Promise<ProvidersResult>): Promise<ModelValueOption[]> {
@@ -88,10 +114,32 @@ async function providerOptions(read: () => Promise<ProvidersResult>): Promise<Mo
 }
 
 function matches(option: ModelValueOption, needle: string): boolean {
+	return [option.value, option.label, option.fullName, option.detail].some(text =>
+		(text ?? "").toLowerCase().includes(needle),
+	);
+}
+
+/** A model row's tooltip: what the compact label leaves out. */
+function optionTitle(option: ModelValueOption): string | undefined {
+	return option.fullName === undefined ? undefined : `${option.fullName} · ${option.value}`;
+}
+
+/** Mark, compact name and suffix of a model option; the name alone (mono when it is the raw value) otherwise. */
+function OptionLabel({ option }: { option: ModelValueOption }) {
 	return (
-		option.value.toLowerCase().includes(needle) ||
-		(option.label ?? "").toLowerCase().includes(needle) ||
-		(option.detail ?? "").toLowerCase().includes(needle)
+		<>
+			{option.provider !== undefined && (
+				<ProviderMark className="size-4" provider={{ id: option.provider, name: option.provider }} />
+			)}
+			<span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+				<span className={cx("min-w-0 truncate", option.label === undefined && "font-mono text-sc-sm")}>
+					{option.label ?? option.value}
+				</span>
+				{option.suffix !== undefined && (
+					<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">{option.suffix}</span>
+				)}
+			</span>
+		</>
 	);
 }
 
@@ -159,6 +207,7 @@ export function ModelValueSelect({
 	const t = useT();
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
+	const storeModels = useModelStore(state => state.availableModels);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [fetched, setFetched] = useState<ModelValueOption[]>([]);
@@ -316,8 +365,13 @@ export function ModelValueSelect({
 			: kind === "provider"
 				? t("modelValue.noun.providers")
 				: t("modelValue.noun.options"));
-	const triggerText = value === "" ? (placeholder ?? t("modelValue.unset")) : (currentOption?.label ?? value);
-	const triggerMono = value !== "" && currentOption?.label === undefined;
+	// Before a fetched list loads, the store's catalog still names the saved model, so the closed field reads as the
+	// open list will.
+	const shownOption = useMemo(() => {
+		if (currentOption || kind !== "model" || value === "") return currentOption;
+		const known = storeModels.find(model => `${model.provider}/${model.id}` === value);
+		return known ? modelValueOption(known, compactModelLabels(storeModels)) : undefined;
+	}, [currentOption, kind, storeModels, value]);
 
 	const moveFocus = (direction: 1 | -1, edge?: "first" | "last") => {
 		const options = listRef.current
@@ -378,17 +432,11 @@ export function ModelValueSelect({
 				key={option.value}
 				onClick={() => choose(option.value)}
 				size="sm"
+				title={optionTitle(option)}
 			>
-				<span className={cx("min-w-0 flex-1 truncate", option.label === undefined && "font-mono text-sc-sm")}>
-					{option.label ?? option.value}
-				</span>
+				<OptionLabel option={option} />
 				{option.detail !== undefined && (
-					<span
-						className={cx(
-							"min-w-0 shrink truncate text-sc-xs text-(--sc-text-muted)",
-							option.label !== undefined && "font-mono",
-						)}
-					>
+					<span className="min-w-0 shrink truncate text-sc-xs text-(--sc-text-muted)">
 						{option.disabled ? t("modelValue.providerDisabled", { name: option.detail }) : option.detail}
 					</span>
 				)}
@@ -407,18 +455,18 @@ export function ModelValueSelect({
 				disabled={disabled}
 				onClick={() => (open ? setOpen(false) : openPanel())}
 				ref={triggerRef}
-				title={title}
+				title={title ?? (shownOption ? optionTitle(shownOption) : undefined)}
 				type="button"
 			>
-				<span
-					className={cx(
-						"min-w-0 flex-1 truncate",
-						triggerMono && "font-mono text-sc-sm",
-						value === "" ? "text-(--sc-text-subtle)" : "text-(--sc-text)",
-					)}
-				>
-					{triggerText}
-				</span>
+				{value === "" ? (
+					<span className="min-w-0 flex-1 truncate text-(--sc-text-subtle)">
+						{placeholder ?? t("modelValue.unset")}
+					</span>
+				) : (
+					<span className="flex min-w-0 flex-1 items-center gap-1.5 text-(--sc-text)">
+						<OptionLabel option={shownOption ?? { value }} />
+					</span>
+				)}
 				<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 			</button>
 			{open && placement !== null && (

@@ -323,7 +323,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A conversation the bot ended reads as an earlier one in a tab's name and the title bar (8 Nov 2026,
 // lib/session-title.ts `withEndedBotMark`, the listed row's `bot` and `created`; the title bar is the first screen):
 // 2,170,873.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_170_873;
+// Every model list beside a provider's mark reads its compact name, a suffix only where two would read alike (8 Nov
+// 2026, provider-marks.ts `compactModelLabels`; the composer's model picker is on the first screen): 2,171,893.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_171_893;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

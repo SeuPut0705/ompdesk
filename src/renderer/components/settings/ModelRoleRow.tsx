@@ -26,9 +26,10 @@ import { Badge, LinkButton, ProgressBar, Tooltip } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
-import { type ModelValueGroup, ModelValueSelect } from "./ModelValueSelect";
+import { type ModelValueGroup, ModelValueSelect, modelValueOption } from "./ModelValueSelect";
 import { roleFallback, rolePurpose } from "./model-role-text";
 import { ProviderMark } from "./providers/ProviderMark";
+import { type CompactModelLabel, compactModelLabel, compactModelLabels } from "./providers/provider-marks";
 import { SettingsRow } from "./SettingsLayout";
 
 const KIND_ORDER: readonly ModelRoleEntry["candidates"][number]["kind"][] = [
@@ -88,6 +89,7 @@ function ProviderState({
 /** The effective model, its source, account state and thinking level. */
 function EffectiveLine({
 	entry,
+	labels,
 	roleName,
 	providers,
 	usage,
@@ -95,6 +97,8 @@ function EffectiveLine({
 	t,
 }: {
 	entry: ModelRoleEntry;
+	/** The picker's labels, so the line names the model as its row does. */
+	labels: ReadonlyMap<string, CompactModelLabel>;
 	roleName: (id: string) => string;
 	providers: readonly ProviderInfo[];
 	usage: readonly UsageReport[];
@@ -125,7 +129,11 @@ function EffectiveLine({
 			</p>
 		);
 	}
-	const providerId = effective.model.slice(0, effective.model.indexOf("/"));
+	const slash = effective.model.indexOf("/");
+	const providerId = effective.model.slice(0, slash);
+	const label =
+		labels.get(effective.model) ??
+		compactModelLabel({ provider: providerId, id: effective.model.slice(slash + 1), name: effective.name });
 	const level = effective.thinkingLevel;
 	const levelName =
 		level && (level === "auto" || THINKING_LEVEL_VALUES.some(known => known === level))
@@ -144,8 +152,14 @@ function EffectiveLine({
 			className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-secondary)"
 			data-role-status
 		>
-			<span className="font-medium text-(--sc-text)" title={effective.model}>
-				{effective.name ?? effective.model}
+			<span
+				className="flex items-baseline gap-1.5 font-medium text-(--sc-text)"
+				title={[effective.name, effective.model].filter(Boolean).join(" · ")}
+			>
+				{label.name}
+				{label.suffix && (
+					<span className="text-sc-xs font-normal text-(--sc-text-muted) tabular-nums">{label.suffix}</span>
+				)}
 			</span>
 			{source && <span className="text-(--sc-text-muted)">{source}</span>}
 			<ProviderState provider={providers.find(provider => provider.id === providerId)} t={t} usage={usage} />
@@ -259,20 +273,17 @@ export function ModelRoleRow({
 	const t = useT();
 	const { lang } = useLang();
 	const candidates = entry.candidates ?? [];
-	// Candidates grouped by model kind; display name first, selector beside it.
+	// Candidates grouped by model kind, labelled over the whole pool so look-alikes carry a suffix in every group.
+	const labels = useMemo(() => compactModelLabels(candidates), [candidates]);
 	const groups = useMemo<ModelValueGroup[]>(
 		() =>
 			KIND_ORDER.map(kind => ({
 				label: t(`modelRoles.kind.${kind}`),
 				options: candidates
 					.filter(candidate => candidate.kind === kind)
-					.map(candidate => {
-						const value = `${candidate.provider}/${candidate.id}`;
-						const named = candidate.name.length > 0 && candidate.name !== candidate.id;
-						return named ? { value, label: candidate.name, detail: value } : { value };
-					}),
+					.map(candidate => modelValueOption(candidate, labels)),
 			})).filter(group => group.options.length > 0),
-		[candidates, t],
+		[candidates, labels, t],
 	);
 
 	const tag = roleTag(entry, name);
@@ -320,6 +331,7 @@ export function ModelRoleRow({
 				<EffectiveLine
 					compaction={compaction}
 					entry={entry}
+					labels={labels}
 					providers={providers}
 					roleName={roleName}
 					t={t}

@@ -66,6 +66,7 @@ import xai from "../../../assets/provider-marks/xai.svg?raw";
 import xiaomimimo from "../../../assets/provider-marks/xiaomimimo.svg?raw";
 import zai from "../../../assets/provider-marks/zai.svg?raw";
 import zhipu from "../../../assets/provider-marks/zhipu.svg?raw";
+import { modelDisplayName } from "./provider-catalog";
 
 /** Every vendored symbol, by its file name in src/renderer/assets/provider-marks. */
 export const MARK_SOURCES = {
@@ -274,7 +275,7 @@ const MARK_FAMILY: Partial<Record<MarkId, string>> = { anthropic: "Claude", gemi
  * A model's name for a chip that already shows its provider's mark: a leading word equal to the brand the mark draws
  * (the company's first word, or its model family) is dropped when what follows still starts with a word ("Claude Opus
  * 5.5" → "Opus 5.5"), never when only a number would be left ("Gemini 3 Pro", "Grok 5" stay whole). No mark, or no
- * such word: the name as stock gives it. Pickers and tooltips keep the full name.
+ * such word: the name as stock gives it. Tooltips keep the full name.
  */
 export function chipModelName(provider: { id: string; name: string }, name: string): string {
 	const { company, mark } = providerBrand(provider);
@@ -284,6 +285,71 @@ export function chipModelName(provider: { id: string; name: string }, name: stri
 	if (!match) return name;
 	const [, lead = "", rest = ""] = match;
 	return brands.some(word => word.localeCompare(lead, undefined, { sensitivity: "base" }) === 0) ? rest : name;
+}
+
+export interface ModelRef {
+	provider: string;
+	id: string;
+	name?: string;
+}
+
+/** A model beside its provider's mark: `chipModelName`, plus a muted `suffix` only where two rows would read alike. */
+export interface CompactModelLabel {
+	name: string;
+	suffix?: string;
+}
+
+export function compactModelLabel(model: ModelRef): CompactModelLabel {
+	return { name: chipModelName({ id: model.provider, name: model.provider }, modelDisplayName(model)) };
+}
+
+const ID_SEPARATOR = /[-_./:@]/;
+
+/** What a row draws before the name: the vendored mark, else the fallback glyph's letter (`ProviderMark`). */
+function drawnMark(provider: string): string {
+	return (
+		providerBrand({ id: provider, name: provider }).mark ??
+		`letter:${(Array.from(provider.trim())[0] ?? "?").toUpperCase()}`
+	);
+}
+
+/** Each id past the whole-token prefix they all share, its leading separator dropped ("claude-haiku-4-5-20251001" → "20251001"). */
+function idTails(ids: readonly string[]): string[] {
+	const first = ids[0] ?? "";
+	let end = 0;
+	while (end < first.length && ids.every(id => id[end] === first[end])) end++;
+	while (end > 0 && !ids.every(id => id.length === end || ID_SEPARATOR.test(id[end] ?? ""))) end--;
+	return ids.map(id => id.slice(end).replace(/^[-_./:@]+/, ""));
+}
+
+/**
+ * Compact labels for a list of models, keyed by `provider/id`. Rows that would look the same (same mark, same name)
+ * get the part of their ids that differs as `suffix` ("Haiku 4.5" and "Haiku 4.5 20251001"); the one whose id is the
+ * shared part keeps none. The same id under two providers drawn with one mark (openai, openai-codex) is told apart
+ * by its provider id.
+ */
+export function compactModelLabels(models: readonly ModelRef[]): Map<string, CompactModelLabel> {
+	const groups = new Map<string, { model: ModelRef; label: CompactModelLabel }[]>();
+	const labels = new Map<string, CompactModelLabel>();
+	for (const model of models) {
+		const selector = `${model.provider}/${model.id}`;
+		if (labels.has(selector)) continue;
+		const label = compactModelLabel(model);
+		labels.set(selector, label);
+		const key = `${drawnMark(model.provider)}\n${label.name.toLocaleLowerCase()}`;
+		groups.set(key, [...(groups.get(key) ?? []), { model, label }]);
+	}
+	for (const group of groups.values()) {
+		if (group.length < 2) continue;
+		const tails = idTails(group.map(entry => entry.model.id));
+		group.forEach(({ model, label }, index) => {
+			const tail = tails[index] ?? "";
+			const shared = tails.filter(other => other === tail).length > 1;
+			const suffix = shared ? [model.provider, tail].filter(Boolean).join(" ") : tail;
+			if (suffix) label.suffix = suffix;
+		});
+	}
+	return labels;
 }
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });

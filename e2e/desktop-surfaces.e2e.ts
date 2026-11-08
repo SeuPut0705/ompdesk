@@ -116,15 +116,13 @@ test("@smoke Model roles lists every purpose with its use, and a role is set thr
 			await expect(roles.getByRole("group", { name: group })).toBeVisible();
 		// A configured role shows when it is used and the model it runs on; an empty one what it follows.
 		await expect(roles.locator("#model-role-default")).toContainText("Answers every message in a session");
-		await expect(roles.locator("#model-role-default")).toContainText("Claude Sonnet 4.5");
+		await expect(roles.locator("#model-role-default")).toContainText("Sonnet 4.5");
+		await expect(roles.locator("#model-role-default")).not.toContainText("Claude Sonnet 4.5");
 		await expect(roles.locator("#model-role-smol")).toContainText("Quick, cheap work");
 		await captureTo(CAPTURES, page, "model-roles");
 
 		await roles.getByRole("button", { name: "Model for Fast", exact: true }).click();
-		await page
-			.getByRole("option", { name: /local-fixture/ })
-			.first()
-			.click();
+		await page.getByRole("option", { name: "Local fixture", exact: true }).first().click();
 		await expect(page.getByText(/Role "Fast" set to /)).toBeVisible();
 		await expect(roles.locator("#model-role-smol")).toContainText("Local fixture");
 		await captureTo(CAPTURES, page, "model-roles-set");

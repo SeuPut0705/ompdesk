@@ -50,6 +50,7 @@ import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
+import { compactModelLabels } from "../settings/providers/provider-marks";
 
 /** Rows in the Recent group (stock's `/models` hub keeps 15; a dialog wants a glance). */
 const RECENT_LIMIT = 5;
@@ -189,6 +190,7 @@ export function ModelPicker() {
 		for (const provider of loginProviders) map.set(provider.id, provider.name);
 		return map;
 	}, [catalogProviders, loginProviders]);
+	const labels = useMemo(() => compactModelLabels(availableModels), [availableModels]);
 	const connected = useCallback(
 		(provider: string) =>
 			authByProvider.get(provider)?.authenticated ??
@@ -437,8 +439,10 @@ export function ModelPicker() {
 										const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
 										const compaction = compactionPoints?.bySelector.get(key);
 										const compactionValue = compaction ? compactionPointValue(compaction) : null;
-										// Secondary facts live in the row's tooltip, not on extra lines.
+										const label = labels.get(key) ?? { name: modelDisplayName(model) };
+										// The full name and secondary facts live in the row's tooltip, not on extra lines.
 										const details = [
+											modelDisplayName(model),
 											model.name && model.name !== model.id ? model.id : null,
 											model.description,
 											model.int != null && Number.isFinite(model.int)
@@ -486,12 +490,17 @@ export function ModelPicker() {
 												/>
 												<span
 													className={cx(
-														"min-w-0 flex-1 truncate text-sc-sm",
+														"flex min-w-0 flex-1 items-baseline gap-1.5 text-sc-sm",
 														isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
 														over && "text-(--sc-text-muted)",
 													)}
 												>
-													{modelDisplayName(model)}
+													<span className="min-w-0 truncate">{label.name}</span>
+													{label.suffix && (
+														<span className="shrink-0 text-sc-2xs font-normal text-(--sc-text-muted) tabular-nums">
+															{label.suffix}
+														</span>
+													)}
 												</span>
 												{model.isRecommended && (
 													<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>

@@ -179,8 +179,9 @@ async function pickModel(selector: string): Promise<void> {
 	);
 	await act(async () => button(byLabel(translate("compactionLimits.model"))).click());
 	await act(async () => {});
+	// A model row shows its compact name; its tooltip carries the full name and the selector.
 	const option = [...document.body.querySelectorAll('[role="option"]')].find(row =>
-		(row.textContent ?? "").includes(selector),
+		(row.getAttribute("title") ?? "").endsWith(` · ${selector}`),
 	);
 	expect(option).toBeDefined();
 	await act(async () => option?.dispatchEvent(new Event("click", { bubbles: true })));
