@@ -52,7 +52,7 @@ jobs:
         id: check
         run: bun scripts/skill-packs.ts check --github-output
       - if: steps.check.outputs.outdated != ''
-        run: bun install --frozen-lockfile
+        uses: ./.github/actions/install
       # ECC's stock test builds a real omp session; without omp it would skip.
       - name: Install omp
         if: steps.check.outputs.outdated != ''

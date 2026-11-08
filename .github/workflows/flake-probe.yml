@@ -64,10 +64,8 @@ jobs:
       - if: runner.os == 'Windows'
         name: Put bun's cache on the workspace volume
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
-      - run: bun install --frozen-lockfile
-      # Tests import electron and e2e launches it; a plain install may leave no binary.
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # Tests import electron and e2e launches it: the shared install fetches the binary.
+      - uses: ./.github/actions/install
       # As ci.yml's check: the stock suites skip without omp, real-core launches it.
       - name: Install omp
         run: |

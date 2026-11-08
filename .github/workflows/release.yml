@@ -164,9 +164,9 @@ jobs:
       # Nothing here launches Electron, and `win` and `mac` wait on this job's
       # upload, so it does nothing else: types, biome and the surface policy
       # are `static`'s, vitest is `check`'s.
-      - run: bun install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - uses: ./.github/actions/install
+        with:
+          electron: "false"
       - run: bun run build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -196,9 +196,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - uses: ./.github/actions/install
+        with:
+          electron: "false"
       - run: bun run check:types
       - run: bunx biome check src e2e resources scripts
       - run: node scripts/lint-surfaces.mjs
@@ -238,12 +238,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      # Tests import electron, whose index.js throws without the binary; see
-      # `mac` for why a plain install may leave none on the Mac. A no-op once
-      # installed.
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # Tests import electron, whose index.js throws without the binary; the shared install fetches it
+      # (cached by electron's version, one retry on a download miss).
+      - uses: ./.github/actions/install
       - name: Install omp
         run: |
           # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
@@ -273,12 +270,12 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      # bun runs lifecycle scripts with the `node` on PATH; where electron's
-      # extract-zip exits mid-unzip without an error no binary is left. Under
-      # bun it unzips; a no-op once installed.
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      # The shared install fetches Electron from a cache, and puts electron-builder's downloads in one for
+      # Package below. bun runs lifecycle scripts with the `node` on PATH; where electron's extract-zip exits
+      # mid-unzip without an error no binary is left, so the install unzips under bun.
+      - uses: ./.github/actions/install
+        with:
+          builder: "true"
       # The memory binary is built from native/memory (OMPdesk's own source) right here, while the build job
       # produces out/: the upstream's release build (`cargo build --locked --release -p ai-memory-cli`, scripts/build-memory.ts)
       # puts the binary and its build record in the gitignored resources/ai-memory-bin/; after-pack fails the package without them.
@@ -440,9 +437,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - uses: ./.github/actions/install
       - name: Install omp
         run: |
           # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
@@ -500,7 +495,7 @@ jobs:
       - name: Put bun's cache on the workspace volume
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
-      - run: bun install --frozen-lockfile
+      - uses: ./.github/actions/install
       # Vitest starts the files that took longest last time first (its results cache): without it the
       # git-heavy files (disk care, autopilot) could start last and leave one worker alone at the end.
       - name: Restore vitest's file durations
@@ -550,9 +545,11 @@ jobs:
       - name: Put bun's cache on the workspace volume
         shell: bash
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
-      # (`ELECTRON_SKIP_BINARY_DOWNLOAD` fails here: gpu-fallback and sidecar
-      # tests import electron, whose index.js throws without the binary.)
-      - run: bun install --frozen-lockfile
+      # The Electron binary is needed here (gpu-fallback and sidecar tests import electron, whose
+      # index.js throws without it): the shared install fetches it from a cache.
+      - uses: ./.github/actions/install
+        with:
+          builder: "true"
       # The memory binary, built or restored from its cache and checked, as in the mac job.
       - id: memory-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

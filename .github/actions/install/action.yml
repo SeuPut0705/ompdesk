@@ -1,0 +1,101 @@
+# The one place every workflow installs the repository's dependencies and Electron.
+#
+# Why: `bun install` ran electron's postinstall, which downloads ~110 MB from GitHub on every job of
+# every workflow, and one 502/503/504 or dropped socket turned main red before a single test ran
+# (five runs on 8 Nov 2026: e2e-nightly, release v0.119.4 twice, omp-latest, ci). Here the packages
+# install with the download off, then the binary comes from `actions/cache` (keyed on the OS, the
+# architecture and the electron version in bun.lock) and only a miss downloads, once more after a
+# pause if the first try fails. A miss saves the cache at once, so a job that fails later still
+# leaves the binary for the next one. electron-builder's own downloads (electron zip, winCodeSign,
+# nsis) for the packaging jobs live in ELECTRON_BUILDER_CACHE, restored here and saved when the job
+# ends successfully.
+#
+# Run it after actions/checkout and oven-sh/setup-bun (bun's pinned version stays in each workflow;
+# src/main/supply-chain.test.ts reads it there).
+name: Install dependencies and Electron
+description: bun install --frozen-lockfile, then Electron's binary from a cache, one bounded retry on a download miss.
+
+inputs:
+  electron:
+    description: "'false' for a job that never launches Electron (types, lint, build): no binary, no cache."
+    default: "true"
+  builder:
+    description: "'true' for a job that runs electron-builder: also cache its downloads."
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Electron versions from bun.lock
+      id: ver
+      if: inputs.electron == 'true'
+      shell: bash
+      env:
+        CACHE_ROOT: ${{ runner.temp }}
+        WITH_BUILDER: ${{ inputs.builder }}
+      run: |
+        set -euo pipefail
+        electron=$(sed -n 's/.*"electron@\([0-9][0-9.]*\)".*/\1/p' bun.lock | head -n1)
+        builder=$(sed -n 's/.*"electron-builder@\([0-9][0-9.]*\)".*/\1/p' bun.lock | head -n1)
+        if [ -z "$electron" ] || [ -z "$builder" ]; then
+          echo "::error::bun.lock names no electron or electron-builder version; update .github/actions/install"
+          exit 1
+        fi
+        echo "electron=$electron" >> "$GITHUB_OUTPUT"
+        echo "builder=$builder" >> "$GITHUB_OUTPUT"
+        # electron's install.js reads electron_config_cache, @electron/get ELECTRON_CACHE.
+        echo "ELECTRON_CACHE=$CACHE_ROOT/electron-cache" >> "$GITHUB_ENV"
+        echo "electron_config_cache=$CACHE_ROOT/electron-cache" >> "$GITHUB_ENV"
+        if [ "$WITH_BUILDER" = "true" ]; then
+          echo "ELECTRON_BUILDER_CACHE=$CACHE_ROOT/electron-builder-cache" >> "$GITHUB_ENV"
+        fi
+
+    - name: Restore Electron's download cache
+      id: electron-cache
+      if: inputs.electron == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/electron-cache
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.ver.outputs.electron }}
+
+    - name: Restore electron-builder's download cache
+      if: inputs.electron == 'true' && inputs.builder == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/electron-builder-cache
+        key: electron-builder-${{ runner.os }}-${{ runner.arch }}-${{ steps.ver.outputs.builder }}-${{ steps.ver.outputs.electron }}
+        restore-keys: electron-builder-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install packages
+      shell: bash
+      env:
+        # The binary is fetched below, from the cache when it is there: a flaky download must not fail this step.
+        ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      run: bun install --frozen-lockfile
+
+    # bun runs lifecycle scripts with the `node` on PATH; where electron's extract-zip exits mid-unzip
+    # without an error no binary is left (Node 26). Under bun it unzips; a no-op once installed.
+    # Tests import electron, whose index.js throws without the binary.
+    - name: Ensure the Electron binary
+      if: inputs.electron == 'true'
+      shell: bash
+      env:
+        # Logs the cache hit or the download, so a run's log says which one it was.
+        DEBUG: "@electron/get:*"
+        CACHE_HIT: ${{ steps.electron-cache.outputs.cache-hit }}
+        ELECTRON_VERSION: ${{ steps.ver.outputs.electron }}
+      run: |
+        fetch() { bun node_modules/electron/install.js && test -f node_modules/electron/path.txt; }
+        echo "Electron $ELECTRON_VERSION: cache-hit=${CACHE_HIT:-false}"
+        if ! fetch; then
+          echo "::warning::The Electron download failed; trying once more in 30 s"
+          sleep 30
+          fetch
+        fi
+
+    - name: Save Electron's download cache
+      if: inputs.electron == 'true' && steps.electron-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/electron-cache
+        key: ${{ steps.electron-cache.outputs.cache-primary-key }}

@@ -755,12 +755,17 @@ describe("workflows", () => {
 	const workflows = fs
 		.readdirSync(path.join(PACKAGE_ROOT, ".github", "workflows"))
 		.map(name => ({ name, text: fs.readFileSync(path.join(PACKAGE_ROOT, ".github", "workflows", name), "utf8") }));
+	// The composite actions the workflows call: what they `uses` is pinned the same way.
+	const actions = fs.readdirSync(path.join(PACKAGE_ROOT, ".github", "actions")).map(name => ({
+		name: `actions/${name}`,
+		text: fs.readFileSync(path.join(PACKAGE_ROOT, ".github", "actions", name, "action.yml"), "utf8"),
+	}));
 
 	it("pins every action to a commit SHA", () => {
-		for (const { name, text } of workflows) {
+		for (const { name, text } of [...workflows, ...actions]) {
 			for (const [, ref] of text.matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)) {
-				// A reusable workflow of this repo is `./.github/workflows/<file>`: it runs at the caller's commit.
-				if (ref?.startsWith("./.github/workflows/")) continue;
+				// A reusable workflow or composite action of this repo runs at the caller's commit.
+				if (ref?.startsWith("./.github/workflows/") || ref?.startsWith("./.github/actions/")) continue;
 				expect(ref, name).toMatch(/^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/);
 			}
 		}

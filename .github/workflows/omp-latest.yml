@@ -53,10 +53,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - run: bun install --frozen-lockfile
-      # Tests import electron, whose index.js throws without the binary.
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - uses: ./.github/actions/install
       - name: Install omp
         id: omp
         run: |
@@ -88,9 +85,7 @@ jobs:
       # See release.yml's win job: bun's cache on the workspace volume.
       - name: Put bun's cache on the workspace volume
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
-      - run: bun install --frozen-lockfile
-      - name: Ensure the Electron binary
-        run: bun node_modules/electron/install.js && test -f node_modules/electron/path.txt
+      - uses: ./.github/actions/install
       - name: Install omp
         run: |
           # --minimum-release-age 0: the newest omp, not bunfig.toml's 3-day hold.
