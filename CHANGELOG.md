@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.119.7] - 2026-11-09
+
+앱을 재시작하거나 업데이트한 뒤 멈춘 omp가 남아 새 세션을 몇 분씩 막던 문제를 고쳤고, 모델 목록이 제공자별로 묶여요.
+
+### 고친 것
+- 앱을 끄거나 업데이트로 재시작할 때 응답하지 않는 omp가 살아남아, 다음 실행의 세션이 모두 시작 단계에서 몇 분씩 멈출 수 있었어요. 이제 omp는 5초 안에 끝나지 않으면 자기가 띄운 도구와 함께 강제 종료되고, 앱은 모든 omp가 끝난 뒤에 종료돼요. 앱이 강제로 꺼져서 남은 omp는 다음 실행이 탭을 열기 전에 정리해요.
+- 다시 열리는 탭이 한꺼번에 omp를 띄우지 않고 두 개씩 시작해요. 45초 동안 응답이 없는 omp는 멈추고 다시 시작하며(최대 두 번), 탭은 그동안 "시작 중"으로 보여요.
+- 재시작 뒤 끊긴 턴을 이어가지 못하면 이어가기 기록이 지워지던 문제를 고쳤어요. 이제 탭이 준비되면 다시 시도하고(한 번 실행에 최대 세 번), 다음 실행에도 기록이 남아요.
+- 설정 › 모델 역할과 모델 필드의 목록에서 구독 모델과 OpenRouter 모델이 한 머리글 아래 섞여 있었어요. 이제 모든 모델 목록이 제공자 이름 아래로 묶이고, 제공자 순서도 어디서나 같아요. 입력창의 모델 선택은 로그인한 제공자를 먼저 보여 주지 않고 같은 순서를 따라요.
+
+<!-- en -->
+
+A stuck omp no longer outlives a quit or an update's restart and stalls new sessions for minutes, and every model list groups models by provider.
+
+### Fixed
+- On a quit or an update's restart, an omp that stopped answering could survive and keep every session of the next launch stuck starting for minutes. An omp that has not ended 5 s after its stop is now killed with the tools it started, and the app exits only once every omp has. Omps a crash or a forced quit left running are stopped at the next launch before any tab starts.
+- Restored tabs start their omps two at a time instead of all at once. An omp that answers nothing for 45 s is stopped and started again (up to twice); the tab reads "starting" meanwhile.
+- A turn the restart could not continue no longer loses its resume marker: it is tried again once the tab is ready (up to three times per launch) and the marker survives into the next launch.
+- Settings › Model roles and the model fields listed subscription and OpenRouter models interleaved under one header. Every model list now groups models under their provider's name, in the same provider order everywhere; the composer's model picker no longer puts signed-in providers first.
+
 ## [0.119.6] - 2026-11-09
 
 모델 이름이 어디서나 제공자 표시와 짧은 이름으로 보이고, 모델 구성 도우미에서 "근거 더 찾기"를 돌릴 모델을 고를 수 있어요.
