@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.119.2] - 2026-11-08
+
+휴대폰 페이지가 컴퓨터가 업데이트한 뒤에도 옛 빌드로 남아, 세션 행이 눌러 열기 전까지 갱신되지 않던 문제를 고쳤어요.
+
+### 고친 것
+- 휴대폰 페이지는 서비스 워커가 새 빌드를 알아채고 설치할 때까지 옛 빌드로 돌았어요. 화면을 다시 켜자마자 만지면 그 기회가 지나가서 한 번 더 옛 빌드로 남았어요. 이제 컴퓨터가 연결할 때 자기가 제공하는 빌드를 알려 주고, 다른 빌드를 돌리는 페이지는 쓰지 않는 다음 순간(열 때, 30초 이상 숨겼다 돌아올 때) 바로 컴퓨터의 빌드로 바뀌어요.
+- v0.119.0은 페이지가 행의 실시간 상태를 읽던 통로를 세션 요약으로 바꿨는데 페이지 프로토콜 번호를 올리지 않았어요. 그래서 그 전 빌드의 페이지는 탭을 열기 전까지 실행 상태와 하위 에이전트 수를 받지 못했어요. 이제 번호를 올려서, 옛 페이지는 안전한 순간에 새 빌드로 다시 열려요.
+- 컴퓨터의 실행 기록(`web-reload` 줄)에 페이지가 떠난 빌드와 새로 연 빌드가 남아요.
+- 창, 작업 트리, 제목 줄이 페어링한 컴퓨터의 요약을 화면마다 따로 읽지 않아요. 창이 열릴 때 모든 컴퓨터의 요약을 한 번 읽고, 그 뒤로는 바뀔 때마다 받아요.
+
+<!-- en -->
+
+A phone's page kept running the previous build after its computer updated, so session rows stayed stale until tapped; it now moves to the computer's build by itself.
+
+### Fixed
+- A phone's page ran the old build until its service worker noticed and installed the new one; touching the screen right after waking it closed that chance, so it stayed on the old build one more visit. The computer now says which build it serves when the page connects, and a page running another moves to it at its next unused moment (opening it, or coming back after 30 s or more away).
+- v0.119.0 replaced the channels a page read its rows' live state from with the session summaries without bumping the page protocol, so a page of an earlier build showed no run state or subagent count until a tap opened the session. The protocol is bumped: such a page reloads into the new build at its next safe moment.
+- The computer's runtime log (`web-reload` lines) names the build a page left and the one it landed on.
+- The window, the Work tree and the title bar no longer read a paired computer's summaries each on its own: a window reads every computer's once as it opens and gets each change from then on.
+
 ## [0.119.1] - 2026-11-08
 
 제목 줄, 창 제목, 트레이, 분할 창 머리, 작업 트리가 사이드바 행과 같은 세션 요약을 같은 규칙으로 읽어서, 세션 상태를 서로 다르게 말하지 않아요.
