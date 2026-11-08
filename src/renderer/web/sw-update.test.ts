@@ -557,14 +557,15 @@ describe("HostBuildMove (a page behind its host's build moves to it at an unused
 		return { move, items, reloads, cleanupDone };
 	};
 
-	it("moves to the host's build once per build: a page that reloaded there and still differs does not loop", async () => {
+	it("moves to the host's build once per build: a page that reloaded there and still differs is left to its worker", async () => {
 		const { move, reloads, cleanupDone } = rig();
+		expect(move.start("b", "a", calm)).toBe(true);
+		// Another moment while the cleanup runs starts no second move.
 		expect(move.start("b", "a", calm)).toBe(true);
 		await cleanupDone();
 		expect(reloads).toEqual(["b"]);
-		// The reloaded page still names another build than the host's hello: no second move for "b".
-		expect(move.start("b", "a", calm)).toBe(true);
-		await cleanupDone();
+		// The reloaded page still names another build than the host's hello: no second move for "b", no loop.
+		expect(move.start("b", "a", calm)).toBe(false);
 		expect(reloads).toEqual(["b"]);
 	});
 

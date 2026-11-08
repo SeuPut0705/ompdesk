@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.119.3] - 2026-11-08
+
+휴대폰 페이지가 새 빌드로 바뀌는 도중에 화면을 쓰기 시작하면, 그 브라우저 세션 동안 옛 빌드에 갇히던 문제를 고쳤어요.
+
+### 고친 것
+- v0.119.2에서 컴퓨터의 빌드로 옮겨 가는 페이지는 정리(최대 3초)를 시작하기 전에 "옮겼다"고 적어 두었어요. 그 사이에 글을 쓰거나 사진 고르기를 열면 다시 불러오기는 취소됐는데, 적어 둔 표시 때문에 그 뒤로는 옮기지도 서비스 워커로 업데이트하지도 않았어요. 이제 실제로 다시 불러오는 순간에만 적어서, 다음 안전한 순간에 컴퓨터의 빌드로 바뀌어요. 옮기는 중에는 두 번째로 옮기지 않고, 옮긴 뒤에도 빌드가 다르면 서비스 워커의 업데이트에 맡겨요.
+
+<!-- en -->
+
+A phone's page that started using the screen while moving to the new build no longer stays on its old build for the rest of the browser session.
+
+### Fixed
+- In v0.119.2 a page moving to its computer's build recorded the move before its cleanup (up to 3 s). Typing a draft or opening a picker meanwhile called the reload off, and the record then kept the page from moving or taking its service worker's update. The move is now recorded only as the reload happens, so the next safe moment moves the page. A moment during a move starts no second one, and a page that reloaded and still differs is left to its worker's update.
+
 ## [0.119.2] - 2026-11-08
 
 휴대폰 페이지가 컴퓨터가 업데이트한 뒤에도 옛 빌드로 남아, 세션 행이 눌러 열기 전까지 갱신되지 않던 문제를 고쳤어요.

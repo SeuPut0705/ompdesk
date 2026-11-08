@@ -102,7 +102,7 @@ export function safeToReload(moment: SafeMoment): boolean {
 
 /**
  * `sessionStorage`: the host build this page last reloaded to reach. One move per host build per browser session, so
- * a host whose served page names another build than its `hello` cannot loop it.
+ * a host whose served page names another build than its `hello` cannot loop it. Written only as the reload happens.
  */
 export const BUILD_MOVE_KEY = "omp.web.build-move";
 
@@ -112,26 +112,39 @@ export type MoveToBuild = (to: string, safe: () => boolean, beforeReload: () => 
 /**
  * The page behind the build its host serves (`hello.build`, web-boot.ts): at an unused, safe moment it goes straight
  * to the host's build, past its worker.
+ *
+ * The build is recorded only by the reload itself: a move the person cancels during the cleanup (a draft typed, a
+ * picker opened, up to `PURGE_CLEANUP_MS`) reloads nothing, and recording it before trapped the page on its old build
+ * for the rest of the browser session, the worker's update skipped too (v0.119.2).
  */
 export class HostBuildMove {
 	readonly #storage: Pick<Storage, "getItem" | "setItem">;
 	readonly #move: MoveToBuild;
+	/** A move's cleanup is under way: a moment meanwhile starts no second one. */
+	#moving = false;
 
 	constructor(storage: Pick<Storage, "getItem" | "setItem">, move: MoveToBuild) {
 		this.#storage = storage;
 		this.#move = move;
 	}
 
-	/** True when the page is behind its host and this call dealt with it; false leaves the update to the worker's. */
+	/**
+	 * True when this call dealt with the moment: a move started or under way, or one that waits for a safe moment.
+	 * False leaves it to the worker's update: the page is on the host's build, has none to compare, or already reloaded
+	 * toward this build once (the host's page and its `hello` disagree; moving again would loop).
+	 */
 	start(hostBuild: string | null, pageBuild: string | null, moment: SafeMoment): boolean {
 		if (!hostBuild || !pageBuild || hostBuild === pageBuild) return false;
-		if (!safeToReload(moment) || this.#storage.getItem(BUILD_MOVE_KEY) === hostBuild) return true;
-		this.#storage.setItem(BUILD_MOVE_KEY, hostBuild);
+		if (this.#storage.getItem(BUILD_MOVE_KEY) === hostBuild) return false;
+		if (this.#moving || !safeToReload(moment)) return true;
+		this.#moving = true;
 		void this.#move(
 			hostBuild,
 			() => safeToReload(moment),
-			() => {},
-		);
+			() => this.#storage.setItem(BUILD_MOVE_KEY, hostBuild),
+		).finally(() => {
+			this.#moving = false;
+		});
 		return true;
 	}
 }

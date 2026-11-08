@@ -316,7 +316,8 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A page behind the build its host serves moves to it at its next unused moment (8 Nov 2026, web-boot.ts
 // `hello.build` against the page's `omp-build` meta; the `web-reload` line names both builds, noted at the reload),
 // less the per-view summary reads (`ensureHostSummaries`) the one boot read replaced: 2,169,501.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_169_501;
+// The move recorded only as the page reloads, one at a time (8 Nov 2026, sw-update.ts `HostBuildMove`): 2,169,691.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_169_691;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
