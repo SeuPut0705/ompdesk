@@ -39,13 +39,18 @@ test("opening logs later replays complete lines once, including split appends", 
 test("holds no descriptor per log file and still tails the live ones", { timeout: 20_000 }, async () => {
 	const directory = await fs.mkdtemp(path.join(os.tmpdir(), "omp-log-fds-"));
 	const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-	for (let i = 0; i < 300; i++) {
-		const file = path.join(directory, `omp.2026-10-16.${10_000 + i}.log`);
-		await fs.writeFile(file, `old run ${i}\n`);
-		await fs.utimes(file, old, old);
-	}
+	// Fixture cost, not the watcher, is what a loaded Windows runner stretches (every file is a write and an unlink
+	// there), and it counts against the test's budget: enough old logs that a watch per file shows (the assertions
+	// allow one), written side by side.
+	await Promise.all(
+		Array.from({ length: 60 }, async (_, i) => {
+			const file = path.join(directory, `omp.2026-10-16.${10_000 + i}.log`);
+			await fs.writeFile(file, `old run ${i}\n`);
+			await fs.utimes(file, old, old);
+		}),
+	);
 	const live = [1, 2, 3].map(i => path.join(directory, `omp.2026-10-20.${90_000 + i}.log`));
-	for (const file of live) await fs.writeFile(file, "started\n");
+	await Promise.all(live.map(file => fs.writeFile(file, "started\n")));
 	const fdsBefore = hasDevFd ? openFds() : 0;
 	const watchersBefore = watchers();
 	const watcher = new LogWatcher(directory);
