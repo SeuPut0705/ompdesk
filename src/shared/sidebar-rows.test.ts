@@ -11,6 +11,7 @@ import { wrapAgentMessage } from "./agent-control";
 import type { SessionInfo } from "./ipc-types";
 import {
 	botFamily,
+	familyRows,
 	type RowSession,
 	type RowTab,
 	remoteOpenedChildren,
@@ -369,5 +370,105 @@ describe("remoteOpenedChildren: a session opened on a paired device nests where 
 		const { nest } = computer([remote("r1", { openedBySession: "/s/elsewhere.jsonl" }), remote("r2", {})]);
 		expect(nest("r1")).toBeUndefined();
 		expect(nest("r2")).toBeUndefined();
+	});
+});
+
+// The owner's report, 8 Nov 2026: a session opened from project yuyu-mos in folder seuoffice showed only under its
+// opener; seuoffice listed nothing. A session's project is its own folder's; nesting under an opener is one more place.
+describe("a session opened in another project is a row of its own project too", () => {
+	const OTHER = "/u/code/other";
+	const KID = "/s/kid.jsonl";
+	const opened = (cwd: string, tab: boolean): SidebarFacts => {
+		const base = world([]);
+		const kid: SessionInfo = {
+			path: KID,
+			id: KID,
+			title: "kid",
+			cwd,
+			created: "2026-10-02T00:00:00Z",
+			modified: "2026-10-02T00:00:00Z",
+			messageCount: 3,
+			size: 1,
+			status: "complete",
+			firstMessage: wrapAgentMessage("Set it up", "Boss"),
+			openedBySession: tab ? null : BOSS,
+		};
+		const tabs: RowTab[] = tab
+			? [
+					{ id: "t-boss", sessionPath: BOSS, cwd: APP, kind: "agent", title: null, status: "ready", seenAt: "x" },
+					{
+						id: "t-kid",
+						sessionPath: KID,
+						cwd,
+						kind: "agent",
+						title: null,
+						status: "ready",
+						openedBy: "t-boss",
+						seenAt: "x",
+					},
+				]
+			: [];
+		return { ...base, sessions: [...base.sessions, kid], tabs };
+	};
+
+	it("lists it under its opener and in its own folder's project, held by a tab or not", () => {
+		for (const tab of [true, false]) {
+			const rows = sidebarRows(opened(OTHER, tab));
+			expect(rows.rootOf.get(KID), `tab ${tab}`).toBe(BOSS);
+			expect(placements(rows).get(KID), `tab ${tab}`).toEqual([`group:${OTHER}`, "child"]);
+			// The same row object in both places: one session, not a copy.
+			const inGroup = rows.groups.find(group => group.cwd === OTHER)?.sessions.find(row => row.path === KID);
+			expect(rows.children.get(BOSS)?.includes(inGroup as RowSession)).toBe(true);
+		}
+	});
+
+	it("keeps one in its opener's project, a worktree of it included, only under the opener", () => {
+		for (const cwd of [APP, FOLDERS.wtl, FOLDERS.wta])
+			for (const tab of [true, false]) expect(placements(sidebarRows(opened(cwd, tab))).get(KID)).toEqual(["child"]);
+	});
+
+	it("lists what the bot opened in its own project as a plain row, its side chats nowhere", () => {
+		const BOT = "/s/bot.jsonl";
+		const SIDE = "/s/side.jsonl";
+		const base = opened(OTHER, false);
+		const side: SessionInfo = { ...(base.sessions.at(-1) as SessionInfo), path: SIDE, id: SIDE, cwd: FOLDERS.chat };
+		const facts: SidebarFacts = {
+			...base,
+			sessions: [
+				...base.sessions.map(session =>
+					session.path === KID
+						? { ...session, openedBySession: BOT, firstMessage: wrapAgentMessage("Go", "Bot") }
+						: session,
+				),
+				side,
+			],
+		};
+		const { rows, bot } = familyRows(facts, { bot: BOT, ended: new Set(), channels: new Set([SIDE]), tabs: [] }, []);
+		expect(bot?.sessions.map(session => session.path).sort()).toEqual([KID, SIDE]);
+		expect(placements(rows).get(KID)).toEqual([`group:${OTHER}`]);
+		expect(placements(rows).get(SIDE)).toBeUndefined();
+	});
+});
+
+describe("a session whose folder is gone", () => {
+	it("stays a row of its project and is marked folder-missing; one in a live folder is not", () => {
+		const rows = sidebarRows(
+			world([
+				{ folder: "scr", holder: "none", origin: "person", path: "/s/in-gone" },
+				{ folder: "app", holder: "none", origin: "person", path: "/s/in-live" },
+			]),
+		);
+		expect(placements(rows).get("/s/in-gone")).toEqual([`group:${FOLDERS.scr}`]);
+		expect(rows.folderMissing.has("/s/in-gone")).toBe(true);
+		expect(rows.folderMissing.has("/s/in-live")).toBe(false);
+		expect(rows.folderMissing.has(BOSS)).toBe(false);
+	});
+
+	it("marks no finished OMPdesk worktree session, which is no row at all, but marks one a tab in use holds", () => {
+		const none = sidebarRows(world([{ folder: "wtg", holder: "none", origin: "person", path: "/s/fin" }]));
+		expect(placements(none).get("/s/fin")).toBeUndefined();
+		expect(none.folderMissing.has("/s/fin")).toBe(false);
+		const used = sidebarRows(world([{ folder: "wtg", holder: "used", origin: "person", path: "/s/fin" }]));
+		expect(used.folderMissing.has("/s/fin")).toBe(true);
 	});
 });
