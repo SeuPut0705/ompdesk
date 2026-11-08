@@ -114,10 +114,10 @@ class FakeHost implements AgentControlHost {
 	manageEnabled = () => this.manage || this.full;
 	fullEnabled = () => this.full;
 	/** What every row shows of the sessions this computer runs (`SessionSummaries`), by session file. */
-	summaries: SessionSummary[] = [];
+	localRows: SessionSummary[] = [];
 	summaryOf = (tab: Pick<ControlTab, "sessionPath">) =>
-		tab.sessionPath ? this.summaries.find(summary => summary.sessionPath === tab.sessionPath) : undefined;
-	localSummaries = () => this.summaries;
+		tab.sessionPath ? this.localRows.find(summary => summary.sessionPath === tab.sessionPath) : undefined;
+	summaries = (device?: string) => (device ? [] : this.localRows);
 	tabs = (): ControlTab[] => [...this.tabsById.values()];
 	isStopping = (callerTabId: string) => this.stopping.has(callerTabId);
 	beforeFirstPrompt = async (child: OpenedChild) => {
@@ -518,7 +518,7 @@ describe("ompdesk_sessions", () => {
 			{ tabId: "ask00003", title: "Asker", asks: [select("Allow tool: bash", ["Approve", "Deny"])] },
 			{ tabId: "priv0004", title: "Secret plans", hidden: true, last: "classified" },
 		);
-		host.summaries = [
+		host.localRows = [
 			summary({
 				sessionPath: "/s/work.jsonl",
 				status: "running",
@@ -550,7 +550,7 @@ describe("ompdesk_sessions", () => {
 			{ tabId: "work0002", title: "Worker", busy: true, sessionPath: "/s/work.jsonl" },
 			{ tabId: "bare0003", title: "Bare", busy: true, sessionPath: "/s/bare.jsonl" },
 		);
-		host.summaries = [
+		host.localRows = [
 			summary({
 				sessionPath: "/s/work.jsonl",
 				status: "running",
@@ -566,7 +566,7 @@ describe("ompdesk_sessions", () => {
 
 	it("lists with scope app a session this computer runs for a paired device, with its subagent count", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-		host.summaries = [
+		host.localRows = [
 			summary({ sessionPath: "/s/boss.jsonl", tabId: "main0001" }),
 			summary({
 				sessionPath: "/s/2026-01-01T00-00-00-000Z_abc123.jsonl",
@@ -580,11 +580,12 @@ describe("ompdesk_sessions", () => {
 			}),
 		];
 		const app = (await control(host).run("main0001", T.list, { scope: "app" })).text;
-		expect(app).toContain('- "Phone work" (saved id abc123) [a tab this computer runs for SeuPut]');
+		expect(app).toContain('- "Phone work" (saved id abc123) [open in a tab this computer runs for SeuPut]');
 		expect(app).toContain("running; folder /work; 2 subagent(s) running");
 		// The default list is this window's tabs: a device's tab here is not one of them.
 		const here = (await control(host).run("main0001", T.list, {})).text;
 		expect(here).not.toContain("Phone work");
+		expect(here).toContain("1 more open in tabs this app does not hold");
 	});
 
 	it("says a session waiting for another omp to let go of it is waiting, not stopped", async () => {
@@ -3728,7 +3729,7 @@ describe("ompdesk_sessions scopes", () => {
 				title: "봇봇이",
 				device: desktop.id,
 				bot: "on",
-				openThere: true,
+				elsewhere: {},
 			}),
 		];
 		host.storedTranscripts.set("C:/s/bot-now.jsonl", [

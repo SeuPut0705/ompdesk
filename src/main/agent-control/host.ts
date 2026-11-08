@@ -137,11 +137,11 @@ import {
 	type BotDeskPort,
 	type ControlAsk,
 	type ControlTab,
+	type OpenElsewhere,
 	type OpenedChild,
 	type ScheduleRow,
 	SessionFolderMissing,
 	type SpawnRequest,
-	type StoredSession,
 	type StoredWork,
 	type ToolOutcome,
 } from "./service";
@@ -1480,6 +1480,8 @@ export class AgentControlRuntime {
 			throw new Error("The new session could not be started.");
 		}
 		this.#windows.set(result.tabId, win);
+		// A view of a tab that holds the session elsewhere stays whoever's it was: no parent, no opener.
+		if (request.join) return { tabId: result.tabId };
 		this.#parents.set(result.tabId, { callerTabId, ...(request.tag ? { tag: request.tag } : {}) });
 		// An Autopilot child already sits under its run (`tag`); a session the tool opens nests under its opener. An
 		// outside caller has no tab to nest under: its sessions sit in the sidebar like the person's own.
@@ -1638,7 +1640,7 @@ export class AgentControlRuntime {
 				const key = tab.sessionPath ?? unsavedSessionKey(tab.tabId);
 				return deps.summaries?.(tab.device)?.sessions.find(session => session.sessionPath === key);
 			},
-			localSummaries: () => deps.summaries?.()?.sessions ?? [],
+			summaries: device => deps.summaries?.(device)?.sessions ?? [],
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
 				agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
@@ -1739,27 +1741,28 @@ export class AgentControlRuntime {
 				}
 				const snippets = new Map((matches ?? []).map(match => [match.path, match.snippet]));
 				const needle = query?.toLowerCase();
-				// Where a row no tab here holds is open, and what that tab does, from the summaries of the computer it runs
-				// on: on the paired host, its own list (`heldOnHost`) and its summaries (unknown from an older host or
-				// offline); here, a tab this computer runs for a paired device.
+				// Where a row no tab here holds is open, who holds it and what that tab does, from the summaries of the
+				// computer it runs on: on the paired host, its own list (`heldOnHost`) and its summaries (unknown from an
+				// older host or offline); here, a tab this computer runs for a paired device.
 				const summaries = deps.summaries?.(device) ?? null;
 				const summaryOf = new Map(summaries?.sessions.map(session => [session.sessionPath, session]));
-				const elsewhere = (row: SessionInfo): Pick<StoredSession, "openThere" | "openFor" | "work"> => {
+				const elsewhere = (row: SessionInfo): OpenElsewhere | undefined => {
 					const summary = summaryOf.get(row.path);
 					if (device) {
-						if (!row.heldOnHost && !summary) return {};
+						if (!row.heldOnHost && !summary) return undefined;
 						const work = summary ? summaryWork(summary) : summaries ? "idle" : undefined;
-						return { openThere: true, ...(work ? { work } : {}) };
+						return { ...(summary?.openFor ? { holder: summary.openFor } : {}), ...(work ? { work } : {}) };
 					}
-					if (!summary?.openFor) return {};
+					if (!summary?.openFor) return undefined;
 					const work = summaryWork(summary);
-					return { openFor: summary.openFor, ...(work ? { work } : {}) };
+					return { holder: summary.openFor, ...(work ? { work } : {}) };
 				};
 				return rows.flatMap(row => {
 					const named =
 						needle !== undefined && `${row.title ?? ""} ${row.firstMessage}`.toLowerCase().includes(needle);
 					if (matches && !snippets.has(row.path) && !named) return [];
 					const tab = deps.pool.sessionOwner(row.path, device)?.tabId;
+					const open = tab ? undefined : elsewhere(row);
 					const snippet = snippets.get(row.path);
 					return [
 						{
@@ -1773,7 +1776,7 @@ export class AgentControlRuntime {
 							status: row.status,
 							hidden: !device && hidden.has(row.path),
 							...(device ? { device, deviceName: deps.deviceName(device) } : {}),
-							...(tab ? { tabId: tab } : elsewhere(row)),
+							...(tab ? { tabId: tab } : open ? { elsewhere: open } : {}),
 							...(snippet ? { snippet } : {}),
 							...(row.bot ? { bot: row.bot } : {}),
 						},

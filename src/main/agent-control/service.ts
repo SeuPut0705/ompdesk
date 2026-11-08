@@ -81,7 +81,12 @@ import {
 	type ScheduleFrequency,
 	type ScheduleRun,
 } from "../../shared/schedules";
-import { hostedSummaries, runningAgentCount, type SessionSummary } from "../../shared/session-summary";
+import {
+	hostedSummaries,
+	isUnsavedSession,
+	runningAgentCount,
+	type SessionSummary,
+} from "../../shared/session-summary";
 import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
 import {
 	type FamilyEdits,
@@ -227,41 +232,49 @@ export interface StoredSession {
 	deviceName?: string;
 	/** The tab of this app that has it open. */
 	tabId?: string;
-	/** A paired device's session that a tab on that device holds (its own app's, or one it runs for another device). */
-	openThere?: true;
-	/** This computer's session that a tab it runs for a paired device holds (`LocalHostServices`): that device's name. */
-	openFor?: string;
 	/**
-	 * What the tab of `openThere`/`openFor` does now (`HostLiveSession`'s states, else `idle`); absent while it is not
-	 * known (a host that does not say, a link that is down, a tab not started).
+	 * Open in a tab that is not this app's, on the computer it is saved on: that computer's own window, or a tab it runs
+	 * for a paired device. Read from that computer's summaries (`AgentControlHost.stored`), the one answer the list, a
+	 * read's header, a send and a reopen go by.
 	 */
-	work?: StoredWork;
+	elsewhere?: OpenElsewhere;
 	/** Text around a search hit. */
 	snippet?: string;
 	/** What the session is to the bot of the computer it is saved on (`SessionInfo.bot`). */
 	bot?: SessionBotState;
 }
 
+/** Where a saved session no tab of this app holds is open (`StoredSession.elsewhere`). */
+export interface OpenElsewhere {
+	/** The paired device whose tab there holds it (`SessionSummary.openFor`); absent: that computer's own window, or a host that does not say. */
+	holder?: string;
+	/** What that tab does now; absent while it is not known (a host that does not say, a link that is down, a tab not started). */
+	work?: StoredWork;
+}
+
 /** What the tab holding a saved session elsewhere does with it: its turn, background work, an open ask, nothing. */
 export type StoredWork = "turn" | "background" | "waiting" | "idle";
+
+/** Where a session open in no tab of this app is open: on `computer`, in a tab it runs for `holder` or its own. */
+function openInText(computer: string, holder: string | undefined): string {
+	return holder ? `open in a tab ${computer} runs for ${holder}` : `open in a tab on ${computer}`;
+}
 
 /**
  * Where a saved session no tab of this app holds is open and what it does there, as the list and a read's header
  * both say it; "" when nowhere. `step` is its running tool call (`currentStep` of its saved transcript).
  */
 function openElsewhereText(row: StoredSession, step: string | null): string {
-	const where = row.openThere
-		? `open in a tab on ${row.deviceName ?? row.device}`
-		: row.openFor
-			? `open in a tab this computer runs for ${row.openFor}`
-			: "";
-	if (!where || !row.work) return where;
+	const open = row.elsewhere;
+	if (!open) return "";
+	const where = openInText(row.device ? (row.deviceName ?? row.device) : "this computer", open.holder);
+	if (!open.work) return where;
 	const work =
-		row.work === "turn"
+		open.work === "turn"
 			? `running${step ? `, ${step}` : ""}`
-			: row.work === "background"
+			: open.work === "background"
 				? "running (background work still going)"
-				: row.work === "waiting"
+				: open.work === "waiting"
 					? "waiting for the user's answer there"
 					: "idle";
 	return `${where}: ${work}`;
@@ -292,6 +305,11 @@ export interface SpawnRequest {
 	 * names the session. It rides the spawn, so no window ever hears of the tab without it.
 	 */
 	task?: string;
+	/**
+	 * With `sessionPath`: it is open in a tab elsewhere and the new tab views that one (`#join`). The host records no
+	 * opener for it: it stays whoever's it was, never the caller's child.
+	 */
+	join?: true;
 }
 
 /** A session opened by `open`, handed to `beforeFirstPrompt` before its first message is sent. */
@@ -380,8 +398,11 @@ export interface AgentControlHost {
 	approveEnabled(): boolean;
 	/** What every row shows of the tab's session, from the computer that runs it; undefined while it is not known. */
 	summaryOf(tab: Pick<ControlTab, "sessionPath" | "device" | "tabId">): SessionSummary | undefined;
-	/** What every row shows of the sessions this computer runs, its windows' tabs and the ones it runs for paired devices. */
-	localSummaries(): readonly SessionSummary[];
+	/**
+	 * What every row shows of the sessions a computer runs (this one when `device` is undefined, else that paired host's
+	 * as this computer holds them): its windows' tabs and the ones it runs for paired devices. Empty while not known.
+	 */
+	summaries(device?: string): readonly SessionSummary[];
 	/** `agentControlManage` (default on) or full control: an agent may stop or close sessions it did not open, merge, schedule and start Autopilot without a card; deleting a saved session it did not open asks unless full control is on. */
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
@@ -1535,7 +1556,7 @@ export class AgentControl {
 			}
 			case T.focus: {
 				const args = ARGS[T.focus].parse(raw);
-				const target = await this.#open(tabs, args.session, null, "show", false);
+				const target = await this.#open(tabs, args.session, caller, "show", { self: false, reach: false });
 				this.#refuseHidden(target, caller);
 				this.#host.view(caller.tabId, { tabId: target.tabId, how: args.how ?? "focus" });
 				return `Showing ${label(target)} (${args.how ?? "focus"}).`;
@@ -1624,29 +1645,63 @@ export class AgentControl {
 	}
 
 	/**
-	 * A session that has to be open in a tab, named any way `#find` reads (never the caller itself where `self` is
-	 * passed). One saved but not open fails with the call that opens it. `reach`: a paired device's tab is waited
-	 * for while its link comes back (`#reachTab`).
+	 * A session that has to be open in a tab, named any way `#find` reads (never the caller itself unless `self: false`).
+	 * One saved and open in a tab elsewhere is joined through a view of that tab (`#join`); one open nowhere fails with
+	 * the call that opens it. `reach`: a paired device's tab is waited for while its link comes back (`#reachTab`).
 	 */
 	async #open(
 		tabs: ControlTab[],
 		session: string,
-		self: ControlTab | null,
+		caller: ControlTab,
 		verb: string,
-		reach = true,
+		options: { self?: false; reach?: false } = {},
 	): Promise<ControlTab> {
 		const found = await this.#find(tabs, session);
 		if (!found.target)
 			fail(
 				`No session "${session}" open in this app or saved${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for every window, scope stored for saved ones) and use an id it lists.`,
 			);
-		const target = found.target;
-		if (!("busy" in target))
+		const target = "busy" in found.target ? found.target : await this.#joinStored(caller, found.target, verb);
+		if (options.self !== false && target.tabId === caller.tabId)
+			fail(`You cannot ${verb} your own session with this tool.`);
+		return options.reach === false ? target : this.#reachTab(target, caller.tabId);
+	}
+
+	/**
+	 * A saved session no tab of this app held when it was named, as its computer lists it now: the tab of this app that
+	 * holds it since, else a view of the tab that holds it elsewhere (`#join`). One open nowhere fails with the call
+	 * that opens it.
+	 */
+	async #joinStored(caller: ControlTab, row: StoredSession, verb: string): Promise<ControlTab> {
+		const now = await this.#currentRow(row);
+		const live = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], now);
+		if (live) return live;
+		if (now.hidden) fail("The user hid that session from other agents.");
+		if (!now.elsewhere)
 			fail(
-				`"${oneLine(storedTitle(target), 80)}" (${target.id}) is saved${target.deviceName ? ` on ${target.deviceName}` : ""} but not open in any tab. Open it again with ompdesk_session_open {"reopen":"${target.id}"}, then ${verb} it by the id that returns (ompdesk_session_read reads it without opening).`,
+				`"${oneLine(storedTitle(now), 80)}" (${now.id}) is saved${now.deviceName ? ` on ${now.deviceName}` : ""} but not open in any tab. Open it again with ompdesk_session_open {"reopen":"${now.id}"}, then ${verb} it by the id that returns (ompdesk_session_read reads it without opening).`,
 			);
-		if (self && target.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
-		return reach ? this.#reachTab(target, self?.tabId ?? target.tabId) : target;
+		return this.#join(caller, now);
+	}
+
+	/**
+	 * Joins a saved session open in a tab elsewhere: a tab in the caller's window that views that tab's omp (the host's
+	 * `tab.open`, or this computer's view of a tab it runs for a paired device), never a second omp on its file. It
+	 * nests under nobody and is not "opened by you": its opener stays whatever it was.
+	 */
+	async #join(caller: ControlTab, row: StoredSession): Promise<ControlTab> {
+		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
+		if (home) await this.#reach(home);
+		const { tabId } = await this.#host.spawn(caller.tabId, {
+			sessionPath: row.path,
+			device: row.device ?? null,
+			join: true,
+		});
+		await this.#whenReady(tabId, caller.tabId);
+		return (
+			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
+			fail(`"${oneLine(storedTitle(row), 80)}" was joined as ${tabId}, and that tab closed again.`)
+		);
 	}
 
 	#refuseHidden(target: ControlTab, caller: ControlTab): void {
@@ -1823,7 +1878,7 @@ export class AgentControl {
 	#devicesLine(): string {
 		const devices = this.#host.devices();
 		return devices.length
-			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer. Sessions open in a paired device's own app show with scope stored and that device, as open there.`
+			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer. A session open in a paired device's own window, or in another device's tab there, lists with scope app; message, answer or show it by its saved id and OMPdesk joins the tab that holds it (no second omp, not your child).`
 			: "No paired devices.";
 	}
 
@@ -1887,12 +1942,11 @@ export class AgentControl {
 				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
 			}),
 		);
-		// The sessions this computer runs for a paired device: no window's tab here, but its rows show them, and so does
-		// this list, from the same summaries.
-		if (app && !device && !args.mine) {
-			const held = new Set(tabs.map(tab => tab.sessionPath));
-			for (const summary of hostedSummaries(this.#host.localSummaries())) {
-				if (held.has(summary.sessionPath)) continue;
+		// Sessions open in a tab no window of this app holds: one this computer runs for a paired device, and a paired
+		// host's open in its own window or in another device's tab there. Their rows show them from the same summaries;
+		// a saved id reaches each through a view of the tab that holds it (`#join`).
+		if (app && !args.mine) {
+			for (const { summary, computer } of this.#openElsewhere(tabs, device)) {
 				if (args.folder && !summary.cwd.includes(args.folder)) continue;
 				const title = summary.title || summary.autoTitle;
 				if (query && !(title ?? "").toLowerCase().includes(query)) continue;
@@ -1914,7 +1968,7 @@ export class AgentControl {
 				const id = summary.sessionId ? ` (saved id ${summary.sessionId})` : "";
 				rows.push({
 					kind: waiting ? "waiting" : running ? "running" : "idle",
-					text: `- ${title ? `"${oneLine(title, 80)}"` : "(untitled)"}${id} [a tab this computer runs for ${summary.openFor}]\n  ${parts.join("; ")}`,
+					text: `- ${title ? `"${oneLine(title, 80)}"` : "(untitled)"}${id} [${openInText(computer, summary.openFor)}]\n  ${parts.join("; ")}`,
 				});
 			}
 		}
@@ -1929,14 +1983,37 @@ export class AgentControl {
 		const more =
 			kept.length > limit ? `\n… ${kept.length - limit} more; narrow with folder, status, query or limit.` : "";
 		const elsewhere = tabs.filter(tab => !tab.here).length;
+		const away = app ? 0 : this.#openElsewhere(tabs, device).length;
 		const others = app
 			? ""
-			: `\n${elsewhere ? `${elsewhere} more open in other windows (scope app). ` : ""}Saved sessions, closed ones too: scope stored.`;
+			: `\n${elsewhere ? `${elsewhere} more open in other windows (scope app). ` : ""}${away ? `${away} more open in tabs this app does not hold, on this computer for a paired device or on a paired device (scope app). ` : ""}Saved sessions, closed ones too: scope stored.`;
 		const shown = kept
 			.slice(0, limit)
 			.map(row => row.text)
 			.join("\n");
 		return `${kept.length} session${kept.length === 1 ? "" : "s"} ${where}:\n${shown}${more}${others}\n${this.#devicesLine()}`;
+	}
+
+	/**
+	 * The sessions open in a tab no window of this app holds, on `device` (every computer when undefined, this one when
+	 * null), with the computer's name as the lines say it: this computer's tabs it runs for paired devices, and each
+	 * paired host's tabs (its own windows' and the ones it runs for other devices). Read from the summaries every row
+	 * reads; the tabs of this app (its windows' and its own tabs on a host) are left out.
+	 */
+	#openElsewhere(
+		tabs: ControlTab[],
+		device: ControlDevice | null | undefined,
+	): { summary: SessionSummary; computer: string }[] {
+		const held = new Set(tabs.map(tab => `${tab.device ?? ""}\n${tab.sessionPath ?? ""}`));
+		const computers = device === undefined ? [null, ...this.#host.devices()] : device === null ? [null] : [device];
+		return computers.flatMap(computer => {
+			const sessions = computer
+				? this.#host.summaries(computer.id).filter(summary => !isUnsavedSession(summary))
+				: hostedSummaries(this.#host.summaries());
+			return sessions
+				.filter(summary => !held.has(`${computer?.id ?? ""}\n${summary.sessionPath}`))
+				.map(summary => ({ summary, computer: computer ? computer.name : "this computer" }));
+		});
 	}
 
 	async #listStored(
@@ -1976,7 +2053,7 @@ export class AgentControl {
 
 	/** The tool call a saved session runs in a tab elsewhere (its turn's `currentStep`, from the saved transcript). */
 	async #storedStep(row: StoredSession): Promise<string | null> {
-		if (row.work !== "turn") return null;
+		if (row.elsewhere?.work !== "turn") return null;
 		return currentStep(await this.#host.storedMessages(row).catch((): AgentMessage[] => []));
 	}
 
@@ -2143,6 +2220,8 @@ export class AgentControl {
 			device = target ? target.id : null;
 		}
 		let sessionPath: string | undefined;
+		/** A reopen of a session open in a tab elsewhere: where, as the lists say it. It joins that tab (`#join`). */
+		let joined: string | undefined;
 		if (args.reopen) {
 			const found = await this.#storedSession(args.reopen, target);
 			const row =
@@ -2151,13 +2230,18 @@ export class AgentControl {
 					`No saved session "${args.reopen}" ${target ? `on ${target.name}` : target === null ? "on this computer" : "on this computer or a paired device"}${unreachedText(found.unreached)}. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
 				);
 			if (row.hidden) fail("The user hid that session from other agents.");
-			const open = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], row);
+			const now = await this.#currentRow(row);
+			const open = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], now);
 			if (open)
 				fail(
 					`That session is already open as ${open.tabId}: use it directly (ompdesk_session_send, ompdesk_session_read).`,
 				);
 			if (args.device !== undefined && (device ?? undefined) !== row.device)
 				fail("A saved session opens on the device it is saved on; leave device out with reopen.");
+			if (now.elsewhere)
+				joined = openInText(now.device ? (now.deviceName ?? now.device) : "this computer", now.elsewhere.holder);
+			if (joined && args.throwaway)
+				fail(`That session is ${joined}: it is not yours to throw away. Reopen it without throwaway.`);
 			const home = row.device ? this.#host.devices().find(entry => entry.id === row.device) : undefined;
 			if (home) await this.#reach(home);
 			sessionPath = row.path;
@@ -2177,6 +2261,7 @@ export class AgentControl {
 				...(sessionPath && args.restore ? { restoreSaved: true as const } : {}),
 				...(tag ? { tag } : {}),
 				...(task ? { task } : {}),
+				...(joined ? { join: true as const } : {}),
 			}));
 		} catch (error) {
 			if (!(error instanceof SessionFolderMissing) || !args.reopen) throw error;
@@ -2191,7 +2276,8 @@ export class AgentControl {
 		} finally {
 			opened.delete(reservation);
 		}
-		opened.add(tabId);
+		// A session joined where it is open stays whoever's it was: never "opened by you".
+		if (!joined) opened.add(tabId);
 		const call = this.#callScope.getStore();
 		if (call) this.#host.calls?.note(call.key, tabId);
 		try {
@@ -2200,7 +2286,8 @@ export class AgentControl {
 			const notes: string[] = [];
 			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
 			// first turn on, across relaunches; a session the user opened (and reopened here) never carries it.
-			if (sessionPath) notes.push("reopened");
+			if (joined) notes.push(`joined: it is ${joined}, so this tab views that one (no second omp, not your child)`);
+			else if (sessionPath) notes.push("reopened");
 			else
 				responseData(
 					await send(
@@ -2818,7 +2905,7 @@ export class AgentControl {
 		const start = Math.max(0, end - limit);
 		const open = now.tabId
 			? `open in tab ${now.tabId}`
-			: openElsewhereText(now, now.work === "turn" ? currentStep(messages) : null) || "not open";
+			: openElsewhereText(now, now.elsewhere?.work === "turn" ? currentStep(messages) : null) || "not open";
 		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}, ${open})`;
 		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
 	}

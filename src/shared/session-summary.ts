@@ -48,7 +48,7 @@ export function unsavedSessionKey(tabId: string): string {
 }
 
 /** A summary of a tab with no session file yet: no saved session, no stored row, nothing to list by file. */
-function isUnsavedSession(summary: Pick<SessionSummary, "sessionPath">): boolean {
+export function isUnsavedSession(summary: Pick<SessionSummary, "sessionPath">): boolean {
 	return summary.sessionPath.startsWith(UNSAVED_PREFIX);
 }
 
