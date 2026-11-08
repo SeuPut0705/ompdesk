@@ -95,7 +95,8 @@ describe("BotActivityLog", () => {
 				},
 			]),
 		);
-		const log = new BotActivityLog({ file });
+		// The clock a day after the entry: it is within the retention whatever day the suite runs.
+		const log = new BotActivityLog({ file, now: () => new Date("2026-11-02T08:00:00.000Z") });
 		expect(log.entries().map(entry => entry.text)).toEqual(["Deploys on Fridays"]);
 		log.append({ kind: "run", action: "tool", by: "bot", text: "bash ls", tool: "bash" });
 		log.flush();
