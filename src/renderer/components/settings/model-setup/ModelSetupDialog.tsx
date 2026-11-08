@@ -40,13 +40,12 @@ import {
 	Tabs,
 } from "../../common";
 import { ModelLabel } from "../ModelLabel";
-import { ModelValueSelect, modelValueOption } from "../ModelValueSelect";
-import { compactModelLabels } from "../providers/provider-marks";
+import { ModelValueSelect, modelValueGroups } from "../ModelValueSelect";
+import { compactModelLabels, groupModelsByProvider } from "../providers/provider-marks";
 import { modelRoleName } from "../schema-i18n";
 import {
 	currentDefaultModel,
 	distinctModels,
-	groupByProvider,
 	loadSetupRecord,
 	mergeApplied,
 	type ProposalRow,
@@ -205,7 +204,7 @@ export function ModelSetupDialog() {
 		() => withResearch(ruleRows, evidence?.plan, new Set(pool), roleInputs),
 		[ruleRows, evidence, pool, roleInputs],
 	);
-	const groups = useMemo(() => groupByProvider(options), [options]);
+	const groups = useMemo(() => groupModelsByProvider(options, providers), [options, providers]);
 	// The research runs on the person's remembered pick, else on what the default role runs on now.
 	const research = useMemo(
 		() =>
@@ -233,19 +232,17 @@ export function ModelSetupDialog() {
 	// The research can run on any chat model offered, metered ones too; rows read as every model list beside a mark.
 	const researchGroups = useMemo(
 		() =>
-			groupByProvider(options.filter(option => option.kind === "chat")).map(group => ({
-				label: providers.find(provider => provider.id === group.provider)?.name ?? group.provider,
-				options: group.models.map(option =>
-					modelValueOption(
-						{
-							provider: option.provider,
-							id: option.selector.slice(option.provider.length + 1),
-							name: option.label,
-						},
-						labels,
-					),
-				),
-			})),
+			modelValueGroups(
+				options
+					.filter(option => option.kind === "chat")
+					.map(option => ({
+						provider: option.provider,
+						id: option.selector.slice(option.provider.length + 1),
+						name: option.label,
+					})),
+				providers,
+				labels,
+			),
 		[options, providers, labels],
 	);
 

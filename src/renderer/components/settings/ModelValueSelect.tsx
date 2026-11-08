@@ -14,15 +14,16 @@
  *   `allowCustom`. A saved value outside the pool is still pinned so it stays
  *   visible and clearable.
  *
- * Models show their provider's mark and compact name (`compactModelLabels`); the full name and `provider/id` are the
- * row's tooltip and still match a search.
+ * Models are grouped under their provider's name (`groupModelsByProvider`, as every model list) and show their
+ * provider's mark and compact name (`compactModelLabels`); the full name and `provider/id` are the row's tooltip and
+ * still match a search.
  * Commits go through the caller (`""` clears).
  */
 
 import { Check, ChevronDown, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { AvailableModelsResult, ProvidersResult } from "../../../shared/rpc-types";
+import type { ProvidersResult } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
@@ -35,6 +36,7 @@ import {
 	type CompactModelLabel,
 	compactModelLabel,
 	compactModelLabels,
+	groupModelsByProvider,
 	type ModelRef,
 } from "./providers/provider-marks";
 
@@ -87,31 +89,53 @@ export interface ModelValueGroup {
 	options: readonly ModelValueOption[];
 }
 
+/**
+ * Models as option groups, one per provider (`groupModelsByProvider`); a model listed twice is kept once. `labels`
+ * defaults to these models' own; a caller naming the same models elsewhere passes the labels it uses there.
+ */
+export function modelValueGroups(
+	models: readonly ModelRef[],
+	providers: readonly { id: string; name: string }[],
+	labels?: ReadonlyMap<string, CompactModelLabel>,
+): ModelValueGroup[] {
+	const seen = new Set<string>();
+	const unique = models.filter(model => {
+		const selector = `${model.provider}/${model.id}`;
+		if (seen.has(selector)) return false;
+		seen.add(selector);
+		return true;
+	});
+	const named = labels ?? compactModelLabels(unique);
+	return groupModelsByProvider(unique, providers).map(group => ({
+		label: group.name,
+		options: group.models.map(model => modelValueOption(model, named)),
+	}));
+}
+
 type FetchState = "idle" | "loading" | "error" | "ready";
 
 /** Both readers force a catalog refresh: a non-forced read is answered by a
  * still-fresh cache row, which is exactly the stale provider/model list this
  * dropdown exists to avoid. They read through the model store so the committed
- * catalog and these options can never disagree. */
-async function modelOptions(read: () => Promise<AvailableModelsResult>): Promise<ModelValueOption[]> {
-	const { models } = await read();
-	const labels = compactModelLabels(models);
-	const seen = new Set<string>();
-	return models.flatMap(model => {
-		const option = modelValueOption(model, labels);
-		if (seen.has(option.value)) return [];
-		seen.add(option.value);
-		return [option];
-	});
+ * catalog and these options can never disagree. The provider read carries the
+ * models too, and the providers' names head the model groups. */
+async function modelOptions(read: () => Promise<ProvidersResult>): Promise<ModelValueGroup[]> {
+	const { models, providers } = await read();
+	return modelValueGroups(models, providers);
 }
 
-async function providerOptions(read: () => Promise<ProvidersResult>): Promise<ModelValueOption[]> {
+async function providerOptions(read: () => Promise<ProvidersResult>): Promise<ModelValueGroup[]> {
 	const { providers } = await read();
-	return providers.map(provider => ({
-		value: provider.id,
-		detail: provider.name,
-		disabled: provider.disabled,
-	}));
+	return [
+		{
+			label: "",
+			options: providers.map(provider => ({
+				value: provider.id,
+				detail: provider.name,
+				disabled: provider.disabled,
+			})),
+		},
+	];
 }
 
 function matches(option: ModelValueOption, needle: string): boolean {
@@ -218,12 +242,11 @@ export function ModelValueSelect({
 	notice,
 }: ModelValueSelectProps) {
 	const t = useT();
-	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	const refreshProviders = useModelStore(state => state.refreshProviders);
 	const storeModels = useModelStore(state => state.availableModels);
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
-	const [fetched, setFetched] = useState<ModelValueOption[]>([]);
+	const [fetched, setFetched] = useState<readonly ModelValueGroup[]>([]);
 	const [fetchState, setFetchState] = useState<FetchState>("idle");
 	const [fetchError, setFetchError] = useState<string | null>(null);
 	const [placement, setPlacement] = useState<{ top: number; left: number } | null>(null);
@@ -239,7 +262,7 @@ export function ModelValueSelect({
 		const requestId = ++requestIdRef.current;
 		setFetchState("loading");
 		setFetchError(null);
-		const load = kind === "model" ? modelOptions(refreshAvailableModels) : providerOptions(refreshProviders);
+		const load = kind === "model" ? modelOptions(refreshProviders) : providerOptions(refreshProviders);
 		return load
 			.then(result => {
 				if (requestIdRef.current !== requestId) return;
@@ -251,7 +274,7 @@ export function ModelValueSelect({
 				setFetchError(cause instanceof Error ? cause.message : String(cause));
 				setFetchState("error");
 			});
-	}, [kind, refreshAvailableModels, refreshProviders]);
+	}, [kind, refreshProviders]);
 
 	// Fetch on every open. A provider/model edit can happen while this settings
 	// row remains mounted, so retaining a previous "ready" result is stale.
@@ -344,20 +367,22 @@ export function ModelValueSelect({
 		if (next !== value) onCommit(next);
 	};
 
-	const allOptions = useMemo(() => (groups ? groups.flatMap(group => group.options) : fetched), [groups, fetched]);
+	const sourceGroups = groups ?? fetched;
+	const allOptions = useMemo(() => sourceGroups.flatMap(group => group.options), [sourceGroups]);
 	const ready = isStatic || fetchState === "ready";
 
 	const trimmedQuery = query.trim();
 	const loweredQuery = trimmedQuery.toLowerCase();
-	const filteredGroups = useMemo(() => {
-		const source: readonly ModelValueGroup[] = groups ?? [{ label: "", options: fetched }];
-		return source
-			.map(group => ({
-				label: group.label,
-				options: loweredQuery ? group.options.filter(option => matches(option, loweredQuery)) : group.options,
-			}))
-			.filter(group => group.options.length > 0);
-	}, [groups, fetched, loweredQuery]);
+	const filteredGroups = useMemo(
+		() =>
+			sourceGroups
+				.map(group => ({
+					label: group.label,
+					options: loweredQuery ? group.options.filter(option => matches(option, loweredQuery)) : group.options,
+				}))
+				.filter(group => group.options.length > 0),
+		[sourceGroups, loweredQuery],
+	);
 	const filteredCount = filteredGroups.reduce((sum, group) => sum + group.options.length, 0);
 
 	// The current value is pinned as a custom row when the options do not

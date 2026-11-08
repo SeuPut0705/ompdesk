@@ -10,7 +10,7 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AvailableModelsResult, SettingEntry, SettingsSchemaResult } from "../../../shared/rpc-types";
+import type { ProvidersResult, SettingEntry, SettingsSchemaResult } from "../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
@@ -166,7 +166,8 @@ function limitInput(): TestElement {
 async function pickModel(selector: string): Promise<void> {
 	await act(async () =>
 		useModelStore.setState({
-			refreshAvailableModels: async (): Promise<AvailableModelsResult> => ({
+			refreshProviders: async (): Promise<ProvidersResult> => ({
+				providers: [],
 				models: [
 					{ provider: "openai", id: "gpt-5", name: "GPT-5" },
 					{ provider: "anthropic", id: "claude", name: "Claude" },

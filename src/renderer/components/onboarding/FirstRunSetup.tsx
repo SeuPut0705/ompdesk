@@ -49,6 +49,7 @@ import {
 	compactModelLabel,
 	compactModelLabels,
 	compactModelText,
+	groupModelsByProvider,
 	modelTextAmong,
 } from "../settings/providers/provider-marks";
 import { applyDefaultModel } from "./default-model";
@@ -326,10 +327,13 @@ function ModelStep() {
 		[models, serving, connectedProvider],
 	);
 	const ordered = useMemo(() => {
-		// The provider just connected first, then the rest in catalog order.
-		const first = candidates.filter(model => model.provider === connectedProvider);
-		return [...first, ...candidates.filter(model => model.provider !== connectedProvider)];
-	}, [candidates, connectedProvider]);
+		// Grouped by provider as every model list (each row names its provider), the provider just connected first.
+		const groups = groupModelsByProvider(candidates, catalog.providers);
+		return [
+			...groups.filter(group => group.provider === connectedProvider),
+			...groups.filter(group => group.provider !== connectedProvider),
+		].flatMap(group => group.models);
+	}, [candidates, catalog.providers, connectedProvider]);
 	const providerName = (id: string) => catalog.providers.find(provider => provider.id === id)?.name ?? id;
 
 	const chosen =

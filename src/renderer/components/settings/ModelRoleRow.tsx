@@ -26,7 +26,7 @@ import { Badge, LinkButton, ProgressBar, Tooltip } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
-import { type ModelValueGroup, ModelValueSelect, modelValueOption } from "./ModelValueSelect";
+import { ModelValueSelect, modelValueGroups } from "./ModelValueSelect";
 import { roleFallback, rolePurpose } from "./model-role-text";
 import { ProviderMark } from "./providers/ProviderMark";
 import {
@@ -37,16 +37,6 @@ import {
 	modelRefOf,
 } from "./providers/provider-marks";
 import { SettingsRow } from "./SettingsLayout";
-
-const KIND_ORDER: readonly ModelRoleEntry["candidates"][number]["kind"][] = [
-	"chat",
-	"tiny",
-	"image",
-	"tts",
-	"stt",
-	"search",
-	"judge",
-];
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -280,18 +270,9 @@ export function ModelRoleRow({
 	const t = useT();
 	const { lang } = useLang();
 	const candidates = entry.candidates ?? [];
-	// Candidates grouped by model kind, labelled over the whole pool so look-alikes carry a suffix in every group.
+	// Labelled over the whole pool, so the effective line names the model as its row does.
 	const labels = useMemo(() => compactModelLabels(candidates), [candidates]);
-	const groups = useMemo<ModelValueGroup[]>(
-		() =>
-			KIND_ORDER.map(kind => ({
-				label: t(`modelRoles.kind.${kind}`),
-				options: candidates
-					.filter(candidate => candidate.kind === kind)
-					.map(candidate => modelValueOption(candidate, labels)),
-			})).filter(group => group.options.length > 0),
-		[candidates, labels, t],
-	);
+	const groups = useMemo(() => modelValueGroups(candidates, providers), [candidates, providers]);
 
 	const tag = roleTag(entry, name);
 	// What the role is for and, while empty, what it follows: both in the info tooltip.

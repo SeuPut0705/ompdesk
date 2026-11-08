@@ -68,11 +68,6 @@ export interface SetupModelOption {
 	contextWindow?: number;
 }
 
-export interface SetupProviderGroup {
-	provider: string;
-	models: SetupModelOption[];
-}
-
 /** The chat models of the default role's pool plus the judge-kind models of the judge role's, each with its billing class. */
 export function setupModelOptions(roles: readonly ModelRoleEntry[], facts: ModelSetupFacts): SetupModelOption[] {
 	const chatPool = roles.find(role => role.id === "default")?.candidates ?? roles.flatMap(role => role.candidates);
@@ -97,12 +92,6 @@ export function setupModelOptions(roles: readonly ModelRoleEntry[], facts: Model
 		});
 	}
 	return options;
-}
-
-export function groupByProvider(options: readonly SetupModelOption[]): SetupProviderGroup[] {
-	const groups = new Map<string, SetupModelOption[]>();
-	for (const option of options) groups.set(option.provider, [...(groups.get(option.provider) ?? []), option]);
-	return [...groups].map(([provider, models]) => ({ provider, models }));
 }
 
 /** The current default model among the options: the `default` role, else the session's model. */

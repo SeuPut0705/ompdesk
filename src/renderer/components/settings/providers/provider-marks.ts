@@ -390,6 +390,35 @@ export function sortProvidersByCompany<T extends { id: string; name: string }>(p
 		.map(entry => entry.provider);
 }
 
+export interface ProviderModels<T> {
+	provider: string;
+	/** The provider's display name: the group's header. */
+	name: string;
+	models: T[];
+}
+
+/**
+ * The rows of every model list: one group per provider under its display name (`providers`, else its id), providers
+ * in `sortProvidersByCompany` order, each provider's models in the order given. Stock's catalog appends a model a
+ * provider discovers later after every other provider's, so listed as given a subscription's models and a router's,
+ * each only a mark and a compact name, interleave.
+ */
+export function groupModelsByProvider<T extends { provider: string }>(
+	models: readonly T[],
+	providers: readonly { id: string; name: string }[],
+): ProviderModels<T>[] {
+	const byProvider = new Map<string, T[]>();
+	for (const model of models) {
+		const list = byProvider.get(model.provider);
+		if (list) list.push(model);
+		else byProvider.set(model.provider, [model]);
+	}
+	const names = new Map(providers.map(provider => [provider.id, provider.name]));
+	return sortProvidersByCompany([...byProvider.keys()].map(id => ({ id, name: names.get(id) ?? id }))).map(
+		({ id, name }) => ({ provider: id, name, models: byProvider.get(id) ?? [] }),
+	);
+}
+
 export interface MarkArt {
 	viewBox: string;
 	/** `evenodd` when the source sets it on the root; every path inherits it. */

@@ -3,7 +3,7 @@
  * the backend owns role metadata AND the eligible candidate pool per role
  * (get_model_roles returns candidates inline). Defends the observable contract —
  * the section requests roles once on mount, filters backend-hidden roles,
- * groups visible roles by section, groups each role's candidates by model kind
+ * groups visible roles by section, groups each role's candidates by provider
  * in the picker, re-reads when the sidecar reconnects, and switching a role's
  * model issues set_model_role with the canonical provider/id selector.
  * linkedom harness per AGENTS.md; stores reset in afterEach (never mock.module).
@@ -170,7 +170,7 @@ describe("ModelRolesSection", () => {
 		expect(document.body.textContent).not.toContain("Image generation");
 	});
 
-	it("groups each role's candidates by model kind and preselects the saved selector by name", async () => {
+	it("groups each role's candidates by provider and preselects the saved selector by name", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");
 
@@ -182,7 +182,9 @@ describe("ModelRolesSection", () => {
 
 		const listbox = document.body.querySelector('[role="listbox"]');
 		expect(listbox).not.toBeNull();
-		expect(listbox?.textContent).toContain("Chat");
+		expect(
+			[...(listbox?.querySelectorAll('[role="group"]') ?? [])].map(group => group.getAttribute("aria-label")),
+		).toEqual(["anthropic", "openai"]);
 		// Rows read mark + compact name; the selector is the row's tooltip, never text beside the name.
 		expect(listbox?.textContent).toContain("Claude");
 		expect(listbox?.textContent).not.toContain("openai/gpt");

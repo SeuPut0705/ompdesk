@@ -330,7 +330,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // with their two channels reach the first screen): 2,172,134.
 // The remaining long model names read the same compact label (8 Nov 2026, provider-marks.ts `compactModelText`,
 // `modelRefOf`, `modelTextAmong`, `ModelLabel`; the usage row under a reply is on the first screen): 2,173,209.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_173_209;
+// Every model list groups its models by provider (9 Nov 2026, provider-marks.ts `groupModelsByProvider`; the composer's
+// model picker is on the first screen): 2,173,524.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_173_524;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

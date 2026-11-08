@@ -1,6 +1,6 @@
 /**
- * Model picker (Picker container): search, models grouped by provider with
- * connected providers first, current model checked. Picking switches the
+ * Model picker (Picker container): search, models grouped by provider as in
+ * every model list (`groupModelsByProvider`), current model checked. Picking switches the
  * session (`set_model`) and saves the pick as the default for new sessions
  * (`modelRoles.default`), the way omp's own `/model` picker does — without it
  * every new session falls back to omp's catalog choice, which can be a keyless
@@ -50,7 +50,7 @@ import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
 import { persistDefaultModel } from "../onboarding/default-model";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 import { MIN_SERVING_CONTEXT, modelDisplayName } from "../settings/providers/provider-catalog";
-import { compactModelLabels } from "../settings/providers/provider-marks";
+import { compactModelLabels, groupModelsByProvider } from "../settings/providers/provider-marks";
 
 /** Rows in the Recent group (stock's `/models` hub keeps 15; a dialog wants a glance). */
 const RECENT_LIMIT = 5;
@@ -184,20 +184,13 @@ export function ModelPicker() {
 		() => new Map(loginProviders.map(provider => [provider.id, provider])),
 		[loginProviders],
 	);
-	const nameByProvider = useMemo(() => {
-		const map = new Map<string, string>();
-		for (const provider of catalogProviders) map.set(provider.id, provider.name);
-		for (const provider of loginProviders) map.set(provider.id, provider.name);
-		return map;
-	}, [catalogProviders, loginProviders]);
-	const labels = useMemo(() => compactModelLabels(availableModels), [availableModels]);
-	const connected = useCallback(
-		(provider: string) =>
-			authByProvider.get(provider)?.authenticated ??
-			catalogProviders.find(row => row.id === provider)?.authenticated ??
-			false,
-		[authByProvider, catalogProviders],
+	// The login list's names win: it names the accounts the person signs in to.
+	const namedProviders = useMemo(() => [...catalogProviders, ...loginProviders], [catalogProviders, loginProviders]);
+	const nameByProvider = useMemo(
+		() => new Map(namedProviders.map(provider => [provider.id, provider.name])),
+		[namedProviders],
 	);
+	const labels = useMemo(() => compactModelLabels(availableModels), [availableModels]);
 
 	const groups = useMemo((): PickerGroup[] => {
 		const q = query.trim().toLowerCase();
@@ -210,27 +203,16 @@ export function ModelPicker() {
 				model.name?.toLowerCase().includes(q) ||
 				model.description?.toLowerCase().includes(q),
 		);
-		const map = new Map<string, ModelInfo[]>();
-		for (const model of filtered) {
-			const list = map.get(model.provider) ?? [];
-			list.push(model);
-			map.set(model.provider, list);
-		}
-		// Connected providers first; within each half, by display name.
-		const byProvider = [...map.entries()]
-			.sort(
-				([a], [b]) =>
-					Number(connected(b)) - Number(connected(a)) ||
-					(nameByProvider.get(a) ?? a).localeCompare(nameByProvider.get(b) ?? b),
-			)
-			.map(([provider, models]): PickerGroup => ({ id: provider, provider, models }));
+		const byProvider = groupModelsByProvider(filtered, namedProviders).map(
+			({ provider, models }): PickerGroup => ({ id: provider, provider, models }),
+		);
 		// Stock's most-recently-used models on top while nothing is typed (the
 		// `/models` hub's Recent block); a pool pick has no "recent" meaning.
 		if (q.length > 0) return byProvider;
 		const bySelector = new Map(filtered.map(model => [`${model.provider}/${model.id}`, model]));
 		const recent = recentSelectors.flatMap(selector => bySelector.get(selector) ?? []).slice(0, RECENT_LIMIT);
 		return recent.length > 0 ? [{ id: RECENT_GROUP, provider: null, models: recent }, ...byProvider] : byProvider;
-	}, [availableModels, connected, nameByProvider, query, recentSelectors]);
+	}, [availableModels, nameByProvider, namedProviders, query, recentSelectors]);
 
 	// Flat row order (group order → in-group order) for keyboard navigation; a
 	// recent model also listed under its provider is a separate row.
