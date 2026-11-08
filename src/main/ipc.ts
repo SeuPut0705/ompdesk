@@ -138,7 +138,14 @@ import { MAIL_ACCOUNTS_COMMAND, type MailAccountDraft } from "../shared/mail-acc
 import { type ModelSetupRequest, parseResearchPick } from "../shared/model-setup";
 import { PREVIEW_VISUAL, type PreviewVisualEvent } from "../shared/preview";
 import { isReplyLanguagePref, REPLY_LANGUAGE_PREF } from "../shared/reply-language";
-import type { AgentMessage, AgentSessionEvent, RpcCommand, RpcResponse, RpcSessionState } from "../shared/rpc-types";
+import type {
+	AgentMessage,
+	AgentSessionEvent,
+	RpcCommand,
+	RpcResponse,
+	RpcSessionState,
+	SidecarStatus,
+} from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
 import { hostedSummaries, type SummariesChanged } from "../shared/session-summary";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
@@ -472,6 +479,29 @@ interface PrefsSchema {
 
 /** The first-run credential check is only worth it while it beats omp's boot; past this it says "cannot tell". */
 const SIGNED_IN_TIMEOUT_MS = 10_000;
+/**
+ * Longest a command waits for its tab's omp to finish starting: three starts that answer nothing (sidecar.ts
+ * `START_ANSWER_MS`, `MAX_START_STALLS`) take longer, and then the tab reads `error`, which the command is told.
+ */
+const START_WAIT_MS = 60_000;
+
+/** Resolves once `sidecar` no longer reads `starting` or `restarting`, or after `START_WAIT_MS`. */
+function settledStart(sidecar: SidecarLike): Promise<void> {
+	const starting = (status: SidecarStatus) => status === "starting" || status === "restarting";
+	if (!starting(sidecar.status)) return Promise.resolve();
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const onStatus = ({ status }: { status: SidecarStatus }) => {
+		if (!starting(status)) done();
+	};
+	const timer = setTimeout(() => done(), START_WAIT_MS);
+	const done = () => {
+		clearTimeout(timer);
+		sidecar.off("status", onStatus);
+		resolve();
+	};
+	sidecar.on("status", onStatus);
+	return promise;
+}
 
 /** Commands that carry what the person typed into a session: a prompt, a steer or follow-up, a shell or eval line. */
 const TYPED_COMMANDS: ReadonlySet<string> = new Set(["prompt", "steer", "follow_up", "bash", "eval"]);
@@ -901,6 +931,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				data: desktopSlot.state(),
 			};
 		}
+		// A tab whose omp is still starting (its place in the start queue, its first answer, a stalled start begun again)
+		// is waited for, not refused: a relaunch's restored tabs got "Sidecar not ready" for every read while they started.
+		if (sidecar && !sidecar.offline) await settledStart(sidecar);
 		const client = sidecar?.rpcClient;
 		if (!client || !sidecar) {
 			return {

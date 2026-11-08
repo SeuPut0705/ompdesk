@@ -437,7 +437,9 @@ export interface ResumeDeps {
 	resumeGoal?: (tabId: string) => Promise<void>;
 	/**
 	 * The launch continuation of a tab is over (Autopilot waits on this): it resumed the tab's goal, ended without
-	 * resuming one (`none`: nothing said the goal was cut off, or its resume failed), or the user called it off.
+	 * resuming one (`none`: nothing said the goal was cut off, its resume failed, or it failed
+	 * `LAUNCH_CONTINUATION_ATTEMPTS` times and is left for the next launch), or the user called it off. A failed try that
+	 * will run again reports nothing.
 	 */
 	goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
 	/**
@@ -475,8 +477,8 @@ function restoreSummary(data: Record<string, unknown> | undefined): string {
 
 /**
  * How long a resume waits for its tab's omp to come up. A cold spawn takes seconds; a worktree's
- * `onStart` hook can hold the start gate longer. Past this the marker is dropped: the tab is not
- * coming up, and a listener waiting on it forever would leak.
+ * `onStart` hook can hold the start gate longer. Past this the attempt failed: the marker stays and the continuation
+ * runs again once the tab next reads ready (a listener on the tab's status, never a poll).
  */
 export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
 
@@ -486,6 +488,13 @@ export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
  * client's default 8 s, so the reply was cut and logged `failed` while stock went on reviving).
  */
 export const RESUME_COMMAND_TIMEOUT_MS = 2 * 60_000;
+
+/**
+ * How many times one launch marker's continuation may fail (its omp not ready, or every command it sent unanswered)
+ * and be tried again in this launch, each try once its tab next reads `ready`. Past it the marker stays in the file for
+ * the next launch and nothing more is sent in this one.
+ */
+export const LAUNCH_CONTINUATION_ATTEMPTS = 3;
 
 /**
  * Resolves once `sidecar` can take commands; false when it fails, has already failed, or is not
@@ -531,6 +540,12 @@ export class TurnResume {
 	readonly #deps: ResumeDeps;
 	/** Tabs holding a continuation until the connection is back, and what to run then. */
 	readonly #waiting = new Map<string, HeldWait>();
+	/** Failed launch continuations that try again once their tab reads `ready`; `off` removes the listener. */
+	readonly #retrying = new Map<string, { marker: ResumeMarker; off: () => void }>();
+	/** Per launch marker, the failed continuations so far (the bound is {@link LAUNCH_CONTINUATION_ATTEMPTS}). */
+	readonly #failures = new WeakMap<ResumeMarker, number>();
+	/** Launch markers whose attempts ran out: they stay in the file for the next launch and no row or goal waits on them. */
+	readonly #abandoned = new WeakSet<ResumeMarker>();
 	/** Tabs whose DNS failure is being probed (`#verifyNetwork`): shown as waiting until the probe decides. */
 	readonly #probing = new Map<string, HeldFor>();
 	/** Launch markers whose turn has not started yet: kept in the file so a second crash still resumes them. */
@@ -597,6 +612,7 @@ export class TurnResume {
 		])
 			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
 		const exited = this.#exited(current);
+		this.#settleRetries();
 		const live = deriveMarkers(current, this.#previous, this.#deps.now()).filter(
 			marker => !this.#pending.has(marker.tab),
 		);
@@ -653,7 +669,9 @@ export class TurnResume {
 	/** The "continuing" row follows the launch markers still waiting for their turn (a reopened card is not one). */
 	#showResuming(): void {
 		const resuming = new Set(
-			[...this.#pending.values()].filter(marker => marker.reason !== "asking").map(marker => marker.tab),
+			[...this.#pending.values()]
+				.filter(marker => marker.reason !== "asking" && !this.#abandoned.has(marker))
+				.map(marker => marker.tab),
 		);
 		for (const tabId of resuming) {
 			if (this.#resumingShown.has(tabId)) continue;
@@ -664,6 +682,19 @@ export class TurnResume {
 			if (resuming.has(tabId)) continue;
 			this.#resumingShown.delete(tabId);
 			this.#deps.pool.setResuming(tabId, false);
+		}
+	}
+
+	/**
+	 * A continuation waiting for its tab to read `ready` whose marker left `#pending` (the turn started, the tab closed,
+	 * a later exit replaced it) has nothing to wait for: its listener goes, and its goal hears `none` once unless the
+	 * replacement continuation owns the report.
+	 */
+	#settleRetries(): void {
+		for (const [tabId, retry] of [...this.#retrying]) {
+			if (this.#pending.get(tabId) === retry.marker) continue;
+			retry.off();
+			if (!this.#superseded.has(retry.marker)) this.#deps.goalSettled?.(tabId, "none");
 		}
 	}
 
@@ -924,13 +955,23 @@ export class TurnResume {
 		// from the continuation's once the wait is gone): it sends nothing more and ends `cancelled`, so stock `retry` never
 		// lands in that run. Unlike a move this ends only this continuation: the person's run keeps its own wait, scheduled
 		// retry and marker, which `#dropWait` would take.
-		const since: HeldFor = { ...held, prompted: this.#factFor(tabId)?.prompted ?? 0 };
+		// The prompts count from the first try of a continuation that runs again: the person's prompt between two tries ends it.
+		const since: HeldFor = { ...held, prompted: held.prompted ?? this.#factFor(tabId)?.prompted ?? 0 };
 		let personTookOver = false;
 		const calledOff = (): boolean => cancelled() || personTookOver;
 		// The launch marker this continuation runs for; once a later exit of the tab's omp replaced it (`#exited`), the
 		// continuation of the replacement owns the marker and the goal report.
 		const own = this.#pending.get(tabId);
 		const superseded = (): boolean => own !== undefined && this.#superseded.has(own);
+		// A failed try (the omp was not ready, or no command got an answer) keeps the marker: the next `ready` of the tab
+		// tries again, up to LAUNCH_CONTINUATION_ATTEMPTS, and past that the marker still waits in the file for the next
+		// launch. A try someone called off, a superseded one or one whose marker already left `#pending` fails nothing.
+		const failedTry = (): { attempt: number; retrying: boolean } | null => {
+			if (own === undefined || superseded() || calledOff() || this.#pending.get(tabId) !== own) return null;
+			const attempt = (this.#failures.get(own) ?? 0) + 1;
+			this.#failures.set(own, attempt);
+			return { attempt, retrying: attempt < LAUNCH_CONTINUATION_ATTEMPTS };
+		};
 		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. A move's call-off
 		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
 		const stale = async (): Promise<boolean> => {
@@ -944,19 +985,28 @@ export class TurnResume {
 		const ready = sidecar ? await whenReady(sidecar) : false;
 		if (ready) await stale();
 		if (!sidecar || !ready || calledOff()) {
+			const failed = sidecar && !ready ? failedTry() : null;
 			this.#deps.log?.("continue", {
 				tab: tabId,
 				action,
 				ready,
 				cancelled: calledOff(),
+				...(failed ? { attempt: failed.attempt, retrying: failed.retrying } : {}),
 				...(superseded() ? { superseded: true } : {}),
 			});
 			if (superseded()) return false;
+			if (sidecar && own && failed) {
+				this.#keepFailed(tabId, own, action, since, sidecar, failed.retrying);
+				return false;
+			}
 			this.#pending.delete(tabId);
 			this.#deps.goalSettled?.(tabId, calledOff() ? "cancelled" : "none");
 			this.sync();
 			return false;
 		}
+		// Whether any command got an answer, a refusal included: a continuation nothing answered failed, one omp answered
+		// with nothing to continue is over.
+		let answered = false;
 		// Why a command did not answer: kept for the `continue` log line, never swallowed.
 		const failures: ResumeLogDetails = {};
 		const send = async (type: "restore_interrupted" | "retry"): Promise<Record<string, unknown> | undefined> => {
@@ -970,9 +1020,12 @@ export class TurnResume {
 				return undefined;
 			}
 			if (!response) failures[`${key}Error`] = "the tab has no omp connection";
-			else if (!response.success) {
-				failures[`${key}Error`] = response.error;
-				if (response.code) failures[`${key}Code`] = response.code;
+			else {
+				answered = true;
+				if (!response.success) {
+					failures[`${key}Error`] = response.error;
+					if (response.code) failures[`${key}Code`] = response.code;
+				}
 			}
 			const data: unknown = response?.success ? response.data : undefined;
 			return typeof data === "object" && data !== null ? { ...data } : undefined;
@@ -1001,11 +1054,17 @@ export class TurnResume {
 		let promptSent = false;
 		if (pending && unsavedPrompt && !started && !(await stale())) {
 			delete pending.prompt;
-			const response = await sidecar.rpcClient
-				?.command({ type: "prompt", message: unsavedPrompt })
-				.catch(() => undefined);
+			let timedOut = false;
+			const response = await sidecar.rpcClient?.command({ type: "prompt", message: unsavedPrompt }).catch(error => {
+				timedOut = error instanceof RpcTimeoutError;
+				return undefined;
+			});
 			promptSent = response?.success === true;
 			started = promptSent;
+			// Unanswered and not a timeout (omp may have taken it): the prompt was not sent and goes on with the marker.
+			if (response) answered = true;
+			else if (timedOut) answered = true;
+			else pending.prompt = unsavedPrompt;
 		}
 		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
 		// restored turn (the goal's continuation waits for the session to be idle).
@@ -1019,6 +1078,7 @@ export class TurnResume {
 				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
 			}
 		}
+		const unanswered = started || answered ? null : failedTry();
 		const opened = openedRunning(this.#deps.pool.resumeFacts(), tabId);
 		this.#deps.log?.("continue", {
 			tab: tabId,
@@ -1035,15 +1095,63 @@ export class TurnResume {
 			...(!started && typeof restored?.journal === "string" ? { journal: restored.journal } : {}),
 			...(opened > 0 ? { opened } : {}),
 			...failures,
+			...(unanswered ? { attempt: unanswered.attempt, retrying: unanswered.retrying } : {}),
 			...(calledOff() ? { cancelled: true } : {}),
 			...(superseded() ? { superseded: true } : {}),
 		});
 		if (superseded()) return false;
+		if (unanswered && own) {
+			this.#keepFailed(tabId, own, action, since, sidecar, unanswered.retrying);
+			return false;
+		}
 		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : calledOff() ? "cancelled" : "none");
-		// Nothing left to continue (or the call failed): the marker has nothing more to say.
+		// Nothing left to continue: the marker has nothing more to say.
 		if (!started) this.#pending.delete(tabId);
 		this.sync();
 		return started;
+	}
+
+	/**
+	 * A launch continuation that failed keeps its marker (so `sync()` keeps writing it and the next launch finds it): it
+	 * runs again once the tab's omp next reads `ready`, or, its attempts used up, is left for the next launch. Its goal
+	 * hears nothing while it waits; an abandoned one tells `none` (the run goes on without the restored turn) and its
+	 * "continuing" row goes.
+	 */
+	#keepFailed(
+		tabId: string,
+		marker: ResumeMarker,
+		action: ResumeAction,
+		since: HeldFor,
+		sidecar: SidecarLike,
+		retrying: boolean,
+	): void {
+		if (retrying) {
+			const listener = (payload: { status: string }) => {
+				if (payload.status !== "ready") return;
+				retry.off();
+				if (this.#deps.frozen()) return;
+				if (!this.#deps.enabled()) {
+					this.#pending.delete(tabId);
+					this.#deps.goalSettled?.(tabId, "none");
+					this.sync();
+					return;
+				}
+				void this.#run(tabId, action, since);
+			};
+			const retry = {
+				marker,
+				off: () => {
+					sidecar.off("status", listener);
+					if (this.#retrying.get(tabId) === retry) this.#retrying.delete(tabId);
+				},
+			};
+			this.#retrying.set(tabId, retry);
+			sidecar.on("status", listener);
+		} else {
+			this.#abandoned.add(marker);
+			this.#deps.goalSettled?.(tabId, "none");
+		}
+		this.sync();
 	}
 
 	/**
@@ -1052,7 +1160,8 @@ export class TurnResume {
 	 * Continue interrupted work after relaunch is off).
 	 */
 	relaunchContinuation(tabId: string): RelaunchContinuation {
-		if (this.#pending.has(tabId)) return "after_restore";
+		const pending = this.#pending.get(tabId);
+		if (pending && !this.#abandoned.has(pending)) return "after_restore";
 		return this.#deps.enabled() ? "now" : "off";
 	}
 
@@ -1077,7 +1186,9 @@ export class TurnResume {
 	 * continuation's own `#run`, which reports when it ends.
 	 */
 	#dropWait(tabId: string, reportGoal = true): void {
-		const heldLaunch = this.#waiting.has(tabId) && this.#pending.has(tabId);
+		const retry = this.#retrying.get(tabId);
+		retry?.off();
+		const heldLaunch = (this.#waiting.has(tabId) || retry !== undefined) && this.#pending.has(tabId);
 		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
 		this.#waiting.delete(tabId);
 		this.#probing.delete(tabId);

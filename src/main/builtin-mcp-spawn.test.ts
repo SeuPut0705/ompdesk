@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { reaExtensionArgs } from "../shared/builtin-mcp";
 import { SidecarManager } from "./sidecar";
-import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { ANSWERS_COMMANDS, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 describe("built-in MCP sidecar argv", () => {
 	it.each([true, false])("adds a directory root only when available=%s", async available => {
@@ -12,7 +12,7 @@ describe("built-in MCP sidecar argv", () => {
 		const record = path.join(dir, "args.json");
 		const bin = await writeFakeOmp(
 			dir,
-			`import * as fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs";\nfs.writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		const builtinRoot = path.join(dir, "omp-builtin");
 		const sc = new SidecarManager({

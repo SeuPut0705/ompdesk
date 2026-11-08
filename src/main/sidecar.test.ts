@@ -13,9 +13,10 @@ import type {
 } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import type { OmpResolution } from "./omp-runtime";
-import { WINDOWS_STOP_GRACE_MS } from "./omp-stop";
+import { OmpStartQueue } from "./omp-start-queue";
+import { STOP_GRACE_MS } from "./omp-stop";
 import { type SidecarFailureReport, SidecarManager } from "./sidecar";
-import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { ANSWERS_COMMANDS, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
 function ompAt(bin: string): () => Promise<OmpResolution> {
@@ -45,7 +46,7 @@ describe("SidecarManager", () => {
 		const sessionPath = path.join(tempDir, "session.jsonl");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		await fs.writeFile(sessionPath, "");
 
@@ -85,7 +86,7 @@ describe("SidecarManager", () => {
 					`fs.writeFileSync(${JSON.stringify(reportPath)}, JSON.stringify({ omp: niceOf(process.pid), tool: niceOf(tool.pid ?? 0) }));`,
 					`tool.kill();`,
 					`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");`,
-					`process.stdin.resume();`,
+					ANSWERS_COMMANDS,
 				].join("\n"),
 			);
 			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
@@ -134,18 +135,20 @@ describe("SidecarManager", () => {
 						},
 						{ timeout: 5_000, interval: 25 },
 					)
-					.toHaveLength(4);
+					.toHaveLength(5);
 
 				const commands = JSON.parse(await fs.readFile(commandLog, "utf8")) as Array<{
 					type: string;
 					events?: string[] | null;
 					tools?: Array<{ name: string }>;
 				}>;
+				// `get_state` last: the omp's first answer, after which the tab reads ready.
 				expect(commands.map(command => command.type)).toEqual([
 					"negotiate_protocol",
 					"set_event_filter",
 					"set_ask_dialog",
 					"set_host_tools",
+					"get_state",
 				]);
 				expect(commands[3]?.tools?.map(tool => tool.name)).toEqual([
 					"gui_terminal_read",
@@ -165,7 +168,7 @@ describe("SidecarManager", () => {
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, kind: "chat" });
@@ -190,7 +193,7 @@ describe("SidecarManager", () => {
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, fresh: true, bridgeDir: tempDir });
@@ -227,7 +230,7 @@ describe("SidecarManager", () => {
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		// Not `fresh`: a restored tab or an omp restart, whose session got its path before stock wrote the file.
@@ -260,7 +263,7 @@ describe("SidecarManager", () => {
 		await fs.writeFile(sessionPath, "{}\n");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		let letGo = (): void => {};
 		const released = new Promise<void>(resolve => {
@@ -298,7 +301,7 @@ describe("SidecarManager", () => {
 		await fs.writeFile(sessionPath, "{}\n");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		let held = true;
 		const sidecar = new SidecarManager({
@@ -339,7 +342,7 @@ describe("SidecarManager", () => {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-output-"));
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "prompt_result", id: "local-command", agentInvoked: false }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "session_settled" }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "command_output", text: "Enabled models" }) + "\\n");\nprocess.stdin.resume();\n`,
+			`process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "prompt_result", id: "local-command", agentInvoked: false }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "session_settled" }) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "command_output", text: "Enabled models" }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
@@ -702,7 +705,7 @@ describe("SidecarManager", () => {
 		const logPath = path.join(tempDir, "argv.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		// The app's prefs store, kept in tempDir: never the developer's own prefs.json.
 		const prefs = new Store<Record<string, unknown>>({ name: "prefs", cwd: path.join(tempDir, "prefs") });
@@ -755,7 +758,7 @@ describe("SidecarManager", () => {
 		const logPath = path.join(tempDir, "spawn.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
@@ -817,7 +820,7 @@ describe("SidecarManager", () => {
 		const pidPath = path.join(tempDir, "pids.txt");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.appendFile(${JSON.stringify(pidPath)}, String(process.pid) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.appendFile(${JSON.stringify(pidPath)}, String(process.pid) + "\\n");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 
 		const sidecar = new SidecarManager({
@@ -884,7 +887,7 @@ describe("SidecarManager", () => {
 				"}",
 				`await fs.writeFile(${JSON.stringify(logPath)}, JSON.stringify(argv));`,
 				'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-				"process.stdin.resume();",
+				ANSWERS_COMMANDS,
 			].join("\n"),
 		);
 		await fs.writeFile(sessionPath, "");
@@ -965,7 +968,7 @@ describe("SidecarManager", () => {
 					"\tprocess.exit(1);",
 					"}",
 					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-					"process.stdin.resume();",
+					ANSWERS_COMMANDS,
 				].join("\n"),
 			);
 
@@ -1016,7 +1019,7 @@ describe("SidecarManager", () => {
 				[
 					'if (process.argv.includes("--model")) {',
 					'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-					"\tprocess.stdin.resume();",
+					`\t${ANSWERS_COMMANDS}`,
 					"} else {",
 					"\t// A grandchild holding stderr (as under a cmd.exe shim) writes after this process exits;",
 					"\t// the real delay is the point: the write must land after `exit`.",
@@ -1102,36 +1105,9 @@ describe("SidecarManager", () => {
 		}
 	}, 15_000);
 
-	it("returns a live sidecar to ready once it answers again after a failed health check", async () => {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-health-"));
-		const binaryPath = await writeFakeOmp(
-			tempDir,
-			`import { createInterface } from "node:readline";\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\ncreateInterface({ input: process.stdin }).on("line", line => {\n\tconst command = JSON.parse(line) as { id?: string; type: string };\n\tprocess.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: { sessionId: "s1" } }) + "\\n");\n});\n`,
-		);
-		const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, healthRecoveryProbeMs: 20 });
-		try {
-			const ready = waitForReady(sidecar);
-			sidecar.start();
-			await ready;
-			const statuses: SidecarStatus[] = [];
-			sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
-
-			const recovered = waitForReady(sidecar);
-			sidecar.markUnhealthy("Health check timed out");
-			// The child is still there and still holds its session.
-			expect(sidecar.status).toBe("error");
-			expect(sidecar.processAlive).toBe(true);
-			await recovered;
-			expect(statuses).toEqual(["error", "ready"]);
-		} finally {
-			sidecar.dispose();
-			await fs.rm(tempDir, RM_TEMP);
-		}
-	});
-
 	// POSIX only: the fake child closes fd 0 to break the pipe, which the Windows
-	// .cmd shim and named-pipe semantics don't reproduce (the spawn never gets
-	// ready). The stdin error handler under test is platform-independent.
+	// .cmd shim and named-pipe semantics don't reproduce. The stdin error handler
+	// under test is platform-independent.
 	it.skipIf(process.platform === "win32")(
 		"survives writes to a child that stopped reading stdin (EPIPE)",
 		async () => {
@@ -1145,9 +1121,12 @@ describe("SidecarManager", () => {
 			const onUncaught = (error: unknown) => uncaught.push(error);
 			process.on("uncaughtException", onUncaught);
 			try {
-				const ready = waitForReady(sidecar);
+				// The pipe is broken before omp answers anything: it never reads `ready`, only spawns.
+				const spawned = Promise.withResolvers<void>();
+				sidecar.once("spawned", () => spawned.resolve());
 				sidecar.start();
-				await ready;
+				await spawned.promise;
+				await delay(200);
 				// Every write after the read end closed fails on the stream, not the call.
 				for (let index = 0; index < 50; index++)
 					sidecar.sendSideChannel({ type: "extension_ui_response", id: `${index}` });
@@ -1175,7 +1154,7 @@ describe("SidecarManager", () => {
 				`const server = net.createServer(() => {});`,
 				`server.listen(process.env.OMP_GUI_BRIDGE, () => process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n"));`,
 				`server.unref();`,
-				`process.stdin.resume();`,
+				ANSWERS_COMMANDS,
 			].join("\n"),
 		);
 		const gate = Promise.withResolvers<string | null>();
@@ -1239,7 +1218,7 @@ describe("SidecarManager", () => {
 					`process.on("SIGTERM", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "sigterm\\n"); process.exit(0); });`,
 					`process.stdin.on("end", () => { fs.appendFileSync(${JSON.stringify(logPath)}, "stdin-end\\n"); if (${exitOnEnd}) process.exit(0); });`,
 					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-					"process.stdin.resume();",
+					ANSWERS_COMMANDS,
 					"setInterval(() => {}, 1000);",
 				].join("\n"),
 			);
@@ -1338,7 +1317,7 @@ describe("SidecarManager", () => {
 								await new Promise(resolve => setImmediate(resolve));
 							}
 							expect(await read()).toEqual(["stdin-end"]);
-							vi.advanceTimersByTime(WINDOWS_STOP_GRACE_MS - 1);
+							vi.advanceTimersByTime(STOP_GRACE_MS - 1);
 							expect(await running()).toBe(true);
 							vi.advanceTimersByTime(1);
 						} finally {
@@ -1392,7 +1371,7 @@ describe("SidecarManager", () => {
 						// The graceful shutdown of a real omp: it still writes its session file after stdin ended.
 						'process.stdin.on("end", () => setTimeout(() => process.exit(0), 1500));',
 						'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
-						"process.stdin.resume();",
+						ANSWERS_COMMANDS,
 						"setInterval(() => {}, 1000);",
 					].join("\n"),
 				);
@@ -1428,5 +1407,182 @@ describe("SidecarManager", () => {
 				}
 			},
 		);
+	});
+
+	describe("one stop, one start at a time (8 Nov 2026: stuck omps outlived the app and stalled every new one)", () => {
+		type OnTerm = "exit" | "exit-late" | "ignore";
+		/**
+		 * A fake omp that logs `spawn <pid> <ms>` and `exit <pid> <ms>` lines, takes SIGTERM as `onTerm` says, and answers
+		 * commands: always, never (`silent`), or once `gate` exists (each command waits for it).
+		 */
+		async function loggedOmp(options: { onTerm: OnTerm; answers: "always" | "never" | { gate: string } }) {
+			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-life-"));
+			const logPath = path.join(tempDir, "life.log");
+			const config = JSON.stringify({ logPath, ...options });
+			const binaryPath = await writeFakeOmp(
+				tempDir,
+				[
+					'import * as fs from "node:fs";',
+					'import { createInterface } from "node:readline";',
+					`const config = ${config};`,
+					'const log = (word: string) => fs.appendFileSync(config.logPath, word + " " + process.pid + " " + Date.now() + "\\n");',
+					'log("spawn");',
+					'process.on("SIGTERM", () => {',
+					'\tif (config.onTerm === "ignore") return log("sigterm");',
+					'\tsetTimeout(() => { log("exit"); process.exit(0); }, config.onTerm === "exit-late" ? 300 : 0);',
+					"});",
+					'process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
+					"createInterface({ input: process.stdin }).on('line', line => {",
+					"\tconst command = JSON.parse(line);",
+					'\tconst answer = () => process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");',
+					'\tif (config.answers === "never") return;',
+					'\tif (config.answers === "always") return answer();',
+					"\tconst wait = setInterval(() => { if (fs.existsSync(config.answers.gate)) { clearInterval(wait); answer(); } }, 20);",
+					"});",
+					"setInterval(() => {}, 1000);",
+				].join("\n"),
+			);
+			const lines = async () =>
+				(await fs.readFile(logPath, "utf8").catch(() => ""))
+					.split("\n")
+					.filter(Boolean)
+					.map(line => {
+						const [word, pid, at] = line.split(" ");
+						return { word, pid: Number(pid), at: Number(at) };
+					});
+			return { tempDir, binaryPath, lines };
+		}
+
+		const alive = (pid: number) => {
+			try {
+				process.kill(pid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		};
+
+		// POSIX: SIGTERM is the polite stop. A Bun omp whose main thread is blocked runs its handler only once the thread
+		// frees, and a stopped one (`kill -STOP`, how the smoke stands in for a stuck omp) never does.
+		it.skipIf(process.platform === "win32")(
+			"kills an omp that ignores SIGTERM, or is stopped, once the stop's bound ran out, and reports its exit only then",
+			async () => {
+				for (const stuck of ["ignores SIGTERM", "stopped"] as const) {
+					const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "ignore", answers: "always" });
+					const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+					try {
+						const ready = waitForReady(sidecar);
+						sidecar.start();
+						await ready;
+						const pid = sidecar.pid ?? 0;
+						if (stuck === "stopped") process.kill(pid, "SIGSTOP");
+						let exited = false;
+						const exit = sidecar.whenExited().then(() => {
+							exited = true;
+						});
+						vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+						try {
+							sidecar.dispose();
+							if (stuck === "ignores SIGTERM")
+								await vi.waitFor(async () =>
+									expect((await lines()).map(line => line.word)).toContain("sigterm"),
+								);
+							vi.advanceTimersByTime(STOP_GRACE_MS - 1);
+							expect([alive(pid), exited]).toEqual([true, false]);
+							vi.advanceTimersByTime(1);
+						} finally {
+							vi.useRealTimers();
+						}
+						await exit;
+						expect(alive(pid)).toBe(false);
+					} finally {
+						await fs.rm(tempDir, RM_TEMP);
+					}
+				}
+			},
+			20_000,
+		);
+
+		it("starts a replacement only once its predecessor has exited", async () => {
+			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit-late", answers: "always" });
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+			try {
+				const ready = waitForReady(sidecar);
+				sidecar.start();
+				await ready;
+				const again = waitForReady(sidecar);
+				sidecar.restart();
+				await again;
+				const log = await lines();
+				const [first, second] = log.filter(line => line.word === "spawn");
+				const firstExit = log.find(line => line.word === "exit" && line.pid === first?.pid);
+				expect(firstExit).toBeDefined();
+				expect(second?.at).toBeGreaterThanOrEqual(firstExit?.at ?? Number.POSITIVE_INFINITY);
+			} finally {
+				sidecar.dispose();
+				await sidecar.whenExited();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		}, 15_000);
+
+		it("never has more omps starting at once than the start queue allows", async () => {
+			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-gate-${process.pid}-${Date.now()}`);
+			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit", answers: { gate } });
+			const queue = new OmpStartQueue(2, 60_000);
+			const tabs = [0, 1, 2, 3].map(
+				() => new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, startQueue: queue }),
+			);
+			let starting = 0;
+			let most = 0;
+			for (const tab of tabs) {
+				tab.on("spawned", () => {
+					starting++;
+					most = Math.max(most, starting);
+				});
+				tab.on("status", ({ status }: SidecarStatusPayload) => {
+					if (status === "ready") starting--;
+				});
+			}
+			try {
+				const ready = Promise.all(tabs.map(tab => waitForReady(tab)));
+				for (const tab of tabs) tab.start();
+				// Two omps are up and waiting for their first answer: the other two have not been started.
+				await vi.waitFor(async () => expect((await lines()).filter(line => line.word === "spawn")).toHaveLength(2));
+				expect(most).toBe(2);
+				await fs.writeFile(gate, "");
+				await ready;
+				expect((await lines()).filter(line => line.word === "spawn")).toHaveLength(4);
+				expect(most).toBe(2);
+			} finally {
+				for (const tab of tabs) tab.dispose();
+				await Promise.all(tabs.map(tab => tab.whenExited()));
+				await fs.rm(gate, { force: true });
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		}, 20_000);
+
+		it("stops a started omp that answers nothing and starts it again, reading starting until its retries run out", async () => {
+			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit", answers: "never" });
+			const statuses: SidecarStatus[] = [];
+			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, startAnswerMs: 400 });
+			sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
+			try {
+				const failed = Promise.withResolvers<void>();
+				sidecar.on("status", ({ status }: SidecarStatusPayload) => {
+					if (status === "error") failed.resolve();
+				});
+				sidecar.start();
+				await failed.promise;
+				await sidecar.whenExited();
+				const spawns = (await lines()).filter(line => line.word === "spawn");
+				// The first start and two more, each after the one before it exited.
+				expect(spawns).toHaveLength(3);
+				expect(spawns.map(spawn => alive(spawn.pid))).toEqual([false, false, false]);
+				expect(statuses.filter(status => status !== "starting")).toEqual(["error"]);
+			} finally {
+				sidecar.dispose();
+				await fs.rm(tempDir, RM_TEMP);
+			}
+		}, 20_000);
 	});
 });

@@ -660,6 +660,8 @@ export type RuntimeErrorSource =
 	| "sidecar-restart"
 	/** An omp whose CPU priority could not be lowered below the app's (src/main/agent-priority.ts), logged once: `message` is why. */
 	| "process-priority"
+	/** Omps an earlier launch left running, stopped before this launch's tabs start (src/main/omp-processes.ts): `details.pids`. */
+	| "omp-reap"
 	/**
 	 * A start that waited for another live omp to let go of its session (src/main/session-free.ts): `message` says
 	 * whether it was let go or the wait ran out, `details` the session file's name and the wait.

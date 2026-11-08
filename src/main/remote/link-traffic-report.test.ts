@@ -108,16 +108,13 @@ describe("frames deflated against the link's context by the device's build", () 
 });
 
 describe("link traffic harness", () => {
-	it("counts a request, its answer and a tab event by kind", async () => {
+	it("counts a request and its answer by kind", async () => {
 		const { sidecar, recorder } = await openSession();
 		recorder.reset();
 		await sidecar.rpcClient?.command({ type: "get_state" });
-		// The scripted omp's state names its session file, so the host tells the device the tab's session as well.
-		expect([...recorder.links.keys()].sort()).toEqual([
-			"A>B req tab.command",
-			"B>A evt tab.event session",
-			"B>A res tab.command",
-		]);
+		// The tab read ready only once its omp answered `get_state` (sidecar.ts `#answered`), which already told the device
+		// the tab's session: the same answer again sends no session event.
+		expect([...recorder.links.keys()].sort()).toEqual(["A>B req tab.command", "B>A res tab.command"]);
 		expect(recorder.totalBytes).toBeGreaterThan(0);
 	}, 30_000);
 });

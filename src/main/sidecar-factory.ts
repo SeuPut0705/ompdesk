@@ -30,7 +30,9 @@ import { builtinReaState, spawnReaState } from "./builtin-mcp";
 import { controlEnvFor } from "./control-socket/env";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
+import type { OmpProcesses } from "./omp-processes";
 import { systemOmp } from "./omp-runtime";
+import type { OmpStartQueue } from "./omp-start-queue";
 import { writeRuntimeLog } from "./runtime-log";
 import type { SessionKindStore } from "./session-kinds";
 import { shellSpawnEnv } from "./shell-env";
@@ -118,6 +120,10 @@ export interface LocalSidecarDeps {
 	desktopSlot?: () => DesktopSlotFrameSink | null;
 	/** The bridge reported a changed file its session had not changed before (`checkout_files`; `sidecar` is that session's omp): the shared-checkout pass runs soon. Absent: the sweep finds it. */
 	checkoutFiles?: (sidecar: object) => void;
+	/** The app's one queue of omp starts (omp-start-queue.ts); absent: every start goes at once (tests). */
+	startQueue?: Pick<OmpStartQueue, "acquire">;
+	/** The app's list of the omps it runs (omp-processes.ts); absent: none kept (tests). */
+	processes?: Pick<OmpProcesses, "track">;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -247,6 +253,8 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			...(deps.ompdeskRolesFile ? { ompdeskRolesFile: deps.ompdeskRolesFile } : {}),
 			launchProfiles: deps.launchProfilesPref,
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
+			...(deps.startQueue ? { startQueue: deps.startQueue } : {}),
+			...(deps.processes ? { processes: deps.processes } : {}),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail
@@ -265,23 +273,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			frameTransform: (frame): Record<string, unknown> =>
 				frame.type === "autopilot_update" ? (deps.autopilot?.()?.overlay(sc, frame) ?? frame) : frame,
 		});
-		// Ready-health-check applies to every sidecar, not just the first.
-		// A failure marks the live child `error` without killing it; the manager
-		// re-probes and returns it to `ready` once a command succeeds again.
 		sc.on("status", ({ status }) => {
 			if (status !== "ready") return;
 			markStartup("sidecar-ready");
 			deps.onReady?.();
-			const client = sc.rpcClient;
-			if (!client) return;
-			client
-				.command({ type: "get_state" })
-				.then(res => {
-					if (!res.success) sc.markUnhealthy(`Health check failed: ${res.error ?? "unknown"}`);
-				})
-				.catch(err => {
-					sc.markUnhealthy(`Health check timed out: ${err instanceof Error ? err.message : String(err)}`);
-				});
 		});
 		sc.on("spawned", () => markStartup("omp-spawned"));
 		sc.on("bridge", (result: BridgeConnectResult) => {

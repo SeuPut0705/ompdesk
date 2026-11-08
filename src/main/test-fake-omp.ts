@@ -26,6 +26,13 @@ export async function writeFakeOmp(dir: string, source: string): Promise<string>
 }
 
 /**
+ * Fake omp source that answers every RPC command with success, as stock does: a tab reads `ready` only once its omp
+ * answered (sidecar.ts `#answered`), so a fake that never answers stays `starting`. Keeps stdin open.
+ */
+export const ANSWERS_COMMANDS =
+	'import("node:readline").then(({ createInterface }) => createInterface({ input: process.stdin }).on("line", line => { const command = JSON.parse(line); process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n"); }));';
+
+/**
  * Windows refuses to delete a directory that is still some process's cwd or
  * holds an open file; a just-killed child may need a moment to release it.
  */

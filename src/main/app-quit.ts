@@ -150,14 +150,32 @@ async function askOnce(options: MessageBoxOptions): Promise<boolean> {
  * teardown, with the windows still up (worktree-lifecycle.ts asks there); the
  * quit resumes when it settles. An update's quit skips it: Squirrel has already
  * closed the windows, and the saved tabs come back after the update.
+ * `ompsExited` (the teardown stopped every omp) holds the exit in `will-quit` until every omp has exited, so a stuck one
+ * is killed by its stop instead of outliving the app (8 Nov 2026: seven did, for minutes, after an update's relaunch).
  */
 export function installQuitGuard(
 	tabInventory: () => WindowTabFact[],
 	teardown: () => void,
 	finalize: () => Promise<void>,
+	ompsExited: () => Promise<void>,
 ): void {
 	inventory = tabInventory;
 	let finalizing: "pending" | "running" | "done" = "pending";
+	let exiting = false;
+	// Every `will-quit` listener (the relaunch swap, flushes) has run once this one holds the exit; `app.exit` then ends the
+	// process without a second `will-quit`.
+	app.on("will-quit", event => {
+		if (exiting) return;
+		exiting = true;
+		event.preventDefault();
+		markMainStep("quit", "will-quit: waiting for every omp to exit");
+		void ompsExited()
+			.catch((err: unknown) => console.warn(`[quit] omp stops failed: ${String(err)}`))
+			.finally(() => {
+				markMainStep("quit", "omps exited");
+				app.exit(0);
+			});
+	});
 	app.on("before-quit", event => {
 		if (latch.approved && finalizing !== "done") {
 			event.preventDefault();

@@ -48,8 +48,10 @@ import {
 	sessionOpen,
 	withoutSessionEnv,
 } from "./omp-launch";
+import type { OmpProcesses } from "./omp-processes";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
-import { killOmp, stopOmp } from "./omp-stop";
+import type { OmpStartQueue, StartSlotRelease } from "./omp-start-queue";
+import { OMP_SPAWN_GROUP, type StopOptions, stopOmp } from "./omp-stop";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
 import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
@@ -68,8 +70,13 @@ const LOCAL_SEND_TIMEOUT_MS = 120_000;
 const ENTRY_ID_TIMEOUT_MS = 5_000;
 /** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
 const STDERR_DRAIN_MS = 1_000;
-/** Pause between re-probes while a failed health check holds a live child in `error`. */
-const HEALTH_RECOVERY_PROBE_MS = 5_000;
+/**
+ * How long a started omp has to answer its first RPC. Stock omp answers `get_state` within seconds even behind its
+ * model discovery; a relaunch's omps that answered nothing for minutes (8 Nov 2026) never answered at all.
+ */
+const START_ANSWER_MS = 45_000;
+/** Stops and fresh starts of an omp that answered nothing, before the tab reads `error`. */
+const MAX_START_STALLS = 2;
 
 /** Stock commands after which the sidecar's session identity is unknown until the next `get_state`. */
 const SESSION_CHANGING_COMMANDS: Record<string, true> = {
@@ -335,7 +342,7 @@ export interface SidecarOptions {
 	 * flags, and no prefs file is touched.
 	 */
 	launchProfiles?: () => unknown;
-	/** How long a closed tab's omp gets to shut down on its own (stdin closed) before SIGTERM; 0 or absent: SIGTERM at once. */
+	/** How long a closed tab's omp gets to end on its own (stdin closed) before its stop's SIGTERM; 0 or absent: none. */
 	gracefulStopMs?: () => number;
 	/**
 	 * Rewrites a frame before anything sees it (Autopilot's coordinator adds the children and the ship queue to
@@ -359,8 +366,12 @@ export interface SidecarOptions {
 	 * Absent: a spawn that exits for lack of a usable model just crash-loops.
 	 */
 	bootModel?: (runtime: OmpRuntime) => Promise<string>;
-	/** Re-probe interval after a failed health check (tests shorten it). */
-	healthRecoveryProbeMs?: number;
+	/** The app's one queue of omp starts (`omp-start-queue.ts`). Absent (tests): every start goes at once. */
+	startQueue?: Pick<OmpStartQueue, "acquire">;
+	/** The app's list of the omps it runs (`omp-processes.ts`), which a quit stops and the next launch reaps. */
+	processes?: Pick<OmpProcesses, "track">;
+	/** How long a started omp has to answer its first RPC before it is stopped and started again (tests shorten it). */
+	startAnswerMs?: number;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -409,12 +420,15 @@ export class SidecarManager extends EventEmitter {
 	#detachParser: (() => void) | null = null;
 	#restartCount = 0;
 	#restartTimer: NodeJS.Timeout | null = null;
-	/**
-	 * A failed health check marked this live child `error`. Re-probed until a
-	 * command succeeds, which sets it `ready` again (see markUnhealthy).
-	 */
-	#unhealthy = false;
-	#recoveryTimer: NodeJS.Timeout | null = null;
+	/** The exits of the omps this tab stopped and that still run: its next spawn waits for all of them. */
+	readonly #exiting = new Set<Promise<void>>();
+	/** This spawn's place in the start queue, given back once it answered, ended or was stopped. */
+	#releaseSlot: StartSlotRelease | null = null;
+	/** Fires `#stalled` when this spawn has not answered by `#answerDeadline`. */
+	#answerTimer: NodeJS.Timeout | null = null;
+	#answerDeadline = 0;
+	/** Starts in a row that answered nothing (`#stalled`); reset by an answer and by restart(). */
+	#stalls = 0;
 	/**
 	 * Spawn-cycle counter, bumped whenever a cycle is torn down or started.
 	 * Every continuation that outlives the synchronous spawn (protocol
@@ -607,18 +621,35 @@ export class SidecarManager extends EventEmitter {
 		};
 	}
 
+	/**
+	 * Starts the next omp of this tab once every omp it stopped has exited (a replacement never overlaps its
+	 * predecessor on the session) and the app's start queue gave it a place.
+	 */
 	#spawn(): void {
-		// One live child per manager. `#child` is only ever set here, so anything
-		// still attached means a previous spawn was never retired — kill it through
-		// the normal teardown instead of letting it run parser-less and unkillable.
+		// One live child per manager. `#child` is only ever set by `#launch`, so anything still attached means a previous
+		// spawn was never retired: stop it through the normal teardown instead of letting it run parser-less.
 		const superseded = this.#child;
 		if (superseded) {
 			this.#cleanup();
-			stopOmp(superseded);
+			this.#stop(superseded);
 		}
 		const runtime = this.#runtime;
 		if (!runtime) return;
 		this.#generation++;
+		const generation = this.#generation;
+		void Promise.all([...this.#exiting])
+			.then(() => this.#options.startQueue?.acquire())
+			.then(release => {
+				if (!this.#isLive(generation)) {
+					release?.();
+					return;
+				}
+				this.#releaseSlot = release ?? null;
+				this.#launch(runtime, generation);
+			});
+	}
+
+	#launch(runtime: OmpRuntime, generation: number): void {
 		this.#lastStderr = [];
 		this.#bootedThisSpawn = false;
 		this.#session = null;
@@ -668,10 +699,13 @@ export class SidecarManager extends EventEmitter {
 				cwd,
 				shell: needsShell(bin),
 				windowsHide: true,
+				...OMP_SPAWN_GROUP,
 			});
 		} catch (err) {
 			// spawn() throws synchronously (EBADF/ENOENT) — surface it as a
 			// sidecar failure + retry, never an uncaught main-process exception.
+			this.#releaseSlot?.();
+			this.#releaseSlot = null;
 			this.#attemptRestart(err instanceof Error ? err.message : String(err));
 			return;
 		}
@@ -681,7 +715,11 @@ export class SidecarManager extends EventEmitter {
 		(this.#options.lowerPriority ?? lowerAgentPriority)(child.pid);
 
 		this.#child = child;
+		this.#options.processes?.track(child);
 		this.#bridgeAddress = bridgeAddress;
+		const answerMs = this.#options.startAnswerMs ?? START_ANSWER_MS;
+		this.#answerDeadline = Date.now() + answerMs;
+		this.#answerTimer = setTimeout(() => this.#stalled(generation), answerMs);
 		this.emit("spawned");
 		const bridge = new GuiBridgeClient(bridgeAddress ?? "");
 		bridge.onEvent(event => this.#routeFrame(event));
@@ -715,8 +753,6 @@ export class SidecarManager extends EventEmitter {
 			},
 			observe: (command, response) => {
 				this.#observeResponse(command, response);
-				// Any successful answer proves the command loop is alive again.
-				if (response.success) this.#recoverHealth();
 			},
 		});
 		this.#rpcClient = rpcClient;
@@ -990,6 +1026,7 @@ export class SidecarManager extends EventEmitter {
 		const announceReady = (): void => {
 			void bridgeReady.then(async () => {
 				if (!this.#isLive(generation)) return;
+				if (!(await this.#answered(generation))) return;
 				const gate = this.#startGate;
 				this.#startGate = null;
 				if (gate && bridge?.connected) {
@@ -1126,9 +1163,10 @@ export class SidecarManager extends EventEmitter {
 		// Any async continuation of the current cycle (pending negotiation) is
 		// stale from here on, even before the replacement spawns.
 		this.#generation++;
-		this.#unhealthy = false;
-		clearTimeout(this.#recoveryTimer ?? undefined);
-		this.#recoveryTimer = null;
+		clearTimeout(this.#answerTimer ?? undefined);
+		this.#answerTimer = null;
+		this.#releaseSlot?.();
+		this.#releaseSlot = null;
 		this.#detachParser?.();
 		this.#detachParser = null;
 		this.#releaseHeld();
@@ -1143,6 +1181,60 @@ export class SidecarManager extends EventEmitter {
 		if (this.#bridgeAddress) removeBridgeAddress(this.#bridgeAddress);
 		this.#bridgeAddress = null;
 		this.#child = null;
+	}
+
+	/**
+	 * The started omp answered no RPC within `START_ANSWER_MS` (8 Nov 2026: every omp a relaunch started went silent
+	 * after its model discovery while an earlier one hung): it is stopped and started again through the start queue, up to
+	 * `MAX_START_STALLS` times, the tab reading `starting` all along; then `error`.
+	 */
+	#stalled(generation: number): void {
+		if (!this.#isLive(generation)) return;
+		const child = this.#child;
+		this.#cleanup();
+		if (child) this.#stop(child);
+		this.#stalls++;
+		const answerMs = this.#options.startAnswerMs ?? START_ANSWER_MS;
+		const reason = `omp answered nothing within ${Math.round(answerMs / 1000)} s of its start`;
+		this.#options.reportFailure?.({
+			reason,
+			attempt: Math.min(this.#stalls, MAX_START_STALLS),
+			maxAttempts: MAX_START_STALLS,
+			stderr: [...this.#lastStderr],
+			cwd: this.#options.cwd,
+		});
+		if (this.#stalls > MAX_START_STALLS) {
+			this.#setStatus("error", reason);
+			return;
+		}
+		this.#setStatus("starting");
+		this.#spawn();
+	}
+
+	/**
+	 * The omp's first answer: `get_state`, the command a stalled omp never answered. Only an omp that answered reads
+	 * `ready`, and its place in the start queue goes to the next start. False when it gave no answer in time (it is
+	 * stopped and started again) or the spawn is gone.
+	 */
+	async #answered(generation: number): Promise<boolean> {
+		const client = this.#rpcClient;
+		if (!client) return false;
+		const left = this.#answerDeadline - Date.now();
+		const answered = await client.stock({ type: "get_state" }, Math.max(1, left)).then(
+			() => true,
+			() => false,
+		);
+		if (!this.#isLive(generation)) return false;
+		if (!answered) {
+			this.#stalled(generation);
+			return false;
+		}
+		clearTimeout(this.#answerTimer ?? undefined);
+		this.#answerTimer = null;
+		this.#stalls = 0;
+		this.#releaseSlot?.();
+		this.#releaseSlot = null;
+		return true;
 	}
 
 	/**
@@ -1288,45 +1380,6 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	/**
-	 * Mark the sidecar unhealthy: a health check failed after ready. The child
-	 * may be wedged or merely busy (a slow discovery await on the serial
-	 * command queue), so it is neither killed nor restarted — that would throw
-	 * away a live session. Instead it reports `error` and is re-probed with a
-	 * `get_state` every few seconds; the first successful command (the probe or
-	 * anything else) sets it `ready` again. A verdict that lands after the child
-	 * already crashed or restarted is stale and ignored.
-	 */
-	markUnhealthy(reason: string): void {
-		if (this.#status !== "ready" || !this.#child) return;
-		this.#unhealthy = true;
-		this.#setStatus("error", reason);
-		this.#scheduleRecoveryProbe();
-	}
-
-	#scheduleRecoveryProbe(): void {
-		const generation = this.#generation;
-		this.#recoveryTimer = setTimeout(() => {
-			this.#recoveryTimer = null;
-			const client = this.#rpcClient;
-			if (!this.#unhealthy || !this.#isLive(generation) || !client) return;
-			const retry = () => {
-				if (this.#unhealthy && this.#isLive(generation)) this.#scheduleRecoveryProbe();
-			};
-			client.stock({ type: "get_state" }).then(response => {
-				if (!response.success) retry();
-			}, retry);
-		}, this.#options.healthRecoveryProbeMs ?? HEALTH_RECOVERY_PROBE_MS);
-	}
-
-	#recoverHealth(): void {
-		if (!this.#unhealthy) return;
-		this.#unhealthy = false;
-		clearTimeout(this.#recoveryTimer ?? undefined);
-		this.#recoveryTimer = null;
-		this.#setStatus("ready");
-	}
-
-	/**
 	 * Adopt a new logical cwd WITHOUT a respawn. `switch_session` onto a file
 	 * rooted in another workspace re-roots the agent with no main-observable
 	 * event, leaving `get cwd()` (and the tab chip reading it) frozen at the
@@ -1347,13 +1400,13 @@ export class SidecarManager extends EventEmitter {
 		this.#startGate = gate;
 	}
 
-	/** Resolves once the current child process has exited (at once when there is none). */
+	/** Resolves once the current omp and every one this tab stopped before it have exited (at once when none runs). */
 	whenExited(): Promise<void> {
 		const child = this.#child;
-		if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-		const { promise, resolve } = Promise.withResolvers<void>();
-		child.once("exit", () => resolve());
-		return promise;
+		const current = Promise.withResolvers<void>();
+		if (!child || child.exitCode !== null || child.signalCode !== null) current.resolve();
+		else child.once("exit", () => current.resolve());
+		return Promise.all([...this.#exiting, current.promise]).then(() => undefined);
 	}
 
 	/**
@@ -1367,17 +1420,12 @@ export class SidecarManager extends EventEmitter {
 		this.#bootModelFallback = null;
 		this.#noModelBoot = null;
 		this.#restartCount = 0;
+		this.#stalls = 0;
 		this.start();
 	}
 
 	kill(): void {
-		if (this.#restartTimer) {
-			clearTimeout(this.#restartTimer);
-			this.#restartTimer = null;
-		}
-		const child = this.#child;
-		this.#cleanup();
-		if (child) stopOmp(child);
+		this.#stopChild();
 	}
 
 	/**
@@ -1393,18 +1441,26 @@ export class SidecarManager extends EventEmitter {
 
 	dispose(): void {
 		this.#disposed = true;
-		const grace = this.#options.gracefulStopMs?.() ?? 0;
-		const child = this.#child;
-		if (grace > 0 && child?.stdin && child.exitCode === null && child.signalCode === null) {
-			// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its
-			// stdin ends; SIGTERM kills it before. Close stdin first and escalate after the grace period.
-			if (this.#restartTimer) clearTimeout(this.#restartTimer);
-			this.#restartTimer = null;
-			this.#cleanup();
-			child.stdin.end();
-			const timer = setTimeout(() => killOmp(child), grace);
-			child.once("exit", () => clearTimeout(timer));
-		} else this.kill();
+		// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its stdin
+		// ends; SIGTERM kills it before. With a grace period its stdin closes first.
+		this.#stopChild({ stdinGraceMs: this.#options.gracefulStopMs?.() ?? 0 });
 		this.removeAllListeners();
+	}
+
+	/** Tears the spawn cycle down and stops its omp (`stopOmp`); the next spawn of this tab waits for that exit. */
+	#stopChild(options?: StopOptions): void {
+		if (this.#restartTimer) {
+			clearTimeout(this.#restartTimer);
+			this.#restartTimer = null;
+		}
+		const child = this.#child;
+		this.#cleanup();
+		if (child) this.#stop(child, options);
+	}
+
+	#stop(child: ChildProcess, options?: StopOptions): void {
+		const exit = stopOmp(child, options);
+		this.#exiting.add(exit);
+		void exit.then(() => this.#exiting.delete(exit));
 	}
 }

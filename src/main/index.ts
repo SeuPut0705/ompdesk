@@ -171,7 +171,9 @@ import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, insertModelsProvider, listModelsProviders } from "./models-config";
 import { followSetupState } from "./omp-availability";
+import { OMP_PIDS_FILE, OmpProcesses } from "./omp-processes";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
+import { OmpStartQueue } from "./omp-start-queue";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
@@ -514,6 +516,8 @@ let sidecarPool: SidecarPool;
 let statsServer: StatsServerManager | null = null;
 /** OMPdesk's MCP hub (src/main/mcp-hub.ts): the one process serving every omp's `rea` and `ompdesk-memory`. */
 let mcpHub: McpHub | null = null;
+/** Every omp this app runs (src/main/omp-processes.ts): a quit waits for their exits, a launch reaps an earlier one's. */
+let ompProcesses: OmpProcesses | null = null;
 /** The startup omp resolution that creates `statsServer` has finished (with or without one). */
 let statsLaunchSettled = false;
 let sessionIndex: SessionIndex;
@@ -907,6 +911,20 @@ app.whenReady().then(() => {
 	});
 	mcpHub.start();
 	const hub = mcpHub;
+	// The omps an earlier instance left running (a crash, a forced quit) stop before any tab's omp starts, and tabs then
+	// start a few at a time (omp-start-queue.ts).
+	ompProcesses = new OmpProcesses(join(app.getPath("userData"), OMP_PIDS_FILE), bridgeDir);
+	const ompStarts = new OmpStartQueue();
+	ompStarts.holdUntil(
+		ompProcesses.reapLeftovers().then(pids => {
+			if (pids.length > 0)
+				writeRuntimeLog({
+					source: "omp-reap",
+					message: "stopped omps an earlier launch left running",
+					details: { pids: pids.join(",") },
+				});
+		}),
+	);
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -958,6 +976,8 @@ app.whenReady().then(() => {
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
+		startQueue: ompStarts,
+		processes: ompProcesses,
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(
@@ -2594,4 +2614,5 @@ installQuitGuard(
 			release: tabId => sidecarPool.releaseTabWhenExited(tabId),
 		});
 	},
+	() => ompProcesses?.stopAll() ?? Promise.resolve(),
 );

@@ -12,8 +12,10 @@ import { QUIT_EXIT_TIMEOUT_MS } from "./quit-watchdog";
 
 const electron = vi.hoisted(() => {
 	const beforeQuit: Array<(event: { preventDefault(): void }) => void> = [];
+	const willQuit: Array<(event: { preventDefault(): void }) => void> = [];
 	return {
 		beforeQuit,
+		willQuit,
 		quit: vi.fn(),
 		exit: vi.fn(),
 		log: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("electron", () => ({
 	app: {
 		on: (name: string, listener: (event: { preventDefault(): void }) => void) => {
 			if (name === "before-quit") electron.beforeQuit.push(listener);
+			if (name === "will-quit") electron.willQuit.push(listener);
 		},
 		quit: electron.quit,
 		exit: electron.exit,
@@ -41,6 +44,7 @@ vi.mock("./i18n", () => ({
 }));
 
 let working = true;
+const ompsExited = Promise.withResolvers<void>();
 installQuitGuard(
 	() => [
 		{ windowId: 1, tabId: "a", inFlight: working },
@@ -48,6 +52,7 @@ installQuitGuard(
 	],
 	() => {},
 	async () => {},
+	() => ompsExited.promise,
 );
 
 beforeEach(() => {
@@ -179,5 +184,21 @@ describe("quit watchdog wiring", () => {
 		vi.advanceTimersByTime(1);
 		expect(electron.exit).toHaveBeenCalledWith(0);
 		expect(electron.log).toHaveBeenCalledWith(expect.objectContaining({ source: "background-task" }));
+	});
+});
+
+describe("the exit waits for every omp", () => {
+	it("holds the exit in will-quit until every omp has exited, then exits once", async () => {
+		const prevented = vi.fn();
+		for (const listener of electron.willQuit) listener({ preventDefault: prevented });
+		expect(prevented).toHaveBeenCalledTimes(1);
+		await Promise.resolve();
+		expect(electron.exit).not.toHaveBeenCalled();
+		ompsExited.resolve();
+		await vi.waitFor(() => expect(electron.exit).toHaveBeenCalledWith(0));
+		// app.exit skips a second will-quit; one that came anyway lets it through.
+		const again = vi.fn();
+		for (const listener of electron.willQuit) listener({ preventDefault: again });
+		expect(again).not.toHaveBeenCalled();
 	});
 });

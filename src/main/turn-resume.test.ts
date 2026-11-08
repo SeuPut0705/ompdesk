@@ -17,6 +17,7 @@ import {
 	InterruptedTurnStore,
 	isNetworkError,
 	isTransientError,
+	LAUNCH_CONTINUATION_ATTEMPTS,
 	launchAction,
 	MovesInFlight,
 	movesTab,
@@ -593,7 +594,14 @@ describe("TurnResume launch", () => {
 		h.facts.push(fact({ tabId: "restored" }));
 		h.resume.launch();
 		await settle();
-		const notReady = { tab: "restored", action: "restore", ready: false, cancelled: false };
+		const notReady = {
+			tab: "restored",
+			action: "restore",
+			ready: false,
+			cancelled: false,
+			attempt: 1,
+			retrying: true,
+		};
 		expect(h.logs.at(-1)).toEqual(["continue", notReady]);
 	});
 
@@ -923,6 +931,10 @@ describe("TurnResume launch", () => {
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
 		await settle();
+		// The tab's omp is not up yet: the continuation waits for it, and its goal hears nothing until it ends.
+		expect(settled).toEqual([]);
+		h.setStatus("ready");
+		await settle();
 		expect(settled).toEqual([["restored", "none"]]);
 		rmSync(h.dir, { recursive: true, force: true });
 
@@ -1115,18 +1127,35 @@ describe("TurnResume launch", () => {
 		expect(h.store.read()).toEqual([]);
 	});
 
-	it("drops the marker of a tab whose omp already failed instead of waiting for a status that never comes", async () => {
+	it("keeps the marker of a tab whose omp failed, and continues it once the tab reads ready", async () => {
 		h = setup({ status: "error", answers: { restore_interrupted: RESTORED } });
 		new InterruptedTurnStore(h.file).write([marker()]);
 		h.facts.push(fact({ tabId: "restored", running: false }));
 		h.resume.launch();
 		await settle();
 		expect(h.commands).toEqual([]);
-		expect(h.store.read()).toEqual([]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		expect(h.goals).toEqual([]);
+		expect(h.resuming).toEqual([["restored", true]]);
+
+		h.setStatus("starting");
+		await settle();
+		expect(h.commands).toEqual([]);
+		h.setStatus("ready");
+		await settle();
+		expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+		expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+		expect(h.goals).toEqual([["restored", "none"]]);
 		expect(h.statusListeners()).toBe(0);
+
+		h.facts[0] = fact({ tabId: "restored", running: true });
+		h.resume.sync();
+		h.facts[0] = fact({ tabId: "restored", running: false });
+		h.resume.sync();
+		expect(h.store.read()).toEqual([]);
 	});
 
-	it("gives up on a tab whose omp never becomes ready", async () => {
+	it("keeps the marker of a tab whose omp never becomes ready, and continues it once the tab reads ready", async () => {
 		vi.useFakeTimers();
 		try {
 			h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
@@ -1138,11 +1167,212 @@ describe("TurnResume launch", () => {
 
 			await vi.advanceTimersByTimeAsync(RESUME_READY_TIMEOUT_MS);
 			expect(h.commands).toEqual([]);
-			expect(h.store.read()).toEqual([]);
+			expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+			expect(h.goals).toEqual([]);
+			// The wait for the status ended; the retry's own listener is the only one left.
+			expect(h.statusListeners()).toBe(1);
+
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
 			expect(h.statusListeners()).toBe(0);
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	describe("a continuation none of whose commands was answered", () => {
+		const closed = () => Promise.reject(new Error("GUI bridge closed"));
+
+		it("keeps the marker, tries again at the tab's next ready, and lets it go once the turn runs", async () => {
+			let restores = 0;
+			h = setup({
+				answers: {
+					restore_interrupted: () => (++restores === 1 ? closed() : Promise.resolve(RESTORED)),
+					retry: closed,
+				},
+			});
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
+			expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+			expect(h.goals).toEqual([]);
+			expect(h.logs.at(-1)).toEqual([
+				"continue",
+				expect.objectContaining({
+					restoreError: "GUI bridge closed",
+					retryError: "GUI bridge closed",
+					started: false,
+					attempt: 1,
+					retrying: true,
+				}),
+			]);
+
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry", "restore_interrupted"]);
+			expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+			expect(h.goals).toEqual([["restored", "none"]]);
+
+			h.facts[0] = fact({ tabId: "restored", running: true });
+			h.resume.sync();
+			h.facts[0] = fact({ tabId: "restored", running: false });
+			h.resume.sync();
+			expect(h.store.read()).toEqual([]);
+		});
+
+		it("stops after the bounded attempts: nothing more is sent in this launch, the marker stays for the next one", async () => {
+			h = setup({ answers: { restore_interrupted: closed, retry: closed } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			for (let attempt = 1; attempt < LAUNCH_CONTINUATION_ATTEMPTS; attempt++) {
+				expect(h.goals).toEqual([]);
+				h.setStatus("ready");
+				await settle();
+			}
+			const sent = LAUNCH_CONTINUATION_ATTEMPTS * 2;
+			expect(h.commands).toHaveLength(sent);
+			expect(h.logs.at(-1)).toEqual(["continue", expect.objectContaining({ attempt: 3, retrying: false })]);
+			expect(h.goals).toEqual([["restored", "none"]]);
+			expect(h.statusListeners()).toBe(0);
+
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands).toHaveLength(sent);
+			expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
+			// Nothing waits on it any more: no calm row, and an autopilot run goes on at once.
+			expect(h.resuming.at(-1)).toEqual(["restored", false]);
+			expect(h.resume.relaunchContinuation("restored")).toBe("now");
+		});
+
+		it("an answer that refuses (omp answered, nothing to continue) is not a failure: the marker goes", async () => {
+			const busy: RpcResponse = { type: "response", command: "retry", success: false, error: "Agent is busy" };
+			h = setup({ answers: { restore_interrupted: closed, retry: busy } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.store.read()).toEqual([]);
+			expect(h.goals).toEqual([["restored", "none"]]);
+			expect(h.statusListeners()).toBe(0);
+		});
+
+		it("an unsent first prompt stays in the marker, and is sent by the try that gets through", async () => {
+			let prompts = 0;
+			h = setup({
+				answers: {
+					restore_interrupted: closed,
+					retry: closed,
+					prompt: () =>
+						++prompts === 1
+							? closed()
+							: Promise.resolve({ type: "response", command: "prompt", success: true, data: {} }),
+				},
+			});
+			new InterruptedTurnStore(h.file).write([marker({ sessionPath: "/s/lost.jsonl", prompt: "build it" })]);
+			h.facts.push(fact({ tabId: "restored", sessionFile: undefined }));
+			h.resume.launch();
+			await settle();
+			expect(h.store.read()).toMatchObject([{ tab: "restored", prompt: "build it" }]);
+
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands.filter(cmd => cmd.type === "prompt")).toHaveLength(2);
+			expect(h.goals).toEqual([["restored", "none"]]);
+		});
+
+		it("the retry looks again like the first try: a move in between ends it before any command", async () => {
+			h = setup({ answers: { restore_interrupted: closed, retry: closed } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+			expect(h.commands).toHaveLength(2);
+
+			h.facts[0] = fact({ tabId: "restored", touched: 1 });
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands).toHaveLength(2);
+			expect(h.store.read()).toEqual([]);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+		});
+
+		it("the person's prompt in between ends it: no stock retry lands in their run", async () => {
+			h = setup({ answers: { restore_interrupted: closed, retry: closed } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored", running: false }));
+			h.resume.launch();
+			await settle();
+
+			h.facts[0] = fact({ tabId: "restored", prompted: 1 });
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands).toHaveLength(2);
+			expect(h.goals).toEqual([["restored", "cancelled"]]);
+			expect(h.store.read()).toEqual([]);
+		});
+
+		it("the turn starting on its own, the resuming row's Stop and the setting off each end the wait for ready", async () => {
+			h = setup({ answers: { restore_interrupted: closed, retry: closed } });
+			new InterruptedTurnStore(h.file).write([marker(), marker({ tab: "m2", sessionPath: "/s/b.jsonl" })]);
+			h.facts.push(fact({ tabId: "restored" }), fact({ tabId: "second", sessionFile: "/s/b.jsonl" }));
+			h.resume.launch();
+			await settle();
+			expect(h.statusListeners()).toBe(2);
+
+			h.facts[0] = fact({ tabId: "restored", running: true });
+			h.resume.sync();
+			expect(h.statusListeners()).toBe(1);
+			expect(h.goals).toEqual([["restored", "none"]]);
+
+			await h.resume.stopResumed("second");
+			expect(h.statusListeners()).toBe(0);
+			expect(h.goals).toEqual([
+				["restored", "none"],
+				["second", "cancelled"],
+			]);
+		});
+
+		it("the setting turned off meanwhile: the next ready sends nothing and the goal hears none", async () => {
+			h = setup({ answers: { restore_interrupted: closed, retry: closed } });
+			new InterruptedTurnStore(h.file).write([marker()]);
+			h.facts.push(fact({ tabId: "restored" }));
+			h.resume.launch();
+			await settle();
+			h.state.enabled = false;
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands).toHaveLength(2);
+			expect(h.goals).toEqual([["restored", "none"]]);
+			expect(h.store.read()).toEqual([]);
+		});
+
+		it("an omp that died under its tab: the continuation of the next omp keeps its marker too", async () => {
+			let restores = 0;
+			h = setup({
+				answers: {
+					restore_interrupted: () => (++restores === 1 ? closed() : Promise.resolve(RESTORED)),
+					retry: closed,
+				},
+			});
+			h.resume.launch();
+			h.facts.push(fact({ running: true }));
+			h.resume.sync();
+			h.facts[0] = fact({ exits: 1 });
+			h.resume.sync();
+			await settle();
+			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry"]);
+			expect(h.store.read().map(entry => entry.tab)).toEqual(["t1"]);
+
+			h.setStatus("ready");
+			await settle();
+			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted", "retry", "restore_interrupted"]);
+			expect(h.goals).toEqual([["t1", "none"]]);
+		});
 	});
 
 	it("revives what a session's background work left on a relaunch and never retries its ended turn", async () => {

@@ -18,7 +18,7 @@ import {
 	spawnPath,
 } from "./shell-env";
 import { SidecarManager } from "./sidecar";
-import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+import { ANSWERS_COMMANDS, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /**
  * shell-env contract: GUI-spawned processes must see the user's login-shell
@@ -258,7 +258,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "env.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ PATH: process.env.PATH, KEY: process.env.PROBED_SHELL_KEY ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ PATH: process.env.PATH, KEY: process.env.PROBED_SHELL_KEY ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		const shellProbed = path.join(tempDir, "shell-probed");
 
@@ -295,7 +295,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "language.txt");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_REPLY_LANGUAGE ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_REPLY_LANGUAGE ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		let language = "Korean";
 		const sidecar = new SidecarManager({
@@ -331,7 +331,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "browser.txt");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_BROWSER ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_BROWSER ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		let browser: AgentBrowser = { kind: "ego" };
 		const sidecar = new SidecarManager({
@@ -374,7 +374,7 @@ describe("SidecarManager spawn env", () => {
 		const egoDir = path.join(tempDir, "ego-bin");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.PATH ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.PATH ?? "");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		const sidecar = new SidecarManager({
 			omp: async () => ({
@@ -405,7 +405,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "otel.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ disabled: process.env.OTEL_SDK_DISABLED ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ disabled: process.env.OTEL_SDK_DISABLED ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		setEnv("OTEL_SDK_DISABLED", "false");
 		setEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318");
@@ -437,7 +437,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "bun.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ cache: process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ cache: process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH ?? null }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		deleteEnv("BUN_RUNTIME_TRANSPILER_CACHE_PATH");
 		let userCache: string | undefined;
@@ -764,7 +764,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "delegation.txt");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_DELEGATION ?? "unset");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, process.env.OMP_GUI_DELEGATION ?? "unset");\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		let mode: DelegationMode = "swarm";
 		const sidecar = new SidecarManager({
@@ -794,7 +794,7 @@ describe("SidecarManager spawn env", () => {
 		const envPath = path.join(tempDir, "env.json");
 		const binaryPath = await writeFakeOmp(
 			tempDir,
-			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("OMP_GUI_")))));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\nprocess.stdin.resume();\n`,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify(Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("OMP_GUI_")))));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
 		);
 		// What an OMPdesk session's shell exports (a dev run started from one), plus a test hook that must still pass.
 		const parent: Record<string, string> = {
@@ -858,7 +858,7 @@ function loggingBridgeOmp(logPath: string): string {
 		"server.listen(process.env.OMP_GUI_BRIDGE, () => {",
 		'\tprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");',
 		"});",
-		"process.stdin.resume();",
+		ANSWERS_COMMANDS,
 		'process.stdin.on("end", () => process.exit(0));',
 	].join("\n");
 }

@@ -553,9 +553,9 @@ const READY_TIMEOUT_MS = 90_000;
 const FIRST_COMMAND_TIMEOUT_MS = 60_000;
 /**
  * How long one open waits, all its commands together, for a child that answered `sidecar_not_ready` or
- * `sidecar_not_connected` to be ready again. A live omp whose ready-time health check (`get_state`, 8 s) found it busy
- * reads `error` until its recovery probe is answered (sidecar.ts `markUnhealthy`, re-probed every 5 s), which
- * refused the first message of three opens (2, 2 and 4 Nov 2026); a tab not ready within this is not briefly so.
+ * `sidecar_not_connected` to be ready again. A ready-time health check once held a busy omp in `error` and refused the
+ * first message of three opens (2, 2 and 4 Nov 2026); a tab now reads ready only once its omp answered (sidecar.ts
+ * `#answered`), and ipc.ts waits out a starting one, but a held session or a paired host can still refuse briefly.
  */
 const OPEN_READY_RETRY_MS = 30_000;
 /** After such an answer an open looks at the tab again no sooner than this, tab event or not (a tab that reads ready yet refuses must not be hammered). */
@@ -2076,8 +2076,8 @@ export class AgentControl {
 
 	/**
 	 * Waits for a started tab to be ready. `recoverUntil` (a deadline) is for a tab that was ready and then refused a
-	 * command: its `error` is a failed health check that re-probes (sidecar.ts `markUnhealthy`), so it is waited out
-	 * until then; without it `error` is a tab that never started.
+	 * command: an `error` it reads may still turn ready (a session another omp held lets go, a paired host's tab comes
+	 * back), so it is waited out until then; without it `error` is a tab that never started.
 	 */
 	async #whenReady(tabId: string, callerTabId: string, recoverUntil?: number): Promise<void> {
 		const deadline = recoverUntil ?? Date.now() + READY_TIMEOUT_MS;
