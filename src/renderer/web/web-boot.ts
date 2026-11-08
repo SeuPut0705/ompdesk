@@ -8,6 +8,7 @@
  * not pull the app in.
  */
 import { IPC_EVENTS } from "../../shared/ipc-types";
+import { WEB_BUILD_META } from "../../shared/web-protocol";
 import { sessionListInDrawer } from "../hooks/shell-queries";
 import { getCurrentLanguage, loadLocale, translate } from "../lib/i18n";
 import { blockPageZoom } from "../lib/no-page-zoom";
@@ -43,20 +44,39 @@ import { type ResyncCause, type WsLike, WsTransport } from "./ws-transport";
 /** Marks a reload the page made to pick up a newer bundle; a second one within the window shows the notice instead. */
 const RELOAD_FLAG = "omp.web.reloaded-at";
 const RELOAD_LOOP_MS = 30_000;
+/**
+ * `sessionStorage`: the host build this page last reloaded to reach. One move per host build per browser session, so
+ * a host whose served page names another build than its `hello` cannot loop it.
+ */
+const BUILD_MOVE_KEY = "omp.web.build-move";
 /** The install hint waits for the browser's prompt, and stays up long enough to read and act on. */
 const INSTALL_HINT_DELAY_MS = 6000;
 const INSTALL_HINT_MS = 15_000;
 
+/** The build this page runs (`WEB_BUILD_META`, written by scripts/pwa-plugin.ts); null in a dev run. */
+const PAGE_BUILD = document.querySelector<HTMLMetaElement>(`meta[name="${WEB_BUILD_META}"]`)?.content || null;
+
 /** The reason of the reload in progress, kept in `localStorage` for the next connect (reload-reason.ts). */
 function noteReason(reason: ReloadReason, details?: Record<string, string | number | boolean | null>): void {
-	noteReload(localStorage, { reason, at: Date.now(), ...(details ? { details } : {}) });
+	noteReload(localStorage, { reason, at: Date.now(), details: { from: PAGE_BUILD, ...details } });
 }
 
-function purge(safe: () => boolean): Promise<boolean> {
+/**
+ * Drop the worker and its caches and load from the network. The reason is noted at the reload itself: the cleanup
+ * takes a moment, and a connect within it would send the note from this page, naming the build it leaves.
+ */
+function purge(
+	safe: () => boolean,
+	reason: ReloadReason,
+	details?: Record<string, string | number | boolean | null>,
+): Promise<boolean> {
 	return purgeAndReload(
 		navigator.serviceWorker,
 		typeof caches === "undefined" ? undefined : caches,
-		() => location.reload(),
+		() => {
+			noteReason(reason, details);
+			location.reload();
+		},
 		safe,
 	);
 }
@@ -67,8 +87,7 @@ async function pageStale(): Promise<void> {
 	const last = Number(sessionStorage.getItem(RELOAD_FLAG) ?? 0);
 	if (Date.now() - last < RELOAD_LOOP_MS) return;
 	sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-	noteReason("outdated", { atBoot: true });
-	await purge(() => true);
+	await purge(() => true, "outdated", { atBoot: true });
 }
 
 async function bootApp(): Promise<void> {
@@ -177,12 +196,12 @@ async function bootApp(): Promise<void> {
 	};
 	const purgeNow = (): Promise<boolean> => {
 		const forChunk = chunkStale && transport.state !== "outdated";
-		noteReason(
+		if (forChunk) sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+		return purge(
+			() => !moment || safeToReload(moment),
 			forChunk ? "chunk-load-failed" : "outdated",
 			forChunk ? { cause: useChunkFailureStore.getState().cause ?? null } : undefined,
 		);
-		if (forChunk) sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
-		return purge(() => !moment || safeToReload(moment));
 	};
 
 	window.omp = web.api;
@@ -228,6 +247,18 @@ async function bootApp(): Promise<void> {
 			return;
 		}
 		if (!gate.open(Date.now())) return;
+		// The host serves another build than this page runs (`hello.build`: the host is the one source of the page's
+		// build). At the same unused, safe moment the page goes straight to it, past its worker: the worker learns of a
+		// new build only when the page asks (`check`, at a return) and needs seconds to install it, so the person's
+		// first touch closed the moment first and the page ran the old build one more visit, and a reload meanwhile
+		// got the old worker's cached shell. Dropping the worker and its caches makes the next load the host's.
+		const hostBuild = transport.hostBuild;
+		if (hostBuild && PAGE_BUILD && hostBuild !== PAGE_BUILD) {
+			if (!safeToReload(moment) || sessionStorage.getItem(BUILD_MOVE_KEY) === hostBuild) return;
+			sessionStorage.setItem(BUILD_MOVE_KEY, hostBuild);
+			void purge(() => !moment || safeToReload(moment), "update", { to: hostBuild });
+			return;
+		}
 		if (pwa.update) pwa.update.resume(moment);
 		else if (chunkStale && safeToReload(moment)) void purgeNow();
 	};
@@ -241,8 +272,13 @@ async function bootApp(): Promise<void> {
 		applyUpdate();
 	});
 	transport.onState(state => {
-		// The reasons of the reloads that led here reach the host's runtime log on each connect.
-		if (state === "open") flushReloadReasons(localStorage, report => web.api.runtime.report(report));
+		if (state === "open") {
+			// The reasons of the reloads that led here reach the host's runtime log on each connect.
+			flushReloadReasons(localStorage, PAGE_BUILD, report => web.api.runtime.report(report));
+			// `hello` named the host's build: a launch or return moment still open moves the page to it.
+			applyUpdate();
+			return;
+		}
 		if (state !== "outdated") return;
 		pwa.update?.markOutdated();
 		applyUpdate();

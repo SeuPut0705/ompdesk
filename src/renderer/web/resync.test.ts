@@ -126,21 +126,25 @@ class MemoryStorage implements ReloadStorage {
 }
 
 describe("reload reasons (every reload of the page explains itself in the host's runtime log)", () => {
-	it("keeps each reason across the reload and sends them all on the next connect, once", () => {
+	it("keeps each reason across the reload and sends them all on the next connect, once, with the build it landed on", () => {
 		const storage = new MemoryStorage();
-		noteReload(storage, { reason: "update", at: Date.UTC(2026, 9, 18, 14, 15) });
+		noteReload(storage, { reason: "update", at: Date.UTC(2026, 9, 18, 14, 15), details: { from: "a1" } });
 		noteReload(storage, { reason: "resync-failed", at: Date.UTC(2026, 9, 18, 14, 16), details: { failures: 3 } });
 		const sent: unknown[] = [];
-		expect(flushReloadReasons(storage, report => sent.push(report))).toBe(2);
+		expect(flushReloadReasons(storage, "b2", report => sent.push(report))).toBe(2);
 		expect(sent).toEqual([
-			{ source: "web-reload", message: "update", details: { reloadedAt: "2026-10-18T14:15:00.000Z" } },
+			{
+				source: "web-reload",
+				message: "update",
+				details: { reloadedAt: "2026-10-18T14:15:00.000Z", build: "b2", from: "a1" },
+			},
 			{
 				source: "web-reload",
 				message: "resync-failed",
-				details: { reloadedAt: "2026-10-18T14:16:00.000Z", failures: 3 },
+				details: { reloadedAt: "2026-10-18T14:16:00.000Z", build: "b2", failures: 3 },
 			},
 		]);
-		expect(flushReloadReasons(storage, report => sent.push(report))).toBe(0);
+		expect(flushReloadReasons(storage, "b2", report => sent.push(report))).toBe(0);
 		expect(sent).toHaveLength(2);
 	});
 
@@ -152,7 +156,7 @@ describe("reload reasons (every reload of the page explains itself in the host's
 			JSON.stringify([...JSON.parse(storage.getItem("omp.web.reload-reasons") ?? "[]"), { bad: 1 }]),
 		);
 		const sent: { details?: Record<string, unknown> }[] = [];
-		flushReloadReasons(storage, report => sent.push(report));
+		flushReloadReasons(storage, null, report => sent.push(report));
 		expect(sent).toHaveLength(20);
 		expect(sent[0]?.details?.reloadedAt).toBe(new Date(5).toISOString());
 		const full: ReloadStorage = {

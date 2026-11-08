@@ -5,8 +5,18 @@
  */
 import type { IpcErrorCode } from "./ipc-error-codes";
 
-/** Bumped only by a change an older page cannot follow; added frames and fields keep it. */
-export const WEB_PROTOCOL_VERSION = 1;
+/**
+ * Bumped only by a change an older page cannot follow; added frames and fields keep it. 2: v0.119.0 replaced the
+ * channels a page read its rows' live state from (`sessions:hosted`, `sessions:live`) with the session summaries, so
+ * an older page against a newer host showed a session's run only once a tap opened its tab.
+ */
+export const WEB_PROTOCOL_VERSION = 2;
+
+/**
+ * The `<meta name>` in `web.html` that names its page build (scripts/pwa-plugin.ts: the id its service worker carries
+ * too). The page reads its own from its document; the host reads the file it serves and says it in `hello.build`.
+ */
+export const WEB_BUILD_META = "omp-build";
 
 /**
  * What a call may do, declared per channel (main/web/ipc-policy.ts). `workspace` already runs code as the
@@ -140,6 +150,11 @@ export type WebServerFrame =
 			features: WebFeatures;
 			/** What this device may call as of this connection (never `pairing-admin`); a page hides what it would be refused. */
 			grants: WebPermission[];
+			/**
+			 * The page build this host serves (`web.html`'s `WEB_BUILD_META`); a page that runs another is behind the
+			 * host and moves to it at its next unused moment (web-boot.ts). Absent from a dev run and older hosts.
+			 */
+			build?: string;
 	  }
 	| { t: "ping" }
 	| { t: "pong" };

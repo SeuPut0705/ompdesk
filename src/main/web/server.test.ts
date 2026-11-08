@@ -28,7 +28,7 @@ import {
 	type WebPairingRequest,
 } from "../../shared/mobile-web";
 import { WEB_HOST_CHANNELS, type WebBlobOpenResult } from "../../shared/web-host";
-import type { WebServerFrame } from "../../shared/web-protocol";
+import { WEB_PROTOCOL_VERSION, type WebServerFrame } from "../../shared/web-protocol";
 import type { WebPushStateResponse } from "../../shared/web-push";
 import type { TailnetPeer } from "../tailscale/whois";
 import { itWithFileSymlinks } from "../test-symlinks";
@@ -736,7 +736,12 @@ describe("WebSocket", () => {
 		const paired = await pair();
 		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
 		await arrived(frames => frames.length > 0);
-		expect(frames[0]).toMatchObject({ t: "hello", protocol: 1, resumed: false, features: { upload: true } });
+		expect(frames[0]).toMatchObject({
+			t: "hello",
+			protocol: WEB_PROTOCOL_VERSION,
+			resumed: false,
+			features: { upload: true },
+		});
 		socket.send(JSON.stringify({ t: "inv", id: 5, ch: IPC_COMMANDS.SESSIONS_LIST, a: [{ scope: "global" }] }));
 		await arrived(frames => frames.some(frame => frame.t === "res"));
 		const res = frames.find(frame => frame.t === "res");

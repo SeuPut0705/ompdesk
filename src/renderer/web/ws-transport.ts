@@ -177,6 +177,7 @@ export class WsTransport implements OmpTransport {
 	#askedAt: number | null = null;
 	#features: WebFeatures | null = null;
 	#grants: readonly WebPermission[] | null = null;
+	#hostBuild: string | null = null;
 	/** The last connection's id: a reconnect offers it (`resume.<connId>`) so the host can continue it. */
 	#connId: string | null = null;
 	/** A call failed when the last link dropped: the page loads its state again even if the host resumes. */
@@ -206,6 +207,11 @@ export class WsTransport implements OmpTransport {
 	/** What the host's last `hello` said this device may call. */
 	get grants(): readonly WebPermission[] | null {
 		return this.#grants;
+	}
+
+	/** The page build the host serves, as its last `hello` named it (`WEB_BUILD_META`); null from an older host. */
+	get hostBuild(): string | null {
+		return this.#hostBuild;
 	}
 
 	onState(listener: (state: WsConnectionState) => void): () => void {
@@ -447,6 +453,7 @@ export class WsTransport implements OmpTransport {
 		this.#failures = 0;
 		this.#features = frame.features;
 		this.#grants = frame.grants;
+		this.#hostBuild = frame.build ?? null;
 		this.#lastSeq = 0;
 		this.#ackedSeq = 0;
 		this.#lastInbound = this.#now();

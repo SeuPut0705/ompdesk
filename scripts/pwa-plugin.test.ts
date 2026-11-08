@@ -146,7 +146,7 @@ describe("the service worker bundle", () => {
 		const run = typeof hook === "function" ? hook : hook?.handler;
 		const files = {
 			...bundle(),
-			"web.html": { type: "asset", fileName: "web.html", source: HTML } as Rollup.OutputAsset,
+			"web.html": { type: "asset", fileName: "web.html", source: `<head>${HTML}</head>` } as Rollup.OutputAsset,
 		};
 		await run?.call(
 			{ emitFile: (file: (typeof emitted)[number]) => emitted.push(file) } as never,
@@ -157,8 +157,10 @@ describe("the service worker bundle", () => {
 		expect(emitted).toHaveLength(1);
 		expect(emitted[0]?.fileName).toBe("sw.js");
 		const code = String(emitted[0]?.source);
-		const id = buildIdOf(precacheCandidates(bundle(), HTML), HTML);
+		const id = buildIdOf(precacheCandidates(bundle(), HTML), `<head>${HTML}</head>`);
 		expect(code).toContain(id);
+		// The page names the same build, which its host announces and the page compares (web-boot.ts).
+		expect(String(files["web.html"].source)).toContain(`<meta name="omp-build" content="${id}" />`);
 		expect(code).toContain("/assets/main-ddd.js");
 		expect(code).not.toContain("/assets/mermaid-fff.js");
 		expect(code).not.toMatch(/\b__SW_(BUILD|PRECACHE)__\b/);

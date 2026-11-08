@@ -71,6 +71,8 @@ async function makeBuildB(): Promise<string> {
 	const worker = await fs.readFile(workerPath, "utf8");
 	await fs.writeFile(htmlPath, html.replaceAll(a.entry, entry).replaceAll(a.id, id));
 	await fs.writeFile(workerPath, worker.replaceAll(a.entry, entry).replaceAll(`"${a.id}"`, `"${id}"`));
+	// The build's own brotli copies are build A's: the server would send them (server.ts `#brotliOf`).
+	await Promise.all([fs.rm(`${htmlPath}.br`, { force: true }), fs.rm(`${workerPath}.br`, { force: true })]);
 	return out;
 }
 
@@ -445,7 +447,12 @@ test("a paired host's rows on the phone and the serving computer follow the host
 		await test.step("1. a session M holds as an asleep tab", () => lifecycle("1", held));
 		await test.step("2. a session no tab of M holds", () => lifecycle("2", free));
 		await test.step("3. a session S runs for M's live tab", () => lifecycle("3", forM));
-		record("3", "phone", `the page still runs build A while in use (${await pageBuild(phone)})`, true);
+		record(
+			"3",
+			"phone",
+			`the page's build while in use: ${await pageBuild(phone)} (moving waits for an unused moment)`,
+			true,
+		);
 
 		const presence = (state: "hidden" | "visible") =>
 			phone.evaluate(next => {

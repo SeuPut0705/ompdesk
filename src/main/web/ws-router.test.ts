@@ -6,7 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import { WEB_DEVICES_CHANGED, WEB_DEVICES_LIST, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
-import { WEB_PERMISSIONS, type WebPermission, type WebServerFrame } from "../../shared/web-protocol";
+import {
+	WEB_PERMISSIONS,
+	WEB_PROTOCOL_VERSION,
+	type WebPermission,
+	type WebServerFrame,
+} from "../../shared/web-protocol";
 import { BlobStore } from "./blobs";
 import type { WebDevice } from "./devices-store";
 import { FileEditReports, parseFileEditReport } from "./file-edit-reports";
@@ -206,8 +211,8 @@ describe("hello and calls", () => {
 		const { socket, connection } = rig({ grants: ["workspace", "device-self"] });
 		expect(socket.sent[0]).toEqual({
 			t: "hello",
-			protocol: 1,
-			minClient: 1,
+			protocol: WEB_PROTOCOL_VERSION,
+			minClient: WEB_PROTOCOL_VERSION,
 			connId: connection.connId,
 			resumed: false,
 			features: { push: false, preview: false, upload: true, passkey: false },

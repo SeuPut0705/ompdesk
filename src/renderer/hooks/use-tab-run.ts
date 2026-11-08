@@ -1,7 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import type { SessionSummary } from "../../shared/session-summary";
 import { type SessionRun, sessionRun } from "../lib/session-run";
-import { ensureHostSummaries, tabSummary, useHostedSessionsStore } from "../stores/hosted-sessions";
+import { tabSummary, useHostedSessionsStore } from "../stores/hosted-sessions";
 import { useRuntimeTabId } from "../stores/session-runtime-context";
 import { type SessionTab, useTabsStore } from "../stores/tabs";
 
@@ -14,13 +14,9 @@ export interface TabRun {
 /**
  * What a tab's session is doing, from its summary (`tabSummary`) by the one rule (`sessionRun`): the title bar, the
  * window title, the tray and a split pane's header read this, so none says something the session's sidebar row does
- * not. A tab on a paired host reads that host's summaries, read once for this window.
+ * not. A tab on a paired host reads that host's summaries.
  */
 export function useTabRun(tab: Pick<SessionTab, "id" | "sessionPath" | "device" | "unreadDone"> | undefined): TabRun {
-	const device = tab?.device;
-	useEffect(() => {
-		if (device !== undefined) ensureHostSummaries(device);
-	}, [device]);
 	const summary = useHostedSessionsStore(state => (tab ? tabSummary(state, tab) : undefined));
 	const unreadDone = tab?.unreadDone === true;
 	return useMemo(() => ({ summary, run: sessionRun(summary, unreadDone) }), [summary, unreadDone]);

@@ -1,6 +1,7 @@
 /**
  * Renderer build step of the installed web app: emits `sw.js` (src/renderer/web/sw.ts bundled as one script)
- * with the shell's precache list and a build id baked in, and names the session list's files in `web.html`.
+ * with the shell's precache list and a build id baked in, and names the session list's files and that build id in
+ * `web.html` (`WEB_BUILD_META`: the page compares it with the build its host serves, web-boot.ts).
  *
  * The precache is the files `web.html` loads at once (its entry chunk, the chunks and styles it preloads) plus
  * what the entry imports dynamically one level down (the app itself, `../main`), then the session list's chunk
@@ -13,6 +14,7 @@ import { createHash } from "node:crypto";
 import { build, type Plugin, type Rollup } from "vite";
 import { SESSION_LIST_META } from "../src/renderer/web/session-list-preload";
 import { PRECACHE_LIMITS, type PrecacheEntry, selectPrecache } from "../src/renderer/web/sw-core";
+import { WEB_BUILD_META } from "../src/shared/web-protocol";
 
 type BundleEntry = Rollup.OutputAsset | Rollup.OutputChunk;
 
@@ -105,14 +107,16 @@ export function pwaPlugin(options: PwaPluginOptions): Plugin {
 			if (html?.type !== "asset") return;
 			const built = typeof html.source === "string" ? html.source : Buffer.from(html.source).toString("utf8");
 			const source = options.sessionList ? withSessionListMeta(bundle, built, options.sessionList) : built;
-			html.source = source;
 			const precache = selectPrecache(precacheCandidates(bundle, source), PRECACHE_LIMITS);
+			const id = buildIdOf(precache, source);
+			// The page and the host read the build from here (shared/web-protocol.ts `WEB_BUILD_META`).
+			html.source = source.replace("</head>", `  <meta name="${WEB_BUILD_META}" content="${id}" />\n  </head>`);
 			const result = await build({
 				configFile: false,
 				logLevel: "silent",
 				publicDir: false,
 				define: {
-					__SW_BUILD__: JSON.stringify(buildIdOf(precache, source)),
+					__SW_BUILD__: JSON.stringify(id),
 					__SW_PRECACHE__: JSON.stringify(precache),
 				},
 				build: {

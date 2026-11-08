@@ -61,17 +61,21 @@ export function noteReload(storage: ReloadStorage, record: ReloadRecord): void {
 	}
 }
 
-/** The runtime-log line of one reload. */
-export function reloadReport(record: ReloadRecord): RuntimeErrorReport {
+/** The runtime-log line of one reload; `build` is the page build the reload landed on (`WEB_BUILD_META`). */
+export function reloadReport(record: ReloadRecord, build: string | null = null): RuntimeErrorReport {
 	return {
 		source: "web-reload",
 		message: record.reason,
-		details: { reloadedAt: new Date(record.at).toISOString(), ...record.details },
+		details: { reloadedAt: new Date(record.at).toISOString(), build, ...record.details },
 	};
 }
 
-/** Send every kept reason (the page is connected) and forget them. */
-export function flushReloadReasons(storage: ReloadStorage, send: (report: RuntimeErrorReport) => void): number {
+/** Send every kept reason (the page is connected, running `build`) and forget them. */
+export function flushReloadReasons(
+	storage: ReloadStorage,
+	build: string | null,
+	send: (report: RuntimeErrorReport) => void,
+): number {
 	const pending = readPending(storage);
 	if (pending.length === 0) return 0;
 	try {
@@ -79,6 +83,6 @@ export function flushReloadReasons(storage: ReloadStorage, send: (report: Runtim
 	} catch {
 		return 0;
 	}
-	for (const record of pending) send(reloadReport(record));
+	for (const record of pending) send(reloadReport(record, build));
 	return pending.length;
 }

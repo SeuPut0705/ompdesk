@@ -148,6 +148,8 @@ export interface WsRouterDeps {
 	quota: Pick<PeerQuota, "reserve" | "record">;
 	webChannels: WebChannelTable;
 	features: () => WebFeatures;
+	/** The page build this host serves (`WEB_BUILD_META` of its `web.html`); null in a dev run. */
+	build?: () => string | null;
 	/** The tab a window's untargeted calls act on, to know whose model command it was. */
 	activeTab?: (win: WebClientWindow) => string | null;
 	/** `/blob` URLs for bytes and streams a reply carries. */
@@ -669,6 +671,7 @@ export class WsConnection {
 
 	#sendHello(resumed: boolean): void {
 		if (!resumed) this.#router.deps.onResync?.(this.deviceId);
+		const build = this.#router.deps.build?.();
 		this.#write({
 			t: "hello",
 			protocol: WEB_PROTOCOL_VERSION,
@@ -677,6 +680,7 @@ export class WsConnection {
 			resumed,
 			features: this.#router.deps.features(),
 			grants: this.#router.deps.devices.get(this.deviceId)?.grants ?? [],
+			...(build ? { build } : {}),
 		});
 	}
 

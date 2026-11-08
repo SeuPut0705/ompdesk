@@ -97,13 +97,7 @@ import { ensureBotPath, useBotStore } from "../../../stores/bot";
 import { ensureBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
-import {
-	ensureHostSummaries,
-	LOCAL_SUMMARIES,
-	summariesOf,
-	useHostedSessionsStore,
-	useSummaryMap,
-} from "../../../stores/hosted-sessions";
+import { LOCAL_SUMMARIES, summariesOf, useHostedSessionsStore, useSummaryMap } from "../../../stores/hosted-sessions";
 import { useMessagesStore } from "../../../stores/messages";
 import { useQueueStore } from "../../../stores/queue";
 import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
@@ -555,13 +549,6 @@ export function Sidebar() {
 	const hosts = usePairedHosts();
 	// Every computer's summaries this window holds: a session a host runs reads its row from that host's.
 	const allSummaries = useHostedSessionsStore(s => s.summaries);
-	const onlineHosts = hosts
-		.filter(host => host.state === "online")
-		.map(host => host.deviceId)
-		.join("\n");
-	useEffect(() => {
-		for (const device of onlineHosts ? onlineHosts.split("\n") : []) ensureHostSummaries(device);
-	}, [onlineHosts]);
 	// This computer's own name: a session a host's agent opened here is named by it in that host's section.
 	const selfName = useRemoteStore(s => s.state?.host.name);
 	// A tab another window of this computer holds on a paired device that a session here opened (this page's computer's,

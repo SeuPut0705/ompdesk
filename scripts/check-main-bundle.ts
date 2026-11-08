@@ -313,7 +313,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Every other surface that says what a session does reads that summary by the row's rule (8 Nov 2026,
 // lib/session-run.ts `sessionRun`, hooks/use-tab-run.ts: the title bar and the window title are the first screen;
 // their own derivations from the runtime stores went): 2,169,204.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_169_204;
+// A page behind the build its host serves moves to it at its next unused moment (8 Nov 2026, web-boot.ts
+// `hello.build` against the page's `omp-build` meta; the `web-reload` line names both builds, noted at the reload),
+// less the per-view summary reads (`ensureHostSummaries`) the one boot read replaced: 2,169,501.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_169_501;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

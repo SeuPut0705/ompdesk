@@ -76,7 +76,7 @@ export function tabSummary(
 }
 
 /** Read one computer's summaries whole; null (an older host, a link down) leaves none for it. */
-export async function loadSummaries(device?: string): Promise<void> {
+async function loadSummaries(device?: string): Promise<void> {
 	const key = device ?? LOCAL_SUMMARIES;
 	try {
 		const read = await window.omp.sessions.summaries(device);
@@ -94,14 +94,6 @@ export async function loadSummaries(device?: string): Promise<void> {
 	}
 }
 
-/** A paired host's summaries, read once for this window (pushes keep them current from then on). */
-const requested = new Set<string>();
-export function ensureHostSummaries(device: string): void {
-	if (requested.has(device)) return;
-	requested.add(device);
-	void loadSummaries(device);
-}
-
 function applyChange({ device, change }: SummariesChanged): void {
 	const key = device ?? LOCAL_SUMMARIES;
 	const held = useHostedSessionsStore.getState().summaries[key];
@@ -115,9 +107,13 @@ function applyChange({ device, change }: SummariesChanged): void {
 	useHostedSessionsStore.setState(state => ({ summaries: { ...state.summaries, [key]: next } }));
 }
 
-/** Read every list from main (boot, a web page's resync); a push that lands meanwhile wins over the reply. */
+/**
+ * Read every computer's summaries from main, this one's and every paired host's (boot, a web page's resync). From
+ * then on main's pushes keep them: each change, and each host's whole set again when its link comes up. No view
+ * reads them on its own. A push that lands meanwhile wins over the reply.
+ */
 export async function loadHostedSessions(): Promise<void> {
-	const { heldRevision, remoteOpenedRevision, summaries } = useHostedSessionsStore.getState();
+	const { heldRevision, remoteOpenedRevision } = useHostedSessionsStore.getState();
 	const held = async () => {
 		try {
 			const held = await window.omp.sessions.held();
@@ -131,8 +127,13 @@ export async function loadHostedSessions(): Promise<void> {
 				useHostedSessionsStore.setState({ remoteOpened });
 		} catch {}
 	};
-	const devices = Object.keys(summaries).filter(key => key !== LOCAL_SUMMARIES);
-	await Promise.all([held(), remoteOpened(), loadSummaries(), ...devices.map(device => loadSummaries(device))]);
+	const hosts = async () => {
+		try {
+			const { hosts } = await window.omp.remote.getState();
+			await Promise.all(hosts.map(host => loadSummaries(host.deviceId)));
+		} catch {}
+	};
+	await Promise.all([held(), remoteOpened(), loadSummaries(), hosts()]);
 }
 
 /** Boot wiring (App): the first read plus the pushes, once per window. */
