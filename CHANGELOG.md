@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.119.6] - 2026-11-09
+
+모델 이름이 어디서나 제공자 표시와 짧은 이름으로 보이고, 모델 구성 도우미에서 "근거 더 찾기"를 돌릴 모델을 고를 수 있어요.
+
+### 새로 생긴 것
+- 모델 구성 도우미의 "근거 더 찾기" 옆에서 조사에 쓸 모델을 고를 수 있어요. 처음에는 기본 역할의 모델이고, 고른 모델은 조사가 도는 컴퓨터에 기억돼요. 그 컴퓨터의 창, 페어링한 컴퓨터, 휴대폰이 같은 선택을 보여 줘요. 더 이상 제공되지 않는 모델을 골라 두었으면 기본 역할의 모델로 돌리고 그렇게 알려 줘요.
+
+### 바뀐 것
+- 모델 목록과 모델이 나오는 곳(설정 › 모델 역할, 입력창의 모델 선택, 모델 구성 도우미, 첫 실행 안내, 에이전트 편집, 실행 중 에이전트, 사용량, 벤치마크, 통계, `^model` 자동완성)이 제공자 표시와 짧은 이름으로 보여요. 두 모델이 같은 이름으로 보일 때만 구분하는 꼬리표가 붙고, 전체 이름과 provider/id는 마우스를 올리면 보이며 검색에도 그대로 걸려요. 전에는 긴 이름이 "C…"처럼 잘렸어요.
+
+<!-- en -->
+
+Models read as their provider's mark and a compact name everywhere, and the model setup helper lets you pick the model "Find more evidence" researches with.
+
+### New
+- A model selector beside "Find more evidence" in the model setup helper picks the model the research runs with. It starts on the default role's model; a pick is kept on the computer the research runs on, so its own window, a paired computer and the phone read the same pick. A pick no longer offered runs the default role's model and says so.
+
+### Changed
+- Model lists and model names (Settings › Model roles, the composer's model picker, the model setup helper, first-run toasts and tiles, the agent editor, live agents, usage, benchmark, stats and the `^model` completion) show the provider's mark and a compact name, with a muted suffix only where two would read alike. The full name and provider/id move to the tooltip and still match a search. Long names no longer truncate to "C…".
+
 ## [0.119.5] - 2026-11-08
 
 내가 직접 닫으라고 한 세션은 이제 에이전트가 닫을 수 있고, 다른 기기의 탭이 열고 있는 세션에도 메시지가 닿아요. 게시되지 못한 0.119.4의 고침도 이 버전에 들어 있어요.
