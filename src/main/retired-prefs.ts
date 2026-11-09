@@ -92,6 +92,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "macPermissionsAsked",
 		why: "Its one ask never reached macOS (Electron reads an unasked Screen Recording as denied); `macPermissionsRequested` (src/main/mac-permissions.ts) records the asks that did, so everyone is asked once again.",
 	},
+	{
+		key: "sidebar.grouping",
+		why: "Code sessions are always grouped by project; the 'list by recent activity' grouping is gone (19 Oct 2026). The sidebar blob's own writes (src/main/sidebar-prefs.ts) keep only the fields it names.",
+	},
 ];
 
 /**

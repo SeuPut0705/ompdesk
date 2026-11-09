@@ -72,6 +72,7 @@ import type { SchedulesApi, SchedulesState } from "./schedules";
 import type { SessionListDelta, VersionedSessionList } from "./session-list-delta";
 import type { SummariesChanged, VersionedSummaries } from "./session-summary";
 import type { GitAslrAction, GitAslrResult, SetupItemId, SetupState } from "./setup";
+import type { SidebarChange } from "./sidebar-prefs";
 import type { SidebarProjectsApi } from "./sidebar-projects";
 import type { SplitLayout } from "./split-layout";
 import type { SshToolsApi } from "./ssh-tools";
@@ -327,6 +328,8 @@ export const IPC_COMMANDS = {
 	PREFS_GET: "prefs:get",
 	/** Set GUI preferences */
 	PREFS_SET: "prefs:set",
+	/** Apply one change (`SidebarChange`) to the stored `sidebar` prefs in main, then push PREFS_CHANGED to every other window and page */
+	PREFS_UPDATE_SIDEBAR: "prefs:update-sidebar",
 	PREFS_UPDATE_LAUNCH_PROFILE: "prefs:update-launch-profile",
 	/** One workspace's launch profile, from the machine that spawns its omp */
 	PREFS_GET_LAUNCH_PROFILE: "prefs:get-launch-profile",
@@ -688,6 +691,14 @@ export type RuntimeErrorSource =
 	| "routines"
 	/** A quiet session's omp given back while this computer is short of memory (src/main/idle-release.ts). */
 	| "memory"
+	/**
+	 * The sidebar, info level (`details.level: "info"`): a change to what it remembers (src/main/sidebar-prefs.ts):
+	 * `message` is the op (set-session-order, set-group-order, set-sessions-archived, set-session-pinned,
+	 * set-group-pinned), `details` the list's key (never a path beyond it), how many rows and `from` (window or web
+	 * page); or a session the person picked (`layout/sidebar/row-selection.ts` `logSelection`): `message` select,
+	 * `details` the list (local or device), focus/reroot/open, whether it was archived and whether a tab held it.
+	 */
+	| "sidebar"
 	| "unknown";
 
 /** Bounded, serializable renderer/main failure payload written as JSONL. */
@@ -2536,6 +2547,8 @@ export interface OmpApi {
 		/** `device` = the paired host whose profile it is; absent = this device. */
 		getLaunchProfile(cwd: string, device?: string): Promise<LaunchProfile>;
 		updateLaunchProfile(cwd: string, patch: Partial<LaunchProfile>, device?: string): Promise<LaunchProfile>;
+		/** One change to the saved sidebar order, pins, aliases or archive, applied by main to what is stored now (never a whole blob). */
+		updateSidebar(change: SidebarChange): Promise<void>;
 		/** What this computer has for the Default browser setting: ego-browser, and each Chromium browser with its relay state. Probes again. */
 		defaultBrowserStatus(): Promise<AgentBrowserStatus>;
 		/** Write the omp Browser Relay extension to disk, open the browser's extensions page and show the folder. */

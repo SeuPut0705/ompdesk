@@ -164,6 +164,9 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.MAC_PERMISSIONS_STATUS]: never(DENY),
 	[C.MAC_PERMISSIONS_REQUEST]: never(OPERATOR),
 	[C.PREFS_UPDATE_LAUNCH_PROFILE]: never(OPERATOR),
+	[C.PREFS_UPDATE_SIDEBAR]: never(
+		"the sidebar.* actions arrange the sidebar through the window's own store; no action sends this",
+	),
 	[C.MODELS_PROVIDERS_LIST]: never(DENY),
 	[C.MODELS_SIGNED_IN]: never(DENY),
 	[C.MODELS_PROVIDER_UPSERT]: never(OPERATOR),

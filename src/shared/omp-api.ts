@@ -740,6 +740,7 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 			requestMacPermission: permission => transport.invoke(IPC_COMMANDS.MAC_PERMISSIONS_REQUEST, { permission }),
 			updateLaunchProfile: (cwd, patch, device) =>
 				transport.invoke(IPC_COMMANDS.PREFS_UPDATE_LAUNCH_PROFILE, { cwd, patch, device }),
+			updateSidebar: change => transport.invoke(IPC_COMMANDS.PREFS_UPDATE_SIDEBAR, change),
 			onChanged: callback => subscribe<IpcPrefsChangedPayload>(IPC_EVENTS.PREFS_CHANGED, callback),
 		},
 

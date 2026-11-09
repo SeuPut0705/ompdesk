@@ -57,8 +57,8 @@ async function undo(step: AppUndo): Promise<void> {
 }
 
 /**
- * A project's or a session's menu entry, run for the agent through the sidebar prefs store (the one writer of the
- * `sidebar` blob), as the menu runs it. A pin is set, not toggled, so a repeated call changes nothing.
+ * A project's or a session's menu entry, run for the agent through the sidebar prefs store (which sends main the one
+ * change, main owns the `sidebar` blob), as the menu runs it. A pin is set, not toggled, so a repeated call changes nothing.
  */
 export async function applySidebarArrange(change: SidebarArrange): Promise<void> {
 	const prefs = useSidebarPrefs.getState();

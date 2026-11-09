@@ -7,13 +7,13 @@ import { useSidebarPrefs } from "../stores/sidebar-prefs";
 import { applySidebarArrange } from "./agent-app";
 
 const get = vi.fn(async (_key: string) => null as unknown);
-const set = vi.fn(async (_key: string, _value: unknown) => {});
+const updateSidebar = vi.fn(async (_change: unknown) => {});
 const list = vi.fn(async (_scope: string) => [] as { path: string; id: string }[]);
-(globalThis as Record<string, unknown>).window = { omp: { prefs: { get, set }, sessions: { list } } };
+(globalThis as Record<string, unknown>).window = { omp: { prefs: { get, updateSidebar }, sessions: { list } } };
 
 afterEach(() => {
 	get.mockReset();
-	set.mockReset();
+	updateSidebar.mockReset();
 	list.mockReset();
 	useSidebarPrefs.getState().reset();
 });
@@ -27,7 +27,7 @@ describe("applySidebarArrange", () => {
 		await applySidebarArrange({ op: "pin-project", path: "/work/a", pinned: false });
 		await applySidebarArrange({ op: "pin-project", path: "/work/a", pinned: false });
 		expect(useSidebarPrefs.getState().pinnedGroups).toEqual([]);
-		expect(set).toHaveBeenCalledTimes(2);
+		expect(updateSidebar).toHaveBeenCalledTimes(2);
 	});
 
 	it("pins a session, names and orders projects, keeping the hosts' order entries and agent-hidden list", async () => {
@@ -44,13 +44,11 @@ describe("applySidebarArrange", () => {
 		expect(state.groupAliases).toEqual({ "/work/a": "Frontend" });
 		expect(state.groupOrder).toEqual(["/work/b", "/work/a", "host\n/h/app"]);
 		expect(state.agentHidden).toEqual(["/s/secret.jsonl"]);
-		expect(set).toHaveBeenLastCalledWith(
-			"sidebar",
-			expect.objectContaining({
-				groupOrder: ["/work/b", "/work/a", "host\n/h/app"],
-				agentHidden: ["/s/secret.jsonl"],
-			}),
-		);
+		expect(updateSidebar.mock.calls.map(([change]) => change)).toEqual([
+			{ op: "set-session-pinned", path: "/s/one.jsonl", pinned: true },
+			{ op: "set-group-alias", cwd: "/work/a", alias: "Frontend" },
+			{ op: "set-group-order", order: ["/work/b", "/work/a", "host\n/h/app"] },
+		]);
 
 		await applySidebarArrange({ op: "rename-project", path: "/work/a", name: null });
 		expect(useSidebarPrefs.getState().groupAliases).toEqual({});

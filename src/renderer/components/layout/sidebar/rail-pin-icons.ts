@@ -11,7 +11,7 @@ import {
 	type LucideIcon,
 	Terminal,
 } from "lucide-react";
-import type { RailPin } from "../../../stores/sidebar-prefs";
+import type { RailPin } from "../../../../shared/sidebar-prefs";
 
 export const RAIL_PIN_ICONS: Record<RailPin, LucideIcon> = {
 	usage: Gauge,

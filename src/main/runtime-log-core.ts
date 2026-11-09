@@ -58,6 +58,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"chain-stall": true,
 	routines: true,
 	memory: true,
+	sidebar: true,
 	unknown: true,
 };
 

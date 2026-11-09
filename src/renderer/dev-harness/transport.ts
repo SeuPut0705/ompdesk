@@ -37,6 +37,7 @@ import {
 } from "../../shared/preview";
 import type { RpcCommand, RpcContextReportResult, SettingsSchemaResult } from "../../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG } from "../../shared/schedules";
+import { readSidebarPrefs, SIDEBAR_PREFS_KEY, type SidebarChange, sidebarPatch } from "../../shared/sidebar-prefs";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../../shared/sidebar-projects";
 import type { TerminalLeaseState, TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
 import {
@@ -570,6 +571,11 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 			case IPC_COMMANDS.PREFS_SET: {
 				const request = payload as PrefsSetPayload;
 				prefs[request.key] = request.value;
+				return undefined;
+			}
+			case IPC_COMMANDS.PREFS_UPDATE_SIDEBAR: {
+				const current = readSidebarPrefs(prefs[SIDEBAR_PREFS_KEY]);
+				prefs[SIDEBAR_PREFS_KEY] = { ...current, ...sidebarPatch(current, payload as SidebarChange) };
 				return undefined;
 			}
 			case IPC_COMMANDS.PREFS_GET_LAUNCH_PROFILE:

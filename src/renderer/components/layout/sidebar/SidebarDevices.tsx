@@ -83,6 +83,7 @@ import { useHostWorkspace } from "./host-workspace";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { deleteProject, isStoredRow } from "./project-delete";
 import { projectMenuItems } from "./project-menu";
+import { logSelection, useRowSelection } from "./row-selection";
 import { SidebarChats } from "./SidebarChats";
 import { useDeviceHeaderHandle } from "./SidebarDeviceSections";
 import { SidebarFoldButton } from "./SidebarFoldButton";
@@ -433,7 +434,7 @@ function DeviceSessions({
 	const [renameDraft, setRenameDraft] = useState("");
 	const allTabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
-	const destination = useUiStore(state => state.destination);
+	const selectionOf = useRowSelection();
 	const split = useTabsStore(state => state.split);
 	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const deviceGroupFolds = useSidebarFolds(s => s.deviceGroups);
@@ -679,6 +680,7 @@ function DeviceSessions({
 
 	const openSession = (session: DeviceSession) => {
 		const owner = tabFor(session);
+		logSelection({ list: "device", how: owner ? "focus" : "open", held: tree.rows.held.has(session.path) });
 		if (owner) {
 			useUiStore.getState().closeDestination();
 			void useTabsStore.getState().switchTab(owner.id);
@@ -989,10 +991,8 @@ function DeviceSessions({
 			(tab && !tab.sessionPath ? hostSummaries.get(unsavedSessionKey(tab.id)) : undefined);
 		const { signal, waiting, running, settling, reason } = summaryRowState(summary);
 		const working = signal?.running === true || running;
-		const current = tab !== undefined && tab.id === activeTabId;
 		// Every pane of the split on screen reads as selected, like the local list (Sidebar.tsx); the focused one adds data-pane-focus.
-		const inVisibleSplit = !current && tab !== undefined && splitIds?.has(tab.id) === true;
-		const active = (current || inVisibleSplit) && destination === "session";
+		const { current, inSplit: inVisibleSplit, selected: active } = selectionOf(tab?.id);
 		const indexed = session.liveTabId === undefined;
 		const folderMissing = missingFolders.has(session.path);
 		const titleParts: TitleParts = bot
@@ -1408,7 +1408,10 @@ function DeviceSessions({
 												{group.sessions.map(session => renderRow(session))}
 												<SidebarLooseChildren
 													foldKey={`device-group:${host.deviceId}:${group.cwd}`}
-													opened={group.folded.map(familyChildFor)}
+													opened={group.folded.map(child => ({
+														...familyChildFor(child),
+														held: tree.rows.held.has(child.path),
+													}))}
 												/>
 											</div>
 										</Collapse>

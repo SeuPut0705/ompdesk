@@ -97,7 +97,10 @@ export interface RowGroup {
 	/** Every folder whose sessions the group holds. */
 	members: string[];
 	sessions: RowSession[];
-	/** Sessions an agent opened that no opener row holds: listed only while they need a look. */
+	/**
+	 * Sessions an agent opened that no opener row holds: listed only while they need a look, or while a tab holds one
+	 * (`SidebarRows.held`).
+	 */
 	folded: RowSession[];
 	/** In the computer's project list: shown with no session too. */
 	listed: boolean;
@@ -127,6 +130,11 @@ export interface SidebarRows {
 	runParent: ReadonlyMap<string, string>;
 	/** The listed code rows whose folder is gone (never the finished OMPdesk worktrees, which no row lists). */
 	folderMissing: ReadonlySet<string>;
+	/**
+	 * The rows a tab holds (the viewer's, any state, or one the computer says it holds). Holding never moves a row: it
+	 * only keeps a loose child listed that would otherwise be hidden, in the place it already has.
+	 */
+	held: ReadonlySet<string>;
 }
 
 /** The key the sidebar orders a device's Chats section under. */
@@ -458,13 +466,12 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 	const finished = (session: RowSession) =>
 		facts.folder(session.cwd).gone && isOmpdeskWorktreeFolder(session.cwd) && !inUse(session);
 
-	const listed: RowSession[] = facts.sessions.filter(
-		session =>
-			facts.hasContent(session) &&
-			!facts.nested.has(session.path) &&
-			(!facts.archived.has(session.id) || held(session)),
-	);
-	const made = new Set(listed.flatMap(session => [session.path, session.id]));
+	// Where a session sits never depends on who holds it: selecting a row opens or wakes a tab on it, and a row that
+	// moved then (an archived one leaving the Archived section, a loose child joining its project's rows) moved under
+	// the pointer and took the selection with it (the owner's report, 9 Nov 2026).
+	const withContent = facts.sessions.filter(session => facts.hasContent(session) && !facts.nested.has(session.path));
+	const listed: RowSession[] = withContent.filter(session => !facts.archived.has(session.id));
+	const made = new Set(withContent.flatMap(session => [session.path, session.id]));
 	const live: RowSession[] = [];
 	for (const tab of facts.tabs) {
 		if (tab.placeholder === true || tab.unstarted === true || facts.nested.has(tab.id)) continue;
@@ -543,13 +550,12 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 
 	const foldedRoot = new Map<string, string>();
 	for (const session of code) {
-		// Held, finished or nested under an opener: never a loose child. A finished worktree's session is no row anywhere
-		// unless a tab the person uses holds it, whatever a record says of the checkout its work went to.
+		// Finished or nested under an opener: never a loose child. A finished worktree's session is no row anywhere unless
+		// a tab the person uses holds it, whatever a record says of the checkout its work went to.
 		if (
 			rootOf.has(session.path) ||
 			facts.openedElsewhere?.has(session.path) ||
 			runParent.has(session.path) ||
-			held(session) ||
 			finished(session)
 		)
 			continue;
@@ -607,12 +613,13 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 		const root = rootOf.get(session.path);
 		const opener = root === undefined ? undefined : byPath.get(root);
 		if (opener !== undefined && groupOf(opener) === key) continue;
-		if (removed.has(key) && !held(session)) continue;
+		// A removed project takes its sessions with it, unless a tab holds one that no opener's row lists.
+		if (removed.has(key) && (root !== undefined || !held(session))) continue;
 		draftOf(key, session.cwd).sessions.push(session);
 	}
 	for (const session of code) {
 		const key = foldedRoot.get(session.path);
-		if (key !== undefined && !removed.has(key)) draftOf(key, key).folded.push(session);
+		if (key !== undefined && (!removed.has(key) || held(session))) draftOf(key, key).folded.push(session);
 	}
 	const open = new Set<string>();
 	for (const tab of facts.tabs) {
@@ -692,12 +699,23 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 		CHATS_ORDER_KEY,
 	);
 	const archived = facts.sessions
-		.filter(
-			session => facts.archived.has(session.id) && facts.hasContent(session) && !held(session) && matches(session),
-		)
+		.filter(session => facts.archived.has(session.id) && facts.hasContent(session) && matches(session))
 		.toSorted((a, b) => createdAt(b) - createdAt(a));
 	const folderMissing = new Set(
 		code.flatMap(session => (facts.folder(session.cwd).gone && !finished(session) ? [session.path] : [])),
 	);
-	return { sessions, listed, code, allGroups, groups, chats, archived, children, rootOf, runParent, folderMissing };
+	return {
+		sessions,
+		listed,
+		code,
+		allGroups,
+		groups,
+		chats,
+		archived,
+		children,
+		rootOf,
+		runParent,
+		folderMissing,
+		held: new Set(code.filter(held).map(session => session.path)),
+	};
 }

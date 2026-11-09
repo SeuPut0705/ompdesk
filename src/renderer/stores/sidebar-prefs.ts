@@ -3,50 +3,26 @@
  * aliases (rename), the dragged project order, archived sessions (by id; stock
  * has no archive flag, so archiving only hides a session from the lists), the
  * shortcuts pinned to the sidebar footer, and the workspace MRU clock the workspace
- * picker sorts by. Persisted as one JSON blob under the "sidebar" prefs key
- * via window.omp.prefs (electron-store in main); hydrate once at App mount.
- * Recency bookkeeping writes fire-and-forget; the pins, aliases and archive
- * the user can SEE are optimistic writes that roll back when the persist
- * rejects, so a row never stays pinned across a restart.
+ * picker sorts by. The stored "sidebar" prefs blob belongs to main (src/main/sidebar-prefs.ts, rules in
+ * src/shared/sidebar-prefs.ts): this store reads it at App mount and whenever another window or page changed it
+ * (PREFS_CHANGED), and every action sends ONE change for main to apply to what is stored now, never a whole blob
+ * from this copy. The pins, aliases, order and archive the user can SEE are optimistic: they show at once and roll
+ * back when main rejects the change, so a row never stays pinned across a restart. Recency bookkeeping is
+ * fire-and-forget.
  */
 import { create } from "zustand";
+import {
+	type RailPin,
+	readSidebarPrefs,
+	SIDEBAR_PREFS_KEY,
+	type SidebarChange,
+	type SidebarPrefs,
+	sidebarPatch,
+} from "../../shared/sidebar-prefs";
 import { translate } from "../lib/i18n";
 import { optimisticWrite } from "../lib/optimistic";
 import { PREFS_BOOT_RETRY_MS, readPref } from "../lib/prefs-read";
 import { toastError } from "./toast";
-
-const PREFS_KEY = "sidebar";
-
-interface SidebarPrefsBlob {
-	pinnedGroups?: string[];
-	pinnedSessions?: string[];
-	groupAliases?: Record<string, string>;
-	workspaceLastUsed?: Record<string, number>;
-	groupOrder?: string[];
-	sessionOrder?: Record<string, string[]>;
-	archivedSessions?: string[];
-	railPins?: string[];
-	/** Session files the user hid from other agents (the OMPdesk control tools; main reads this field too). */
-	agentHidden?: string[];
-}
-
-/**
- * What the sidebar footer can hold above its destinations (mixdog's activity-rail
- * pins): usage bars for the tab's provider, side panel views, and Schedules.
- * The footer's Agents and Stats entries are pins too (off by default; the palette, the menu and ⌥A reach them). Only usage is on until the user chooses; Settings › General › Sidebar shortcuts picks them.
- */
-export const RAIL_PINS = [
-	"usage",
-	"agents",
-	"stats",
-	"terminal",
-	"diff",
-	"preview",
-	"files",
-	"jobs",
-	"schedules",
-] as const;
-export type RailPin = (typeof RAIL_PINS)[number];
 
 /** Each pin's name, shared by its sidebar row and its Settings switch. */
 export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
@@ -61,37 +37,7 @@ export const RAIL_PIN_LABEL_KEYS: Record<RailPin, string> = {
 	schedules: "settings.section.schedules",
 };
 
-/** Pins on until the user chooses: only the usage block, and only while no choice is saved. */
-const DEFAULT_RAIL_PINS: readonly RailPin[] = ["usage"];
-
-function validRailPins(value: unknown): RailPin[] {
-	// An absent entry is "not chosen yet"; any saved array, empty included, is the user's choice.
-	if (value === undefined) return [...DEFAULT_RAIL_PINS];
-	if (!Array.isArray(value)) return [];
-	return RAIL_PINS.filter(pin => value.includes(pin));
-}
-
-/** The retired "list by recent activity" grouping; a blob that still names it is rewritten once without it. */
-const RETIRED_KEYS = ["grouping"] as const;
-
-interface SidebarPrefsStore {
-	pinnedGroups: string[];
-	pinnedSessions: string[];
-	groupAliases: Record<string, string>;
-	workspaceLastUsed: Record<string, number>;
-	/** Project order the user set by dragging (cwds, top first); empty = by recency. */
-	groupOrder: string[];
-	/**
-	 * Session order the user set in a list (session paths, top first), by the list's key: a project's cwd here,
-	 * `<deviceId>\n<cwd>` for a paired host's project. A list with no entry, or a session not in it, goes by creation.
-	 */
-	sessionOrder: Record<string, string[]>;
-	/** Ids of sessions hidden from the lists until restored. */
-	archivedSessions: string[];
-	/** Footer shortcuts in `RAIL_PINS` order. */
-	railPins: RailPin[];
-	/** Session files hidden from other agents (`ompdesk_*` tools refuse them). */
-	agentHidden: string[];
+interface SidebarPrefsStore extends SidebarPrefs {
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	toggleGroupPin: (cwd: string) => Promise<void>;
@@ -106,228 +52,155 @@ interface SidebarPrefsStore {
 	reset: () => void;
 }
 
-const MAX_RECENT_WORKSPACES = 100;
-/** Lists whose session order is kept (the most recently ordered first), and sessions kept per list. */
-const MAX_ORDERED_LISTS = 300;
-const MAX_ORDERED_SESSIONS = 500;
-
-function validSessionOrder(value: unknown): Record<string, string[]> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-	const out: Record<string, string[]> = {};
-	for (const [list, order] of Object.entries(value).slice(-MAX_ORDERED_LISTS)) {
-		if (!list || !Array.isArray(order)) continue;
-		const paths = order.filter((path): path is string => typeof path === "string" && path.length > 0);
-		if (paths.length > 0) out[list] = paths.slice(0, MAX_ORDERED_SESSIONS);
-	}
-	return out;
-}
-
-function validRecencyMap(value: unknown): Record<string, number> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-	const result: Record<string, number> = {};
-	for (const [key, timestamp] of Object.entries(value)) {
-		if (key && typeof timestamp === "number" && Number.isFinite(timestamp) && timestamp > 0) {
-			result[key] = timestamp;
-		}
-	}
-	return result;
-}
-
-function nextTimestamp(map: Record<string, number>): number {
-	let latest = 0;
-	for (const value of Object.values(map)) latest = Math.max(latest, value);
-	return Math.max(Date.now(), latest + 1);
-}
-
-function touchedMap(
-	current: Record<string, number>,
-	key: string,
-	timestamp: number,
-	limit: number,
-): Record<string, number> {
-	const entries = Object.entries({ ...current, [key]: timestamp }).sort((a, b) => b[1] - a[1]);
-	return Object.fromEntries(entries.slice(0, limit));
-}
-
-function prefsBlob(state: SidebarPrefsStore): SidebarPrefsBlob {
-	return {
-		pinnedGroups: state.pinnedGroups,
-		pinnedSessions: state.pinnedSessions,
-		groupAliases: state.groupAliases,
-		workspaceLastUsed: state.workspaceLastUsed,
-		groupOrder: state.groupOrder,
-		sessionOrder: state.sessionOrder,
-		archivedSessions: state.archivedSessions,
-		railPins: state.railPins,
-		agentHidden: state.agentHidden,
-	};
-}
-
-/** Recency bookkeeping: a lost write costs an ordering hint, nothing the user
- *  set out to do, so it stays fire-and-forget. */
-function persist(get: () => SidebarPrefsStore): void {
-	void writePrefs(get);
-}
-
-async function writePrefs(get: () => SidebarPrefsStore): Promise<{ success: boolean; error?: string }> {
-	try {
-		await window.omp.prefs.set(PREFS_KEY, prefsBlob(get()));
-		return { success: true };
-	} catch (cause) {
-		return { success: false, error: cause instanceof Error ? cause.message : String(cause) };
-	}
-}
-
-/** The store's fields as a saved blob holds them; malformed or missing parts fall back to defaults. */
-function stateFromBlob(value: unknown): Partial<SidebarPrefsStore> {
-	const blob = (value ?? undefined) as SidebarPrefsBlob | undefined;
-	return {
-		pinnedGroups: Array.isArray(blob?.pinnedGroups) ? blob.pinnedGroups : [],
-		pinnedSessions: Array.isArray(blob?.pinnedSessions) ? blob.pinnedSessions : [],
-		groupAliases: blob?.groupAliases && typeof blob.groupAliases === "object" ? blob.groupAliases : {},
-		workspaceLastUsed: validRecencyMap(blob?.workspaceLastUsed),
-		groupOrder: Array.isArray(blob?.groupOrder)
-			? blob.groupOrder.filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0)
-			: [],
-		sessionOrder: validSessionOrder(blob?.sessionOrder),
-		archivedSessions: Array.isArray(blob?.archivedSessions)
-			? blob.archivedSessions.filter((id): id is string => typeof id === "string" && id.length > 0)
-			: [],
-		railPins: validRailPins(blob?.railPins),
-		agentHidden: Array.isArray(blob?.agentHidden)
-			? blob.agentHidden.filter((path): path is string => typeof path === "string" && path.length > 0)
-			: [],
-	};
-}
-
 export const useSidebarPrefs = create<SidebarPrefsStore>()((set, get) => {
+	/** Changes of ours sent to main and not yet answered, and how many were ever sent. */
+	let inFlight = 0;
+	let sent = 0;
+	/** Another window or page changed the blob: this copy is out of date until it reads again. */
+	let changedElsewhere = false;
+	let rereading = false;
+	let following = false;
+
 	/**
-	 * Reads the stored blob into the store. A failed read leaves the store
-	 * un-hydrated: the stored pins, aliases and archive are unknown, and every
-	 * write persists the whole blob, so none may happen until a read succeeds.
+	 * Reads the stored blob again after another window or page changed it, so every view shows the same order. A read
+	 * that a change of ours overlapped may have missed it, so it is dropped and read again once ours has landed.
+	 */
+	const reread = async (): Promise<void> => {
+		changedElsewhere = true;
+		if (rereading) return;
+		rereading = true;
+		try {
+			while (changedElsewhere) {
+				// Ours settles first, then comes back here.
+				if (inFlight > 0) return;
+				changedElsewhere = false;
+				const startedAt = sent;
+				const read = await readPref(SIDEBAR_PREFS_KEY, PREFS_BOOT_RETRY_MS);
+				if (!read.ok) return;
+				if (inFlight > 0 || sent !== startedAt || changedElsewhere) {
+					changedElsewhere = true;
+					continue;
+				}
+				set({ ...readSidebarPrefs(read.value), hydrated: true });
+			}
+		} finally {
+			rereading = false;
+		}
+	};
+
+	/** Follows main's PREFS_CHANGED for the blob; a missing bridge (a test) is skipped. */
+	const follow = (): void => {
+		if (following || typeof window === "undefined" || typeof window.omp?.prefs?.onChanged !== "function") return;
+		following = true;
+		window.omp.prefs.onChanged(event => {
+			if (event.key === SIDEBAR_PREFS_KEY) void reread();
+		});
+	};
+
+	/** Sends one change to main, which applies it to the blob it stores now. */
+	const send = async (change: SidebarChange): Promise<{ success: boolean; error?: string }> => {
+		inFlight += 1;
+		sent += 1;
+		try {
+			await window.omp.prefs.updateSidebar(change);
+			return { success: true };
+		} catch (cause) {
+			return { success: false, error: cause instanceof Error ? cause.message : String(cause) };
+		} finally {
+			inFlight -= 1;
+			if (inFlight === 0 && changedElsewhere) void reread();
+		}
+	};
+
+	/**
+	 * Reads the stored blob into the store. A failed read leaves the store un-hydrated: a toggle is decided from
+	 * the stored state (pinned or not), which is unknown until a read succeeds.
 	 */
 	const load = async (retryDelaysMs: readonly number[]): Promise<void> => {
 		if (get().hydrated) return;
-		const read = await readPref(PREFS_KEY, retryDelaysMs);
-		// The write path's own read may have landed while a boot read slept.
+		follow();
+		const read = await readPref(SIDEBAR_PREFS_KEY, retryDelaysMs);
+		// The write path's own read, or a change main announced, may have landed while a boot read slept.
 		if (!read.ok || get().hydrated) return;
-		set({ ...stateFromBlob(read.value), hydrated: true });
-		// Every write saves only the fields above, so one write drops a retired key for good.
-		const stored = read.value;
-		if (stored && typeof stored === "object" && RETIRED_KEYS.some(key => key in stored)) persist(get);
+		set({ ...readSidebarPrefs(read.value), hydrated: true });
 	};
 
 	/**
 	 * A change the user can see: read the stored blob first (once, no backoff)
-	 * when boot has not, so the change merges into it, and refuse the change
+	 * when boot has not, so the change is decided from it, and refuse the change
 	 * with a toast while the blob stays unreadable.
 	 */
 	const write = async (
 		failureTitleKey: string,
-		mutate: (state: SidebarPrefsStore) => Partial<SidebarPrefsStore>,
+		changeOf: (state: SidebarPrefsStore) => SidebarChange,
 	): Promise<void> => {
 		if (!get().hydrated) await load([]);
 		if (!get().hydrated) {
 			toastError({ title: translate(failureTitleKey), error: translate("prefs.unreadable") });
 			return;
 		}
+		const change = changeOf(get());
 		await optimisticWrite({
 			store: { getState: get, setState: set },
-			mutate,
-			persist: () => writePrefs(get),
+			mutate: state => sidebarPatch(state, change),
+			persist: () => send(change),
 			onFailure: failure => toastError({ title: translate(failureTitleKey), error: failure }),
 		});
 	};
 
 	return {
-		pinnedGroups: [],
-		pinnedSessions: [],
-		groupAliases: {},
-		workspaceLastUsed: {},
-		groupOrder: [],
-		sessionOrder: {},
-		archivedSessions: [],
-		railPins: [...DEFAULT_RAIL_PINS],
-		agentHidden: [],
+		...readSidebarPrefs(undefined),
 		hydrated: false,
 
 		hydrate: () => load(PREFS_BOOT_RETRY_MS),
 
 		toggleGroupPin: cwd =>
 			write("sidebar.pinFailed", state => ({
-				pinnedGroups: state.pinnedGroups.includes(cwd)
-					? state.pinnedGroups.filter(item => item !== cwd)
-					: [...state.pinnedGroups, cwd],
+				op: "set-group-pinned",
+				cwd,
+				pinned: !state.pinnedGroups.includes(cwd),
 			})),
 
 		toggleSessionPin: path =>
 			write("sidebar.pinFailed", state => ({
-				pinnedSessions: state.pinnedSessions.includes(path)
-					? state.pinnedSessions.filter(item => item !== path)
-					: [...state.pinnedSessions, path],
+				op: "set-session-pinned",
+				path,
+				pinned: !state.pinnedSessions.includes(path),
 			})),
 
 		toggleAgentHidden: path =>
 			write("sidebar.agentHiddenFailed", state => ({
-				agentHidden: state.agentHidden.includes(path)
-					? state.agentHidden.filter(item => item !== path)
-					: [...state.agentHidden, path],
+				op: "set-agent-hidden",
+				path,
+				hidden: !state.agentHidden.includes(path),
 			})),
 
-		setGroupAlias: (cwd, alias) =>
-			write("sidebar.renameFailed", state => {
-				const groupAliases = { ...state.groupAliases };
-				if (alias?.trim()) groupAliases[cwd] = alias.trim();
-				else delete groupAliases[cwd];
-				return { groupAliases };
-			}),
+		setGroupAlias: (cwd, alias) => write("sidebar.renameFailed", () => ({ op: "set-group-alias", cwd, alias })),
 
-		setGroupOrder: order => write("sidebar.reorderFailed", () => ({ groupOrder: [...new Set(order)] })),
+		setGroupOrder: order => write("sidebar.reorderFailed", () => ({ op: "set-group-order", order: [...order] })),
 
 		setSessionOrder: (list, order) =>
-			write("sidebar.reorderFailed", state => {
-				// The list just ordered moves to the end, so the oldest ordered lists are the ones a cap drops.
-				const { [list]: _previous, ...rest } = state.sessionOrder;
-				return {
-					sessionOrder: validSessionOrder({ ...rest, [list]: [...new Set(order)] }),
-				};
-			}),
+			write("sidebar.reorderFailed", () => ({ op: "set-session-order", list, order: [...order] })),
 
 		setSessionsArchived: (ids, archived) =>
-			write("sidebar.archiveFailed", state => ({
-				archivedSessions: archived
-					? [...new Set([...state.archivedSessions, ...ids])]
-					: state.archivedSessions.filter(id => !ids.includes(id)),
-			})),
+			write("sidebar.archiveFailed", () => ({ op: "set-sessions-archived", ids: [...ids], archived })),
 
 		toggleRailPin: pin =>
 			write("sidebar.pinFailed", state => ({
-				railPins: state.railPins.includes(pin)
-					? state.railPins.filter(item => item !== pin)
-					: RAIL_PINS.filter(item => item === pin || state.railPins.includes(item)),
+				op: "set-rail-pin",
+				pin,
+				pinned: !state.railPins.includes(pin),
 			})),
 
 		touchWorkspace: cwd => {
-			// Before the stored blob is known the write would replace it with defaults.
+			// A lost write costs an ordering hint, nothing the user set out to do. Before the stored blob is known
+			// the clock would be stamped on defaults.
 			if (!cwd || !get().hydrated) return;
-			const state = get();
-			const timestamp = nextTimestamp(state.workspaceLastUsed);
-			set({ workspaceLastUsed: touchedMap(state.workspaceLastUsed, cwd, timestamp, MAX_RECENT_WORKSPACES) });
-			persist(get);
+			const change: SidebarChange = { op: "touch-workspace", cwd };
+			set(sidebarPatch(get(), change));
+			void send(change);
 		},
 
-		reset: () =>
-			set({
-				pinnedGroups: [],
-				pinnedSessions: [],
-				groupAliases: {},
-				workspaceLastUsed: {},
-				groupOrder: [],
-				sessionOrder: {},
-				archivedSessions: [],
-				agentHidden: [],
-				railPins: [...DEFAULT_RAIL_PINS],
-				hydrated: false,
-			}),
+		reset: () => set({ ...readSidebarPrefs(undefined), hydrated: false }),
 	};
 });

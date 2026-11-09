@@ -148,6 +148,7 @@ import type {
 } from "../shared/rpc-types";
 import { SCHEDULES_COMMAND, SCHEDULES_LOG, type Schedule, type SchedulesRequest } from "../shared/schedules";
 import { hostedSummaries, type SummariesChanged } from "../shared/session-summary";
+import { SIDEBAR_PREFS_KEY } from "../shared/sidebar-prefs";
 import { SIDEBAR_PROJECTS_COMMAND, type SidebarProjectsRequest } from "../shared/sidebar-projects";
 import { isUiLanguage } from "../shared/ui-language";
 import {
@@ -233,6 +234,7 @@ import {
 } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
 import type { SidecarPool, TabActivity } from "./sidecar-pool";
@@ -2461,11 +2463,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return prefsStore.store;
 	});
 
-	/** `PREFS_CHANGED` to every window but the one that wrote the key, so the others' settings follow it. */
+	/** `PREFS_CHANGED` to every window and paired page but the one that wrote the key, so the others' settings follow it. */
 	const prefChanged = (writer: ClientWindow | null, key: string): void => {
 		const writerId = writer?.webContents.id;
-		for (const win of windowManager.getAllWindows()) {
-			if (win.webContents.id !== writerId) {
+		for (const win of [...windowManager.getAllWindows(), ...(deps.webPages?.() ?? [])]) {
+			if (win.webContents.id !== writerId && !win.isDestroyed()) {
 				win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
 			}
 		}
@@ -2477,6 +2479,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	ipc.handle(IPC_COMMANDS.PREFS_SET, (caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");
+		}
+		// The stored `sidebar` blob has one owner (`PREFS_UPDATE_SIDEBAR`): a whole blob from a page's own copy would
+		// put an older order back over a newer one.
+		if (payload.key === SIDEBAR_PREFS_KEY) {
+			throw codedError("invalid_preference_key", "The sidebar prefs change through prefs.updateSidebar");
 		}
 		const replyLanguage = payload.key === REPLY_LANGUAGE_PREF;
 		if (replyLanguage && !isReplyLanguagePref(payload.value)) {
@@ -2579,6 +2586,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
+	});
+	ipc.handle(IPC_COMMANDS.PREFS_UPDATE_SIDEBAR, (caller, payload: unknown) => {
+		const from = caller.win && isWebWindow(caller.win.webContents.id) ? "web" : "window";
+		updateSidebarPrefs(prefsStore, payload, from, writeRuntimeLog);
+		prefChanged(caller.win, SIDEBAR_PREFS_KEY);
 	});
 
 	// Launch profiles live with the machine that spawns omp: a tab's paired

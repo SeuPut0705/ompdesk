@@ -11,6 +11,7 @@ import { wrapAgentMessage } from "./agent-control";
 import type { SessionInfo } from "./ipc-types";
 import {
 	botFamily,
+	CHATS_ORDER_KEY,
 	familyRows,
 	type RowSession,
 	type RowTab,
@@ -176,10 +177,11 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 			// project too (the opener BOSS is APP's; a linked worktree of APP is APP's).
 			const ownProject = cell.folder === "scr" || cell.folder === "old" ? FOLDERS[cell.folder] : APP;
 			if (rows.rootOf.get(cell.path) === BOSS && ownProject !== APP)
+				// A removed project's session is no row of it: its opener's row lists it.
 				expect(
 					where.filter(place => place !== "child"),
 					rule,
-				).toEqual(cell.folder === "old" && !heldBy(cell.holder) ? [] : [`group:${ownProject}`]);
+				).toEqual(cell.folder === "old" ? [] : [`group:${ownProject}`]);
 			else expect(where.length, rule).toBeLessThanOrEqual(1);
 			// A chat is its Chats section's row whoever holds it: never nested, folded or in a project.
 			if (cell.folder === "chat") {
@@ -189,26 +191,21 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 			// A finished worktree's session is no row anywhere (a project's, a family's or a loose child) unless a tab the
 			// person uses holds it.
 			if (finishedFolder(cell) && !usedBy(cell.holder)) expect(where, rule).toEqual([]);
-			// A session a tab the person uses holds is always a row: never hidden, never folded away.
-			if (usedBy(cell.holder)) {
-				expect(where.length, rule).toBeGreaterThan(0);
-				expect(
-					where.some(place => place.startsWith("folded:")),
-					rule,
-				).toBe(false);
-			}
+			// A session a tab the person uses holds always has a place; a loose child keeps its own (listed while held).
+			if (usedBy(cell.holder)) expect(where.length, rule).toBeGreaterThan(0);
+			if (where.some(place => place.startsWith("folded:")))
+				expect(rows.held.has(cell.path), rule).toBe(heldBy(cell.holder));
 			// A removed project's session leaves with it unless a tab holds it.
 			if (cell.folder === "old" && !heldBy(cell.holder))
 				expect(
 					where.filter(place => place.startsWith("group:")),
 					rule,
 				).toEqual([]);
-			// A held session never folds into its project's loose children.
-			if (heldBy(cell.holder))
-				expect(
-					where.some(place => place.startsWith("folded:")),
-					rule,
-				).toBe(false);
+			// Who holds a session never moves it: wherever it shows with no holder, it shows with any.
+			if (cell.holder !== "none" && !(finishedFolder(cell) || (cell.folder === "old" && !where.includes("child")))) {
+				const free = placements(sidebarRows(world([{ ...cell, holder: "none" }]))).get(cell.path) ?? [];
+				if (free.length > 0) expect(where, rule).toEqual(free);
+			}
 			// A linked worktree's session is a row of the project it was cut from, never a group of its own.
 			if (cell.folder === "wtl" || cell.folder === "wta" || cell.folder === "wtg")
 				expect(
@@ -256,6 +253,76 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 			expect(shape(sidebarRows(world(cells, "reversed")))).toEqual(shape(sidebarRows(world(cells))));
 		},
 	);
+
+	// The owner's report, 9 Nov 2026: selecting a session reshuffled the list. A click opens a tab on the session or
+	// wakes the one that holds it; neither may move any row, the clicked one included, in a list the person ordered by
+	// hand or not, archived rows included.
+	it.each(
+		WORLDS.slice(0, 60).flatMap((cells, index) => [
+			[index, "newest first", cells] as const,
+			[index, "by hand", cells] as const,
+		]),
+	)("world %i (%s) moves no row when a session is selected", (index, order, cells) => {
+		const shape = (rows: SidebarRows) => ({
+			groups: rows.groups.map(group => [
+				group.cwd,
+				group.sessions.map(row => row.path),
+				group.folded.map(row => row.path),
+			]),
+			chats: rows.chats.map(row => row.path),
+			children: [...rows.children].map(([root, children]) => [root, children.map(row => row.path)]).sort(),
+			archived: rows.archived.map(row => row.path),
+		});
+		const plain = world(cells);
+		const archived = new Set(cells.filter((_cell, at) => (at + index) % 5 === 0).map(cell => cell.path));
+		const drawn = sidebarRows({ ...plain, archived });
+		// A hand order: each list's rows reversed, with its newest row left out (new since the person last moved one).
+		const byHand = new Map([
+			...drawn.groups.map(
+				group =>
+					[
+						group.cwd,
+						group.sessions
+							.map(row => row.path)
+							.slice(1)
+							.toReversed(),
+					] as const,
+			),
+			[
+				CHATS_ORDER_KEY,
+				drawn.chats
+					.map(row => row.path)
+					.slice(1)
+					.toReversed(),
+			] as const,
+		]);
+		const facts: SidebarFacts = {
+			...plain,
+			archived,
+			order: { ...plain.order, sessionOrder: list => (order === "by hand" ? byHand.get(list) : undefined) },
+		};
+		const before = sidebarRows(facts);
+		for (const path of [...placements(before).keys(), ...before.archived.map(row => row.path)]) {
+			const cell = cells.find(entry => entry.path === path);
+			const held = facts.tabs.find(tab => tab.sessionPath === path && !tab.id.startsWith("hosted:"));
+			const tabs: RowTab[] = held
+				? facts.tabs.map(tab => (tab === held ? { ...tab, status: "ready", ghost: undefined } : tab))
+				: [
+						...facts.tabs,
+						{
+							id: `click:${path}`,
+							sessionPath: path,
+							sessionId: path,
+							cwd: cell ? FOLDERS[cell.folder] : APP,
+							kind: "agent",
+							title: null,
+							status: "starting",
+							seenAt: "2026-11-09T00:00:00Z",
+						},
+					];
+			expect(shape(sidebarRows({ ...facts, tabs })), `select ${path}`).toEqual(shape(before));
+		}
+	});
 
 	it("never lets a tab restored asleep or a ghost list a finished worktree's session no tab in use holds", () => {
 		for (const origin of ORIGINS) {

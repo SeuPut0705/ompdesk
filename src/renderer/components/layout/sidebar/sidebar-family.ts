@@ -86,11 +86,12 @@ export function isFoldedSubagent(status: string): boolean {
 }
 
 /**
- * Whether an opened session shows in its opener's family: everything but a finished one that landed clean. Running,
- * waiting, failed and unmerged/dirty ones show, and so does one that has not run yet (no status).
+ * Whether an opened session shows in its opener's family or among its project's loose children: everything but a
+ * finished one that landed clean, unless a tab holds it (`held`: a row a tab holds stays where it is, selected or not).
+ * Running, waiting, failed and unmerged/dirty ones show, and so does one that has not run yet (no status).
  */
-export function isShownOpened(child: { status: ChildStatus | null }): boolean {
-	return child.status !== "done";
+export function isShownOpened(child: { status: ChildStatus | null; held?: boolean }): boolean {
+	return child.status !== "done" || child.held === true;
 }
 
 export interface SubagentRowModel {

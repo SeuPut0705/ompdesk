@@ -86,6 +86,8 @@ export interface FamilyOpened {
 	device?: string;
 	tooltip: string;
 	selected: boolean;
+	/** A tab holds it (`SidebarRows.held`): listed whatever its status, so selecting it never hides it. */
+	held?: boolean;
 	onOpen: () => void;
 	rowProps?: FamilyRowProps["rowProps"];
 	buttonProps?: FamilyRowProps["buttonProps"];

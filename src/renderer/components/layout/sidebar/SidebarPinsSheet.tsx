@@ -4,8 +4,9 @@
  */
 
 import { createElement, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { RAIL_PINS, type RailPin } from "../../../../shared/sidebar-prefs";
 import { useT } from "../../../lib/i18n";
-import { RAIL_PIN_LABEL_KEYS, RAIL_PINS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { RAIL_PIN_LABEL_KEYS, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { Modal, SwitchTile } from "../../common";
 import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";

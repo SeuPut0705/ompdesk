@@ -49,6 +49,7 @@ import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { autopilotRunOf, worktreeKindOf, worktreeLabel } from "../../../../shared/project-origin";
 import { hostedSummaries, type SessionSummary, unsavedSessionKey } from "../../../../shared/session-summary";
+import type { RailPin } from "../../../../shared/sidebar-prefs";
 import {
 	CHATS_ORDER_KEY,
 	familyRows,
@@ -104,7 +105,7 @@ import { usePairedHosts, useRemoteStore } from "../../../stores/remote";
 import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
-import { RAIL_PIN_LABEL_KEYS, type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { RAIL_PIN_LABEL_KEYS, useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useProjectList } from "../../../stores/sidebar-projects";
 import { toggleSidebarSubagents, useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tabs";
@@ -145,6 +146,7 @@ import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { deleteProject, isStoredRow } from "./project-delete";
 import { projectMenuItems } from "./project-menu";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
+import { logSelection, useRowSelection } from "./row-selection";
 import { SidebarChats } from "./SidebarChats";
 import { SidebarDeviceSections } from "./SidebarDeviceSections";
 import { SidebarDeviceSection, SidebarLocalHeader } from "./SidebarDevices";
@@ -532,6 +534,7 @@ export function Sidebar() {
 	const split = useTabsStore(s => s.split);
 	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const activeTab = tabs.find(tab => tab.id === activeTabId);
+	const selectionOf = useRowSelection();
 	const activeTabKind = activeTab?.kind;
 	// Remote tabs (a paired host's sessions) live in their device sections; this list is this device's.
 	const localTabs = useMemo(() => tabs.filter(tab => tab.device === undefined), [tabs]);
@@ -597,11 +600,10 @@ export function Sidebar() {
 		}
 		return index;
 	}, [sessions]);
-	const sessionId = useSessionStore(s => s.sessionId);
-	const sessionName = useSessionStore(s => s.sessionName);
-	const sessionFile = useSessionStore(s => s.sessionFile);
-	const cwd = useSessionStore(s => s.cwd);
-	const destination = useUiStore(s => s.destination);
+	// The focused tab's folder: the one source of which session and project are on screen is the tab list. The session
+	// store this component would read is the fallback one (no runtime provider is above the sidebar), never the
+	// focused tab's, so a session id or file read from it named a session no tab here shows.
+	const cwd = activeTab?.cwd ?? "";
 
 	useEffect(() => {
 		void window.omp.sidecar
@@ -691,10 +693,10 @@ export function Sidebar() {
 		sessions,
 	);
 	const kindLabels = useWorktreeKindLabels();
-	// The tabs that hold this computer's sessions as this window knows them: its own (the one on screen named by the
-	// session it shows, before its tab does), and a stand-in for each a paired device runs here. A row made from one
-	// before the index lists its session keeps the time this sidebar first saw it (one shared "now" tied every live
-	// row, so they sorted by path, oldest first, and flipped once the index listed them).
+	// The tabs that hold this computer's sessions as this window knows them: its own, as the tab list names them (the
+	// focused one included: no second source names its session), and a stand-in for each a paired device runs here. A
+	// row made from one before the index lists its session keeps the time this sidebar first saw it (one shared "now"
+	// tied every live row, so they sorted by path, oldest first, and flipped once the index listed them).
 	const liveSince = useRef(new Map<string, string>());
 	const rowTabs = useMemo<RowTab[]>(() => {
 		const since = liveSince.current;
@@ -710,25 +712,22 @@ export function Sidebar() {
 			return seen;
 		};
 		return [
-			...localTabs.map(tab => {
-				const focused = tab.id === activeTabId;
-				return {
-					id: tab.id,
-					sessionPath: (focused ? sessionFile : null) ?? tab.sessionPath,
-					sessionId: (focused ? sessionId : "") || tab.sessionId,
-					cwd: tab.cwd || (focused ? cwd : ""),
-					kind: tab.kind,
-					// An agent-opened session reads as its task until stock names it.
-					title: tab.title || tab.task || (focused ? sessionName : null) || null,
-					status: tab.status,
-					ghost: tab.ghost,
-					unstarted: tab.unstarted === true,
-					placeholder: tab.placeholder,
-					openedBy: tab.openedBy,
-					openedBySession: tab.openedBySession,
-					seenAt: seenAt(tab.id),
-				};
-			}),
+			...localTabs.map(tab => ({
+				id: tab.id,
+				sessionPath: tab.sessionPath,
+				sessionId: tab.sessionId,
+				cwd: tab.cwd,
+				kind: tab.kind,
+				// An agent-opened session reads as its task until stock names it.
+				title: tab.title || tab.task || null,
+				status: tab.status,
+				ghost: tab.ghost,
+				unstarted: tab.unstarted === true,
+				placeholder: tab.placeholder,
+				openedBy: tab.openedBy,
+				openedBySession: tab.openedBySession,
+				seenAt: seenAt(tab.id),
+			})),
 			...hostedSessions.map(hosted => ({
 				id: `hosted:${hosted.sessionPath}`,
 				sessionPath: hosted.sessionPath,
@@ -740,7 +739,7 @@ export function Sidebar() {
 				seenAt: seenAt(`hosted:${hosted.sessionPath}`),
 			})),
 		];
-	}, [localTabs, hostedSessions, activeTabId, sessionId, sessionFile, sessionName, cwd]);
+	}, [localTabs, hostedSessions]);
 	// What a tab of another window holds, idle or not: this window sees none of those tabs, as a paired device's list of
 	// this computer (`heldOnHost`) sees none, and the host's own rule keeps such a session a row there too.
 	const heldByWindows = useHostedSessionsStore(s => s.held);
@@ -1036,20 +1035,16 @@ export function Sidebar() {
 			),
 		);
 	};
-	// The tab's file names its row before the session store has an id (a tab restored from the tab snapshot, a start
-	// whose omp is not ready): the selection is on the first frame, not after the first read.
-	const isCurrentSession = (session: SidebarSession) =>
-		!activeTabRemote &&
-		(session.id === sessionId ||
-			(session.liveTabId !== undefined && session.liveTabId === activeTabId) ||
-			(activeTab?.sessionPath !== undefined && activeTab.sessionPath === session.path));
-	// Main reports a tab's file (get_state → sessionPath) reliably; the session id
+	// The row's tab, by the tab list alone: main reports a tab's file (get_state → sessionPath) reliably; the session id
 	// only arrives with stock's rare session_info_update, so match the path first.
 	const tabForSession = (session: SidebarSession) =>
 		(session.liveTabId ? localTabs.find(tab => tab.id === session.liveTabId) : undefined) ??
 		localTabs.find(tab => tab.sessionPath === session.path) ??
-		localTabs.find(tab => tab.sessionId === session.id) ??
-		(isCurrentSession(session) ? activeTab : undefined);
+		localTabs.find(tab => tab.sessionId === session.id);
+	const isCurrentSession = (session: SidebarSession) => {
+		const tab = tabForSession(session);
+		return tab !== undefined && tab.id === activeTabId;
+	};
 	/**
 	 * The summary a session's row reads: this computer's, which runs it (a tab of any window, or one it runs for a paired
 	 * device), by its file; a tab of this window whose omp has named no file yet, by that tab (`unsavedSessionKey`).
@@ -1079,11 +1074,13 @@ export function Sidebar() {
 		// instead of left behind; anything else keeps its tab and the session
 		// opens next to it.
 		const owner = tabForSession(session);
+		const how = owner ? "focus" : activeTabUntouched() ? "reroot" : "open";
+		logSelection({ list: "local", how, archived: archivedIds.has(session.id), held: rows.held.has(session.path) });
 		if (owner) {
 			void useTabsStore.getState().switchTab(owner.id);
 			return;
 		}
-		if (activeTabUntouched()) {
+		if (how === "reroot") {
 			requestSessionSwitch(reopened);
 			return;
 		}
@@ -1232,10 +1229,7 @@ export function Sidebar() {
 			.then(() => {
 				// The owning tab's store — a split pane or the focused one — so a
 				// running session's own title bar follows without waiting for a refresh.
-				const tabId = tabForSession(session)?.id ?? null;
-				const store =
-					sessionRuntimeStore<SessionStore>(tabId, "session") ??
-					(session.id === sessionId ? useSessionStore : null);
+				const store = sessionRuntimeStore<SessionStore>(tabForSession(session)?.id ?? null, "session");
 				if (store?.getState().sessionId === session.id) store.setState({ sessionName: name });
 			})
 			.catch(error => toastError({ title: t("sidebar.renameFailed"), error }));
@@ -1400,11 +1394,9 @@ export function Sidebar() {
 
 	/** What a session row says about the session's run: one computation for a row and for a child of its family. */
 	const sessionRowState = (session: SidebarSession) => {
-		const isCurrent = isCurrentSession(session);
 		const tab = tabForSession(session);
 		// Every pane of the split on screen reads as selected; the focused one adds a cue (data-pane-focus).
-		const inVisibleSplit = !isCurrent && tab !== undefined && splitIds?.has(tab.id) === true;
-		const active = (isCurrent || inVisibleSplit) && destination === "session";
+		const { current: isCurrent, inSplit: inVisibleSplit, selected: active } = selectionOf(tab?.id);
 		const indexed = session.liveTabId === undefined;
 		// What this computer runs of it (its summary: any window's tab, or one it runs for a paired device), the same on
 		// every window and phone page whatever tab events each happened to receive.
@@ -1671,7 +1663,7 @@ export function Sidebar() {
 			tooltip: [combinedTitle({ title, auto }), statusLabel, `${device} · ${tab.cwd}`, model]
 				.filter(Boolean)
 				.join("\n"),
-			selected: tab.id === activeTabId || splitIds?.has(tab.id) === true,
+			selected: selectionOf(tab.id).selected,
 			// A stand-in has no tab here: its session opens as any row of its computer's does.
 			onOpen: () =>
 				void (tabs.some(entry => entry.id === tab.id)
@@ -1679,7 +1671,7 @@ export function Sidebar() {
 					: openTab({ cwd: tab.cwd, sessionPath: tab.sessionPath, ...(here ? {} : { device: tab.device }) })),
 			buttonProps: { tabIndex: -1, "data-roving-item": key, onFocus: () => setFocusKey(key) },
 			rowProps: {
-				"data-active": tab.id === activeTabId,
+				"data-active": selectionOf(tab.id).selected,
 				"data-session-path": tab.sessionPath ?? `tab:${tab.id}`,
 				"data-sidebar-opened-session": true,
 				"data-device": tab.device,
@@ -1708,6 +1700,9 @@ export function Sidebar() {
 	];
 	/** An archived row shows no family: its own token alone. */
 	const archivedFoldSignals = () => archivedRows.map(session => sessionFoldSignal(sessionRowState(session)));
+	/** A group's loose children that show: the ones that need a look, and any a tab holds, in the place they have. */
+	const looseOf = (group: RowGroup) =>
+		group.folded.map(child => ({ ...familyChildFor(child), held: rows.held.has(child.path) })).filter(isShownOpened);
 	/** This device's whole list, while its section is folded: the bot's row, every project, the chats, the archive. A
 	 * filter shows every match under it: its rows say it. */
 	const localFoldSummary = () =>
@@ -1716,9 +1711,7 @@ export function Sidebar() {
 				? []
 				: [
 						...(botOn ? sessionFoldSignals(botSession, botKids?.sessions ?? []) : []),
-						...groups.flatMap(group =>
-							groupFoldSignals(group, group.folded.map(child => familyChildFor(child)).filter(isShownOpened)),
-						),
+						...groups.flatMap(group => groupFoldSignals(group, looseOf(group))),
 						...chatSessions.flatMap(session => sessionFoldSignals(session)),
 						...archivedFoldSignals(),
 					],
@@ -2024,9 +2017,9 @@ export function Sidebar() {
 		const tabIndex = -1;
 		const pinned = pinnedGroups.includes(group.cwd);
 		const FolderIcon = groupCollapsed ? Folder : FolderOpen;
-		// Sessions an agent opened that no opener row holds: only the ones that need a look are listed, so a group made
-		// only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
-		const loose = group.folded.map(child => familyChildFor(child)).filter(isShownOpened);
+		// Sessions an agent opened that no opener row holds: only the ones that need a look or a tab holds are listed, so
+		// a group made only of those, with nothing to show, is not drawn. A project of the list is, empty or not.
+		const loose = looseOf(group);
 		// A folded project still says what its hidden rows would: who waits, who works, what finished unseen.
 		const summary = groupCollapsed ? foldSummary(groupFoldSignals(group, loose)) : null;
 		if (!group.listed && !group.open && group.sessions.length === 0 && loose.length === 0) return null;

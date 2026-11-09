@@ -275,7 +275,7 @@ test("the bot's omp hears the owner's rules, and a check it schedules for itself
 	expect(await told()).toHaveLength(1);
 });
 
-test("a session the bot opens shows under the bot row, and nowhere else in the lists", async () => {
+test("a session the bot opens shows under the bot row and in its own project, nowhere else in the lists", async () => {
 	test.setTimeout(180_000);
 	const file = await botFile();
 	await page.locator("[data-sidebar-bot-row]").click();
@@ -304,8 +304,10 @@ test("a session the bot opens shows under the bot row, and nowhere else in the l
 	await expect(nested).toHaveCount(1, { timeout: 60_000 });
 	await expect(nested).toHaveAttribute("data-session-path", childFile);
 	await expect(nested).toHaveAttribute("data-child-status", "waiting");
-	// It is that row alone: no project or chat row repeats it, and the bot's own row is still the one fixed row.
-	await expect(page.locator(`[data-session-path=${cssString(childFile)}]`)).toHaveCount(1);
+	// Under the bot, and a row of its own project too (a session's project is its own folder's, a82a6302): no chat or
+	// other list repeats it, and the bot's own row is still the one fixed row.
+	await expect(page.locator(`[data-session-path=${cssString(childFile)}]`)).toHaveCount(2);
+	await expect(page.locator(`[data-session-group] [data-session-path=${cssString(childFile)}]`)).toHaveCount(1);
 	await expect(page.locator("[data-sidebar-bot-row]")).toHaveCount(1);
 	await expect(page.locator(".omp-sidebar-session-row").first()).toHaveAttribute("data-sidebar-bot-row", "true");
 });

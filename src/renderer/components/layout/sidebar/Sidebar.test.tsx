@@ -19,6 +19,7 @@ import { type BotDecision, type BotDeskState, EMPTY_BOT_DESK } from "../../../..
 import { codedError } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionInfo } from "../../../../shared/ipc-types";
 import { type SessionSummary, unsavedSessionKey } from "../../../../shared/session-summary";
+import type { RailPin } from "../../../../shared/sidebar-prefs";
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../../../shared/sidebar-projects";
 import { CHATS_ORDER_KEY } from "../../../../shared/sidebar-rows";
 import { TOUCH_QUERY } from "../../../hooks/shell-queries";
@@ -43,7 +44,7 @@ import { useSessionStore } from "../../../stores/session";
 import { resetSessionListFeeds, sessionListFeed } from "../../../stores/session-list";
 import { deleteSessionRuntime, setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
-import { type RailPin, useSidebarPrefs } from "../../../stores/sidebar-prefs";
+import { useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useSidebarProjects } from "../../../stores/sidebar-projects";
 import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { ensureTabRuntime } from "../../../stores/tab-runtime";
@@ -108,6 +109,7 @@ interface MockOmp {
 	prefs: {
 		get: Mock<(key: string) => Promise<unknown>>;
 		set: Mock<(key: string, value: unknown) => Promise<void>>;
+		updateSidebar: Mock<(change: unknown) => Promise<void>>;
 	};
 	system: {
 		showOpenDialog: Mock<(filters?: unknown, options?: unknown) => Promise<string[] | null>>;
@@ -162,6 +164,7 @@ function installMockOmp(sessionList: SessionInfo[]): MockOmp {
 		prefs: {
 			get: vi.fn(async () => null),
 			set: vi.fn(async () => {}),
+			updateSidebar: vi.fn(async () => {}),
 		},
 		system: {
 			showOpenDialog: vi.fn(async () => null),
@@ -435,9 +438,19 @@ const LIST = [
 ];
 
 function seedStores(): void {
-	useSessionStore.setState({ sessionId: "attached-id", cwd: "/work/alpha", isStreaming: false });
+	useSessionStore.setState({ isStreaming: false });
+	// The focused tab names the session it shows: the tab list is what marks a row current.
 	useTabsStore.setState({
-		tabs: [{ id: "t0", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+		tabs: [
+			{
+				id: "t0",
+				cwd: "/work/alpha",
+				sessionId: "attached-id",
+				status: "ready",
+				kind: "agent",
+				unreadDone: false,
+			},
+		],
 		activeTabId: "t0",
 		bundles: new Map(),
 	});
@@ -546,10 +559,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await pin("schedules");
 		await pin("files");
 		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "files", "schedules"]);
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({ railPins: ["usage", "files", "schedules"] }),
-		);
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({ op: "set-rail-pin", pin: "schedules", pinned: true });
 		const pinned = [...(footer?.querySelectorAll("[data-rail-pin]") ?? [])].map(row => [
 			row.getAttribute("data-rail-pin"),
 			(row.textContent ?? "").trim(),
@@ -587,7 +597,7 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await fire(switchFor("files"), "onClick");
 		expect(useSidebarPrefs.getState().railPins).toEqual(["usage", "files"]);
-		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ railPins: ["usage", "files"] }));
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({ op: "set-rail-pin", pin: "files", pinned: true });
 		expect(switchFor("files")?.getAttribute("aria-checked")).toBe("true");
 		expect(footer?.querySelector('[data-rail-pin="files"]')).not.toBeNull();
 
@@ -738,13 +748,17 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		await act(async () => {
 			useTabsStore.setState({
-				tabs: [{ id: "agent", cwd: "/work/alpha", status: "ready", kind: "agent", unreadDone: false }],
+				tabs: [
+					{
+						id: "agent",
+						cwd: "/work/alpha",
+						sessionPath: "/work/alpha/two.jsonl",
+						status: "ready",
+						kind: "agent",
+						unreadDone: false,
+					},
+				],
 				activeTabId: "agent",
-			});
-			useSessionStore.setState({
-				sessionId: "/work/alpha/two.jsonl",
-				sessionFile: "/work/alpha/two.jsonl",
-				cwd: "/work/alpha",
 			});
 		});
 		await flush();
@@ -841,15 +855,9 @@ describe("Sidebar menus and pinned ordering", () => {
 
 	it("keeps the current session and every open tab's session listed before the index has them", async () => {
 		installMockOmp(LIST);
-		useSessionStore.setState({
-			sessionId: "fresh-id",
-			sessionName: "Audit session",
-			cwd: "/work/gamma",
-			isStreaming: false,
-		});
 		useTabsStore.setState({
 			tabs: [
-				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", unreadDone: false },
+				{ id: "t0", cwd: "/work/gamma", status: "ready", kind: "agent", title: "Audit session", unreadDone: false },
 				{
 					id: "t1",
 					cwd: "/work/beta",
@@ -1111,7 +1119,8 @@ describe("Sidebar menus and pinned ordering", () => {
 
 	it("keeps a session a paired device's tab runs on this computer in its project group, with that tab's live state", async () => {
 		// A paired device's agent opened it here (`ompdesk_session_open {device}`): its brief names a session on the
-		// device, which this computer never lists, and no tab of this window holds it.
+		// device, which this computer never lists, and no tab of this window holds it. The brief makes it a loose child of
+		// its project, whoever holds it: the device's tab keeps it listed there, in the same place.
 		const opened = session("/work/beta/opened.jsonl", "/work/beta", {
 			title: "Fix login",
 			firstMessage: wrapAgentMessage("Title: Fix login\nDetails.", "Mac session"),
@@ -1124,19 +1133,16 @@ describe("Sidebar menus and pinned ordering", () => {
 		setSummaries([summary(opened.path, hosted)]);
 		await mount(<Sidebar />);
 
-		const rows = () =>
-			[...container.querySelectorAll(".omp-sidebar-session-row")].filter(row =>
-				(row.textContent ?? "").includes("Fix login"),
-			);
+		const rows = () => [...document.querySelectorAll(`[data-session-path="${opened.path}"]`)];
 		expect(rows()).toHaveLength(1);
-		expect(rowFor("Fix login").closest('[data-session-group="/work/beta"]')).not.toBeNull();
-		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("running");
+		expect(rows()[0]?.closest('[data-session-group="/work/beta"]')).not.toBeNull();
+		expect(rows()[0]?.getAttribute("data-signal")).toBe("running");
 
 		act(() => setSummaries([summary(opened.path, { ...hosted, ask: "input" })]));
-		expect(rowFor("Fix login").getAttribute("data-signal")).toBe("waiting");
-		expect(rowFor("Fix login").textContent).toContain("Needs input");
+		expect(rows()).toHaveLength(1);
+		expect(rows()[0]?.getAttribute("data-signal")).toBe("waiting");
 
-		// Before it was known as a hosted session, the brief folded it away as a finished helper of nobody listed.
+		// No tab holds it any more and it needs no look: a finished helper of nobody listed is not listed.
 		act(() => setSummaries([]));
 		expect(rows()).toHaveLength(0);
 	});
@@ -1238,7 +1244,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(moveUp as unknown as Element, "onClick");
 		expect(order().slice(0, 2)).toEqual([second, first]);
 		expect(useSidebarPrefs.getState().groupOrder.slice(0, 2)).toEqual([second, first]);
-		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({ op: "set-group-order", order: expect.any(Array) });
 	});
 
 	it("Move up and down reorder a project's sessions, kept in the sidebar prefs, and pins stay on top", async () => {
@@ -1259,12 +1265,11 @@ describe("Sidebar menus and pinned ordering", () => {
 			"/work/alpha/two.jsonl",
 			"/work/alpha/one.jsonl",
 		]);
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({
-				sessionOrder: { "/work/alpha": ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"] },
-			}),
-		);
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({
+			op: "set-session-order",
+			list: "/work/alpha",
+			order: ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"],
+		});
 		// A pinned session stays on top: the one below it cannot trade places with it.
 		await act(async () => useSidebarPrefs.setState({ pinnedSessions: ["/work/alpha/one.jsonl"] }));
 		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
@@ -1298,12 +1303,11 @@ describe("Sidebar menus and pinned ordering", () => {
 			"/work/alpha/two.jsonl",
 			"/work/alpha/one.jsonl",
 		]);
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({
-				sessionOrder: { "/work/alpha": ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"] },
-			}),
-		);
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({
+			op: "set-session-order",
+			list: "/work/alpha",
+			order: ["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"],
+		});
 		expect(document.querySelector("[data-session-order-status]")?.textContent).toBe(
 			"Moved Session /work/alpha/two.jsonl to position 1 of 2.",
 		);
@@ -1982,8 +1986,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(menuItem("Rename"), "onClick");
 		await commitRenameInput("Session /work/alpha/mine.jsonl", "Renamed running task");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/mine.jsonl", "Renamed running task");
-		// The attached session's own title follows at once, mid-run.
-		expect(useSessionStore.getState().sessionName).toBe("Renamed running task");
 		expect(rowFor("Renamed running task")).not.toBeNull();
 
 		// F2 on the running row opens the rename input too; Delete does nothing.
@@ -2008,8 +2010,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		await fire(menuItem("Rename"), "onClick");
 		await commitRenameInput("Session /work/alpha/one.jsonl", "Renamed idle task");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed idle task");
-		// A sibling's rename never retitles the attached session.
-		expect(useSessionStore.getState().sessionName).toBe("Renamed running task");
 		// The same Delete key that the running row ignored asks to delete an idle one.
 		await act(async () => {
 			reactProps<typeof buttonProps>(rowButton("Renamed idle task")).onKeyDown({
@@ -2563,6 +2563,19 @@ describe("Sidebar menus and pinned ordering", () => {
 			worktrees: {},
 		};
 		seedStores();
+		// The focused tab shows a listed session: no live row of a new session makes its project the newest.
+		useTabsStore.setState({
+			tabs: [
+				{
+					id: "t0",
+					cwd: "/work/alpha",
+					sessionPath: "/work/alpha/one.jsonl",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+				},
+			],
+		});
 		await mount(<Sidebar />);
 
 		const header = () => container.querySelector('[data-workspace-group="/work/empty"]');
@@ -4227,8 +4240,13 @@ describe("Sidebar device sections", () => {
 					path === BOSS ? { openedBySession: null, title: "Renamed since" } : { openedBySession: null },
 				),
 			);
-			// The two the host works on keep their rows; the landed one is no row and no loose child.
-			expect(listed().toSorted()).toEqual([AT_WORK, ASKING, BOSS].toSorted());
+			// The two the host works on stay listed as its loose children, where they are whether a tab holds them or not;
+			// the landed one is no row and no loose child.
+			const loose = [...(device()?.querySelectorAll("[data-sidebar-loose-children] [data-session-path]") ?? [])].map(
+				row => row.getAttribute("data-session-path"),
+			);
+			expect(listed()).toEqual([BOSS]);
+			expect(loose.toSorted()).toEqual([AT_WORK, ASKING].toSorted());
 			expect(device()?.textContent ?? "").not.toContain("Child landed");
 		});
 
@@ -4248,7 +4266,7 @@ describe("Sidebar device sections", () => {
 			expect(loose?.querySelector('[data-family-status="unmerged"]')).not.toBeNull();
 		});
 
-		it("keeps the row of a child a tab on the host holds open, though the host knows no opener of it", async () => {
+		it("keeps listing a child a tab on the host holds open, in its place among the loose children", async () => {
 			await mountHost(
 				hostRows(path =>
 					path === BOSS
@@ -4258,7 +4276,10 @@ describe("Sidebar device sections", () => {
 							: { openedBySession: null },
 				),
 			);
-			expect(listed()).toContain(LANDED);
+			expect(listed()).not.toContain(LANDED);
+			expect(
+				device()?.querySelector(`[data-sidebar-loose-children] [data-session-path="${LANDED}"]`),
+			).not.toBeNull();
 		});
 
 		it("keeps a finished child that failed or left work unlanded in the family, as the host does", async () => {
@@ -4378,7 +4399,7 @@ describe("Sidebar device sections", () => {
 		await fire(menuItem("Move up"), "onClick");
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
 		expect(useSidebarPrefs.getState().groupOrder).toEqual(["dev-studio\n/code/web", "dev-studio\n/code/app"]);
-		expect(omp.prefs.set).toHaveBeenCalledWith("sidebar", expect.objectContaining({ groupOrder: expect.any(Array) }));
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({ op: "set-group-order", order: expect.any(Array) });
 		// This computer's own projects never move with the host's, and moving them keeps the host's order.
 		const local = () =>
 			[...container.querySelectorAll("[data-workspace-group]")].map(group =>
@@ -4757,10 +4778,11 @@ describe("Sidebar device sections", () => {
 		expect(useSidebarPrefs.getState().sessionOrder).toEqual({
 			"dev-studio\n/code/app": ["/s/app/two.jsonl", "/s/app/one.jsonl"],
 		});
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({ sessionOrder: expect.any(Object) }),
-		);
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({
+			op: "set-session-order",
+			list: "dev-studio\n/code/app",
+			order: ["/s/app/two.jsonl", "/s/app/one.jsonl"],
+		});
 		expect(section()?.querySelector("[data-session-order-status]")?.textContent).toContain("App two");
 	});
 
@@ -6332,10 +6354,11 @@ describe("Sidebar archive and move", () => {
 		await openRowMenu(rowFor("Session /work/alpha/one"));
 		await fire(menuItem("Archive"), "onClick");
 		expect(useSidebarPrefs.getState().archivedSessions).toEqual(["/work/alpha/one.jsonl"]);
-		expect(omp.prefs.set).toHaveBeenCalledWith(
-			"sidebar",
-			expect.objectContaining({ archivedSessions: ["/work/alpha/one.jsonl"] }),
-		);
+		expect(omp.prefs.updateSidebar).toHaveBeenCalledWith({
+			op: "set-sessions-archived",
+			ids: ["/work/alpha/one.jsonl"],
+			archived: true,
+		});
 		expect(groupRows("/work/alpha")).toEqual(["/work/alpha/two.jsonl"]);
 		expect(archivedHeader()?.textContent).toContain("Archived (1)");
 		expect(archivedHeader()?.getAttribute("aria-expanded")).toBe("false");
@@ -6368,9 +6391,8 @@ describe("Sidebar archive and move", () => {
 		expect(reveal).not.toHaveBeenCalled();
 	});
 
-	it("keeps an archived session a tab holds in its list, and refuses to archive an open session", async () => {
+	it("keeps an archived session in the Archived section when a tab holds it, and refuses to archive an open session", async () => {
 		installMockOmp(LIST);
-		useSessionStore.setState({ sessionId: "/work/alpha/one.jsonl", cwd: "/work/alpha", isStreaming: false });
 		useTabsStore.setState({
 			tabs: [
 				{
@@ -6381,6 +6403,14 @@ describe("Sidebar archive and move", () => {
 					unreadDone: false,
 					sessionPath: "/work/alpha/one.jsonl",
 				},
+				{
+					id: "t1",
+					cwd: "/work/alpha",
+					status: "ready",
+					kind: "agent",
+					unreadDone: false,
+					sessionPath: "/work/alpha/two.jsonl",
+				},
 			],
 			activeTabId: "t0",
 			bundles: new Map(),
@@ -6388,13 +6418,15 @@ describe("Sidebar archive and move", () => {
 		useSidebarPrefs.setState({ hydrated: true, archivedSessions: ["/work/alpha/one.jsonl"] });
 		await mount(<Sidebar />);
 
-		expect(groupRows("/work/alpha")).toContain("/work/alpha/one.jsonl");
-		expect(archivedSection()).toBeNull();
-		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
+		// Opening an archived session moves nothing: its row stays in the Archived section, selected there.
+		expect(groupRows("/work/alpha")).not.toContain("/work/alpha/one.jsonl");
+		await fire(archivedHeader(), "onClick");
+		const archivedRow = archivedSection()?.querySelector('[data-session-path="/work/alpha/one.jsonl"]');
+		expect(archivedRow?.getAttribute("data-active")).toBe("true");
+		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
 		expect(menuItem("Archive").hasAttribute("disabled")).toBe(true);
 		expect(menuItem("Move to project…").hasAttribute("disabled")).toBe(true);
 		expect(menuItem("Save diagnostic bundle").hasAttribute("disabled")).toBe(false);
-		expect(menuItemLabels().some(label => label.includes("Open in split view"))).toBe(false);
 	});
 
 	it("Archive all on a project archives every session no tab holds", async () => {
@@ -6661,10 +6693,16 @@ describe("Sidebar worktree sessions", () => {
 			tooltip: row.querySelector("button[title]")?.getAttribute("title") ?? "",
 			child: row.getAttribute("data-session-run-child") === "true",
 		}));
+	const looseOf = (group: string) =>
+		[
+			...container.querySelectorAll(
+				`[data-session-group="${group}"] [data-sidebar-loose-children] [data-sidebar-opened-session]`,
+			),
+		].map(row => row.textContent ?? "");
 
 	it("lists a worktree's sessions among its project's own rows, each marked by what it is for", async () => {
 		mountWithWorktrees();
-		// A parallel child no opener row holds stays a row while a tab holds it.
+		// A parallel child no opener row holds is its project's loose child, listed where it is while a tab holds it.
 		openTab("tch", CHILD, "/wt/child.jsonl");
 		await mount(<Sidebar />);
 
@@ -6676,17 +6714,16 @@ describe("Sidebar worktree sessions", () => {
 		expect(groups).not.toContain(CHILD);
 		expect(groups).not.toContain("/work/alpha#agent");
 
-		// In the project's order (newest first), the worktree rows among the others.
+		// In the project's order (newest first), the Autopilot row among the others; the parallel child below them.
 		const rows = rowsOf("/work/alpha").filter(row => !row.text.includes("New session"));
 		expect(rows.map(row => row.text)).toEqual([
 			expect.stringContaining("Cycle 3"),
-			expect.stringContaining("Approach A"),
 			expect.stringContaining("Session /work/alpha/one"),
 			expect.stringContaining("Session /work/alpha/two"),
 		]);
-		expect(rows.map(row => row.mark)).toEqual(["autopilot", "agent", null, null]);
+		expect(rows.map(row => row.mark)).toEqual(["autopilot", null, null]);
 		expect(rows[0]?.tooltip).toContain("Autopilot");
-		expect(rows[1]?.tooltip).toContain("Parallel work");
+		expect(looseOf("/work/alpha")).toEqual([expect.stringContaining("Approach A")]);
 		// The folder names stay out of the sidebar.
 		expect(container.textContent).not.toContain("gui-2026");
 		expect(container.textContent).not.toContain("gui-agent");
@@ -6719,10 +6756,12 @@ describe("Sidebar worktree sessions", () => {
 		openTab("ta", CHILD, "/wt/a.jsonl");
 		openTab("tb", CHILD_B, "/wt/b.jsonl");
 		await mount(<Sidebar />);
-		const rows = rowsOf("/work/alpha").map(row => row.text);
-		expect(rows.some(text => text.includes("Approach A"))).toBe(true);
-		expect(rows.some(text => text.includes("Approach B"))).toBe(true);
-		expect(rows.some(text => text.includes("Approach C"))).toBe(false);
+		// Parallel children no opener row holds are their project's loose children, listed while a tab holds them.
+		const loose = looseOf("/work/alpha");
+		expect(rowsOf("/work/alpha").some(row => row.text.includes("Approach"))).toBe(false);
+		expect(loose.some(text => text.includes("Approach A"))).toBe(true);
+		expect(loose.some(text => text.includes("Approach B"))).toBe(true);
+		expect(loose.some(text => text.includes("Approach C"))).toBe(false);
 		expect(container.textContent).not.toContain("gui-agent");
 	});
 
@@ -6842,17 +6881,19 @@ describe("Sidebar worktree sessions", () => {
 			),
 		};
 		seedStores();
-		useSessionStore.setState({ cwd: "/var/w/alpha" });
+		// The focused tab works in the project: its group opens.
+		useTabsStore.setState(state => ({ tabs: state.tabs.map(tab => ({ ...tab, cwd: "/var/w/alpha" })) }));
 		await mount(<Sidebar />);
 		const groups = [...container.querySelectorAll("[data-workspace-group]")].map(element =>
 			(element as unknown as Element).getAttribute("data-workspace-group"),
 		);
 		expect(groups).not.toContain("/private/var/w/alpha");
 		expect(groups).toContain("/var/w/alpha/sub");
-		expect(rowsOf("/var/w/alpha").map(row => row.text)).toEqual([
-			expect.stringContaining("Cycle 3"),
-			expect.stringContaining("Own row"),
-		]);
+		expect(
+			rowsOf("/var/w/alpha")
+				.filter(row => !row.text.includes("New session"))
+				.map(row => row.text),
+		).toEqual([expect.stringContaining("Cycle 3"), expect.stringContaining("Own row")]);
 	});
 
 	it("shows the folder without its gui-…-hash dressing while git has not answered", async () => {
