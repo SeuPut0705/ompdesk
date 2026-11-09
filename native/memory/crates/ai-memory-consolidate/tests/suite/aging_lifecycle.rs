@@ -34,8 +34,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ai_memory_consolidate::{
-    ColdClusterDedup, DreamCancel, DreamConfig, EmbeddingCoord, LintOptions, ObservationRetention,
-    run_dream_pass, run_lint, run_sweep, run_sweep_with_compaction, run_sweep_with_hygiene,
+    ColdClusterDedup, DreamCancel, DreamConfig, DreamVectors, EmbeddingCoord, LintOptions,
+    ObservationRetention, run_dream_pass, run_lint, run_sweep, run_sweep_with_compaction,
+    run_sweep_with_hygiene,
 };
 use ai_memory_core::{ActorContext, PageId, PagePath, ProjectId, Tier, WorkspaceId};
 use ai_memory_llm::{
@@ -224,7 +225,7 @@ fn dedup_on() -> ColdClusterDedup {
 fn dream_on() -> DreamConfig {
     DreamConfig {
         enabled: true,
-        embedding: Some(synthetic_coord()),
+        vectors: DreamVectors::Stored(synthetic_coord()),
         min_pts: 0,
         max_eps: 0.0,
         max_clusters_per_run: 0,

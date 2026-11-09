@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use ai_memory_llm::{
     AuthRequirement, CURSOR_DEFAULT_MODEL, Candidate, CursorAuth, EmbedderChoice, EmbedderConfig,
-    ExtraHeaders, FallbackLlmProvider, LlmError, LlmProvider, LlmResult, OPENCODE_DEFAULT_MODEL,
-    ProviderAuth, ProviderChoice, ProviderConfig, ReasoningEffort, build_provider,
-    cursor_executable,
+    ExtraHeaders, FallbackLlmProvider, LlmError, LlmProvider, LlmResult, OMP_DEFAULT_MODEL,
+    OPENCODE_DEFAULT_MODEL, OmpProvider, ProviderAuth, ProviderChoice, ProviderConfig,
+    ReasoningEffort, build_provider, cursor_executable,
 };
 use anyhow::{Context, Result};
 use figment::{
@@ -1827,12 +1827,14 @@ impl Default for MaintenanceSettings {
 ///
 /// OFF by default (`enabled = false`): the scheduled job is not started, and even
 /// a direct call is a clean no-op. It runs only when this flag is set AND a
-/// provider AND an embedder are configured; a provider-less store keeps the
-/// zero-LLM A3 path (invariant #13). Gated on an R2 number before default-on.
+/// provider is available: the `[llm]` provider, or omp when `omp_executable`
+/// is set. A store with no provider keeps the zero-LLM A3 path (invariant
+/// #13). It clusters by the embedder's vectors when one is configured, else by
+/// the pages' own terms. Gated on an R2 number before default-on.
 ///
 /// Env form: `AI_MEMORY_DREAM__ENABLED=true`,
 /// `AI_MEMORY_DREAM__IDLE_WINDOW_SECS=600`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DreamSettings {
     /// Master switch. `false` (the default) means the job never starts.
@@ -1856,6 +1858,12 @@ pub struct DreamSettings {
     /// Minimum cold pages before a run does work (the events-accrued gate). `0` ⇒
     /// [`ai_memory_consolidate::DEFAULT_DREAM_MIN_COLD_PAGES`].
     pub min_cold_pages: usize,
+    /// The operator's `omp` executable. When set, the dream pass (and only it)
+    /// merges through omp's cheap model role
+    /// ([`ai_memory_llm::OMP_DEFAULT_MODEL`]) with omp's own sign-in, instead
+    /// of the `[llm]` provider; no API key is needed. Use an absolute path: a
+    /// service manager's `PATH` rarely holds omp's folder.
+    pub omp_executable: Option<PathBuf>,
 }
 
 impl Default for DreamSettings {
@@ -1870,6 +1878,7 @@ impl Default for DreamSettings {
             max_eps: 0.0,
             max_clusters_per_run: 0,
             min_cold_pages: 0,
+            omp_executable: None,
         }
     }
 }
@@ -1877,7 +1886,7 @@ impl Default for DreamSettings {
 impl DreamSettings {
     /// The effective scheduler interval in seconds (never zero).
     #[must_use]
-    pub fn effective_interval_secs(self) -> u64 {
+    pub fn effective_interval_secs(&self) -> u64 {
         if self.interval_secs == 0 {
             3_600
         } else {
@@ -1888,16 +1897,19 @@ impl DreamSettings {
     /// Build the [`ai_memory_consolidate::DreamConfig`] for the pass.
     ///
     /// `embedding` is the running server's configured embedder coordinate, or
-    /// `None` when no embedder is configured — in which case the dream pass is a
-    /// clean no-op even with the flag on (there are no stored vectors).
+    /// `None` when no embedder is configured — in which case the pass clusters
+    /// by the pages' own terms.
     #[must_use]
     pub fn dream_config(
-        self,
+        &self,
         embedding: Option<ai_memory_consolidate::EmbeddingCoord>,
     ) -> ai_memory_consolidate::DreamConfig {
         ai_memory_consolidate::DreamConfig {
             enabled: self.enabled,
-            embedding,
+            vectors: embedding.map_or(
+                ai_memory_consolidate::DreamVectors::Lexical,
+                ai_memory_consolidate::DreamVectors::Stored,
+            ),
             min_pts: self.min_pts,
             max_eps: self.max_eps,
             max_clusters_per_run: self.max_clusters_per_run,
@@ -3054,6 +3066,22 @@ impl Config {
             self.runtime_env.temp_dir.clone().unwrap_or_default(),
             self.runtime_env.process_env(),
         )
+    }
+
+    /// The dream pass's own provider: omp's cheap model role when
+    /// `[dream] omp_executable` is set, else `None` (the pass then uses the
+    /// `[llm]` provider). Scoped to the dream pass so a host that wants only
+    /// it does not switch on every other LLM pass of the server. Same
+    /// allowlisted environment and private temp root as the Cursor child.
+    #[must_use]
+    pub fn dream_llm(&self) -> Option<Arc<dyn LlmProvider>> {
+        let executable = self.dream.omp_executable.clone()?;
+        Some(Arc::new(OmpProvider::new(
+            executable,
+            OMP_DEFAULT_MODEL,
+            self.runtime_env.temp_dir.clone().unwrap_or_default(),
+            self.runtime_env.process_env(),
+        )))
     }
 
     /// Shared Copilot auth token file path.

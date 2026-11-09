@@ -1,5 +1,7 @@
 //! Pure, zero-LLM cold-cluster algorithm for A3 (docs/design-memory-aging.md
-//! §A3): DBSCAN over embeddings with an adaptive k-distance eps.
+//! §A3): DBSCAN over embeddings with an adaptive k-distance eps, and the term
+//! vectors ([`lexical_vectors`]) the dream pass clusters by when a store has no
+//! embedder.
 //!
 //! This module is the *algorithm* only — pure functions over vectors, no store,
 //! no wiki, no provider (invariant #13, zero-LLM). The forget sweep is the
@@ -187,6 +189,81 @@ fn region_query(points: &[Vec<f32>], idx: usize, eps: f32) -> Vec<usize> {
         .collect()
 }
 
+/// Dimensions of the hashed term space [`lexical_vectors`] writes.
+pub const LEXICAL_DIM: usize = 2048;
+
+/// The terms [`lexical_vectors`] weighs: lowercase runs of letters, digits and
+/// `_` of two characters or more (Hangul included).
+pub fn lexical_terms(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|term| term.chars().nth(1).is_some())
+        .map(str::to_lowercase)
+}
+
+/// TF-IDF term vectors for `texts`, hashed into [`LEXICAL_DIM`] buckets and
+/// unit-normalised: the clustering input for a store with no embedder.
+///
+/// A term ([`lexical_terms`]) weighs `(1 + ln tf) * idf` with the smoothed
+/// `idf = ln((1 + N) / (1 + df)) + 1` over these `texts`, so the headings and
+/// metadata every page of a kind repeats weigh least and two pages count as
+/// near each other by the rarer words they share. Feature hashing (FNV-1a)
+/// keeps the vectors a fixed size whatever the vocabulary; a collision only
+/// adds noise to one bucket. Deterministic: the same texts always give the
+/// same vectors. A text with no term gets the zero vector, which
+/// [`cosine_distance`] keeps maximally far from everything.
+#[must_use]
+pub fn lexical_vectors(texts: &[&str]) -> Vec<Vec<f32>> {
+    let docs: Vec<std::collections::HashMap<String, u32>> = texts
+        .iter()
+        .map(|text| {
+            let mut counts = std::collections::HashMap::new();
+            for term in lexical_terms(text) {
+                *counts.entry(term).or_insert(0) += 1;
+            }
+            counts
+        })
+        .collect();
+    let mut df: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for doc in &docs {
+        for term in doc.keys() {
+            *df.entry(term.as_str()).or_insert(0) += 1;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let n = docs.len() as f32;
+    docs.iter()
+        .map(|doc| {
+            let mut vector = vec![0.0_f32; LEXICAL_DIM];
+            for (term, &tf) in doc {
+                #[allow(clippy::cast_precision_loss)]
+                let idf = ((1.0 + n) / (1.0 + df[term.as_str()] as f32)).ln() + 1.0;
+                #[allow(clippy::cast_precision_loss)]
+                let weight = (1.0 + (tf as f32).ln()) * idf;
+                vector[bucket(term)] += weight;
+            }
+            let norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for x in &mut vector {
+                    *x /= norm;
+                }
+            }
+            vector
+        })
+        .collect()
+}
+
+/// FNV-1a over the term's bytes, reduced to a [`LEXICAL_DIM`] bucket.
+fn bucket(term: &str) -> usize {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in term.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let bucket = (hash % LEXICAL_DIM as u64) as usize;
+    bucket
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +375,28 @@ mod tests {
             1.0,
             "mismatch = neutral 1"
         );
+    }
+
+    /// Two notes on the same fix cluster under the conservative ceiling while a
+    /// note on another topic in the same page template stays out: the template
+    /// words every page repeats weigh least.
+    #[test]
+    fn lexical_vectors_put_near_duplicates_together_past_a_shared_template() {
+        let texts = [
+            "## Outcome\nSession prompts tools. The retention sweep test flaked; the culprit was crates/store/src/ops.rs busy timeout.",
+            "## Outcome\nSession prompts tools. The retention sweep test flaked; the culprit was crates/store/src/reader.rs busy timeout.",
+            "## Outcome\nSession prompts tools. Tuned kubernetes autoscaler node affinity for staging max nodes.",
+            "## 결과\n세션 메모리 검색에서 조사가 붙은 낱말을 찾도록 고쳤다.",
+        ];
+        let vectors = lexical_vectors(&texts);
+        assert_eq!(vectors.len(), 4);
+        assert!(vectors.iter().all(|v| v.len() == LEXICAL_DIM));
+        let near = cosine_distance(&vectors[0], &vectors[1]);
+        let far = cosine_distance(&vectors[0], &vectors[2]);
+        assert!(near < 0.25, "near duplicates: {near}");
+        assert!(far > 0.6, "another topic in the same template: {far}");
+        assert!(cosine_distance(&vectors[0], &vectors[3]) > 0.95);
+        assert_eq!(lexical_vectors(&texts), vectors, "deterministic");
+        assert!(lexical_vectors(&["a ! ?"])[0].iter().all(|x| *x == 0.0));
     }
 }

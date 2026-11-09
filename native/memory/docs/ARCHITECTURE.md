@@ -549,9 +549,12 @@ default-on).** Where A3 collapses near-duplicate cold clusters *extractively*
 configured provider to be rewritten into ONE coherent page, a prose-coherent
 merge that extraction cannot do. It reuses A3's clustering math (`adaptive_eps` /
 `dbscan`) over the *same* bounded cold set the forget sweep materialises
-(`sweep::materialize_cold_set`, invariant #2). It runs only when `[dream]
-enabled` is set AND a provider AND an embedder are configured; a provider-less
-store keeps the zero-LLM A3 path (invariant #13). It **never deletes a source**
+(`sweep::materialize_cold_set`, invariant #2), by the embedder's stored vectors
+or, with no embedder, by TF-IDF term vectors of the pages' own text
+(`cold_cluster::lexical_vectors`). It runs only when `[dream] enabled` is set
+AND a provider is configured (`[llm]`, or `[dream] omp_executable`, which runs
+the operator's `omp -p` on its `pi/smol` role for this pass alone); a
+provider-less store keeps the zero-LLM A3 path (invariant #13). It **never deletes a source**
 (invariant #16): the highest-retention member is rewritten and every merged-away
 member is *superseded* with a merge-note stub, so the full pre-merge body stays
 reachable (git + supersession chain; `restore-page` recovers it), and
@@ -1265,9 +1268,11 @@ observation_stream = true         # R1 observation-evidence stream: FTS over obs
 
 [dream]                           # B2/B3/B4 opt-in LLM "dream" pass. OFF by default,
                                   # R2-gated before it may default on. Never deletes a source.
-enabled = false                   # true starts the scheduled pass — but ONLY if a provider AND
-                                  # an embedder are also configured. A provider-less store keeps
-                                  # the zero-LLM A3 path untouched (invariant #13).
+enabled = false                   # true starts the scheduled pass — but ONLY if a provider is
+                                  # also configured ([llm], or omp_executable below). A
+                                  # provider-less store keeps the zero-LLM A3 path untouched
+                                  # (invariant #13). Clusters by the embedder's vectors, or by
+                                  # the pages' TF-IDF terms when no embedder is configured.
 interval_secs = 3600              # how often the scheduler CONSIDERS a run (0 ⇒ 3600)
 idle_window_secs = 300            # operator must be quiet this long before a run starts; returning
                                   # activity CANCELS an in-flight run at the next cluster boundary
@@ -1276,6 +1281,8 @@ idle_window_secs = 300            # operator must be quiet this long before a ru
 # max_eps = 0.15                  # conservative eps ceiling (cosine distance; 0 ⇒ default)
 # max_clusters_per_run = 8        # bounded fan-out per run (invariant #5; 0 ⇒ default 8)
 # min_cold_pages = 2             # events-accrued gate: skip a run below this many cold pages
+# omp_executable = "/Users/me/.bun/bin/omp"  # merge through omp's cheap role (pi/smol) with
+                                  # omp's own sign-in instead of [llm]; dream only, no API key
 
 [hook_spool]
 max_attempts = 8                  # failed drain passes before dropping an event; 0 disables

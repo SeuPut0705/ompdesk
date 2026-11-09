@@ -62,7 +62,7 @@ pub use bootstrap::{
     derive_project_name, discover_main_repo_root, discover_repo_root, effective_chunk_budget,
     path_is_git_ignored, plan_bootstrap_chunks, prune_sources_to_budget, read_identity_remotes,
 };
-pub use cold_cluster::{adaptive_eps, cosine_distance, dbscan};
+pub use cold_cluster::{adaptive_eps, cosine_distance, dbscan, lexical_terms, lexical_vectors};
 pub use compaction::build_compacted_markdown;
 pub use consolidator::{
     BATCH_SYSTEM_PROMPT, Consolidator, ConsolidatorError, ConsolidatorResult,
@@ -78,7 +78,7 @@ pub use curator::{
 pub use dream::{
     ActivityClock, DEFAULT_DREAM_IDLE_WINDOW_SECS, DEFAULT_DREAM_MAX_CLUSTERS_PER_RUN,
     DEFAULT_DREAM_MIN_COLD_PAGES, DreamCancel, DreamConfig, DreamError, DreamMerge,
-    DreamMergedPage, DreamReport, dream_idle_ready, run_dream_pass,
+    DreamMergedPage, DreamReport, DreamVectors, dream_idle_ready, run_dream_pass,
 };
 pub use embed::{
     EmbedBackfillCounts, EmbedBackfillError, EmbedBackfillOptions, run_embedding_backfill,
@@ -91,10 +91,10 @@ pub use lint::{
     LintOptions, LintReport, run_lint, stale_days_for,
 };
 pub use sweep::{
-    ColdClusterDedup, CompactedPage, DEFAULT_OBSERVATION_PRUNE_BATCH, EmbeddingCoord, EvictedPage,
-    LedgerRetention, MergedCluster, ObservationRetention, SweepError, SweepReport, run_sweep,
-    run_sweep_with_breadth, run_sweep_with_compaction, run_sweep_with_hygiene,
-    run_sweep_with_ledgers, run_sweep_with_options,
+    ColdClusterDedup, CompactedPage, DEFAULT_DEDUP_MAX_EPS, DEFAULT_OBSERVATION_PRUNE_BATCH,
+    EmbeddingCoord, EvictedPage, LedgerRetention, MergedCluster, ObservationRetention, SweepError,
+    SweepReport, run_sweep, run_sweep_with_breadth, run_sweep_with_compaction,
+    run_sweep_with_hygiene, run_sweep_with_ledgers, run_sweep_with_options,
 };
 pub use types::{
     ConsolidatedBatch, ConsolidatedPage, ConsolidatedPageUpdate, ConsolidationOutcome, PageKind,

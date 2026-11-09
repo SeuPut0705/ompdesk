@@ -29,6 +29,8 @@
 //!   allowlisted environment because the prompt is captured session text.
 //!   The CLI has no schema mode: the schema rides in the prompt, the answer
 //!   is parsed leniently, and serde deserialisation is the only validation.
+//! * **omp**: the operator's own `omp -p` on a model role (`pi/smol`), every
+//!   tool and extension off, the same allowlisted child and lenient parse.
 //! * **OpenAI-compat** (Ollama, vLLM, LM Studio): we ask for
 //!   `response_format: { type: "json_object" }` when supported,
 //!   otherwise parse the first balanced `{…}` from the text body.
@@ -88,6 +90,7 @@ pub mod health;
 #[cfg(feature = "local-embeddings")]
 pub mod local;
 pub mod oidc;
+pub mod omp;
 pub mod openai;
 pub mod openai_compat;
 pub mod openai_oauth;
@@ -97,6 +100,7 @@ pub mod reranker;
 pub mod types;
 
 mod auth_file;
+mod cli;
 mod codex_responses;
 mod response;
 mod stored_token;
@@ -139,6 +143,7 @@ pub use oidc::{
     OidcTokenResponse, PollOutcome, discover, poll_token_once, refresh_access_token,
     request_device_code,
 };
+pub use omp::{OMP_DEFAULT_MODEL, OmpProvider, OmpUsage};
 pub use openai::OpenAiProvider;
 pub use openai_compat::OpenAiCompatProvider;
 pub use openai_oauth::{

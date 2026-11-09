@@ -25,7 +25,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use ai_memory_consolidate::{DreamCancel, DreamConfig, EmbeddingCoord, run_dream_pass};
+use ai_memory_consolidate::{
+    DreamCancel, DreamConfig, DreamVectors, EmbeddingCoord, run_dream_pass,
+};
 use ai_memory_core::{ActorContext, PageId, PagePath, ProjectId, Tier, WorkspaceId};
 use ai_memory_llm::{
     ChatRequest, ChatResponse, Embedder, LlmProvider, LlmResult, SyntheticEmbedder,
@@ -250,7 +252,7 @@ fn evidence_for(fx: &Fixture, page_id: PageId) -> Vec<(String, String)> {
 fn dream_on() -> DreamConfig {
     DreamConfig {
         enabled: true,
-        embedding: Some(EmbeddingCoord {
+        vectors: DreamVectors::Stored(EmbeddingCoord {
             provider: "synthetic".into(),
             model: "bag-of-words-v1".into(),
             dim: DIM,
@@ -358,6 +360,48 @@ async fn flag_on_merges_cluster_via_llm() {
             .any(|(kind, src)| kind == "reconsolidation" && src.starts_with("b2_dream:")),
         "page_evidence records the merge sources: {evidence:?}"
     );
+}
+
+/// B2 with no embedder (a zero-embedder store): the pass clusters by the pages'
+/// own terms, so the near-duplicate pair still merges and the far page stays
+/// apart.
+#[tokio::test]
+async fn without_an_embedder_the_pages_terms_cluster_them() {
+    let fx = seed_fixture(false).await;
+    write(&fx, "sessions/a.md", DUP_A).await;
+    write(&fx, "sessions/b.md", DUP_B).await;
+    write(&fx, "sessions/far.md", K8S_A).await;
+    for p in ["sessions/a.md", "sessions/b.md", "sessions/far.md"] {
+        backdate_latest(&fx, p, COLD_DAYS);
+    }
+
+    let llm = FakeMergeLlm::new();
+    let calls = llm.calls.clone();
+    let report = run_dream_pass(
+        &fx.store.reader,
+        &fx.wiki,
+        Some(&llm),
+        fx.ws,
+        fx.proj,
+        &DecayParams::default(),
+        0.0,
+        &DreamConfig {
+            vectors: DreamVectors::Lexical,
+            ..dream_on()
+        },
+        &DreamCancel::new(),
+        false,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.clusters_merged, 1, "the pair merged: {report:?}");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let mut members = vec![report.merges[0].survivor.clone()];
+    members.extend(report.merges[0].merged.iter().cloned());
+    members.sort();
+    assert_eq!(members, ["sessions/a.md", "sessions/b.md"]);
+    assert!(latest_body(&fx, "sessions/far.md").contains("max-nodes-42"));
 }
 
 /// B2: a dry run returns the plan, writes nothing, and never calls the LLM.

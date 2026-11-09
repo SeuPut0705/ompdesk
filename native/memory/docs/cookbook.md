@@ -285,11 +285,13 @@ compacted or merged stays in git and the supersession chain, recoverable with
   `AI_MEMORY_CONTRADICTION_BAND_MIN`, default `0.4`). On such a store the
   band measures domain proximity more than conflict, so a higher floor trims
   same-domain-but-unrelated pairs.
-- **Let an LLM consolidate on idle ("dream"):** with a provider *and* an embedder
-  configured, `[dream] enabled` turns on a background pass that rewrites clusters
+- **Let an LLM consolidate on idle ("dream"):** with a provider configured
+  (`[llm]`, or `[dream] omp_executable` to use omp's cheap model with its own
+  sign-in), `[dream] enabled` turns on a background pass that rewrites clusters
   of cold notes into single coherent pages while you're idle and cancels the
-  moment you return. It is off by default, never deletes a source, and is gated on
-  an internal recall eval before it could ever become default behavior.
+  moment you return. Without an embedder it groups notes by the words they
+  share. It is off by default, never deletes a source, and is gated on a recall
+  eval (`ai-memory-eval dream`) before it could ever become default behavior.
 
 ## Recipe: two agents / two repos working together
 

@@ -1412,8 +1412,9 @@ pub async fn run(config: &Config, args: ServeArgs) -> Result<()> {
         wiki.clone(),
         embedder.clone(),
         admin_llm.clone(),
+        config.dream_llm().or_else(|| admin_llm.clone()),
         config.decay,
-        config.dream,
+        config.dream.clone(),
         activity_clock,
         config.contradiction_band_min,
         config.contradiction_band_max,
@@ -2081,6 +2082,7 @@ async fn start_maintenance_scheduler(
     wiki: Wiki,
     embedder: Option<Arc<dyn Embedder>>,
     llm: Option<Arc<dyn LlmProvider>>,
+    dream_llm: Option<Arc<dyn LlmProvider>>,
     decay: crate::config::DecaySettings,
     dream: crate::config::DreamSettings,
     activity_clock: ai_memory_consolidate::ActivityClock,
@@ -2416,37 +2418,27 @@ async fn start_maintenance_scheduler(
     }
 
     // B2/B3/B4 — the opt-in LLM dream pass. OFF by default; it starts only when
-    // `[dream] enabled` is set AND a provider AND an embedder are configured (a
-    // provider-less store keeps the zero-LLM A3 path, invariant #13). It never
-    // contends with live work: it runs only after `idle_window_secs` of quiet and
-    // cancels the moment activity resumes (invariant #5, cancellable + bounded).
+    // `[dream] enabled` is set AND it has a provider (`[dream] omp_executable`
+    // or the `[llm]` one; a provider-less store keeps the zero-LLM A3 path,
+    // invariant #13). It clusters by the embedder's vectors, or by the pages'
+    // terms when no embedder is configured. It never contends with live work:
+    // it runs only after `idle_window_secs` of quiet and cancels the moment
+    // activity resumes (invariant #5, cancellable + bounded).
     if dream.enabled {
-        match (llm.clone(), dedup_embedding.clone()) {
-            (Some(llm), Some(embedding)) => {
-                let reader = reader.clone();
-                let wiki = wiki.clone();
-                let activity_clock = activity_clock.clone();
-                let interval = std::time::Duration::from_secs(dream.effective_interval_secs());
-                tasks.push(tokio::spawn(async move {
-                    run_dream_scheduler_loop(
-                        reader,
-                        wiki,
-                        llm,
-                        decay,
-                        dream,
-                        embedding,
-                        activity_clock,
-                        interval,
-                    )
+        if let Some(llm) = dream_llm {
+            let reader = reader.clone();
+            let wiki = wiki.clone();
+            let activity_clock = activity_clock.clone();
+            let interval = std::time::Duration::from_secs(dream.effective_interval_secs());
+            let cfg = dream.dream_config(dedup_embedding.clone());
+            tasks.push(tokio::spawn(async move {
+                run_dream_scheduler_loop(reader, wiki, llm, decay, cfg, activity_clock, interval)
                     .await;
-                }));
-            }
-            (None, _) => info!(
+            }));
+        } else {
+            info!(
                 "dream pass enabled but no LLM provider is configured; job not started (the zero-LLM A3 path is unaffected)"
-            ),
-            (_, None) => info!(
-                "dream pass enabled but no embedder is configured; job not started (nothing to cluster)"
-            ),
+            );
         }
     }
 
@@ -2464,20 +2456,17 @@ async fn start_maintenance_scheduler(
 /// flips the shared [`ai_memory_consolidate::DreamCancel`] when the activity
 /// clock advances past the run's start; `run_dream_pass` polls it between
 /// clusters.
-#[allow(clippy::too_many_arguments)]
 async fn run_dream_scheduler_loop(
     reader: ReaderPool,
     wiki: Wiki,
     llm: Arc<dyn LlmProvider>,
     decay: crate::config::DecaySettings,
-    dream: crate::config::DreamSettings,
-    embedding: ai_memory_consolidate::EmbeddingCoord,
+    cfg: ai_memory_consolidate::DreamConfig,
     activity_clock: ai_memory_consolidate::ActivityClock,
     interval: std::time::Duration,
 ) {
     /// How often the cancel watcher samples the activity clock during a run.
     const DREAM_ACTIVITY_POLL: std::time::Duration = std::time::Duration::from_secs(2);
-    let cfg = dream.dream_config(Some(embedding));
     let decay_params = decay.decay_params();
     loop {
         tokio::time::sleep(interval).await;
@@ -4268,6 +4257,7 @@ mod tests {
             wiki,
             None,
             None,
+            None,
             crate::config::DecaySettings::default(),
             crate::config::DreamSettings::default(),
             ai_memory_consolidate::ActivityClock::default(),
@@ -4316,6 +4306,7 @@ mod tests {
                 store.reader.clone(),
                 store.writer.clone(),
                 wiki,
+                None,
                 None,
                 None,
                 crate::config::DecaySettings::default(),

@@ -5,14 +5,16 @@
 //! cluster to an LLM to be rewritten into ONE coherent page — the merge A3
 //! cannot do because prose coherence is not extractive. It reuses A3's clustering
 //! math ([`adaptive_eps`]/[`dbscan`]) over the *same* bounded cold set the forget
-//! sweep materialises ([`crate::sweep::materialize_cold_set`], invariant #2).
+//! sweep materialises ([`crate::sweep::materialize_cold_set`], invariant #2), by
+//! the store's embeddings when an embedder is configured and by TF-IDF term
+//! vectors of the pages' own text ([`lexical_vectors`]) when none is.
 //!
 //! Design guarantees, each traced to the design doc's failure modes:
 //!
 //! - **Opt-in, OFF by default, R2-gated.** The pass runs only when
-//!   [`DreamConfig::enabled`] is set AND a provider is passed AND an embedding
-//!   coordinate is configured. A provider-less (zero-LLM) store is a clean no-op —
-//!   the A3 path already owns that store (invariants #13, #16).
+//!   [`DreamConfig::enabled`] is set AND a provider is passed. A provider-less
+//!   (zero-LLM) store is a clean no-op — the A3 path already owns that store
+//!   (invariants #13, #16).
 //! - **Never deletes a source.** The survivor is rewritten and every merged-away
 //!   member is *superseded* with a merge-note stub pointing at it; the full
 //!   pre-merge body stays reachable via the supersession chain + git
@@ -34,7 +36,7 @@
 //!   documented B3 failure mode).
 //!
 //! B4 (surprisal-first ordering) is pure: clusters are processed most-novel
-//! first, novelty being a cluster's embedding distance to the nearest EXISTING
+//! first, novelty being a cluster's vector distance to the nearest EXISTING
 //! (non-cold, latest) page. Worst case is a suboptimal *order* of bounded work,
 //! never wrong output.
 
@@ -51,7 +53,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::cold_cluster::{adaptive_eps, cosine_distance, dbscan};
+use crate::cold_cluster::{adaptive_eps, cosine_distance, dbscan, lexical_vectors};
 use crate::sweep::{
     ColdEntry, DEFAULT_DEDUP_MAX_EPS, DEFAULT_DEDUP_MIN_PTS, EmbeddingCoord, SweepError,
     frontmatter_object, materialize_cold_set,
@@ -133,19 +135,29 @@ impl Default for ActivityClock {
     }
 }
 
+/// What a dream pass clusters cold pages by.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum DreamVectors {
+    /// The store's embeddings for the server's embedder coordinate.
+    Stored(EmbeddingCoord),
+    /// TF-IDF term vectors of the pages' own text ([`lexical_vectors`]): a store
+    /// with no embedder, which holds no vectors to load.
+    #[default]
+    Lexical,
+}
+
 /// Opt-in configuration for the B2/B3/B4 dream pass.
 ///
-/// OFF by default (`enabled = false`, no [`EmbeddingCoord`]): the pass never
-/// clusters, never calls a provider, and returns an empty [`DreamReport`], so an
-/// existing store behaves exactly as it did before B2. Ships OFF and stays OFF
-/// until an R2 number justifies default-on (design doc §B2 R2 bar).
+/// OFF by default (`enabled = false`): the pass never clusters, never calls a
+/// provider, and returns an empty [`DreamReport`], so an existing store behaves
+/// exactly as it did before B2. Ships OFF and stays OFF until an R2 number
+/// justifies default-on (design doc §B2 R2 bar).
 #[derive(Debug, Clone)]
 pub struct DreamConfig {
     /// Master switch. `false` (the default) disables the dream pass entirely.
     pub enabled: bool,
-    /// Which stored embeddings to cluster over. `None` ⇒ no-op (no vectors to
-    /// load), so a store with no embedder configured never dreams.
-    pub embedding: Option<EmbeddingCoord>,
+    /// What to cluster by: stored embeddings, or the pages' terms.
+    pub vectors: DreamVectors,
     /// DBSCAN density floor. `0` ⇒ [`DEFAULT_DEDUP_MIN_PTS`].
     pub min_pts: usize,
     /// Conservative eps ceiling (cosine distance) for the adaptive elbow. `0.0`
@@ -167,7 +179,7 @@ impl Default for DreamConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            embedding: None,
+            vectors: DreamVectors::Lexical,
             min_pts: 0,
             max_eps: 0.0,
             max_clusters_per_run: 0,
@@ -262,8 +274,8 @@ pub struct DreamMerge {
 /// visible, never silent (B3 failure mode).
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct DreamReport {
-    /// `true` when the pass was skipped because it is disabled, has no provider,
-    /// or has no embedding coordinate — the OFF-by-default no-op.
+    /// `true` when the pass was skipped because it is disabled or has no
+    /// provider — the OFF-by-default no-op.
     pub disabled: bool,
     /// `true` when `dry_run` was set: a plan was produced, nothing was written,
     /// and the LLM was never called.
@@ -359,10 +371,10 @@ struct PlannedCluster {
 
 /// Run one dream pass over a scope. See the module docs for the guarantees.
 ///
-/// `llm == None`, `!cfg.enabled`, or `cfg.embedding == None` each make this a
-/// clean no-op (a `disabled` report, never an error). A merge cluster whose
-/// admission is rejected, whose pages cannot be read, whose completion fails, or
-/// whose batch fails is skipped (counted in `skipped`), not fatal.
+/// `llm == None` or `!cfg.enabled` each make this a clean no-op (a `disabled`
+/// report, never an error). A merge cluster whose admission is rejected, whose
+/// pages cannot be read, whose completion fails, or whose batch fails is skipped
+/// (counted in `skipped`), not fatal.
 ///
 /// # Errors
 /// Propagates only cold-set materialisation and store errors ([`DreamError`]);
@@ -385,9 +397,6 @@ pub async fn run_dream_pass(
     if !cfg.enabled {
         return Ok(DreamReport::disabled("none"));
     }
-    let Some(coord) = cfg.embedding.clone() else {
-        return Ok(DreamReport::disabled("none"));
-    };
     let Some(llm) = llm else {
         return Ok(DreamReport::disabled("none"));
     };
@@ -419,28 +428,16 @@ pub async fn run_dream_pass(
         return Ok(report);
     }
 
-    // Load ALL latest-page embeddings once. The cold subset feeds clustering;
-    // the complement (existing, non-cold, latest pages) feeds B4 surprisal.
-    let embeddings = reader
-        .load_embeddings(
-            workspace_id,
-            project_id,
-            coord.provider,
-            coord.model,
-            coord.dim,
-        )
-        .await?;
-    let mut cold_ids: Vec<PageId> = Vec::new();
-    let mut cold_vectors: Vec<Vec<f32>> = Vec::new();
-    let mut existing_vectors: Vec<Vec<f32>> = Vec::new();
-    for e in &embeddings {
-        if eligible.contains_key(&e.id) {
-            cold_ids.push(e.id);
-            cold_vectors.push(e.vector.clone());
-        } else {
-            existing_vectors.push(e.vector.clone());
+    // The cold subset feeds clustering; the complement (existing, non-cold,
+    // latest pages) feeds B4 surprisal.
+    let (cold_ids, cold_vectors, existing_vectors) = match &cfg.vectors {
+        DreamVectors::Stored(coord) => {
+            stored_vectors(reader, workspace_id, project_id, coord, &eligible).await?
         }
-    }
+        DreamVectors::Lexical => {
+            term_vectors(reader, wiki, workspace_id, project_id, &eligible).await?
+        }
+    };
     if cold_vectors.len() < cfg.effective_min_pts() {
         return Ok(report);
     }
@@ -553,6 +550,71 @@ pub async fn run_dream_pass(
     }
 
     Ok(report)
+}
+
+/// Cold page ids with their vectors, and the vectors of every other latest page.
+type ClusterInput = (Vec<PageId>, Vec<Vec<f32>>, Vec<Vec<f32>>);
+
+/// The scope's stored embeddings for `coord`, split into the eligible cold pages
+/// and the rest. A cold page without an embedding row is left out.
+async fn stored_vectors(
+    reader: &ReaderPool,
+    workspace_id: WorkspaceId,
+    project_id: ProjectId,
+    coord: &EmbeddingCoord,
+    eligible: &std::collections::HashMap<PageId, ColdEntry>,
+) -> Result<ClusterInput, DreamError> {
+    let embeddings = reader
+        .load_embeddings(
+            workspace_id,
+            project_id,
+            coord.provider.clone(),
+            coord.model.clone(),
+            coord.dim,
+        )
+        .await?;
+    let mut input: ClusterInput = (Vec::new(), Vec::new(), Vec::new());
+    for e in embeddings {
+        if eligible.contains_key(&e.id) {
+            input.0.push(e.id);
+            input.1.push(e.vector);
+        } else {
+            input.2.push(e.vector);
+        }
+    }
+    Ok(input)
+}
+
+/// [`lexical_vectors`] over every latest page of the scope (one term space, so
+/// the cold pages and the rest are comparable), split like [`stored_vectors`].
+/// A page whose Markdown cannot be read is left out of the clustering.
+async fn term_vectors(
+    reader: &ReaderPool,
+    wiki: &Wiki,
+    workspace_id: WorkspaceId,
+    project_id: ProjectId,
+    eligible: &std::collections::HashMap<PageId, ColdEntry>,
+) -> Result<ClusterInput, DreamError> {
+    let candidates = reader.decay_candidates(workspace_id, project_id).await?;
+    let mut ids: Vec<PageId> = Vec::new();
+    let mut bodies: Vec<String> = Vec::new();
+    for candidate in candidates {
+        if let Ok(md) = wiki.read_page(workspace_id, project_id, &candidate.path) {
+            ids.push(candidate.id);
+            bodies.push(md.body);
+        }
+    }
+    let texts: Vec<&str> = bodies.iter().map(String::as_str).collect();
+    let mut input: ClusterInput = (Vec::new(), Vec::new(), Vec::new());
+    for (id, vector) in ids.into_iter().zip(lexical_vectors(&texts)) {
+        if eligible.contains_key(&id) {
+            input.0.push(id);
+            input.1.push(vector);
+        } else {
+            input.2.push(vector);
+        }
+    }
+    Ok(input)
 }
 
 enum MergeOutcome {
