@@ -82,6 +82,10 @@ export class World {
 	held: Array<{ key: string; release: () => void }> = [];
 	/** How many `retry` commands stock refuses before it takes one. */
 	failRetries = 0;
+	/** The status a tab opened by `spawnTab` starts in (a slow omp: `starting`). */
+	spawnStatus = "ready";
+	/** Runs right after `spawnTab` made its tab, before the coordinator looks at it. */
+	onSpawn: (() => void) | null = null;
 
 	#hold(key: string, answer: () => unknown): Promise<RpcResponse> {
 		const { promise, resolve } = Promise.withResolvers<RpcResponse>();
@@ -281,7 +285,9 @@ export function build(
 		spawnTab: async (_win, payload) => {
 			const tabId = `ap-${++nextTab}`;
 			const sidecar = world.addTab(tabId, payload.cwd ?? "");
+			sidecar.status = world.spawnStatus;
 			autopilot.attachSidecar(tabId, sidecar as unknown as SidecarLike);
+			world.onSpawn?.();
 			return { tabId };
 		},
 		prefs: { get: key => over.prefs?.[key] },

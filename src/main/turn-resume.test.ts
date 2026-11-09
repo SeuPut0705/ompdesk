@@ -24,7 +24,6 @@ import {
 	movesTabUnknown,
 	personsPrompt,
 	RESUME_COMMAND_TIMEOUT_MS,
-	RESUME_READY_TIMEOUT_MS,
 	type ResumeDeps,
 	type ResumeFact,
 	type ResumeLogDetails,
@@ -1155,7 +1154,7 @@ describe("TurnResume launch", () => {
 		expect(h.store.read()).toEqual([]);
 	});
 
-	it("keeps the marker of a tab whose omp never becomes ready, and continues it once the tab reads ready", async () => {
+	it("waits for a tab whose omp is slow to become ready with no deadline: no failed try is counted, it continues once ready", async () => {
 		vi.useFakeTimers();
 		try {
 			h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
@@ -1165,20 +1164,53 @@ describe("TurnResume launch", () => {
 			await settle();
 			expect(h.store.read()).toHaveLength(1);
 
-			await vi.advanceTimersByTimeAsync(RESUME_READY_TIMEOUT_MS);
+			await vi.advanceTimersByTimeAsync(24 * 60 * 60_000);
 			expect(h.commands).toEqual([]);
+			expect(h.logs.filter(([name]) => name === "continue")).toEqual([]);
 			expect(h.store.read().map(entry => entry.tab)).toEqual(["restored"]);
 			expect(h.goals).toEqual([]);
-			// The wait for the status ended; the retry's own listener is the only one left.
+			// One listener, the wait itself.
 			expect(h.statusListeners()).toBe(1);
 
 			h.setStatus("ready");
 			await settle();
 			expect(h.commands.map(cmd => cmd.type)).toEqual(["restore_interrupted"]);
+			expect(h.logs.filter(([name]) => name === "continue")).toHaveLength(1);
 			expect(h.statusListeners()).toBe(0);
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("a tab closed while its omp still starts ends the wait: no listener stays and the goal hears none", async () => {
+		h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.statusListeners()).toBe(1);
+
+		h.facts.splice(0);
+		h.resume.sync();
+		await settle();
+		expect(h.statusListeners()).toBe(0);
+		expect(h.store.read()).toEqual([]);
+		expect(h.goals).toEqual([["restored", "none"]]);
+		expect(h.commands).toEqual([]);
+	});
+
+	it("Stop while the resumed tab's omp still starts leaves no listener behind", async () => {
+		h = setup({ status: "starting", answers: { restore_interrupted: RESTORED } });
+		new InterruptedTurnStore(h.file).write([marker()]);
+		h.facts.push(fact({ tabId: "restored", running: false }));
+		h.resume.launch();
+		await settle();
+		expect(h.statusListeners()).toBe(1);
+
+		await h.resume.stopResumed("restored");
+		await settle();
+		expect(h.statusListeners()).toBe(0);
+		expect(h.goals).toEqual([["restored", "cancelled"]]);
 	});
 
 	describe("a continuation none of whose commands was answered", () => {
