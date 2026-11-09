@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.119.10] - 2026-11-09
+
+사이드바에서 누른 줄이 아닌 다른 세션이 선택되던 문제와, 세션을 고를 때마다 다른 줄 제목이 잘리는 위치가 바뀌던 문제를 고쳤어요. 에이전트가 그림을 넣어 묻는 선택 질문은 고르기 전에 그림이 보여요.
+
+### 고친 것
+- 사이드바에서 한 줄을 눌렀는데 다른 세션, 주로 일하고 있는 세션이 선택될 수 있었어요. 다른 omp가 새 세션을 시작하거나 하위 작업 줄이 생기고 사라지면, 아래 줄이 한 칸씩 밀리면서 누르려던 자리에 다른 세션이 들어왔기 때문이에요. 이제 포인터로 목록을 겨누는 동안에는 줄이 그려진 자리에 그대로 있어요. 새로 생긴 줄은 기다렸다가 들어오고, 사라진 줄은 누를 수 없는 빈 자리로 남아요. 포인터가 목록을 벗어나면 한꺼번에 반영되고, 휴대폰은 손을 뗀 뒤 잠시 뒤에 반영돼요. 이 컴퓨터, 페어링한 컴퓨터의 구역, 휴대폰에서 모두 같아요.
+- 세션을 고르면 다른 줄들의 제목이 9px씩 더 짧거나 길게 잘렸어요. 프로젝트가 접히거나 하위 줄이 펼쳐져 목록 높이가 바뀌면 스크롤바가 생기거나 사라지면서 모든 줄의 폭이 바뀌었기 때문이에요. 이제 목록은 스크롤바 자리를 늘 비워 두어서 줄 폭이 바뀌지 않아요.
+- 고른 줄 자신의 제목도 10px 짧게 잘렸어요. 하위 작업이 없어 칩을 그리지 않는데도 칩 자리를 비워 두었기 때문이에요. 이제 칩이 있을 때만 그 자리를 차지해요.
+- 윈도우에서 `C:\...` 같은 경로로 넣은 그림이 답글, 질문 카드, 결정 카드에서 그림 대신 글자로만 보이던 문제를 고쳤어요.
+
+### 새로 생긴 것
+- 에이전트가 그림을 넣어 선택 질문을 하면, 고르기 전에 질문 위에 설명과 그림 썸네일이 나란히 보여요. 썸네일을 누르면 크게 열리고, 페어링한 컴퓨터와 휴대폰에서도 같아요. 전에는 omp가 질문을 항목별로 나누어 보내면서 그림과 설명이 빠졌어요.
+
+<!-- en -->
+
+Clicking a sidebar row no longer selects another session, and picking a session no longer moves where other rows' titles are cut. An agent's question with pictures shows them before you choose.
+
+### Fixed
+- A click on a sidebar row could select another session, usually one at work. A session another omp started, or a child row arriving or leaving, pushed the rows below down by one, so what moved in under the pointer took the click. While the pointer aims at the list, its rows now stay where they were drawn: a new row waits, one that left stays as an empty place that takes no click, and everything lands when the pointer leaves (on the phone, a moment after the finger lifts). This holds on this computer, in a paired computer's section and on the phone.
+- Picking a session cut other rows' titles 9 px shorter or longer. A project folding or a family unfolding changed the list's height, the scrollbar came or went, and every row's width changed with it. The list now always keeps the scrollbar's room.
+- The picked row's own title was cut 10 px shorter: it kept room for a family chip it did not draw. A row now holds that room only while the chip shows.
+- On Windows, a picture named by a drive path (`C:\...`) showed as its alt text in replies, question cards and decision cards.
+
+### Added
+- When an agent asks a question with pictures, the paragraphs and picture thumbnails show above the question before you choose; a thumbnail opens large. The same on a paired computer and the phone. omp used to split the form into separate fields and drop the pictures and text.
+
 ## [0.119.9] - 2026-11-09
 
 시작이 느린 omp를 45초 만에 끄고 탭을 오류로 끝내던 제한을 없앴어요. 이제 omp가 늦게 응답해도 끝까지 기다려요.
