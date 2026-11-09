@@ -341,7 +341,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // hooks/use-shown-split.ts): 2,174,534.
 // An omp slow to start reads as a wait on its tab's banner (9 Nov 2026, SidecarBanner's slow title, text and stderr
 // tail, the session store's `sidecarSlow`, `applyTabFailure`'s slow branch; the banner is the first screen): 2,174,908.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_174_908;
+// A start that waits its turn reads "Waiting to start" (9 Nov 2026, tab-signal.ts `queued`, the tab's projection of
+// it, use-rpc-events keeping the page through a queued re-send): 2,175,008.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_175_008;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
