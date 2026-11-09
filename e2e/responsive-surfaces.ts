@@ -56,7 +56,8 @@ export interface Surface {
 		folderMissing?: boolean;
 		/**
 		 * Runs in each view after its capture (also when the capture failed): puts back what `open` changed beyond the
-		 * page (the host's settings, a take waiting on the fake omp), so the next surface starts from the same host.
+		 * page (the host's settings, a take waiting on the fake omp) or left open in the window beyond what Escape and
+		 * opening the next session close (the side panel), so the next surface starts from the same host and window.
 		 */
 		after?(page: Page): Promise<void>;
 		/**
@@ -259,6 +260,16 @@ async function openPanelView(page: Page, name: string): Promise<void> {
 	if (!(await view.isVisible().catch(() => false)))
 		await page.getByRole("button", { name: "Side panel", exact: true }).first().click();
 	await view.click();
+}
+
+/**
+ * Closes the side panel a surface opened, by the panel's own close button. The open panel takes the place the work
+ * board docks in, so the board of the surface after it folds into its strip: `bot-ended` could not reach the bot's
+ * earlier conversations after `panel-diff` (10 Nov 2026, the window and the paired view; the phone loads afresh).
+ */
+async function closePanelView(page: Page): Promise<void> {
+	const close = page.getByRole("button", { name: "Close side panel", exact: true }).first();
+	if (await close.isVisible().catch(() => false)) await close.click();
 }
 
 /**
@@ -548,26 +559,73 @@ const DIALOG_FLAGS: ReadonlyArray<{ id: string; action: string; args?: unknown[]
 ];
 
 /**
- * Brings `target` of a reply to the top of its transcript once the reply's math and mermaid chart have drawn and every
- * picture of a figure row has its read's answer (the picture, or the failed chip with its reason). It scrolls as a
- * reader does, an upward wheel first: a programmatic scroll leaves the transcript following its end (ChatStream's
- * `pinned`, released only by a wheel, touch, key or scrollbar gesture), so a row measured after it moved the view back
- * to the end (6 Nov 2026: the local and phone views of `reply-text` showed the narrated run, not the Text section).
+ * Scrolls `target` to the top of its transcript until it stays there. The rows around it are measured in the frames
+ * after they mount and each measurement moves the view, so a place read right after the scroll says nothing: the
+ * target is where the scroll put it only once it has not moved for ten frames (10 Nov 2026: a phone's view of the
+ * showcase reply slid 759 px past its section after one scroll).
  */
-async function showInReply(page: Page, target: Locator): Promise<void> {
-	for (const drawn of [".markdown-body .katex-display", ".markdown-body [data-figure] img"])
-		await page.locator(drawn).last().waitFor({ state: "visible", timeout: 15_000 });
+async function holdAtTop(target: Locator): Promise<void> {
+	for (let attempt = 0; attempt < 30; attempt++) {
+		const stayed = await target.evaluate(async element => {
+			const frames = async (count: number) => {
+				for (let frame = 0; frame < count; frame++) await new Promise(done => requestAnimationFrame(done));
+			};
+			element.scrollIntoView({ block: "start" });
+			await frames(2);
+			const placed = element.getBoundingClientRect().top;
+			await frames(10);
+			return element.isConnected && Math.abs(element.getBoundingClientRect().top - placed) <= 1;
+		});
+		if (stayed) return;
+	}
+}
+
+/**
+ * Brings the turn a person started with `prompt` to the top of its transcript, as a reader looking for it does: an
+ * upward wheel first (a programmatic scroll alone leaves the transcript following its end, ChatStream's `pinned`,
+ * released only by a wheel, touch, key or scrollbar gesture), then a view's height at a time, from where the view is
+ * to the transcript's start and on to its end, until the turn is in the page.
+ *
+ * The transcript is virtualized: only the rows around the view are mounted (8 beyond it), so a part of a turn far
+ * from the view is not there to wait for, click or scroll to. Every surface of the `reply` session names its turn
+ * here first: once the session had seven turns, the surfaces of its first four waited 15 to 30 s each for a row that
+ * never mounted, in the window and in the paired view (10 Nov 2026: 10 of the 48 parity surfaces, 482 of a capture's
+ * 800 s).
+ */
+async function showTurn(page: Page, prompt: string): Promise<void> {
+	const bubble = page.locator(".omp-user-bubble").getByText(prompt, { exact: true }).last();
+	const scroller = page.locator(".omp-transcript-scroll").first();
+	await scroller.evaluate(element =>
+		element.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true })),
+	);
+	for (const direction of [-1, 1]) {
+		while ((await bubble.count()) === 0) {
+			const moved = await scroller.evaluate(async (element, by) => {
+				const from = element.scrollTop;
+				element.scrollTop = from + by * element.clientHeight;
+				// The rows of the new view mount in the frames after the scroll.
+				await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
+				return element.scrollTop !== from;
+			}, direction);
+			if (!moved) break;
+		}
+	}
+	await holdAtTop(bubble);
+}
+
+/**
+ * Brings `target` of a reply whose turn is shown (`showTurn`) to the top of its transcript, once each of `drawn` (the
+ * reply's math, its mermaid chart) is visible in the target's own row and every picture of a figure row has its
+ * read's answer (the picture, or the failed chip with its reason).
+ */
+async function showInReply(page: Page, target: Locator, drawn: readonly string[] = []): Promise<void> {
+	const row = page.locator(".omp-transcript-scroll [data-index]").filter({ has: target }).first();
+	for (const selector of drawn) await row.locator(selector).last().waitFor({ state: "visible", timeout: 15_000 });
 	await page
 		.locator("[data-figure-row] figure:not(:has(img)):not(:has(> span[title]))")
 		.first()
 		.waitFor({ state: "detached", timeout: 15_000 });
-	await page
-		.locator(".omp-transcript-scroll")
-		.first()
-		.evaluate(scroller =>
-			scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true })),
-		);
-	await target.evaluate(element => element.scrollIntoView({ block: "start" }));
+	await holdAtTop(target);
 }
 
 export const SURFACES: readonly Surface[] = [
@@ -587,7 +645,10 @@ export const SURFACES: readonly Surface[] = [
 		id: "reply-images",
 		area: "A",
 		title: "A reply showing the changed look: a before/after pair and a gallery of three screenshots, by absolute path",
-		open: page => showInReply(page, page.locator("[data-zoomable-image]").first()),
+		open: async page => {
+			await showTurn(page, "fixture reply images");
+			await showInReply(page, page.locator("[data-zoomable-image]").first());
+		},
 		ready: "[data-zoomable-image] img",
 		settle: 900,
 		// The audits' harness page has no such reply; the parity sheet asks the fake omp for it.
@@ -599,6 +660,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "The reply's after picture opened full size from its pair, its partner one step away",
 		open: async page => {
+			await showTurn(page, "fixture reply images");
 			await page
 				.getByRole("button", { name: /After: one project open/ })
 				.first()
@@ -614,6 +676,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "A reply's files and figures: an svg figure, a video and a sound in their players, a table file's card",
 		open: async page => {
+			await showTurn(page, "fixture reply media");
 			await page.locator(".markdown-body [data-file-card]").first().waitFor({ timeout: 15_000 });
 			await showInReply(
 				page,
@@ -633,6 +696,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "The reply's svg figure enlarged from its header",
 		open: async page => {
+			await showTurn(page, "fixture reply media");
 			await page.locator(".markdown-body [data-figure='svg'] [data-figure-expand]").first().click();
 		},
 		ready: "[role='dialog'] [data-image-viewer] img",
@@ -658,14 +722,17 @@ export const SURFACES: readonly Surface[] = [
 			id,
 			area: "A",
 			title: `A reply's ${heading.toLowerCase()}: ${what}`,
-			open: page =>
-				showInReply(
+			open: async page => {
+				await showTurn(page, "fixture reply components");
+				await showInReply(
 					page,
 					page
 						.locator(".markdown-body h2")
 						.filter({ hasText: new RegExp(`^\\s*${heading}\\s*$`) })
 						.first(),
-				),
+					[".markdown-body .katex-display", ".markdown-body [data-figure] img"],
+				);
+			},
 			ready: ".markdown-body h2",
 			settle: 900,
 			// Each view shows its section; the Text one, the row whose chips spilled their paths sideways.
@@ -683,12 +750,8 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "A run whose reply writes to the person beside its tool call: the text stays under the card holding the call",
 		open: async page => {
+			await showTurn(page, "fixture narrated");
 			await page.getByText("Narrated run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
-			await page
-				.locator(".omp-user-bubble")
-				.getByText("fixture narrated", { exact: true })
-				.last()
-				.evaluate(element => element.scrollIntoView({ block: "start" }));
 		},
 		ready: "[data-transcript-kind='process']",
 		settle: 900,
@@ -716,12 +779,8 @@ export const SURFACES: readonly Surface[] = [
 			area: "A",
 			title: `A turn's two work cards around a reply's narration: ${what}, and a note for an error gone past`,
 			open: async page => {
+				await showTurn(page, prompt);
 				await page.getByText(answer, { exact: true }).last().waitFor({ timeout: 15_000 });
-				await page
-					.locator(".omp-user-bubble")
-					.getByText(prompt, { exact: true })
-					.last()
-					.evaluate(element => element.scrollIntoView({ block: "start" }));
 			},
 			ready: "[data-transcript-kind='process']",
 			settle: 900,
@@ -734,6 +793,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "A",
 		title: "agent-desktop's tool calls: the snapshot tree unfolded, the typed line and the screenshot",
 		open: async page => {
+			await showTurn(page, "fixture agent-desktop");
 			await page.getByText("agent-desktop run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
 			const card = page.locator(".omp-execution-group").last();
 			const head = card.locator(".omp-execution-group-header").first();
@@ -776,13 +836,13 @@ export const SURFACES: readonly Surface[] = [
 		title: "The usage row under a reply: model, tokens, cache, cost, duration, first token, speed and time on one line",
 		// The fake omp's agent-desktop run (`tool-agent-desktop`) ends on a reply carrying every segment.
 		open: async page => {
-			await page.getByText("agent-desktop run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
 			// A surface before may have scrolled the transcript up: back to its end, where this reply is, as a reader
 			// does (a scroll of our own would leave "Jump to latest" over the row).
 			// The pill stays in the page while pinned, hidden from the pointer and the accessibility tree.
 			const latest = page.locator("[data-jump-to-latest]:not([aria-hidden])").first();
 			if ((await latest.count()) > 0) await latest.click();
 			await latest.waitFor({ state: "detached", timeout: 15_000 });
+			await page.getByText("agent-desktop run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
 		},
 		ready: ".omp-usage-row",
 		settle: 900,
@@ -1154,7 +1214,7 @@ export const SURFACES: readonly Surface[] = [
 				await page.locator("[data-scm-bar]:visible").first().waitFor({ timeout: 20_000 });
 			},
 			ready: "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
-			...(panel === "diff" ? { parity: { session: "work" as const } } : {}),
+			...(panel === "diff" ? { parity: { session: "work" as const, after: closePanelView } } : {}),
 			settle: 900,
 		}),
 	),
@@ -1183,7 +1243,7 @@ export const SURFACES: readonly Surface[] = [
 				.click();
 		},
 		ready: "[data-file-viewer-head]",
-		parity: { session: "work" },
+		parity: { session: "work", after: closePanelView },
 		settle: 1200,
 	},
 

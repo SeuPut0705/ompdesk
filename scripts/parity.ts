@@ -8,9 +8,10 @@
  * prints every file it wrote. Exits non-zero when any view of any surface could not be captured: there is never a
  * partial set without a failure.
  *
- * `--both-orders` is the order check: every parity surface in one capture, then all of them again in reverse order in
+ * `--both-orders` is the order check: every parity surface in one capture and all of them again in reverse order in
  * another, into `<dir>/forward` and `<dir>/reverse`. The surfaces of one capture share its two apps, so a surface that
- * leaves something behind breaks one that comes after it; one order alone cannot tell.
+ * leaves something behind breaks one that comes after it; one order alone cannot tell. The two captures are two tests
+ * of one Playwright run, side by side where the machine gives the run two workers (each has its own apps).
  *
  * Output: `<dir>/<surface>/{local,remote,phone,sheet}.png` and `<dir>/parity.json`; default dir
  * `tmp/parity/<date>-<time>` (gitignored).
@@ -57,11 +58,9 @@ interface Manifest {
 	pageErrors: string[];
 }
 
-async function capture(surfaces: readonly string[], dir: string): Promise<boolean> {
-	await fs.mkdir(dir, { recursive: true });
-	const manifest = path.join(dir, "parity.json");
-	await fs.rm(manifest, { force: true });
-	const code = await run(
+/** Runs the capture spec once under the machine-wide lock; `env` says what it captures and where. */
+async function playwright(dir: string, env: Record<string, string>): Promise<number> {
+	return await run(
 		[
 			"bun",
 			"run",
@@ -78,19 +77,28 @@ async function capture(surfaces: readonly string[], dir: string): Promise<boolea
 			"--output",
 			path.join(dir, "results"),
 		],
-		{ OMP_GUI_PARITY: dir, OMP_GUI_PARITY_ONLY: surfaces.join(",") },
+		env,
 	);
+}
+
+/** Forgets what an earlier capture wrote to `dir`, so a capture that writes nothing is not read as that one. */
+async function prepare(dir: string): Promise<void> {
+	await fs.mkdir(dir, { recursive: true });
+	await fs.rm(path.join(dir, "parity.json"), { force: true });
+}
+
+/** Prints what the capture in `dir` wrote; false when any of `surfaces` lacks a view, or the capture wrote nothing. */
+async function report(surfaces: readonly string[], dir: string): Promise<boolean> {
+	const manifest = path.join(dir, "parity.json");
 	const written = await fs
 		.readFile(manifest, "utf8")
 		.then(text => JSON.parse(text) as Manifest)
 		.catch(() => null);
 	if (!written) {
-		console.error(
-			`[parity] FAILED: the capture wrote no ${manifest} (Playwright exited ${code}; its output is above)`,
-		);
+		console.error(`[parity] FAILED: the capture wrote no ${manifest} (Playwright's output is above)`);
 		return false;
 	}
-	let ok = code === 0;
+	let ok = true;
 	for (const id of surfaces) {
 		const surface = written.surfaces.find(entry => entry.id === id);
 		if (surface?.sheet && surface.failures.length === 0) {
@@ -110,18 +118,28 @@ if ((await run(["bun", "run", "build"])) !== 0) {
 	console.error("[parity] the build failed: nothing captured");
 	process.exit(1);
 }
-if (!bothOrders) process.exit((await capture(ids, out)) ? 0 : 1);
+if (!bothOrders) {
+	await prepare(out);
+	const code = await playwright(out, { OMP_GUI_PARITY: out, OMP_GUI_PARITY_ONLY: ids.join(",") });
+	const captured = await report(ids, out);
+	if (captured && code !== 0) console.error(`[parity] FAILED: Playwright exited ${code} (its output is above)`);
+	process.exit(captured && code === 0 ? 0 : 1);
+}
 
+const orders = ["forward", "reverse"] as const;
+for (const order of orders) await prepare(path.join(out, order));
+const code = await playwright(out, { OMP_GUI_PARITY: out, OMP_GUI_PARITY_ORDERS: "both" });
 const failed: string[] = [];
-for (const [order, surfaces] of [
-	["forward", capable],
-	["reverse", [...capable].reverse()],
-] as const) {
-	console.log(`[parity] ${order}: ${surfaces.join(" ")}`);
-	if (!(await capture(surfaces, path.join(out, order)))) failed.push(order);
+for (const order of orders) {
+	console.log(`[parity] ${order}:`);
+	if (!(await report(capable, path.join(out, order)))) failed.push(order);
 }
 if (failed.length > 0) {
 	console.error(`[parity] FAILED in ${failed.join(" and ")} order: a surface left something behind for one after it`);
+	process.exit(1);
+}
+if (code !== 0) {
+	console.error(`[parity] FAILED: Playwright exited ${code} (its output is above)`);
 	process.exit(1);
 }
 console.log(`[parity] every surface passed in both orders: ${out}`);

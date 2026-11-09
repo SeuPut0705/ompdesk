@@ -9,6 +9,8 @@
  * `parity` session). Writes `<dir>/<surface>/{local,remote,phone}.png`, `<dir>/<surface>/sheet.png` (the three side by
  * side, labelled) and `<dir>/parity.json`. A view that cannot reach a surface (its `ready` never shows, the renderer
  * or a panel crashed) fails the test naming the surface and the view, and that surface gets no sheet.
+ * OMP_GUI_PARITY_ORDERS=both is the order check instead (`bun run parity -- --both-orders`): two tests side by side,
+ * every surface into `<dir>/forward` and every surface in reverse order into `<dir>/reverse`.
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
@@ -81,10 +83,11 @@ interface SurfaceRecord {
 	failures: string[];
 }
 
-function paritySurfaces(): Array<Surface & { parity: NonNullable<Surface["parity"]> }> {
-	const capable = SURFACES.filter(
-		(surface): surface is Surface & { parity: NonNullable<Surface["parity"]> } => surface.parity !== undefined,
-	);
+/** A surface the sheet can capture. */
+type ParitySurface = Surface & { parity: NonNullable<Surface["parity"]> };
+
+function paritySurfaces(): ParitySurface[] {
+	const capable = SURFACES.filter((surface): surface is ParitySurface => surface.parity !== undefined);
 	const only = process.env.OMP_GUI_PARITY_ONLY?.split(",").filter(Boolean);
 	if (!only) return capable;
 	return only.map(id => {
@@ -130,12 +133,12 @@ ${images
 }
 
 if (dir) {
-	test.describe.configure({ retries: 0 });
+	// A capture launches its own two apps on its own profiles and ports, so the order check's two captures (every
+	// surface, and every surface in reverse) run side by side as two tests, each in a worker of its own.
+	test.describe.configure({ mode: "parallel", retries: 0 });
 
-	test("parity sheet: local window, paired computer's view and phone of the same session", async () => {
-		const surfaces = paritySurfaces();
+	const capture = async (surfaces: readonly ParitySurface[], out: string): Promise<void> => {
 		test.setTimeout(300_000 + surfaces.length * 90_000);
-		const out = path.resolve(dir);
 		await fs.mkdir(out, { recursive: true });
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-parity-")));
 		// The voice surfaces (calls and composer dictation) script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
@@ -399,8 +402,6 @@ if (dir) {
 					)
 					.toBe(sessionPath);
 			};
-			/** The phone's tab on each of B's session files. */
-			const phoneTabs = new Map<string, string>();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
 				local: async session => {
@@ -431,7 +432,12 @@ if (dir) {
 					await phone.goto(`${phoneUrl}/`, { timeout: 60_000 });
 					await phonePaired(phone);
 					const { path: sessionPath, cwd } = await hostSession(session);
-					let tabId = phoneTabs.get(sessionPath);
+					// The phone's tab on that file, read from the phone each time and never kept from a surface before: a tab
+					// moves with its session (the bot's follows a renewed conversation), and one kept for the file the bot
+					// left showed the current conversation's composer where `bot-ended` expects the ended one's note.
+					let tabId = (await phone.evaluate(() => window.omp.tabs.list())).find(
+						tab => tab.sessionPath === sessionPath,
+					)?.tabId;
 					if (!tabId) {
 						const viewed = await phone.evaluate(
 							spawn => window.omp.tabs.spawn(spawn),
@@ -441,7 +447,6 @@ if (dir) {
 						);
 						tabId = viewed?.tabId ?? undefined;
 						if (!tabId) throw new Error(`the phone could not view ${session}: ${JSON.stringify(viewed)}`);
-						phoneTabs.set(sessionPath, tabId);
 					}
 					await phone.goto(`${phoneUrl}/#/open?tab=${tabId}`);
 				},
@@ -676,7 +681,15 @@ if (dir) {
 							// Playwright's first line says what timed out, its call log's "waiting for" line on what.
 							const lines = error instanceof Error ? error.message.split("\n") : [String(error)];
 							const on = lines.find(line => line.includes("waiting for"))?.trim();
-							record.failures.push(`${view}: ${lines[0]}${on ? ` (${on})` : ""}`);
+							// What the view showed instead, so the failure is read from its picture and not from a second run.
+							const shown = path.join(folder, `${view}-failed.png`);
+							const pictured = await page
+								.screenshot({ path: shown, scale: "css", animations: "disabled" })
+								.then(() => true)
+								.catch(() => false);
+							record.failures.push(
+								`${view}: ${lines[0]}${on ? ` (${on})` : ""}${pictured ? `; what it showed: ${shown}` : ""}`,
+							);
 						}
 						try {
 							await surface.parity.after?.(page);
@@ -704,5 +717,12 @@ if (dir) {
 			for (const instance of [client, host]) if (instance) await exitApp(instance.app);
 			await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
 		}
-	});
+	};
+
+	const sheet = "local window, paired computer's view and phone of the same session";
+	if (process.env.OMP_GUI_PARITY_ORDERS === "both") {
+		const all = paritySurfaces();
+		test(`parity sheet, forward: ${sheet}`, () => capture(all, path.resolve(dir, "forward")));
+		test(`parity sheet, reverse: ${sheet}`, () => capture([...all].reverse(), path.resolve(dir, "reverse")));
+	} else test(`parity sheet: ${sheet}`, () => capture(paritySurfaces(), path.resolve(dir)));
 }

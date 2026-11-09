@@ -34,6 +34,12 @@ describe("specsFor", () => {
 			specsFor(["e2e/smoke.e2e.ts", "src/renderer/components/dialogs/ThemePickerDialog.test.tsx"], sources),
 		).toEqual(["e2e/smoke.e2e.ts"]);
 	});
+
+	it("picks the parity sheet's spec for a change to its surfaces or its runner, and for no other e2e support file", () => {
+		expect(specsFor(["e2e/responsive-surfaces.ts"], sources)).toEqual(["e2e/parity.e2e.ts"]);
+		expect(specsFor(["scripts/parity.ts"], sources)).toEqual(["e2e/parity.e2e.ts"]);
+		expect(specsFor(["e2e/harness.ts", "scripts/gate.ts"], sources)).toEqual([]);
+	});
 });
 
 describe("phrases", () => {

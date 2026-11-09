@@ -13,9 +13,9 @@
  * at `TEST_SECONDS` each, but never below the file's time in `scripts/e2e-shard-costs.json`: each spec file's summed
  * test time on the hosted macOS runner with one worker (nightly 42609763294, 9 Nov 2026, every shard; deep-audit read
  * 608 s there, 596 and 702 s in two earlier runs). Measured on a 15-core Mac with 4 workers instead, deep-audit read
- * 184 s. Most tests of an unmeasured
- * file skip inside their body, so `TEST_SECONDS` is the mean of the rest, not of all tests: at 8 s the estimate was
- * ~1546 s a shard against 907 to 1494 s measured, and the split put the heaviest shard past the timeout.
+ * 184 s. Most tests of an unmeasured file skip inside their body, so `TEST_SECONDS` is the mean of the rest, not of
+ * all tests: at 8 s the estimate was ~1546 s a shard against 907 to 1494 s measured, and the split put the heaviest
+ * shard past the timeout.
  * The costs only steer the split; every file lands in exactly one shard, so a wrong estimate costs wall time, never
  * coverage, except past the shard's `--global-timeout` (35 minutes): the tests left then do not run at all (nightly
  * 41817431850, shard 3: 36 tests did not run; 41880669356, shard 1: one). `bun scripts/e2e-shard-costs.ts <run-id>`

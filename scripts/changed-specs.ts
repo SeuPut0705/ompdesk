@@ -8,6 +8,9 @@
  * A stylesheet change counts as a change to the components that use the classes its touched rules
  * name (`.omp-composer-chip[data-active]` → RunChip.tsx and ComposerToolbar.tsx → composer-toolbar):
  * cycle 341's colour change to that rule broke `e2e/composer-toolbar.e2e.ts`, and no spec was picked.
+ * The parity sheet's surfaces and runner (`PARITY_INPUTS`) pick the sheet's spec, which `check:changed` runs as the
+ * order check: neither is a spec or app source, so a new surface used to land unchecked, and from 7 to 10 Nov 2026
+ * the order check failed on every checkout.
  */
 import path from "node:path";
 
@@ -70,6 +73,8 @@ export function touchedClasses(css: string, lines: readonly number[]): string[] 
 
 /** A class used by more components than this is shared styling (a row, a chip): it names no component. */
 const MAX_CLASS_USERS = 8;
+/** What the parity sheet captures and how it runs: a change to either is a change to `e2e/parity.e2e.ts`. */
+const PARITY_INPUTS: readonly string[] = ["e2e/responsive-surfaces.ts", "scripts/parity.ts"];
 
 export interface SpecSources {
 	/** Spec file name (`work-board.e2e.ts`) → its text. */
@@ -88,6 +93,7 @@ export function specsFor(files: readonly string[], sources: SpecSources): string
 	const changedSources: string[] = [];
 	for (const file of files) {
 		if (file.startsWith("e2e/") && file.endsWith(".e2e.ts")) picked.add(path.basename(file));
+		else if (PARITY_INPUTS.includes(file)) picked.add("parity.e2e.ts");
 		else if (/^src\/renderer\/.*\.css$/.test(file) && sources.changedLines && sources.usersOf) {
 			for (const className of touchedClasses(sources.read(file), sources.changedLines(file))) {
 				for (const [spec, text] of sources.specs) if (text.includes(className)) picked.add(spec);
