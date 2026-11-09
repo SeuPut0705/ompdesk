@@ -14,6 +14,10 @@ import { clearHistoryImages, rememberHistoryImages } from "../../../lib/history-
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { expandPasteMarkers, pasteMarkerText, storePaste } from "../../../lib/paste-blobs";
 import { METER_BARS, recordAndTranscribe, stopVoiceRecording } from "../../../lib/voice";
+// A take's prepare loop loads with its module (`import("./voice-stream")`, lib/voice.ts). Loaded with this file, so a
+// download's progress waits on the bridge's answer alone, never on the module loader: a cold load outlasted the one
+// tick the dictation tests wait when this file was the first to run on a busy runner (ci run 42701060204).
+import "../../../lib/voice-stream";
 import { useComposerStore } from "../../../stores/composer";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useFirstRunStore } from "../../../stores/first-run";
