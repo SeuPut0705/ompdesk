@@ -32,9 +32,13 @@ const WORLD = [
 	["s-4", "Short one", 4],
 ] as const;
 
-/** The sessions of `WORLD` in `agent`'s journal, in the fake omp's format, each with one answered turn. */
-async function seedWorld(agent: string, cwd: string): Promise<void> {
-	for (const [id, title, minutesAgo] of WORLD) {
+/** `rows` in `agent`'s journal under `cwd`, in the fake omp's format, each with one answered turn. */
+async function seedRows(
+	agent: string,
+	cwd: string,
+	rows: ReadonlyArray<readonly [id: string, title: string, minutesAgo: number]>,
+): Promise<void> {
+	for (const [id, title, minutesAgo] of rows) {
 		const file = path.join(agent, "sessions", "seeded", `${id}.jsonl`);
 		await fs.mkdir(path.dirname(file), { recursive: true });
 		const at = new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -108,7 +112,7 @@ test("picking a session moves no row's title end or age on this computer's list"
 	root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-row-width-")));
 	const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(root, name));
 	await Promise.all([project, desktop, agent].map(dir => fs.mkdir(dir)));
-	await seedWorld(agent, project);
+	await seedRows(agent, project, WORLD);
 	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
 	app = await launchApp({ project, desktop, agent, profile: root, env: { OMP_GUI_TEST_SESSION_FILES: "1" } });
 	const page = await app.firstWindow();
@@ -141,7 +145,7 @@ test("picking a host's session moves no row's title end or age on a paired compu
 			theme: "light",
 			port: hostProfile.port,
 		});
-		await seedWorld(path.join(hostProfile.root, "agent"), hostProfile.project);
+		await seedRows(path.join(hostProfile.root, "agent"), hostProfile.project, WORLD);
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const a = client.page;
@@ -166,4 +170,71 @@ test("picking a host's session moves no row's title end or age on a paired compu
 		for (const instance of [client, host]) expect(instance?.errors ?? []).toEqual([]);
 		await fs.rm(parent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 	}
+});
+
+/**
+ * The owner's case across projects: a pick changes how tall the list is (picking a session of another project moves
+ * the start tab there, and the project it left, now without a tab and not the current one, folds by default), so
+ * the list stops or starts scrolling. Its scrollbar took 9 px from every row of every project while it showed: the
+ * rows of the project picked in, the picked one aside, were cut at another place.
+ */
+test("a pick that changes the list's height moves no row of another project", async () => {
+	test.setTimeout(120_000);
+	root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-row-width-scroll-")));
+	const [alpha, beta, desktop, agent] = ["alpha", "beta", "desktop", "agent"].map(name => path.join(root, name));
+	await Promise.all([alpha, beta, desktop, agent].map(dir => fs.mkdir(dir)));
+	const rowsOf = (name: string, from: number) =>
+		Array.from(
+			{ length: 9 },
+			(_, i) => [`${name}-${i}`, `Messenger and mail with the HTML attachment ${name} ${i}`, from + i] as const,
+		);
+	await seedRows(agent, alpha, rowsOf("alpha", 1));
+	await seedRows(agent, beta, rowsOf("beta", 20));
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	app = await launchApp({ project: alpha, desktop, agent, profile: root, env: { OMP_GUI_TEST_SESSION_FILES: "1" } });
+	const page = await app.firstWindow();
+	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 800));
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+	const rows = `[data-session-group=${cssString(beta)}] .omp-sidebar-session-row:not([data-session-path$="/beta-2.jsonl"])`;
+	// Beta unfolded by hand: both projects open, the list scrolls.
+	await page
+		.locator(`[data-workspace-group=${cssString(beta)}] button`)
+		.first()
+		.click();
+	await expect(page.locator(rows)).toHaveCount(8, { timeout: 30_000 });
+	const scrolls = () =>
+		page.evaluate(() => {
+			const list = document.querySelector<HTMLElement>('[data-tour="sessions"]');
+			return list ? list.scrollHeight > list.clientHeight : null;
+		});
+	// Once beta's fold has played, the list is taller than its box.
+	await expect.poll(scrolls, { timeout: 10_000 }).toBe(true);
+	await page.mouse.move(900, 500);
+	const before = await rowGeometry(page, rows);
+	await page.locator(`[data-session-path$="/beta-2.jsonl"] button`).first().click();
+	await expect
+		.poll(
+			async () =>
+				(await page.evaluate(() => window.omp.tabs.list())).some(
+					tab => tab.sessionPath?.endsWith("/beta-2.jsonl") && tab.status === "ready",
+				),
+			{ timeout: 60_000 },
+		)
+		.toBe(true);
+	// The pick changed the list's height: alpha, left with no tab and no longer current, folded.
+	await expect(page.locator(`[data-session-group=${cssString(alpha)}]`)).toHaveCount(0);
+	await expect.poll(scrolls, { timeout: 10_000 }).toBe(false);
+	await page.mouse.move(900, 500);
+	await expect
+		.poll(() => rowGeometry(page, rows), { timeout: 3_000 })
+		.toEqual(before)
+		.catch(() => undefined);
+	if (SHOTS) {
+		await fs.mkdir(SHOTS, { recursive: true });
+		await page
+			.locator("aside.omp-session-sidebar")
+			.screenshot({ path: path.join(SHOTS, "scroll-picked-beta-2.png") });
+	}
+	expect(await rowGeometry(page, rows), "beta's other rows after the pick").toEqual(before);
 });
