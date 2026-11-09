@@ -238,6 +238,7 @@ export const FALLBACK_PROVIDER_IDS: readonly string[] = [
 	"modular",
 	"muse-code",
 	"nanogpt",
+	"otari",
 	"parallel",
 	"scaleway",
 	"singularityapi-dev",

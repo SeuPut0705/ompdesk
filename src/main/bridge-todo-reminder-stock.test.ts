@@ -9,12 +9,16 @@ import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 
 /**
- * A `todo` call that fails inside a turn (GPT-6.1's `op: "append"` without a phase) makes stock queue its
- * `todo-error-reminder` with `deliverAs: "nextTurn"`. On the installed omp (18.12.3) that hidden message waits for
- * the next explicit prompt while `queuedMessageCount` counts it, so `isRpcSessionSettled` stays false, stock never
- * sends `session_settled` and OMPdesk's tab reads running after its answer (11 of 11 such stuck runs followed a todo
- * error). The bridge (todo-reminder.ts) delivers that one reminder as an aside of the live turn instead: the model
- * reads it at the next step, and the session settles when the turn ends.
+ * A `todo` call that fails inside a turn makes stock queue its `todo-error-reminder` with `deliverAs: "nextTurn"`.
+ * On omp 18.12.3 that hidden message waited for the next explicit prompt while `queuedMessageCount` counted it, so
+ * `isRpcSessionSettled` stayed false, stock never sent `session_settled` and OMPdesk's tab read running after its
+ * answer (11 of 11 such stuck runs followed a todo error). The bridge (todo-reminder.ts) delivers that one reminder
+ * as an aside of the live turn instead: the model reads it at the next step, and the session settles when the turn
+ * ends.
+ *
+ * The refused call here appends a task the list already has. The call those runs made, GPT-6.1's `op: "append"`
+ * without a phase, is no failure since omp 18.18.4 (it goes to the active phase, oh-my-pi #18575), so it queues no
+ * reminder there; any other refusal still does.
  */
 
 type Frame = { type: string; id?: string; message?: { role?: string; customType?: string }; [key: string]: unknown };
@@ -73,7 +77,7 @@ async function startProvider(): Promise<{ url: string; bodies: string[] }> {
 				res.end(
 					sse(
 						toolCalls([
-							{ name: "todo", args: { op: "append", items: ["c"] } },
+							{ name: "todo", args: { op: "append", phase: "Work", items: ["a"] } },
 							{ name: "read", args: { path: "f.txt" } },
 						]),
 						"tool_calls",

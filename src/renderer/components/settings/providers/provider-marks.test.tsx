@@ -84,6 +84,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"opencode-go",
 	"opencode-zen",
 	"openrouter",
+	"otari",
 	"parallel",
 	"perplexity",
 	"qianfan",
