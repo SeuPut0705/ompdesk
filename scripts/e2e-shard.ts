@@ -23,6 +23,7 @@
  */
 import { spawnSync } from "node:child_process";
 import costs from "./e2e-shard-costs.json";
+import { deal } from "./shard-deal";
 
 const TEST_SECONDS = 3;
 const CAPTURE_WEIGHT = 0.1;
@@ -60,18 +61,6 @@ function cost(suite: JsonSuite): number {
 	}
 	for (const child of suite.suites ?? []) seconds += cost(child);
 	return seconds;
-}
-
-/** Deals `files` (heaviest first, ties by name) to the currently lightest of `total` shards. */
-export function deal(files: ReadonlyArray<{ file: string; seconds: number }>, total: number): string[][] {
-	const shards = Array.from({ length: total }, () => ({ seconds: 0, files: [] as string[] }));
-	const ordered = [...files].sort((a, b) => b.seconds - a.seconds || a.file.localeCompare(b.file));
-	for (const { file, seconds } of ordered) {
-		const lightest = shards.reduce((best, shard) => (shard.seconds < best.seconds ? shard : best));
-		lightest.seconds += seconds;
-		lightest.files.push(file);
-	}
-	return shards.map(shard => shard.files.sort());
 }
 
 if (import.meta.main) {

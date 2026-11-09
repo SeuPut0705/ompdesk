@@ -1,6 +1,7 @@
 import { availableParallelism, totalmem } from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
 import { ramWorkers } from "./scripts/lock-slots";
+import { CostSequencer } from "./scripts/vitest-sequencer";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Tests make temp repositories with `git init` and `git config`: under `git bisect run` or a hook those would
@@ -29,6 +30,9 @@ export default defineConfig({
 		maxWorkers: process.env.GITHUB_ACTIONS
 			? availableParallelism()
 			: Number(process.env.OMP_VITEST_WORKERS) || Math.min(8, availableParallelism() - 1, ramWorkers(totalmem())),
+		// `--shard` deals files by measured cost, not by count, and a run starts its longest files first
+		// (scripts/vitest-sequencer.ts).
+		sequence: { sequencer: CostSequencer },
 		projects: [
 			{
 				extends: true,
