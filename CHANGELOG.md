@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.120.0] - 2026-11-10
+
+설정에서 프로바이더 연결을 끊을 수 없던 문제를 고쳤어요. 에이전트가 백그라운드 작업을 기다리며 모델을 헛되이 부르던 것이 없어졌고, 에이전트가 페어링한 컴퓨터의 omp 설정을 읽고 바꿀 수 있어요.
+
+### 고친 것
+- omp 18.18.2 이상에서 **설정 › 모델 및 계정**의 프로바이더 연결 끊기(모든 계정 로그아웃)가 실패했어요. 이제 다시 끊겨요.
+- 에이전트가 백그라운드 작업을 기다릴 때 `wait`가 5초, 10초, 30초마다 빈손으로 돌아와 모델을 다시 불렀어요. 이제 작업이 끝나거나 메시지가 올 때 돌아와요. 세션 속도(Pace)의 폴링 수는 이 빈 대기를 세고, 백그라운드(async) bash 안의 확인은 더 이상 세지 않아요.
+- 에이전트가 연 세션은 탭이 닫히거나 세션이 지워지면 받은 id로 다시 찾을 수 없었어요. 이제 닫힌 세션은 그 id로 계속 읽히고, 지워진 세션은 언제 누가 지웠는지 답해요.
+- 에이전트가 세션을 열 때 60초 같은 고정 시간 제한으로 오류가 났어요. 이제 그 세션의 omp가 살아 있는 동안 기다리고, 시작에 실패하면 omp가 알려 준 이유를 그대로 전해요. 페어링한 컴퓨터에서 여는 세션은 아직 연결의 최장 명령 시간에 묶여요.
+- 폴더가 사라진 세션에 메시지를 보내면 무엇이 폴더를 지웠는지와 이어 갈 방법을 알려 줘요.
+- 사람이 보고 있어서 에이전트가 정리하지 못한 세션은 기록해 두었다가, 사람이 직접 말을 건 다음 차례에 한 번 알려 줘요. 거절하는 규칙은 그대로예요.
+- omp 18.18.5의 새 프로바이더 otari가 설정에서 기본 아이콘으로 보여요.
+
+### 새로 생긴 것
+- 에이전트가 이 컴퓨터나 페어링한 컴퓨터의 omp 설정을 읽고 바꿀 수 있어요(`omp_settings.get`, `omp_settings.set`). 바꾼 값은 되돌릴 수 있고, 인증 정보는 읽지도 쓰지도 못해요. 사용량 조회, 모델 목록, 모델 역할 지정도 컴퓨터를 골라서 할 수 있어요.
+- 에이전트가 보는 사용량에 한도마다 이름과 초기화 시각이 나와요. 모델 목록은 역할 배정과 로그인한 프로바이더의 모델만 먼저 보여 주고, 프로바이더나 검색어로 좁힐 수 있어요.
+
+### 바뀐 것
+- 필요한 omp 최소 버전이 18.18.2로 올라갔어요. 더 낮으면 OMPdesk가 알아서 업데이트해요.
+
+<!-- en -->
+
+Disconnecting a provider in Settings works again. An agent waiting on a background job no longer spends model calls on waiting, and an agent can read and change omp settings on a paired computer.
+
+### Fixed
+- On omp 18.18.2 and newer, disconnecting a provider (signing out of every account) in **Settings › Models & accounts** failed. It works again.
+- An agent waiting on a background job got `wait` back empty every 5, 10 and 30 seconds, each a model call spent only on waiting again. `wait` now returns when a job finishes or a message arrives. Pace counts those empty waits as polls and no longer counts the checks inside an `async: true` bash.
+- A session an agent opened could not be found by its id once its tab closed or the session was deleted. A closed session is still read by that id, and a deleted one says when and by whom.
+- Opening a session from an agent failed on a fixed time limit such as 60 seconds. The open now waits while the session's omp lives, and a start that fails carries omp's own reason. A session opened on a paired computer is still bound by the link's longest command.
+- A message to a session whose folder is gone says what removed the folder and how to go on.
+- A session an agent could not clean up because the person was in it is kept on a list and named once, at the agent's next turn the person's own message starts. The rule that refuses is unchanged.
+- omp 18.18.5's new provider otari shows with the neutral mark in Settings.
+
+### Added
+- An agent can read and change omp settings on this computer or a paired one (`omp_settings.get`, `omp_settings.set`). A change can be undone, and a credential is never read or written. Usage, the model list and model roles take a computer too.
+- The usage an agent reads names each limit and its reset time. The model list shows the role assignments and the signed-in providers' models first, and narrows by provider or search words.
+
+### Changed
+- The minimum omp is now 18.18.2. OMPdesk updates an older one by itself.
+
 ## [0.119.11] - 2026-11-10
 
 답 아래 사용량 줄이 어느 폭에서나 한 줄로 보이고, 같은 값을 두 번 보여 주지 않아요.
