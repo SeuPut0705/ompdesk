@@ -193,6 +193,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "이어하기 목록의 현재 폴더에 같은 저장소의 다른 워크트리 세션도 넣을지 정해요",
 	},
 	"gc.autoCompress": { label: "GC 자동 압축" },
+	"gc.strip": { label: "GC 오래된 세션 재생 데이터 제거" },
+	"gc.stripAfterDays": { label: "재생 데이터 제거 대기 일수" },
 	"display.advisorCollapsedLines": {
 		label: "접힌 조언 카드 줄 수",
 		description:
