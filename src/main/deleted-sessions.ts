@@ -54,12 +54,20 @@ export class DeletedSessions {
 		return path !== undefined && this.#entries.has(keyOf(path, device));
 	}
 
-	/** A tombstone names the saved session `id` (stock names a session file `<time>_<session id>.jsonl`), on any device. */
-	hasId(id: string): boolean {
-		if (!id || /[\\/]/.test(id)) return false;
+	/** When the session at `path` was deleted (epoch ms); undefined while no tombstone names it. */
+	at(path: string, device?: string): number | undefined {
+		return this.#entries.get(keyOf(path, device))?.at;
+	}
+
+	/**
+	 * When the saved session `id` was deleted, on any device (stock names a session file `<time>_<session id>.jsonl`);
+	 * undefined while no tombstone names it.
+	 */
+	atOfId(id: string): number | undefined {
+		if (!id || /[\\/]/.test(id)) return undefined;
 		const tail = `_${id}.jsonl`;
-		for (const entry of this.#entries.values()) if (entry.path.endsWith(tail)) return true;
-		return false;
+		for (const entry of this.#entries.values()) if (entry.path.endsWith(tail)) return entry.at;
+		return undefined;
 	}
 
 	add(path: string, device?: string, now = Date.now()): void {

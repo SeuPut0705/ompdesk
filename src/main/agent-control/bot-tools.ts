@@ -1,9 +1,11 @@
 /**
  * The bot's tool reference: for each `ompdesk_*` tool it uses most, one line saying what it is for and its argument names
- * with types, in its prompt (`resources/gui-bridge/agent-control.ts` `botSection`). Measured 5 Nov 2026 over 8 of its
- * conversations: it read `xd://ompdesk_*` docs 49 times (2 to 9 per conversation, about 19 minutes of model time), because
- * every conversation starts without them. Generated from the tools' own JSON schemas (`tools.ts`), so it cannot drift from
- * them; the docs stay available for the rest of a tool's text.
+ * with types and bounds, in its prompt (`resources/gui-bridge/agent-control.ts` `botSection`). Measured 5 Nov 2026 over 8
+ * of its conversations: it read `xd://ompdesk_*` docs 49 times (2 to 9 per conversation, about 19 minutes of model time),
+ * because every conversation starts without them. Generated from the tools' own JSON schemas (`tools.ts`), so it cannot
+ * drift from them; the docs stay available for the rest of a tool's text. A bound the schema states (`maximum`,
+ * `maxLength`) is printed with the type: the bot calls from this line alone, and a limit only the docs named failed its
+ * calls (10 Nov 2026: a memory over 300 characters three times, a read of more than 40 messages).
  */
 import { AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
 import { AGENT_CONTROL_DEFINITIONS } from "./tools";
@@ -30,6 +32,9 @@ interface Schema {
 	required?: readonly string[];
 	anyOf?: readonly Schema[];
 	description?: string;
+	minimum?: number;
+	maximum?: number;
+	maxLength?: number;
 }
 
 /** An object with more fields than this prints as `object`: its own description (the docs) says what it holds. */
@@ -46,7 +51,12 @@ function typeOf(schema: Schema): string {
 		const count = Object.keys(schema.properties ?? {}).length;
 		return count > 0 && count <= INLINE_OBJECT_FIELDS ? `{${fields(schema)}}` : "object";
 	}
-	if (schema.type === "integer") return "int";
+	if (schema.type === "integer" || schema.type === "number") {
+		const name = schema.type === "integer" ? "int" : "number";
+		if (schema.maximum === undefined) return name;
+		return `${name} ${schema.minimum ?? ""}..${schema.maximum}`;
+	}
+	if (schema.type === "string" && schema.maxLength !== undefined) return `string ≤${schema.maxLength}`;
 	return schema.type === "boolean" ? "bool" : (schema.type ?? "any");
 }
 

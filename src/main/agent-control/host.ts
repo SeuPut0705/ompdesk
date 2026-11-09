@@ -25,7 +25,6 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
-	AGENT_DELETED_IDS_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	AGENT_SCHEDULE_PREFIX,
 	type AgentControlToolName,
@@ -46,10 +45,8 @@ import {
 	currentBotConversation,
 	isAgentControlTool,
 	MAX_CLOSED_CHILDREN,
-	MAX_DELETED_IDS,
 	type PrivacyPane,
 	parseClosedChildren,
-	parseDeletedIds,
 	type SessionBotState,
 	sidebarViewOf,
 } from "../../shared/agent-control";
@@ -129,6 +126,7 @@ import {
 import { CallJournal } from "./call-journal";
 import { type Mail, type MailDelivery, mailDetails, mailText } from "./mail";
 import { MailOutbox, redeliverMail } from "./mail-outbox";
+import { PendingCleanups } from "./pending-cleanups";
 import { SendOutbox, type SentAnswer } from "./send-outbox";
 import {
 	AgentControl,
@@ -145,6 +143,7 @@ import {
 	type StoredWork,
 	type ToolOutcome,
 } from "./service";
+import { FATE_BY, SessionFates } from "./session-fates";
 import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
@@ -241,6 +240,12 @@ export interface AgentControlHostDeps {
 	sendOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
 	callJournalFile?: string | null;
+	/** Where what became of each session an id named is kept (`session-fates.ts`); absent: in memory only. */
+	sessionFatesFile?: string | null;
+	/** Where cleanups refused while the person was in the session wait (`pending-cleanups.ts`); absent: in memory only. */
+	pendingCleanupsFile?: string | null;
+	/** The app is quitting: the tabs its windows release now are not closed sessions, and the next launch restores them. */
+	quitting?: () => boolean;
 	/** One line of the runtime log (`gui-runtime.jsonl`) about the bot. */
 	botLog?: (entry: Record<string, unknown>) => void;
 	/** The owner's own notice of a question the bot left open too long (desktop banner, paired phones). */
@@ -384,6 +389,10 @@ export class AgentControlRuntime {
 	readonly #outbox: MailOutbox;
 	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
 	readonly #calls: CallJournal;
+	/** What became of the sessions an id was handed out for (`session-fates.ts`). */
+	readonly #fates: SessionFates;
+	/** Cleanups refused while the person was in the session (`pending-cleanups.ts`). */
+	readonly #cleanups: PendingCleanups;
 	#redelivering = false;
 	/** Messages sent with `ompdesk_session_send` until the receiver's journal holds them (`send-outbox.ts`). */
 	readonly #sends: SendOutbox;
@@ -406,6 +415,8 @@ export class AgentControlRuntime {
 		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
 		this.#sends = new SendOutbox(deps.sendOutboxFile ?? null);
 		this.#calls = new CallJournal(deps.callJournalFile ?? null);
+		this.#fates = new SessionFates(deps.sessionFatesFile ?? null);
+		this.#cleanups = new PendingCleanups(deps.pendingCleanupsFile ?? null);
 		this.control = new AgentControl(this.#host());
 		this.#bot = new BotFeed(this.#botDeps());
 		// A change to the duties is told to the bot's omp now; the feed tells only what differs from the last tell.
@@ -476,7 +487,20 @@ export class AgentControlRuntime {
 				this.#userPrompted.delete(activity.tabId);
 				this.#moved.delete(activity.tabId);
 				this.#listedIn.delete(activity.tabId);
-				this.control.released(activity.tabId);
+				const held = deps.quitting?.() ? undefined : activity.session;
+				const openerWin = parent ? this.#win(parent) : undefined;
+				const opener =
+					parent && openerWin && !openerWin.isDestroyed()
+						? deps.pool.tabsForWindow(openerWin).find(tab => tab.tabId === parent)?.sessionPath
+						: undefined;
+				this.control.released(
+					activity.tabId,
+					held && {
+						...held,
+						...(!held.device && this.#hiddenPaths().has(held.path) ? { hidden: true } : {}),
+						...(opener ? { openedBySession: opener } : {}),
+					},
+				);
 			}
 		});
 		// A paired page's changed word about its Files editor (its unsaved edits saved or dropped) lets a child it held
@@ -1025,6 +1049,11 @@ export class AgentControlRuntime {
 		if (this.#bot.isBotTab(tabId)) void this.#bot.role();
 	}
 
+	/** The person typed a prompt to `tabId` in a window, on the phone page or on a paired device (main's word, not the text). */
+	personTyped(tabId: string): void {
+		this.control.personTyped(tabId);
+	}
+
 	/**
 	 * The tab that opened `tabId`: the one this launch saw open it, else the opener the pool kept across a relaunch
 	 * (its tab id, or, as tab ids are new after a relaunch, the tab now holding the opener's session file).
@@ -1161,20 +1190,26 @@ export class AgentControlRuntime {
 		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
 		const gone = rows.filter(row => deletedSessions().has(row.path, row.device));
 		if (gone.length === 0) return;
-		// The ids its opener was given keep naming a deleted session: a delete of one again succeeds (`ompdesk_session_stop`).
-		this.#recordDeletedIds(gone.flatMap(row => row.tabIds ?? []));
+		// The ids its opener was given keep naming the deleted session: they say what became of it (`session-fates.ts`).
+		for (const row of gone)
+			if (row.tabIds?.length)
+				this.#fates.deleted(
+					{
+						ids: row.tabIds,
+						path: row.path,
+						...(row.device ? { device: row.device } : {}),
+						title: row.title,
+						cwd: row.cwd,
+						openedBySession: row.openedBySession,
+					},
+					FATE_BY.app,
+					deletedSessions().at(row.path, row.device),
+				);
 		prefs.set(
 			AGENT_CLOSED_CHILDREN_PREF,
 			rows.filter(row => !gone.includes(row)),
 		);
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
-	}
-
-	#recordDeletedIds(ids: readonly string[]): void {
-		const { prefs } = this.#deps;
-		if (!prefs.set || ids.length === 0) return;
-		const known = parseDeletedIds(prefs.get(AGENT_DELETED_IDS_PREF));
-		prefs.set(AGENT_DELETED_IDS_PREF, [...known.filter(id => !ids.includes(id)), ...ids].slice(-MAX_DELETED_IDS));
 	}
 
 	/** Execute one control host-tool call made by `callerTabId`'s main agent; `call` is the host tool call (service.ts `run`). */
@@ -1381,6 +1416,7 @@ export class AgentControlRuntime {
 			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
 			...(this.#deps.pool.sidecarOf(info.tabId)?.statusPayload?.sessionHeld ? { sessionHeld: true } : {}),
+			...(info.message && (info.status === "error" || info.status === "exited") ? { failure: info.message } : {}),
 			...(info.status === "starting" && (info.queued || info.slow)
 				? { startWait: info.queued ? ("queued" as const) : ("slow" as const) }
 				: {}),
@@ -1897,9 +1933,10 @@ export class AgentControlRuntime {
 				),
 			recordClosed: child => this.#recordClosed(child),
 			closedChildren: () => parseClosedChildren(deps.prefs.get(AGENT_CLOSED_CHILDREN_PREF)),
-			deletedIds: () => parseDeletedIds(deps.prefs.get(AGENT_DELETED_IDS_PREF)),
-			recordDeleted: ids => this.#recordDeletedIds(ids),
-			isSavedIdDeleted: id => deletedSessions().hasId(id),
+			fates: this.#fates,
+			cleanups: this.#cleanups,
+			deletedAt: session =>
+				"id" in session ? deletedSessions().atOfId(session.id) : deletedSessions().at(session.path, session.device),
 			botDesk: deps.botDesk ? this.#botDeskPort(deps.botDesk) : undefined,
 			schedules: device => {
 				// The machine that runs the schedules: this computer's service, or a paired host's own over the link
@@ -2006,7 +2043,7 @@ export class AgentControlRuntime {
 		return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
 	}
 
-	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): Omit<AppPorts, "autopilot"> {
+	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): Omit<AppPorts, "autopilot" | "rpcOn"> {
 		const deps = this.#deps;
 		const window = (tabId: string): ClientWindow => {
 			const win = this.#win(tabId);

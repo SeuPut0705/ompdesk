@@ -96,6 +96,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "sidebar.grouping",
 		why: "Code sessions are always grouped by project; the 'list by recent activity' grouping is gone (19 Oct 2026). The sidebar blob's own writes (src/main/sidebar-prefs.ts) keep only the fields it names.",
 	},
+	{
+		key: "agentDeletedIds",
+		why: "Ids of sessions the control tools deleted; `agent-session-fates.json` (src/main/agent-control/session-fates.ts) records what became of every session an id named, with who and when (10 Nov 2026).",
+	},
 ];
 
 /**

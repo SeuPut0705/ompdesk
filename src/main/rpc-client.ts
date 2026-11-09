@@ -49,13 +49,18 @@ export class RpcClient {
 		this.#observe = options.observe;
 	}
 
-	/** Send a command (GUI-side handler first) and await its correlated response. Optional per-call timeout. */
+	/**
+	 * Send a command (GUI-side handler first) and await its correlated response. Optional per-call timeout;
+	 * `Number.POSITIVE_INFINITY`: no deadline, for a GUI-side handler as for omp.
+	 */
 	command(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 		// Always a fresh id: renderer-chosen ids are only unique per window.
 		const id = `gui-${++this.#nextId}`;
 		const local = this.#local?.({ ...cmd, id });
 		if (!local) return this.#stock(cmd, id, timeoutMs);
 		const timeout = timeoutMs ?? this.#timeout;
+		// setTimeout would read Infinity as 1 ms.
+		if (!Number.isFinite(timeout)) return local;
 		const { promise, resolve, reject } = Promise.withResolvers<RpcResponse>();
 		const timer = setTimeout(() => reject(new RpcTimeoutError(timeout, cmd.type)), timeout);
 		local.then(resolve, reject).finally(() => clearTimeout(timer));

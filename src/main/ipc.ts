@@ -176,7 +176,7 @@ import { BotTeach, gitCommits, teachAction } from "./agent-control/bot-teach";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
 import { TURN_COMMANDS, type TurnGate } from "./agent-control/turn-gate";
 import { appNotification } from "./app-icon";
-import { requestQuit } from "./app-quit";
+import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
 import { routeHostAutopilotNotice } from "./autopilot-notice-route";
 import {
@@ -1171,6 +1171,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			// A person typed it (it came in on an IPC channel: a window or the paired phone page; main's own callers, an
 			// agent's, Autopilot's and a relaunch's, pass none): memory recall runs for it even in an Autopilot run's tab, and
 			// one that joins the running turn is answered first (gui-bridge typed-prompts.ts, answer-first.ts).
+			// The same word tells the control tools the person started this tab's turn: cleanups its agent was refused
+			// while the person was in the session are listed to it now (agent-control/pending-cleanups.ts).
+			if (channel !== undefined && issuerTabId && personsPrompt(cmd)) agentControl.personTyped(issuerTabId);
 			if (!sidecar.device && channel !== undefined) await noteTypedPrompt(client, cmd as RpcCommand);
 			// Every Stop leaves one line naming who asked (turn-stop-log.ts); omp gets it without that origin, while a
 			// paired host's tab gets it with, so the host logs it too.
@@ -1633,6 +1636,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
+		sessionFatesFile: path.join(app.getPath("userData"), "agent-session-fates.json"),
+		pendingCleanupsFile: path.join(app.getPath("userData"), "agent-pending-cleanups.json"),
+		quitting: quitApproved,
 		deviceName: id => remoteDevices.state().hosts.find(host => host.deviceId === id)?.name ?? id,
 		sessions: {
 			list: () => sessionIndex.list("global"),

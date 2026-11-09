@@ -6,8 +6,8 @@
  */
 import { z } from "zod";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import { AGENT_SCHEDULE_PREFIX, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
-import { BOT_ACTIVITY_PAGE } from "../../shared/bot-activity";
+import { AGENT_SCHEDULE_PREFIX, type AgentControlToolName, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
+import { BOT_ACTIVITY_DEFAULT_LIMIT, BOT_ACTIVITY_PAGE } from "../../shared/bot-activity";
 import {
 	BOT_DECISION_DRAFT_MAX,
 	BOT_DECISION_INPUTS_MAX,
@@ -71,7 +71,7 @@ const OPEN_ONE = {
 	reopen: {
 		type: "string",
 		description:
-			"Open a stored session again instead of a new one: its id from ompdesk_sessions scope stored. folder, worktree and mode do not apply.",
+			"Open a stored session again instead of a new one: its id from ompdesk_sessions scope stored. It opens in the folder it worked in: worktree and mode do not apply, and folder only when it names that same folder.",
 	},
 	restore: {
 		type: "boolean",
@@ -283,9 +283,13 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					type: "integer",
 					minimum: 1,
 					maximum: READ_MAX_MESSAGES,
-					description: `Messages per page; default ${READ_DEFAULT_MESSAGES}.`,
+					description: `Messages per page, 1 to ${READ_MAX_MESSAGES}; default ${READ_DEFAULT_MESSAGES}.`,
 				},
-				before: { type: "string", description: "The cursor a previous page returned, for the page before it." },
+				before: {
+					type: "string",
+					description:
+						"The cursor a previous page returned, for the page before it. A cursor the session has outgrown (it wrote more since, or its tab closed) returns its newest page instead, saying so.",
+				},
 			},
 			required: ["session"],
 			additionalProperties: false,
@@ -680,13 +684,27 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				},
 				text: {
 					type: "string",
+					maxLength: Math.max(BOT_DUTY_TEXT_MAX, BOT_MEMORY_TEXT_MAX),
 					description: `duty_add, remember: one sentence. At most ${BOT_DUTY_TEXT_MAX} characters for a duty, ${BOT_MEMORY_TEXT_MAX} for a fact.`,
 				},
 				id: { type: "string", description: "duty_remove, forget: the id desk shows." },
-				tagline: { type: "string", description: "identity: one line under your name." },
-				persona: { type: "string", description: "identity: your personality, tone and boundaries." },
+				tagline: {
+					type: "string",
+					maxLength: BOT_TAGLINE_MAX,
+					description: `identity: one line under your name, at most ${BOT_TAGLINE_MAX} characters.`,
+				},
+				persona: {
+					type: "string",
+					maxLength: BOT_PERSONA_MAX,
+					description: `identity: your personality, tone and boundaries, at most ${BOT_PERSONA_MAX} characters.`,
+				},
 				avatar_file: { type: "string", description: "identity: an absolute path to your new avatar picture." },
-				limit: { type: "number", description: "visited, activity: entries at most (default 30)." },
+				limit: {
+					type: "integer",
+					minimum: 1,
+					maximum: BOT_ACTIVITY_PAGE,
+					description: `visited, activity: entries at most, 1 to ${BOT_ACTIVITY_PAGE} (default ${BOT_ACTIVITY_DEFAULT_LIMIT}).`,
+				},
 			},
 			required: ["action"],
 			additionalProperties: false,
@@ -767,24 +785,15 @@ const goalNeedsMessage = [
 	(args: { mode?: string; message?: string }) => args.mode !== "goal" || args.message !== undefined,
 	{ message: "mode goal needs a message: it becomes the goal" },
 ] as const;
+/** The session's own folder is checked where the session is known (`AgentControl.#openOne`). */
 const reopenAlone = [
-	(args: {
-		reopen?: string;
-		restore?: boolean;
-		folder?: string;
-		worktree?: unknown;
-		mode?: string;
-		throwaway?: boolean;
-	}) =>
+	(args: { reopen?: string; restore?: boolean; worktree?: unknown; mode?: string; throwaway?: boolean }) =>
 		args.reopen === undefined
 			? args.restore === undefined
-			: args.folder === undefined &&
-				args.worktree === undefined &&
-				args.mode === undefined &&
-				args.throwaway === undefined,
+			: args.worktree === undefined && args.mode === undefined && args.throwaway === undefined,
 	{
 		message:
-			"reopen opens a stored session as it was: give no folder, worktree, mode or throwaway with it; restore goes only with reopen",
+			"reopen opens a stored session as it was, in the folder it worked in: give no worktree, mode or throwaway with it; restore goes only with reopen",
 	},
 ] as const;
 
@@ -1043,6 +1052,60 @@ export const ARGS = {
 		z.object({ action: z.literal("new_conversation") }).strict(),
 	]),
 } as const;
+
+/** The slice of a tool's JSON schema `looseArgs` reads. */
+interface LooseSchema {
+	type?: string;
+	anyOf?: readonly LooseSchema[];
+	properties?: Record<string, LooseSchema>;
+	items?: LooseSchema;
+}
+
+/** The part of `schema` that takes a value of `type` (the schema itself, or one of its `anyOf`). */
+function branchOf(schema: LooseSchema, type: string): LooseSchema | undefined {
+	return schema.type === type ? schema : schema.anyOf?.find(option => option.type === type);
+}
+
+function loosen(schema: LooseSchema | undefined, value: unknown): unknown {
+	if (!schema) return value;
+	if (typeof value === "string") {
+		const takes = (type: string) => branchOf(schema, type) !== undefined;
+		// A field that takes text, or says nothing of its type, keeps the text.
+		if (takes("string") || (schema.type === undefined && schema.anyOf === undefined)) return value;
+		const text = value.trim();
+		if (takes("boolean") && (text === "true" || text === "false")) return text === "true";
+		if ((takes("integer") || takes("number")) && /^-?\d+(\.\d+)?$/.test(text)) return Number(text);
+		if ((takes("object") && text.startsWith("{")) || (takes("array") && text.startsWith("["))) {
+			try {
+				return loosen(schema, JSON.parse(text));
+			} catch {
+				return value;
+			}
+		}
+		return value;
+	}
+	if (Array.isArray(value)) {
+		const items = branchOf(schema, "array")?.items;
+		return items ? value.map(item => loosen(items, item)) : value;
+	}
+	if (typeof value === "object" && value !== null) {
+		const properties = branchOf(schema, "object")?.properties;
+		if (!properties) return value;
+		return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, loosen(properties[key], field)]));
+	}
+	return value;
+}
+
+/**
+ * The arguments as the tool's schema types them, where a model wrote a boolean, a number, an object or an array as its
+ * JSON text (`"true"`, `"{\"base\":\"main\"}"`; measured 10 Nov 2026: 4 of the bot's 15 failed opens in a week): a field
+ * whose schema takes no string reads that text as the value it spells. Everything else passes as it came, so the strict
+ * parser (`ARGS`) still refuses what the schema does not take. One rule for every control tool and every nesting.
+ */
+export function looseArgs(tool: AgentControlToolName, raw: unknown): unknown {
+	const definition = AGENT_CONTROL_DEFINITIONS.find(entry => entry.name === tool);
+	return definition ? loosen(definition.parameters as LooseSchema, raw) : raw;
+}
 
 export type ListArgs = z.infer<(typeof ARGS)[typeof T.list]>;
 

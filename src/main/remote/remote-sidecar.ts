@@ -33,6 +33,7 @@ import { z } from "zod";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcScheduledRetry, RemoteLinkState } from "../../shared/ipc-types";
 import { isOmpdeskWorktreeFolder } from "../../shared/project-origin";
+import { MAX_RPC_COMMAND_TIMEOUT_MS } from "../../shared/rpc-client";
 import type { RpcCommand, RpcResponse, SidecarStatus, SidecarStatusPayload } from "../../shared/rpc-types";
 import type { BridgeConnectResult } from "../bridge-health";
 import type { RpcClient } from "../rpc-client";
@@ -727,7 +728,10 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		return opening;
 	}
 
-	async #command(command: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
+	async #command(command: RpcCommand, wanted?: number): Promise<RpcResponse> {
+		// A caller's "no deadline" (`RpcClient.command`) becomes the longest window the host takes: a request over the
+		// link always has a bound, so a host that went silent never holds a caller for good.
+		const timeoutMs = wanted !== undefined && !Number.isFinite(wanted) ? MAX_RPC_COMMAND_TIMEOUT_MS : wanted;
 		if (this.#link.state !== "online") throw codedError("remote_offline", OFFLINE_TEXT);
 		try {
 			await this.#open();

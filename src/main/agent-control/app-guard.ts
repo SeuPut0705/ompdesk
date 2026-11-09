@@ -12,7 +12,7 @@
  *              `agentControlFull` on (default) no card at all.
  *   never      refused: secrets, the cards, and (unless `agentControlFull` is on) what gates the agent's own power
  */
-import type { RpcCommand } from "../../shared/rpc-types";
+import type { RpcCommand, SettingEntry } from "../../shared/rpc-types";
 import { SETTING_BY_ID, SETTINGS } from "./app-settings";
 
 /** A refusal the agent reads: not a failure of the app. */
@@ -82,6 +82,56 @@ export function settingTier(path: string, full = false): Tier {
 	return row?.kind === "stock" ? row.tier : "never";
 }
 
+/**
+ * What `omp_settings` may do with a stock setting path, decided from the entry the omp's own schema lists for it
+ * (`undefined` = the schema does not list the path: refused). A credential-typed entry (stock `isCredential`, the
+ * schema's `secret`) is never read or written; the paths `POWER_SETTING` names keep their rule, and the two switches
+ * `FULL_CONTROL_SETTINGS` names stay `agent_power.set`'s (read under full control, `sensitive` to write). Everything
+ * else the schema lists reads free and writes at `change`, or at the tier of its Settings row.
+ */
+export function ompSettingTier(
+	path: string,
+	entry: Pick<SettingEntry, "secret"> | undefined,
+	access: "read" | "write",
+	full = false,
+): Tier {
+	if (!entry || entry.secret === true) return "never";
+	if (full && Object.hasOwn(FULL_CONTROL_SETTINGS, path)) return access === "read" ? "read" : "sensitive";
+	if (POWER_SETTING.test(path)) return "never";
+	if (access === "read") return "read";
+	const row = SETTING_BY_ID[path];
+	return row?.kind === "stock" ? row.tier : "change";
+}
+
+/** Why `value` does not fit the setting the schema describes (its type, and its options for an enum); null when it does. */
+export function settingValueProblem(
+	entry: Pick<SettingEntry, "path" | "type" | "options">,
+	value: unknown,
+): string | null {
+	const name = entry.path;
+	switch (entry.type) {
+		case "boolean":
+			return typeof value === "boolean" ? null : `${name} takes true or false`;
+		case "number":
+			return typeof value === "number" && Number.isFinite(value) ? null : `${name} takes a number`;
+		case "string":
+			return typeof value === "string" ? null : `${name} takes a string`;
+		case "enum": {
+			const options = entry.options?.map(option => option.value) ?? [];
+			if (typeof value === "string" && (options.length === 0 || options.includes(value))) return null;
+			return `${name} takes one of: ${options.join(", ")}`;
+		}
+		case "array":
+			return Array.isArray(value) ? null : `${name} takes a list`;
+		case "record":
+			return value !== null && typeof value === "object" && !Array.isArray(value)
+				? null
+				: `${name} takes an object (key to value)`;
+		default:
+			return `${name} has a type (${String(entry.type)}) an agent cannot write`;
+	}
+}
+
 /** True when some value inside holds another command (an object with a `type`): a route no action offers. */
 function nestsCommand(value: unknown, depth = 0): boolean {
 	if (depth > 0 && value !== null && typeof value === "object" && !Array.isArray(value) && "type" in value)
@@ -93,6 +143,8 @@ function nestsCommand(value: unknown, depth = 0): boolean {
 /** RPC commands an action may send; anything else is refused. A function decides by the command's own fields. */
 const RPC_TIER: Record<string, Tier | ((command: RpcCommand, full: boolean) => Tier)> = {
 	get_usage: "read",
+	get_providers: "read",
+	get_model_roles: "read",
 	get_available_models: "read",
 	get_settings: (command, full) => {
 		if (command.type !== "get_settings" || !command.paths || command.paths.length === 0) return "never";

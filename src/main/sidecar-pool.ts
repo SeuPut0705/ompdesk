@@ -222,7 +222,15 @@ export type TabActivity =
 	 * title and the choice in its words (an option, yes/no, the answers, or "dismissed").
 	 */
 	| { type: "askClosed"; tabId: string; requestId: string; answered?: { title: string; choice: string } }
-	| { type: "released"; tabId: string }
+	/**
+	 * The tab left the pool (closed by the person, an agent, its window or main). `session`: the saved session it held,
+	 * so an id handed out for the tab keeps naming it (agent-control/session-fates.ts).
+	 */
+	| {
+			type: "released";
+			tabId: string;
+			session?: { path: string; device?: string; title: string; cwd: string; formerIds: readonly string[] };
+	  }
 	/**
 	 * A running turn moved on: a tool call started or ended, or a reply was written (its step and cost changed). Once
 	 * per event batch; what the work board re-reads a running child for (agent-control/host.ts `liveReview`).
@@ -1476,7 +1484,21 @@ export class SidecarPool {
 		for (const [id, answered] of this.#answered) {
 			if (answered.entry === entry) this.#answered.delete(id);
 		}
-		this.#announce({ type: "released", tabId: entry.tabId });
+		this.#announce({
+			type: "released",
+			tabId: entry.tabId,
+			...(sessionFile !== undefined && !entry.hostedView
+				? {
+						session: {
+							path: sessionFile,
+							...(entry.device ? { device: entry.device } : {}),
+							title: entry.title || entry.task || "",
+							cwd: entry.sidecar.cwd,
+							formerIds: entry.former?.file === sessionFile ? entry.former.ids : [],
+						},
+					}
+				: {}),
+		});
 		this.#notWhenClosed(entry.win, entry.onWindowClosed);
 		// The devices viewing it hear the tab is gone while its omp still runs.
 		for (const view of [...(entry.deviceViews ?? [])]) view.end();

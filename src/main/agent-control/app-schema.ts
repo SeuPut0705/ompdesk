@@ -13,7 +13,15 @@ export type PropSchema =
 			description?: string;
 			items: { type: "string"; maxLength?: number; enum?: readonly string[] };
 			maxItems?: number;
+	  }
+	| {
+			/** Any JSON value (string, number, boolean, list, object); the action checks it against its own schema. */
+			type: "json";
+			description?: string;
 	  };
+
+/** The longest a `json` argument may be once written out. */
+const JSON_VALUE_MAX = 20_000;
 
 export interface ArgsSchema {
 	type: "object";
@@ -61,6 +69,10 @@ function problem(name: string, schema: PropSchema, value: unknown): string | nul
 			)
 				? null
 				: `${name} must be a list of short strings`;
+		}
+		case "json": {
+			if (value === null || value === undefined) return `${name} must be a value`;
+			return JSON.stringify(value).length <= JSON_VALUE_MAX ? null : `${name} is too long`;
 		}
 	}
 }

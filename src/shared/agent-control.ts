@@ -212,8 +212,14 @@ export const AGENT_PANEL_TABS = ["terminal", "diff", "preview", "files"] as cons
 /** The session views an agent may open as a sheet (mirrors `VIEW_SHEETS` of the renderer's ui store; a test keeps them equal). */
 export const AGENT_VIEW_SHEETS = ["jobs", "plan", "logs", "tree", "work"] as const;
 
-/** What one step back restores: a stored preference or a stock setting, as the user's own Settings control writes it. */
-export type AppUndo = { kind: "pref"; key: string; value: unknown } | { kind: "setting"; path: string; value: unknown };
+/**
+ * What one step back restores: a stored preference or a stock setting, as the user's own Settings control writes it.
+ * A setting written on another computer (`omp_settings.set` with a `device`) names it: `app.undo` restores it there;
+ * the window's Undo button writes through the focused tab, so such a toast carries no step.
+ */
+export type AppUndo =
+	| { kind: "pref"; key: string; value: unknown }
+	| { kind: "setting"; path: string; value: unknown; device?: string };
 
 /**
  * A sidebar arrangement the person would make from a project's or a session's menu. The window applies it through the
@@ -308,15 +314,6 @@ export const AGENT_CLOSED_CHILDREN_PREF = "agentClosedChildren";
 export const MAX_CLOSED_CHILDREN = 200;
 /** Tab ids a record keeps: the one it closed with, then the ids it had before relaunches. */
 export const MAX_CLOSED_TAB_IDS = 9;
-
-/** Prefs key (written by main): ids of sessions deleted by agents or whose closed record a delete dropped, newest last, so a repeated delete of one succeeds across relaunches. */
-export const AGENT_DELETED_IDS_PREF = "agentDeletedIds";
-export const MAX_DELETED_IDS = 2000;
-
-/** The stored ids, tolerating anything unreadable as none. */
-export function parseDeletedIds(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
-}
 
 /** An opened session main closed after its work landed: the session file stays; the opener's "n done" row opens it again. */
 export interface ClosedChild {

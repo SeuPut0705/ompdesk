@@ -60,6 +60,7 @@ import {
 } from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
+import { timeoutForCommand } from "../../shared/rpc-client";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
@@ -116,6 +117,7 @@ import {
 import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
 import { custodyOf } from "./custody";
 import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
+import { type PendingCleanup, PendingCleanups } from "./pending-cleanups";
 import { pickupOf } from "./pickup";
 import {
 	deliverOwed,
@@ -126,6 +128,7 @@ import {
 	type SendOutbox,
 	type SentAnswer,
 } from "./send-outbox";
+import { FATE_BY, type FatedSession, fateWhen, type SessionFate, SessionFates } from "./session-fates";
 import { tabCloseStep } from "./tab-close";
 import {
 	type AnswerArgs,
@@ -133,6 +136,7 @@ import {
 	type AutopilotArgs,
 	type BotArgs,
 	type ListArgs,
+	looseArgs,
 	MESSAGE_MAX_CHARS,
 	type OpenOne,
 	READ_DEFAULT_MESSAGES,
@@ -162,6 +166,8 @@ export interface ControlTab {
 	status: TabStatus;
 	/** `error` because another live omp still holds its session; the tab opens it by itself once that omp lets go. */
 	sessionHeld?: true;
+	/** With `error` or `exited`: why, as the tab's omp or its paired host said it (`IpcTabInfo.message`). */
+	failure?: string;
 	/** `starting` that waits its turn in the start queue (`queued`) or for an omp slow to answer (`slow`). */
 	startWait?: "queued" | "slow";
 	/** A turn runs (stock run state as the pool tracks it). */
@@ -482,12 +488,18 @@ export interface AgentControlHost {
 	recordClosed(child: ClosedChild): void;
 	/** The sessions main closed after their work landed (`recordClosed`), newest last. */
 	closedChildren?(): readonly ClosedChild[];
-	/** Ids of sessions deleted, from any path and any launch (`recordDeleted`, and the closed records a delete dropped). */
-	deletedIds?(): readonly string[];
-	/** Keep the ids of sessions this service deleted, across relaunches. */
-	recordDeleted?(ids: readonly string[]): void;
-	/** A saved session id some tombstone (`deleted-sessions.ts`) names: the sidebar's delete, an earlier launch's. */
-	isSavedIdDeleted?(id: string): boolean;
+	/**
+	 * What became of the sessions an id was handed out for (`session-fates.ts`): a closed tab's id keeps naming its
+	 * saved session, and a deleted one's says so, across relaunches. Absent: this launch only.
+	 */
+	fates?: SessionFates;
+	/**
+	 * When a tombstone (`deleted-sessions.ts`) says the session was deleted, from any path and any launch (the
+	 * sidebar's Delete, `/delete`, a paired device): by its file and computer, or by its saved id alone.
+	 */
+	deletedAt?(session: { path: string; device?: string } | { id: string }): number | undefined;
+	/** Cleanups refused while the person was in the session (`pending-cleanups.ts`). Absent: this launch only. */
+	cleanups?: PendingCleanups;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
 	/** The bot's desk (`ompdesk_bot`); absent where there is none. */
@@ -536,8 +548,24 @@ export interface AgentControlHost {
 			| "appChanged",
 		params: Record<string, string>,
 	): string;
-	/** What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not available. */
-	appPorts?: Omit<AppPorts, "autopilot">;
+	/**
+	 * What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not
+	 * available. The service adds what needs its own sessions: `autopilot` and `rpcOn`.
+	 */
+	appPorts?: Omit<AppPorts, "autopilot" | "rpcOn">;
+}
+
+/** The saved session a released tab held (`TabActivity` `released`), with what only the host knows of it. */
+export interface ReleasedSession {
+	path: string;
+	device?: string;
+	title: string;
+	cwd: string;
+	formerIds: readonly string[];
+	/** The person hid it from agents. */
+	hidden?: boolean;
+	/** The session file of the session whose agent opened it, when one did. */
+	openedBySession?: string;
 }
 
 export interface ToolOutcome {
@@ -546,11 +574,13 @@ export interface ToolOutcome {
 }
 
 /**
- * The first command a just-started child answers: before it, the local handler learns the session from stock
- * `get_state`, connects to the bridge and waits for the bridge's modules to load, all queued behind omp's own startup.
- * With several sessions working that took past the default 8 s and failed an open whose omp was fine (v0.46.0).
+ * What an open's commands to its child are sent with: no deadline. The first one waits for the local handler to learn
+ * the session from stock `get_state`, connect to the bridge and let its modules load, all queued behind omp's own
+ * startup; with several sessions working that passed 8 s (v0.46.0), then the 60 s bound that replaced it (three opens,
+ * 3 to 10 Nov 2026). `RpcClient` sets no timer for it; a paired host's tab gets its link's longest window
+ * (`RemoteSidecar`).
  */
-const FIRST_COMMAND_TIMEOUT_MS = 60_000;
+const NO_DEADLINE = Number.POSITIVE_INFINITY;
 /**
  * How long one open waits, all its commands together, for a child that answered `sidecar_not_ready` or
  * `sidecar_not_connected` to be ready again. A ready-time health check once held a busy omp in `error` and refused the
@@ -563,6 +593,8 @@ const OPEN_READY_PAUSE_MS = 250;
 /** A wait re-reads the session at least this often even when no tab event arrives. */
 const POLL_MS = 3_000;
 const STATE_TIMEOUT_MS = 5_000;
+/** What a command `ompdesk_app` sends to another computer's omp gets when the command names no window of its own (`timeoutForCommand`). */
+const RPC_ON_TIMEOUT_MS = 30_000;
 const SUMMARY_CHARS = 200;
 const SESSION_PREFIX_MIN = 4;
 /** Reports after which a session waits for, or no longer expects, its receiver's next message in the same turn. */
@@ -573,10 +605,6 @@ const TOOL_RESULT_CHARS = 300;
 const MESSAGE_CHARS = 1_500;
 /** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
 const AUTO_CLOSE_WAIT_MS = 2_000;
-/** Closed tabs whose id still names their saved session (`AgentControl.#closedTabs`); one launch's worth. */
-const CLOSED_TABS_MAX = 500;
-/** Ids of sessions deleted this launch (`AgentControl.#deletedIds`): a repeated delete of one is a success. */
-const DELETED_IDS_MAX = 2000;
 const LIST_DEFAULT_ROWS = 30;
 /** A sent message's receipt waits this long to see the target's turn start. */
 const TURN_START_WAIT_MS = 1_500;
@@ -650,6 +678,22 @@ export function journalMarks(messages: readonly AgentMessage[]): { dispatch: num
 
 class ToolError extends Error {}
 
+/** The id named a session that was deleted: what the agent reads instead of "No session", and why a repeated delete is no error. */
+class SessionDeleted extends ToolError {
+	constructor(
+		name: string,
+		readonly fate: SessionFate,
+	) {
+		super(
+			`Session "${name}"${fate.title ? ` ("${oneLine(fate.title, 80)}")` : ""} was deleted${fateWhen(fate)}: its saved conversation is gone, so there is nothing to read, message, stop or reopen.${
+				fate.by === FATE_BY.throwaway
+					? " Its final answer reached the session that opened it as its done report."
+					: ""
+			} Do not look for it again; ompdesk_sessions lists the sessions that exist.`,
+		);
+	}
+}
+
 function fail(message: string): never {
 	throw new ToolError(message);
 }
@@ -657,6 +701,12 @@ function fail(message: string): never {
 /** `<script> failed (exit 3)` or `<script> failed (timed out after 120s)`, for a hook's failure text. */
 function hookFailure(hook: WorktreeSetupReport): string {
 	return `${hook.script} failed (${hook.timedOut ? `timed out after ${Math.round(hook.durationMs / 1000)}s` : `exit ${hook.exitCode}`})`;
+}
+
+/** Why a tab that is `exited` or `error` cannot work, with the reason its omp gave: what a failed start is reported with. */
+function startFailure(tab: Pick<ControlTab, "status" | "failure">): string {
+	const what = tab.status === "exited" ? "its omp process exited" : "its omp failed to start";
+	return `The session could not start: ${what}${tab.failure?.trim() ? ` (${oneLine(tab.failure, 600)})` : ", and it gave no reason"}.`;
 }
 
 /** A stored session's recorded folder is gone (`folder-missing` from the tab spawn); `saved` = disk care kept it. */
@@ -794,10 +844,44 @@ function label(tab: ControlTab): string {
 	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
 }
 
+/** How a fate names a close or delete the caller made with `ompdesk_session_stop`. */
+function byCaller(caller: ControlTab): string {
+	return `${caller.title ? `the session "${oneLine(caller.title, 60)}"` : "an agent's session"} (ompdesk_session_stop)`;
+}
+
+/** Who a refused cleanup is kept for: the caller's session file; the bot by its computer, since its conversation renews. */
+function cleanupCaller(caller: ControlTab): string {
+	if (caller.bot === "on") return `bot\n${caller.device ?? ""}`;
+	return caller.sessionPath ? `${caller.device ?? ""}\n${caller.sessionPath}` : caller.tabId;
+}
+
+/** A stop, close or delete of `target` as `caller` asked for it (`pending-cleanups.ts`). */
+function cleanupOf(
+	caller: ControlTab,
+	target: ControlTab,
+	args: { close?: boolean; delete?: boolean },
+): PendingCleanup {
+	return {
+		caller: cleanupCaller(caller),
+		...(target.sessionPath ? { path: target.sessionPath } : {}),
+		...(target.device ? { device: target.device } : {}),
+		tabId: target.tabId,
+		title: target.hidden ? "" : target.title || target.task || "",
+		action: args.delete ? "delete" : args.close ? "close" : "stop",
+		at: Date.now(),
+	};
+}
+
 /** Why a session the person looks at or typed into is not stopped, closed or deleted. */
 function inUseRefusal(tab: ControlTab, args: { close?: boolean; delete?: boolean }): string {
 	const outcome = args.delete ? "it was not deleted" : args.close ? "it stays open" : "it keeps running";
 	return `${label(tab)} is in the user's view or they typed into it, and your current turn was not started by the user's own message (another agent's message, a report, a schedule or Autopilot started it): ${outcome}. Only a turn the user's own message starts may stop, close or delete it; ask the user.`;
+}
+
+/** A folder as two spellings of it compare: either slash, no trailing one, and a Windows drive path in any case. */
+function folderKey(folder: string): string {
+	const plain = folder.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+	return /^[a-z]:\//i.test(plain) ? plain.toLowerCase() : plain;
 }
 
 /** "next 2026-…" ("next —" while every schedule is paused), "off", "done" (a once that ran), "waits for its event". */
@@ -1019,6 +1103,11 @@ export function parseVerdict(text: string): Verdict | null {
 	}
 }
 
+/** What a page opens with when its `before` cursor named no page of the session as it is now, and the newest came instead. */
+function staleCursorNote(cursor: string | undefined): string {
+	return `The cursor "${cursor}" names no page of this session as it is now (it wrote more since that page, or the cursor came from its saved copy or its open tab): this is its newest page instead; page back from the cursor below.`;
+}
+
 /** One transcript page for the agent: the newest messages that fit `READ_MAX_CHARS`, and the cursor to page back. */
 function renderPage(
 	title: string,
@@ -1026,6 +1115,7 @@ function renderPage(
 	messages: readonly AgentMessage[],
 	totalMessages: number,
 	prevCursor: string | null,
+	note?: string,
 ): string {
 	const lines = messages.map(renderMessage).filter((line): line is string => line !== null);
 	let total = 0;
@@ -1041,7 +1131,7 @@ function renderPage(
 	const more = prevCursor
 		? `\nEarlier messages: ompdesk_session_read {"session":"${session}","before":"${prevCursor}"}.`
 		: "";
-	return `${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
+	return `${note ? `${note}\n` : ""}${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
 }
 
 /** A command line that checks the work (tests, types, lint, build), as a compare reports it. */
@@ -1214,7 +1304,7 @@ type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] }
 type TabClose = "closed" | "kept" | "dirty";
 
 /** One command of an open to its child: `AgentControl.#openCommands`. */
-type OpenCommand = (command: RpcCommand, timeoutMs?: number) => Promise<RpcResponse>;
+type OpenCommand = (command: RpcCommand) => Promise<RpcResponse>;
 
 export class AgentControl {
 	readonly #host: AgentControlHost;
@@ -1244,16 +1334,19 @@ export class AgentControl {
 	readonly #stored = new Map<string, StoredSession>();
 	/** Opened tabs to delete with their auto-close (`ompdesk_session_open {throwaway: true}`); this launch only. */
 	readonly #throwaway = new Set<string>();
+	/** What became of every session an id was handed out for: closed or deleted, by whom and when (`session-fates.ts`). */
+	readonly #fates: SessionFates;
 	/**
-	 * Tabs closed this launch (auto-close, a close by the tool), by tab id: the saved session it held and the tab that
-	 * opened it, so the id the opener was given still names that saved session (read, delete) after the tab is gone.
+	 * The tab that opened each session closed this launch, by `device\npath`: a caller with no session file of its own
+	 * (a process outside OMPdesk) owns what it closed until the app relaunches. A session's own opener is in its fate.
 	 */
-	readonly #closedTabs = new Map<string, { row: StoredSession; opener: string }>();
-	/**
-	 * Ids of every session deleted this launch (by the tool, a throwaway's auto-close or `ompdesk_session_stop` of a
-	 * saved id): a delete of one again succeeds as "already deleted" instead of failing "No session".
-	 */
-	readonly #deletedIds = new Set<string>();
+	readonly #closedOpeners = new Map<string, string>();
+	/** Cleanups refused while the person was in the session, until their caller's next turn the person starts. */
+	readonly #cleanups: PendingCleanups;
+	/** App actions each caller has running (`ompdesk_app`): what a background session on another computer lives for. */
+	readonly #appRuns = new Map<string, number>();
+	/** The background sessions a caller's running app actions opened on other computers, by computer (`#utilityTab`). */
+	readonly #utilityTabs = new Map<string, Map<string, Promise<string>>>();
 	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
 	readonly #mailbox: Mailbox;
 	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
@@ -1281,8 +1374,14 @@ export class AgentControl {
 
 	constructor(host: AgentControlHost, timers: Pick<MailboxDeps, "setTimer" | "clearTimer"> = DEFAULT_TIMERS) {
 		this.#host = host;
+		this.#fates = host.fates ?? new SessionFates(null);
+		this.#cleanups = host.cleanups ?? new PendingCleanups(null);
 		this.#app = host.appPorts
-			? new AppControl({ ...host.appPorts, autopilot: (tabId, args) => this.#appAutopilot(tabId, args) })
+			? new AppControl({
+					...host.appPorts,
+					autopilot: (tabId, args) => this.#appAutopilot(tabId, args),
+					rpcOn: (tabId, device, command) => this.#rpcOn(tabId, device, command),
+				})
 			: null;
 		this.#mailbox = new Mailbox({
 			now: Date.now,
@@ -1346,8 +1445,24 @@ export class AgentControl {
 		responseData(await this.#host.command(tabId, { type: "queue_clear" }, 15_000), "Clearing the queue");
 	}
 
-	/** A tab closed. */
-	released(tabId: string): void {
+	/**
+	 * A tab closed. `session`: the saved session it held, when nobody closed it through the control tools (those record
+	 * who did): its ids keep naming that session (`#fates`).
+	 */
+	released(tabId: string, session?: ReleasedSession): void {
+		if (session && !this.#closing.has(tabId))
+			this.#fates.closed(
+				{
+					ids: [tabId, ...session.formerIds, ...[savedIdOfPath(session.path)].filter(id => id !== undefined)],
+					path: session.path,
+					...(session.device ? { device: session.device } : {}),
+					title: session.hidden ? "" : session.title,
+					...(session.hidden ? { hidden: true as const } : {}),
+					cwd: session.cwd,
+					...(session.openedBySession ? { openedBySession: session.openedBySession } : {}),
+				},
+				FATE_BY.person,
+			);
 		this.#app?.released(tabId);
 		this.#opened.delete(tabId);
 		this.#collected.delete(tabId);
@@ -1526,9 +1641,20 @@ export class AgentControl {
 		}
 	}
 
-	async #dispatch(callerTabId: string, tabs: ControlTab[], tool: AgentControlToolName, raw: unknown): Promise<string> {
+	async #dispatch(
+		callerTabId: string,
+		tabs: ControlTab[],
+		tool: AgentControlToolName,
+		given: unknown,
+	): Promise<string> {
+		const raw = looseArgs(tool, given);
 		const parsed = ARGS[tool].safeParse(raw ?? {});
-		if (!parsed.success) fail(`Invalid arguments for ${tool}: ${parsed.error.issues.map(i => i.message).join("; ")}`);
+		if (!parsed.success)
+			fail(
+				`Invalid arguments for ${tool}: ${parsed.error.issues
+					.map(issue => (issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
+					.join("; ")}`,
+			);
 		const caller = this.#callerOf(callerTabId, tabs);
 		if (!caller) fail("This session's tab is gone.");
 		switch (tool) {
@@ -1580,8 +1706,8 @@ export class AgentControl {
 				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device).catch(
 					(error: unknown) => {
 						// A second delete of what is already gone: nothing to do, and no error for the agent to read.
-						if (args.delete && this.#wasDeleted(unquoted(args.session)))
-							return `"${unquoted(args.session)}" is already deleted: nothing to do.`;
+						if (args.delete && error instanceof SessionDeleted)
+							return `"${unquoted(args.session)}" is already deleted${fateWhen(error.fate)}: nothing to do.`;
 						throw error;
 					},
 				);
@@ -1608,11 +1734,19 @@ export class AgentControl {
 				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
 			case T.app: {
 				const args = ARGS[T.app].parse(raw);
+				this.#appRuns.set(caller.tabId, (this.#appRuns.get(caller.tabId) ?? 0) + 1);
 				try {
 					return await this.#appControl().run(caller.tabId, args.action, args.args);
 				} catch (error) {
 					if (error instanceof AppRefusal) fail(error.message);
 					throw error;
+				} finally {
+					const running = (this.#appRuns.get(caller.tabId) ?? 1) - 1;
+					if (running > 0) this.#appRuns.set(caller.tabId, running);
+					else {
+						this.#appRuns.delete(caller.tabId);
+						await this.#closeUtilityTabs(caller.tabId);
+					}
 				}
 			}
 		}
@@ -1665,6 +1799,7 @@ export class AgentControl {
 		options: { self?: false; reach?: false } = {},
 	): Promise<ControlTab> {
 		const found = await this.#find(tabs, session);
+		if (found.gone) throw new SessionDeleted(unquoted(session), found.gone);
 		if (!found.target)
 			fail(
 				`No session "${session}" open in this app or saved${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for every window, scope stored for saved ones) and use an id it lists.`,
@@ -2082,19 +2217,19 @@ export class AgentControl {
 	/**
 	 * Waits for a started tab to be ready, however long its start takes (queued, an omp slow to answer, a paired host's
 	 * link down): a live start is never a failed one (the owner's rule, 9 Nov 2026). Only a tab that closed, exited or
-	 * reads `error` fails it. `recoverUntil` (a deadline) is for a tab that was ready and then refused a command: an
-	 * `error` it reads may still turn ready (a session another omp held lets go), so it is waited out until then.
+	 * reads `error` fails it, with the reason its omp gave (`startFailure`). `recoverUntil` (a deadline) is for a tab
+	 * that was ready and then refused a command: an `error` it reads may still turn ready (a session another omp held
+	 * lets go), so it is waited out until then.
 	 */
 	async #whenReady(tabId: string, callerTabId: string, recoverUntil?: number): Promise<void> {
 		for (;;) {
 			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
 			if (!tab) fail("The new session's tab closed before it was ready.");
 			if (tab.status === "ready" || tab.status === "running") return;
-			if (tab.status === "exited") fail(`The session could not start (${tab.status}).`);
+			if (tab.status === "exited") fail(startFailure(tab));
 			// Another omp still holds the session: the tab opens it by itself once that omp lets go.
 			if (tab.status === "error" && !tab.sessionHeld) {
-				if (recoverUntil === undefined) fail(`The session could not start (${tab.status}).`);
-				if (Date.now() >= recoverUntil) fail("The session did not become ready again in time.");
+				if (recoverUntil === undefined || Date.now() >= recoverUntil) fail(startFailure(tab));
 				await this.#nextChange(Math.min(500, recoverUntil - Date.now()));
 				continue;
 			}
@@ -2103,28 +2238,52 @@ export class AgentControl {
 	}
 
 	/**
-	 * The commands of an open (worker marker, model, plan mode, first message or goal) to the child `tabId`. A child
-	 * that answers `sidecar_not_ready` or `sidecar_not_connected` is briefly not ready (`OPEN_READY_RETRY_MS`): wait for
-	 * its status to read ready again, then send the command once more. Any other answer, a child that exited or closed,
-	 * and the bound itself return the answer as it came, so the caller fails with it as before.
+	 * The commands of an open (worker marker, model, plan mode, first message or goal) to the child `tabId`. None has a
+	 * deadline (the owner's rule: no fixed time limit ends work as an error; `Marking the session as a worker failed: RPC
+	 * timeout (60000ms)` failed three opens in a week whose omp was only slow to answer under load): a command is waited
+	 * for as long as the child lives, and only a child that closed, exited or failed ends it, with the reason its omp
+	 * gave. A child that answers `sidecar_not_ready` or `sidecar_not_connected` is briefly not ready: wait for its status
+	 * to read ready again (an `error` for at most `OPEN_READY_RETRY_MS`), then send the command once more.
 	 */
 	#openCommands(tabId: string, callerTabId: string): OpenCommand {
 		let until: number | undefined;
-		return async (command, timeoutMs) => {
+		/** Why the child can answer nothing any more, or undefined while it lives. */
+		const ended = (): string | undefined => {
+			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
+			if (!tab) return "The new session's tab closed before it was set up.";
+			return tab.status === "exited" || (tab.status === "error" && !tab.sessionHeld) ? startFailure(tab) : undefined;
+		};
+		const refused = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
+		/** The command's answer, however long the child takes; a child that ended answers with why. */
+		const answerOf = async (command: RpcCommand): Promise<RpcResponse> => {
+			const answer = this.#host.command(tabId, command, NO_DEADLINE).then(
+				response => ({ response }),
+				(error: unknown) => ({ error }),
+			);
 			for (;;) {
-				const response = await this.#host.command(tabId, command, timeoutMs);
-				if (
-					response.success ||
-					(response.code !== "sidecar_not_ready" && response.code !== "sidecar_not_connected")
-				)
-					return response;
+				const settled = await Promise.race([answer, this.#nextChange(POLL_MS).then(() => null)]);
+				if (settled && "response" in settled) return settled.response;
+				// An omp that died answers nothing more: its tab's status says so.
+				const why = ended();
+				if (why) return refused(why);
+				if (settled) throw settled.error;
+			}
+		};
+		return async command => {
+			for (;;) {
+				const response = await answerOf(command);
+				if (response.success) return response;
+				const said = response.error ?? "No answer";
+				const because = (why: string | undefined) => (why && why !== said ? refused(`${said}. ${why}`) : response);
+				if (response.code !== "sidecar_not_ready" && response.code !== "sidecar_not_connected")
+					return because(ended());
 				until ??= Date.now() + OPEN_READY_RETRY_MS;
-				if (Date.now() >= until) return response;
+				if (Date.now() >= until) return because(ended());
 				try {
 					await this.#nextChange(Math.min(OPEN_READY_PAUSE_MS, until - Date.now()));
 					await this.#whenReady(tabId, callerTabId, until);
-				} catch {
-					return response;
+				} catch (error) {
+					return because(error instanceof ToolError ? error.message : undefined);
 				}
 			}
 		};
@@ -2150,14 +2309,14 @@ export class AgentControl {
 	 */
 	async #resolveModel(send: OpenCommand, wanted: string): Promise<ModelInfo> {
 		const data = responseData<{ models?: ModelInfo[] }>(
-			await send({ type: "get_available_models" }, 15_000),
+			await send({ type: "get_available_models" }),
 			"Reading the model list",
 		);
 		const models = data?.models ?? [];
 		const lowered = wanted.toLowerCase();
 		if (!wanted.includes("/")) {
 			const roles = responseData<ModelRolesResult>(
-				await send({ type: "get_model_roles", compact: true }, 15_000),
+				await send({ type: "get_model_roles", compact: true }),
 				"Reading the model roles",
 			);
 			const role = roles?.roles.find(entry => entry.id.toLowerCase() === lowered);
@@ -2238,6 +2397,8 @@ export class AgentControl {
 			device = target ? target.id : null;
 		}
 		let sessionPath: string | undefined;
+		/** The saved session a reopen names. */
+		let reopened: StoredSession | undefined;
 		/** A reopen of a session open in a tab elsewhere: where, as the lists say it. It joins that tab (`#join`). */
 		let joined: string | undefined;
 		if (args.reopen) {
@@ -2262,6 +2423,12 @@ export class AgentControl {
 				fail(`That session is ${joined}: it is not yours to throw away. Reopen it without throwaway.`);
 			const home = row.device ? this.#host.devices().find(entry => entry.id === row.device) : undefined;
 			if (home) await this.#reach(home);
+			// It opens in the folder it worked in, never another: the same folder named again is no conflict.
+			if (args.folder !== undefined && folderKey(args.folder) !== folderKey(row.cwd))
+				fail(
+					`A saved session opens in the folder it worked in (${row.cwd}), never another: leave folder out with reopen. To work in ${args.folder}, open a new session there and name this one in its brief (its transcript: ompdesk_session_read {"session":"${row.id}"}).`,
+				);
+			reopened = row;
 			sessionPath = row.path;
 			device = row.device ?? null;
 		}
@@ -2272,7 +2439,7 @@ export class AgentControl {
 		const task = args.message && !sessionPath ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
 		try {
 			({ tabId, worktree, prepared } = await this.#host.spawn(caller.tabId, {
-				folder: args.folder,
+				...(sessionPath ? {} : { folder: args.folder }),
 				worktree: worktreeArg,
 				...(device !== undefined ? { device } : {}),
 				...(sessionPath ? { sessionPath } : {}),
@@ -2282,15 +2449,8 @@ export class AgentControl {
 				...(joined ? { join: true as const } : {}),
 			}));
 		} catch (error) {
-			if (!(error instanceof SessionFolderMissing) || !args.reopen) throw error;
-			const { folder, saved } = error;
-			if (!saved)
-				fail(
-					`The folder this saved session worked in no longer exists (${folder}) and nothing of it was saved, so it is not opened in any other folder. Its transcript stays readable with ompdesk_session_read {"session":"${args.reopen}"}.`,
-				);
-			fail(
-				`The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: args.reopen, restore: true })}; the person can also restore it from Work tree › Saved worktrees on the computer that holds it.`,
-			);
+			if (!(error instanceof SessionFolderMissing) || !args.reopen || !reopened) throw error;
+			fail(this.#folderGone(error, args.reopen, reopened, "reopen"));
 		} finally {
 			opened.delete(reservation);
 		}
@@ -2308,10 +2468,7 @@ export class AgentControl {
 			else if (sessionPath) notes.push("reopened");
 			else
 				responseData(
-					await send(
-						{ type: "agent_control_worker", from: caller.title || "another session" },
-						FIRST_COMMAND_TIMEOUT_MS,
-					),
+					await send({ type: "agent_control_worker", from: caller.title || "another session" }),
 					"Marking the session as a worker",
 				);
 			if (args.model) {
@@ -2342,21 +2499,15 @@ export class AgentControl {
 			if (args.message) {
 				if (args.mode === "goal") {
 					// The goal command starts the objective turn itself.
-					responseData(await send({ type: "set_goal", objective: args.message }, 30_000), "Setting the goal");
+					responseData(await send({ type: "set_goal", objective: args.message }), "Setting the goal");
 					notes.push("goal set");
 				} else {
 					responseData(
-						await send(
-							{
-								type: "prompt",
-								message: wrapAgentMessage(
-									withDispatch(args.message, this.#mailbox.dispatch(tabId)),
-									caller.title,
-								),
-								streamingBehavior: "followUp",
-							},
-							30_000,
-						),
+						await send({
+							type: "prompt",
+							message: wrapAgentMessage(withDispatch(args.message, this.#mailbox.dispatch(tabId)), caller.title),
+							streamingBehavior: "followUp",
+						}),
 						"Sending the first message",
 					);
 				}
@@ -2416,7 +2567,9 @@ export class AgentControl {
 	async #ensureStarted(target: ControlTab, callerTabId: string): Promise<void> {
 		if (target.status === "ready" || target.status === "running") return;
 		if (target.status === "error" || target.status === "exited")
-			fail(`${label(target)} is stopped (${target.status}); the user has to restart it.`);
+			fail(
+				`${label(target)} is stopped (${target.status}${target.failure?.trim() ? `: ${oneLine(target.failure, 300)}` : ""}); the user has to restart it.`,
+			);
 		if (target.status === "asleep") this.#host.start(target.tabId);
 		await this.#whenReady(target.tabId, callerTabId);
 	}
@@ -2884,31 +3037,43 @@ export class AgentControl {
 			fail(`${label(target)} has not started; there is no transcript to read yet.`);
 		}
 		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
+		const ask = (cursor: string | undefined) =>
+			this.#overLink(target.device, async () => {
+				const response = await this.#host.command(
+					target.tabId,
+					cursor
+						? { type: "get_transcript_page", cursor, limit }
+						: { type: "get_transcript_page", fromEnd: true, limit },
+					30_000,
+				);
+				if (!response.success && response.code === "remote_offline")
+					throw new Error(`[remote_offline] ${response.error}`);
+				return response;
+			});
+		let response = await ask(args.before);
+		// A cursor names a page of the transcript as it was: one more message since makes it stale (`stale_cursor`),
+		// and the index a saved read returned is none of a live tab's. The newest page answers instead of a failure.
+		const restarted = !response.success && args.before !== undefined;
+		if (restarted) response = await ask(undefined);
 		const page =
-			transcriptPage(
-				responseData<unknown>(
-					await this.#overLink(target.device, async () => {
-						const response = await this.#host.command(
-							target.tabId,
-							args.before
-								? { type: "get_transcript_page", cursor: args.before, limit }
-								: { type: "get_transcript_page", fromEnd: true, limit },
-							30_000,
-						);
-						if (!response.success && response.code === "remote_offline")
-							throw new Error(`[remote_offline] ${response.error}`);
-						return response;
-					}),
-					"Reading the transcript",
-				),
-			) ?? fail("The transcript page came back empty.");
+			transcriptPage(responseData<unknown>(response, "Reading the transcript")) ??
+			fail("The transcript page came back empty.");
 		this.#collected.add(target.tabId);
-		return renderPage(label(target), target.tabId, page.messages, page.totalMessages, page.prevCursor ?? null);
+		return renderPage(
+			label(target),
+			target.tabId,
+			page.messages,
+			page.totalMessages,
+			page.prevCursor ?? null,
+			restarted ? staleCursorNote(args.before) : undefined,
+		);
 	}
 
 	/**
 	 * A saved session's transcript, paged from its end; the cursor is the index of the page's first message. The header
-	 * says where it is open as the stored list does, read again now: a listed row says only what was true then.
+	 * says where it is open as the stored list does, read again now: a listed row says only what was true then. A cursor
+	 * that is no index of this transcript (past its end, or the cursor a read of its open tab returned) restarts from
+	 * the newest page.
 	 */
 	async #readStored(row: StoredSession, args: { limit?: number; before?: string }): Promise<string> {
 		if (row.hidden) fail("The user hid this session from other agents.");
@@ -2916,16 +3081,25 @@ export class AgentControl {
 			this.#overLink(row.device, () => this.#host.storedMessages(row)),
 			row.tabId ? row : this.#currentRow(row),
 		]);
+		// The row a closed tab's id resolved to says what was true when it closed; the list says what is true now.
+		if (now.hidden) fail("The user hid this session from other agents.");
 		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
-		const end = args.before === undefined ? messages.length : Number.parseInt(args.before, 10);
-		if (!Number.isInteger(end) || end < 0 || end > messages.length)
-			fail(`"${args.before}" is not a cursor of this session; use the one a previous page returned.`);
+		const asked = args.before !== undefined && /^\d+$/.test(args.before) ? Number(args.before) : undefined;
+		const restarted = args.before !== undefined && (asked === undefined || asked > messages.length);
+		const end = restarted || asked === undefined ? messages.length : asked;
 		const start = Math.max(0, end - limit);
 		const open = now.tabId
 			? `open in tab ${now.tabId}`
 			: openElsewhereText(now, now.elsewhere?.work === "turn" ? currentStep(messages) : null) || "not open";
 		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}, ${open})`;
-		return renderPage(title, row.id, messages.slice(start, end), messages.length, start > 0 ? String(start) : null);
+		return renderPage(
+			title,
+			row.id,
+			messages.slice(start, end),
+			messages.length,
+			start > 0 ? String(start) : null,
+			restarted ? staleCursorNote(args.before) : undefined,
+		);
 	}
 
 	/** `row` as its computer lists it now (kept for the next lookup); the row itself when that list cannot be read. */
@@ -2940,16 +3114,16 @@ export class AgentControl {
 	/**
 	 * Every way an agent names a session, the first match wins: a tab id; an id the tab had before a relaunch (whole
 	 * only: tab ids are random, so it names that session alone); the saved (stock) id of the session a tab holds; a
-	 * unique prefix of a tab id or of that saved id; the id of a tab closed this launch (`#closedTabs`: the saved session
-	 * it held); the title, exactly or by a unique prefix in any case (a hidden session's title is private and never
-	 * matched); then a saved session no tab holds (`#storedSession`, on `device` when given). An ambiguous name fails,
-	 * naming the candidates.
+	 * unique prefix of a tab id or of that saved id; the id of a tab that closed, in any launch (`#fateOf`: the saved
+	 * session it held; `gone` when that session was deleted); the title, exactly or by a unique prefix in any case (a
+	 * hidden session's title is private and never matched); then a saved session no tab holds (`#storedSession`, on
+	 * `device` when given; `gone` for a saved id a tombstone names). An ambiguous name fails, naming the candidates.
 	 */
 	async #find(
 		tabs: ControlTab[],
 		session: string,
 		device?: ControlDevice | null,
-	): Promise<{ target?: ControlTab | StoredSession; unreached: string[] }> {
+	): Promise<{ target?: ControlTab | StoredSession; gone?: SessionFate; unreached: string[] }> {
 		const name = unquoted(session);
 		const only = (matches: ControlTab[]): ControlTab | undefined => {
 			if (matches.length > 1)
@@ -2973,31 +3147,30 @@ export class AgentControl {
 					only(tabs.filter(entry => savedIdOfPath(entry.sessionPath)?.startsWith(name))))
 				: undefined);
 		if (tab) return { target: tab, unreached: [] };
-		// A tab closed this launch: its id still names the saved session it held (or the tab that has it open again);
-		// one closed before a relaunch, by the ids its record keeps.
-		const recorded = (this.#host.closedChildren?.() ?? []).findLast(child => child.tabIds?.includes(name));
-		const closed =
-			this.#closedTabs.get(name)?.row ??
-			(recorded
-				? {
-						id: name,
-						path: recorded.path,
-						title: recorded.title,
-						firstMessage: "",
-						cwd: recorded.cwd,
-						modified: "",
-						messages: 0,
-						status: "",
-						hidden: false,
-						...(recorded.device
-							? {
-									device: recorded.device,
-									deviceName: this.#host.devices().find(device => device.id === recorded.device)?.name,
-								}
-							: {}),
-					}
-				: undefined);
-		if (closed) return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
+		// A tab that closed, whoever closed it and in whichever launch: its id still names the saved session it held (or
+		// the tab that has it open again). A deleted session's id names what became of it. The session's own saved id is
+		// read from its computer's list below, which also says where else it is open.
+		const fate = this.#fateOf(name);
+		if (fate?.state === "deleted") return { gone: fate, unreached: [] };
+		if (fate?.path && savedIdOfPath(fate.path) !== name) {
+			const closed: StoredSession = [...this.#stored.values()].find(
+				row => row.path === fate.path && row.device === fate.device,
+			) ?? {
+				id: name,
+				path: fate.path,
+				title: fate.title,
+				firstMessage: "",
+				cwd: fate.cwd,
+				modified: "",
+				messages: 0,
+				status: "",
+				hidden: fate.hidden === true,
+				...(fate.device
+					? { device: fate.device, deviceName: this.#host.devices().find(entry => entry.id === fate.device)?.name }
+					: {}),
+			};
+			return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
+		}
 		const wanted = name.toLowerCase();
 		// A conversation the bot ended carries its name too: the name is the bot's current conversation, never one of them.
 		const titled = tabs.filter(entry => !entry.hidden && entry.bot !== "past");
@@ -3008,8 +3181,45 @@ export class AgentControl {
 				? only(titled.filter(entry => titleOf(entry).startsWith(wanted)))
 				: undefined);
 		if (byTitle) return { target: byTitle, unreached: [] };
+		// A saved id a tombstone names is listed by no index any more (and a row an earlier list printed is stale).
+		const deletedAt = this.#host.deletedAt?.({ id: name });
+		if (deletedAt !== undefined)
+			return {
+				gone: { ids: [name], title: "", cwd: "", state: "deleted", at: deletedAt, by: FATE_BY.app },
+				unreached: [],
+			};
 		const { row, unreached } = await this.#storedSession(name, device);
 		return { target: row ? (this.#liveTab(tabs, row) ?? row) : undefined, unreached };
+	}
+
+	/**
+	 * What became of the session `id` named (`#fates`), with what only other records know: a tombstone turns a closed
+	 * session into a deleted one (the sidebar's Delete, another device), and a close recorded before the fates existed
+	 * is read from the closed-children list.
+	 */
+	#fateOf(id: string): SessionFate | undefined {
+		const known = this.#fates.find(id);
+		const legacy = known
+			? undefined
+			: (this.#host.closedChildren?.() ?? []).findLast(child => child.tabIds?.includes(id));
+		const fate: SessionFate | undefined =
+			known ??
+			(legacy
+				? {
+						ids: legacy.tabIds ?? [id],
+						path: legacy.path,
+						...(legacy.device ? { device: legacy.device } : {}),
+						title: legacy.title,
+						cwd: legacy.cwd,
+						openedBySession: legacy.openedBySession,
+						state: "closed",
+						at: legacy.closedAt,
+						by: FATE_BY.autoClose,
+					}
+				: undefined);
+		if (!fate?.path || fate.state === "deleted") return fate;
+		const deletedAt = this.#host.deletedAt?.({ path: fate.path, ...(fate.device ? { device: fate.device } : {}) });
+		return deletedAt === undefined ? fate : { ...fate, state: "deleted", at: deletedAt, by: FATE_BY.app };
 	}
 
 	/**
@@ -3096,6 +3306,7 @@ export class AgentControl {
 		device?: ControlDevice | null,
 	): Promise<ControlTab | StoredSession> {
 		const found = await this.#find(tabs, session, device);
+		if (found.gone) throw new SessionDeleted(unquoted(session), found.gone);
 		const target =
 			found.target ??
 			fail(
@@ -3266,7 +3477,7 @@ export class AgentControl {
 		let byPerson: boolean | undefined;
 		const personAsked = async () => (byPerson ??= await this.#personTurn(caller));
 		const inUse = (tab: ControlTab) => tab.looked === true || tab.userTouched === true;
-		if (inUse(target) && !(await personAsked())) fail(inUseRefusal(target, args));
+		if (inUse(target) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
 		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
 		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
 		const resting = !target.busy && !waits(target) && !inUse(target);
@@ -3295,12 +3506,12 @@ export class AgentControl {
 			if (args.delete) {
 				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && inUse(now) && !(await personAsked())) fail(inUseRefusal(target, args));
+				if (now && inUse(now) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
 				await this.#deleteWhenIdle(caller, target);
-				this.#rememberDeleted(idsOf(target));
+				this.#fates.deleted(this.#fated(target, own ? caller.sessionPath : undefined), byCaller(caller));
 			} else if (args.close) {
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && inUse(now) && !(await personAsked())) fail(inUseRefusal(target, args));
+				if (now && inUse(now) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
 				const outcome = await this.#closeTab(caller.tabId, target.tabId, {
 					waitMs: CLOSE_WAIT_MS,
 					...(byPerson ? { byPerson } : {}),
@@ -3313,7 +3524,7 @@ export class AgentControl {
 					fail(
 						`${label(target)} is still open: its page holds unsaved edits in the Files editor of this tab, and closing it would lose them. Ask the user to save or discard them, then close it again; its session is saved either way.`,
 					);
-				if (target.sessionPath) this.#rememberClosed(target, target.sessionPath, own ? caller.tabId : "");
+				this.#rememberClosed(target, own ? caller : null, byCaller(caller));
 			}
 			// Told only once the tab is gone: a close that did not happen sends no note.
 			if (args.close || args.delete)
@@ -3321,6 +3532,8 @@ export class AgentControl {
 		} finally {
 			this.#closing.delete(target.tabId);
 		}
+		// What was asked is done: nothing of it waits for the caller's next turn of the person's.
+		this.#cleanups.drop(cleanupOf(caller, target, args));
 		if (args.delete) {
 			const done = `Stopped, closed and deleted ${label(target)}.`;
 			return own && target.worktree ? `${done} ${await this.#dropWorktree(target.worktree, target.device)}` : done;
@@ -3388,18 +3601,16 @@ export class AgentControl {
 		}
 	}
 
-	/** A saved session the caller opened whose tab was closed: this launch (`#closedTabs`), or recorded under its session. */
+	/** A saved session the caller opened whose tab was closed: this launch, or recorded under the caller's session. */
 	#ownClosed(caller: ControlTab, row: Pick<StoredSession, "path" | "device">): boolean {
-		const same = (path: string, device: string | undefined) =>
-			path === row.path && (device ?? undefined) === (row.device ?? undefined);
+		if (this.#closedOpeners.get(receiverKey(row.path, row.device)) === caller.tabId) return true;
+		if (caller.sessionPath === undefined) return false;
 		return (
-			[...this.#closedTabs.values()].some(
-				entry => entry.opener === caller.tabId && same(entry.row.path, entry.row.device),
-			) ||
-			(caller.sessionPath !== undefined &&
-				(this.#host.closedChildren?.() ?? []).some(
-					child => child.openedBySession === caller.sessionPath && same(child.path, child.device),
-				))
+			this.#fates.of(row.path, row.device)?.openedBySession === caller.sessionPath ||
+			(this.#host.closedChildren?.() ?? []).some(
+				child =>
+					child.openedBySession === caller.sessionPath && child.path === row.path && child.device === row.device,
+			)
 		);
 	}
 
@@ -3414,12 +3625,182 @@ export class AgentControl {
 			return this.#open(tabs, session, caller, "send to");
 		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
 		if (home) await this.#reach(home);
-		const { tabId } = await this.#host.spawn(caller.tabId, { sessionPath: row.path, device: row.device ?? null });
+		const { tabId } = await this.#host
+			.spawn(caller.tabId, { sessionPath: row.path, device: row.device ?? null })
+			.catch((error: unknown) => {
+				if (error instanceof SessionFolderMissing) fail(this.#folderGone(error, unquoted(session), row, "send"));
+				throw error;
+			});
 		await this.#whenReady(tabId, caller.tabId);
 		return (
 			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
 			fail(`"${oneLine(storedTitle(row), 80)}" was opened again as ${tabId}, and its tab closed before the message.`)
 		);
+	}
+
+	/**
+	 * What a caller is told when a saved session cannot open because the folder it worked in is gone (the tab spawn's
+	 * `folder-missing`: a session never opens in another folder): what removed the folder, whether anything was lost,
+	 * and the call that goes on from here. One text for a reopen and for a message to a closed child (measured 3 to 10
+	 * Nov 2026: 3 sends failed on "The folder this saved session belongs in no longer exists" and nothing more).
+	 */
+	#folderGone(
+		error: SessionFolderMissing,
+		session: string,
+		row: Pick<StoredSession, "path" | "device">,
+		wanted: "reopen" | "send",
+	): string {
+		const { folder, saved } = error;
+		const read = `ompdesk_session_read {"session":"${session}"}`;
+		if (saved)
+			return `The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: session, restore: true })}${wanted === "send" ? ", then send your message to the id that returns" : ""}; the person can also restore it from Work tree › Saved worktrees on the computer that holds it.`;
+		// The control tools remove a finished child's worktree themselves once its work landed: then nothing was lost.
+		const landed = (this.#host.closedChildren?.() ?? []).findLast(
+			child => child.path === row.path && child.device === row.device && child.cwd !== folder,
+		);
+		const why = landed
+			? `: OMPdesk removed that worktree when it closed the session on ${new Date(landed.closedAt).toISOString().slice(0, 10)}, because its work had landed (clean tree, its branch in ${landed.cwd}), so nothing was lost`
+			: " and nothing of it was saved";
+		const next = `ompdesk_session_open ${JSON.stringify({ message: "…", ...(landed ? { folder: landed.cwd } : {}), worktree: true })}`;
+		return `The folder this saved session worked in no longer exists (${folder})${why}. A session opens only in the folder it worked in, so this one takes no more work${wanted === "send" ? " and your message was not delivered" : ""}. Give the follow-up to a new session (${next}) and name this one in its brief: its transcript stays readable with ${read}.`;
+	}
+
+	/**
+	 * Refuses a stop, close or delete of a session the person looks at or typed into, asked in a turn their own message
+	 * did not start (that rule stands), and keeps it as a pending cleanup: its caller is told the list once, at the start
+	 * of its next turn the person starts (`personTyped`), when the same call works. A caller that is no tab (a process
+	 * outside OMPdesk) has no such turn, so nothing is kept for it.
+	 */
+	#refuseInUse(
+		caller: ControlTab,
+		tabs: readonly ControlTab[],
+		target: ControlTab,
+		args: { close?: boolean; delete?: boolean },
+	): never {
+		const kept = tabs.some(tab => tab.tabId === caller.tabId);
+		if (kept) this.#cleanups.add(cleanupOf(caller, target, args));
+		fail(
+			`${inUseRefusal(target, args)}${kept ? " OMPdesk kept this as a pending cleanup: it lists it to you at the start of your next turn the user's own message starts, and the same call works then." : ""}`,
+		);
+	}
+
+	/**
+	 * The person typed a prompt to `tabId` (main's word for a window's, the phone page's or a paired device's prompt;
+	 * never read from the text). When that prompt starts the tab's turn, the cleanups its agent was refused are listed
+	 * to it once, as a note ahead of the turn: the calls work in a turn the person started. A prompt that joins a
+	 * running turn starts none, so the list waits.
+	 */
+	personTyped(tabId: string): void {
+		const tabs = this.#host.tabs(tabId);
+		const caller = tabs?.find(tab => tab.tabId === tabId);
+		if (!tabs || !caller || caller.busy) return;
+		const pending = this.#cleanups.take(cleanupCaller(caller));
+		const lines = pending.flatMap(entry => {
+			const tab = tabs.find(open =>
+				entry.path !== undefined
+					? open.sessionPath === entry.path && open.device === entry.device
+					: open.tabId === entry.tabId || open.formerIds?.includes(entry.tabId) === true,
+			);
+			// A closed tab leaves only a delete to do, and only while its session is still saved.
+			if (!tab && (entry.action !== "delete" || this.#fateOf(entry.tabId)?.state !== "closed")) return [];
+			const id = tab?.tabId ?? entry.tabId;
+			const call = `ompdesk_session_stop ${JSON.stringify({ session: id, ...(entry.action === "stop" ? {} : { [entry.action]: true }) })}`;
+			return [
+				`- ${id}${entry.title ? ` "${oneLine(entry.title, 80)}"` : ""}: ${entry.action}${tab ? "" : " (its tab is closed since, its session still saved)"}, asked ${new Date(entry.at).toISOString().slice(0, 16).replace("T", " ")} UTC: ${call}`,
+			];
+		});
+		if (lines.length === 0) return;
+		const text = `OMPdesk: pending cleanups (${lines.length}). You asked for these while the user was in the session, in a turn their own message had not started, and were refused. The user's own message starts this turn, so each call works now: make the ones that are still wanted, and leave a session the user still uses.\n${lines.join("\n")}`;
+		const details = {
+			id: `cleanups:${tabId}:${Date.now()}`,
+			from: tabId,
+			fromTitle: "OMPdesk",
+			kind: "note",
+			label: "note",
+			text,
+		};
+		// Not told (its omp cannot take a note now): the list waits for the next such turn.
+		void this.#host.mail(tabId, text, details, deliveryFor("note")).catch(() => {
+			for (const entry of pending) this.#cleanups.add(entry);
+		});
+	}
+
+	/**
+	 * `ompdesk_app`'s route to another computer (`AppPorts.rpcOn`): `command` to an omp on the computer `wanted` names.
+	 * The caller's own session when it runs there, else another session of this app that runs there and is up, else a
+	 * session opened there in the background (`#utilityTab`): no message, no model call (the bot used to open a
+	 * throwaway session per computer and have its agent run `omp config set`).
+	 */
+	async #rpcOn(callerTabId: string, wanted: string, command: RpcCommand): Promise<RpcResponse> {
+		const tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
+		const caller = this.#callerOf(callerTabId, tabs) ?? fail("This session's tab is gone.");
+		const named = this.#device(wanted);
+		const device = named ? await this.#reach(named) : null;
+		const timeoutMs = timeoutForCommand(command) ?? RPC_ON_TIMEOUT_MS;
+		const there = (tab: ControlTab): boolean =>
+			(tab.device ?? null) === (device?.id ?? null) &&
+			(tab.status === "ready" || tab.status === "running") &&
+			!this.#closing.has(tab.tabId);
+		const via = there(caller) ? caller : tabs.find(tab => there(tab) && !tab.hidden);
+		if (via) return this.#host.command(via.tabId, command, timeoutMs);
+		const scoped = this.#appRuns.has(callerTabId);
+		try {
+			return await this.#host.command(await this.#utilityTab(callerTabId, device), command, timeoutMs);
+		} finally {
+			// Outside an app action nothing ends the session later: it goes with this call.
+			if (!scoped) await this.#closeUtilityTabs(callerTabId);
+		}
+	}
+
+	/**
+	 * The background session `callerTabId`'s app action uses on `device` (null: this computer), opened at its first
+	 * command there and shared by the action's other commands and by its caller's other running actions; all of them
+	 * are closed and deleted when the caller's last running action ends (`#closeUtilityTabs`). One omp start per action,
+	 * not one per command: reading a setting's schema, its value and writing it are three.
+	 */
+	#utilityTab(callerTabId: string, device: ControlDevice | null): Promise<string> {
+		const opened = this.#utilityTabs.get(callerTabId) ?? new Map<string, Promise<string>>();
+		this.#utilityTabs.set(callerTabId, opened);
+		const key = device?.id ?? "";
+		const known = opened.get(key);
+		if (known) return known;
+		const starting = (async () => {
+			const { tabId } = await this.#host.spawn(callerTabId, { device: device?.id ?? null });
+			// Its close and delete are no close of a session anyone was given an id for.
+			this.#closing.add(tabId);
+			try {
+				await this.#whenReady(tabId, callerTabId);
+			} catch (error) {
+				await this.#discardUtility(callerTabId, tabId);
+				throw error;
+			}
+			return tabId;
+		})();
+		opened.set(key, starting);
+		// A start that failed is none: the next command there starts another.
+		starting.catch(() => opened.delete(key));
+		return starting;
+	}
+
+	async #closeUtilityTabs(callerTabId: string): Promise<void> {
+		const opened = this.#utilityTabs.get(callerTabId);
+		if (!opened) return;
+		this.#utilityTabs.delete(callerTabId);
+		await Promise.all(
+			[...opened.values()].map(async starting => {
+				const tabId = await starting.catch(() => undefined);
+				if (tabId) await this.#discardUtility(callerTabId, tabId);
+			}),
+		);
+	}
+
+	/** Stock wrote the session's file at once: the delete closes the tab and removes that file. One with no file yet only closes. */
+	async #discardUtility(callerTabId: string, tabId: string): Promise<void> {
+		await this.#host
+			.deleteSession(callerTabId, tabId)
+			.catch(() => this.#closeTab(callerTabId, tabId, { waitMs: CLOSE_WAIT_MS }))
+			.catch(() => undefined);
+		this.#closing.delete(tabId);
 	}
 
 	/**
@@ -3436,8 +3817,6 @@ export class AgentControl {
 		if (row.hidden) fail("The user hid that session from other agents.");
 		const name = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""})`;
 		if (!args.delete) return `${name} is not open in any tab: nothing to stop or close.`;
-		const same = (path: string, device: string | undefined) =>
-			path === row.path && (device ?? undefined) === (row.device ?? undefined);
 		const own = this.#ownClosed(caller, row);
 		if (!own && !this.#host.fullEnabled()) {
 			const params = { caller: caller.title || "—", target: storedTitle(row) || row.id };
@@ -3450,12 +3829,17 @@ export class AgentControl {
 		}
 		await this.#host.deleteStored(row);
 		this.#stored.delete(row.id);
-		this.#rememberDeleted([row.id]);
-		for (const [tabId, entry] of this.#closedTabs)
-			if (same(entry.row.path, entry.row.device)) {
-				this.#closedTabs.delete(tabId);
-				this.#rememberDeleted([tabId]);
-			}
+		this.#closedOpeners.delete(receiverKey(row.path, row.device));
+		this.#fates.deleted(
+			{
+				ids: [row.id],
+				path: row.path,
+				...(row.device ? { device: row.device } : {}),
+				title: storedTitle(row),
+				cwd: row.cwd,
+			},
+			byCaller(caller),
+		);
 		return `Deleted ${name}.`;
 	}
 
@@ -4263,36 +4647,24 @@ export class AgentControl {
 		return (response?.success ? transcriptPage(response.data)?.messages : null) ?? [];
 	}
 
-	/** A tab closed this launch keeps naming its saved session (`#closedTabs`); the oldest go past `CLOSED_TABS_MAX`. */
-	#rememberClosed(tab: ControlTab, path: string, opener: string): void {
-		this.#closedTabs.delete(tab.tabId);
-		this.#closedTabs.set(tab.tabId, { row: this.#tabRow(tab, path), opener });
-		for (const oldest of this.#closedTabs.keys()) {
-			if (this.#closedTabs.size <= CLOSED_TABS_MAX) break;
-			this.#closedTabs.delete(oldest);
-		}
+	/** A tab's session as a fate records it; `openedBySession`: its opener's session file, when known. */
+	#fated(tab: ControlTab, openedBySession?: string): FatedSession {
+		return {
+			ids: idsOf(tab),
+			...(tab.sessionPath ? { path: tab.sessionPath } : {}),
+			...(tab.device ? { device: tab.device } : {}),
+			title: tab.hidden ? "" : tab.title || tab.task || "",
+			...(tab.hidden ? { hidden: true as const } : {}),
+			cwd: tab.cwd,
+			...(openedBySession ? { openedBySession } : {}),
+		};
 	}
 
-	/** Whether `id` names a session that was deleted: by this service, by anyone (a tombstone), or before a relaunch. */
-	#wasDeleted(id: string): boolean {
-		return (
-			this.#deletedIds.has(id) ||
-			this.#host.isSavedIdDeleted?.(id) === true ||
-			(this.#host.deletedIds?.() ?? []).includes(id)
-		);
-	}
-
-	/** `ids` name sessions that are deleted now; the oldest go past `DELETED_IDS_MAX`. */
-	#rememberDeleted(ids: readonly string[]): void {
-		for (const id of ids) {
-			this.#deletedIds.delete(id);
-			this.#deletedIds.add(id);
-		}
-		for (const oldest of this.#deletedIds) {
-			if (this.#deletedIds.size <= DELETED_IDS_MAX) break;
-			this.#deletedIds.delete(oldest);
-		}
-		this.#host.recordDeleted?.(ids);
+	/** A tab the control tools closed keeps naming its saved session (`#fates`); `opener`: the caller, when it opened it. */
+	#rememberClosed(tab: ControlTab, opener: ControlTab | null, by: string): void {
+		if (!tab.sessionPath) return;
+		this.#fates.closed(this.#fated(tab, opener?.sessionPath), by);
+		if (opener) this.#closedOpeners.set(receiverKey(tab.sessionPath, tab.device), opener.tabId);
 	}
 
 	/**
@@ -4308,7 +4680,7 @@ export class AgentControl {
 		} catch {
 			return false;
 		}
-		this.#rememberDeleted(idsOf(tab));
+		this.#fates.deleted(this.#fated(tab, caller.sessionPath), FATE_BY.throwaway);
 		const text = `Deleted ${label(tab)}: it was opened as throwaway and its answer reached you.`;
 		await this.#host
 			.mail(
@@ -4359,7 +4731,7 @@ export class AgentControl {
 			// A worktree git kept would lose the session that names it: then the session stays too.
 			if (decision.deleteSession && (!tab.worktree || removed) && (await this.#deleteThrowaway(caller, tab, path)))
 				return;
-			this.#rememberClosed(tab, path, caller.tabId);
+			this.#rememberClosed(tab, caller, FATE_BY.autoClose);
 			this.#host.recordClosed({
 				path,
 				openedBySession: caller.sessionPath as string,

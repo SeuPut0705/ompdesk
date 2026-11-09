@@ -4,9 +4,9 @@
 
 ## Flow
 
-1. `ompdesk_app_list` with `area` (`settings`, `ui`, `usage`, `models`, `sessions`, `sidebar`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `connections`, `autopilot`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
+1. `ompdesk_app_list` with `area` (`settings`, `omp`, `ui`, `usage`, `models`, `sessions`, `sidebar`, `updates`, `accounts`, `mobile_web`, `extensions`, `memory`, `connections`, `autopilot`, `permissions`) or `query` (words from an id or description). It prints each matching action with its tier and argument schema; with many matches it prints names only, so narrow the filter.
 2. `ompdesk_app` with `action` (an id from the list, e.g. `settings.theme`) and `args` as the schema says. Arguments are checked in the app; an unknown action or argument is refused.
-3. Read before you change: `settings.get` shows current values, `usage.read` the provider quota windows.
+3. Read before you change: `settings.get` shows current values, `usage.read` the provider quota windows (each window under its own label, so an account's general 7-day window and its per-model 7-day window read apart, with percent used, its reset time in UTC and how far away, and the account's saved resets), `models.list` the model role assignments and the models you can use, `omp_settings.get` any omp setting.
 
 ## Tiers
 
@@ -18,7 +18,24 @@
 
 ## Which computer
 
-A session that runs on a paired host acts on that host exactly as the Settings page does while that tab is focused. Stock settings, models, usage, plugins and MCP servers already go to the host's omp. `settings.rotation` and `settings.builtinRea` read and write the host's own value (`settings.get` shows it), and `sessions.saved`, `sessions.search`, `sessions.rename`, `sessions.delete`, `sidebar.projects`, `sidebar.add_project` and `sidebar.remove_project` work on the host's saved sessions and sidebar projects. `updates.status`, `updates.check` and `updates.apply` stay on this computer's OMPdesk unless you pass `host: true`, which asks the paired host's OMPdesk instead (`updates.apply` refuses while work runs there, yours included). Everything else is this device's own: its look, notifications, proxy, update switches, memory, Tailscale and phone-page sharing.
+A session that runs on a paired host acts on that host exactly as the Settings page does while that tab is focused. Stock settings, models, usage, plugins and MCP servers already go to the host's omp. `settings.rotation` and `settings.builtinRea` read and write the host's own value (`settings.get` shows it), and `sessions.saved`, `sessions.search`, `sessions.rename`, `sessions.delete`, `sidebar.projects`, `sidebar.add_project` and `sidebar.remove_project` work on the host's saved sessions and sidebar projects. `updates.status`, `updates.check` and `updates.apply` stay on this computer's OMPdesk unless you pass `host: true`, which asks the paired host's OMPdesk instead (`updates.apply` refuses while work runs there, yours included). Everything else is this device's own: its look, notifications, proxy, update switches, memory, Tailscale and phone-page sharing. To act on a computer other than your session's, see `device` below.
+
+### Another computer (`device`)
+
+`usage.read`, `models.list`, `models.set_role`, `omp_settings.get` and `omp_settings.set` take `device`: a paired computer's name or id as `ompdesk_sessions` lists it, or `local` for this computer. The command then runs in an omp on that computer (your own session when it runs there, else another open session there, else a background session opened for the action and closed and deleted after it: no message, no model call), so you can set up models and settings on several computers from one session. Never open a session to run `omp config` there. Without `device` they act on your own session's omp. `models.set` stays this session's own model.
+
+## Models
+
+`models.list` prints the model roles first (what each role really runs on: `fallback via default`, the session's own model, `not available`), then the models of the providers that have a signed-in account (the first 40 of each), and ends with one line saying how many models of which providers it left out. Ask for them with `provider` (a provider id), `query` (words of `provider/id`; the roles are left out of a filtered answer) or `all: true`. An aggregator's catalog runs to hundreds of lines: filter it. `models.set_role` (`role`, `modelId`; omit `modelId` to clear) assigns a role.
+
+## omp settings
+
+`omp_settings.get` and `omp_settings.set` read and write any stock omp setting by its path (for example `retry.fallbackChains`, `retry.fallbackOn`, `compaction.thresholdTokens`), on this computer or on `device`. They are not the Settings rows `settings.get` lists: those keep their own actions.
+
+- `omp_settings.get` with `query` (words from a path, label or description) finds settings and shows value, type, options and default; with `paths` (exact) it reads those. With neither it only counts the readable settings by group.
+- `omp_settings.set` with `path` and `value` writes one setting. `value` must fit the setting's type: `true`/`false`, a number, one of an enum's options, a list, or an object for a record (`retry.fallbackChains` is `{ "<chain name>": ["provider/model", ...] }`). A path the omp's own schema does not list, a value of the wrong type or an option that is not offered is refused before anything is written.
+- Never available: credentials (a setting stock marks as a credential is neither shown by a query nor readable nor writable) and the approval, security, memory, computer-use and account-pool settings, which only the person (or `agent_power.set` for the two switches it covers, under full control) changes. A Settings row that asks the person (`sensitive`) is refused here: use its `settings.<row>` action.
+- A write is noted in your session and toasted like any change, and `app.undo` restores the previous value **on the same computer** it was written on. A write on another computer shows its toast without an Undo button (the button writes through whichever tab the person has open); use `app.undo`.
 
 ## Sidebar
 

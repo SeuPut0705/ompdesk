@@ -24,7 +24,7 @@ import {
 	type WebDeviceInfo,
 } from "../../shared/mobile-web";
 import { pathBaseName } from "../../shared/project-origin";
-import type { RpcCommand, RpcMcpServerInfo } from "../../shared/rpc-types";
+import type { RpcCommand, RpcMcpServerInfo, SettingEntry } from "../../shared/rpc-types";
 import {
 	SIDEBAR_PROJECTS_COMMAND,
 	type SidebarProjectsRequest,
@@ -50,6 +50,26 @@ export interface AppChange {
 	undo?: AppUndo;
 }
 
+/** One stock setting as the omp's schema lists it, with its current value. */
+export interface OmpSettingRead {
+	entry: SettingEntry;
+	value: unknown;
+}
+
+/**
+ * The one route to stock settings by any path. Each method reads the omp's schema first and refuses a path it does
+ * not list, a credential-typed setting and the power switches (`ompSettingTier`), and `write` checks the value
+ * against the entry's type and options. `device` names another computer; undefined = the caller's own omp.
+ */
+export interface OmpSettings {
+	/** The readable settings whose path, label or description holds every word of `query` (credentials and power switches never listed). */
+	find(query: string, device?: string): Promise<OmpSettingRead[]>;
+	/** These exact paths; refuses the whole call when one is not readable. */
+	read(paths: readonly string[], device?: string): Promise<OmpSettingRead[]>;
+	/** Write one value; resolves with the value it replaced. */
+	write(path: string, value: unknown, device?: string): Promise<{ previous: unknown }>;
+}
+
 /**
  * The only things an action can do. Each method runs the central checks first (the action's granted tier against
  * the tier the preference, setting, command or channel needs; `never` always refuses), so a route through another
@@ -66,8 +86,12 @@ export interface ActionContext {
 	getPref(key: string): Promise<unknown>;
 	/** Write a stored preference through the same handler Settings uses (the host's own for a `HOST_PREFS` row), then tell the window to apply it. */
 	setPref(key: string, value: unknown): Promise<void>;
-	/** Send an RPC command to the calling session; resolves with the response data and throws on failure. */
-	rpc(command: RpcCommand): Promise<unknown>;
+	/**
+	 * Send an RPC command to the calling session, or, with `device`, to an omp on that computer (a paired device's
+	 * name or id, or "local"); resolves with the response data and throws on failure. The tier check runs first
+	 * either way.
+	 */
+	rpc(command: RpcCommand, device?: string): Promise<unknown>;
 	startProviderLogin(providerId: string): void;
 	/** Call an invoke channel's handler (`channel` must list the running action in `AGENT_CHANNELS`). */
 	invoke(channel: string, ...args: unknown[]): Promise<unknown>;
@@ -80,6 +104,8 @@ export interface ActionContext {
 	openPrivacyPane(pane: PrivacyPane): Promise<void>;
 	/** Run `ompdesk_autopilot` with these arguments: its confirmation card and folder rules apply. */
 	autopilot(args: Record<string, unknown>): Promise<string>;
+	/** Stock omp settings of any path the omp's own schema lists, on this or a named computer (`omp_settings`). */
+	readonly ompSettings: OmpSettings;
 	/** Restore the last change this session's agent made (asks again when that change needed a card). */
 	undoLast(): Promise<ActionResult>;
 }
@@ -212,20 +238,175 @@ function settingAction(row: Setting): AppAction {
 	};
 }
 
-function describeUsage(data: unknown): string {
-	const reports =
-		data && typeof data === "object" && "reports" in data && Array.isArray(data.reports) ? data.reports : [];
+/** The object itself, or an empty one for anything else (a wire answer read field by field). */
+const fields = (value: unknown): Record<string, unknown> =>
+	value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+/** The objects of a list answer; anything else in it is dropped. */
+const records = (value: unknown): Record<string, unknown>[] =>
+	Array.isArray(value) ? value.filter(item => item !== null && typeof item === "object" && !Array.isArray(item)) : [];
+const str = (value: unknown): string => (typeof value === "string" ? value : "");
+const finite = (value: unknown): number | undefined =>
+	typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const isoTime = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/** `1d1h`, `5h17m`, `27m`: how long from now, to the minute. */
+function span(ms: number): string {
+	const minutes = Math.floor(ms / 60_000);
+	if (minutes >= 1440) return `${Math.floor(minutes / 1440)}d${Math.floor((minutes % 1440) / 60)}h`;
+	if (minutes >= 60) return `${Math.floor(minutes / 60)}h${minutes % 60}m`;
+	return minutes >= 1 ? `${minutes}m` : "<1m";
+}
+
+/** A moment the agent can use: the absolute time (UTC) and how far from now. */
+const whenText = (at: number, now: number): string =>
+	at > now ? `${isoTime(at)} (in ${span(at - now)})` : `${isoTime(at)} (passed)`;
+
+/** One account's report: its windows each under their own label (the limit's, as `omp usage` names them), then its saved resets. */
+function describeReport(report: Record<string, unknown>, now: number): string {
+	const limits = records(report.limits);
+	const labelOf = (limit: Record<string, unknown>): string =>
+		str(limit.label) || str(limit.windowLabel) || str(limit.id) || "window";
+	const sharing = new Map<string, number>();
+	for (const limit of limits) sharing.set(labelOf(limit), (sharing.get(labelOf(limit)) ?? 0) + 1);
+	const notes: string[] = [];
+	const limitedUntil = finite(report.resetAt);
+	if (report.active === true) notes.push("this session's account");
+	if (limitedUntil !== undefined) notes.push(`limited until ${whenText(limitedUntil, now)}`);
+	const fetchedAt = finite(report.fetchedAt);
+	if (fetchedAt !== undefined && now - fetchedAt >= 120_000) notes.push(`read ${span(now - fetchedAt)} ago`);
+	const account = str(report.account);
+	const lines = [
+		`- ${str(report.provider) || "?"}${account ? ` (${account})` : ""}${notes.length > 0 ? ` [${notes.join("; ")}]` : ""}`,
+	];
+	for (const limit of limits) {
+		const label = (sharing.get(labelOf(limit)) ?? 0) > 1 ? `${labelOf(limit)} [${str(limit.id)}]` : labelOf(limit);
+		const fraction = finite(limit.usedFraction);
+		const used = fraction === undefined ? "n/a" : `${Math.round(fraction * 100)}% used`;
+		const amount =
+			str(limit.unit) && str(limit.unit) !== "percent" && finite(limit.used) !== undefined
+				? ` (${limit.used}/${limit.limit ?? "?"} ${str(limit.unit)})`
+				: "";
+		const resetsAt = finite(limit.resetsAt);
+		const status = str(limit.status);
+		lines.push(
+			`  - ${label}: ${used}${amount}${resetsAt === undefined ? "" : `, resets ${whenText(resetsAt, now)}`}${status && status !== "ok" ? `, ${status}` : ""}`,
+		);
+	}
+	if (limits.length === 0) lines.push("  (no windows)");
+	const passes = report.resetPasses === undefined ? undefined : fields(report.resetPasses);
+	if (passes) {
+		const usable = finite(passes.usableCount) ?? 0;
+		const expires = finite(passes.expiresAt);
+		const spend =
+			usable > 0
+				? `${usable} spendable now`
+				: `none spendable now${str(passes.unavailableReason) ? `: ${str(passes.unavailableReason)}` : ""}`;
+		lines.push(
+			`  saved resets: ${finite(passes.count) ?? usable} (${spend})${expires === undefined ? "" : `, soonest expires ${whenText(expires, now)}`}`,
+		);
+	}
+	return lines.join("\n");
+}
+
+function describeUsage(data: unknown, now = Date.now()): string {
+	const reports = records(fields(data).reports);
 	if (reports.length === 0) return "No provider usage reports yet (no signed-in account reports a quota).";
-	return reports
-		.map((report: { provider?: string; account?: string; limits?: Array<Record<string, unknown>> }) => {
-			const limits = (report.limits ?? []).map(limit => {
-				const used =
-					typeof limit.usedFraction === "number" ? `${Math.round(limit.usedFraction * 100)}% used` : "n/a";
-				return `${String(limit.windowLabel ?? limit.label ?? limit.id)} ${used}`;
-			});
-			return `- ${report.provider ?? "?"}${report.account ? ` (${report.account})` : ""}: ${limits.join("; ") || "no windows"}`;
-		})
-		.join("\n");
+	return reports.map(report => describeReport(report, now)).join("\n");
+}
+
+/** One line per model role: what it really runs on, and how (a fallback, the session's own model, a model that is gone). */
+function describeRoles(data: unknown): string[] {
+	return records(fields(data).roles).map(role => {
+		const effective = fields(role.effective);
+		const model = str(effective.model) || str(role.model) || "(none)";
+		const source = str(effective.source);
+		const how =
+			source === "fallback"
+				? `fallback${str(effective.via) ? ` via ${str(effective.via)}` : ""}`
+				: source === "session"
+					? "the session's model"
+					: "";
+		const notes = [how, effective.unavailable === true ? "not available" : "", str(effective.thinkingLevel)].filter(
+			Boolean,
+		);
+		return `- ${str(role.id)}: ${model}${notes.length > 0 ? ` (${notes.join(", ")})` : ""}`;
+	});
+}
+
+interface ListedModel {
+	provider: string;
+	id: string;
+}
+
+function groupByProvider(models: readonly ListedModel[]): Map<string, ListedModel[]> {
+	const groups = new Map<string, ListedModel[]>();
+	for (const model of models) groups.set(model.provider, [...(groups.get(model.provider) ?? []), model]);
+	return groups;
+}
+
+/** Models one provider lists in the default answer; a longer catalog (an aggregator with an account) names how to see the rest. */
+const MODELS_SHORT_LIST = 40;
+
+/**
+ * The models of `get_providers`, grouped by provider. By default only the providers that have an account (the long
+ * catalogs of an aggregator are the bulk), each cut at `MODELS_SHORT_LIST`; `provider`, `query` or `all` list the
+ * rest, and the closing lines say what was left out and how to ask for it.
+ */
+function describeModels(catalog: unknown, filter: { provider: string; query: string; all: boolean }): string[] {
+	const data = fields(catalog);
+	const providers = new Map(records(data.providers).map(provider => [str(provider.id), provider]));
+	const models: ListedModel[] = records(data.models)
+		.map(model => ({ provider: str(model.provider), id: str(model.id) }))
+		.filter(model => model.id);
+	if (models.length === 0) return ["No models available."];
+	const words = filter.query.toLowerCase().split(/\s+/).filter(Boolean);
+	const wanted = filter.provider.toLowerCase();
+	const narrowed = wanted !== "" || words.length > 0;
+	const signedIn = (provider: string): boolean => providers.get(provider)?.authenticated === true;
+	const everyProvider = narrowed || filter.all;
+	const listed = models.filter(
+		model =>
+			(wanted === "" || model.provider.toLowerCase() === wanted) &&
+			words.every(word => `${model.provider}/${model.id}`.toLowerCase().includes(word)) &&
+			(everyProvider || signedIn(model.provider)),
+	);
+	const lines: string[] = [];
+	if (listed.length === 0) {
+		lines.push(
+			narrowed
+				? `No model matches${wanted ? ` provider "${filter.provider}"` : ""}${words.length > 0 ? ` query "${filter.query}"` : ""}. Providers with models: ${[...new Set(models.map(model => model.provider))].join(", ")}.`
+				: "No signed-in provider has models.",
+		);
+	}
+	for (const [id, rows] of groupByProvider(listed)) {
+		const info = providers.get(id);
+		const traits = [
+			str(info?.name) && str(info?.name) !== id ? str(info?.name) : "",
+			str(info?.account),
+			signedIn(id) ? "" : "no account",
+			info?.disabled === true ? "disabled" : "",
+			`${rows.length} model${rows.length === 1 ? "" : "s"}`,
+		].filter(Boolean);
+		const shown = everyProvider ? rows : rows.slice(0, MODELS_SHORT_LIST);
+		lines.push(`${id} (${traits.join(", ")}):`, ...shown.map(model => `- ${model.provider}/${model.id}`));
+		if (shown.length < rows.length)
+			lines.push(`  … ${rows.length - shown.length} more of ${id}; ask with provider: "${id}" or a query.`);
+	}
+	if (!everyProvider) {
+		const left = groupByProvider(models.filter(model => !signedIn(model.provider)));
+		const count = [...left.values()].reduce((sum, rows) => sum + rows.length, 0);
+		if (count > 0) {
+			const biggest = [...left]
+				.sort((a, b) => b[1].length - a[1].length)
+				.slice(0, 3)
+				.map(([id, rows]) => `${id} ${rows.length}`);
+			lines.push(
+				`${count} model${count === 1 ? "" : "s"} of ${left.size} provider${left.size === 1 ? "" : "s"} with no signed-in account left out (${biggest.join(", ")}${left.size > 3 ? ", …" : ""}); ask with provider, query or all: true.`,
+			);
+		}
+	}
+	return lines;
 }
 
 function lines(values: readonly unknown[], pick: (value: Record<string, unknown>) => string, empty: string): string {
@@ -234,6 +415,32 @@ function lines(values: readonly unknown[], pick: (value: Record<string, unknown>
 }
 
 const text = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
+
+/** The `device` argument of the actions that can act on another computer: a paired device's name or id, or "local". */
+const DEVICE_ARG = {
+	type: "string",
+	minLength: 1,
+	maxLength: 200,
+	description:
+		'A paired computer by name or id as ompdesk_sessions lists it, or "local"; omit for the omp of your own session.',
+} as const;
+
+const deviceOf = (args: Record<string, unknown>): string | undefined =>
+	typeof args.device === "string" ? args.device : undefined;
+
+const clip = (value: string, max: number): string => (value.length > max ? `${value.slice(0, max)}…` : value);
+
+/** Past this many matches of an `omp_settings.get` query, the rest are counted, not listed. */
+const OMP_SETTINGS_SHOWN_MAX = 40;
+
+/** `path: value (type or options, default) label`: what an agent needs to read a setting and write it back. */
+function ompSettingLine({ entry, value }: OmpSettingRead): string {
+	const options = entry.type === "enum" && entry.options ? entry.options.map(option => option.value).join("|") : "";
+	const kind = options ? `enum ${options}` : entry.type;
+	const fallback = entry.default === undefined ? "" : `, default ${clip(shown(entry.default), 80)}`;
+	const label = entry.label && entry.label !== entry.path ? ` ${entry.label}` : "";
+	return `- ${entry.path}: ${value === undefined ? "(unset)" : clip(shown(value), 300)} (${kind}${fallback})${label}`;
+}
 
 const never = (id: string, area: string, description: string, neverReason: string): AppAction => ({
 	id,
@@ -494,24 +701,43 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "usage.read",
 		area: "usage",
 		description:
-			"Provider usage and quota windows of the signed-in accounts (what the Usage view shows). refresh asks the providers now.",
-		args: objectSchema({ refresh: { type: "boolean" } }),
+			"Provider usage and quota windows of the signed-in accounts (what the Usage view shows): each window under its own label with percent used and reset time, and the account's saved resets. refresh asks the providers now. device reads another computer's accounts.",
+		args: objectSchema({ refresh: { type: "boolean" }, device: DEVICE_ARG }),
 		tier: "read",
 		run: async (ctx, args) => ({
-			text: describeUsage(await ctx.rpc({ type: "get_usage", refresh: args.refresh === true })),
+			text: describeUsage(await ctx.rpc({ type: "get_usage", refresh: args.refresh === true }, deviceOf(args))),
 		}),
 	},
 	{
 		id: "models.list",
 		area: "models",
-		description: "Models this session can use (provider and id).",
-		args: NO_ARGS,
+		description:
+			"The model role assignments, then the models of the providers that have a signed-in account (each provider's first 40). provider (id), query (words of provider/id) or all: true list whole catalogs, also of the providers without an account (an aggregator's runs to hundreds). device lists another computer's.",
+		args: objectSchema({
+			provider: { type: "string", minLength: 1, maxLength: 100 },
+			query: { type: "string", minLength: 1, maxLength: 100 },
+			all: { type: "boolean" },
+			device: DEVICE_ARG,
+		}),
 		tier: "read",
-		run: async ctx => {
-			const data = await ctx.rpc({ type: "get_available_models" });
-			const models =
-				data && typeof data === "object" && "models" in data && Array.isArray(data.models) ? data.models : [];
-			return { text: lines(models, model => `- ${text(model.provider)}/${text(model.id)}`, "No models available.") };
+		run: async (ctx, args) => {
+			const device = deviceOf(args);
+			const filter = {
+				provider: typeof args.provider === "string" ? args.provider : "",
+				query: typeof args.query === "string" ? args.query : "",
+				all: args.all === true,
+			};
+			const out: string[] = [];
+			if (!filter.provider && !filter.query) {
+				// An omp older than the role contract answers an error; the models are still worth listing.
+				const roles = await ctx.rpc({ type: "get_model_roles", compact: true }, device).then(
+					data => describeRoles(data),
+					(error: unknown) => [`(roles unavailable: ${error instanceof Error ? error.message : String(error)})`],
+				);
+				out.push("Model roles:", ...roles, "");
+			}
+			out.push(...describeModels(await ctx.rpc({ type: "get_providers" }, device), filter));
+			return { text: out.join("\n") };
 		},
 	},
 	{
@@ -536,24 +762,99 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "models.set_role",
 		area: "models",
 		description:
-			"Assign a model to a model role (default, slow, smol, plan, task, ...); omit modelId to clear the role.",
+			"Assign a model to a model role (default, slow, smol, plan, task, ...); omit modelId to clear the role. device sets it in another computer's omp.",
 		args: objectSchema(
 			{
 				role: { type: "string", minLength: 1, maxLength: 60 },
 				modelId: { type: "string", minLength: 1, maxLength: 200 },
+				device: DEVICE_ARG,
 			},
 			["role"],
 		),
 		tier: "change",
 		run: async (ctx, args) => {
 			const modelId = typeof args.modelId === "string" ? args.modelId : null;
-			await ctx.rpc({ type: "set_model_role", role: String(args.role), modelId });
+			const device = deviceOf(args);
+			await ctx.rpc({ type: "set_model_role", role: String(args.role), modelId }, device);
 			return {
-				text: modelId ? `Role ${String(args.role)} now uses ${modelId}.` : `Role ${String(args.role)} cleared.`,
+				text: `${modelId ? `Role ${String(args.role)} now uses ${modelId}` : `Role ${String(args.role)} cleared`}${device ? ` on ${device}` : ""}.`,
 				change: {
-					en: `Model role ${String(args.role)}`,
-					ko: `모델 역할 ${String(args.role)}`,
+					en: `Model role ${String(args.role)}${device ? ` on ${device}` : ""}`,
+					ko: `모델 역할 ${String(args.role)}${device ? ` (${device})` : ""}`,
 					value: modelId ?? "(cleared)",
+				},
+			};
+		},
+	},
+	{
+		id: "omp_settings.get",
+		area: "omp",
+		description:
+			"Read stock omp settings (the ones omp itself lists, e.g. retry.fallbackChains, retry.fallbackOn, compaction.thresholdTokens): paths = exact paths, query = words from a path, label or description. device reads another computer's omp. Credentials and the approval, security, memory and computer-use settings are never shown.",
+		args: objectSchema({
+			paths: { type: "array", items: { type: "string", maxLength: 200 }, maxItems: 40 },
+			query: { type: "string", minLength: 1, maxLength: 100 },
+			device: DEVICE_ARG,
+		}),
+		tier: "read",
+		run: async (ctx, args) => {
+			const device = deviceOf(args);
+			const paths = Array.isArray(args.paths) ? (args.paths as string[]) : [];
+			const query = typeof args.query === "string" ? args.query.trim() : "";
+			if (paths.length === 0 && query === "") {
+				const groups = new Map<string, number>();
+				const readable = await ctx.ompSettings.find("", device);
+				for (const { entry } of readable) {
+					const group = entry.path.split(".")[0] ?? entry.path;
+					groups.set(group, (groups.get(group) ?? 0) + 1);
+				}
+				const summary = [...groups].map(([group, count]) => `${group} ${count}`).join(", ");
+				return {
+					text: `${readable.length} settings are readable (${summary}). Pass paths (exact, e.g. "retry.fallbackOn") or query (words from a path, label or description).`,
+				};
+			}
+			const rows = paths.length > 0 ? await ctx.ompSettings.read(paths, device) : [];
+			const out = rows.map(ompSettingLine);
+			if (query !== "") {
+				const found = (await ctx.ompSettings.find(query, device)).filter(
+					({ entry }) => !paths.includes(entry.path),
+				);
+				out.push(...found.slice(0, OMP_SETTINGS_SHOWN_MAX).map(ompSettingLine));
+				if (found.length > OMP_SETTINGS_SHOWN_MAX)
+					out.push(`(${found.length - OMP_SETTINGS_SHOWN_MAX} more match: narrow the query.)`);
+				else if (found.length === 0 && rows.length === 0) out.push(`No readable setting matches "${query}".`);
+			}
+			return { text: out.join("\n") };
+		},
+	},
+	{
+		id: "omp_settings.set",
+		area: "omp",
+		description:
+			"Write one stock omp setting by its exact path (find it with omp_settings.get query). value must fit the setting's type (true/false, number, one of its options, a list, or an object for a record such as retry.fallbackChains). device writes another computer's omp. One step back with app.undo. Credentials and the approval, security, memory and computer-use settings are refused.",
+		args: objectSchema(
+			{
+				path: { type: "string", minLength: 1, maxLength: 200 },
+				value: { type: "json" },
+				device: DEVICE_ARG,
+			},
+			["path", "value"],
+		),
+		tier: "change",
+		run: async (ctx, args) => {
+			const path = String(args.path);
+			const device = deviceOf(args);
+			const { previous } = await ctx.ompSettings.write(path, args.value, device);
+			const value = clip(shown(args.value), 200);
+			return {
+				text: `${path} is now ${value}${device ? ` on ${device}` : ""}.`,
+				change: {
+					en: `omp setting ${path}${device ? ` on ${device}` : ""}`,
+					ko: `omp 설정 ${path}${device ? ` (${device})` : ""}`,
+					value,
+					...(previous === undefined || previous === null
+						? {}
+						: { undo: { kind: "setting", path, value: previous, ...(device ? { device } : {}) } }),
 				},
 			};
 		},

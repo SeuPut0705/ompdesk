@@ -12,11 +12,30 @@
  *   5. a change is journaled in the caller's session, shown as a quiet toast and, with a previous value, undoable.
  */
 import type { AgentAppEvent, AppUndo, PrivacyPane, SidebarView } from "../../shared/agent-control";
-import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import type { RpcCommand, RpcResponse, SettingEntry } from "../../shared/rpc-types";
 import type { IpcChannel } from "../web/ipc-policy";
-import { ACTION_BY_ID, type ActionContext, type ActionResult, type AppAction, type AppChange } from "./app-catalog";
+import {
+	ACTION_BY_ID,
+	type ActionContext,
+	type ActionResult,
+	type AppAction,
+	type AppChange,
+	type OmpSettings,
+} from "./app-catalog";
 import { AGENT_CHANNELS } from "./app-channels";
-import { AppRefusal, covers, type GrantedTier, prefTier, rpcTier, settingTier, type Tier } from "./app-guard";
+import {
+	AppRefusal,
+	covers,
+	FULL_CONTROL_SETTINGS,
+	type GrantedTier,
+	ompSettingTier,
+	POWER_SETTING,
+	prefTier,
+	rpcTier,
+	settingTier,
+	settingValueProblem,
+	type Tier,
+} from "./app-guard";
 import { validateArgs } from "./app-schema";
 import { HOST_PREFS, SETTING_BY_ID, SETTINGS, settingActionId } from "./app-settings";
 
@@ -30,6 +49,13 @@ export interface AppPorts {
 	/** Write a preference through `PREFS_SET` (its validation and side effects included). */
 	setPref(callerTabId: string, key: string, value: unknown): Promise<void>;
 	rpc(callerTabId: string, command: RpcCommand): Promise<RpcResponse>;
+	/**
+	 * Send an RPC command to an omp on the computer `device` names (a paired device by name or id as ompdesk_sessions
+	 * lists it, or "local" = this computer): the caller's own session when it runs there, else another open session
+	 * there, else a background session opened for the running action and closed and deleted after it. Rejects with a
+	 * readable message when the device is unknown or unreachable.
+	 */
+	rpcOn(callerTabId: string, device: string, command: RpcCommand): Promise<RpcResponse>;
 	invoke(callerTabId: string, channel: string, args: readonly unknown[]): Promise<unknown>;
 	fire(callerTabId: string, channel: string, args: readonly unknown[]): void;
 	send(callerTabId: string, event: AgentAppEvent): void;
@@ -66,6 +92,16 @@ function refuse(what: string, tier: Tier): never {
 		tier === "never"
 			? `${what} is never available to an agent. Tell the person to do it in Settings.`
 			: `${what} needs the ${tier} level, which this action does not have.`,
+	);
+}
+
+/** An entry of the omp's `get_settings_schema` answer, as far as the checks read it. */
+function isSettingEntry(value: unknown): value is SettingEntry {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		typeof (value as SettingEntry).path === "string" &&
+		typeof (value as SettingEntry).type === "string"
 	);
 }
 
@@ -170,6 +206,16 @@ export class AppControl {
 		const device = ports.device(callerTabId);
 		/** A row the Settings control sends to the host while the caller's tab runs on one (`HOST_PREFS`). */
 		const hostPref = (key: string) => (device && Object.hasOwn(HOST_PREFS, key) ? HOST_PREFS[key] : undefined);
+		/** The command goes to the caller's own omp, or, with `target`, to an omp on that computer (`AppPorts.rpcOn`). */
+		const send = async (command: RpcCommand, target?: string): Promise<unknown> => {
+			const response =
+				target === undefined
+					? await ports.rpc(callerTabId, command)
+					: await ports.rpcOn(callerTabId, target, command);
+			if (!response.success) throw new AppRefusal(response.error ?? `${command.type} failed.`);
+			return response.data;
+		};
+		const ompSettings = this.#ompSettings(granted, send);
 		const ctx: ActionContext = {
 			callerTabId,
 			device,
@@ -190,12 +236,10 @@ export class AppControl {
 				await ports.setPref(callerTabId, key, value);
 				ports.send(callerTabId, { kind: "pref", key, value });
 			},
-			rpc: async command => {
+			rpc: async (command, target) => {
 				const needed = rpcTier(command, ports.fullEnabled());
 				if (!covers(granted, needed)) refuse(`The command "${command.type}"`, needed);
-				const response = await ports.rpc(callerTabId, command);
-				if (!response.success) throw new AppRefusal(response.error ?? `${command.type} failed.`);
-				return response.data;
+				return send(command, target);
 			},
 			startProviderLogin: providerId => {
 				const needed = rpcTier({ type: "login", providerId }, ports.fullEnabled());
@@ -219,9 +263,77 @@ export class AppControl {
 			sidebarView: () => ports.sidebarView(),
 			openPrivacyPane: pane => ports.openPrivacyPane(pane),
 			autopilot: args => ports.autopilot(callerTabId, args),
+			ompSettings,
 			undoLast: () => this.#undo(callerTabId),
 		};
 		return ctx;
+	}
+
+	/**
+	 * The one route to a stock setting of any path (`omp_settings`). It reads the omp's own schema first and decides
+	 * from the entry that lists the path (`ompSettingTier`), so an unlisted path, a credential and the power switches
+	 * are refused here for whichever action asks. `rpcTier` still refuses `get_settings_schema`, `get_settings` and
+	 * `set_setting` for every other route: the schema answer carries each setting's value, a credential's included.
+	 */
+	#ompSettings(granted: GrantedTier, send: (command: RpcCommand, target?: string) => Promise<unknown>): OmpSettings {
+		const listedBy = async (target?: string): Promise<Map<string, SettingEntry>> => {
+			const data = await send({ type: "get_settings_schema" }, target);
+			const entries =
+				data && typeof data === "object" && "entries" in data && Array.isArray(data.entries) ? data.entries : [];
+			return new Map(entries.filter(isSettingEntry).map(entry => [entry.path, entry]));
+		};
+		const permitted = (listed: Map<string, SettingEntry>, path: string, access: "read" | "write"): SettingEntry => {
+			const entry = listed.get(path);
+			if (!entry)
+				throw new AppRefusal(
+					`"${path}" is not a setting this omp lists. omp_settings.get with query finds the exact path.`,
+				);
+			const full = this.#ports.fullEnabled();
+			const needed = ompSettingTier(path, entry, access, full);
+			if (covers(granted, needed)) return entry;
+			const what = `${access === "read" ? "Reading" : "Writing"} "${path}"`;
+			if (needed === "never")
+				throw new AppRefusal(
+					`${what} is never available to an agent${entry.secret ? " (it holds a credential)" : ""}. Tell the person to do it in Settings.`,
+				);
+			const route = Object.hasOwn(FULL_CONTROL_SETTINGS, path)
+				? "agent_power.set switches it, only under full control."
+				: SETTING_BY_ID[path]
+					? `Use ${settingActionId(path)}, which asks the person.`
+					: "";
+			throw new AppRefusal(`${what} needs the ${needed} level, which omp_settings does not have. ${route}`.trim());
+		};
+		const valuesOf = (data: unknown): Record<string, unknown> =>
+			data && typeof data === "object" && "values" in data && data.values && typeof data.values === "object"
+				? (data.values as Record<string, unknown>)
+				: {};
+		return {
+			find: async (query, target) => {
+				const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+				const full = this.#ports.fullEnabled();
+				return [...(await listedBy(target)).values()]
+					.filter(entry => ompSettingTier(entry.path, entry, "read", full) !== "never")
+					.filter(entry => {
+						const text = `${entry.path} ${entry.label ?? ""} ${entry.description ?? ""}`.toLowerCase();
+						return words.every(word => text.includes(word));
+					})
+					.map(entry => ({ entry, value: entry.value }));
+			},
+			read: async (paths, target) => {
+				const listed = await listedBy(target);
+				const entries = paths.map(path => permitted(listed, path, "read"));
+				const values = valuesOf(await send({ type: "get_settings", paths: [...paths] }, target));
+				return entries.map(entry => ({ entry, value: values[entry.path] }));
+			},
+			write: async (path, value, target) => {
+				const entry = permitted(await listedBy(target), path, "write");
+				const problem = settingValueProblem(entry, value);
+				if (problem) throw new AppRefusal(`Invalid value: ${problem}.`);
+				const previous = valuesOf(await send({ type: "get_settings", paths: [path] }, target))[path];
+				await send({ type: "set_setting", path, value }, target);
+				return { previous };
+			},
+		};
 	}
 
 	#channel(channel: string, actionId: string, granted: GrantedTier): string {
@@ -239,7 +351,11 @@ export class AppControl {
 		});
 		if (change.undo) this.#last.set(callerTabId, { undo: change.undo, tier, en: change.en, ko: change.ko });
 		else this.#last.delete(callerTabId);
-		this.#ports.send(callerTabId, { kind: "toast", message, ...(change.undo ? { undo: change.undo } : {}) });
+		// The window's Undo button writes through its focused tab, which may run on another computer than the one a
+		// setting was written on: such a toast carries no step, and `app.undo` restores it on its own computer.
+		const stepForToast =
+			change.undo?.kind === "setting" && change.undo.device !== undefined ? undefined : change.undo;
+		this.#ports.send(callerTabId, { kind: "toast", message, ...(stepForToast ? { undo: stepForToast } : {}) });
 		await this.#ports.note(callerTabId, message).catch(() => undefined);
 	}
 
@@ -247,9 +363,13 @@ export class AppControl {
 		const last = this.#last.get(callerTabId);
 		if (!last) throw new AppRefusal("Nothing to undo: your last change had no previous value, or you made none.");
 		const full = this.#ports.fullEnabled();
-		const needed = last.undo.kind === "pref" ? prefTier(last.undo.key, full) : settingTier(last.undo.path, full);
-		if (needed === "never") refuse("Undoing that change", "never");
 		const undo = last.undo;
+		const own = undo.kind === "pref" ? prefTier(undo.key, full) : settingTier(undo.path, full);
+		// A setting no Settings row or power switch lists was written by `omp_settings.set`: the primitive checks it
+		// against the omp's schema again when it restores it.
+		const schemaRoute = undo.kind === "setting" && own === "never" && !POWER_SETTING.test(undo.path);
+		const needed: Tier = schemaRoute ? "change" : own;
+		if (needed === "never") refuse("Undoing that change", "never");
 		const row =
 			undo.kind === "pref"
 				? SETTINGS.find(setting => setting.kind === "pref" && setting.key === undo.key)
@@ -263,7 +383,8 @@ export class AppControl {
 			const row = SETTINGS.find(setting => setting.kind === "pref" && setting.key === key);
 			for (const [mirrored, derive] of Object.entries(row?.kind === "pref" ? (row.mirror ?? {}) : {}))
 				await ctx.setPref(mirrored, derive(restored));
-		} else await ctx.rpc({ type: "set_setting", path: last.undo.path, value: last.undo.value });
+		} else if (schemaRoute) await ctx.ompSettings.write(last.undo.path, last.undo.value, last.undo.device);
+		else await ctx.rpc({ type: "set_setting", path: last.undo.path, value: last.undo.value }, last.undo.device);
 		this.#last.delete(callerTabId);
 		const value = typeof last.undo.value === "string" ? last.undo.value : JSON.stringify(last.undo.value);
 		return {

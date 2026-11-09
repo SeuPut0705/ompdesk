@@ -138,10 +138,8 @@ describe("ompdesk_bot arguments", () => {
 
 describe("the schema states the bounds the parser enforces", () => {
 	interface Property {
-		description?: string;
 		maximum?: number;
 		maxLength?: number;
-		anyOf?: { properties?: Record<string, Property> }[];
 	}
 	const properties = (name: string): Record<string, Property> => {
 		const definition = AGENT_CONTROL_DEFINITIONS.find(entry => entry.name === name);
@@ -171,11 +169,7 @@ describe("the schema states the bounds the parser enforces", () => {
 		expect(referenceLine(AGENT_CONTROL_TOOLS.read)).toContain(`limit?: int 1..${most}`);
 	});
 
-	it("says worktree.base takes any ref, and the parser passes one on", () => {
-		const base = properties(AGENT_CONTROL_TOOLS.open).worktree?.anyOf?.[1]?.properties?.base?.description;
-		expect(base).toContain('"HEAD"');
-		expect(base).toContain('"default"');
-		expect(base).toContain("any branch, tag or commit the repo resolves");
+	it("passes any ref a repository resolves on as worktree.base", () => {
 		expect(ARGS[AGENT_CONTROL_TOOLS.open].parse({ worktree: { base: "origin/release-1.2" } })).toMatchObject({
 			worktree: { base: "origin/release-1.2" },
 		});
