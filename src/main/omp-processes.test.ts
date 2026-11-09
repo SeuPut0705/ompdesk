@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OmpProcesses } from "./omp-processes";
+import { OmpProcesses, windowsStartTimes } from "./omp-processes";
 import { OMP_SPAWN_GROUP, pidAlive, STOP_GRACE_MS } from "./omp-stop";
 import { RM_TEMP } from "./test-fake-omp";
 
@@ -284,4 +284,27 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 		await vi.waitFor(() => expect(pidAlive(pid)).toBe(false));
 		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
 	}, 20_000);
+});
+
+describe("windowsStartTimes", () => {
+	it("reads each running pid's creation time, and a pid that is gone is simply absent", async () => {
+		const runCommand = vi.fn(async (_file: string, _args: string[]) => ({ stdout: "4242 1700000000123\r\n" }));
+
+		const times = await windowsStartTimes([4242, 999_999_999], runCommand);
+
+		expect(times).toEqual(new Map([[4242, 1_700_000_000_123]]));
+		expect(runCommand.mock.calls[0]?.[1].at(-1)).toContain("exit 0");
+	});
+
+	it.each([
+		["a PowerShell error exit with no output", Object.assign(new Error("exit 1"), { code: 1, stdout: "" })],
+		["a timeout", Object.assign(new Error("timed out"), { killed: true, signal: "SIGTERM", stdout: "" })],
+		["a launch that failed", Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" })],
+	])("%s rejects instead of reading as no such process", async (_name, error) => {
+		await expect(
+			windowsStartTimes([4242], async () => {
+				throw error;
+			}),
+		).rejects.toBe(error);
+	});
 });

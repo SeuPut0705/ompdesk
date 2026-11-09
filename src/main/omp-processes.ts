@@ -256,27 +256,32 @@ export class OmpProcesses {
 	}
 }
 
+/** Runs a command and resolves with its stdout; rejects on a nonzero exit, a timeout or a launch that failed. */
+type CommandRunner = (
+	file: string,
+	args: string[],
+	options: { timeout: number; windowsHide: boolean },
+) => Promise<{ stdout: string }>;
+
 /**
  * The creation time (ms since the epoch, as the OS reports it) of each pid that still runs, by pid. `Get-Process`, never
  * WMI/CIM, which wedges (e2e-ci-windows.md › Stopping an omp). The same call yields the same millisecond for one process
- * whenever it is asked, so two readings of a process compare exactly.
+ * whenever it is asked, so two readings of a process compare exactly. A pid that is gone is the expected answer, not an
+ * error (`-ErrorAction SilentlyContinue`, then `exit 0`, since PowerShell exits 1 when the last command set `$?` false):
+ * every rejection of the command (a timeout, a launch that failed, any nonzero exit) rejects here too, so it never
+ * reads as "no such process".
  */
-async function windowsStartTimes(pids: number[]): Promise<Map<number, number>> {
-	const { stdout } = await run(
+export async function windowsStartTimes(pids: number[], runCommand: CommandRunner = run): Promise<Map<number, number>> {
+	const { stdout } = await runCommand(
 		"powershell.exe",
 		[
 			"-NoProfile",
 			"-NonInteractive",
 			"-Command",
-			`Get-Process -Id ${pids.join(",")} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $(([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds())" }`,
+			`Get-Process -Id ${pids.join(",")} -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Id) $(([DateTimeOffset]$_.StartTime).ToUnixTimeMilliseconds())" }; exit 0`,
 		],
 		{ timeout: LOOKUP_TIMEOUT_MS, windowsHide: true },
-	).catch((error: { stdout?: string; code?: unknown; killed?: boolean }) => {
-		// A nonzero exit is PowerShell's `$?` after a pid that is gone: its output is the answer. A timeout or a launch
-		// that failed is no answer.
-		if (error.killed !== true && typeof error.code === "number") return { stdout: error.stdout ?? "" };
-		throw error;
-	});
+	);
 	const times = new Map<number, number>();
 	for (const [pid, rest] of byPid(stdout)) times.set(pid, Number(rest));
 	return times;
