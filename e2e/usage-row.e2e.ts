@@ -42,7 +42,7 @@ test.afterAll(async () => {
 	await server?.close();
 });
 
-const SEGMENTS = ["model", "input", "output", "cache", "cost", "duration", "ttft", "rate", "time"];
+const SEGMENTS = ["model", "input", "output", "cache", "cost", "duration", "ttft", "rate"];
 
 /** The harness at `width`, its usage rows on, scrolled to the reply that carries every segment. */
 async function openRow(page: Page, lang: "en" | "ko"): Promise<void> {

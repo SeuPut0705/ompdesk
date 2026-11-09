@@ -66,17 +66,18 @@ function formatCost(total: number): string {
 /**
  * The row is one line at any width (the owner's call, 9 Nov 2026: on a phone it stacked into two or three). As the row
  * narrows the model's name gives way to an ellipsis, and below each width here (em of the row's own text, so the
- * steps follow the font size) one more segment goes, least useful first: first-token time, throughput, the message
- * time (a reply's actions show it again right below), cache, the duration, then the input. The model, the output and
- * the cost always stay. Each step is the sum of the segments still shown, measured in English and Korean (input and
- * output 3.4em, cache 7.1, cost 5.0, duration 3.9, first token 5.2, throughput 6.3, time 2.8, plus a 1em gap each),
- * and 6em for the model's mark and a few letters; longer numbers take that room from the model's name. Every value
- * stays in the row's tooltip.
+ * steps follow the font size) one more segment goes, least useful first: first-token time, throughput, cache, the
+ * duration, then the input. The model, the output and the cost always stay. Each step is the sum of the segments still
+ * shown, measured in English and Korean (input and output 3.4em, cache 7.1, cost 5.0, duration 3.9, first token 5.2,
+ * throughput 6.3, plus a 1em gap each), and 6em for the model's mark and a few letters; longer numbers take that room
+ * from the model's name. Every value stays in the row's tooltip.
+ *
+ * Nothing is said twice (the owner, 10 Nov 2026): the message time stays out of the row, the reply's actions right
+ * below show it, and the first-token time goes when it reads the same as the duration.
  */
 const DROP = {
-	ttft: "@max-[52em]/usage:hidden",
-	rate: "@max-[45em]/usage:hidden",
-	time: "@max-[38em]/usage:hidden",
+	ttft: "@max-[48em]/usage:hidden",
+	rate: "@max-[41em]/usage:hidden",
 	cache: "@max-[34em]/usage:hidden",
 	duration: "@max-[26em]/usage:hidden",
 	input: "@max-[21em]/usage:hidden",
@@ -126,6 +127,8 @@ export function UsageRow({ message }: { message: UsageSource }) {
 		: "";
 
 	const rateText = tokPerSec > 0 ? t("chat.meter.rate", { rate: tokPerSec.toFixed(1) }) : "";
+	const durationText = durationMs > 0 ? formatDuration(durationMs) : "";
+	const ttftText = ttftMs > 0 ? formatDuration(ttftMs) : "";
 	// Every value with its name, also those the row's width left out.
 	const details = [
 		model && (provider ? `${provider}/${model}` : model),
@@ -133,8 +136,8 @@ export function UsageRow({ message }: { message: UsageSource }) {
 		t("chat.usage.outputTokens", { count: usage.output.toLocaleString(uiLocale()) }),
 		usage.cacheRead > 0 && t("chat.usage.cachedTokens", { count: usage.cacheRead.toLocaleString(uiLocale()) }),
 		usage.costTotal !== undefined && `${t("chat.usage.cost")}: ${formatCost(usage.costTotal)}`,
-		durationMs > 0 && `${t("chat.usage.duration")}: ${formatDuration(durationMs)}`,
-		ttftMs > 0 && `${t("chat.usage.ttft")}: ${formatDuration(ttftMs)}`,
+		durationText && `${t("chat.usage.duration")}: ${durationText}`,
+		ttftText && `${t("chat.usage.ttft")}: ${ttftText}`,
 		rateText && `${t("chat.usage.throughput")}: ${rateText}`,
 		timeText && `${t("chat.usage.time")}: ${timeText}`,
 	]
@@ -171,26 +174,21 @@ export function UsageRow({ message }: { message: UsageSource }) {
 						{formatCost(usage.costTotal)}
 					</span>
 				)}
-				{durationMs > 0 && (
+				{durationText && (
 					<span className={cx(SEGMENT, DROP.duration)} data-usage-segment="duration">
 						<Clock aria-hidden />
-						{formatDuration(durationMs)}
+						{durationText}
 					</span>
 				)}
-				{ttftMs > 0 && (
+				{ttftText && ttftText !== durationText && (
 					<span className={cx(SEGMENT, DROP.ttft)} data-usage-segment="ttft">
-						TTFT {formatDuration(ttftMs)}
+						TTFT {ttftText}
 					</span>
 				)}
 				{rateText && (
 					<span className={cx(SEGMENT, DROP.rate)} data-usage-segment="rate">
 						<Zap aria-hidden />
 						{rateText}
-					</span>
-				)}
-				{timeText && (
-					<span className={cx(SEGMENT, DROP.time)} data-usage-segment="time">
-						{timeText}
 					</span>
 				)}
 			</div>

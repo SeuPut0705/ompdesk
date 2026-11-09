@@ -1,7 +1,7 @@
 /**
- * Contract tests for the usage row segments added in phase B1 (plan/17 §7.3):
- * TTFT rides the message object (sibling of duration), timestamp renders as
- * HH:MM. Both must only appear when the message actually carries them.
+ * Contract tests for the usage row segments: TTFT rides the message object (sibling of duration) and shows only when
+ * it differs from the duration; the message time stays out of the row (the reply's actions show it) and only the
+ * tooltip names it.
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -51,24 +51,14 @@ describe("UsageRow TTFT and time segments", () => {
 		expect(html).not.toContain("TTFT");
 	});
 
-	it("renders an HH:MM time from an ISO timestamp", () => {
+	it("omits TTFT when it reads the same as the duration", () => {
+		const html = render({ ...baseMessage, ttft: 2400 });
+		expect(html).not.toMatch(/>TTFT /);
+		expect(html).toContain("Time to first token: 2.4s");
+	});
+
+	it("keeps the message time out of the row", () => {
 		const html = render({ ...baseMessage, timestamp: "2026-08-05T14:30:00.000Z" });
-		const date = new Date("2026-08-05T14:30:00.000Z");
-		const expected = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-		expect(html).toContain(expected);
-	});
-
-	it("renders an HH:MM time from epoch-ms", () => {
-		const ms = Date.parse("2026-08-05T14:30:00.000Z");
-		const html = render({ ...baseMessage, timestamp: ms });
-		const date = new Date(ms);
-		const expected = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-		expect(html).toContain(expected);
-	});
-
-	it("omits the time segment when the timestamp is missing", () => {
-		const html = render({ ...baseMessage, ttft: 350 });
-		// No timestamp on the message: the row renders other segments but no trailing time chip.
 		expect(html).not.toMatch(/>\d{2}:\d{2}</);
 	});
 
