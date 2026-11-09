@@ -1615,8 +1615,8 @@ describe("SidecarManager", () => {
 			try {
 				sidecar.start();
 				await vi.waitFor(() => expect(sidecar.statusPayload).toMatchObject({ status: "starting", slow: true }));
-				const [spawn] = await slow.lines();
-				expect(asked).toEqual([spawn?.pid]);
+				// The spawned process's pid: on Windows the fake runs behind a `.cmd` shell, so it is not the fake's own.
+				expect(asked).toEqual([sidecar.pid]);
 				expect(sidecar.statusPayload.message).toBe(logLine);
 				expect(reports).toEqual([
 					{
