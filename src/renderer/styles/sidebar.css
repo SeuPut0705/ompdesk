@@ -31,6 +31,15 @@ html[data-input="touch"]
 	contain-intrinsic-size: auto calc(var(--omp-sidebar-row-h) - 2 * var(--sc-space-1));
 }
 
+/* The session list keeps its scrollbar's room whether it scrolls or not, so a row's width is its own and never how
+   tall the whole list is. A desktop scrollbar is drawn (global.css › Scrollbars, 9 px) and took that room from every
+   row of every project and device section while the list scrolled: a pick that folded or unfolded a project, a family
+   opened on its row or a row added moved the cut of every other title (the owner's report, 9 Nov 2026). A finger's
+   scrollbar is an overlay, which reserves nothing here. */
+.omp-session-sidebar .omp-sidebar-list {
+	scrollbar-gutter: stable;
+}
+
 /* No leading slot: a session row's title starts where its group header's content does (the header button's `pl-2`),
    nested in a project group or not, so the list reads as one left edge under the project's chevron. */
 .omp-session-sidebar .omp-sidebar-session-row {

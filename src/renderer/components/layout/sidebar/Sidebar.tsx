@@ -2397,7 +2397,7 @@ export function Sidebar() {
 				<div
 					aria-label={t("sidebar.sessions")}
 					data-tour="sessions"
-					className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
+					className="omp-sidebar-list min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-2 [overflow-anchor:none]"
 					// Any roving item that takes focus (a Chats or device header too, not only rows that set it themselves)
 					// becomes the list's tab stop, so its own action is the next one.
 					onFocus={event => {
