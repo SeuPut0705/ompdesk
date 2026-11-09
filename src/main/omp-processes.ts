@@ -38,6 +38,8 @@ interface OmpEntry {
 export interface OmpProcessesOptions {
 	/** The creation time of each pid that still runs, by pid; rejects when it could not ask (default: `Get-Process`). */
 	startTimes?: (pids: number[]) => Promise<Map<number, number>>;
+	/** Runs `ps` for the POSIX command-line lookup of the launch's reap (default: `execFile`). */
+	runCommand?: CommandRunner;
 	platform?: NodeJS.Platform;
 	retryDelaysMs?: readonly number[];
 	/** One line per failed lookup: its phase, cause (`timeout`, `error`, `gave-up`), duration and pids. */
@@ -53,6 +55,7 @@ export interface OmpProcessesOptions {
 export class OmpProcesses {
 	readonly #startTimes: (pids: number[]) => Promise<Map<number, number>>;
 	readonly #platform: NodeJS.Platform;
+	readonly #runCommand: CommandRunner;
 	readonly #retryDelaysMs: readonly number[];
 	readonly #log: (message: string, details: Record<string, string | number | boolean>) => void;
 	#identifyDone: Promise<void> = Promise.resolve();
@@ -71,6 +74,7 @@ export class OmpProcesses {
 		this.#bridgeDir = bridgeDir;
 		this.#startTimes = options.startTimes ?? windowsStartTimes;
 		this.#platform = options.platform ?? process.platform;
+		this.#runCommand = options.runCommand ?? run;
 		this.#retryDelaysMs = options.retryDelaysMs ?? IDENTIFY_RETRY_DELAYS_MS;
 		this.#log = options.log ?? ((message, details) => console.warn(`[omp-processes] ${message}`, details));
 	}
@@ -191,40 +195,76 @@ export class OmpProcesses {
 	 * Stops the omps the file names that still run and are still the process this app started, never a reused pid of
 	 * another program: on POSIX the pid's command line holds this app's gui-bridge path; on Windows (whose command lines
 	 * only WMI gives, which wedges: e2e-ci-windows.md › Stopping an omp) the process's creation time equals the one
-	 * recorded at its spawn. An entry with no recorded time is left running. A Windows lookup that failed names nothing
-	 * as ours and forgets nothing: nothing is stopped and the leftovers stay in the file for the next launch. Resolves
-	 * with the pids it stopped.
+	 * recorded at its spawn. An entry leaves the file only when it was stopped, its pid is gone, or the lookup read the
+	 * pid and it is not ours (another creation time, another command line). A pid that still runs but the lookup did
+	 * not resolve (the lookup failed, named no such pid, gave no usable time, or the entry has no recorded time) is
+	 * neither stopped nor forgotten: it stays in the file for the next launch. Resolves with the pids it stopped.
 	 */
 	async reapLeftovers(): Promise<number[]> {
 		this.#leftovers = this.#read().filter(({ pid }) => !this.#live.has(pid) && pidAlive(pid));
 		if (this.#leftovers.length === 0) return [];
-		const ours = await this.#stillOurs(this.#leftovers);
-		if (ours === null) return [];
-		await Promise.all(ours.map(pid => stopOmpPid(pid)));
-		this.#leftovers = [];
+		const verdict = await this.#classify(this.#leftovers);
+		if (verdict === null) return [];
+		await Promise.all(verdict.ours.map(pid => stopOmpPid(pid)));
+		const settled = new Set([...verdict.ours, ...verdict.notOurs]);
+		this.#leftovers = this.#leftovers.filter(({ pid }) => !settled.has(pid));
 		this.#save();
-		return ours;
+		return verdict.ours;
 	}
 
-	/** The pids of `entries` that are still this app's omps, or null when the lookup failed. */
-	async #stillOurs(entries: OmpEntry[]): Promise<number[] | null> {
-		const pids = entries.map(({ pid }) => pid).join(",");
+	/**
+	 * Which of `entries` the lookup positively says are this app's omps and which are not; an entry in neither is
+	 * unresolved. Null when the lookup failed (logged with its cause and how long it took).
+	 */
+	async #classify(entries: OmpEntry[]): Promise<{ ours: number[]; notOurs: number[] } | null> {
+		const pids = entries.map(({ pid }) => pid);
+		const ours: number[] = [];
+		const notOurs: number[] = [];
 		if (this.#platform === "win32") {
-			const times = await this.#lookup(
-				"reap",
-				entries.map(({ pid }) => pid),
-				1,
-			);
+			const times = await this.#lookup("reap", pids, 1);
 			if (times === null) return null;
-			return entries
-				.filter(({ pid, started }) => started !== undefined && times.get(pid) === started)
-				.map(({ pid }) => pid);
+			for (const { pid, started } of entries) {
+				const time = times.get(pid);
+				if (started === undefined || !isCreationTime(time)) continue;
+				(time === started ? ours : notOurs).push(pid);
+			}
+			return { ours, notOurs };
 		}
-		const { stdout } = await run("ps", ["-ww", "-o", "pid=,command=", "-p", pids], {
-			timeout: LOOKUP_TIMEOUT_MS,
-		}).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "" }));
-		const commands = byPid(stdout);
-		return entries.filter(({ pid }) => commands.get(pid)?.includes(this.#bridgeDir) === true).map(({ pid }) => pid);
+		const commands = await this.#commandLines(pids);
+		if (commands === null) return null;
+		for (const pid of pids) {
+			const command = commands.get(pid);
+			if (command === undefined) continue;
+			(command.includes(this.#bridgeDir) ? ours : notOurs).push(pid);
+		}
+		return { ours, notOurs };
+	}
+
+	/**
+	 * The command line of each pid `ps` lists, or null when `ps` failed: a timeout, a launch that failed, or an exit
+	 * with no output (a nonzero exit that still lists some pids, as `ps` does when another one is gone, is an answer).
+	 */
+	async #commandLines(pids: number[]): Promise<Map<number, string> | null> {
+		const began = Date.now();
+		try {
+			const { stdout } = await this.#runCommand("ps", ["-ww", "-o", "pid=,command=", "-p", pids.join(",")], {
+				timeout: LOOKUP_TIMEOUT_MS,
+			});
+			return byPid(stdout);
+		} catch (error) {
+			const partial = isTimeout(error) || !hasExitCode(error) ? "" : (error.stdout ?? "");
+			if (partial.trim() !== "") return byPid(partial);
+			this.#log("command-line lookup failed", {
+				level: "warn",
+				phase: "reap",
+				cause: isTimeout(error) ? "timeout" : "error",
+				durationMs: Date.now() - began,
+				pids: pids.join(","),
+				attempt: 1,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return null;
+		}
 	}
 
 	#read(): OmpEntry[] {
@@ -260,7 +300,7 @@ export class OmpProcesses {
 type CommandRunner = (
 	file: string,
 	args: string[],
-	options: { timeout: number; windowsHide: boolean },
+	options: { timeout: number; windowsHide?: boolean },
 ) => Promise<{ stdout: string }>;
 
 /**
@@ -283,8 +323,21 @@ export async function windowsStartTimes(pids: number[], runCommand: CommandRunne
 		{ timeout: LOOKUP_TIMEOUT_MS, windowsHide: true },
 	);
 	const times = new Map<number, number>();
-	for (const [pid, rest] of byPid(stdout)) times.set(pid, Number(rest));
+	for (const [pid, rest] of byPid(stdout)) {
+		const time = Number(rest);
+		if (isCreationTime(time)) times.set(pid, time);
+	}
 	return times;
+}
+
+/** A creation time the lookup can compare: a positive finite number; an empty or garbled line reads as none. */
+function isCreationTime(time: number | undefined): time is number {
+	return time !== undefined && Number.isFinite(time) && time > 0;
+}
+
+/** An `execFile` rejection of a command that ran and exited nonzero (`code` is the number, not `ENOENT`). */
+function hasExitCode(error: unknown): error is { code: number; stdout?: string } {
+	return typeof error === "object" && error !== null && "code" in error && typeof error.code === "number";
 }
 
 /** A lookup `execFile` ended at its bound (it marks the error `killed`). */

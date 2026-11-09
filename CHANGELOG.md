@@ -12,7 +12,7 @@
 - 다른 컴퓨터의 에이전트가 이 컴퓨터에 연 세션이, 그 탭이 닫히면 프로젝트의 하위 세션처럼 보이던 문제를 고쳤어요.
 - omp 18.18.2에서 앱을 끄거나 재시작할 때 진행 중이던 턴이 다음 실행에서 이어지지 않던 문제를 고쳤어요. 기다리던 하위 에이전트를 되살렸다는 안내는 그 턴에 한 번만 가요.
 - omp 18.18.2에 새로 생긴 설정(`gc.strip`, `gc.stripAfterDays`)이 한글로 보여요.
-- 윈도우에서 omp의 실행 정보를 읽는 조회가 바쁜 순간에 늦으면, 그 omp가 앱이 강제로 꺼진 뒤 남아도 다음 실행에서 정리되지 못했어요. 확인하지 못한 남은 omp 기록도 지워졌어요. 이제 조회가 늦거나 실패하면 다시 시도하고, 확인하지 못한 기록은 다음 실행까지 남겨요.
+- 앱이 강제로 꺼진 뒤 남은 omp를 다음 실행에서 정리하지 못하던 문제를 고쳤어요. 윈도우에서는 omp의 실행 정보를 읽는 조회가 바쁜 순간에 늦으면 그 omp의 생성 시각이 기록되지 않았고, 맥에서는 남은 omp를 확인하는 `ps` 조회가 실패하면 기록이 모두 지워졌어요. 윈도우는 이제 조회가 늦거나 실패하면 생성 시각을 다시 읽어 기록해요. 두 곳 모두, 아직 실행 중인데 확인하지 못한 omp는 건드리지 않고 기록을 다음 실행까지 남겨요. 이미 끝났거나 확인해 보니 이 앱의 omp가 아닌 기록만 지워요.
 
 <!-- en -->
 
@@ -26,7 +26,7 @@ Selecting a session in the sidebar no longer reshuffles the list or loses the se
 - A session a paired computer's agent opened here read as a loose child of its project once its tab closed.
 - On omp 18.18.2, a turn a quit or a restart cut off was not continued at the next launch; the revived subagents are announced to it once.
 - omp 18.18.2's new settings (`gc.strip`, `gc.stripAfterDays`) show in Korean.
-- On Windows, an omp whose process lookup ran late on a busy machine could never be stopped by a later launch after a crash, and a failed lookup forgot the leftovers it had not checked. A late or failed lookup is now tried again, and unchecked leftovers stay for the next launch.
+- An omp left running after a forced quit could go unstopped at the next launch. On Windows, a process lookup that ran late on a busy machine left its creation time unrecorded; on macOS, a failed `ps` lookup wiped every leftover record. Windows now retries a late or failed lookup of the creation time. On both, a leftover that still runs but could not be identified is neither stopped nor forgotten: its record stays for the next launch, and only a record whose process has ended, or was read and is not this app's omp, is dropped.
 
 ## [0.119.7] - 2026-11-09
 

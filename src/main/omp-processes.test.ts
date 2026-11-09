@@ -284,6 +284,127 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 		await vi.waitFor(() => expect(pidAlive(pid)).toBe(false));
 		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
 	}, 20_000);
+
+	it("a Windows leftover the lookup does not name, or names with no usable time, or that never had a recorded time, stays; none is stopped", async () => {
+		const file = await tempFile();
+		const [missing, zero, unrecorded] = [idleOmp(), idleOmp(), idleOmp()].map(child => child.pid ?? 0);
+		await fs.writeFile(
+			file,
+			JSON.stringify({
+				omps: [{ pid: missing, started: 7_000 }, { pid: zero, started: 7_000 }, { pid: unrecorded }],
+			}),
+		);
+		const lookup = new Map([
+			[zero, 0],
+			[unrecorded, 7_000],
+		]);
+
+		const first = await new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes: scripted(lookup),
+		}).reapLeftovers();
+
+		expect(first).toEqual([]);
+		for (const pid of [missing, zero, unrecorded]) expect(pidAlive(pid)).toBe(true);
+		expect(await readFile(file)).toEqual({
+			omps: [{ pid: missing, started: 7_000 }, { pid: zero, started: 7_000 }, { pid: unrecorded }],
+		});
+
+		const next = await new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes: scripted(
+				new Map([
+					[missing, 7_000],
+					[zero, 7_000],
+				]),
+			),
+		}).reapLeftovers();
+
+		expect(next).toEqual([missing, zero]);
+		await vi.waitFor(() => expect([missing, zero].map(pidAlive)).toEqual([false, false]));
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: unrecorded }] }));
+		process.kill(unrecorded);
+	}, 20_000);
+
+	it("a Windows leftover whose creation time differs is another program's: it is dropped from the file and not stopped", async () => {
+		const file = await tempFile();
+		const reused = idleOmp().pid ?? 0;
+		await fs.writeFile(file, JSON.stringify({ omps: [{ pid: reused, started: 7_000 }] }));
+
+		const reaped = await new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes: scripted(new Map([[reused, 9_000]])),
+		}).reapLeftovers();
+
+		expect(reaped).toEqual([]);
+		expect(pidAlive(reused)).toBe(true);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
+	});
+
+	/** The command lookup answers one scripted step per call (an error rejects, a string is the stdout). */
+	const psScripted = (...steps: (Error | string)[]) =>
+		vi.fn(async (_file: string, _args: string[]): Promise<{ stdout: string }> => {
+			const step = steps.shift();
+			if (step === undefined) throw new Error("unexpected ps");
+			if (step instanceof Error) throw step;
+			return { stdout: step };
+		});
+
+	it("a POSIX launch whose ps failed (a timeout, a launch error, an exit with no output) stops nothing and keeps every leftover", async () => {
+		const file = await tempFile();
+		const pids = [idleOmp().pid ?? 0, idleOmp().pid ?? 0];
+		const entries = pids.map(pid => ({ pid }));
+		await fs.writeFile(file, JSON.stringify({ omps: entries }));
+		const log = vi.fn();
+		const failures = [
+			timedOut(),
+			new Error("spawn ps ENOENT"),
+			Object.assign(new Error("Command failed: ps"), { code: 1 }),
+		];
+
+		for (const failure of failures) {
+			const reaped = await new OmpProcesses(file, "/bridge", {
+				platform: "darwin",
+				runCommand: psScripted(failure),
+				log,
+			}).reapLeftovers();
+			expect(reaped).toEqual([]);
+		}
+
+		for (const pid of pids) expect(pidAlive(pid)).toBe(true);
+		expect(await readFile(file)).toEqual({ omps: entries });
+		expect(log.mock.calls.map(call => call[1])).toMatchObject([
+			{ phase: "reap", cause: "timeout", pids: pids.join(",") },
+			{ phase: "reap", cause: "error" },
+			{ phase: "reap", cause: "error" },
+		]);
+		expect(log.mock.calls[0]?.[1]).toHaveProperty("durationMs");
+
+		const next = await new OmpProcesses(file, "/bridge", {
+			platform: "darwin",
+			runCommand: psScripted(pids.map(pid => `${pid} omp -e /bridge/index.ts`).join("\n")),
+		}).reapLeftovers();
+
+		expect(next).toEqual(pids);
+		await vi.waitFor(() => expect(pids.map(pidAlive)).toEqual([false, false]));
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
+	}, 20_000);
+
+	it("a POSIX leftover whose command line is not this app's omp is dropped from the file and not stopped, one ps could not show stays", async () => {
+		const file = await tempFile();
+		const [foreign, absent] = [idleOmp().pid ?? 0, idleOmp().pid ?? 0];
+		await fs.writeFile(file, JSON.stringify({ omps: [{ pid: foreign }, { pid: absent }] }));
+
+		const reaped = await new OmpProcesses(file, "/bridge", {
+			platform: "darwin",
+			runCommand: psScripted(`${foreign} vim notes.txt`),
+		}).reapLeftovers();
+
+		expect(reaped).toEqual([]);
+		expect([foreign, absent].map(pidAlive)).toEqual([true, true]);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: absent }] }));
+		process.kill(absent);
+	});
 });
 
 describe("windowsStartTimes", () => {
@@ -294,6 +415,16 @@ describe("windowsStartTimes", () => {
 
 		expect(times).toEqual(new Map([[4242, 1_700_000_000_123]]));
 		expect(runCommand.mock.calls[0]?.[1].at(-1)).toContain("exit 0");
+	});
+
+	it("a line with an empty or garbled time names no creation time, so the pid reads as unresolved", async () => {
+		const runCommand = vi.fn(async (_file: string, _args: string[]) => ({
+			stdout: "4242 \r\n4243 0\r\n4244 garbled\r\n4245 1700000000123\r\n",
+		}));
+
+		expect(await windowsStartTimes([4242, 4243, 4244, 4245], runCommand)).toEqual(
+			new Map([[4245, 1_700_000_000_123]]),
+		);
 	});
 
 	it.each([
