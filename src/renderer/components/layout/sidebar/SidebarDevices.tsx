@@ -1152,8 +1152,8 @@ function DeviceSessions({
 							: event => setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
 						"data-active": active,
 						"data-current": current || undefined,
-						"data-pane-focus": (current && splitIds !== null) || undefined,
-						"data-pane-shown": (active && !current && splitIds !== null) || undefined,
+						"data-pane-focus": (current && selectionOf(tab?.id).splitShown) || undefined,
+						"data-pane-shown": (active && !current && selectionOf(tab?.id).splitShown) || undefined,
 						"data-folder-missing": folderMissing || undefined,
 						"data-live": indexed ? undefined : true,
 					}}

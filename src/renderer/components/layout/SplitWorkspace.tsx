@@ -6,6 +6,7 @@ import { type SplitNode, splitTabIds } from "../../../shared/split-layout";
 import { isDrawerMode } from "../../hooks/shell-queries";
 import { useSessionList } from "../../hooks/use-session-list";
 import { maxSplitPanes, useShellMode } from "../../hooks/use-shell-mode";
+import { useShownSplit } from "../../hooks/use-shown-split";
 import { useTabListRows } from "../../hooks/use-tab-list-rows";
 import { useTabRun } from "../../hooks/use-tab-run";
 import { cx } from "../../lib/format";
@@ -371,9 +372,11 @@ export function SplitWorkspace() {
 	const tabs = useTabsStore(state => state.tabs);
 	const activeTabId = useTabsStore(state => state.activeTabId);
 	const split = useTabsStore(state => state.split);
+	// What the window shows of it (the focused tab alone in a drawer shell): the sidebar marks the same panes selected.
+	const shownSplit = useShownSplit();
+	const single = isDrawerMode(useShellMode());
 	const splitTab = useTabsStore(state => state.splitTab);
 	const switchTab = useTabsStore(state => state.switchTab);
-	const single = isDrawerMode(useShellMode());
 	const [dragTabId, setDragTabId] = useState<string | null>(null);
 	// A sidebar subagent row in flight: dropping it on any pane opens it in the side panel.
 	const [dragSubagent, setDragSubagent] = useState<SubagentDrag | null>(null);
@@ -473,11 +476,7 @@ export function SplitWorkspace() {
 	const dragLabel = dragSubagent ? dragSubagent.label : dragParts ? combinedTitle(dragParts) : null;
 	const workspace = (
 		<div className="omp-split-workspace relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]">
-			<SplitBranch
-				node={single ? { tabId: activeTabId } : (split ?? { tabId: activeTabId })}
-				path={[]}
-				renderPane={renderPane}
-			/>
+			<SplitBranch node={shownSplit ?? { tabId: activeTabId }} path={[]} renderPane={renderPane} />
 			{dragLabel !== null && <DragChip title={dragLabel} />}
 		</div>
 	);

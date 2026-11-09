@@ -337,7 +337,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // its whole-blob writer went), and a sidebar pick's runtime-log line: 2,174,377.
 // A family child's review verdict by its computer and session file (9 Nov 2026, sidebar-family.ts `reviewKey`, read by
 // the eager family rule): 2,174,446.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_174_446;
+// The split the window shows, one rule for the workspace and the sidebar's selected rows (9 Nov 2026,
+// hooks/use-shown-split.ts): 2,174,534.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_174_534;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { splitTabIds } from "../../../../shared/split-layout";
+import { useShownSplit } from "../../../hooks/use-shown-split";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
 
@@ -10,23 +11,26 @@ export interface RowSelection {
 	inSplit: boolean;
 	/** The row reads as selected: its tab is on screen (focused or a pane of the split) and a session is shown. */
 	selected: boolean;
+	/** A split is on screen (a drawer shell shows the focused tab alone, whatever split the window keeps). */
+	splitShown: boolean;
 }
 
 /**
  * Which row is selected, for every list of the sidebar (this computer's rows, a family's, a loose child's, a paired
  * computer's section, the phone page's): the one identity is the tab a row's session is open in, against the tab list's
- * focused tab and split. No row is selected by its position, its session id or any other store.
+ * focused tab and the split the window shows (`useShownSplit`, the rule `SplitWorkspace` draws by). No row is selected
+ * by its position, its session id or any other store.
  */
 export function useRowSelection(): (tabId: string | undefined) => RowSelection {
 	const activeTabId = useTabsStore(state => state.activeTabId);
-	const split = useTabsStore(state => state.split);
+	const split = useShownSplit();
 	const shown = useUiStore(state => state.destination === "session");
 	const panes = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	return useCallback(
 		tabId => {
 			const current = tabId !== undefined && tabId === activeTabId;
 			const inSplit = !current && tabId !== undefined && panes?.has(tabId) === true;
-			return { current, inSplit, selected: (current || inSplit) && shown };
+			return { current, inSplit, selected: (current || inSplit) && shown, splitShown: panes !== null };
 		},
 		[activeTabId, panes, shown],
 	);

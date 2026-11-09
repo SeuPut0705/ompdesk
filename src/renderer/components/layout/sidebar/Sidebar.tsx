@@ -531,8 +531,6 @@ export function Sidebar() {
 	const openTab = useTabsStore(s => s.openTab);
 	const tabs = useTabsStore(s => s.tabs);
 	const activeTabId = useTabsStore(s => s.activeTabId);
-	const split = useTabsStore(s => s.split);
-	const splitIds = useMemo(() => (split ? new Set(splitTabIds(split)) : null), [split]);
 	const activeTab = tabs.find(tab => tab.id === activeTabId);
 	const selectionOf = useRowSelection();
 	const activeTabKind = activeTab?.kind;
@@ -1946,8 +1944,8 @@ export function Sidebar() {
 						"data-bot-decisions": botDecisions > 0 || undefined,
 						"data-active": active,
 						"data-current": isCurrent || undefined,
-						"data-pane-focus": (isCurrent && splitIds !== null) || undefined,
-						"data-pane-shown": (active && !isCurrent && splitIds !== null) || undefined,
+						"data-pane-focus": (isCurrent && selectionOf(openTabId).splitShown) || undefined,
+						"data-pane-shown": (active && !isCurrent && selectionOf(openTabId).splitShown) || undefined,
 						"data-live": indexed ? undefined : true,
 						"data-switch-pending": switchPendingTo === session.id || undefined,
 						"data-session-kind": session.kind ?? "agent",
