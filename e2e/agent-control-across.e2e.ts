@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
+import { parse as parseYaml, stringify as yaml } from "yaml";
 import {
 	controlToolCaller as caller,
 	exitApp,
@@ -20,6 +22,7 @@ import {
 	linkProxy,
 	makeRemoteProfile,
 	type RemoteInstance,
+	type RemoteProfile,
 } from "./remote-harness";
 
 // OMPdesk control tools beyond the caller's window (src/main/agent-control): another window's sessions, saved
@@ -240,16 +243,29 @@ test.describe("on a paired device", () => {
 
 	/**
 	 * Two apps, the client paired to the host as "PC-B"; `call` runs a control tool as the client's focused tab.
-	 * `blips`: the client reaches the host through a relay whose link the test can cut.
+	 * `blips`: the client reaches the host through a relay whose link the test can cut. `env` adds to each app's
+	 * environment, and `seed` writes into both profiles before either app starts.
 	 */
-	async function pairApps(options: { blips?: boolean } = {}) {
-		const hostProfile = await makeRemoteProfile(parent, "host", { language: "en", theme: "light" });
+	async function pairApps(
+		options: {
+			blips?: boolean;
+			env?: { host?: Record<string, string>; client?: Record<string, string> };
+			seed?: (host: RemoteProfile, client: RemoteProfile) => Promise<void>;
+		} = {},
+	) {
+		const hostProfile = await makeRemoteProfile(parent, "host", {
+			language: "en",
+			theme: "light",
+			env: options.env?.host ?? {},
+		});
 		const link: LinkProxy | undefined = options.blips ? await linkProxy(hostProfile.port) : undefined;
 		const clientProfile = await makeRemoteProfile(parent, "client", {
 			language: "en",
 			theme: "light",
 			port: link ? Number(link.address.split(":")[1]) : hostProfile.port,
+			env: options.env?.client ?? {},
 		});
+		await options.seed?.(hostProfile, clientProfile);
 		host = await launchRemote(hostProfile);
 		client = await launchRemote(clientProfile);
 		const deviceId = await connectHost(host.page, client.page, "PC-B");
@@ -786,5 +802,149 @@ test.describe("on a paired device", () => {
 		expect(merged.text).toContain("Nothing was pushed");
 		expect(await fs.readFile(path.join(repo, "remote.txt"), "utf8")).toBe("made on PC-B\n");
 		expect(git(repo, "log", "-1", "--format=%s")).toContain(`Merge ${worktree?.branch} into main`);
+	});
+
+	test("reads and writes the paired device's omp settings and model roles there, and leaves no session behind", async () => {
+		test.setTimeout(300_000);
+		// The fake omp keeps settings and roles in its agent dir's config.yml, as stock does (OMP_GUI_TEST_CONFIG_YML).
+		// The two computers start with different values; only the host has signed-in accounts and their models.
+		const secret = `sk-fixture-secret-${randomUUID()}`;
+		const configOf = (profile: RemoteProfile) => path.join(profile.root, "agent", "config.yml");
+		const onDisk = async (profile: RemoteProfile): Promise<Record<string, Record<string, unknown>>> =>
+			parseYaml(await fs.readFile(configOf(profile), "utf8"));
+		const {
+			hostProfile,
+			clientProfile,
+			call,
+			client: app,
+		} = await pairApps({
+			env: {
+				host: { OMP_GUI_TEST_CONFIG_YML: "1", OMP_GUI_TEST_LOGIN: "1", OMP_GUI_TEST_MODELS: "1" },
+				client: { OMP_GUI_TEST_CONFIG_YML: "1" },
+			},
+			seed: async (hostSide, clientSide) => {
+				await fs.writeFile(
+					configOf(hostSide),
+					yaml({ compaction: { reserveTokens: 2222 }, search: { apiKey: secret } }),
+				);
+				await fs.writeFile(configOf(clientSide), yaml({ compaction: { reserveTokens: 1111 } }));
+			},
+		});
+		if (!host) throw new Error("no host");
+		const clientConfig = await fs.readFile(configOf(clientProfile), "utf8");
+		const outputs: string[] = [];
+		const action = async (id: string, args: Record<string, unknown> = {}) => {
+			const result = await call("ompdesk_app", { action: id, args });
+			outputs.push(result.text);
+			return result;
+		};
+		const reserve = { paths: ["compaction.reserveTokens"] };
+
+		// Steps 1 to 5 go through a session already open on the device.
+		const open = await call("ompdesk_session_open", { device: "PC-B", message: "Title: settings there\nStay" });
+		expect(open.isError, open.text).toBe(false);
+		const [there] = opened(open.text);
+		await call("ompdesk_session_result", { session: there, wait: true, timeout_seconds: 60 });
+
+		// 1. The device's value, not this computer's.
+		const read = await action("omp_settings.get", { ...reserve, device: "PC-B" });
+		expect(read.isError, read.text).toBe(false);
+		expect(read.text).toContain("2222");
+		expect(read.text).not.toContain("1111");
+		expect((await action("omp_settings.get", reserve)).text).toContain("1111");
+
+		// 2. Written into the device's config.yml; this computer's is untouched.
+		const set = await action("omp_settings.set", { path: "compaction.reserveTokens", value: 3333, device: "PC-B" });
+		expect(set.isError, set.text).toBe(false);
+		expect((await onDisk(hostProfile)).compaction?.reserveTokens).toBe(3333);
+		expect(await fs.readFile(configOf(clientProfile), "utf8")).toBe(clientConfig);
+
+		// 3. app.undo restores the device's previous value on its disk.
+		const undone = await action("app.undo");
+		expect(undone.isError, undone.text).toBe(false);
+		expect((await onDisk(hostProfile)).compaction?.reserveTokens).toBe(2222);
+		expect(await fs.readFile(configOf(clientProfile), "utf8")).toBe(clientConfig);
+
+		// 4. A credential is neither read nor written.
+		expect((await action("omp_settings.get", { paths: ["search.apiKey"], device: "PC-B" })).isError).toBe(true);
+		expect((await action("omp_settings.get", { query: "search", device: "PC-B" })).isError).toBe(false);
+		expect((await action("omp_settings.get", { device: "PC-B" })).isError).toBe(false);
+		const written = await action("omp_settings.set", { path: "search.apiKey", value: "replaced", device: "PC-B" });
+		expect(written.isError).toBe(true);
+		expect((await onDisk(hostProfile)).search?.apiKey).toBe(secret);
+
+		// 5. Models and usage of the device; a role set there changes only the device's config.yml.
+		const modelsThere = await action("models.list", { device: "PC-B" });
+		const modelsHere = await action("models.list");
+		expect(modelsThere.isError, modelsThere.text).toBe(false);
+		const pick = /^- default: (\S+)/m.exec(modelsThere.text)?.[1] ?? "";
+		expect(pick, modelsThere.text).toContain("/");
+		expect(modelsHere.text).not.toContain(pick);
+		const usageThere = await action("usage.read", { device: "PC-B" });
+		const usageHere = await action("usage.read");
+		expect(usageThere.isError, usageThere.text).toBe(false);
+		expect(usageThere.text).toContain("anthropic");
+		expect(usageHere.text).not.toContain("anthropic");
+		const role = await action("models.set_role", { role: "smol", modelId: pick, device: "PC-B" });
+		expect(role.isError, role.text).toBe(false);
+		expect((await onDisk(hostProfile)).modelRoles).toEqual({ smol: pick });
+		expect(await fs.readFile(configOf(clientProfile), "utf8")).toBe(clientConfig);
+		expect((await action("models.list", { device: "PC-B" })).text).toMatch(new RegExp(`^- smol: ${pick}`, "m"));
+		expect((await action("models.list")).text).not.toContain(pick);
+
+		// 6. No session open on the device: each action opens one there for the call and deletes it after.
+		expect((await call("ompdesk_session_stop", { session: there, close: true })).isError).toBe(false);
+		const tabIds = async (page: Page) => (await page.evaluate(() => window.omp.tabs.list())).map(tab => tab.tabId);
+		await expect.poll(async () => (await tabIds(app.page)).includes(there as string)).toBe(false);
+		const hostSessions = path.join(hostProfile.root, "agent", "sessions");
+		const savedThere = async () =>
+			(await fs.readdir(hostSessions, { recursive: true }).catch(() => [] as string[]))
+				.filter(file => file.endsWith(".jsonl"))
+				.sort();
+		const launches = async () =>
+			(await readRecords(hostProfile.record)).filter(frame => frame.type === "launch").length;
+		const [savedBefore, tabsBefore, hostTabsBefore, launchesBefore] = await Promise.all([
+			savedThere(),
+			tabIds(app.page),
+			tabIds(host.page),
+			launches(),
+		]);
+		const fresh = await action("omp_settings.get", { ...reserve, device: "PC-B" });
+		expect(fresh.isError, fresh.text).toBe(false);
+		expect(fresh.text).toContain("2222");
+		expect(await launches()).toBeGreaterThan(launchesBefore);
+		const again = await action("omp_settings.set", { path: "compaction.reserveTokens", value: 4444, device: "PC-B" });
+		expect(again.isError, again.text).toBe(false);
+		expect((await onDisk(hostProfile)).compaction?.reserveTokens).toBe(4444);
+		expect((await action("app.undo")).isError).toBe(false);
+		expect((await onDisk(hostProfile)).compaction?.reserveTokens).toBe(2222);
+		await expect.poll(savedThere, { timeout: 30_000 }).toEqual(savedBefore);
+		expect(await tabIds(app.page)).toEqual(tabsBefore);
+		expect(await tabIds(host.page)).toEqual(hostTabsBefore);
+
+		// The secret is in no tool result, no transcript or command log of either computer, and not on screen.
+		const transcripts = async (profile: RemoteProfile) => {
+			const dir = path.join(profile.root, "agent", "sessions");
+			const files = (await fs.readdir(dir, { recursive: true }).catch(() => [] as string[])).filter(file =>
+				file.endsWith(".jsonl"),
+			);
+			return Promise.all(files.map(file => fs.readFile(path.join(dir, file), "utf8")));
+		};
+		const seen = [
+			...outputs,
+			await fs.readFile(clientProfile.record, "utf8"),
+			await fs.readFile(hostProfile.record, "utf8"),
+			...(await transcripts(clientProfile)),
+			...(await transcripts(hostProfile)),
+			await app.page.content(),
+		];
+		expect(seen.filter(text => text.includes(secret))).toEqual([]);
+
+		await app.page.screenshot({ path: test.info().outputPath("client-final.png") });
+		const { search: _credential, ...hostConfig } = await onDisk(hostProfile);
+		await fs.writeFile(
+			test.info().outputPath("evidence.json"),
+			JSON.stringify({ outputs, hostConfig, clientConfig: await onDisk(clientProfile) }, null, 2),
+		);
 	});
 });

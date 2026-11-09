@@ -1223,6 +1223,67 @@ export function runRpcUi(): void {
 		slow: "anthropic/claude-opus-4-1",
 		commit: "fixture/local-fixture",
 	};
+	/**
+	 * `OMP_GUI_TEST_CONFIG_YML=1`: settings and model roles persist in `$PI_CODING_AGENT_DIR/config.yml`, as stock keeps
+	 * them: read when this omp starts (nested keys become setting paths, `modelRoles` the roles) and written on every
+	 * `settings_set` and `model_role_set`, so the next omp of that agent dir starts with them. The schema then also
+	 * lists a credential (`CREDENTIAL_SETTING`, stock `isCredential`: `secret`) and every entry carries its value, as
+	 * stock's does; `settings_get` leaves the credential out, as stock's write-only secrets are.
+	 */
+	const configFile =
+		process.env.OMP_GUI_TEST_CONFIG_YML === "1" && process.env.PI_CODING_AGENT_DIR
+			? nodePath.join(process.env.PI_CODING_AGENT_DIR, "config.yml")
+			: undefined;
+	const CREDENTIAL_SETTING = "search.apiKey";
+	const isTree = (value: unknown): value is Record<string, unknown> =>
+		value !== null && typeof value === "object" && !Array.isArray(value);
+	const config: Record<string, unknown> = (() => {
+		if (!configFile || !fs.existsSync(configFile)) return {};
+		const parsed: unknown = Bun.YAML.parse(fs.readFileSync(configFile, "utf8"));
+		return isTree(parsed) ? parsed : {};
+	})();
+	const loadConfig = (tree: Record<string, unknown>, prefix: string) => {
+		for (const [key, value] of Object.entries(tree)) {
+			if (prefix === "" && key === "modelRoles") continue;
+			if (isTree(value)) loadConfig(value, `${prefix}${key}.`);
+			else values[`${prefix}${key}`] = value;
+		}
+	};
+	loadConfig(config, "");
+	if (isTree(config.modelRoles))
+		for (const [role, id] of Object.entries(config.modelRoles)) if (typeof id === "string") modelRoles[role] = id;
+	/** Stock's global settings layer: `value` at the dotted `path` of config.yml (`undefined` removes it). */
+	const saveConfig = (path: string, value: unknown) => {
+		if (!configFile) return;
+		const keys = path.split(".");
+		let node = config;
+		for (const key of keys.slice(0, -1)) {
+			if (!isTree(node[key])) node[key] = {};
+			node = node[key] as Record<string, unknown>;
+		}
+		const last = keys.at(-1) ?? path;
+		if (value === undefined) Reflect.deleteProperty(node, last);
+		else node[last] = value;
+		fs.writeFileSync(configFile, Bun.YAML.stringify(config, null, 2));
+	};
+	/** With `configFile`: a schema answer that also lists the credential, and each entry's value, as stock's does. */
+	const schemaOf = (schema: { tabs: unknown[]; entries: Array<{ path: string; [field: string]: unknown }> }) =>
+		configFile
+			? {
+					...schema,
+					entries: [
+						...schema.entries,
+						{
+							path: CREDENTIAL_SETTING,
+							type: "string",
+							tab: "providers",
+							label: "Search API key",
+							description: "Credential of the search provider",
+							secret: true,
+						},
+					].map(entry => ({ ...entry, value: values[entry.path] })),
+				}
+			: schema;
 	/** Like stock: the advisor runs when it is on and a model resolves (its own role, else the Thinking role). */
 	const advisorState = (settings: Record<string, unknown>) => {
 		const advisorEnabled = settings["advisor.enabled"] === true;
@@ -1253,6 +1314,7 @@ export function runRpcUi(): void {
 		model_role_metadata: () => ({ roles: ROLE_META }),
 		model_role_set: params => {
 			modelRoles[String(params.role)] = typeof params.modelId === "string" ? params.modelId : undefined;
+			saveConfig(`modelRoles.${String(params.role)}`, modelRoles[String(params.role)]);
 			emitConfigUpdate();
 			return { role: params.role, modelId: params.modelId ?? null };
 		},
@@ -2093,86 +2155,93 @@ export function runRpcUi(): void {
 			redactionEnabled: true,
 		}),
 		"composer.share": () => ({ url: "http://127.0.0.1/shared#local" }),
-		settings_schema: () => ({
-			tabs: SCHEMA_TABS.map(id => ({ id, label: id, groups: [] })),
-			entries: [
-				...SCHEMA_TABS.map(tab => ({
-					path: tab === "context" ? "compaction.enabled" : `fixture.${tab}`,
-					type: "boolean",
-					tab,
-					label: tab === "context" ? "Auto compaction" : `Fixture ${tab}`,
-					description: "Isolated audit setting",
-					default: true,
-				})),
-				{
-					path: "compaction.reserveTokens",
-					type: "number",
-					tab: "context",
-					label: "Reserve tokens",
-					description: "Isolated numeric audit setting",
-					default: 8192,
-				},
-				// A safeguard the user turned on: Settings › Permissions asks before turning it off.
-				{
-					path: "secrets.enabled",
-					type: "boolean",
-					tab: "interaction",
-					label: "Hide secrets",
-					description: "Obfuscate configured secrets before sending to AI providers",
-					default: true,
-				},
-				// Settings › Features renders the advisor row only when the schema has the setting.
-				...(modelsData
-					? [
-							{
-								path: "advisor.enabled",
-								type: "boolean",
-								tab: "model",
-								label: "Advisor",
-								description: "A second model reviews the main model's turns.",
-								default: false,
-							},
-						]
-					: []),
-				...(worktreeLifecycle
-					? [
-							{
-								path: "worktree.onStart",
-								type: "enum",
-								tab: "tasks",
-								group: "Isolation",
-								label: "Worktree on Start",
-								description: "Whether fresh interactive sessions start in a new linked worktree",
-								default: "off",
-								options: [
-									{ value: "off", label: "Off" },
-									{ value: "ask", label: "Ask" },
-									{ value: "create", label: "Create" },
-								],
-							},
-							{
-								path: "worktree.onExit",
-								type: "enum",
-								tab: "tasks",
-								group: "Isolation",
-								label: "Worktree on Exit",
-								description:
-									"What to do on exit with worktrees created since omp started (on start or with `/wt`)",
-								default: "keep",
-								options: [
-									{ value: "keep", label: "Keep" },
-									{ value: "ask", label: "Ask" },
-									{ value: "remove", label: "Remove" },
-								],
-							},
-						]
-					: []),
-			],
+		settings_schema: () =>
+			schemaOf({
+				tabs: SCHEMA_TABS.map(id => ({ id, label: id, groups: [] })),
+				entries: [
+					...SCHEMA_TABS.map(tab => ({
+						path: tab === "context" ? "compaction.enabled" : `fixture.${tab}`,
+						type: "boolean",
+						tab,
+						label: tab === "context" ? "Auto compaction" : `Fixture ${tab}`,
+						description: "Isolated audit setting",
+						default: true,
+					})),
+					{
+						path: "compaction.reserveTokens",
+						type: "number",
+						tab: "context",
+						label: "Reserve tokens",
+						description: "Isolated numeric audit setting",
+						default: 8192,
+					},
+					// A safeguard the user turned on: Settings › Permissions asks before turning it off.
+					{
+						path: "secrets.enabled",
+						type: "boolean",
+						tab: "interaction",
+						label: "Hide secrets",
+						description: "Obfuscate configured secrets before sending to AI providers",
+						default: true,
+					},
+					// Settings › Features renders the advisor row only when the schema has the setting.
+					...(modelsData
+						? [
+								{
+									path: "advisor.enabled",
+									type: "boolean",
+									tab: "model",
+									label: "Advisor",
+									description: "A second model reviews the main model's turns.",
+									default: false,
+								},
+							]
+						: []),
+					...(worktreeLifecycle
+						? [
+								{
+									path: "worktree.onStart",
+									type: "enum",
+									tab: "tasks",
+									group: "Isolation",
+									label: "Worktree on Start",
+									description: "Whether fresh interactive sessions start in a new linked worktree",
+									default: "off",
+									options: [
+										{ value: "off", label: "Off" },
+										{ value: "ask", label: "Ask" },
+										{ value: "create", label: "Create" },
+									],
+								},
+								{
+									path: "worktree.onExit",
+									type: "enum",
+									tab: "tasks",
+									group: "Isolation",
+									label: "Worktree on Exit",
+									description:
+										"What to do on exit with worktrees created since omp started (on start or with `/wt`)",
+									default: "keep",
+									options: [
+										{ value: "keep", label: "Keep" },
+										{ value: "ask", label: "Ask" },
+										{ value: "remove", label: "Remove" },
+									],
+								},
+							]
+						: []),
+				],
+			}),
+		settings_get: () => ({
+			values: configFile
+				? Object.fromEntries(Object.entries(values).filter(([path]) => path !== CREDENTIAL_SETTING))
+				: values,
+			...advisorState(values),
 		}),
-		settings_get: () => ({ values, ...advisorState(values) }),
 		settings_set: params => {
 			const path = String(params.path);
 			values[path] = params.value;
+			saveConfig(path, params.value);
 			emitConfigUpdate();
 			return {
 				path,
