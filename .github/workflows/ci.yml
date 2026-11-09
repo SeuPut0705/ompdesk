@@ -10,7 +10,7 @@
 # is a manual dispatch.
 #
 # The full Playwright suite is manual here (`gh workflow run ci.yml -f e2e=true`):
-# it builds out/ on Linux and runs the four macOS shards of e2e-shards.yml,
+# it builds out/ on Linux and runs the five macOS shards of e2e-shards.yml,
 # which e2e-nightly.yml also runs every night (a release does not).
 #
 # The real Windows install of the app's automatic setup is manual too

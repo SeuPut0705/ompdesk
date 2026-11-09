@@ -9,12 +9,16 @@
 # omp (real-core and deep-audit) and the fake omp (everything else); playwright
 # runs one worker per shard (3-core runner; playwright.config.ts).
 #
-# At most 5 macOS jobs run at once on a public repo's free tier; the sixth shard queues behind the first to finish,
-# which costs wall time only (the nightly and ci.yml's manual `e2e=true` run nothing else on macOS; beside a
-# release's `mac` and `mac-real` more queue). The suite sums ~6300 s of test time on the runner (nightly
-# 41916393486): five shards put ~1350 s on each against the 1500 s `--global-timeout`, and shard 3 stopped with 9
-# tests not run (36 in 41817431850, with four shards). Six leave ~1050 s each. `fail-fast: false`: one run reports
+# At most 5 macOS jobs run at once on a public repo's free tier, so the suite runs in five shards: with six the sixth
+# queued behind the first to finish and the run took two rounds (nightly 42609763294: shard 6 started 994 s in, the
+# run ended after 38 min of which the shards themselves were 933 to 1158 s). The suite sums ~6200 s of test time on
+# the runner, ~1250 s a shard dealt from that run's per-file times (`bun scripts/e2e-shard-costs.ts <run-id>`), so
+# Playwright's `--global-timeout` is 35 minutes under the job's 40: at 25 under 30, five shards of ~1350 s stopped
+# with tests not run (9 in 41916393486; 36 in 41817431850, with four shards). `fail-fast: false`: one run reports
 # every failing shard, and `gh run rerun <id> --failed` reruns only those.
+#
+# One worker per shard: with two (run 42693732758) the shards summed 3856 s instead of 6376 s, but four tests that
+# pass with one failed, `preview-stream`'s frame pacing every time (3.9 frames a second where it asserts 5).
 #
 # `specs` (space-separated e2e/*.e2e.ts paths) runs those files alone in one shard instead of the whole suite: the
 # check after a fix, at the cost of the files plus ~1 min of setup, not ~25 min (e2e-nightly.yml's dispatch input).
@@ -39,11 +43,11 @@ jobs:
   e2e:
     name: e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(inputs.specs != '' && '[1]' || '[1, 2, 3, 4, 5, 6]') }}
+        shard: ${{ fromJSON(inputs.specs != '' && '[1]' || '[1, 2, 3, 4, 5]') }}
     env:
       SHARD: ${{ matrix.shard }}
       SHARDS: ${{ strategy.job-total }}
@@ -86,7 +90,7 @@ jobs:
           test "${#SPECS[@]}" -gt 0
           # Playwright stops itself 5 minutes before the job's limit, so a shard that runs long still prints every
           # failure and leaves its traces (nightly 39749113072: shard 2 hit 30 minutes and its one failure left nothing).
-          bunx playwright test --global-timeout=1500000 "${SPECS[@]}"
+          bunx playwright test --global-timeout=2100000 "${SPECS[@]}"
       - if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
