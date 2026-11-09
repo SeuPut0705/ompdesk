@@ -147,22 +147,41 @@ async function shownTab(page: Page): Promise<{ tabId: string; status: string } |
 }
 
 /**
- * Restarts the host's omp for the session the view shows while its fake holds `get_state` (the host's
- * `OMP_GUI_START_SLOW_MS` is 1.5 s): the banner shows once the omp has not answered for that long. No control restarts
- * a ready session (the banner and Settings offer Restart only on a session that is not), so it is `window.omp.sidecar.restart`,
- * the call that Restart makes, with the view's own tab (a paired computer's and the phone's go to the host through the link).
+ * Restarts the host's omp for the session the view shows. No control restarts a ready session (the banner and Settings
+ * offer Restart only on a session that is not), so it is `window.omp.sidecar.restart`, the call that Restart makes,
+ * with the view's own tab (a paired computer's and the phone's go to the host through the link).
  */
-async function restartSlowStart(page: Page): Promise<void> {
-	await scriptStart({ holdGetState: true });
+async function restartShownTab(page: Page): Promise<void> {
 	const tab = await shownTab(page);
 	if (!tab) throw new Error("the view shows no session to restart");
 	await page.evaluate(tabId => window.omp.sidecar.restart({ tabId }), tab.tabId);
+}
+
+/**
+ * Restarts the omp while its fake holds `get_state` (the host's `OMP_GUI_START_SLOW_MS` is 1.5 s): the banner shows
+ * once the omp has not answered for that long.
+ */
+async function restartSlowStart(page: Page): Promise<void> {
+	await scriptStart({ holdGetState: true });
+	await restartShownTab(page);
 	await page.getByText("omp is taking long to start", { exact: true }).first().waitFor({ timeout: 30_000 });
 	await page.getByText("fixture: loading models (held by the test)").first().waitFor({ timeout: 15_000 });
 }
 
+/** The title bar's status as the tab reads while it waits for its turn to start (the words are its accessible name on a phone). */
+const WAITING_TO_START = '.omp-titlebar-status[aria-label="Waiting to start"]';
+
+/**
+ * Restarts the omp while its fake ignores the stop (`holdExit`): the replacement waits for the old omp to exit, which
+ * main ends with SIGKILL after 5 s, so the tab reads "Waiting to start" for that long.
+ */
+async function restartQueuedStart(page: Page): Promise<void> {
+	await scriptStart({ holdExit: true });
+	await restartShownTab(page);
+}
+
 /** Lets the held omp answer and waits until the view's session is ready again (an `error` on the way fails the surface). */
-async function endSlowStart(page: Page): Promise<void> {
+async function endStartHold(page: Page): Promise<void> {
 	await scriptStart({});
 	const until = Date.now() + 60_000;
 	for (;;) {
@@ -853,7 +872,17 @@ export const SURFACES: readonly Surface[] = [
 		ready: "text=omp is taking long to start",
 		// The fake omp's start script exists only in the parity sheet's two apps; the audits' harness page has no omp.
 		when: () => false,
-		parity: { session: "work", after: endSlowStart },
+		parity: { session: "work", after: endStartHold },
+	},
+	{
+		id: "session-queued-start",
+		area: "A",
+		title: 'A session whose replacement omp waits for the one it stopped to exit: the title bar reads "Waiting to start", no banner',
+		open: restartQueuedStart,
+		ready: WAITING_TO_START,
+		// The fake omp's start script exists only in the parity sheet's two apps; the audits' harness page has no omp.
+		when: () => false,
+		parity: { session: "work", after: endStartHold },
 	},
 	{
 		id: "board-strip",

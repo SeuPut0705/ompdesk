@@ -1403,19 +1403,41 @@ export function runRpcUi(): void {
 	/** OMPdesk control tools' confirmation cards (`agent_control.confirm`) waiting for the person's answer. */
 	const agentCards = new Map<string, Reply>();
 	/**
-	 * `OMP_GUI_TEST_START_FILE`: a JSON file read on every `get_state` and every 100 ms while one is held. While it holds
+	 * `OMP_GUI_TEST_START_FILE`: a JSON file read on every `get_state` and every 100 ms while a hold waits. While it holds
 	 * `{"holdGetState": true}` the omp starts as a real one loading its models does: it prints one stderr line when it
 	 * boots and leaves every `get_state` unanswered; the held ones are answered as usual once the file no longer says
-	 * so (a spec that writes another script, or removes the file, ends the wait).
+	 * so (a spec that writes another script, or removes the file, ends the wait). `{"holdExit": true}` makes an omp that is
+	 * stopped (SIGTERM, or its stdin ending) keep running, as one slow to wind down does, and exit as usual once the file
+	 * no longer says so; a stop that waits too long is SIGKILLed by main, as a real one is.
 	 */
 	const startFile = process.env.OMP_GUI_TEST_START_FILE;
-	const startHeld = (): boolean => {
+	const startHeld = (hold: "holdGetState" | "holdExit" = "holdGetState"): boolean => {
 		try {
-			return startFile ? JSON.parse(fs.readFileSync(startFile, "utf8")).holdGetState === true : false;
+			return startFile ? JSON.parse(fs.readFileSync(startFile, "utf8"))[hold] === true : false;
 		} catch {
 			return false;
 		}
 	};
+	/** Runs `stop` now, or once the start file no longer holds the exit. */
+	const stopWhenReleased = (stop: () => void) => {
+		if (!startHeld("holdExit")) {
+			stop();
+			return;
+		}
+		const timer = setInterval(() => {
+			if (startHeld("holdExit")) return;
+			clearInterval(timer);
+			stop();
+		}, 100);
+	};
+	if (startFile) {
+		process.on("SIGTERM", () =>
+			stopWhenReleased(() => {
+				process.removeAllListeners("SIGTERM");
+				process.kill(process.pid, "SIGTERM");
+			}),
+		);
+	}
 	const heldStates = new Set<() => void>();
 	let heldStateTimer: NodeJS.Timeout | undefined;
 	const holdState = (answer: () => void) => {
@@ -6775,11 +6797,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			.on("line", line => handleCommand(JSON.parse(line)))
 			// Like stock rpc mode: the host closing stdin ends the process (a running stream timer would not), and a
 			// turn in flight is journaled aborted first.
-			.on("close", () => {
-				autopilot.hangUp();
-				recordSessionExit();
-				process.exit(0);
-			});
+			.on("close", () =>
+				stopWhenReleased(() => {
+					autopilot.hangUp();
+					recordSessionExit();
+					process.exit(0);
+				}),
+			);
 	};
 
 	// Like the real extension: inert unless loaded and handed an address, and listening before `ready`.
