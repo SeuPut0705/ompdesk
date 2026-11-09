@@ -19,9 +19,10 @@ import { createPendingToolCalls } from "./quit-journal-core";
 export const QUIT_TOOL_SETTLE_MS = 1_500;
 
 /**
- * The one tool the quit leaves as stock does. A `wait` cut by a quit stays pending in the journal (its result never
- * reaches it, before and after v0.110.0), and stock's restore runs it again; with its aborted result and the aborted
- * reply journaled the restore reads the turn as ended and the parent is told by a follow-up instead
+ * The one tool the quit leaves as stock does. A `wait` cut by a quit stayed pending in the journal (its result never
+ * reached it, before and after v0.110.0; omp 18.18.2 journals its aborted result and reply after the exit anyway, which
+ * `requestCutAtExit` reads), and stock's restore ran it again; with its aborted result and the aborted reply journaled
+ * by the hold the restore read the turn as ended and the parent was told by a follow-up instead
  * (`bridge-restore-subagents-stock.test.ts`: "while the parent waited on it", red 10 of 10 with the hold on `wait`).
  */
 const LEFT_PENDING_TOOL = "wait";

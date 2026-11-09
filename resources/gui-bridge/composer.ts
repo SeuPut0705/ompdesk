@@ -487,13 +487,14 @@ export const methods: BridgeMethods = {
 			const goalPausedByExit =
 				goalActiveAtExit(branch, startedAt) && session.getGoalModeState()?.goal.status === "paused";
 			// Stock's record for a turn whose process exit it did not see as clean: read past that exit record
-			// (as for a crash, which records none), so stock builds it from the cut-off tail and model.
-			const exit = requestCutAtExit(branch, startedAt);
+			// (as for a crash, which records none) and past the aborted reply the dying turn journaled after it, so
+			// stock builds it from the cut-off tail and model.
+			const cut = requestCutAtExit(branch, startedAt);
 			const model = session.model;
 			const abort =
-				exit && model && !session.isStreaming
+				cut && model && !session.isStreaming
 					? diagnostics.createInterruptedTurnAbortMessage(
-							entries.filter(entry => entry !== exit),
+							entries.filter(entry => entry !== cut.exit && entry !== cut.abort),
 							{ api: model.api, provider: model.provider, model: model.id },
 							{ assumeExit: true },
 						)

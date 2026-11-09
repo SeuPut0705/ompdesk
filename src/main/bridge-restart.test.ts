@@ -674,31 +674,80 @@ describe("requestCutAtExit", () => {
 
 	it("finds the v0.41.0 update restart's journal: a bash result, a clean exit record, nothing after", () => {
 		const exitRecord = cleanExit();
-		expect(requestCutAtExit([user, call, result, exitRecord], startedAt)).toBe(exitRecord);
+		expect(requestCutAtExit([user, call, result, exitRecord], startedAt)).toEqual({ exit: exitRecord });
 		// What this process journals at startup (a prompt origin, a model change) is no answer.
 		const digest: JournalEntry = {
 			type: "custom",
 			customType: "system-prompt-digest",
 			timestamp: at("11:05:23.000"),
 		};
-		expect(requestCutAtExit([user, call, result, exitRecord, digest], startedAt)).toBe(exitRecord);
+		expect(requestCutAtExit([user, call, result, exitRecord, digest], startedAt)).toEqual({ exit: exitRecord });
 	});
 
 	it("finds a prompt the model never answered before a clean exit record", () => {
 		const exitRecord = cleanExit();
-		expect(requestCutAtExit([user, exitRecord], startedAt)).toBe(exitRecord);
+		expect(requestCutAtExit([user, exitRecord], startedAt)).toEqual({ exit: exitRecord });
+	});
+
+	// Main ci on eda2f800, omp 18.18.2: the dying turn's own aborted reply (and a tool's aborted result) now reaches the
+	// journal after the exit, and stock's restore reads that terminal reply as a turn that ended.
+	describe("with the dying turn's aborted reply after the exit", () => {
+		const aborted: JournalEntry = {
+			type: "message",
+			timestamp: at("11:04:30.980"),
+			message: { role: "assistant", stopReason: "aborted", errorMessage: "Request was aborted" },
+		};
+
+		it("finds a prompt journaled as the process ended, then the aborted reply", () => {
+			const exitRecord = cleanExit();
+			expect(requestCutAtExit([exitRecord, user, aborted], startedAt)).toEqual({ exit: exitRecord, abort: aborted });
+		});
+
+		it("finds an aborted tool result, then the aborted reply, with the tool still pending at the exit", () => {
+			const exitRecord = cleanExit([{ toolName: "wait" }]);
+			const abortedResult: JournalEntry = { ...result, timestamp: at("11:04:30.950") };
+			expect(requestCutAtExit([user, call, exitRecord, abortedResult, aborted], startedAt)).toEqual({
+				exit: exitRecord,
+				abort: aborted,
+			});
+		});
+
+		it("leaves a turn the aborted reply closed after a reply that already ended its turn", () => {
+			const answered: JournalEntry = {
+				type: "message",
+				timestamp: at("11:04:30.800"),
+				message: { role: "assistant", stopReason: "stop" },
+			};
+			expect(requestCutAtExit([user, call, result, answered, cleanExit(), aborted], startedAt)).toBeUndefined();
+		});
+
+		it("leaves a reply a note was journaled after to the follow-up that continues it", () => {
+			const note: JournalEntry = {
+				type: "custom_message",
+				customType: "ompdesk.mail",
+				timestamp: at("11:04:31.000"),
+			};
+			expect(requestCutAtExit([user, call, result, cleanExit(), aborted, note], startedAt)).toBeUndefined();
+		});
+
+		it("leaves a reply stock's own interrupted-turn record already closed, and one this process journaled", () => {
+			const interrupted: JournalEntry = {
+				...aborted,
+				message: {
+					role: "assistant",
+					stopReason: "aborted",
+					errorMessage: "Previous OMP process exited before completing the turn.",
+				},
+			};
+			expect(requestCutAtExit([user, cleanExit(), interrupted], startedAt)).toBeUndefined();
+			const mine: JournalEntry = { ...aborted, timestamp: at("11:04:34.000") };
+			expect(requestCutAtExit([user, cleanExit(), mine], startedAt)).toBeUndefined();
+		});
 	});
 
 	it("leaves to stock what stock's own restore or retry already continues", () => {
 		// A tool still running: stock records it and reruns it.
 		expect(requestCutAtExit([user, call, cleanExit([{ toolName: "bash" }])], startedAt)).toBeUndefined();
-		// Its abort record reached the journal after the exit: stock's retry replays it.
-		const aborted: JournalEntry = {
-			type: "message",
-			timestamp: at("11:04:30.980"),
-			message: { role: "assistant", stopReason: "aborted" },
-		};
-		expect(requestCutAtExit([user, call, result, cleanExit(), aborted], startedAt)).toBeUndefined();
 		// A prompt journaled as its process ended, after the exit record: stock's restore sees it.
 		expect(requestCutAtExit([call, result, cleanExit(), user], startedAt)).toBeUndefined();
 		// A signal or crash exit: stock reads it as abnormal itself.

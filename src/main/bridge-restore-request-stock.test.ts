@@ -352,8 +352,17 @@ describe.skipIf(!existsSync(omp))("a quit while omp prepares the next model requ
 	it("answers a prompt whose first request was being prepared, with the prompt in the journal once", async () => {
 		const { provider, isolated, outcome, before } = await quitBeforeRequest([], "user");
 		// Stock journals an unanswered prompt only as its process ends, after the exit record: its own restore sees it.
+		// From omp 18.18.2 it also writes the aborted reply there ("Request was aborted"), the record this relaunch would
+		// otherwise make itself (`requestCutAtExit` then declines: a message follows the exit); older omps write the prompt alone.
 		const exitAt = before.findLastIndex(entry => entry.customType === "session_exit");
-		expect(messagesOf(before.slice(exitAt)).map(entry => entry.message?.role)).toEqual(["user"]);
+		const afterExit = messagesOf(before.slice(exitAt)).map(entry => [entry.message?.role, entry.message?.stopReason]);
+		expect([
+			[["user", undefined]],
+			[
+				["user", undefined],
+				["assistant", "aborted"],
+			],
+		]).toContainEqual(afterExit);
 		expect(outcome).toMatchObject({ turn: true });
 		await expect.poll(() => provider.continued, { timeout: 60_000 }).toBe(1);
 		await expect

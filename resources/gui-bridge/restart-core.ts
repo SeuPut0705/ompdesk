@@ -27,6 +27,7 @@ export interface JournalEntry {
 		details?: unknown;
 		stopReason?: string;
 		isError?: boolean;
+		errorMessage?: string;
 	};
 }
 
@@ -187,34 +188,72 @@ function journaledBefore(entry: JournalEntry, at: number): boolean {
 }
 
 /**
- * The exit record of a turn its last process ended between a message and the model's answer to it, which stock's own
- * restore reads as finished; undefined for anything else.
+ * A turn the replaced process's last exit left cut off, which stock's own restore reads as finished: the exit record
+ * and, when the dying turn wrote it, the aborted reply that follows the exit (`abort`); undefined for anything else.
  *
  * Stock records `session_exit` as `normal` when it disposes the session on stdin EOF (how OMPdesk stops an omp at a
  * quit), with `pendingToolCalls` only while a tool runs. Its `findUnfinishedTurn` (session/exit-diagnostics.ts) reads
- * a normal exit with nothing pending as a turn that ended, trusting the abort record the dying turn writes after the
- * exit, which `/retry` then replays. That record never reaches the journal when the turn is cut before its model call
- * (the agent loop stops there without a message) or the process ends first (stdout EPIPE as the app goes: stock's
- * graceful quit). v0.41.0's update restart left exactly that: a bash result, then the exit record, nothing after.
+ * a normal exit with nothing pending as a turn that ended, and a branch whose last message is a terminal assistant
+ * reply (an aborted one included) as finished too, so its `restoreInterruptedTurn` goes on with nothing. Two shapes:
+ * - Nothing after the exit: the dying turn's abort record never reached the journal because the cut landed before the
+ *   model call (the agent loop stops there without a message) or the process ended first (stdout EPIPE as the app goes:
+ *   stock's graceful quit). v0.41.0's update restart left exactly that: a bash result, then the exit record.
+ * - The dying turn's own records after the exit: from omp 18.18.2 the unwinding loop's aborted tool result (a `wait`
+ *   included) and its "Request was aborted" reply reach the journal after the exit, ending it on that reply. The prompt
+ *   journaled as the process ends can sit before them. Main ci on eda2f800 (9 Nov 2026): a quit while omp prepared the
+ *   first request and a parent cut in `wait` both came back `turn: false`.
  *
  * The caller (a relaunch the host makes for a turn it saw running) closes the turn with stock's own interrupted-turn
- * record, as stock does for an exit it knows was abnormal, so stock's restore continues it. The tail is a prompt or a
- * tool result nothing answered; a tool result that closes a failed or aborted reply ended its turn (stock's rule).
- * Only an exit of the processes this one replaced (journaled before `startedAt`) with no message after it counts.
+ * record, built without the exit and without `abort`, so stock's restore continues it. The tail (past `abort`) is a
+ * prompt or a tool result nothing answered; a tool result that closes a failed or aborted reply ended its turn
+ * (stock's rule). Only an exit of the processes this one replaced (journaled before `startedAt`) counts, and a tool
+ * still pending at it counts only with `abort` after it (otherwise stock reruns that tool itself). A prompt journaled
+ * after the exit with no reply, or any message that is not the dying abort, is left to stock.
  */
-export function requestCutAtExit(branch: readonly JournalEntry[], startedAt: number): JournalEntry | undefined {
+export function requestCutAtExit(
+	branch: readonly JournalEntry[],
+	startedAt: number,
+): { exit: JournalEntry; abort?: JournalEntry } | undefined {
 	const exitAt = branch.findLastIndex(isExit);
 	const exit = branch[exitAt];
 	if (!exit || !journaledBefore(exit, startedAt) || !isObject(exit.data)) return undefined;
 	const { kind, pendingToolCalls } = exit.data;
-	if (kind !== "normal" || (Array.isArray(pendingToolCalls) && pendingToolCalls.length > 0)) return undefined;
-	if (branch.slice(exitAt + 1).some(entry => entry.type === "message")) return undefined;
-	const messages = branch.slice(0, exitAt).filter(entry => entry.type === "message");
+	if (kind !== "normal") return undefined;
+	const after = branch.slice(exitAt + 1).filter(entry => entry.type === "message");
+	const last = after.at(-1);
+	const abort = last && isDyingAbort(last, startedAt) ? last : undefined;
+	if (after.length > 0 && !abort) return undefined;
+	// A note journaled after the aborted reply hides it from stock's retry; `turnCutBehindNotes` continues that turn.
+	if (
+		abort &&
+		branch
+			.slice(branch.indexOf(abort) + 1)
+			.some(entry => entry.type === "custom_message" && entry.customType !== EVAL_STATE_CONTEXT)
+	) {
+		return undefined;
+	}
+	if (!abort && Array.isArray(pendingToolCalls) && pendingToolCalls.length > 0) return undefined;
+	const messages = branch.filter(entry => entry.type === "message" && entry !== abort);
 	const tail = messages.at(-1)?.message?.role;
-	if (tail === "user") return exit;
+	const cut = abort ? { exit, abort } : { exit };
+	if (tail === "user") return cut;
 	if (tail !== "toolResult") return undefined;
 	const reply = messages.findLast(entry => entry.message?.role === "assistant")?.message?.stopReason;
-	return reply === "error" || reply === "aborted" ? undefined : exit;
+	return reply === "error" || reply === "aborted" ? undefined : cut;
+}
+
+/** Stock's reason on the record exit recovery closes an unfinished turn with (exit-diagnostics.ts `INTERRUPTED_TURN_ERROR`). */
+const INTERRUPTED_TURN_ERROR = "Previous OMP process exited before completing the turn.";
+
+/** The aborted reply a dying turn journals as its loop unwinds: not a user's Stop (journaled before the exit) nor stock's own interrupted-turn record. */
+function isDyingAbort(entry: JournalEntry, startedAt: number): boolean {
+	const message = entry.message;
+	return (
+		message?.role === "assistant" &&
+		message.stopReason === "aborted" &&
+		message.errorMessage !== INTERRUPTED_TURN_ERROR &&
+		journaledBefore(entry, startedAt)
+	);
 }
 
 /**
