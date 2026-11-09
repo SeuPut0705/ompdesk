@@ -700,7 +700,15 @@ function DeviceSessions({
 		const tab = tabFor(child);
 		const run = summaryRowState(hostSummaries.get(child.path));
 		const review = reviewOfPath.get(reviewKey(host.deviceId, child.path));
-		const failed = review?.failed === true || child.childProblem === "failed" || child.status === "error";
+		// The host's live summary (its omp failed) and the last run a tab here saw end in an error count with its review
+		// and indexed verdicts: held or not, a failed child never reads "done".
+		const failed =
+			run.failed ||
+			review?.failed === true ||
+			child.childProblem === "failed" ||
+			child.status === "error" ||
+			tab?.lastRun?.stopReason === "error" ||
+			tab?.lastRun?.stopReason === "aborted";
 		const running = run.running || review?.state === "running";
 		const status = openedChildStatus({
 			waiting: run.waiting || review?.waiting === true,

@@ -4285,6 +4285,48 @@ describe("Sidebar device sections", () => {
 			);
 		});
 
+		// Only the host's live summary says the child failed (its omp is in error; no review item, no childProblem, an
+		// index row that reads complete): it stays a failed row, and stays one once a tab here holds it and it is selected.
+		it("keeps a child the host's summary says failed as a failed row, held by a tab here or not", async () => {
+			await mountHost(hostRows(path => ({ openedBySession: path === BOSS ? null : BOSS })));
+			act(() => {
+				setSummaries(
+					[
+						summary(AT_WORK, { cwd: APP, status: "running" }),
+						summary(ASKING, { cwd: APP, status: "running", ask: "input" }),
+						summary(LANDED, { cwd: APP, status: "error" }),
+					],
+					"dev-studio",
+				);
+				useSidebarSubagentsStore.setState({ expanded: new Set([BOSS_KEY]) });
+			});
+			await flush();
+			const landed = () =>
+				device()?.querySelector(`[data-sidebar-family="${BOSS_KEY}"] [data-session-path="${LANDED}"]`) ?? null;
+			expect(landed()?.getAttribute("data-child-status")).toBe("failed");
+
+			act(() =>
+				useTabsStore.setState(state => ({
+					tabs: [
+						...state.tabs,
+						{
+							id: "t-landed",
+							cwd: APP,
+							device: "dev-studio",
+							sessionPath: LANDED,
+							status: "ready",
+							kind: "agent",
+							unreadDone: false,
+						},
+					] as never,
+					activeTabId: "t-landed",
+				})),
+			);
+			await flush();
+			expect(landed()?.getAttribute("data-child-status")).toBe("failed");
+			expect(landed()?.getAttribute("data-active")).toBe("true");
+		});
+
 		it("falls back to the brief only for rows the host says it knows no opener of", async () => {
 			await mountHost(hostRows(() => ({ openedBySession: null })));
 			expect(listed()).toEqual([BOSS]);
