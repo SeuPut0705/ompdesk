@@ -502,11 +502,12 @@ test.describe("on a paired device", () => {
 		await expect(row).toBeVisible({ timeout: 30_000 });
 		await expect(row).toHaveAttribute("data-board-report", "done");
 		await expect(row.locator("[data-board-device]")).toHaveText("PC-B");
-		// In the sidebar it is the opener's child, not a row of PC-B's own list.
+		// It is the opener's child, and its folder on PC-B is no project of the opener's: also one row of PC-B's list, the
+		// same session (`sidebarRows`, a82a6302).
 		const hostList = app.page.locator(
 			"[data-sidebar-device] [data-device-session], [data-sidebar-device] [data-session-path]",
 		);
-		await expect(hostList.filter({ hasText: "remote part" })).toHaveCount(0);
+		await expect(hostList.filter({ hasText: "remote part" })).toHaveCount(1);
 	});
 
 	test("tells the opener when its session on the paired device shows a question card, and the answer reaches it", async () => {

@@ -79,6 +79,28 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 	return (await results())[before] as { text: string; isError: boolean };
 }
 
+/**
+ * The person's own typed message starts the main agent's run (as the composer's Enter does: main notes it as typed before
+ * the prompt). Only such a run may stop, close or delete a session the person looks at or typed into (`#stop`); the
+ * control-tool calls after it, as a turn's own, are the person's.
+ */
+async function personAsks(): Promise<void> {
+	const sent = await page.evaluate(
+		id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "Close the other tab" }),
+		main,
+	);
+	expect(sent).toMatchObject({ success: true });
+	await expect(page.getByText("Local fixture reply").first()).toBeVisible({ timeout: 30_000 });
+	await expect
+		.poll(async () => {
+			const state = await page.evaluate(id => window.omp.rpc.commandForTab(id, { type: "get_state" }), main);
+			return typeof state === "object" && state !== null && "data" in state && typeof state.data === "object"
+				? state.data !== null && "isStreaming" in state.data && state.data.isStreaming === false
+				: false;
+		})
+		.toBe(true);
+}
+
 test("create a session, send it a message, wait for it and read its result", async () => {
 	test.setTimeout(150_000);
 	const listed = await call("ompdesk_sessions");
@@ -128,6 +150,7 @@ test("with full control off, deleting a session the agent did not open needs the
 	// A second tab the user opened (⌘T): not the agent's.
 	// The main tab holds something typed, so leaving it for the new tab does not close it as an empty one.
 	await fixtureCommand(main, "fixture:title:Main agent");
+	await personAsks();
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
 	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
@@ -166,6 +189,7 @@ test("by default (full control) the agent deletes a session it did not open with
 	test.setTimeout(150_000);
 	// The main tab holds something typed, so leaving it for the new tab does not close it as an empty one.
 	await fixtureCommand(main, "fixture:title:Main agent");
+	await personAsks();
 	const before = (await tabs()).map(tab => tab.tabId);
 	await page.keyboard.press("ControlOrMeta+t");
 	await expect.poll(async () => (await tabs()).length).toBe(before.length + 1);
