@@ -338,6 +338,14 @@ function mainJournal(isolated: string): Array<{ type?: string; customType?: stri
 		.map(line => JSON.parse(line));
 }
 
+/**
+ * The bridge's notes of revived subagents in the main journal. Polled after the notice's model request: stock may send
+ * that request before the note reaches the journal (run 42567921592 read the journal empty right after it).
+ */
+function restartNotes(isolated: string) {
+	return mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents");
+}
+
 interface Restored {
 	turn: boolean;
 	subagents: string[];
@@ -434,8 +442,7 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		// The idle parent gets one turn: the follow-up names the subagent and its assignment, and it answers.
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
 		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
-		const notes = mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents");
-		expect(notes).toEqual([
+		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toEqual([
 			expect.objectContaining({
 				type: "custom_message",
 				details: { jobs: [], subagents: [{ id, intent: SUBTASK }] },
@@ -452,15 +459,13 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 			// Stock looks past it and continues the cut-off turn; the bridge's notice joins that turn once.
 			expect(outcome).toMatchObject({ turn: true, subagents: [id], followUp: true });
 			await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
-			expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(
-				1,
-			);
+			await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toHaveLength(1);
 			return;
 		}
 		// Older stock leaves the parent's turn alone, so the bridge tells it once.
 		expect(outcome).toMatchObject({ turn: false, subagents: [id], followUp: true });
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
-		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
+		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toHaveLength(1);
 	}, 240_000);
 
 	// 27 Oct 2026, an update restart: stock restored the parent's turn (its cut-off `wait` reran) and revived four
@@ -474,7 +479,7 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		// skips an interruptible wait for a steer), never on the subagent's result.
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
 		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
-		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toEqual([
+		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toEqual([
 			expect.objectContaining({ details: { jobs: [], subagents: [{ id, intent: SUBTASK }] } }),
 		]);
 		const live = provider.parentCalls[parentCallsAtCut - 1];
@@ -495,7 +500,7 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 			.toEqual([expect.objectContaining({ id, status: "running" })]);
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
 		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
-		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
+		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toHaveLength(1);
 	}, 240_000);
 
 	it("revives a background subagent a graceful stop cut off while the parent waited on it, and tells that turn once", async () => {
@@ -505,7 +510,7 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 			.poll(() => roster(second), { timeout: 30_000 })
 			.toEqual([expect.objectContaining({ id, status: "running" })]);
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
-		expect(mainJournal(isolated).filter(entry => entry.customType === "ompdesk-restart-subagents")).toHaveLength(1);
+		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toHaveLength(1);
 	}, 240_000);
 
 	// 26 Oct 2026 (v0.75.2 → v0.75.3 update restart), four subagents lost: each was waiting for its model's answer to a
