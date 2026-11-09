@@ -1,6 +1,6 @@
 //! `ai-memory-eval` — offline evaluation harnesses for ai-memory.
 //!
-//! Three subcommands:
+//! Four subcommands:
 //!
 //! - `ab` — live A/B comparison of two LLM providers on the production
 //!   consolidation prompt, with literal-fidelity scoring (see [`ab`],
@@ -11,8 +11,12 @@
 //!   through a real `ai-memory serve` subprocess: hook-shaped ingestion,
 //!   real search stack, R@k / hit@k per question category (see
 //!   [`retrieval`] and `docs/benchmarks/`).
+//! - `dream` — the B2 dream pass on vs off on a snapshot of a real store,
+//!   merging through omp's cheap model role: recall before and after, and
+//!   whether every merged source's facts survived (see [`dream`]).
 
 mod ab;
+mod dream;
 mod fidelity;
 mod generate;
 mod projection;
@@ -41,6 +45,8 @@ enum Command {
     Projection(projection::ProjectionArgs),
     /// LongMemEval retrieval benchmark through the real server stack.
     Retrieval(Box<retrieval::RetrievalArgs>),
+    /// Dream pass on vs off on a snapshot of a real store (real omp calls).
+    Dream(Box<dream::DreamArgs>),
 }
 
 #[tokio::main]
@@ -56,5 +62,6 @@ async fn main() -> Result<()> {
         Command::Ab(args) => ab::run(*args).await,
         Command::Projection(args) => projection::run(args),
         Command::Retrieval(args) => retrieval::run(*args).await,
+        Command::Dream(args) => dream::run(*args).await,
     }
 }

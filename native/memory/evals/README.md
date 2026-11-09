@@ -1,6 +1,6 @@
 # `evals/` — evaluation harnesses
 
-One Rust binary (`ai-memory-eval`) with three subcommands:
+One Rust binary (`ai-memory-eval`) with four subcommands:
 
 - **`ab`** — runs the EXACT consolidation prompt ai-memory uses in
   production against two LLM providers side by side, saves both
@@ -12,13 +12,17 @@ One Rust binary (`ai-memory-eval`) with three subcommands:
 - **`retrieval`** — the LongMemEval retrieval benchmark, driven end to
   end through a real `ai-memory serve` subprocess. Published baselines
   live in `docs/benchmarks/`.
+- **`dream`** — the opt-in dream pass on vs off on a snapshot of a real
+  store, merging through omp's cheap model role: recall before and after
+  and whether every merged source's facts survived (see
+  [`dream`](#dream--the-dream-pass-on-vs-off)).
 
 **This is not part of the shipped binary.** It's a workspace member
 purely so it shares deps + builds with the rest. `cargo build` from
 the repo root will compile it, but it's never bundled into the
 docker image. CI builds it and runs its unit tests
 (`cargo nextest run --workspace --all-targets`); the `ab`,
-`projection` and `retrieval` commands themselves never run there.
+`projection`, `retrieval` and `dream` commands themselves never run there.
 
 ## When to reach for this
 
@@ -454,3 +458,59 @@ Honest-numbers notes:
   not like-for-like with the default `--ingest hooks` numbers. Its
   0.967 is a different benchmark (the grep baseline on its 15-query
   coding-agent-life-v1 corpus), not LongMemEval-S.
+
+## `dream` — the dream pass on vs off
+
+Measures what the opt-in B2 dream pass does to recall, on a snapshot of a
+real store (the store under `--source` is copied with `VACUUM INTO` plus its
+wiki and never written):
+
+1. every decayable page of the snapshot counts as cold (the store as it reads
+   once it has aged past the default decay);
+2. one known-item question per page, fixed before anything changes: its five
+   highest TF-IDF terms within its project;
+3. the questions run through `memory_query`'s search (zero-embedder: FTS +
+   entity + graph; with `--embedder local`, hybrid with the query vector);
+4. the dream pass runs per project with the scheduler's own config, merging
+   through omp's `pi/smol` role (real model calls, at most `--max-clusters` per
+   project);
+5. the questions run again. A question is answered when any page of its
+   answer's merge group ranks in the top k, before and after alike;
+6. every keep-token of every merged source is looked for in the rewritten
+   survivor and searched for on its own; keep-tokens of the rewrite that no
+   source holds count as invented.
+
+```bash
+cargo run -p ai-memory-eval -- dream --source "<data dir>" --dry-run          # profile and plan only
+cargo run -p ai-memory-eval -- dream --source "<data dir>" --omp ~/.bun/bin/omp
+cargo run -p ai-memory-eval -- dream --source "<data dir>" --embedder local --models /tmp/models
+```
+
+`--embedder lexical` (the default) clusters by TF-IDF term vectors, which is
+what a server with no embedder does; `--embedder local` embeds the snapshot
+with all-MiniLM-L6-v2 first, as the server's backfill would. The report
+(`report.json`) holds the distance profile per project, each pass's
+`DreamReport`, the model calls, tokens and cost omp reported, recall@5 and
+MRR@10 per slice (merged pages, cold pages left alone, durable pages), and the
+fact check. The questions are known-item queries built from the pages
+themselves, so they favour lexical search; compare before and after within one
+run, not across `--embedder` arms.
+
+### Result on OMPdesk's store (10 Nov 2026)
+
+A snapshot of one developer's store (433 pages in 28 projects, 300 of them
+episodic session pages), merges through omp's `pi/smol` (claude-haiku-5-5):
+
+| arm | clusters merged (pages superseded) | calls, tokens in/out, cost, wall | recall@5 merged / cold left / durable | MRR@10 merged / cold left / durable | facts kept in survivor |
+|---|---|---|---|---|---|
+| lexical, default `max_eps` 0.15 (no embedder) | 0 (0) | 0 | unchanged | unchanged | n/a |
+| lexical, `max_eps` 0.7 (forced) | 13 (22) | 13, 36k/21k, $0.018, 95 s | 1.000→1.000 / 0.977→0.958 / 0.947→0.947 | 0.856→0.881 / 0.838→0.739 / 0.939→0.909 | 335 of 397 (84 %) |
+| local MiniLM, default 0.15 | 7 (103) | 7, 114k/18k, $0.032, 81 s | 0.764→0.782 / 0.837→0.874 / 0.940→0.940 | 0.608→0.550 / 0.746→0.765 / 0.830→0.828 | 228 of 1247 (18 %) |
+
+Session pages are not near-duplicates by their words (nearest-neighbour
+distance p50 0.76 in the largest project), so the term vectors find nothing
+to merge at the default ceiling. MiniLM puts the same pages close together
+(p50 0.17) and DBSCAN chains them into clusters of up to dozens of distinct
+sessions, whose one rewritten page keeps a fifth of their facts. No arm
+improves recall without losing facts, so the pass stays off.
+

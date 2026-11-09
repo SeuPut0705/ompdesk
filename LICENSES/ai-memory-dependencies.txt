@@ -1,6 +1,6 @@
 ai-memory 3.1.1 statically linked Rust crates
 
-Cargo.lock SHA-256: fac6b3d5c242ecea94e7cce18404ac327b93f3ca5e6b3689f68bf0e475e51a31
+Cargo.lock SHA-256: 38d9d232e324d1a7b75ce6905f8ba9fa6a4de027eac0b11255dee40b19330b91
 
 The ai-memory 3.1.1 binary OMPdesk builds from native/memory (https://github.com/akitaonrails/ai-memory)
 links the crates below. Set: normal dependencies of `ai-memory-cli` for aarch64-apple-darwin and
