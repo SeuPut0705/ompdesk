@@ -339,7 +339,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // the eager family rule): 2,174,446.
 // The split the window shows, one rule for the workspace and the sidebar's selected rows (9 Nov 2026,
 // hooks/use-shown-split.ts): 2,174,534.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_174_534;
+// An omp slow to start reads as a wait on its tab's banner (9 Nov 2026, SidecarBanner's slow title, text and stderr
+// tail, the session store's `sidecarSlow`, `applyTabFailure`'s slow branch; the banner is the first screen): 2,174,908.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_174_908;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
