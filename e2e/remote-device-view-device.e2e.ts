@@ -1,6 +1,6 @@
 /**
  * A session one paired device's tab runs on a host is open to every other device too (three apps on the fake omp,
- * remote-harness.ts; the second device dials from 127.0.0.2 so the host tells the two apart). Device A opens a session
+ * remote-harness.ts; the second device dials the host on ::1, where the first uses 127.0.0.1, so the host tells the two apart). Device A opens a session
  * on host B and works in it; device C clicks that session's row in B's section, three times quickly: C gets one tab
  * that views A's tab (no second omp, no toast), a prompt from C runs in that one omp and shows on A, and A's close
  * ends C's view quietly. The rules are unit-tested in src/main/remote/host-services.test.ts.
@@ -21,7 +21,7 @@ import {
 } from "./remote-harness";
 
 const SHOTS = process.env.OMP_GUI_DEVICE_VIEW_SHOTS;
-const SECOND_DEVICE = "127.0.0.2";
+const SECOND_DEVICE = "::1";
 
 test("a device opens a session another device's tab runs on the host, and both work in one omp", async () => {
 	test.setTimeout(300_000);
@@ -38,7 +38,7 @@ test("a device opens a session another device's tab runs on the host, and both w
 			language: "en",
 			theme: "light",
 			port: hostProfile.port,
-			source: SECOND_DEVICE,
+			hostAddress: SECOND_DEVICE,
 		});
 		const host = await launchRemote(hostProfile);
 		apps.push(host);

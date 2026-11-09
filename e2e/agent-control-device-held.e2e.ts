@@ -1,6 +1,6 @@
 /**
  * An agent reaches a session another device's tab holds on a paired host (three apps on the fake omp,
- * remote-harness.ts; the second device dials from 127.0.0.2 so the host tells the two apart). Device A opens a
+ * remote-harness.ts; the second device dials the host on ::1 so the host tells the two apart). Device A opens a
  * session on host B and works in it; an agent on device C lists it as open there, sends it a message that runs in
  * A's omp, and reopens it as a view of A's tab: no second omp on the host, and never nested under C's agent. The
  * rules are unit-tested in src/main/agent-control/host.test.ts ("a saved session a tab elsewhere holds").
@@ -19,7 +19,7 @@ import {
 	type RemoteInstance,
 } from "./remote-harness";
 
-const SECOND_DEVICE = "127.0.0.2";
+const SECOND_DEVICE = "::1";
 
 test("an agent on one device messages and reopens a session another device's tab holds on the host", async () => {
 	test.setTimeout(300_000);
@@ -36,7 +36,7 @@ test("an agent on one device messages and reopens a session another device's tab
 			language: "en",
 			theme: "light",
 			port: hostProfile.port,
-			source: SECOND_DEVICE,
+			hostAddress: SECOND_DEVICE,
 		});
 		const host = await launchRemote(hostProfile);
 		apps.push(host);

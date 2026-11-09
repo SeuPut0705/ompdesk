@@ -180,7 +180,6 @@ import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
-import { setLoopbackSource } from "./remote/client";
 import { RemoteDevices } from "./remote/devices";
 import { LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
@@ -1306,8 +1305,6 @@ app.whenReady().then(() => {
 		};
 		return lidAwake ? lidAwake.wrap(blocker, label) : blocker;
 	};
-	const remoteLoopback = !app.isPackaged && process.env.OMP_GUI_TEST_REMOTE_LOOPBACK === "1";
-	if (remoteLoopback) setLoopbackSource(process.env.OMP_GUI_TEST_REMOTE_SOURCE || undefined);
 	const devices = new RemoteDevices({
 		userData: app.getPath("userData"),
 		appVersion: app.getVersion(),
@@ -1365,7 +1362,7 @@ app.whenReady().then(() => {
 		tailscaleAction: async action => {
 			await mobileWebService?.request({ action });
 		},
-		loopback: remoteLoopback,
+		loopback: !app.isPackaged && process.env.OMP_GUI_TEST_REMOTE_LOOPBACK === "1",
 		log: (message, details) => writeRuntimeLog({ source: "remote", message, details }),
 		logLink: (message, details) => writeRuntimeLog({ source: "remote-link", message, details }),
 	});
