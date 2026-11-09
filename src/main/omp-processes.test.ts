@@ -128,8 +128,9 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 			{ timeout: 15_000 },
 		);
 
-		// Programs that took a pid the file names a few hundred ms from when the omp started (earlier and later), and an
-		// entry whose creation time was never recorded: none is this app's omp.
+		// Programs that took a pid the file names a few hundred ms from when the omp started (earlier and later): their
+		// creation time differs, so they are another program's and leave the file. An entry whose creation time was never
+		// recorded cannot be identified: it is not stopped, and stays in the file for the next launch.
 		await fs.writeFile(
 			file,
 			JSON.stringify({
@@ -149,7 +150,7 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 		await vi.waitFor(() => expect(pidAlive(pid)).toBe(false), { timeout: 10_000 });
 		for (const stranger of [strangerAhead, strangerBehind, unrecorded])
 			expect(pidAlive(stranger.pid ?? 0)).toBe(true);
-		await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [] }));
+		await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [{ pid: unrecorded.pid }] }));
 	}, 60_000);
 });
 
