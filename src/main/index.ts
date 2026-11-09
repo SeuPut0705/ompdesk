@@ -913,7 +913,9 @@ app.whenReady().then(() => {
 	const hub = mcpHub;
 	// The omps an earlier instance left running (a crash, a forced quit) stop before any tab's omp starts, and tabs then
 	// start a few at a time (omp-start-queue.ts).
-	ompProcesses = new OmpProcesses(join(app.getPath("userData"), OMP_PIDS_FILE), bridgeDir);
+	ompProcesses = new OmpProcesses(join(app.getPath("userData"), OMP_PIDS_FILE), bridgeDir, {
+		log: (message, details) => writeRuntimeLog({ source: "omp-reap", message, details }),
+	});
 	const ompStarts = new OmpStartQueue();
 	ompStarts.holdUntil(
 		ompProcesses.reapLeftovers().then(pids => {

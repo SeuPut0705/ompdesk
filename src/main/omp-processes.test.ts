@@ -2,7 +2,9 @@
  * The omps this app runs (omp-processes.ts): a quit leaves none of them behind, a stuck one included, and a launch stops
  * the ones an earlier instance left running before any tab starts, never another program's process.
  */
+
 import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -149,4 +151,137 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 			expect(pidAlive(stranger.pid ?? 0)).toBe(true);
 		await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [] }));
 	}, 60_000);
+});
+
+/** A lookup that fails the way `execFile` does when PowerShell misses its bound (`killed`), or any other way. */
+const timedOut = () => Object.assign(new Error("Command failed: powershell.exe (timed out)"), { killed: true });
+
+/** The lookup answers one scripted step per call (an error rejects, a map resolves); a call past the script fails the test. */
+function scripted(...steps: (Error | Map<number, number>)[]) {
+	return vi.fn(async (_pids: number[]): Promise<Map<number, number>> => {
+		const step = steps.shift();
+		if (step === undefined) throw new Error("unexpected lookup");
+		if (step instanceof Error) throw step;
+		return step;
+	});
+}
+
+/** An omp the test controls: `exit()` is the process ending, as the `exit` event reports it. */
+function fakeOmp(pid: number) {
+	const child = Object.assign(new EventEmitter(), {
+		pid,
+		exitCode: null as number | null,
+		signalCode: null as NodeJS.Signals | null,
+	});
+	return {
+		child: child as unknown as ChildProcess,
+		exit() {
+			child.exitCode = 1;
+			child.emit("exit", 1, null);
+		},
+	};
+}
+
+/** The creation-time lookup is faked, so these run on every platform with no PowerShell timing in them. */
+describe("OmpProcesses when the creation-time lookup fails", () => {
+	const readFile = async (file: string) =>
+		JSON.parse(await fs.readFile(file, "utf8")) as { omps: { pid: number; started?: number }[] };
+	const tempFile = async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-lookup-"));
+		dirs.push(dir);
+		return path.join(dir, "omp-pids.json");
+	};
+	const idleOmp = () => {
+		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+			stdio: "ignore",
+			windowsHide: true,
+		});
+		if (child.pid !== undefined) started.push(child.pid);
+		child.unref();
+		return child;
+	};
+
+	it("an omp whose first lookup timed out is identified by the next one, and the miss is logged", async () => {
+		const file = await tempFile();
+		const startTimes = scripted(timedOut(), new Map([[4242, 5_000]]));
+		const log = vi.fn();
+		const processes = new OmpProcesses(file, "/nowhere", { platform: "win32", startTimes, log, retryDelaysMs: [0] });
+
+		processes.track(fakeOmp(4242).child);
+		await processes.identified();
+
+		expect(startTimes).toHaveBeenCalledTimes(2);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: 4242, started: 5_000 }] }));
+		expect(log).toHaveBeenCalledTimes(1);
+		expect(log.mock.calls[0]?.[1]).toMatchObject({ cause: "timeout", pids: "4242" });
+		expect(log.mock.calls[0]?.[1]).toHaveProperty("durationMs");
+	});
+
+	it("an omp that exited before the retry is never identified: its pid may be another program's by now", async () => {
+		const file = await tempFile();
+		const omp = fakeOmp(4242);
+		const startTimes = vi.fn(async (_pids: number[]): Promise<Map<number, number>> => {
+			omp.exit();
+			throw timedOut();
+		});
+		const processes = new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes,
+			log: vi.fn(),
+			retryDelaysMs: [0, 0],
+		});
+
+		processes.track(omp.child);
+		await processes.identified();
+
+		expect(startTimes).toHaveBeenCalledTimes(1);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
+	});
+
+	it("an omp no lookup can read is tried a bounded number of times, then left without a creation time", async () => {
+		const file = await tempFile();
+		const startTimes = scripted(timedOut(), new Error("spawn powershell.exe ENOENT"), new Map());
+		const log = vi.fn();
+		const processes = new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes,
+			log,
+			retryDelaysMs: [0, 0],
+		});
+
+		processes.track(fakeOmp(4242).child);
+		await processes.identified();
+
+		expect(startTimes).toHaveBeenCalledTimes(3);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: 4242 }] }));
+		expect(log.mock.calls.map(call => call[1]?.cause)).toEqual(["timeout", "error", "gave-up"]);
+	});
+
+	it("a launch whose leftover lookup failed stops nothing and keeps the leftover in the file for the next launch", async () => {
+		const file = await tempFile();
+		const leftover = idleOmp();
+		const pid = leftover.pid ?? 0;
+		await fs.writeFile(file, JSON.stringify({ omps: [{ pid, started: 7_000 }] }));
+		const log = vi.fn();
+
+		const failed = await new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes: scripted(timedOut()),
+			log,
+		}).reapLeftovers();
+
+		expect(failed).toEqual([]);
+		expect(pidAlive(pid)).toBe(true);
+		expect(await readFile(file)).toEqual({ omps: [{ pid, started: 7_000 }] });
+		expect(log.mock.calls[0]?.[1]).toMatchObject({ cause: "timeout", pids: String(pid) });
+
+		const reaped = await new OmpProcesses(file, "/nowhere", {
+			platform: "win32",
+			startTimes: scripted(new Map([[pid, 7_000]])),
+		}).reapLeftovers();
+
+		expect(reaped).toEqual([pid]);
+		await vi.waitFor(() => expect(pidAlive(pid)).toBe(false));
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
+	}, 20_000);
 });

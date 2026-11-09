@@ -663,7 +663,11 @@ export type RuntimeErrorSource =
 	| "sidecar-restart"
 	/** An omp whose CPU priority could not be lowered below the app's (src/main/agent-priority.ts), logged once: `message` is why. */
 	| "process-priority"
-	/** Omps an earlier launch left running, stopped before this launch's tabs start (src/main/omp-processes.ts): `details.pids`. */
+	/**
+	 * Omps an earlier launch left running, stopped before this launch's tabs start (src/main/omp-processes.ts):
+	 * `details.pids`. A failed creation-time lookup also lands here (`level: "warn"`): `phase`, `cause` (`timeout`,
+	 * `error`, `gave-up`), `durationMs`, `pids`, `attempt`.
+	 */
 	| "omp-reap"
 	/**
 	 * A start that waited for another live omp to let go of its session (src/main/session-free.ts): `message` says
