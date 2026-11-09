@@ -1638,5 +1638,38 @@ describe("SidecarManager", () => {
 				await fs.rm(slow.tempDir, RM_TEMP);
 			}
 		}, 20_000);
+
+		it("says a start waits for its place in the start queue, then starts it", async () => {
+			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-queued-${process.pid}-${Date.now()}`);
+			const held = await loggedOmp({ onTerm: "exit", answers: { gate } });
+			const quick = await loggedOmp({ onTerm: "exit", answers: "always" });
+			const queue = new OmpStartQueue(1, 60_000);
+			const first = new SidecarManager({ omp: ompAt(held.binaryPath), cwd: held.tempDir, startQueue: queue });
+			const second = new SidecarManager({ omp: ompAt(quick.binaryPath), cwd: quick.tempDir, startQueue: queue });
+			const seen: SidecarStatusPayload[] = [];
+			second.on("status", (payload: SidecarStatusPayload) => seen.push(payload));
+			try {
+				first.start();
+				await vi.waitFor(async () => expect((await held.lines()).map(line => line.word)).toEqual(["spawn"]));
+				const ready = waitForReady(second);
+				second.start();
+				await vi.waitFor(() => expect(second.statusPayload).toMatchObject({ status: "starting", queued: true }));
+				await fs.writeFile(gate, "");
+				await ready;
+				expect(seen.map(payload => [payload.status, payload.queued === true])).toEqual([
+					["starting", false],
+					["starting", true],
+					["starting", false],
+					["ready", false],
+				]);
+			} finally {
+				first.dispose();
+				second.dispose();
+				await Promise.all([first.whenExited(), second.whenExited()]);
+				await fs.rm(gate, { force: true });
+				await fs.rm(held.tempDir, RM_TEMP);
+				await fs.rm(quick.tempDir, RM_TEMP);
+			}
+		}, 20_000);
 	});
 });

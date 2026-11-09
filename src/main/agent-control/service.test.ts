@@ -3793,6 +3793,37 @@ describe("ompdesk_session_read of a saved session", () => {
 });
 
 describe("ompdesk_session_open on a device and reopen", () => {
+	it("waits for a session still starting, however long (queued or slow on its computer), and opens it once it is up", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		const spawn = host.spawn;
+		let child = "";
+		host.spawn = async (caller, request) => {
+			const opened = await spawn(caller, request);
+			child = opened.tabId;
+			(host.tabsById.get(child) as FakeTab).status = "starting";
+			return opened;
+		};
+		vi.useFakeTimers();
+		try {
+			let settled = false;
+			const opening = control(host)
+				.run("main0001", T.open, { message: "build it" })
+				.finally(() => {
+					settled = true;
+				});
+			// Far past any bound a start once had (90 s): a live start is never a failed open.
+			await vi.advanceTimersByTimeAsync(300_000);
+			expect(settled).toBe(false);
+			(host.tabsById.get(child) as FakeTab).status = "ready";
+			await vi.advanceTimersByTimeAsync(1_000);
+			const result = await opening;
+			expect(result.isError, result.text).toBe(false);
+			expect(prompts(host, child)).toEqual([expect.stringContaining("build it")]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("opens a session on a paired device by name; an offline one is refused", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
 		host.deviceList = [desktop, { id: "dev-off", name: "Laptop", state: "offline" }];

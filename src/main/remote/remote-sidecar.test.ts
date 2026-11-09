@@ -59,7 +59,6 @@ function hostStatus(status: TabStatusArg["status"], extra: Partial<TabStatusArg>
 
 function setup(
 	options: {
-		startTimeoutMs?: number;
 		keepOnHost?: () => boolean;
 		cwd?: string;
 		signInRelay?: RemoteSidecarOptions["signInRelay"];
@@ -84,7 +83,7 @@ function setup(
 		kind: "agent",
 		fresh: true,
 		offlineMessage: () => "Device offline",
-		stalledMessage: seconds => `Host B has not started this session after ${seconds} s`,
+		unansweredMessage: () => "Host B has not answered yet",
 		...options,
 		log: (step, details) => steps.push(details.step === undefined ? step : `${step} ${String(details.step)}`),
 		onDispose: () => disposed.push(1),
@@ -145,48 +144,35 @@ describe("RemoteSidecar", () => {
 		});
 	});
 
-	describe("a start the host never finishes", () => {
+	// The owner's rule (9 Nov 2026): no time limit ends or fails a start. The tab shows what the host says (queued,
+	// starting, slow) for as long as it takes; only the host's own failure is an error.
+	describe("a start that takes long waits with the host, never an error", () => {
 		afterEach(() => {
 			vi.useRealTimers();
 		});
 
-		it("reports the host by name with Restart's error status once the start outlives its deadline", async () => {
+		it("shows the host's queued start for as long as it waits, then its start and ready", async () => {
 			vi.useFakeTimers();
-			const { link, sidecar, statuses, steps } = setup({ startTimeoutMs: 5000 });
+			const { sidecar, steps } = setup();
 			sidecar.start();
 			await settle();
-			// The host took the tab but its omp never says it runs (a hung start on that computer).
+			// The host's start queue holds the tab behind other starts (a relaunch with many tabs).
+			sidecar.handleEvent(hostStatus("starting", { statusPayload: { queued: true } }));
+			await vi.advanceTimersByTimeAsync(180_000);
+			expect(sidecar.statusPayload).toEqual({ status: "starting", cwd: "/canonical/p", queued: true });
 			sidecar.handleEvent(hostStatus("starting"));
-			await vi.advanceTimersByTimeAsync(4999);
-			expect(sidecar.status).toBe("starting");
-			await vi.advanceTimersByTimeAsync(1);
-			expect(statuses.at(-1)).toEqual({
-				status: "error",
-				cwd: "/canonical/p",
-				message: "Host B has not started this session after 5 s",
-			});
-			// Not the host's omp failing: its asks stay routed, and the host may still finish.
-			expect(sidecar.statusFromLink).toBe(true);
-			expect(steps).toEqual(["open", "start", "stalled ready"]);
 			sidecar.handleEvent(hostStatus("ready"));
 			expect(sidecar.status).toBe("ready");
-
-			// Restart is a new bring-up with its own deadline.
-			sidecar.restart();
-			await settle();
-			expect(link.methods().at(-1)).toBe("tab.restart");
-			await vi.advanceTimersByTimeAsync(5000);
-			expect(sidecar.status).toBe("error");
-			expect(steps.at(-1)).toBe("stalled ready");
+			expect(steps).toEqual(["open", "start", "ready ready"]);
 		});
 
-		it("believes a host that says its omp is slow: the tab shows that wait past the deadline, never an error", async () => {
+		it("shows a host's slow omp with what it printed for as long as it takes, never an error", async () => {
 			vi.useFakeTimers();
-			const { sidecar, steps } = setup({ startTimeoutMs: 5000 });
+			const { sidecar, steps } = setup();
 			sidecar.start();
 			await settle();
 			sidecar.handleEvent(hostStatus("starting", { statusPayload: { slow: true, message: "loading models" } }));
-			await vi.advanceTimersByTimeAsync(60_000);
+			await vi.advanceTimersByTimeAsync(180_000);
 			expect(sidecar.statusPayload).toEqual({
 				status: "starting",
 				cwd: "/canonical/p",
@@ -198,51 +184,47 @@ describe("RemoteSidecar", () => {
 			expect(steps).toEqual(["open", "start", "ready ready"]);
 		});
 
-		it("never fires once the host reports the tab running, and logs how the start went", async () => {
-			vi.useFakeTimers();
-			const { sidecar, steps } = setup({ startTimeoutMs: 5000 });
-			sidecar.start();
-			await settle();
-			sidecar.handleEvent(hostStatus("ready"));
-			await vi.advanceTimersByTimeAsync(60_000);
-			expect(sidecar.status).toBe("ready");
-			expect(steps).toEqual(["open", "start", "ready ready"]);
-		});
-
-		it("names a host whose open never answers instead of the link's raw timeout", async () => {
+		it("keeps waiting for a host that leaves its open unanswered, says so, and opens again", async () => {
 			vi.useFakeTimers();
 			const { link, sidecar, steps } = setup();
-			// The link gives up on `tab.open` after its own 30 s, before the 60 s start deadline.
-			link.handlers["tab.open"] = () =>
-				new Promise((_, reject) =>
+			// The link gives up on `tab.open` after its own 30 s: a host too busy to answer, not a failed start.
+			const answer = link.handlers["tab.open"] as (params: Record<string, unknown>) => unknown;
+			link.handlers["tab.open"] = () => {
+				link.handlers["tab.open"] = answer;
+				return new Promise((_, reject) =>
 					setTimeout(
 						() => reject(Object.assign(new Error("tab.open timed out after 30000 ms"), { code: "timeout" })),
 						30_000,
 					),
 				);
+			};
 			sidecar.start();
 			await vi.advanceTimersByTimeAsync(30_000);
 			expect(sidecar.statusPayload).toMatchObject({
-				status: "error",
-				message: "Host B has not started this session after 30 s",
+				status: "starting",
+				slow: true,
+				message: "Host B has not answered yet",
 			});
-			expect(steps).toEqual(["failed open"]);
+			await settle();
+			expect(link.methods()).toEqual(["tab.open", "tab.open", "tab.start"]);
+			sidecar.handleEvent(hostStatus("ready"));
+			expect(sidecar.status).toBe("ready");
+			expect(steps).toContain("failed open");
 		});
 
-		it("stalls on a link that never finishes connecting", async () => {
+		it("waits on a link that never finishes connecting, then opens once it is up", async () => {
 			vi.useFakeTimers();
-			const { link, sidecar, steps } = setup({ startTimeoutMs: 5000 });
+			const { link, sidecar } = setup();
 			link.state = "connecting";
 			sidecar.start();
-			await vi.advanceTimersByTimeAsync(5000);
-			expect(sidecar.status).toBe("error");
-			expect(steps).toEqual(["stalled link"]);
-			// The link comes up: the tab opens again by itself.
+			await vi.advanceTimersByTimeAsync(180_000);
+			expect(sidecar.status).toBe("starting");
 			link.state = "online";
 			sidecar.linkStateChanged("online");
 			await settle();
 			expect(link.methods()).toEqual(["tab.open", "tab.start"]);
-			expect(sidecar.status).toBe("starting");
+			sidecar.handleEvent(hostStatus("ready"));
+			expect(sidecar.status).toBe("ready");
 		});
 	});
 
@@ -713,7 +695,7 @@ describe("RemoteSidecar", () => {
 		sidecar.dispose();
 	});
 
-	it("goes to error with the offline message and refuses commands while the link is down", async () => {
+	it("reads an unreachable host as reconnecting, never an error, refuses commands meanwhile and comes back up", async () => {
 		const { link, sidecar, statuses } = setup();
 		sidecar.start();
 		await settle();
@@ -722,10 +704,16 @@ describe("RemoteSidecar", () => {
 
 		link.state = "offline";
 		sidecar.linkStateChanged("offline");
-		expect(sidecar.status).toBe("error");
+		expect(sidecar.status).toBe("starting");
 		expect(sidecar.offline).toBe(true);
 		expect(sidecar.processAlive).toBe(false);
-		expect(statuses.at(-1)).toEqual({ status: "error", cwd: "/canonical/p", message: "Device offline" });
+		// The page keeps what it shows: the host may still run that omp.
+		expect(statuses.at(-1)).toEqual({
+			status: "starting",
+			cwd: "/canonical/p",
+			reconnecting: true,
+			message: "Device offline",
+		});
 		// Flapping between connecting and offline during backoff reports once.
 		sidecar.linkStateChanged("connecting");
 		sidecar.linkStateChanged("offline");
@@ -733,6 +721,14 @@ describe("RemoteSidecar", () => {
 
 		const refused = await sidecar.rpcClient?.command({ type: "get_state" }).catch((error: unknown) => error);
 		expect(ipcErrorCode(refused)).toBe("remote_offline");
+
+		link.state = "online";
+		link.attached = true;
+		sidecar.linkStateChanged("online");
+		await settle();
+		sidecar.handleEvent(hostStatus("ready"));
+		expect(sidecar.status).toBe("ready");
+		expect(statuses.map(status => status.status)).not.toContain("error");
 	});
 
 	it("refuses a user's answer with remote_offline while the link is down, so its card stays answerable", async () => {
