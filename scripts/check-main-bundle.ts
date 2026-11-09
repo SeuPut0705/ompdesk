@@ -344,7 +344,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A start that waits its turn reads "Waiting to start" (9 Nov 2026, tab-signal.ts `queued`, the tab's projection of
 // it, use-rpc-events keeping the page through a queued re-send, session-run.ts passing the summary's `queued`):
 // 2,175,035.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_175_035;
+// A session row holds its family chip's slot only while the chip draws (9 Nov 2026, sidebar-family.ts
+// `familyChipCounts`/`hasFamilyChip`, read with the family hide state by both session lists): 2,175,243.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_175_243;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

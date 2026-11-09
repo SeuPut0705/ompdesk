@@ -162,7 +162,7 @@ import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
-import { CHILD_TOKEN, isShownOpened, openedChildStatus, reviewKey } from "./sidebar-family";
+import { CHILD_TOKEN, hasFamilyChip, isShownOpened, openedChildStatus, reviewKey } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /**
@@ -498,6 +498,8 @@ export function Sidebar() {
 	// A session row's actions are one ⋯ on every input, so the title keeps its width: at rest under touch (no hover
 	// to reveal it), on hover or keyboard focus elsewhere.
 	const touchInput = useShellInput() === "touch";
+	// Which families the person hid: a hidden family's subagents leave the row's chip (`hasFamilyChip`).
+	const hiddenFamilies = useSidebarSubagentsStore(s => s.hidden);
 
 	// "Move to project…": the second menu listing the projects a stored session can go to.
 	const [moveMenu, setMoveMenu] = useState<{ anchor: ContextMenuAnchor; session: SidebarSession } | null>(null);
@@ -1988,7 +1990,7 @@ export function Sidebar() {
 						.filter(Boolean)
 						.join("\n")}
 					trailing={
-						openTabId || opened.length > 0 || (summary?.agents.length ?? 0) > 0 ? (
+						hasFamilyChip(summary?.agents ?? [], opened, hiddenFamilies.has(session.path)) ? (
 							<SidebarSubagentsToggle
 								agents={summary?.agents}
 								opened={opened}

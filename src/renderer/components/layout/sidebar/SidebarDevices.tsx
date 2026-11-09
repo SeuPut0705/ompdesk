@@ -63,6 +63,7 @@ import { sessionRuntimeStore } from "../../../stores/session-runtime-context";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useSidebarPrefs } from "../../../stores/sidebar-prefs";
 import { useProjectList } from "../../../stores/sidebar-projects";
+import { useSidebarSubagentsStore } from "../../../stores/sidebar-subagents";
 import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
@@ -94,7 +95,7 @@ import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubag
 import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
-import { CHILD_TOKEN, openedChildStatus, reviewKey } from "./sidebar-family";
+import { CHILD_TOKEN, hasFamilyChip, openedChildStatus, reviewKey } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
@@ -424,6 +425,8 @@ function DeviceSessions({
 	// A finger has no hover, so Close and Delete would sit on every row for good: one ⋯ opens them as an action sheet
 	// instead, as on this computer's own rows (Sidebar.tsx).
 	const touchInput = useShellInput() === "touch";
+	// Which families the person hid: a hidden family's subagents leave the row's chip (`hasFamilyChip`).
+	const hiddenFamilies = useSidebarSubagentsStore(s => s.hidden);
 	const [rowMenu, setRowMenu] = useState<{ x: number; y: number; items: ContextMenuItem[]; label: string } | null>(
 		null,
 	);
@@ -1192,7 +1195,7 @@ function DeviceSessions({
 						.filter(Boolean)
 						.join("\n")}
 					trailing={
-						family ? (
+						hasFamilyChip(summary?.agents ?? [], opened, hiddenFamilies.has(familyKey)) ? (
 							<SidebarSubagentsToggle
 								agents={summary?.agents}
 								opened={opened}

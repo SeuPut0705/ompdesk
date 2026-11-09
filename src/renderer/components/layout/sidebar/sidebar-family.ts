@@ -176,7 +176,7 @@ export interface FamilyCounts {
  * subagents that show count: a finished one is not listed anywhere in the family, so it is not in the chip either.
  */
 export function familyCounts(
-	subagents: Iterable<SubagentSnapshot>,
+	subagents: Iterable<{ status: string }>,
 	opened: readonly { state: FamilyState }[],
 	includeAgents = true,
 ): FamilyCounts {
@@ -193,6 +193,34 @@ export function familyCounts(
 		}
 	for (const child of opened) tally(child.state);
 	return counts;
+}
+
+/**
+ * What a session row's chip counts, from the row's own data: the subagents its summary lists (none while the person hid
+ * them) and the opened sessions that show. The chip draws only when this counts a child, and the row holds the slot at
+ * its end only then: a tab holding the session adds nothing. A slot kept for a held row that drew nothing still took
+ * the row's gap from its title, so a pick (which opens a tab) cut that row's title 10 px shorter.
+ */
+export function familyChipCounts(
+	agents: Iterable<{ status: string }>,
+	opened: readonly { status: ChildStatus | null; held?: boolean; state: FamilyState | null }[],
+	hidden: boolean,
+): FamilyCounts {
+	return familyCounts(
+		agents,
+		opened.filter(isShownOpened).map(child => ({ state: child.state ?? "idle" })),
+		!hidden,
+	);
+}
+
+/** Whether a session row draws its family chip (`familyChipCounts`). */
+export function hasFamilyChip(
+	agents: Iterable<{ status: string }>,
+	opened: readonly { status: ChildStatus | null; held?: boolean; state: FamilyState | null }[],
+	hidden: boolean,
+): boolean {
+	const counts = familyChipCounts(agents, opened, hidden);
+	return counts.agents + counts.sessions > 0;
 }
 
 /** What a child ran on and what it has cost (USD), as far as stock has said; any field may be missing. */

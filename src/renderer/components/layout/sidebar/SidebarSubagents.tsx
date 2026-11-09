@@ -60,7 +60,7 @@ import {
 	childUsageText,
 	type FamilyCounts,
 	type FamilyState,
-	familyCounts,
+	familyChipCounts,
 	isShownOpened,
 	subagentFamilyState,
 } from "./sidebar-family";
@@ -273,13 +273,8 @@ function useFamilyCounts(
 	// A finished opened session that landed clean is not part of the family (see `isShownOpened`).
 	const kids = useMemo(() => opened.filter(isShownOpened), [opened]);
 	const counts = useMemo(
-		() =>
-			familyCounts(
-				slice.subagents.values(),
-				kids.map(child => ({ state: child.state ?? "idle" })),
-				!hidden,
-			),
-		[slice.subagents, kids, hidden],
+		() => familyChipCounts(slice.subagents.values(), opened, hidden),
+		[slice.subagents, opened, hidden],
 	);
 	return { counts, hidden, kids };
 }
