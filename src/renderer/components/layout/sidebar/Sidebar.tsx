@@ -162,7 +162,7 @@ import { SidebarUsage } from "./SidebarUsage";
 import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
-import { CHILD_TOKEN, isShownOpened, openedChildStatus } from "./sidebar-family";
+import { CHILD_TOKEN, isShownOpened, openedChildStatus, reviewKey } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /**
@@ -626,10 +626,6 @@ export function Sidebar() {
 		[closedChildren],
 	);
 	const reviewByTab = useAgentReviewStore(s => s.byTab);
-	const reviewOf = useMemo(
-		() => new Map(Object.values(reviewByTab).flatMap(items => items.map(item => [item.tabId, item]))),
-		[reviewByTab],
-	);
 	// How many sessions each tab here opened wait on the person, for every parent row, not only the attached one: the
 	// board's own rows (`openedChildRows` over the tabs and that parent's review list).
 	const childrenWaitingOf = useMemo(() => {
@@ -641,15 +637,17 @@ export function Sidebar() {
 		}
 		return waiting;
 	}, [localTabs, tabs, reviewByTab]);
-	// A window viewing an opener another window holds (a phone or tablet viewing a desktop's session) holds no tab of
-	// the sessions its agent opened: main's review list, pushed to every window showing the opener, is all it knows of
-	// them. Child session file → its item, and → the opener's file (exact, where the brief only names a title that may
-	// have changed since).
+	// Main's review list says how each session an agent opened is, the one identity of an item being its computer and
+	// session file (`reviewKey`), never a tab: a window viewing an opener another window holds has no tab of them, and a
+	// tab the person opens on one (a click) is no tab main listed. Also → the opener's file (exact, where the brief only
+	// names a title that may have changed since).
 	const reviewOfPath = useMemo(
 		() =>
 			new Map(
 				Object.values(reviewByTab).flatMap(items =>
-					items.flatMap(item => (item.sessionPath ? [[item.sessionPath, item] as const] : [])),
+					items.flatMap(item =>
+						item.sessionPath ? [[reviewKey(item.device, item.sessionPath), item] as const] : [],
+					),
 				),
 			),
 		[reviewByTab],
@@ -1495,9 +1493,11 @@ export function Sidebar() {
 			t(row.indexed ? "sidebar.untitled" : "sidebar.newSession");
 		const deletable = row.indexed && !row.busy;
 		const lastRun = row.tab?.lastRun;
-		// No tab here and nothing this computer runs of it: another computer's window holds it, and main's review list says how it is.
-		const elsewhere = row.tab === undefined && row.summary === undefined ? reviewOfPath.get(child.path) : undefined;
-		const review = openTabId ? reviewOf.get(openTabId) : elsewhere;
+		// Main's review item is the session's, by its file, whatever tab holds it: a tab the person opens on it (a click)
+		// is no tab main listed, and looking it up by tab read the child "done" and hid it the moment it was selected.
+		const review = reviewOfPath.get(reviewKey(undefined, child.path));
+		// No tab here and nothing this computer runs of it: another computer's window holds it, and that item says how it is.
+		const elsewhere = row.tab === undefined && row.summary === undefined ? review : undefined;
 		const failed =
 			row.failed || review?.failed === true || lastRun?.stopReason === "error" || lastRun?.stopReason === "aborted";
 		const status = openedChildStatus({
@@ -1610,14 +1610,16 @@ export function Sidebar() {
 		// Two paired devices can keep a session at the same path: the row's identity names the device too.
 		const id = `device:${tab.device ?? ""}:${tab.sessionPath ?? `tab:${tab.id}`}`;
 		const key = `session:${id}`;
-		const review = reviewOf.get(tab.id);
+		const host = hosts.find(entry => entry.deviceId === tab.device);
+		const here = hosts.some(entry => entry.remoteOpened?.some(opened => opened.here && opened.tabId === tab.id));
+		const review = tab.sessionPath
+			? reviewOfPath.get(reviewKey(here ? undefined : tab.device, tab.sessionPath))
+			: undefined;
 		const failed =
 			review?.failed === true ||
 			isTabFailed(tab) ||
 			tab.lastRun?.stopReason === "error" ||
 			tab.lastRun?.stopReason === "aborted";
-		const host = hosts.find(entry => entry.deviceId === tab.device);
-		const here = hosts.some(entry => entry.remoteOpened?.some(opened => opened.here && opened.tabId === tab.id));
 		// The row rule over the summary of the computer it runs on (this one, for a session a host opened here).
 		const run = summaryRowState(
 			tab.sessionPath

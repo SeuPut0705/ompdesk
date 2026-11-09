@@ -94,7 +94,7 @@ import { type FamilyOpened, SidebarLooseChildren, SidebarSubagents, SidebarSubag
 import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
-import { CHILD_TOKEN, openedChildStatus } from "./sidebar-family";
+import { CHILD_TOKEN, openedChildStatus, reviewKey } from "./sidebar-family";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
@@ -659,18 +659,18 @@ function DeviceSessions({
 	};
 
 	// A window viewing an opener here hears main's review list of what its agent opened (Sidebar.tsx): the child's
-	// state when no tab here holds it. Child session file → its item.
+	// verdict by its one identity, this host and its session file (`reviewKey`), whatever tab here holds it.
 	const reviewByTab = useAgentReviewStore(s => s.byTab);
 	const reviewOfPath = useMemo(
 		() =>
 			new Map(
 				Object.values(reviewByTab).flatMap(items =>
 					items.flatMap(item =>
-						item.device === host.deviceId && item.sessionPath ? [[item.sessionPath, item] as const] : [],
+						item.sessionPath ? [[reviewKey(item.device, item.sessionPath), item] as const] : [],
 					),
 				),
 			),
-		[reviewByTab, host.deviceId],
+		[reviewByTab],
 	);
 
 	const tabFor = (session: DeviceSession): SessionTab | undefined =>
@@ -691,15 +691,15 @@ function DeviceSessions({
 	};
 
 	/**
-	 * A session the host's own agent opened, as a one-line child under its opener: the tab here when one holds it,
-	 * else what the host says of it (its working cue, its review list's verdict on the row, the review list here when
-	 * this window views the opener, the indexed failure), by the local rows' status rule (Sidebar.tsx).
+	 * A session the host's own agent opened, as a one-line child under its opener, from what the host says of it (its
+	 * summary, its review list's verdict on the row, the review list here when this window views the opener, the
+	 * indexed failure), by the local rows' status rule (Sidebar.tsx). A tab here on it changes nothing but the
+	 * selection: built from the tab, a selected child lost the host's verdict and read "done".
 	 */
 	const familyChildFor = (child: DeviceSession): FamilyOpened => {
 		const tab = tabFor(child);
-		if (tab) return childForTab(tab);
 		const run = summaryRowState(hostSummaries.get(child.path));
-		const review = reviewOfPath.get(child.path);
+		const review = reviewOfPath.get(reviewKey(host.deviceId, child.path));
 		const failed = review?.failed === true || child.childProblem === "failed" || child.status === "error";
 		const running = run.running || review?.state === "running";
 		const status = openedChildStatus({
@@ -743,10 +743,11 @@ function DeviceSessions({
 			]
 				.filter(Boolean)
 				.join("\n"),
-			selected: false,
+			selected: selectionOf(tab?.id).selected,
 			onOpen: () => openSession(child),
 			buttonProps: { tabIndex: -1, "data-roving-item": key },
 			rowProps: {
+				"data-active": selectionOf(tab?.id).selected,
 				"data-session-path": child.path,
 				"data-folder-missing": missingFolders.has(child.path) || undefined,
 				"data-sidebar-opened-session": true,

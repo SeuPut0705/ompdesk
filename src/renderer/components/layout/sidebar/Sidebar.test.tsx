@@ -3507,6 +3507,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 					t1: [
 						{
 							tabId: "ta",
+							sessionPath: "/wt/a.jsonl",
 							title: "x",
 							state: "needs-review",
 							branch: "omp/agent/agent-aaaaaa",
@@ -3890,6 +3891,66 @@ describe("Sidebar families: the sessions an agent opened", () => {
 		act(() => useAgentReviewStore.setState({ byTab: { t1: [] } }));
 		await flush();
 		expect(boss().querySelector(".omp-live-edge:not([data-leaving])")).toBeNull();
+	});
+
+	// A child that finished with work nobody merged is a row of its opener's family by main's review list. Selecting it
+	// opens a tab on it: the review item is the session's whatever tab holds it, so the row keeps its status and its
+	// place (it read "done" and vanished: the item was looked up by the new tab, which main never listed).
+	it("keeps an unmerged child's status and row when it is selected and a tab opens on it", async () => {
+		installMockOmp([
+			session("/wt/x.jsonl", WT_A, {
+				title: null,
+				firstMessage: wrapAgentMessage("Title: Fix the upload\nDetails follow.", "An older title"),
+				created: "2026-02-01T00:00:00Z",
+				modified: "2026-02-01T00:00:00Z",
+			}),
+			...LIST,
+		]);
+		const boss = {
+			id: "t1",
+			cwd: "/work/alpha",
+			status: "ready",
+			kind: "agent",
+			unreadDone: false,
+			sessionPath: BOSS,
+		};
+		useTabsStore.setState({ tabs: [boss] as never, activeTabId: "t1", bundles: new Map() });
+		ensureTabRuntime("t1");
+		useSidebarSubagentsStore.setState({ expanded: new Set([BOSS]) });
+		const item = {
+			tabId: "closed-child",
+			sessionPath: "/wt/x.jsonl",
+			title: "Fix the upload",
+			state: "needs-review" as const,
+			commitsAhead: 2,
+			files: 1,
+			added: 3,
+			removed: 0,
+			uncommitted: 0,
+			answer: "",
+			branch: "omp/agent/fix-upload",
+		};
+		await mount(<Sidebar />);
+		// Main's push of the opener's review list.
+		act(() => useAgentReviewStore.setState({ byTab: { t1: [item] } }));
+		await flush();
+		const child = () =>
+			container.querySelector(`[data-sidebar-family="${BOSS}"] [data-session-path="/wt/x.jsonl"]`) as Element | null;
+		expect(child()?.getAttribute("data-child-status")).toBe("unmerged");
+
+		// The click: a tab of its own on the session, focused.
+		act(() =>
+			useTabsStore.setState({
+				tabs: [
+					boss,
+					{ id: "t2", cwd: WT_A, status: "ready", kind: "agent", unreadDone: false, sessionPath: "/wt/x.jsonl" },
+				] as never,
+				activeTabId: "t2",
+			}),
+		);
+		await flush();
+		expect(child()?.getAttribute("data-child-status")).toBe("unmerged");
+		expect(child()?.getAttribute("data-active")).toBe("true");
 	});
 });
 

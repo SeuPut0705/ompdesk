@@ -335,7 +335,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The sidebar prefs have one owner, main (9 Nov 2026, src/shared/sidebar-prefs.ts `sidebarPatch` and `readSidebarPrefs`
 // the store applies at once, omp-api.ts `prefs.updateSidebar` and its channel, the store's re-read on PREFS_CHANGED;
 // its whole-blob writer went), and a sidebar pick's runtime-log line: 2,174,377.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_174_377;
+// A family child's review verdict by its computer and session file (9 Nov 2026, sidebar-family.ts `reviewKey`, read by
+// the eager family rule): 2,174,446.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_174_446;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

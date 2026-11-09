@@ -94,6 +94,15 @@ export function isShownOpened(child: { status: ChildStatus | null; held?: boolea
 	return child.status !== "done" || child.held === true;
 }
 
+/**
+ * The one identity of a review item (`AgentReviewItem`) every sidebar view looks a child up by: the computer it runs
+ * on (absent = the one whose list it is) and its session file. Never a tab id: a tab the person opens on a child is no
+ * tab main listed, so a lookup by tab read the selected child "done" and hid it.
+ */
+export function reviewKey(device: string | undefined, sessionPath: string): string {
+	return `${device ?? ""}\n${sessionPath}`;
+}
+
 export interface SubagentRowModel {
 	agent: SubagentSnapshot;
 	/** 0 = spawned by the session, 1 = spawned by a subagent (deeper clamps to 1). */
