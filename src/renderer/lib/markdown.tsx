@@ -114,6 +114,11 @@ type SanitizeSchema = NonNullable<Parameters<typeof rehypeSanitize>[0]>;
 // attribute not listed here is dropped. hast-util-sanitize shallow-merges over
 // the GitHub default schema, so every field that must differ from the default
 // is set explicitly.
+/** `C:\…` or `C:/…` (the backslash percent-encoded once Markdown parsed it): a Windows path, which a URL parser reads as the scheme `c:`. */
+const WINDOWS_DRIVE_PATH = /^[a-z]:(?:[\\/]|%5c)/i;
+/** Every drive letter as sanitize's protocol check spells it (exact case): `C`, `c`, … */
+const WINDOWS_DRIVES = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].flatMap(letter => [letter, letter.toLowerCase()]);
+
 const SANITIZE_SCHEMA: SanitizeSchema = {
 	tagNames: [
 		// Raw-HTML subset (also covers inline markdown output).
@@ -218,8 +223,10 @@ const SANITIZE_SCHEMA: SanitizeSchema = {
 		// local: is the session's local:// store, resolved by stock through the bridge.
 		href: ["http", "https", "mailto", "file", "local"],
 		// data: keeps inline base64 images; file: is resolved to a workspace /
-		// absolute read by the MarkdownImage component (protocol stripped).
-		src: ["http", "https", "data", "file"],
+		// absolute read by the MarkdownImage component (protocol stripped). A
+		// Windows drive (`C:\shot.png`) is a path, not a scheme (chat-media.ts
+		// `localFilePath`): every drive letter passes too, read as a local file.
+		src: ["http", "https", "data", "file", ...WINDOWS_DRIVES],
 	},
 	// Unknown tags are replaced by their children; these hold code/resources,
 	// not prose, so drop their contents too.
@@ -312,8 +319,9 @@ export function preloadMarkdownPipeline(): Promise<unknown> {
 // defer to the default everywhere else.
 const URL_TRANSFORM: NonNullable<Options["urlTransform"]> = (url, key, node) => {
 	const tag = node?.tagName;
-	if (key === "src" && tag === "img" && /^(data|blob|file):/i.test(url)) return url;
-	if (key === "src" && (tag === "video" || tag === "audio") && /^file:/i.test(url)) return url;
+	if (key === "src" && tag === "img" && (/^(data|blob|file):/i.test(url) || WINDOWS_DRIVE_PATH.test(url))) return url;
+	if (key === "src" && (tag === "video" || tag === "audio") && (/^file:/i.test(url) || WINDOWS_DRIVE_PATH.test(url)))
+		return url;
 	if (key === "href" && tag === "a" && /^(file|local):/i.test(url)) return url;
 	return defaultUrlTransform(url);
 };
@@ -708,8 +716,10 @@ export function classifyImageSrc(src: string | undefined): MarkdownImageSrc {
 	if (src.startsWith("//")) return { kind: "remote", src: `https:${src}` };
 	if (/^file:\/\//i.test(src)) return { kind: "local", path: fileUrlPath(src) };
 	// Bare paths — absolute (/…, ~\…, C:\…), relative (./…, ../…), or plain
-	// filenames — all resolve through the workspace/absolute read.
-	return { kind: "local", path: src };
+	// filenames — all resolve through the workspace/absolute read, decoded as a
+	// file URL's path is: Markdown percent-encodes a destination (`C:\a b.png`
+	// arrives as `C:%5Ca%20b.png`).
+	return { kind: "local", path: fileUrlPath(src) };
 }
 
 const MARKDOWN_IMAGE_CLASS = `my-1 ${PREVIEW_HEIGHT_LG} max-w-full rounded-md border border-[var(--omp-border-muted)] object-contain`;

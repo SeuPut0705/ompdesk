@@ -97,4 +97,13 @@ describe("markdown images", () => {
 		const html = render("![snap](file:///tmp/snap.png)");
 		expect(html).toContain("/tmp/snap.png");
 	});
+
+	it("keeps a Windows drive path for the local read, with either slash", () => {
+		expect(render("![shot](C:\\Users\\me\\shot.png)")).toContain("C:\\Users\\me\\shot.png");
+		expect(render("![shot](<C:/Users/me/my shot.png>)")).toContain("C:/Users/me/my shot.png");
+		expect(classifyImageSrc("C:%5CUsers%5Cme%5Cmy%20shot.png")).toEqual({
+			kind: "local",
+			path: "C:\\Users\\me\\my shot.png",
+		});
+	});
 });
