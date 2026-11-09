@@ -247,8 +247,8 @@ export class OmpProcesses {
 	}
 
 	/**
-	 * The command line of each pid `ps` lists, or null when `ps` failed: a timeout, a launch that failed, or an exit
-	 * with no output (a nonzero exit that still lists some pids, as `ps` does when another one is gone, is an answer).
+	 * The command line of each pid `ps` lists, or null when `ps` failed: a timeout, a launch that failed, or any
+	 * nonzero exit, whatever it printed (logged with its cause and how long it took).
 	 */
 	async #commandLines(pids: number[]): Promise<Map<number, string> | null> {
 		const began = Date.now();
@@ -258,8 +258,7 @@ export class OmpProcesses {
 			});
 			return byPid(stdout);
 		} catch (error) {
-			const partial = isTimeout(error) || !hasExitCode(error) ? "" : (error.stdout ?? "");
-			if (partial.trim() !== "") return byPid(partial);
+			const detail = error instanceof Error ? error.message : String(error);
 			this.#log("command-line lookup failed", {
 				level: "warn",
 				phase: "reap",
@@ -267,7 +266,7 @@ export class OmpProcesses {
 				durationMs: Date.now() - began,
 				pids: pids.join(","),
 				attempt: 1,
-				error: error instanceof Error ? error.message : String(error),
+				error: detail,
 			});
 			return null;
 		}
@@ -339,11 +338,6 @@ export async function windowsStartTimes(pids: number[], runCommand: CommandRunne
 /** A creation time the lookup can compare: a positive finite number; an empty or garbled line reads as none. */
 function isCreationTime(time: number | undefined): time is number {
 	return time !== undefined && Number.isFinite(time) && time > 0;
-}
-
-/** An `execFile` rejection of a command that ran and exited nonzero (`code` is the number, not `ENOENT`). */
-function hasExitCode(error: unknown): error is { code: number; stdout?: string } {
-	return typeof error === "object" && error !== null && "code" in error && typeof error.code === "number";
 }
 
 /** A lookup `execFile` ended at its bound (it marks the error `killed`). */

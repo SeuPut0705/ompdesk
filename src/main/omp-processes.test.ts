@@ -361,6 +361,10 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 			timedOut(),
 			new Error("spawn ps ENOENT"),
 			Object.assign(new Error("Command failed: ps"), { code: 1 }),
+			Object.assign(new Error("Command failed: ps"), {
+				code: 1,
+				stdout: `${pids[0]} omp -e /bridge/index.ts\n`,
+			}),
 		];
 
 		for (const failure of failures) {
@@ -376,6 +380,7 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 		expect(await readFile(file)).toEqual({ omps: entries });
 		expect(log.mock.calls.map(call => call[1])).toMatchObject([
 			{ phase: "reap", cause: "timeout", pids: pids.join(",") },
+			{ phase: "reap", cause: "error" },
 			{ phase: "reap", cause: "error" },
 			{ phase: "reap", cause: "error" },
 		]);
