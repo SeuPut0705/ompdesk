@@ -13,9 +13,11 @@ import {
 	botFamily,
 	CHATS_ORDER_KEY,
 	familyRows,
+	holdRows,
 	type RowSession,
 	type RowTab,
 	remoteOpenedChildren,
+	rowsWaiting,
 	type SidebarFacts,
 	type SidebarRows,
 	sidebarRows,
@@ -548,5 +550,62 @@ describe("a session whose folder is gone", () => {
 		expect(none.folderMissing.has("/s/fin")).toBe(false);
 		const used = sidebarRows(world([{ folder: "wtg", holder: "used", origin: "person", path: "/s/fin" }]));
 		expect(used.folderMissing.has("/s/fin")).toBe(true);
+	});
+});
+
+/** Every row as drawn, top to bottom: each project's key, its rows and loose children, then Chats and Archived. */
+function drawn(rows: SidebarRows): string[] {
+	return [
+		...rows.groups.flatMap(group => [
+			`group:${group.cwd}`,
+			...group.sessions.map(session => session.path),
+			...group.folded.map(session => `folded:${session.path}`),
+		]),
+		...rows.chats.map(session => `chat:${session.path}`),
+		...rows.archived.map(session => `archived:${session.path}`),
+	];
+}
+
+// The owner's report (9 Nov 2026): a session another omp started took the top of its project while the pointer rested
+// on the row below, and the click selected the newcomer. While the list is pointed at, nothing moves.
+describe("holdRows: what the person points at keeps its place", () => {
+	it.each(WORLDS.slice(0, 60).map((cells, index) => [index, cells, WORLDS[index + 1] ?? ALL] as const))(
+		"world %i drawn over the next one moves no row and says what each row says now",
+		(_index, before, after) => {
+			const shown = sidebarRows(world(before));
+			const now = sidebarRows(world(after, "reversed"));
+			const held = holdRows(shown, now);
+			expect(drawn(held)).toEqual(drawn(shown));
+			// A row still in its list says what it says now; one that left its list stays as it was drawn.
+			for (const group of held.groups) {
+				const fresh = new Map(
+					now.groups.find(item => item.cwd === group.cwd)?.sessions.map(session => [session.path, session]),
+				);
+				for (const session of group.sessions) expect(session).toBe(fresh.get(session.path) ?? session);
+			}
+			const paths = (rows: SidebarRows) =>
+				drawn(rows)
+					.filter(key => !key.startsWith("group:"))
+					.map(key => key.replace(/^\w+:/, ""));
+			expect(rowsWaiting(held, now)).toBe(paths(now).filter(path => !paths(shown).includes(path)).length);
+			// Held again over the same change, nothing more moves.
+			expect(drawn(holdRows(held, now))).toEqual(drawn(shown));
+		},
+	);
+
+	it("keeps a newer session out of the top of its project until the pointer leaves", () => {
+		const cells: Cell[] = [
+			{ folder: "app", holder: "none", origin: "person", path: "/s/alpha" },
+			{ folder: "app", holder: "none", origin: "person", path: "/s/bravo" },
+		];
+		const shown = sidebarRows(world(cells));
+		const now = sidebarRows(
+			world([...cells, { folder: "app", holder: "working", origin: "person", path: "/s/zulu" }]),
+		);
+		const app = (rows: SidebarRows) => rows.groups.find(group => group.cwd === APP)?.sessions.map(row => row.path);
+		expect(app(now)?.[0]).toBe("/s/zulu");
+		const held = holdRows(shown, now);
+		expect(app(held)).toEqual(app(shown));
+		expect(rowsWaiting(held, now)).toBe(1);
 	});
 });

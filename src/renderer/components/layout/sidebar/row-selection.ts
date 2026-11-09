@@ -38,9 +38,22 @@ export function useRowSelection(): (tabId: string | undefined) => RowSelection {
 
 /**
  * One info line in the runtime log (`gui-runtime.jsonl`, source `sidebar`) per session a person picks in the sidebar:
- * which list, whether it focused an open tab, re-rooted the empty one or opened a new one, and what the row was. Main
- * logs every order the sidebar saves beside it, so a report of a list that moved under a click can be read back.
+ * which list, whether it focused an open tab, re-rooted the empty one or opened a new one, what the row was, the
+ * session of the row clicked (`session` id, `file`) and the session the pick selects (`selected`: the file of the tab it
+ * focuses, else the row's own file, which the opened tab loads). A pick that selected another session than the row's
+ * reads back from the log alone. Main logs every order the sidebar saves beside it.
  */
-export function logSelection(details: Record<string, string | boolean>): void {
-	window.omp?.runtime?.report({ source: "sidebar", message: "select", details: { level: "info", ...details } });
+export function logSelection(
+	details: Record<string, string | boolean>,
+	picked: { id: string; path: string },
+	owner: { sessionPath?: string; sessionId?: string } | undefined,
+): void {
+	const file = (path: string) => path.split(/[\\/]/).at(-1) ?? path;
+	const selected =
+		owner === undefined ? file(picked.path) : owner.sessionPath ? file(owner.sessionPath) : owner.sessionId;
+	window.omp?.runtime?.report({
+		source: "sidebar",
+		message: "select",
+		details: { level: "info", ...details, session: picked.id, file: file(picked.path), selected: selected ?? "none" },
+	});
 }

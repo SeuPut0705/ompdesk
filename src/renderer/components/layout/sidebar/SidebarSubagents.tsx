@@ -64,6 +64,7 @@ import {
 	isShownOpened,
 	subagentFamilyState,
 } from "./sidebar-family";
+import { useHeldList } from "./sidebar-hold";
 
 /** A session the agent of this family's parent opened, as the sidebar prepared its row. */
 export interface FamilyOpened {
@@ -472,12 +473,20 @@ function FamilyGroup({
 	const rows = hidden ? [] : model.rows;
 	const total = rows.length + kids.length;
 	// A folded family surfaces only what waits for the person, flat, under the parent.
-	const shownRows = expanded
-		? rows
-		: rows
-				.filter(row => subagentFamilyState(row.agent.status) === "waiting")
-				.map(row => ({ ...row, depth: 0 as const }));
-	const shownOpened = expanded ? kids : kids.filter(child => child.status === "waiting");
+	const shownRows = useHeldList(
+		expanded
+			? rows
+			: rows
+					.filter(row => subagentFamilyState(row.agent.status) === "waiting")
+					.map(row => ({ ...row, depth: 0 as const })),
+		row => row.agent.id,
+		`${expanded}:${hidden}`,
+	);
+	const shownOpened = useHeldList(
+		expanded ? kids : kids.filter(child => child.status === "waiting"),
+		child => child.key,
+		`${expanded}:${hidden}`,
+	);
 	const surfaced = !expanded && shownRows.length + shownOpened.length > 0;
 
 	// The transcript stays open when its agent finishes;
@@ -542,7 +551,7 @@ function FamilyGroup({
 
 	return (
 		<>
-			{((expanded && total > 0) || surfaced) && (
+			{shownRows.length + shownOpened.length > 0 && (
 				<div
 					aria-label={t("sidebar.family.group")}
 					className="relative space-y-px"
@@ -690,7 +699,7 @@ export const SidebarSubagentsToggle = memo(function SidebarSubagentsToggle({
  */
 export function SidebarLooseChildren({ foldKey, opened }: { foldKey: string; opened: readonly FamilyOpened[] }) {
 	const t = useT();
-	const shown = opened.filter(isShownOpened);
+	const shown = useHeldList(opened.filter(isShownOpened), child => child.key, foldKey);
 	if (shown.length === 0) return null;
 	return (
 		<div

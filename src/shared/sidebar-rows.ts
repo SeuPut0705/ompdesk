@@ -222,6 +222,23 @@ function briefOpenerOf(child: FamilySession, sessions: readonly FamilySession[])
 }
 
 /**
+ * The tab a row's session is open in, for every list (this computer's rows, a paired computer's section, the opener
+ * rule): the tab a live row is, else the tab on the session's file (main reports it with every get_state), else the tab
+ * on its id (stock sends the id only with a rare session_info_update). The file outranks the id: a tab whose id is late
+ * never takes another tab's row.
+ */
+export function tabOfRow<T extends { id: string; sessionPath?: string; sessionId?: string }>(
+	tabs: readonly T[],
+	session: { path: string; id: string; liveTabId?: string },
+): T | undefined {
+	return (
+		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
+		tabs.find(tab => tab.sessionPath !== undefined && tab.sessionPath === session.path) ??
+		tabs.find(tab => tab.sessionId !== undefined && tab.sessionId === session.id)
+	);
+}
+
+/**
  * Which session each opened session nests under: child session path → the path of the session that started the chain.
  * A tab names its opener by tab id while both live, and by the opener's session file after a relaunch (every tab id is
  * new then, and the opener needs no tab: its stored session is enough). A session without a tab here is found by what
@@ -237,13 +254,9 @@ export function openerOfSessions(
 	sessions: readonly FamilySession[],
 	recordedOpeners: ReadonlyMap<string, string> = new Map(),
 ): Map<string, string> {
-	const tabOf = (session: FamilySession): FamilyTab | undefined =>
-		(session.liveTabId ? tabs.find(tab => tab.id === session.liveTabId) : undefined) ??
-		tabs.find(tab => tab.sessionPath !== undefined && tab.sessionPath === session.path) ??
-		tabs.find(tab => tab.sessionId !== undefined && tab.sessionId === session.id);
 	const sessionOf = new Map<string, FamilySession>();
 	for (const session of sessions) {
-		const tab = tabOf(session);
+		const tab = tabOfRow(tabs, session);
 		if (tab && !sessionOf.has(tab.id)) sessionOf.set(tab.id, session);
 	}
 	const known = new Set(sessions.map(session => session.path));
@@ -718,4 +731,51 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 		folderMissing,
 		held: new Set(code.filter(held).map(session => session.path)),
 	};
+}
+
+/**
+ * `now`'s items in the places `shown` gave them, for a list the person points at: an item still there keeps its place
+ * and says what it says now (`merge`), one that left keeps its place as it was last shown, and one that arrived waits.
+ * Nothing another session does moves a row into the place under the pointer (the owner's report, 9 Nov 2026: a session
+ * another omp started took the top of its project, pushed every row below it down by one, and the click aimed at the
+ * row under the pointer selected the newcomer).
+ */
+export function holdPlaces<T>(
+	shown: readonly T[],
+	now: readonly T[],
+	keyOf: (item: T) => string,
+	merge: (shown: T, now: T) => T = (_, item) => item,
+): T[] {
+	const fresh = new Map(now.map(item => [keyOf(item), item]));
+	return shown.map(item => {
+		const found = fresh.get(keyOf(item));
+		return found === undefined ? item : merge(item, found);
+	});
+}
+
+/** `holdPlaces` over every list of the rows: the projects, each project's rows and loose children, Chats, Archived. */
+export function holdRows(shown: SidebarRows, now: SidebarRows): SidebarRows {
+	const path = (session: RowSession) => session.path;
+	const group = (seen: RowGroup, fresh: RowGroup): RowGroup => ({
+		...fresh,
+		sessions: holdPlaces(seen.sessions, fresh.sessions, path),
+		folded: holdPlaces(seen.folded, fresh.folded, path),
+	});
+	return {
+		...now,
+		allGroups: holdPlaces(shown.allGroups, now.allGroups, item => item.cwd, group),
+		groups: holdPlaces(shown.groups, now.groups, item => item.cwd, group),
+		chats: holdPlaces(shown.chats, now.chats, path),
+		archived: holdPlaces(shown.archived, now.archived, path),
+	};
+}
+
+/** How many rows `now` lists that `shown` does not draw: the ones waiting for the pointer to leave. */
+export function rowsWaiting(shown: SidebarRows, now: SidebarRows): number {
+	const drawn = (rows: SidebarRows) =>
+		[...rows.groups.flatMap(group => [...group.sessions, ...group.folded]), ...rows.chats, ...rows.archived].map(
+			session => session.path,
+		);
+	const seen = new Set(drawn(shown));
+	return drawn(now).filter(key => !seen.has(key)).length;
 }

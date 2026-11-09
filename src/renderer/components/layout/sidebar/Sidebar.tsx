@@ -53,11 +53,14 @@ import type { RailPin } from "../../../../shared/sidebar-prefs";
 import {
 	CHATS_ORDER_KEY,
 	familyRows,
+	holdRows,
 	isChatSession,
 	type RowGroup,
 	type RowSession,
 	type RowTab,
+	rowsWaiting,
 	type SidebarFacts,
+	tabOfRow,
 } from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
@@ -163,6 +166,7 @@ import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, hasFamilyChip, isShownOpened, openedChildStatus, reviewKey } from "./sidebar-family";
+import { SidebarHoldContext, useHeld, usePointingAt } from "./sidebar-hold";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /**
@@ -869,7 +873,15 @@ export function Sidebar() {
 			),
 		[rowFacts, botPath, endedBotFiles, botDesk.channels, rowTabs, familyTabs],
 	);
-	const { rows, bot: botKids, remote: remoteChildTabs } = family;
+	const { bot: botKids, remote: remoteChildTabs } = family;
+	// While the pointer is on the list its rows keep their places (`sidebar-hold.ts`); the person's own changes apply.
+	const pointing = usePointingAt(listRef);
+	const ownOrder = useMemo(
+		() => JSON.stringify([pinnedSessions, pinnedGroups, groupOrder, sessionOrder, archivedSessions, filter]),
+		[pinnedSessions, pinnedGroups, groupOrder, sessionOrder, archivedSessions, filter],
+	);
+	const rows = useHeld(family.rows, holdRows, ownOrder, pointing);
+	const rowsHeldBack = rows === family.rows ? 0 : rowsWaiting(rows, family.rows);
 	const { listed: listedSessions, sessions: allSessions, code: codeSessions, chats: chatSessions } = rows;
 	const {
 		runParent: runParentOf,
@@ -1033,12 +1045,8 @@ export function Sidebar() {
 			),
 		);
 	};
-	// The row's tab, by the tab list alone: main reports a tab's file (get_state → sessionPath) reliably; the session id
-	// only arrives with stock's rare session_info_update, so match the path first.
-	const tabForSession = (session: SidebarSession) =>
-		(session.liveTabId ? localTabs.find(tab => tab.id === session.liveTabId) : undefined) ??
-		localTabs.find(tab => tab.sessionPath === session.path) ??
-		localTabs.find(tab => tab.sessionId === session.id);
+	// The row's tab, by the one rule every list reads (`tabOfRow`).
+	const tabForSession = (session: SidebarSession) => tabOfRow(localTabs, session);
 	const isCurrentSession = (session: SidebarSession) => {
 		const tab = tabForSession(session);
 		return tab !== undefined && tab.id === activeTabId;
@@ -1073,7 +1081,11 @@ export function Sidebar() {
 		// opens next to it.
 		const owner = tabForSession(session);
 		const how = owner ? "focus" : activeTabUntouched() ? "reroot" : "open";
-		logSelection({ list: "local", how, archived: archivedIds.has(session.id), held: rows.held.has(session.path) });
+		logSelection(
+			{ list: "local", how, archived: archivedIds.has(session.id), held: rows.held.has(session.path) },
+			session,
+			owner,
+		);
 		if (owner) {
 			void useTabsStore.getState().switchTab(owner.id);
 			return;
@@ -2392,46 +2404,49 @@ export function Sidebar() {
 					onKeyDown={onListKeyDown}
 					ref={listRef}
 					role="group"
+					data-sidebar-held-back={rowsHeldBack}
 				>
-					{/* One tree whether or not a host is paired, so pairing (or the host list's first read at launch)
+					<SidebarHoldContext.Provider value={pointing}>
+						{/* One tree whether or not a host is paired, so pairing (or the host list's first read at launch)
 					    never remounts this device's list. */}
-					<SidebarDeviceSections
-						sections={[
-							{
-								id: LOCAL_DEVICE,
-								label: t("remote.sidebar.thisDevice"),
-								node: (
-									<div
-										aria-label={sectionHosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
-										data-sidebar-local-device
-										ref={localMotionRef}
-										role={sectionHosts.length > 0 ? "region" : undefined}
-									>
-										{sectionHosts.length > 0 && (
-											<SidebarLocalHeader
-												onAddProject={() => void openProjectFolder()}
-												summary={localFoldSummary}
-											/>
-										)}
-										{localList}
-									</div>
-								),
-							},
-							...sectionHosts.map(host => ({
-								id: host.deviceId,
-								label: host.name,
-								node: (
-									<SidebarDeviceSection
-										host={host}
-										childForTab={remoteFamilyChildFor}
-										onNewChat={startChat}
-										pending={host.pending === true}
-										query={query}
-									/>
-								),
-							})),
-						]}
-					/>
+						<SidebarDeviceSections
+							sections={[
+								{
+									id: LOCAL_DEVICE,
+									label: t("remote.sidebar.thisDevice"),
+									node: (
+										<div
+											aria-label={sectionHosts.length > 0 ? t("remote.sidebar.thisDevice") : undefined}
+											data-sidebar-local-device
+											ref={localMotionRef}
+											role={sectionHosts.length > 0 ? "region" : undefined}
+										>
+											{sectionHosts.length > 0 && (
+												<SidebarLocalHeader
+													onAddProject={() => void openProjectFolder()}
+													summary={localFoldSummary}
+												/>
+											)}
+											{localList}
+										</div>
+									),
+								},
+								...sectionHosts.map(host => ({
+									id: host.deviceId,
+									label: host.name,
+									node: (
+										<SidebarDeviceSection
+											host={host}
+											childForTab={remoteFamilyChildFor}
+											onNewChat={startChat}
+											pending={host.pending === true}
+											query={query}
+										/>
+									),
+								})),
+							]}
+						/>
+					</SidebarHoldContext.Provider>
 				</div>
 
 				<SidebarUpdateCard />

@@ -31,7 +31,14 @@ import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
 import type { HostView, SessionKind } from "../../../../shared/ipc-types";
 import { unsavedSessionKey } from "../../../../shared/session-summary";
-import { CHATS_ORDER_KEY, familyRows, type RowGroup, type RowSession } from "../../../../shared/sidebar-rows";
+import {
+	CHATS_ORDER_KEY,
+	familyRows,
+	holdRows,
+	type RowGroup,
+	type RowSession,
+	tabOfRow,
+} from "../../../../shared/sidebar-rows";
 import { splitTabIds } from "../../../../shared/split-layout";
 import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
@@ -96,6 +103,7 @@ import { SortableProject } from "./SortableProject";
 import { sessionMenuItems } from "./session-menu";
 import { canMoveWithin, type SessionList, useSessionReorder } from "./session-reorder";
 import { CHILD_TOKEN, hasFamilyChip, openedChildStatus, reviewKey } from "./sidebar-family";
+import { useHeld } from "./sidebar-hold";
 import { useSidebarListMotion } from "./use-sidebar-list-motion";
 
 /** A host row: an indexed remote session, or an open remote tab the host has not listed yet. */
@@ -579,13 +587,13 @@ function DeviceSessions({
 		prefix,
 		query,
 	]);
-	const {
-		chats,
-		groups,
-		children: familyChildrenOf,
-		archived: archivedRows,
-		folderMissing: missingFolders,
-	} = tree.rows;
+	// While the pointer is on the sidebar the host's rows keep their places (`sidebar-hold.ts`), as this computer's do.
+	const ownOrder = useMemo(
+		() => JSON.stringify([groupOrder, sessionOrder, hostPins, [...hostArchived], query]),
+		[groupOrder, sessionOrder, hostPins, hostArchived, query],
+	);
+	const rows = useHeld(tree.rows, holdRows, ownOrder);
+	const { chats, groups, children: familyChildrenOf, archived: archivedRows, folderMissing: missingFolders } = rows;
 	// The host's tabs on paired devices its sessions opened, by the row they nest under.
 	const remoteChildrenOf = useMemo(() => {
 		const byRoot = new Map<string, SessionTab[]>();
@@ -676,14 +684,15 @@ function DeviceSessions({
 		[reviewByTab],
 	);
 
-	const tabFor = (session: DeviceSession): SessionTab | undefined =>
-		deviceTabs.find(
-			tab => tab.id === session.liveTabId || tab.sessionPath === session.path || tab.sessionId === session.id,
-		);
+	const tabFor = (session: DeviceSession): SessionTab | undefined => tabOfRow(deviceTabs, session);
 
 	const openSession = (session: DeviceSession) => {
 		const owner = tabFor(session);
-		logSelection({ list: "device", how: owner ? "focus" : "open", held: tree.rows.held.has(session.path) });
+		logSelection(
+			{ list: "device", how: owner ? "focus" : "open", held: rows.held.has(session.path) },
+			session,
+			owner,
+		);
 		if (owner) {
 			useUiStore.getState().closeDestination();
 			void useTabsStore.getState().switchTab(owner.id);

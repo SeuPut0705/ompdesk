@@ -392,9 +392,9 @@ test("a paired computer's section: selecting a host's row selects it and moves n
 			scope: `[data-sidebar-device=${cssString(deviceId)}]`,
 			rows: "[data-device-session], [data-sidebar-loose-children] [data-session-path]",
 		};
-		const plain = (id: string) => section.locator(`[data-device-session$="/${id}.jsonl"]`).first();
+		const plain = (id: string) => section.locator(`[data-device-session$="${id}.jsonl"]`).first();
 		const loose = (id: string) =>
-			section.locator(`[data-sidebar-loose-children] [data-session-path$="/${id}.jsonl"]`).first();
+			section.locator(`[data-sidebar-loose-children] [data-session-path$="${id}.jsonl"]`).first();
 		await expect(section).toHaveAttribute("data-device-state", "online", { timeout: 30_000 });
 		// The person archives the host's fifth session from its menu (this computer keeps it under the host's id).
 		await plain("s-5").click({ button: "right" });
@@ -416,7 +416,7 @@ test("a paired computer's section: selecting a host's row selects it and moves n
 					async () =>
 						(await a.evaluate(() => window.omp.tabs.list())).some(
 							tab =>
-								tab.device === deviceId && tab.sessionPath?.endsWith(`/${id}.jsonl`) && tab.status === "ready",
+								tab.device === deviceId && tab.sessionPath?.endsWith(`${id}.jsonl`) && tab.status === "ready",
 						),
 					{ timeout: 60_000 },
 				)
@@ -425,7 +425,7 @@ test("a paired computer's section: selecting a host's row selects it and moves n
 				.poll(
 					async () =>
 						(await a.evaluate(device => window.omp.sessions.summaries(device), deviceId))?.sessions.some(row =>
-							row.sessionPath.endsWith(`/${id}.jsonl`),
+							row.sessionPath.endsWith(`${id}.jsonl`),
 						),
 					{ timeout: 30_000 },
 				)
@@ -434,7 +434,7 @@ test("a paired computer's section: selecting a host's row selects it and moves n
 				.poll(
 					async () =>
 						(await a.evaluate(device => window.omp.sessions.list("local", device), deviceId)).find(row =>
-							row.path.endsWith(`/${id}.jsonl`),
+							row.path.endsWith(`${id}.jsonl`),
 						)?.heldOnHost,
 					{ timeout: 30_000 },
 				)
@@ -521,7 +521,7 @@ test("a phone's drawer: selecting a row selects it and moves no row, archived an
 		await expect(toggle).toBeVisible({ timeout: 30_000 });
 		if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
 	};
-	const plain = (id: string) => phone.locator(`${drawer} [data-session-path$="/${id}.jsonl"]`).first();
+	const plain = (id: string) => phone.locator(`${drawer} [data-session-path$="${id}.jsonl"]`).first();
 	const pick = async (id: string) => {
 		await openDrawer();
 		await expect.poll(() => orderOf(phone, lists), { timeout: 60_000 }).toBe(WORLD_ORDER);
@@ -531,7 +531,7 @@ test("a phone's drawer: selecting a row selects it and moves no row, archived an
 			.poll(
 				async () =>
 					(await phone.evaluate(() => window.omp.tabs.list())).some(
-						tab => tab.sessionPath?.endsWith(`/${id}.jsonl`) && tab.status === "ready",
+						tab => tab.sessionPath?.endsWith(`${id}.jsonl`) && tab.status === "ready",
 					),
 				{ timeout: 60_000 },
 			)
@@ -540,7 +540,7 @@ test("a phone's drawer: selecting a row selects it and moves no row, archived an
 			.poll(
 				async () =>
 					(await phone.evaluate(() => window.omp.sessions.summaries()))?.sessions.some(row =>
-						row.sessionPath.endsWith(`/${id}.jsonl`),
+						row.sessionPath.endsWith(`${id}.jsonl`),
 					),
 				{ timeout: 30_000 },
 			)
@@ -638,7 +638,7 @@ test("a split's rows read selected only where the window shows the split: a desk
 		narrowShowsDrawer: boolean,
 	) => {
 		const tabs = () => page.evaluate(() => window.omp.tabs.list());
-		const row = (id: string) => page.locator(`[data-session-path$="/${id}.jsonl"]`).first();
+		const row = (id: string) => page.locator(`[data-session-path$="${id}.jsonl"]`).first();
 		const selected = page.locator('[data-session-group] [data-active="true"]');
 		// A phone page lists the project folded; the person unfolds it.
 		const unfold = async () => {
@@ -654,7 +654,7 @@ test("a split's rows read selected only where the window shows the split: a desk
 			await expect
 				.poll(
 					async () =>
-						(await tabs()).some(tab => tab.sessionPath?.endsWith(`/${id}.jsonl`) && tab.status === "ready"),
+						(await tabs()).some(tab => tab.sessionPath?.endsWith(`${id}.jsonl`) && tab.status === "ready"),
 					{ timeout: 60_000 },
 				)
 				.toBe(true);
