@@ -72,6 +72,21 @@ describe("UsageRow TTFT and time segments", () => {
 		expect(html).not.toMatch(/>\d{2}:\d{2}</);
 	});
 
+	it("names every value in the row's tooltip, also those a narrow row leaves out", () => {
+		const html = render({ ...baseMessage, ttft: 350, timestamp: "2026-08-05T14:30:00.000Z" });
+		const title = /<div class="omp-usage-row[^"]*" title="([^"]*)"/.exec(html)?.[1] ?? "";
+		expect(title.split("\n")).toEqual([
+			"kimi-k3",
+			"1,200 input tokens",
+			"300 output tokens",
+			"Request cost: $0.0020",
+			"Request duration: 2.4s",
+			"Time to first token: 350ms",
+			"Output throughput: 125.0 tok/s",
+			expect.stringMatching(/^Message time: \d{2}:\d{2}$/),
+		]);
+	});
+
 	it("stays hidden when showTokenUsage is off (schema default)", () => {
 		initial.showTokenUsage = false;
 		const html = render({ ...baseMessage, ttft: 350, timestamp: "2026-08-05T14:30:00.000Z" });

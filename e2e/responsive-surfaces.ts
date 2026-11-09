@@ -771,6 +771,26 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "reply", inView: '[data-tool-agent-desktop="tree"]' },
 	},
 	{
+		id: "reply-usage",
+		area: "A",
+		title: "The usage row under a reply: model, tokens, cache, cost, duration, first token, speed and time on one line",
+		// The fake omp's agent-desktop run (`tool-agent-desktop`) ends on a reply carrying every segment.
+		open: async page => {
+			await page.getByText("agent-desktop run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
+			// A surface before may have scrolled the transcript up: back to its end, where this reply is, as a reader
+			// does (a scroll of our own would leave "Jump to latest" over the row).
+			// The pill stays in the page while pinned, hidden from the pointer and the accessibility tree.
+			const latest = page.locator("[data-jump-to-latest]:not([aria-hidden])").first();
+			if ((await latest.count()) > 0) await latest.click();
+			await latest.waitFor({ state: "detached", timeout: 15_000 });
+		},
+		ready: ".omp-usage-row",
+		settle: 900,
+		// The audits' harness page shows usage rows only with the preference on; the parity sheet asks the fake omp.
+		when: () => false,
+		parity: { session: "reply", inView: ".omp-usage-row" },
+	},
+	{
 		id: "bot-bar",
 		area: "A",
 		title: "The bot's session (?bot=1): its bar over the conversation and an open decision docked above the composer",

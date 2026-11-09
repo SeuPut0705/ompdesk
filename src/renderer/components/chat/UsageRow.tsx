@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Clock, DollarSign, Zap } from "lucide-react";
 import { useDisplayPreference } from "../../lib/display-preferences";
-import { formatDuration, formatTokens, uiLocale } from "../../lib/format";
+import { cx, formatDuration, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ModelLabel } from "../settings/ModelLabel";
 import { compactModelLabel } from "../settings/providers/provider-marks";
@@ -64,6 +64,28 @@ function formatCost(total: number): string {
 }
 
 /**
+ * The row is one line at any width (the owner's call, 9 Nov 2026: on a phone it stacked into two or three). As the row
+ * narrows the model's name gives way to an ellipsis, and below each width here (em of the row's own text, so the
+ * steps follow the font size) one more segment goes, least useful first: first-token time, throughput, the message
+ * time (a reply's actions show it again right below), cache, the duration, then the input. The model, the output and
+ * the cost always stay. Each step is the sum of the segments still shown, measured in English and Korean (input and
+ * output 3.4em, cache 7.1, cost 5.0, duration 3.9, first token 5.2, throughput 6.3, time 2.8, plus a 1em gap each),
+ * and 6em for the model's mark and a few letters; longer numbers take that room from the model's name. Every value
+ * stays in the row's tooltip.
+ */
+const DROP = {
+	ttft: "@max-[52em]/usage:hidden",
+	rate: "@max-[45em]/usage:hidden",
+	time: "@max-[38em]/usage:hidden",
+	cache: "@max-[34em]/usage:hidden",
+	duration: "@max-[26em]/usage:hidden",
+	input: "@max-[21em]/usage:hidden",
+} as const;
+
+/** A segment beside the model: it never shrinks, the model's name gives way instead. */
+const SEGMENT = "flex shrink-0 items-center gap-1";
+
+/**
  * Compact usage/cost footer under completed assistant messages (TUI
  * usage-row.ts parity): model, in/out tokens, cache reads, cost, wall-clock
  * duration, and throughput — only the segments the message actually carries.
@@ -103,52 +125,75 @@ export function UsageRow({ message }: { message: UsageSource }) {
 			})()
 		: "";
 
+	const rateText = tokPerSec > 0 ? t("chat.meter.rate", { rate: tokPerSec.toFixed(1) }) : "";
+	// Every value with its name, also those the row's width left out.
+	const details = [
+		model && (provider ? `${provider}/${model}` : model),
+		t("chat.usage.inputTokens", { count: totalInput.toLocaleString(uiLocale()) }),
+		t("chat.usage.outputTokens", { count: usage.output.toLocaleString(uiLocale()) }),
+		usage.cacheRead > 0 && t("chat.usage.cachedTokens", { count: usage.cacheRead.toLocaleString(uiLocale()) }),
+		usage.costTotal !== undefined && `${t("chat.usage.cost")}: ${formatCost(usage.costTotal)}`,
+		durationMs > 0 && `${t("chat.usage.duration")}: ${formatDuration(durationMs)}`,
+		ttftMs > 0 && `${t("chat.usage.ttft")}: ${formatDuration(ttftMs)}`,
+		rateText && `${t("chat.usage.throughput")}: ${rateText}`,
+		timeText && `${t("chat.usage.time")}: ${timeText}`,
+	]
+		.filter(Boolean)
+		.join("\n");
+
 	return (
-		<div className="omp-usage-row mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sc-xs tabular-nums text-(--sc-text-subtle) [&_svg]:size-(--sc-icon-sm) [&_svg]:shrink-0">
-			{model && (
-				<span title={provider ? `${provider}/${model}` : model}>
-					<ModelLabel provider={provider} label={compactModelLabel({ provider, id: model })} />
+		<div
+			className="omp-usage-row @container/usage mt-1.5 text-sc-xs tabular-nums text-(--sc-text-subtle)"
+			title={details}
+		>
+			<div className="flex items-center gap-x-3 overflow-hidden whitespace-nowrap [&_svg]:size-(--sc-icon-sm) [&_svg]:shrink-0">
+				{model && (
+					<span className="flex min-w-0" data-usage-segment="model">
+						<ModelLabel provider={provider} label={compactModelLabel({ provider, id: model })} />
+					</span>
+				)}
+				<span className={cx(SEGMENT, DROP.input)} data-usage-segment="input">
+					<ArrowUp aria-hidden />
+					{formatTokens(totalInput)}
 				</span>
-			)}
-			<span
-				className="flex items-center gap-1"
-				title={t("chat.usage.inputTokens", { count: totalInput.toLocaleString(uiLocale()) })}
-			>
-				<ArrowUp aria-hidden />
-				{formatTokens(totalInput)}
-			</span>
-			<span
-				className="flex items-center gap-1"
-				title={t("chat.usage.outputTokens", { count: usage.output.toLocaleString(uiLocale()) })}
-			>
-				<ArrowDown aria-hidden />
-				{formatTokens(usage.output)}
-			</span>
-			{usage.cacheRead > 0 && (
-				<span title={t("chat.usage.cachedTokens", { count: usage.cacheRead.toLocaleString(uiLocale()) })}>
-					{t("chat.usage.cached", { tokens: formatTokens(usage.cacheRead) })}
+				<span className={SEGMENT} data-usage-segment="output">
+					<ArrowDown aria-hidden />
+					{formatTokens(usage.output)}
 				</span>
-			)}
-			{usage.costTotal !== undefined && (
-				<span className="flex items-center gap-1" title={t("chat.usage.cost")}>
-					<DollarSign aria-hidden />
-					{formatCost(usage.costTotal)}
-				</span>
-			)}
-			{durationMs > 0 && (
-				<span className="flex items-center gap-1" title={t("chat.usage.duration")}>
-					<Clock aria-hidden />
-					{formatDuration(durationMs)}
-				</span>
-			)}
-			{ttftMs > 0 && <span title={t("chat.usage.ttft")}>TTFT {formatDuration(ttftMs)}</span>}
-			{tokPerSec > 0 && (
-				<span className="flex items-center gap-1" title={t("chat.usage.throughput")}>
-					<Zap aria-hidden />
-					{t("chat.meter.rate", { rate: tokPerSec.toFixed(1) })}
-				</span>
-			)}
-			{timeText && <span title={t("chat.usage.time")}>{timeText}</span>}
+				{usage.cacheRead > 0 && (
+					<span className={cx(SEGMENT, DROP.cache)} data-usage-segment="cache">
+						{t("chat.usage.cached", { tokens: formatTokens(usage.cacheRead) })}
+					</span>
+				)}
+				{usage.costTotal !== undefined && (
+					<span className={SEGMENT} data-usage-segment="cost">
+						<DollarSign aria-hidden />
+						{formatCost(usage.costTotal)}
+					</span>
+				)}
+				{durationMs > 0 && (
+					<span className={cx(SEGMENT, DROP.duration)} data-usage-segment="duration">
+						<Clock aria-hidden />
+						{formatDuration(durationMs)}
+					</span>
+				)}
+				{ttftMs > 0 && (
+					<span className={cx(SEGMENT, DROP.ttft)} data-usage-segment="ttft">
+						TTFT {formatDuration(ttftMs)}
+					</span>
+				)}
+				{rateText && (
+					<span className={cx(SEGMENT, DROP.rate)} data-usage-segment="rate">
+						<Zap aria-hidden />
+						{rateText}
+					</span>
+				)}
+				{timeText && (
+					<span className={cx(SEGMENT, DROP.time)} data-usage-segment="time">
+						{timeText}
+					</span>
+				)}
+			</div>
 		</div>
 	);
 }

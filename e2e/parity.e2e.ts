@@ -151,7 +151,8 @@ if (dir) {
 			const hostProfile = await makeRemoteProfile(parent, "host", {
 				language: "en",
 				theme: "light",
-				prefs: { botEnabled: true },
+				// The usage row under a reply (`reply-usage`): on here, on the paired computer and through to the phone.
+				prefs: { botEnabled: true, displayPreferences: { showTokenUsage: true } },
 				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
 				env: { OMP_GUI_START_SLOW_MS: "1500" },
 			});
@@ -160,6 +161,7 @@ if (dir) {
 				language: "en",
 				theme: "light",
 				port: hostProfile.port,
+				prefs: { displayPreferences: { showTokenUsage: true } },
 			});
 			host = await launchRemote(hostProfile);
 			client = await launchRemote(clientProfile);
@@ -284,6 +286,8 @@ if (dir) {
 				page.on("pageerror", error => pageErrors.push(`${name}: ${error.message}`));
 			await phone.goto(`${phoneUrl}/`, { timeout: 60_000 });
 			await phonePaired(phone);
+			// The phone's display switches are its own (device prefs), read when each view loads its page afresh.
+			await phone.evaluate(() => window.omp.prefs.set("displayPreferences.showTokenUsage", true));
 			// B announces the new phone in a toast; the toasts are dismissed before each capture (openRow), so let it land.
 			await expect
 				.poll(() => b.locator('[data-toast-stack] button[aria-label="Close"]').count(), { timeout: 10_000 })

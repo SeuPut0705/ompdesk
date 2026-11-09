@@ -310,7 +310,19 @@ export function entriesFixture(tabId: string): Entry[] {
 				},
 			],
 			stopReason: "stop",
+			provider: MODEL.provider,
 			model: MODEL.id,
+			// Every segment of the usage row (chat/UsageRow.tsx), the numbers a real turn of this size carries.
+			usage: {
+				input: 204,
+				output: 565,
+				cacheRead: 155_200,
+				cacheWrite: 0,
+				totalTokens: 155_969,
+				cost: { input: 0.001, output: 0.008, cacheRead: 0.035, cacheWrite: 0, total: 0.044 },
+			},
+			duration: 6_500,
+			ttft: 6_400,
 			timestamp: base + 96_000,
 		},
 	];

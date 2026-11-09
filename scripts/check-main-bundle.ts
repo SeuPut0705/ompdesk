@@ -349,7 +349,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // An agent's question shows its form's paragraph and pictures above the choices, and a bot decision's pictures unfolded
 // (9 Nov 2026, ExtensionDialog.tsx `AskDialog` drawing `context`, BotDecisions.tsx `PICTURE`; the ask card is the
 // first screen), and a picture named by a Windows drive path read as a path (markdown.tsx `WINDOWS_DRIVES`): 2,175,491.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_175_491;
+// The usage row under a reply stays one line, dropping its least useful segments as it narrows (9 Nov 2026,
+// UsageRow.tsx `DROP`, every value named in its tooltip; the transcript is the first screen): 2,176,219.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_176_219;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

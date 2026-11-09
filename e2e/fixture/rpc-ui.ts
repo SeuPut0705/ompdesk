@@ -4800,13 +4800,25 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			const run = (index: number) => {
 				const item = calls[index];
 				if (!item) {
+					// It carries every segment of the usage row under a reply (src/renderer/components/chat/UsageRow.tsx):
+					// the parity sheet's `reply-usage`.
 					const answer: AgentMessage = {
 						role: "assistant",
 						content: [{ type: "text", text: "agent-desktop run finished." }],
 						timestamp: Date.now(),
-						provider: model.provider,
-						model: model.id,
+						provider: "anthropic",
+						model: "claude-sonnet-4-5",
 						stopReason: "stop",
+						usage: {
+							input: 204,
+							output: 565,
+							cacheRead: 155_200,
+							cacheWrite: 0,
+							totalTokens: 155_969,
+							cost: { input: 0.001, output: 0.008, cacheRead: 0.035, cacheWrite: 0, total: 0.044 },
+						},
+						duration: 6_500,
+						ttft: 6_400,
 					};
 					appendMessage(answer);
 					write({ type: "message_start", message: answer });
