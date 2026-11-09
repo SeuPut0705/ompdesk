@@ -93,4 +93,59 @@ describe.skipIf(!existsSync(omp))("waste guards, on stock omp", () => {
 		expect(results[0]).toContain(EDIT_HINT_START);
 		expect(results[1]).not.toContain(EDIT_HINT_START);
 	}, 180_000);
+
+	it("blocks a wait until the job it watches finishes, past stock's first windows", async () => {
+		// The output is computed, so the job's label (the command) never contains it.
+		const script = [
+			toolCall("bash", { command: "sleep 12; echo JOB_$((40 + 2))", async: true }),
+			toolCall("wait", {}),
+		];
+		const provider = await startProvider(step =>
+			step <= script.length ? sse(script[step - 1], "tool_calls") : sse([{ content: "DONE" }], "stop"),
+		);
+		const session = await startOmp({
+			...fakeAgent(provider.url),
+			model: "fake/m1",
+			bridge: resolve("resources/gui-bridge/index.ts"),
+		});
+		const frames = await session.turn("Start a job and wait for it");
+		const waits = frames
+			.filter(frame => frame.type === "tool_execution_end" && frame.toolName === "wait")
+			.map(frame => JSON.stringify(frame.result));
+		// Stock's wait returns after its 5 s window with the job still running, and the model is asked again for nothing.
+		expect(waits).toHaveLength(1);
+		expect(waits[0]).toContain("JOB_42");
+		expect(provider.bodies[2]).toContain("JOB_42");
+		expect(provider.bodies[2]).not.toContain("Still Running");
+	}, 180_000);
+
+	it("still ends a blocked wait at once when a message comes in", async () => {
+		const script = [toolCall("bash", { command: "sleep 90; echo LATE", async: true }), toolCall("wait", {})];
+		const provider = await startProvider(step =>
+			step <= script.length ? sse(script[step - 1], "tool_calls") : sse([{ content: "DONE" }], "stop"),
+		);
+		const session = await startOmp({
+			...fakeAgent(provider.url),
+			model: "fake/m1",
+			bridge: resolve("resources/gui-bridge/index.ts"),
+		});
+		const from = session.frames.length;
+		void session.turn("Start a long job and wait for it");
+		await expect
+			.poll(() => session.frames.slice(from).some(f => f.type === "tool_execution_start" && f.toolName === "wait"), {
+				timeout: 60_000,
+			})
+			.toBe(true);
+		await session.send({ type: "steer", message: "Stop waiting and answer" });
+		// Far inside the job's 90 s: only the message can have ended the wait.
+		await expect
+			.poll(() => session.frames.slice(from).find(f => f.type === "tool_execution_end" && f.toolName === "wait"), {
+				timeout: 30_000,
+			})
+			.toBeDefined();
+		const ended = session.frames
+			.slice(from)
+			.find(frame => frame.type === "tool_execution_end" && frame.toolName === "wait");
+		expect(JSON.stringify(ended?.result)).toContain("interrupted by message");
+	}, 180_000);
 });
