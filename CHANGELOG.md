@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.119.8] - 2026-11-09
+
+사이드바에서 세션을 누르면 목록이 뒤섞이고 선택이 안 되던 문제와, 직접 정해 둔 세션 순서가 지워지던 문제를 고쳤어요.
+
+### 고친 것
+- 사이드바에서 세션을 누르면 그 줄이 다른 자리로 옮겨 가고 선택이 풀릴 수 있었어요. 숨긴 세션이 숨김 구역을 빠져나가거나 하위 세션이 프로젝트 줄 사이로 끼어드는 식이었어요. 이제 세션의 자리는 탭이 열려 있든 아니든 같고, 선택 표시는 지금 보고 있는 탭 하나로만 정해져요. 이 컴퓨터, 페어링한 컴퓨터의 구역, 휴대폰에서 모두 같아요.
+- 끌어서 정한 세션·프로젝트 순서와 고정, 숨김이 다른 창이나 휴대폰에서 작업한 뒤 지워지거나 되돌아올 수 있었어요. 창마다 처음 읽은 옛 기록을 통째로 다시 썼기 때문이에요. 이제 앱이 한 곳에서 바꾼 것만 고치고, 모든 창과 휴대폰이 바로 다시 읽어요.
+- 에이전트가 연 하위 세션을 누르면 병합 대기나 실패 상태가 "끝남"으로 바뀌고 목록에서 빠지던 문제를 고쳤어요.
+- 휴대폰이나 좁은 화면에서 분할 화면을 유지한 채 보면, 화면에 보이지 않는 칸의 세션까지 선택돼 보이던 문제를 고쳤어요.
+- 다른 컴퓨터의 에이전트가 이 컴퓨터에 연 세션이, 그 탭이 닫히면 프로젝트의 하위 세션처럼 보이던 문제를 고쳤어요.
+- omp 18.18.2에서 앱을 끄거나 재시작할 때 진행 중이던 턴이 다음 실행에서 이어지지 않던 문제를 고쳤어요. 기다리던 하위 에이전트를 되살렸다는 안내는 그 턴에 한 번만 가요.
+- omp 18.18.2에 새로 생긴 설정(`gc.strip`, `gc.stripAfterDays`)이 한글로 보여요.
+
+<!-- en -->
+
+Selecting a session in the sidebar no longer reshuffles the list or loses the selection, and an order you set is no longer lost.
+
+### Fixed
+- Selecting a session could move its row and drop the selection: an archived session left the Archived section, a loose child joined its project's rows. A session now sits in the same place whether or not a tab holds it, and the selected row is the tab on screen, on this computer, in a paired computer's section and on the phone.
+- A session or project order you dragged, pins and archived sessions could be lost or come back after another window or the phone changed something, because each one rewrote the whole record it read at launch. The app now applies each change to what is stored, and every window and phone page reads it again.
+- An agent's child session waiting to merge or failed read "done" and left its family the moment it was selected.
+- On a phone or a narrow window that keeps a split, panes not on screen read as selected.
+- A session a paired computer's agent opened here read as a loose child of its project once its tab closed.
+- On omp 18.18.2, a turn a quit or a restart cut off was not continued at the next launch; the revived subagents are announced to it once.
+- omp 18.18.2's new settings (`gc.strip`, `gc.stripAfterDays`) show in Korean.
+
 ## [0.119.7] - 2026-11-09
 
 앱을 재시작하거나 업데이트한 뒤 멈춘 omp가 남아 새 세션을 몇 분씩 막던 문제를 고쳤고, 모델 목록이 제공자별로 묶여요.
