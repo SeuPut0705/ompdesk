@@ -179,7 +179,8 @@ export function SettingsPage() {
 	const data = useSettingsDataLoader();
 	const settingsTab = useUiStore(state => state.settingsTab);
 	const sidecarStatus = useSessionStore(state => state.status);
-	const sidecarError = useSessionStore(state => state.sidecarError);
+	// A slow start's stderr tail is no failure: the connection row reads it as still starting.
+	const sidecarError = useSessionStore(state => (state.sidecarSlow ? null : state.sidecarError));
 	const { section, sub } = resolveSettingsTarget(settingsTab);
 	const host = useFocusedHost();
 	// An unreachable host's sections show its offline notice instead of the connection banners.
