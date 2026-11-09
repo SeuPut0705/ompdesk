@@ -123,7 +123,9 @@ const ORDER_JS = (lists: Lists) =>
 				: row.closest("[data-sidebar-loose-children]")
 					? "loose"
 					: "project";
-			const file = (row.getAttribute("data-device-session") ?? row.getAttribute("data-session-path"))?.split("/");
+			const file = (row.getAttribute("data-device-session") ?? row.getAttribute("data-session-path"))?.split(
+				/[\\/]/,
+			);
 			return `${section}:${file?.at(-1)}`;
 		})
 		.join(" | ");
@@ -137,7 +139,9 @@ const PAINTED_JS = (lists: Lists) =>
 				: row.closest("[data-sidebar-loose-children]")
 					? "loose"
 					: "project";
-			const file = (row.getAttribute("data-device-session") ?? row.getAttribute("data-session-path"))?.split("/");
+			const file = (row.getAttribute("data-device-session") ?? row.getAttribute("data-session-path"))?.split(
+				/[\\/]/,
+			);
 			return { name: `${section}:${file?.at(-1)}`, top: row.getBoundingClientRect().top };
 		})
 		.toSorted((a, b) => a.top - b.top)
@@ -195,7 +199,7 @@ test("selecting a session row selects it and moves no row, an archived one's inc
 	await page.waitForFunction(() => window.omp?.rpc != null);
 	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 
-	const rowOf = (id: string) => page.locator(`[data-session-path$="/${id}.jsonl"]`).first();
+	const rowOf = (id: string) => page.locator(`[data-session-path$="${id}.jsonl"]`).first();
 	await page.locator("[data-sidebar-archived] button[aria-expanded]").first().click();
 	const order = "project:s-1.jsonl | project:s-2.jsonl | project:s-3.jsonl | project:s-4.jsonl | archived:s-5.jsonl";
 	await expect.poll(() => orderOf(page, LOCAL)).toBe(order);
@@ -209,7 +213,7 @@ test("selecting a session row selects it and moves no row, an archived one's inc
 		await expect
 			.poll(async () =>
 				(await page.evaluate(() => window.omp.tabs.list())).some(
-					tab => tab.sessionPath?.endsWith(`/${id}.jsonl`) && tab.status === "ready",
+					tab => tab.sessionPath?.split(/[\\/]/).at(-1) === `${id}.jsonl` && tab.status === "ready",
 				),
 			)
 			.toBe(true);
@@ -228,6 +232,96 @@ test("selecting a session row selects it and moves no row, an archived one's inc
 			),
 		)
 		.toHaveLength(5);
+});
+
+/**
+ * The owner's next report (9 Nov 2026, MacBook, v0.119.8): a click on one row selected another session, one at work.
+ * Rows sit newest first, so a session another omp starts lands at the top of its project and pushes every row below it
+ * down by one: the pointer that rested on Alpha then rests on the newcomer, and the click a person aimed at Alpha
+ * selects it. While the pointer is on the list nothing moves into its place; the newcomer joins once it leaves.
+ */
+test("a session another omp starts never moves into the row the pointer rests on: the click selects the row aimed at", async () => {
+	test.setTimeout(120_000);
+	root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-sidebar-select-")));
+	const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(root, name));
+	await Promise.all([project, desktop, agent].map(dir => fs.mkdir(dir)));
+	for (const [id, title, minutesAgo] of WORLD.slice(0, 4)) await seed(agent, id, project, title, minutesAgo);
+	await fs.writeFile(path.join(desktop, "prefs.json"), JSON.stringify({ language: "en", firstRunComplete: true }));
+	app = await launchApp({ project, desktop, agent, profile: root, env: { OMP_GUI_TEST_SESSION_FILES: "1" } });
+	const page = await app.firstWindow();
+	await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setContentSize(1440, 900));
+	await page.waitForFunction(() => window.omp?.rpc != null);
+	await expect.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
+
+	const rowOf = (id: string) => page.locator(`[data-session-path$="${id}.jsonl"]`).first();
+	const order = "project:s-1.jsonl | project:s-2.jsonl | project:s-3.jsonl | project:s-4.jsonl";
+	await expect.poll(() => orderOf(page, LOCAL)).toBe(order);
+	// No glide left under the pointer: the row's box is where it rests.
+	await expect.poll(() => paintedOrder(page, LOCAL)).toBe(order);
+
+	// A person aims at Alpha: the pointer rests on its row.
+	const box = await rowOf("s-1").locator("button").first().boundingBox();
+	if (!box) throw new Error("Alpha's row has no box");
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await recordOrders(page, LOCAL);
+	// Meanwhile another omp starts a session in the same project.
+	await seed(agent, "s-9", project, "Zulu run", 0);
+	// This window has it: it joined the list (where the click lands on it), or it waits for the pointer to leave.
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() =>
+					document.querySelector('[data-session-path$="s-9.jsonl"]') !== null ||
+					document.querySelector('[data-sidebar-held-back]:not([data-sidebar-held-back="0"])') !== null,
+			),
+		)
+		.toBe(true);
+	// `OMP_GUI_SIDEBAR_SELECT_SHOTS=<dir>`: the window as the click lands, once it has picked, and once the pointer left.
+	const shots = process.env.OMP_GUI_SIDEBAR_SELECT_SHOTS;
+	const shoot = async (name: string) => {
+		if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) });
+	};
+	await shoot("1-pointer-on-alpha");
+	await page.mouse.down();
+	await page.mouse.up();
+
+	// The selected row, by file: the one the pointer rested on, not whatever moved into its place.
+	const selected = () =>
+		page.evaluate(() =>
+			[...document.querySelectorAll('[data-session-group] [data-active="true"]')]
+				.map(row => row.getAttribute("data-session-path")?.split(/[\\/]/).at(-1))
+				.join(" | "),
+		);
+	await expect.poll(selected).not.toBe("");
+	await shoot("2-after-click");
+	expect(await selected()).toBe("s-1.jsonl");
+	await expect
+		.poll(async () =>
+			(await page.evaluate(() => window.omp.tabs.list())).some(
+				tab => tab.sessionPath?.split(/[\\/]/).at(-1) === "s-1.jsonl" && tab.status === "ready",
+			),
+		)
+		.toBe(true);
+	await expect(page.locator('[data-session-group] [data-active="true"]')).toHaveCount(1);
+	await expectNoMove(page, order, "the pointer rested on Alpha while another session started");
+	// The pick's log line names the row's session and the one it selected.
+	await expect
+		.poll(async () =>
+			(await page.evaluate(() => window.omp.runtime.logTail(200))).filter(
+				line =>
+					line.includes('"message":"select"') &&
+					line.includes('"session":"s-1"') &&
+					line.includes('"selected":"s-1.jsonl"'),
+			),
+		)
+		.toHaveLength(1);
+
+	// The pointer leaves the list: the newcomer takes its place at the top.
+	await page.mouse.move(1000, 450);
+	await expect
+		.poll(() => orderOf(page, LOCAL))
+		.toBe("project:s-9.jsonl | project:s-1.jsonl | project:s-2.jsonl | project:s-3.jsonl | project:s-4.jsonl");
+	await shoot("3-pointer-left");
 });
 
 /** No order but the first was ever drawn, in the DOM or on screen, since `recordOrders`. */
