@@ -2445,6 +2445,7 @@ export class SidecarPool {
 							...(ask ? { ask } : {}),
 							...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
 							...(tab.sessionHeld ? { sessionHeld: true as const } : {}),
+							...(tab.queued ? { queued: true as const } : {}),
 							...(entry.failure ? { failure: entry.failure } : {}),
 							...(entry.sessionId === undefined ? {} : { sessionId: entry.sessionId }),
 							...(entry.title ? { title: entry.title } : {}),

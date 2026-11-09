@@ -933,6 +933,7 @@ export class LocalHostServices implements HostServices {
 					...(ask ? { ask } : {}),
 					...(tab.awaitingConnection ? { awaitingConnection: true as const } : {}),
 					...(status === "error" && sidecar.statusPayload?.sessionHeld ? { sessionHeld: true as const } : {}),
+					...(status === "starting" && sidecar.statusPayload?.queued ? { queued: true as const } : {}),
 					...(failure ? { failure } : {}),
 					...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
 					...(tab.title ? { title: tab.title } : {}),

@@ -2945,13 +2945,19 @@ describe("SidecarPool background tabs", () => {
 			expect(summary()).not.toHaveProperty("failure");
 		});
 
-		it("tells every window a slow start's omp is still waited for, with its stderr tail, until it answers", () => {
+		it("tells every window a queued or slow start is still waited for, with a slow omp's stderr tail, until it answers", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);
 			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
 			const a = sidecars[0];
 			const listed = () => pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a");
 
+			// Waiting its turn in the start queue: every window and the summary every title bar and row reads say so.
+			a?.emit("status", { status: "starting", cwd: "/a", queued: true });
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({ status: "starting", queued: true });
+			expect(pool.summarySources()[0]?.facts()).toMatchObject({ status: "starting", queued: true });
+			a?.emit("status", { status: "starting", cwd: "/a" });
+			expect(listed()).not.toHaveProperty("queued");
 			a?.emit("status", { status: "starting", cwd: "/a", slow: true, message: "loading models" });
 			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
 				status: "starting",

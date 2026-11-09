@@ -11,7 +11,7 @@ import { isSessionDown, isTabFailed, type TabSignalPresentation, tabSignalPresen
 /** The facts of a summary the rule reads (a tab with no session file yet has these too). */
 export type RunFacts = Pick<
 	SessionSummary,
-	"status" | "ask" | "settling" | "compacting" | "awaitingConnection" | "sessionHeld" | "failure"
+	"status" | "ask" | "settling" | "compacting" | "awaitingConnection" | "sessionHeld" | "queued" | "failure"
 >;
 
 export interface SessionRun {
@@ -46,6 +46,7 @@ export function sessionRun(facts: RunFacts | undefined, unreadDone = false): Ses
 				awaitingInput: facts.ask,
 				awaitingConnection: facts.awaitingConnection === true,
 				...(facts.sessionHeld ? { sessionHeld: true as const } : {}),
+				...(facts.queued ? { queued: true as const } : {}),
 				unreadDone,
 			})
 		: null;

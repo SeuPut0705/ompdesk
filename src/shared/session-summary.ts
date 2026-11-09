@@ -83,6 +83,8 @@ export interface SessionSummary {
 	awaitingConnection?: true;
 	/** With `error`: another omp still holds the session, a wait that ends by itself. */
 	sessionHeld?: true;
+	/** With `starting`: it waits its turn in the computer's start queue (`SidecarStatusPayload.queued`). */
+	queued?: true;
 	/** With `error`, `exited` or `restarting`: why, as the tab's omp said it, and the restart attempts so far. */
 	failure?: SummaryFailure;
 	sessionId?: string;
