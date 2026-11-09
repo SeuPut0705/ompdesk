@@ -442,12 +442,14 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		// The idle parent gets one turn: the follow-up names the subagent and its assignment, and it answers.
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
 		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
-		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toEqual([
-			expect.objectContaining({
-				type: "custom_message",
-				details: { jobs: [], subagents: [{ id, intent: SUBTASK }] },
-			}),
-		]);
+		await expect
+			.poll(() => restartNotes(isolated), { timeout: 10_000 })
+			.toEqual([
+				expect.objectContaining({
+					type: "custom_message",
+					details: { jobs: [], subagents: [{ id, intent: SUBTASK }] },
+				}),
+			]);
 	}, 240_000);
 
 	it("continues a parent cut off in `wait` in an eval journal: stock's restore (≥ 18.12.2) or the bridge's follow-up", async () => {
@@ -479,9 +481,9 @@ describe.skipIf(!existsSync(omp))("revived subagents on stock omp", () => {
 		// skips an interruptible wait for a steer), never on the subagent's result.
 		await expect.poll(() => provider.noticeRequests.length, { timeout: 60_000 }).toBe(1);
 		expect(provider.noticeRequests[0]).toContain(`- ${id}: ${SUBTASK}`);
-		await expect.poll(() => restartNotes(isolated), { timeout: 10_000 }).toEqual([
-			expect.objectContaining({ details: { jobs: [], subagents: [{ id, intent: SUBTASK }] } }),
-		]);
+		await expect
+			.poll(() => restartNotes(isolated), { timeout: 10_000 })
+			.toEqual([expect.objectContaining({ details: { jobs: [], subagents: [{ id, intent: SUBTASK }] } })]);
 		const live = provider.parentCalls[parentCallsAtCut - 1];
 		const restored = provider.parentCalls[parentCallsAtCut];
 		expect(live?.system).toContain("<background-checks>");
