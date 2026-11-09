@@ -1,12 +1,19 @@
 /* Sidebar-only polish; shared controls and the theme scales stay unchanged. */
-/* A session row is 32 px for a mouse (one more row in view at 1280×800) and 36 px under a finger. */
+/* A session row is 32 px for a mouse (one more row in view at 1280×800) and 36 px under a finger. The empty place a row
+   leaves while the person points at the list (`data-sidebar-gap`, layout/sidebar/sidebar-hold.ts) is the same height. */
 .omp-session-sidebar .omp-sidebar-session-row,
+.omp-session-sidebar [data-sidebar-gap="session"],
 .omp-sidebar-session-rename {
 	--omp-sidebar-row-h: var(--sc-control-md);
 	min-height: var(--omp-sidebar-row-h);
 }
 
-html[data-input="touch"] :is(.omp-session-sidebar .omp-sidebar-session-row, .omp-sidebar-session-rename) {
+html[data-input="touch"]
+	:is(
+		.omp-session-sidebar .omp-sidebar-session-row,
+		.omp-session-sidebar [data-sidebar-gap="session"],
+		.omp-sidebar-session-rename
+	) {
 	--omp-sidebar-row-h: var(--sc-control-lg);
 }
 

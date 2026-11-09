@@ -10,8 +10,11 @@ import type { SessionInfo, SessionKind } from "./ipc-types";
 import { isOmpdeskWorktreeFolder, type WorktreeKind } from "./project-origin";
 import type { SidebarProject } from "./sidebar-projects";
 
-/** A row: a session the index lists, or one a tab holds before the index lists its file (`liveTabId`). */
-export type RowSession = SessionInfo & { liveTabId?: string };
+/**
+ * A row: a session the index lists, or one a tab holds before the index lists its file (`liveTabId`). `departed`: it
+ * left a list the person points at, which keeps its place empty until the pointer leaves (`holdRows`).
+ */
+export type RowSession = SessionInfo & { liveTabId?: string; departed?: true };
 
 /** A tab of the viewer's on the computer whose sessions these are (or a stand-in for one it runs for a device). */
 export interface RowTab {
@@ -735,47 +738,66 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 
 /**
  * `now`'s items in the places `shown` gave them, for a list the person points at: an item still there keeps its place
- * and says what it says now (`merge`), one that left keeps its place as it was last shown, and one that arrived waits.
- * Nothing another session does moves a row into the place under the pointer (the owner's report, 9 Nov 2026: a session
- * another omp started took the top of its project, pushed every row below it down by one, and the click aimed at the
- * row under the pointer selected the newcomer).
+ * and says what it says now (`merge`), one that arrived waits, and one that left keeps its place as `gone` makes it (an
+ * empty place of its height; null lets it go). Nothing another session does moves a row into the place under the pointer
+ * (the owner's report, 9 Nov 2026: a session another omp started took the top of its project, pushed every row below it
+ * down by one, and the click aimed at the row under the pointer selected the newcomer).
  */
 export function holdPlaces<T>(
 	shown: readonly T[],
 	now: readonly T[],
 	keyOf: (item: T) => string,
+	gone: (item: T) => T | null,
 	merge: (shown: T, now: T) => T = (_, item) => item,
 ): T[] {
 	const fresh = new Map(now.map(item => [keyOf(item), item]));
-	return shown.map(item => {
+	return shown.flatMap(item => {
 		const found = fresh.get(keyOf(item));
-		return found === undefined ? item : merge(item, found);
+		if (found !== undefined) return [merge(item, found)];
+		const left = gone(item);
+		return left === null ? [] : [left];
 	});
 }
 
-/** `holdPlaces` over every list of the rows: the projects, each project's rows and loose children, Chats, Archived. */
+/** A row that left a held list: drawn as an empty place of its height, with nothing to click. */
+export const departedRow = <T extends { departed?: true }>(item: T): T => ({ ...item, departed: true });
+
+/**
+ * `holdPlaces` over the rows a sidebar draws itself: the projects and each project's rows, Chats, Archived. A project
+ * that left goes (its whole block has no one height to keep); loose children and families hold their own lists where
+ * they are drawn (`SidebarSubagents.tsx`).
+ */
 export function holdRows(shown: SidebarRows, now: SidebarRows): SidebarRows {
 	const path = (session: RowSession) => session.path;
 	const group = (seen: RowGroup, fresh: RowGroup): RowGroup => ({
 		...fresh,
-		sessions: holdPlaces(seen.sessions, fresh.sessions, path),
-		folded: holdPlaces(seen.folded, fresh.folded, path),
+		sessions: holdPlaces(seen.sessions, fresh.sessions, path, departedRow),
 	});
 	return {
 		...now,
-		allGroups: holdPlaces(shown.allGroups, now.allGroups, item => item.cwd, group),
-		groups: holdPlaces(shown.groups, now.groups, item => item.cwd, group),
-		chats: holdPlaces(shown.chats, now.chats, path),
-		archived: holdPlaces(shown.archived, now.archived, path),
+		allGroups: holdPlaces(
+			shown.allGroups,
+			now.allGroups,
+			item => item.cwd,
+			() => null,
+			group,
+		),
+		groups: holdPlaces(
+			shown.groups,
+			now.groups,
+			item => item.cwd,
+			() => null,
+			group,
+		),
+		chats: holdPlaces(shown.chats, now.chats, path, departedRow),
+		archived: holdPlaces(shown.archived, now.archived, path, departedRow),
 	};
 }
 
 /** How many rows `now` lists that `shown` does not draw: the ones waiting for the pointer to leave. */
 export function rowsWaiting(shown: SidebarRows, now: SidebarRows): number {
 	const drawn = (rows: SidebarRows) =>
-		[...rows.groups.flatMap(group => [...group.sessions, ...group.folded]), ...rows.chats, ...rows.archived].map(
-			session => session.path,
-		);
+		[...rows.groups.flatMap(group => group.sessions), ...rows.chats, ...rows.archived].map(session => session.path);
 	const seen = new Set(drawn(shown));
 	return drawn(now).filter(key => !seen.has(key)).length;
 }

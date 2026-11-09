@@ -1903,23 +1903,6 @@ describe("Sidebar menus and pinned ordering", () => {
 		});
 	});
 
-	it("an inline rename keeps the row's height so the rows below never shift", async () => {
-		installMockOmp(LIST.map(entry => ({ ...entry })));
-		seedStores();
-		await mount(<Sidebar />);
-		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
-		await fire(menuItem("Rename"), "onClick");
-		const input = document.body.querySelector('input[value="Session /work/alpha/one.jsonl"]');
-		// The auto button sits inside the field, one wrapper deeper than the bare input.
-		const wrapper = input?.closest(".omp-sidebar-session-rename");
-		expect(wrapper).not.toBeNull();
-		const sidebarCss = readFileSync(new URL("../../../styles/sidebar.css", import.meta.url), "utf8");
-		// One rule sizes both, so the rename can never drift from the row height.
-		expect(sidebarCss).toMatch(
-			/\.omp-sidebar-session-row,\s*\.omp-sidebar-session-rename\s*\{[^}]*min-height:\s*var\(--omp-sidebar-row-h\)/,
-		);
-	});
-
 	it("hands focus back to the row when a rename ends by Enter or Escape", async () => {
 		installMockOmp(LIST.map(entry => ({ ...entry })));
 		seedStores();

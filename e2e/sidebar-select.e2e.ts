@@ -259,24 +259,29 @@ test("a session another omp starts never moves into the row the pointer rests on
 	// No glide left under the pointer: the row's box is where it rests.
 	await expect.poll(() => paintedOrder(page, LOCAL)).toBe(order);
 
-	// A person aims at Alpha: the pointer rests on its row.
+	// A person aims at Alpha: the pointer homes in on its row.
 	const box = await rowOf("s-1").locator("button").first().boundingBox();
 	if (!box) throw new Error("Alpha's row has no box");
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+	await page.mouse.move(at.x, at.y);
 	await recordOrders(page, LOCAL);
 	// Meanwhile another omp starts a session in the same project.
 	await seed(agent, "s-9", project, "Zulu run", 0);
-	// This window has it: it joined the list (where the click lands on it), or it waits for the pointer to leave.
+	// This window has it: it joined the list (where the click lands on it), or it waits for the aim to end. The pointer
+	// keeps moving a pixel on Alpha's row meanwhile, as a hand closing in on it does.
+	let nudge = 0;
 	await expect
-		.poll(() =>
-			page.evaluate(
+		.poll(async () => {
+			nudge ^= 1;
+			await page.mouse.move(at.x + nudge, at.y);
+			return page.evaluate(
 				() =>
 					document.querySelector('[data-session-path$="s-9.jsonl"]') !== null ||
 					document.querySelector('[data-sidebar-held-back]:not([data-sidebar-held-back="0"])') !== null,
-			),
-		)
+			);
+		})
 		.toBe(true);
-	// `OMP_GUI_SIDEBAR_SELECT_SHOTS=<dir>`: the window as the click lands, once it has picked, and once the pointer left.
+	// `OMP_GUI_SIDEBAR_SELECT_SHOTS=<dir>`: the window as the click lands, once it has picked, and once the aim ended.
 	const shots = process.env.OMP_GUI_SIDEBAR_SELECT_SHOTS;
 	const shoot = async (name: string) => {
 		if (shots) await page.screenshot({ path: path.join(shots, `${name}.png`) });
@@ -284,6 +289,7 @@ test("a session another omp starts never moves into the row the pointer rests on
 	await shoot("1-pointer-on-alpha");
 	await page.mouse.down();
 	await page.mouse.up();
+	await expectNoMove(page, order, "the pointer aimed at Alpha while another session started");
 
 	// The selected row, by file: the one the pointer rested on, not whatever moved into its place.
 	const selected = () =>
@@ -303,7 +309,6 @@ test("a session another omp starts never moves into the row the pointer rests on
 		)
 		.toBe(true);
 	await expect(page.locator('[data-session-group] [data-active="true"]')).toHaveCount(1);
-	await expectNoMove(page, order, "the pointer rested on Alpha while another session started");
 	// The pick's log line names the row's session and the one it selected.
 	await expect
 		.poll(async () =>

@@ -553,59 +553,70 @@ describe("a session whose folder is gone", () => {
 	});
 });
 
-/** Every row as drawn, top to bottom: each project's key, its rows and loose children, then Chats and Archived. */
+/** Every row a sidebar draws itself, top to bottom: each project's key and rows, then Chats and Archived. */
 function drawn(rows: SidebarRows): string[] {
 	return [
-		...rows.groups.flatMap(group => [
-			`group:${group.cwd}`,
-			...group.sessions.map(session => session.path),
-			...group.folded.map(session => `folded:${session.path}`),
-		]),
+		...rows.groups.flatMap(group => [`group:${group.cwd}`, ...group.sessions.map(session => session.path)]),
 		...rows.chats.map(session => `chat:${session.path}`),
 		...rows.archived.map(session => `archived:${session.path}`),
 	];
 }
 
 // The owner's report (9 Nov 2026): a session another omp started took the top of its project while the pointer rested
-// on the row below, and the click selected the newcomer. While the list is pointed at, nothing moves.
-describe("holdRows: what the person points at keeps its place", () => {
+// on the row below, and the click selected the newcomer. While the person aims at the list, nothing moves.
+describe("holdRows: what the person aims at keeps its place", () => {
 	it.each(WORLDS.slice(0, 60).map((cells, index) => [index, cells, WORLDS[index + 1] ?? ALL] as const))(
-		"world %i drawn over the next one moves no row and says what each row says now",
+		"world %i drawn over the next one moves no row, says what each row says now and leaves an empty place",
 		(_index, before, after) => {
 			const shown = sidebarRows(world(before));
 			const now = sidebarRows(world(after, "reversed"));
 			const held = holdRows(shown, now);
-			expect(drawn(held)).toEqual(drawn(shown));
-			// A row still in its list says what it says now; one that left its list stays as it was drawn.
-			for (const group of held.groups) {
-				const fresh = new Map(
-					now.groups.find(item => item.cwd === group.cwd)?.sessions.map(session => [session.path, session]),
-				);
-				for (const session of group.sessions) expect(session).toBe(fresh.get(session.path) ?? session);
+			// Every row keeps its place; a project that left goes whole.
+			const kept = {
+				...shown,
+				groups: shown.groups.filter(group => now.groups.some(item => item.cwd === group.cwd)),
+			};
+			expect(drawn(held)).toEqual(drawn(kept));
+			// A row still in its list says what it says now; one that left its list is an empty place.
+			const lists = [
+				...held.groups.map(
+					group => [group.sessions, now.groups.find(item => item.cwd === group.cwd)?.sessions] as const,
+				),
+				[held.chats, now.chats] as const,
+				[held.archived, now.archived] as const,
+			];
+			for (const [rows, fresh] of lists) {
+				const byPath = new Map(fresh?.map(session => [session.path, session]));
+				for (const session of rows) {
+					const found = byPath.get(session.path);
+					if (found) expect(session).toBe(found);
+					else expect(session.departed).toBe(true);
+				}
 			}
 			const paths = (rows: SidebarRows) =>
-				drawn(rows)
-					.filter(key => !key.startsWith("group:"))
-					.map(key => key.replace(/^\w+:/, ""));
-			expect(rowsWaiting(held, now)).toBe(paths(now).filter(path => !paths(shown).includes(path)).length);
+				drawn(rows).flatMap(key => (key.startsWith("group:") ? [] : [key.replace(/^\w+:/, "")]));
+			expect(rowsWaiting(held, now)).toBe(paths(now).filter(path => !paths(held).includes(path)).length);
 			// Held again over the same change, nothing more moves.
-			expect(drawn(holdRows(held, now))).toEqual(drawn(shown));
+			expect(drawn(holdRows(held, now))).toEqual(drawn(held));
 		},
 	);
 
-	it("keeps a newer session out of the top of its project until the pointer leaves", () => {
+	it("keeps a newer session out of the top of its project, and a deleted one's place empty, until the aim ends", () => {
 		const cells: Cell[] = [
 			{ folder: "app", holder: "none", origin: "person", path: "/s/alpha" },
 			{ folder: "app", holder: "none", origin: "person", path: "/s/bravo" },
 		];
 		const shown = sidebarRows(world(cells));
 		const now = sidebarRows(
-			world([...cells, { folder: "app", holder: "working", origin: "person", path: "/s/zulu" }]),
+			world([cells[1] as Cell, { folder: "app", holder: "working", origin: "person", path: "/s/zulu" }]),
 		);
-		const app = (rows: SidebarRows) => rows.groups.find(group => group.cwd === APP)?.sessions.map(row => row.path);
-		expect(app(now)?.[0]).toBe("/s/zulu");
+		const app = (rows: SidebarRows) =>
+			rows.groups
+				.find(group => group.cwd === APP)
+				?.sessions.map(row => `${row.path}${row.departed ? " (empty)" : ""}`);
+		expect(app(now)).toEqual(["/s/zulu", "/s/bravo", BOSS]);
 		const held = holdRows(shown, now);
-		expect(app(held)).toEqual(app(shown));
+		expect(app(held)).toEqual(app(shown)?.map(row => (row === "/s/alpha" ? "/s/alpha (empty)" : row)));
 		expect(rowsWaiting(held, now)).toBe(1);
 	});
 });

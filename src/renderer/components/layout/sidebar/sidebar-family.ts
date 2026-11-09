@@ -107,6 +107,8 @@ export interface SubagentRowModel {
 	agent: SubagentSnapshot;
 	/** 0 = spawned by the session, 1 = spawned by a subagent (deeper clamps to 1). */
 	depth: 0 | 1;
+	/** It left a family the person points at: an empty place until the pointer leaves (`useHeldList`). */
+	departed?: true;
 }
 
 export interface SubagentFamilyRows {

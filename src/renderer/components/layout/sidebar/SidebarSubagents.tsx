@@ -94,6 +94,8 @@ export interface FamilyOpened {
 	buttonProps?: FamilyRowProps["buttonProps"];
 	/** Replaces the row while its title is being renamed. */
 	renaming?: ReactNode;
+	/** It left a list the person points at: an empty place until the pointer leaves (`useHeldList`). */
+	departed?: true;
 }
 
 const NO_OPENED: readonly FamilyOpened[] = [];
@@ -426,6 +428,8 @@ function FamilyChip({
 function OpenedRow({ child }: { child: FamilyOpened }) {
 	const t = useT();
 	if (child.renaming) return <div>{child.renaming}</div>;
+	// It left while the person points at the list: its place stays, empty, until the pointer leaves.
+	if (child.departed) return <div aria-hidden className="omp-family-row" data-sidebar-gap="family" />;
 	return (
 		<FamilyRow
 			age={child.age}
@@ -563,7 +567,13 @@ function FamilyGroup({
 					role="group"
 				>
 					<Connector depth={0} />
-					{shownRows.map(row => agentRow(row.agent, row.depth))}
+					{shownRows.map(row =>
+						row.departed ? (
+							<div aria-hidden className="omp-family-row" data-sidebar-gap="family" key={row.agent.id} />
+						) : (
+							agentRow(row.agent, row.depth)
+						),
+					)}
 					{shownOpened.map(openedRow)}
 				</div>
 			)}

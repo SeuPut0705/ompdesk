@@ -1005,6 +1005,17 @@ function DeviceSessions({
 	];
 
 	const renderRow = (session: DeviceSession, bot = false) => {
+		// It left while the person points at the list: its place stays, empty, until the pointer leaves.
+		if (session.departed)
+			return (
+				<div
+					aria-hidden
+					className="py-1"
+					data-flip-key={`session:${session.path}`}
+					data-sidebar-gap="session"
+					key={session.path}
+				/>
+			);
 		const tab = tabFor(session);
 		// The host's summary of it, by its file; a tab here the host's omp has named no file for yet, by that tab.
 		const summary =

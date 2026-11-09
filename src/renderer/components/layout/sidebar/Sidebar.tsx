@@ -1734,6 +1734,9 @@ export function Sidebar() {
 	/** `archived`: a row of the Archived section. `bot`: the bot's fixed row above the lists: no menu, rename or delete. */
 	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "bot") => {
 		const key = `session:${session.path}`;
+		// It left while the person points at the list: its place stays, empty, until the pointer leaves.
+		if (session.departed)
+			return <div aria-hidden className="py-1" data-flip-key={key} data-sidebar-gap="session" key={session.path} />;
 		const {
 			isCurrent,
 			tab,
