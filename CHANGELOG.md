@@ -10,6 +10,7 @@
 - 다른 탭들이 먼저 시작하느라 차례를 기다리는 탭은 상단 상태에 "시작 순서 기다리는 중"으로 보이고, 기다리는 시간에 제한이 없어요.
 - 페어링한 컴퓨터와 휴대폰도 같은 규칙을 따라요. 상대 컴퓨터의 탭이 60초 안에 시작되지 않으면 오류로 바꾸던 제한을 없앴어요. 이제 그 컴퓨터가 알려 주는 상태(차례 대기, 시작 중, 오래 걸림)를 그대로 보여 주고, 그 컴퓨터가 잠시 응답하지 않으면 기다린다고 알리면서 다시 물어봐요. 연결이 끊긴 동안에는 오류가 아니라 다시 연결하는 중으로 보이고, 연결이 돌아오면 이어져요.
 - 에이전트가 연 세션이 늦게 시작해도 90초 뒤 "제때 준비되지 않았다"며 실패하지 않아요. 세션이 준비될 때까지 기다렸다가 첫 메시지를 보내요.
+- Autopilot 세션이 늦게 준비돼도 2분 뒤 "제때 시작하지 못했다"며 실패하지 않아요. 끊긴 작업을 이어갈 때도 omp를 5분만 기다리고 실패로 세던 제한을 없앴어요. 느린 시작 세 번으로 이어가기가 멈추는 일이 없어요. 기다림은 omp가 실제로 끝나거나, 탭을 닫거나, 멈추면 끝나요.
 - 앱이 강제로 꺼진 뒤 남은 omp를 다음 실행에서 정리할 때, 멈추라는 신호를 받고도 계속 실행 중인 omp를 "정리됨"으로 기록에서 지우던 문제를 고쳤어요. 이제 그런 omp는 기록에 남아 다음 실행에서 다시 정리해요. 맥에서 `ps` 조회가 오류로 끝나면 일부 출력이 있어도 실패한 조회로 보고, 아무것도 멈추거나 기록에서 지우지 않아요.
 
 <!-- en -->
@@ -22,6 +23,7 @@ An omp slow to start is no longer stopped after 45 s and its tab no longer ends 
 - A tab waiting its turn while other tabs start reads "Waiting to start" in the title bar, with no time limit.
 - A paired computer and the phone follow the same rule. A host's tab that had not started within 60 s used to turn into an error; it now shows what the host says of its start (waiting its turn, starting, taking long), and a host that does not answer for a while is waited for and asked again. While the link is down the tab reads as reconnecting, not as an error, and goes on once the link is back.
 - A session an agent opens no longer fails with "did not become ready in time" after 90 s: the open waits until the session is ready, then sends its first message.
+- An Autopilot session slow to get ready no longer fails with "did not start in time" after 2 min, and resuming cut-off work no longer gives up on its omp after 5 min and counts that as a failed try (three slow starts used to stop it for the launch). The wait ends only when omp actually exits, the tab closes or it is stopped.
 - When a launch cleaned up omps left running by a forced quit, an omp still running after its stop was dropped from the record as stopped. It now stays recorded and is stopped again at the next launch. On macOS a `ps` lookup that ends in an error counts as failed even when it printed something: nothing is stopped or forgotten from it.
 
 ## [0.119.8] - 2026-11-09

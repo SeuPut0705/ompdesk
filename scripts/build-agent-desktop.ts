@@ -111,28 +111,58 @@ function current(dir: string, key: string, pin: Pin, target: PinTarget): BuildRe
 	}
 }
 
-async function download(url: string, expected: string): Promise<Uint8Array> {
+/**
+ * The release's API URL for `file`, which serves the asset's bytes with `Accept: application/octet-stream`. On
+ * 9 Nov 2026 github.com's `releases/download` path answered 504 for the Windows x64 archive alone (release run
+ * 42570112727 failed twice) while this route served the same bytes.
+ */
+async function apiAssetUrl(pin: Pin, file: string): Promise<string | null> {
+	const token = process.env.GITHUB_TOKEN;
+	const response = await fetch(`https://api.github.com/repos/${pin.repo}/releases/tags/v${pin.version}`, {
+		headers: { "user-agent": "ompdesk-build", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+	}).catch(() => null);
+	if (!response?.ok) return null;
+	const release = (await response.json()) as { assets?: Array<{ name: string; url: string }> };
+	return release.assets?.find(asset => asset.name === file)?.url ?? null;
+}
+
+/** The first of `urls` whose bytes match `expected`, each tried 3 times; the API asset URL takes octet-stream. */
+async function download(urls: () => AsyncGenerator<string>, expected: string): Promise<Uint8Array> {
 	const temp = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-agent-desktop-"));
 	const file = path.join(temp, "archive.tar.gz");
+	const errors: string[] = [];
 	try {
-		let error = "";
-		for (let attempt = 1; attempt <= 3; attempt++) {
-			try {
-				await downloadVerified({
-					url,
-					sha256: expected,
-					file,
-					signal: AbortSignal.timeout(300_000),
-					onProgress: () => {},
-				});
-				return fs.readFileSync(file);
-			} catch (caught) {
-				error = caught instanceof Error ? caught.message : String(caught);
-				if (/^SHA-256 mismatch/.test(error)) break;
-				if (attempt < 3) await Bun.sleep(attempt * 2000);
+		for await (const url of urls()) {
+			const api = url.startsWith("https://api.github.com/");
+			let error = "";
+			for (let attempt = 1; attempt <= 3; attempt++) {
+				try {
+					await downloadVerified({
+						url,
+						sha256: expected,
+						file,
+						signal: AbortSignal.timeout(300_000),
+						onProgress: () => {},
+						...(api
+							? {
+									fetch: (target, init) =>
+										fetch(target, {
+											...init,
+											headers: { ...init.headers, accept: "application/octet-stream" },
+										}),
+								}
+							: {}),
+					});
+					return fs.readFileSync(file);
+				} catch (caught) {
+					error = caught instanceof Error ? caught.message : String(caught);
+					if (/^SHA-256 mismatch/.test(error)) break;
+					if (attempt < 3) await Bun.sleep(attempt * 2000);
+				}
 			}
+			errors.push(`${url}: ${error}`);
 		}
-		fail(`${url}: ${error}`);
+		fail(errors.join("; ") || "no download URL");
 	} finally {
 		fs.rmSync(temp, { recursive: true, force: true });
 	}
@@ -147,7 +177,13 @@ async function unpack(key: string, pin: Pin): Promise<void> {
 		return;
 	}
 	const url = `https://github.com/${pin.repo}/releases/download/v${pin.version}/${target.file}`;
-	const files = untar(await download(url, target.sha256));
+	const files = untar(
+		await download(async function* () {
+			yield url;
+			const api = await apiAssetUrl(pin, target.file);
+			if (api) yield api;
+		}, target.sha256),
+	);
 	const names = [...files.keys()].sort();
 	if (names.join(" ") !== [...target.binaries].sort().join(" ")) {
 		fail(`${target.file} holds ${names.join(", ") || "nothing"}, not ${target.binaries.join(", ")}`);
