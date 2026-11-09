@@ -29,9 +29,8 @@ describe("removeOrphanWorktree", () => {
 			const dirs = await scene();
 			expect(await removeOrphanWorktree(repo, dirs.landed, deps)).toEqual({ removal: "removed" });
 			expect(gitSync(repo, "branch", "--list", "omp/gui/landed")).toBe("");
-			// `branch -d` refuses a branch whose commits are in no ancestry: the lossless outcome is to keep it.
-			expect(await removeOrphanWorktree(repo, dirs.squashed, deps)).toEqual({ removal: "branch-kept" });
-			expect(gitSync(repo, "branch", "--list", "omp/gui/squashed")).toContain("omp/gui/squashed");
+			expect(await removeOrphanWorktree(repo, dirs.squashed, deps)).toEqual({ removal: "removed" });
+			expect(gitSync(repo, "branch", "--list", "omp/gui/squashed")).toBe("");
 			expect(await removeOrphanWorktree(repo, dirs.untouched, deps)).toEqual({ removal: "removed" });
 			expect(await removeOrphanWorktree(repo, dirs.detached, deps)).toEqual({ removal: "removed" });
 			for (const key of ["landed", "squashed", "untouched", "detached"]) {

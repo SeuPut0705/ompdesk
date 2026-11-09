@@ -334,13 +334,13 @@ describe("a branch squash-merged into the parent's main", () => {
 		expect((await landingFacts(wt)).landed).toBe(false);
 	});
 
-	it("lets removeSafeWorktree take the worktree and keep the branch, which `branch -d` refuses", async () => {
+	it("removes a squash-landed worktree and its branch, and keeps one with unsaved files", async () => {
 		const wt = await agentWorktree("sq6");
 		await commitIn(wt.path, "a.ts", "a\n");
 		squashMerge(wt);
-		expect(await removeSafeWorktree(wt)).toBe("branch-kept");
+		expect(await removeSafeWorktree(wt)).toBe("removed");
 		await expect(fs.stat(wt.path)).rejects.toThrow();
-		expect(gitSync(repo, "branch", "--list", wt.branch)).toContain(wt.branch);
+		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
 
 		const left = await agentWorktree("sq7");
 		await commitIn(left.path, "d.ts", "d\n");

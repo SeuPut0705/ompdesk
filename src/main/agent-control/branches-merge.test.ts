@@ -10,7 +10,15 @@ import { describe, expect, it } from "vitest";
 import { gitSync } from "../local/git/test-repos";
 import { WORKTREE_HOOK_SCRIPTS } from "../local/git/worktree-seed";
 import { BranchError, landingFacts, mergeBranch, removeSafeWorktree } from "./branches";
-import { agentWorktree, commitIn, installBranchesRig, repo, root } from "./branches-test-rig";
+import {
+	agentWorktree,
+	childOnRemoteMain,
+	commitIn,
+	installBranchesRig,
+	repo,
+	root,
+	staleParentMain,
+} from "./branches-test-rig";
 
 installBranchesRig();
 
@@ -151,6 +159,38 @@ describe("removeSafeWorktree", () => {
 		const untouched = await agentWorktree("m");
 		expect(await removeSafeWorktree(untouched)).toBe("removed");
 		await expect(fs.stat(untouched.path)).rejects.toThrow();
+	});
+
+	it("removes the branch of work that landed upstream while the parent checkout's HEAD is behind it", async () => {
+		await staleParentMain();
+		const wt = await childOnRemoteMain("pushed");
+		gitSync(wt.path, "push", "-q", "origin", "HEAD:main");
+		expect(await removeSafeWorktree(wt)).toBe("removed");
+		await expect(fs.stat(wt.path)).rejects.toThrow();
+		expect(gitSync(repo, "branch", "--list", wt.branch)).toBe("");
+	});
+
+	it("keeps a branch that moved after its landing was judged, and the commit it moved to", async () => {
+		const wt = await agentWorktree("moved");
+		await commitIn(wt.path, "a.ts", "a\n");
+		await mergeBranch(wt, "Worker");
+		const tip = gitSync(repo, "rev-parse", wt.branch).trim();
+		const moved = gitSync(repo, "commit-tree", `${tip}^{tree}`, "-p", tip, "-m", "moved").trim();
+		// The worktree's `git status` (the judgement's clean check) runs this hook once: the branch moves to a commit of
+		// the same tree right after its tip was read, so the worktree stays clean and goes while the branch must stay.
+		const slash = (file: string) => file.replaceAll("\\", "/");
+		const mark = path.join(root, "moved.mark");
+		const hook = path.join(root, "fsmonitor-hook");
+		await fs.writeFile(
+			hook,
+			`#!/bin/sh\n[ -e "${slash(mark)}" ] && exit 1\n: > "${slash(mark)}"\ngit -C "${slash(repo)}" update-ref refs/heads/${wt.branch} ${moved} ${tip}\nexit 1\n`,
+			{ mode: 0o755 },
+		);
+		gitSync(repo, "config", "core.fsmonitor", slash(hook));
+		expect(await removeSafeWorktree(wt)).toBe("branch-kept");
+		expect(existsSync(mark)).toBe(true);
+		await expect(fs.stat(wt.path)).rejects.toThrow();
+		expect(gitSync(repo, "rev-parse", wt.branch).trim()).toBe(moved);
 	});
 
 	it("keeps everything for unmerged commits, uncommitted or untracked files and a main checkout", async () => {
