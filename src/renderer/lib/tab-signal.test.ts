@@ -42,6 +42,15 @@ describe("tabSignalPresentation", () => {
 		expect(tabSignalPresentation(tab({ status: "error" })).labelKey).toBe("titlebar.status.error");
 	});
 
+	it("says a start that waits its turn in the start queue is waiting to start, a wait like connecting", () => {
+		expect(tabSignalPresentation(tab({ status: "starting", queued: true }))).toEqual({
+			active: true,
+			color: "var(--omp-warning)",
+			labelKey: "titlebar.status.queued",
+			running: false,
+		});
+	});
+
 	it("tells a held session from a failed one, the rule every surface reads", () => {
 		expect([
 			isSessionHeld({ status: "error", sessionHeld: true }),

@@ -2956,4 +2956,9 @@ export interface SidecarStatusPayload {
 	 * is waited for, never stopped for it; `message` is its stderr tail so far, and Restart is the person's call.
 	 */
 	slow?: true;
+	/**
+	 * On `starting`: no omp runs yet; the tab waits its turn in the computer's start queue (or for its previous omp to
+	 * exit). No deadline: it starts when its place comes.
+	 */
+	queued?: true;
 }

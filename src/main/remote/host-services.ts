@@ -2071,8 +2071,9 @@ export class LocalHostServices implements HostServices {
 			switch (name) {
 				case "status":
 					sidecar.on(name, (payload: SidecarStatusPayload) => {
-						// A slow start's `starting` is the same omp, still waited for: it keeps its id.
-						if ((payload.status === "starting" && !payload.slow) || payload.status === "restarting")
+						// A slow or queued start's `starting` re-send is no new omp: the tab keeps its id.
+						const resend = payload.status === "starting" && (payload.slow || payload.queued);
+						if ((payload.status === "starting" && !resend) || payload.status === "restarting")
 							tab.omp = randomUUID();
 						this.#emit(tab, name, this.#statusArg(tab, payload));
 					});

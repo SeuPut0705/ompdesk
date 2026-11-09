@@ -18,6 +18,8 @@ export class OmpStartQueue {
 	#running = 0;
 	readonly #waiting: Array<() => void> = [];
 	#held: Promise<void> = Promise.resolve();
+	/** A `holdUntil` gate has not settled yet. */
+	#holding = false;
 
 	constructor(limit = OMP_STARTS_AT_ONCE, capMs = START_SLOT_CAP_MS) {
 		this.#limit = limit;
@@ -26,12 +28,17 @@ export class OmpStartQueue {
 
 	/** No start goes before `gate` settled (fulfilled or not). */
 	holdUntil(gate: Promise<unknown>): void {
-		const previous = this.#held;
-		this.#held = Promise.allSettled([previous, gate]).then(() => undefined);
+		const held = Promise.allSettled([this.#held, gate]).then(() => undefined);
+		this.#held = held;
+		this.#holding = true;
+		void held.then(() => {
+			if (this.#held === held) this.#holding = false;
+		});
 	}
 
-	/** Resolves with the place once a start may go, first come first served. */
-	async acquire(): Promise<StartSlotRelease> {
+	/** Resolves with the place once a start may go, first come first served; `onWait` runs first when it must wait. */
+	async acquire(onWait?: () => void): Promise<StartSlotRelease> {
+		if (this.#holding || this.#running >= this.#limit) onWait?.();
 		await this.#held;
 		if (this.#running < this.#limit) this.#running++;
 		else {

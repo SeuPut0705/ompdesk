@@ -277,7 +277,7 @@ test("@smoke connects two computers over the tailnet with no code, runs a prompt
 			.poll(
 				async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.device === deviceId)?.status,
 			)
-			.toBe("error");
+			.toBe("starting");
 		// Settings for the offline host's tab say so instead of showing stale values.
 		await openModels();
 		await expect(a.locator("[data-host-offline]")).toContainText("Host B is offline");

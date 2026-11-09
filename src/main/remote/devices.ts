@@ -174,10 +174,8 @@ export interface RemoteDevicesDeps {
 	machineInfo: () => HostMachineInfo;
 	/** Status message of a tab whose host is unreachable, in the UI language. */
 	offlineMessage: () => string;
-	/** Status message of a host tab that did not come up in `seconds`, naming the host, in the UI language. */
-	stalledMessage: (device: string, seconds: number) => string;
-	/** How long a host tab may take to come up before it says so; default `REMOTE_START_TIMEOUT_MS`. */
-	startTimeoutMs?: number;
+	/** Status message of a host tab whose host leaves its start unanswered for now, naming the host, in the UI language. */
+	unansweredMessage: (device: string) => string;
 	/** A host tab's bring-up step, for the runtime log (`remote-tab`). */
 	logTab?: RemoteSidecarOptions["log"];
 	/**
@@ -708,9 +706,7 @@ export class RemoteDevices {
 			},
 			deferClose: closing => (this.#links.get(deviceId) ?? link).closes.defer(closing),
 			...(this.#deps.keepHostTabsOnQuit ? { keepOnHost: this.#deps.keepHostTabsOnQuit } : {}),
-			stalledMessage: seconds =>
-				this.#deps.stalledMessage((this.#links.get(deviceId) ?? link).client.host.name, seconds),
-			...(this.#deps.startTimeoutMs === undefined ? {} : { startTimeoutMs: this.#deps.startTimeoutMs }),
+			unansweredMessage: () => this.#deps.unansweredMessage((this.#links.get(deviceId) ?? link).client.host.name),
 			...(this.#deps.logTab ? { log: this.#deps.logTab } : {}),
 			imageBlobs: this.#imageBlobs,
 			transcripts: this.#transcripts,

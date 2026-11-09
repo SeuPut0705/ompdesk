@@ -41,9 +41,9 @@ export function isRuntimeFailure(entry: RuntimeLogLine): boolean {
 		// Electron's child-process-gone: only a clean exit is no failure.
 		case "child-process":
 			return details.reason !== "clean-exit";
-		// A remote tab that never came up (remote-sidecar.ts): `stalled` past the deadline or `failed` at a step.
+		// A remote tab whose start the host refused (remote-sidecar.ts `failed`); an `unanswered` request is a wait.
 		case "remote-tab":
-			return entry.message === "stalled" || entry.message === "failed";
+			return entry.message === "failed";
 		// A continuation whose omp never came up, or one whose restore and retry both left the turn not going on.
 		case "turn-resume": {
 			if (entry.message !== "continue" || details.cancelled === true) return false;

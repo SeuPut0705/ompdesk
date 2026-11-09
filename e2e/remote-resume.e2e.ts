@@ -476,7 +476,9 @@ test("a host's tab back after a lost link keeps its page and catches up in place
 			};
 			window.omp.events.onTabSidecarStatus(payload => {
 				probe.status = `${payload.status}${payload.reconnecting ? "(kept)" : ""}`;
-				if (payload.status === "error") probe.linkDown = true;
+				// The host out of reach reads `starting` with the offline message (remote-sidecar.ts `#markOffline`).
+				if (payload.status === "error" || (payload.status === "starting" && payload.message !== undefined))
+					probe.linkDown = true;
 				else if (probe.linkDown && !probe.linkUpAt) probe.linkUpAt = performance.now();
 			});
 			let last = "";

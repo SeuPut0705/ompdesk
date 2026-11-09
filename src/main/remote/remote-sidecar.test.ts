@@ -209,7 +209,7 @@ describe("RemoteSidecar", () => {
 			expect(link.methods()).toEqual(["tab.open", "tab.open", "tab.start"]);
 			sidecar.handleEvent(hostStatus("ready"));
 			expect(sidecar.status).toBe("ready");
-			expect(steps).toContain("failed open");
+			expect(steps).toContain("unanswered open");
 		});
 
 		it("waits on a link that never finishes connecting, then opens once it is up", async () => {
@@ -409,7 +409,7 @@ describe("RemoteSidecar", () => {
 		expect(seen).toEqual([
 			["starting", true],
 			["ready", false],
-			["error", true],
+			["starting", true],
 			["starting", true],
 			["ready", false],
 			["restarting", false],

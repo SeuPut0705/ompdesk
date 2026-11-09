@@ -134,7 +134,7 @@ export class DevicesRig {
 			logLink: options.logLink,
 			machineInfo: () => ({ platform: "darwin", ompVersion: "18.8.0", home: "/home/u", sep: "/" }),
 			offlineMessage: () => "offline",
-			stalledMessage: device => `${device} stalled`,
+			unansweredMessage: device => `${device} has not answered`,
 			powerSaveBlocker: { start: () => 1, stop: () => {} },
 			tailnet: {
 				status: async () => statusOf(fake),

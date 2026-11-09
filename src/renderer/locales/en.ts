@@ -79,6 +79,7 @@ export const en: Record<string, string> = {
 	"titlebar.status.working": "Working",
 	"titlebar.status.ready": "Ready",
 	"titlebar.status.connecting": "Connecting",
+	"titlebar.status.queued": "Waiting to start",
 	"titlebar.status.asleep": "Asleep",
 	"titlebar.status.error": "Error",
 	"titlebar.status.exited": "Exited",

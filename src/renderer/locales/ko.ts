@@ -78,6 +78,7 @@ export const ko: Record<string, string> = {
 	"titlebar.status.working": "작업 중",
 	"titlebar.status.ready": "준비됨",
 	"titlebar.status.connecting": "연결 중",
+	"titlebar.status.queued": "시작 순서 기다리는 중",
 	"titlebar.status.asleep": "대기 중",
 	"titlebar.status.error": "오류",
 	"titlebar.status.exited": "종료됨",

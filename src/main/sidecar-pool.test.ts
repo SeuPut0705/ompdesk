@@ -3907,7 +3907,7 @@ describe("SidecarPool tab activity (the observer Web Push listens to)", () => {
 			kind: "agent",
 			fresh: true,
 			offlineMessage: () => "offline",
-			stalledMessage: () => "stalled",
+			unansweredMessage: () => "unanswered",
 			deferClose: () => {},
 		});
 		const pool = new SidecarPool(() => remote as unknown as SidecarLike);

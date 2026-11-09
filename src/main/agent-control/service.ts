@@ -162,6 +162,8 @@ export interface ControlTab {
 	status: TabStatus;
 	/** `error` because another live omp still holds its session; the tab opens it by itself once that omp lets go. */
 	sessionHeld?: true;
+	/** `starting` that waits its turn in the start queue (`queued`) or for an omp slow to answer (`slow`). */
+	startWait?: "queued" | "slow";
 	/** A turn runs (stock run state as the pool tracks it). */
 	busy: boolean;
 	/**
@@ -543,8 +545,6 @@ export interface ToolOutcome {
 	isError: boolean;
 }
 
-/** A started tab is ready within this; a paired host's first spawn takes longer than a local one. */
-const READY_TIMEOUT_MS = 90_000;
 /**
  * The first command a just-started child answers: before it, the local handler learns the session from stock
  * `get_state`, connects to the bridge and waits for the bridge's modules to load, all queued behind omp's own startup.
@@ -1767,15 +1767,20 @@ export class AgentControl {
 				return "not started (it starts when shown or messaged)";
 			case "starting":
 			case "restarting":
-			case "waiting":
+			case "waiting": {
+				const link = tab.device ? this.#host.devices().find(entry => entry.id === tab.device) : undefined;
+				if (link && link.state !== "online")
+					return `starting: ${link.name} is ${link.state} (its link is down; this session goes on once it is back)`;
+				if (tab.startWait === "queued")
+					return "starting (waits its turn behind other sessions starting; nothing to do)";
+				if (tab.startWait === "slow")
+					return "starting (its omp has not answered yet and is still waited for; nothing was stopped)";
 				return "starting";
+			}
 			case "error":
 			case "exited": {
 				if (tab.sessionHeld)
 					return "waiting for another omp process to let go of this session (it opens here by itself then; nothing to do)";
-				const link = tab.device ? this.#host.devices().find(entry => entry.id === tab.device) : undefined;
-				if (link && link.state !== "online")
-					return `${link.name} is ${link.state} (its link is down; tools wait a moment for it, then this session answers again)`;
 				return `stopped (${tab.status})`;
 			}
 		}
@@ -1841,9 +1846,9 @@ export class AgentControl {
 	}
 
 	/**
-	 * A paired device's tab, once it can answer: while the device's link is down the tab reports `error` and refuses
-	 * every command (`remote_offline`); back online it re-attaches (`starting`, then its status). A local tab, and one
-	 * whose device is online and settled, is returned as it is.
+	 * A paired device's tab, once it can answer: while the device's link is down the tab reads `starting` (reconnecting)
+	 * and refuses every command (`remote_offline`); back online it re-attaches (`starting`, then its status). A local
+	 * tab, and one whose device is online and settled, is returned as it is.
 	 */
 	async #reachTab(tab: ControlTab, callerTabId: string): Promise<ControlTab> {
 		if (!tab.device) return tab;
@@ -1944,7 +1949,7 @@ export class AgentControl {
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
 				const kind = waits(tab)
 					? "waiting"
-					: line.startsWith("running") || line === "starting"
+					: line.startsWith("running") || line.startsWith("starting")
 						? "running"
 						: "idle";
 				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
@@ -2075,20 +2080,25 @@ export class AgentControl {
 	}
 
 	/**
-	 * Waits for a started tab to be ready. `recoverUntil` (a deadline) is for a tab that was ready and then refused a
-	 * command: an `error` it reads may still turn ready (a session another omp held lets go, a paired host's tab comes
-	 * back), so it is waited out until then; without it `error` is a tab that never started.
+	 * Waits for a started tab to be ready, however long its start takes (queued, an omp slow to answer, a paired host's
+	 * link down): a live start is never a failed one (the owner's rule, 9 Nov 2026). Only a tab that closed, exited or
+	 * reads `error` fails it. `recoverUntil` (a deadline) is for a tab that was ready and then refused a command: an
+	 * `error` it reads may still turn ready (a session another omp held lets go), so it is waited out until then.
 	 */
 	async #whenReady(tabId: string, callerTabId: string, recoverUntil?: number): Promise<void> {
-		const deadline = recoverUntil ?? Date.now() + READY_TIMEOUT_MS;
 		for (;;) {
 			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
 			if (!tab) fail("The new session's tab closed before it was ready.");
 			if (tab.status === "ready" || tab.status === "running") return;
-			if (tab.status === "exited" || (tab.status === "error" && recoverUntil === undefined))
-				fail(`The session could not start (${tab.status}).`);
-			if (Date.now() >= deadline) fail("The session did not become ready in time.");
-			await this.#nextChange(Math.min(500, deadline - Date.now()));
+			if (tab.status === "exited") fail(`The session could not start (${tab.status}).`);
+			// Another omp still holds the session: the tab opens it by itself once that omp lets go.
+			if (tab.status === "error" && !tab.sessionHeld) {
+				if (recoverUntil === undefined) fail(`The session could not start (${tab.status}).`);
+				if (Date.now() >= recoverUntil) fail("The session did not become ready again in time.");
+				await this.#nextChange(Math.min(500, recoverUntil - Date.now()));
+				continue;
+			}
+			await this.#nextChange(500);
 		}
 	}
 

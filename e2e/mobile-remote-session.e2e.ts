@@ -456,17 +456,16 @@ test("a paired phone opens and works in sessions of a remote host this computer 
 	}
 });
 
-test("a host that never starts the session is named on the phone, logged, and the tab comes up once it can", async () => {
+test("a host slow to start the session shows the wait on the phone, never an error, and the tab comes up once it can", async () => {
 	test.setTimeout(180_000);
 	let stored = "";
 	let setup: Rig | undefined;
 	try {
 		setup = await rig(
 			{
-				// The host's omp never reports ready (a hung start on the PC).
-				hostEnv: { OMP_GUI_TEST_BOOT_DELAY_MS: "600000" },
+				// The host's omp answers nothing for a long time (a slow start on the PC); the host calls it slow after 2 s.
+				hostEnv: { OMP_GUI_TEST_BOOT_DELAY_MS: "600000", OMP_GUI_START_SLOW_MS: "2000" },
 				hostReady: false,
-				clientEnv: { OMP_GUI_REMOTE_START_TIMEOUT_MS: "4000" },
 			},
 			async (hostAgent, hostProfile) => {
 				stored = await seedSession(hostAgent, hostProfile.project, "remote-stuck", "Stuck on the host");
@@ -474,31 +473,30 @@ test("a host that never starts the session is named on the phone, logged, and th
 		);
 		const { phone, clientProfile, hostProfile } = setup;
 		await (await hostRow(setup, stored)).click();
+		const banner = () => phone.getByRole("status").filter({ hasText: "omp is taking long to start" });
 
-		await test.step("the phone names the computer that did not start it, with Restart", async () => {
-			const banner = phone.getByRole("alert").filter({ hasText: "PC-B" });
-			await expect(banner).toBeVisible({ timeout: 30_000 });
-			await expect(banner.getByRole("button", { name: "Restart" })).toBeVisible();
+		await test.step("the phone says the host is still starting it, with Restart, and the tab never reads error", async () => {
+			await expect(banner()).toBeVisible({ timeout: 30_000 });
+			await expect(banner().getByRole("button", { name: "Restart" })).toBeVisible();
 			const tab = (await phone.evaluate(() => window.omp.tabs.list())).find(entry => entry.sessionPath === stored);
-			expect(tab?.status).toBe("error");
+			expect(tab?.status).toBe("starting");
 		});
 
-		await test.step("this computer's runtime log says which step never answered", async () => {
+		await test.step("this computer's runtime log has the bring-up's steps and no failure", async () => {
 			const log = path.join(clientProfile.desktop, "logs", "gui-runtime.jsonl");
-			await expect
-				.poll(async () =>
-					(await readRecords(log).catch(() => []))
-						.filter(line => line.source === "remote-tab")
-						.map(line => `${line.message} ${(line.details as { step?: string } | undefined)?.step ?? ""}`.trim()),
-				)
-				.toEqual(expect.arrayContaining(["open", "start", "stalled ready"]));
+			const steps = async () =>
+				(await readRecords(log).catch(() => []))
+					.filter(line => line.source === "remote-tab")
+					.map(line => String(line.message));
+			await expect.poll(steps).toEqual(expect.arrayContaining(["open", "start"]));
+			expect(await steps()).not.toContain("failed");
 		});
 
 		await test.step("Restart keeps the session it was opening: once the host can start, that session comes up", async () => {
-			// Pressed while the host is still stuck, Restart must try the same session again (it stalls again), never a
-			// new one: the banner's Restart sends no session file, and a remote tab once forgot the one it was opening,
-			// so the host later started an empty session.
-			const restart = phone.getByRole("alert").filter({ hasText: "PC-B" }).getByRole("button", { name: "Restart" });
+			// Pressed while the host is still slow, Restart must try the same session again (slow again), never a new
+			// one: the banner's Restart sends no session file, and a remote tab once forgot the one it was opening, so the
+			// host later started an empty session.
+			const restart = banner().getByRole("button", { name: "Restart" });
 			await restart.click();
 			await expect(restart).toBeHidden();
 			await expect(restart).toBeVisible({ timeout: 30_000 });
@@ -509,6 +507,8 @@ test("a host that never starts the session is named on the phone, logged, and th
 			await hostOnline((setup as Rig).client as RemoteInstance);
 			// The link coming back brings the tab up by itself: no Restart to race against.
 			await expect(phone.getByText("Answer to Stuck on the host")).toBeVisible({ timeout: 60_000 });
+			const tab = (await phone.evaluate(() => window.omp.tabs.list())).find(entry => entry.sessionPath === stored);
+			expect(tab?.status).not.toBe("error");
 		});
 	} finally {
 		await teardown(setup);

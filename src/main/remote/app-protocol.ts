@@ -521,6 +521,8 @@ export const TabStatusArg = z.object({
 		sessionHeld: z.literal(true).optional(),
 		/** The host's tab omp has not answered yet and is still waited for; `message` is its stderr tail. */
 		slow: z.literal(true).optional(),
+		/** The host's tab waits its turn in the host's start queue. */
+		queued: z.literal(true).optional(),
 	}),
 	processAlive: z.boolean(),
 	cwd: z.string(),

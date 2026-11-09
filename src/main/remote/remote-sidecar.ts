@@ -84,11 +84,12 @@ export interface RemoteSidecarOptions {
 	 * the host's tab and its running turn outlive this process. Absent: dispose always closes the host's tab.
 	 */
 	keepOnHost?: () => boolean;
-	/** Status message when the host has not brought the tab up within `startTimeoutMs`, in the UI language. */
-	stalledMessage: (seconds: number) => string;
-	/** How long a start may take before the tab reports `stalledMessage`; default `REMOTE_START_TIMEOUT_MS`. */
-	startTimeoutMs?: number;
-	/** One line per bring-up step for the runtime log: which step a tab that never came up was waiting on. */
+	/**
+	 * Status message while the host leaves a bring-up request unanswered (the link's own request timeout), in the UI
+	 * language: the tab keeps waiting and asks again, never an error.
+	 */
+	unansweredMessage: () => string;
+	/** One line per bring-up step for the runtime log: which step a tab that has not come up yet waits on. */
 	log?: (step: RemoteTabLogStep, details: Record<string, string | number | boolean>) => void;
 	/**
 	 * This device's pictures by content address: a subagent transcript read asks the host for its blob references
@@ -109,18 +110,12 @@ export interface RemoteSidecarOptions {
 
 type StatusDetail = Pick<
 	SidecarStatusPayload,
-	"message" | "restart" | "modelFallback" | "reconnecting" | "sessionHeld" | "slow"
+	"message" | "restart" | "modelFallback" | "reconnecting" | "sessionHeld" | "slow" | "queued"
 >;
-
-/**
- * A tab that has not come up this long after its bring-up began is reported, not left on the skeleton: the
- * host's omp boots in seconds, a cold Windows start in well under a minute.
- */
-export const REMOTE_START_TIMEOUT_MS = 60_000;
 
 /** A bring-up's steps: the link up, `tab.open` sent, `tab.start` sent, then the host's status that says the tab runs. */
 type BringUpStep = "link" | "open" | "start" | "ready";
-export type RemoteTabLogStep = "open" | "start" | "ready" | "stalled" | "failed";
+export type RemoteTabLogStep = "open" | "start" | "ready" | "unanswered" | "failed";
 
 const OFFLINE_TEXT = "The device running this tab is offline";
 
@@ -209,8 +204,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#openedOnce = false;
 	/** Replies to the host's tool and URI calls that found the link down. */
 	#queuedReplies: object[] = [];
-	readonly #stalledMessage: (seconds: number) => string;
-	readonly #startTimeoutMs: number;
+	readonly #unansweredMessage: () => string;
 	readonly #log: RemoteSidecarOptions["log"];
 	readonly #imageBlobs: ImageBlobCache | undefined;
 	readonly #transcripts: TranscriptCache | undefined;
@@ -221,7 +215,10 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 	#signInRelay: SignInRelay | null = null;
 	/** The bring-up in progress and the step it waits on; null once the host reported the tab running. */
 	#pending: { step: BringUpStep; at: number } | null = null;
-	#startTimer: NodeJS.Timeout | null = null;
+	/**
+	 * No deadline of this side's own (the owner's rule, 9 Nov 2026): the tab shows what the host says of its start
+	 * (queued, starting, slow), and an unanswered request or a link down is a wait, never an error.
+	 */
 	readonly #client: Pick<RpcClient, "command"> = {
 		command: (command, timeoutMs) => this.#command(command, timeoutMs),
 	};
@@ -237,8 +234,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		this.#onDispose = options.onDispose;
 		this.#deferClose = options.deferClose;
 		this.#keepOnHost = options.keepOnHost ?? (() => false);
-		this.#stalledMessage = options.stalledMessage;
-		this.#startTimeoutMs = options.startTimeoutMs ?? REMOTE_START_TIMEOUT_MS;
+		this.#unansweredMessage = options.unansweredMessage;
 		this.#log = options.log;
 		this.#imageBlobs = options.imageBlobs;
 		this.#transcripts = options.transcripts;
@@ -630,7 +626,16 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		} catch (error) {
 			if (this.#disposed) return;
 			const message = error instanceof Error ? error.message : String(error);
-			this.#note("failed", { step: this.#pending?.step ?? "open", error: message });
+			// A request the host never answered (the link's own `timeout`, the link still up): a host too busy to answer
+			// yet, never a failed start. The tab says it waits for the host and asks again (`tab.start` is idempotent).
+			const unanswered =
+				this.#link.state === "online" && error instanceof Error && "code" in error && error.code === "timeout";
+			this.#note(unanswered ? "unanswered" : "failed", { step: this.#pending?.step ?? "open", error: message });
+			if (unanswered) {
+				this.#setStatus("starting", { slow: true, message: this.#unansweredMessage() });
+				void this.#bringUp(null);
+				return;
+			}
 			if (this.#link.state !== "online") {
 				if (this.#link.state === "offline") this.#markOffline();
 				return;
@@ -661,31 +666,18 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			this.#processAlive = false;
 			// The link is up, so this is the host's answer (`no_workspace`, an unknown tab): the omp the tab's asks
 			// came from is gone, and the pool drops their routes. A request the link dropped stays a link status.
-			// A request the host never answered (the link's `timeout`) reads like a start that never finished.
-			const unanswered = error instanceof Error && "code" in error && error.code === "timeout";
-			this.#setStatus(
-				"error",
-				{ message: unanswered ? this.#stalledMessage(this.#seconds()) : message },
-				isOfflineError(error),
-			);
+			this.#setStatus("error", { message }, isOfflineError(error));
 		}
 	}
 
-	/** A bring-up begins: the tab must report running within `startTimeoutMs`, or it says so. */
+	/** A bring-up begins: its steps go to the runtime log until the host reports the tab running. */
 	#begin(): void {
 		this.#settle(null);
 		this.#pending = { step: "open", at: Date.now() };
-		this.#startTimer = setTimeout(() => this.#stalled(), this.#startTimeoutMs);
-		this.#startTimer.unref();
 	}
 
 	#advance(step: BringUpStep): void {
 		if (this.#pending) this.#pending.step = step;
-	}
-
-	/** Whole seconds the bring-up has waited so far (the deadline once it stalled). */
-	#seconds(): number {
-		return Math.round((this.#pending ? Date.now() - this.#pending.at : this.#startTimeoutMs) / 1000);
 	}
 
 	#note(step: RemoteTabLogStep, details: Record<string, string | number | boolean>): void {
@@ -698,23 +690,8 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		});
 	}
 
-	/**
-	 * The host never reported the tab running: the skeleton gives way to a message naming the host, with Restart. A host
-	 * that says its omp is slow (`slow`) still runs it and is believed: the tab keeps showing that, never an error.
-	 */
-	#stalled(): void {
-		this.#startTimer = null;
-		const pending = this.#pending;
-		if (this.#disposed || !pending || this.#status !== "starting" || this.#detail.slow) return;
-		this.#note("stalled", { step: pending.step, status: this.#status, link: this.#link.state });
-		this.#pending = null;
-		this.#setStatus("error", { message: this.#stalledMessage(this.#seconds()) });
-	}
-
 	/** The bring-up ended with `status` (null: abandoned); a running tab logs how long it took. */
 	#settle(status: SidecarStatus | null): void {
-		clearTimeout(this.#startTimer ?? undefined);
-		this.#startTimer = null;
 		if (this.#pending && status === "ready") this.#note("ready", { step: this.#pending.step });
 		this.#pending = null;
 	}
@@ -876,11 +853,16 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			: null;
 	}
 
+	/**
+	 * The host is out of reach: a link status, never an error (the owner's rule, 9 Nov 2026). The tab reads `starting`
+	 * with `reconnecting`, so every page keeps what it shows (the host may still run that omp), and it comes back by
+	 * itself once the link does (`linkStateChanged`).
+	 */
 	#markOffline(): void {
 		if (this.#offlineShown) return;
 		this.#offlineShown = true;
 		this.#processAlive = false;
-		this.#setStatus("error", { message: this.#offlineMessage() });
+		this.#setStatus("starting", { reconnecting: true, message: this.#offlineMessage() });
 	}
 
 	/** `fromLink`: this side derived the status (start, link down, reconnecting) instead of the host's omp. */

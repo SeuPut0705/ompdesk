@@ -1329,11 +1329,7 @@ app.whenReady().then(() => {
 		modelWait: sidecarPool.modelWait,
 		machineInfo: () => ({ platform: process.platform, ompVersion: hostOmpVersion, home: homedir(), sep }),
 		offlineMessage: () => mainT("remote.offline"),
-		stalledMessage: (device, seconds) => mainT("remote.tabStalled", undefined, { device, seconds }),
-		// Test seam: the stall e2e (e2e/mobile-remote-session.e2e.ts) waits seconds, not a minute.
-		...(Number(process.env.OMP_GUI_REMOTE_START_TIMEOUT_MS) > 0
-			? { startTimeoutMs: Number(process.env.OMP_GUI_REMOTE_START_TIMEOUT_MS) }
-			: {}),
+		unansweredMessage: device => mainT("remote.tabUnanswered", undefined, { device }),
 		logTab: (step, details) => writeRuntimeLog({ source: "remote-tab", message: step, details }),
 		signInRelay: {
 			failure: device => ({

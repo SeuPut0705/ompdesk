@@ -1734,6 +1734,8 @@ export interface IpcTabInfo {
 	restart?: SidecarRestartProgress;
 	/** With `status` `starting`: its omp has not answered yet and is still waited for (`SidecarStatusPayload.slow`). */
 	slow?: true;
+	/** With `status` `starting`: it waits its turn in the start queue (`SidecarStatusPayload.queued`). */
+	queued?: true;
 	/** A relaunch continues the tab's interrupted work and its turn has not started yet (resume, src/main/turn-resume.ts). */
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */

@@ -108,7 +108,7 @@ test("a computer keeps what it sends to a paired host's tab during a long outage
 					timeout: 30_000,
 				},
 			)
-			.toBe("error");
+			.toBe("starting");
 		const tray = a.locator("[data-composer-outbox]:visible");
 		const rows = tray.locator("[data-outbox-item]");
 		for (const text of texts) await send(a, text);

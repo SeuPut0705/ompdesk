@@ -639,7 +639,8 @@ export class SidecarManager extends EventEmitter {
 
 	/**
 	 * Starts the next omp of this tab once every omp it stopped has exited (a replacement never overlaps its
-	 * predecessor on the session) and the app's start queue gave it a place.
+	 * predecessor on the session) and the app's start queue gave it a place. Meanwhile a `starting` tab reads `queued`:
+	 * waiting its turn, never a deadline (a paired device mirrors it instead of timing the start out).
 	 */
 	#spawn(): void {
 		// One live child per manager. `#child` is only ever set by `#launch`, so anything still attached means a previous
@@ -653,14 +654,20 @@ export class SidecarManager extends EventEmitter {
 		if (!runtime) return;
 		this.#generation++;
 		const generation = this.#generation;
+		const waits = (): void => {
+			if (this.#isLive(generation) && this.#status === "starting" && !this.#statusDetail.queued)
+				this.#setStatus("starting", { queued: true });
+		};
+		if (this.#exiting.size > 0) waits();
 		void Promise.all([...this.#exiting])
-			.then(() => this.#options.startQueue?.acquire())
+			.then(() => this.#options.startQueue?.acquire(waits))
 			.then(release => {
 				if (!this.#isLive(generation)) {
 					release?.();
 					return;
 				}
 				this.#releaseSlot = release ?? null;
+				if (this.#statusDetail.queued) this.#setStatus("starting");
 				this.#launch(runtime, generation);
 			});
 	}

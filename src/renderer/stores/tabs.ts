@@ -157,6 +157,8 @@ export interface SessionTab {
 	awaitingConnection?: boolean;
 	/** `status` is `error` only because another omp still holds the session: a wait that ends by itself, not a failure. */
 	sessionHeld?: true;
+	/** `status` is `starting` and the tab waits its turn in its computer's start queue (main's `queued`). */
+	queued?: true;
 	/** A relaunch continues the tab's interrupted work and its turn has not started yet (main's turn-resume). */
 	resuming?: boolean;
 	/** `status` is `running` only for stock's background work after the turn ended (main's `settling`). */
@@ -352,6 +354,7 @@ function projectSessionTab(
 		awaitingInput: sessionChanged ? undefined : previous?.awaitingInput,
 		...(info.awaitingConnection === true ? { awaitingConnection: true } : {}),
 		...(isSessionHeld(info) ? { sessionHeld: true as const } : {}),
+		...(info.status === "starting" && info.queued === true ? { queued: true as const } : {}),
 		...(info.resuming === true ? { resuming: true } : {}),
 		...(info.settling === true ? { settling: true as const } : {}),
 		...(info.status === "running" && info.runningSince !== undefined ? { runningSince: info.runningSince } : {}),

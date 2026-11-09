@@ -328,10 +328,11 @@ export const MAIN_TEXT = {
 		en: "The device running this session is offline. Reconnecting…",
 		ko: "이 세션을 실행하는 기기가 오프라인이에요. 다시 연결하는 중이에요…",
 	},
-	// Status of a host tab the paired device did not bring up in time (src/main/remote/remote-sidecar.ts).
-	"remote.tabStalled": {
-		en: "{device} has not started this session after {seconds} s. Restart to try again.",
-		ko: "{device}에서 이 세션이 {seconds}초가 지나도 시작되지 않았어요. 다시 시작해 보세요.",
+	// Status of a host tab whose host leaves its start unanswered for now; the tab waits and asks again
+	// (src/main/remote/remote-sidecar.ts).
+	"remote.tabUnanswered": {
+		en: "{device} has not answered yet. Waiting for it; nothing was stopped.",
+		ko: "{device}에서 아직 응답이 없어요. 기다리는 중이고, 멈춘 건 없어요.",
 	},
 	"remote.signInRelay.title": {
 		en: "Sign-in not finished yet",

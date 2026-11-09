@@ -1381,6 +1381,9 @@ export class AgentControlRuntime {
 			...(info.device ? { device: info.device, deviceName: this.#deps.deviceName(info.device) } : {}),
 			status: info.status,
 			...(this.#deps.pool.sidecarOf(info.tabId)?.statusPayload?.sessionHeld ? { sessionHeld: true } : {}),
+			...(info.status === "starting" && (info.queued || info.slow)
+				? { startWait: info.queued ? ("queued" as const) : ("slow" as const) }
+				: {}),
 			busy: facts?.busy === true,
 			...(info.resuming ? { resuming: true } : {}),
 			asks,

@@ -33,7 +33,7 @@ export function isSessionDown(tab: { status: string }): boolean {
 export function tabSignalPresentation(
 	tab: Pick<
 		SessionTab,
-		"status" | "compacting" | "awaitingInput" | "awaitingConnection" | "unreadDone" | "sessionHeld"
+		"status" | "compacting" | "awaitingInput" | "awaitingConnection" | "unreadDone" | "sessionHeld" | "queued"
 	>,
 	activeRuntime = false,
 ): TabSignalPresentation {
@@ -57,9 +57,15 @@ export function tabSignalPresentation(
 	if (tab.status === "ready") {
 		return { active: false, color: "var(--omp-dim)", labelKey: "titlebar.status.ready", running: false };
 	}
-	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, never a failure.
+	// Another omp still holds the session: the tab opens it by itself, a wait like connecting, never a failure. A start
+	// that waits its turn in the start queue says so.
 	if (tab.status === "starting" || isSessionHeld(tab)) {
-		const labelKey = tab.status === "starting" ? "titlebar.status.connecting" : "titlebar.status.sessionHeld";
+		const labelKey =
+			tab.status !== "starting"
+				? "titlebar.status.sessionHeld"
+				: tab.queued
+					? "titlebar.status.queued"
+					: "titlebar.status.connecting";
 		return { active: true, color: "var(--omp-warning)", labelKey, running: false };
 	}
 	// A restored tab whose process has not been spawned yet, or a tab waiting for

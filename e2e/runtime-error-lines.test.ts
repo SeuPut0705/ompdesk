@@ -20,10 +20,9 @@ describe("isRuntimeFailure", () => {
 		expect(isRuntimeFailure({ source: "child-process", details: { reason: "clean-exit" } })).toBe(false);
 	});
 
-	it("counts a remote tab that stalled or failed, not its progress steps", () => {
-		expect(isRuntimeFailure({ source: "remote-tab", message: "stalled", details: { step: "ready" } })).toBe(true);
+	it("counts a remote tab whose start failed, not its progress steps or a wait for the host", () => {
 		expect(isRuntimeFailure({ source: "remote-tab", message: "failed", details: { step: "open" } })).toBe(true);
-		for (const step of ["open", "start", "ready"]) {
+		for (const step of ["open", "start", "ready", "unanswered"]) {
 			expect(isRuntimeFailure({ source: "remote-tab", message: step })).toBe(false);
 		}
 	});
