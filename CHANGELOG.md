@@ -6,6 +6,7 @@
 
 ### 고친 것
 - 0.119.7부터 omp가 시작하고 45초 안에 응답하지 않으면 강제로 끄고 다시 띄웠고, 두 번 더 그러면 탭을 "omp를 사용할 수 없어요" 오류로 끝냈어요. 느리지만 살아 있는 omp도 응답하기 전에 매번 꺼져서, 그런 컴퓨터에서는 새 세션이 하나도 열리지 않았고 다른 컴퓨터에서 연 세션도 "시작하지 못했다"로 끝났어요. 이제 살아 있는 omp는 느리다는 이유로 끄거나 오류로 바꾸지 않아요. 20초가 지나도 응답이 없으면 다음 탭이 먼저 시작할 수 있게 자리를 넘기고, 탭에는 "omp 시작이 오래 걸리고 있어요"라는 노란 안내와 omp가 출력한 마지막 줄, 다시 시작 버튼이 보여요. 응답이 오면 바로 세션이 열리고, 오류는 omp가 실제로 종료됐을 때만 떠요.
+- omp가 오류 출력에 아무것도 남기지 않은 채 늦어지면, 노란 안내에 omp 자체 로그의 마지막 줄이 대신 보여요. 진단 기록에도 omp 로그의 끝부분, omp가 준비 신호를 보냈는지, 아직 답하지 않은 명령이 함께 남아 어디서 멈췄는지 알 수 있어요.
 - 다른 탭들이 먼저 시작하느라 차례를 기다리는 탭은 상단 상태에 "시작 순서 기다리는 중"으로 보이고, 기다리는 시간에 제한이 없어요.
 - 페어링한 컴퓨터와 휴대폰도 같은 규칙을 따라요. 상대 컴퓨터의 탭이 60초 안에 시작되지 않으면 오류로 바꾸던 제한을 없앴어요. 이제 그 컴퓨터가 알려 주는 상태(차례 대기, 시작 중, 오래 걸림)를 그대로 보여 주고, 그 컴퓨터가 잠시 응답하지 않으면 기다린다고 알리면서 다시 물어봐요. 연결이 끊긴 동안에는 오류가 아니라 다시 연결하는 중으로 보이고, 연결이 돌아오면 이어져요.
 - 에이전트가 연 세션이 늦게 시작해도 90초 뒤 "제때 준비되지 않았다"며 실패하지 않아요. 세션이 준비될 때까지 기다렸다가 첫 메시지를 보내요.
@@ -17,6 +18,7 @@ An omp slow to start is no longer stopped after 45 s and its tab no longer ends 
 
 ### Fixed
 - Since 0.119.7 an omp that had not answered 45 s after its start was stopped and started again, and after two more tries its tab read "omp unavailable". A slow but live omp was stopped every time before it could answer, so on such a computer no new session opened, and sessions another computer opened there failed with "could not start". A live omp is now never stopped or failed for being slow. After 20 s without an answer it gives its place in the start queue to the next tab, and its tab shows an amber "omp is taking long to start" with the last lines omp printed and Restart. The session opens as soon as omp answers; an error appears only when omp actually exits.
+- When a slow omp has printed nothing on stderr, the amber notice shows the last lines of omp's own log instead. The diagnostic log line also records that log's tail, whether omp signalled ready, and which commands it has not answered, so it shows where the start is waiting.
 - A tab waiting its turn while other tabs start reads "Waiting to start" in the title bar, with no time limit.
 - A paired computer and the phone follow the same rule. A host's tab that had not started within 60 s used to turn into an error; it now shows what the host says of its start (waiting its turn, starting, taking long), and a host that does not answer for a while is waited for and asked again. While the link is down the tab reads as reconnecting, not as an error, and goes on once the link is back.
 - A session an agent opens no longer fails with "did not become ready in time" after 90 s: the open waits until the session is ready, then sends its first message.
