@@ -480,7 +480,10 @@ export interface AgentControlHost {
 	mergeBranch(worktree: WorktreeRef, label: string, device?: string): Promise<MergeOutcome>;
 	/** What git on `device` says about a child's branch: its own commits, whether they landed, whether the worktree is clean. */
 	landing(worktree: WorktreeRef, device?: string): Promise<LandingFacts>;
-	/** Remove a clean worktree on `device` whose branch tip is in the parent's HEAD or upstream, and its branch (never forced). */
+	/**
+	 * Remove a clean worktree on `device` whose branch tip is in the parent's HEAD or upstream, and its branch at that very
+	 * tip (never forced); `branch-kept` when the branch moved meanwhile.
+	 */
 	removeSafeWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
 	/** Take back on `device` a worktree and branch an open made and nobody used (a failed open; never forced). */
 	discardWorktree(worktree: WorktreeRef, device?: string): Promise<WorktreeRemoval>;
@@ -3851,7 +3854,7 @@ export class AgentControl {
 		const removal = await this.#host.removeSafeWorktree(worktree, device).catch(() => null);
 		if (removal === "removed") return `Removed its worktree ${worktree.path} and branch ${worktree.branch}.`;
 		if (removal === "branch-kept")
-			return `Removed its worktree ${worktree.path}; git kept branch ${worktree.branch} (not merged into the parent checkout's HEAD).`;
+			return `Removed its worktree ${worktree.path}; kept branch ${worktree.branch}: it moved after its work was checked as landed, so it may hold new commits.`;
 		const facts = await this.#host.branchFacts(worktree, device).catch(() => null);
 		const unlanded = facts
 			? [

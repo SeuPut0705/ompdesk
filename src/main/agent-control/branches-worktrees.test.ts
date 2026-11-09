@@ -44,7 +44,6 @@ describe("discardNewWorktree", () => {
 		gitSync(repo, "branch", "--no-track", branch, "origin/main");
 		gitSync(repo, "worktree", "add", "-q", target, branch);
 		const wt = { path: target, branch, baseCwd: repo };
-		// The safe removal of a finished child's worktree keeps that branch (`branch -d` against the stale main).
 		expect(await discardNewWorktree(wt, archive())).toBe("removed");
 		await expect(fs.stat(target)).rejects.toThrow();
 		expect(gitSync(repo, "branch", "--list", branch)).toBe("");

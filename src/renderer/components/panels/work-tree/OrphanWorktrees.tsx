@@ -3,7 +3,7 @@
  * no open session uses (`get_orphan_worktrees`, `src/main/worktree-orphans.ts`; a paired host's tab answers on the
  * host). One line each: the branch, what git says about its work, the age. A worktree whose work landed (by ancestry
  * or by a squash merge) or that never had work of its own can be removed after a confirm: main re-checks and removes
- * it without `--force` and deletes the branch only with `branch -d`, so nothing unlanded is ever lost. Paints the
+ * it without `--force` and deletes the branch only at the tip it judged landed, so nothing unlanded is ever lost. Paints the
  * last read at once (`lib/last-read.ts`) and reads again in place when the view opens.
  */
 

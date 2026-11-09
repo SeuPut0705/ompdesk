@@ -432,8 +432,13 @@ async function createdAt(baseCwd: string, branch: string): Promise<string | unde
  * a reflog nothing counts as work.
  */
 export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
+	return (await judgeLanding(worktree)).facts;
+}
+
+/** `landingFacts` and the branch tip it judged (null when the branch names no commit). */
+async function judgeLanding(worktree: WorktreeRef): Promise<{ facts: LandingFacts; tip: string | null }> {
 	const tip = await resolve(worktree.baseCwd, `refs/heads/${worktree.branch}`);
-	if (!tip) return { hasWork: false, landed: false, clean: false };
+	if (!tip) return { facts: { hasWork: false, landed: false, clean: false }, tip };
 	const [base, created, own] = await Promise.all([
 		readBase(worktree.baseCwd),
 		createdAt(worktree.baseCwd, worktree.branch),
@@ -441,10 +446,13 @@ export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts>
 	]);
 	const state = await landing(worktree.baseCwd, base, tip);
 	return {
-		hasWork: created !== undefined && created !== tip,
-		landed: state.landed,
-		...(state.squashed ? { squashed: true as const } : {}),
-		clean: own !== null && own.tracked === 0 && own.untracked === 0,
+		facts: {
+			hasWork: created !== undefined && created !== tip,
+			landed: state.landed,
+			...(state.squashed ? { squashed: true as const } : {}),
+			clean: own !== null && own.tracked === 0 && own.untracked === 0,
+		},
+		tip,
 	};
 }
 
@@ -485,7 +493,10 @@ export async function worktreeStanding(worktree: StandingRef): Promise<WorktreeS
 	};
 }
 
-/** What a safe removal did: worktree and branch gone, the worktree gone but `branch -d` kept the branch, or nothing. */
+/**
+ * What a safe removal did: worktree and branch gone, the worktree gone but the branch kept (asked to, or it moved after
+ * its landing was judged), or nothing.
+ */
 export type WorktreeRemoval = "removed" | "branch-kept" | null;
 
 /**
@@ -509,29 +520,30 @@ export async function removeLinkedWorktree(baseCwd: string, worktreePath: string
 /**
  * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
  * uncommitted or untracked file whose work has landed in the parent's HEAD or upstream (an untouched branch has; a
- * squash-merged one has by content) goes (`worktree remove` without `--force` refuses a dirty one too), and the branch
- * only with `branch -d`, which refuses an unmerged one: a squash-merged branch keeps it (`branch-kept`). `keepBranch`
- * leaves the branch whatever it holds (`branch-kept`). Null when anything held it back.
+ * squash-merged one has by content) goes (`worktree remove` without `--force` refuses a dirty one too). `landingFacts`
+ * is the one judge of landed: the branch goes with `update-ref -d` against the very tip it judged, never `branch -d`,
+ * whose own rule (merged into the parent checkout's HEAD by ancestry) kept the branch of work pushed past a parent
+ * that was not pulled, or squash-merged. A branch something moved meanwhile stays (`branch-kept`), and so does one
+ * `keepBranch` asks to keep. Null when anything held it back.
  */
 export async function removeSafeWorktree(
 	worktree: WorktreeRef,
 	options: { keepBranch?: boolean } = {},
 ): Promise<WorktreeRemoval> {
-	const facts = await landingFacts(worktree);
-	if (!facts.landed || !facts.clean) return null;
+	const { facts, tip } = await judgeLanding(worktree);
+	if (tip === null || !facts.landed || !facts.clean) return null;
 	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
 	if (!primary) return null;
 	if (options.keepBranch) return "branch-kept";
-	const branch = await gitRaw(primary, ["branch", "-d", worktree.branch]);
-	return branch.code === 0 ? "removed" : "branch-kept";
+	const deleted = await gitRaw(primary, ["update-ref", "-d", `refs/heads/${worktree.branch}`, tip]);
+	return deleted.code === 0 ? "removed" : "branch-kept";
 }
 
 /**
  * Take back a worktree and branch an open just made and nobody used: a registered linked worktree with no uncommitted
  * or untracked file (`worktree remove` without `--force`), and the branch only while its reflog still holds just the
  * entry that created it, deleted with `update-ref -d` against that very commit, so a branch something moved meanwhile
- * stays. Unlike `removeSafeWorktree` it does not ask whether the tip landed in the parent's HEAD: a branch cut from the
- * default branch is ahead of a parent checkout that was not pulled, and `branch -d` kept it (v0.46.0).
+ * stays. Unlike `removeSafeWorktree` it does not ask whether the tip landed: nobody did any work on it.
  *
  * `git worktree remove` deletes ignored files without asking (a seeded `.env` someone edited, a setup hook's
  * database), so `prepare` runs first, as before every removal (disk care's `archiveBeforeRemove`): what no tool makes

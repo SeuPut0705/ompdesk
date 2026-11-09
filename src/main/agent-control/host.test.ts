@@ -1186,7 +1186,7 @@ describe("AgentControlRuntime", () => {
 			});
 			deps.pool.sessionOwner = sessionPath =>
 				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
-			// The close's last step, written once its worktree removal (and `branch -d`) settled: awaiting it leaves no
+			// The close's last step, written once its worktree and branch removal settled: awaiting it leaves no
 			// git running in the repository when the test deletes it (Windows refuses an rmdir while one has it open).
 			deps.prefs.set = (key, value) => {
 				if (key === AGENT_CLOSED_CHILDREN_PREF) closed = value;

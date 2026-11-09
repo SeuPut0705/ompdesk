@@ -1308,7 +1308,7 @@ export interface RpcOrphanWorktrees {
 	worktrees: RpcOrphanWorktree[];
 }
 
-/** remove_orphan_worktree: the worktree is gone; `branch-kept` when `git branch -d` kept its branch (a squash merge). */
+/** remove_orphan_worktree: the worktree is gone; `branch-kept` when its branch stayed (asked to, or it moved meanwhile). */
 export interface RpcOrphanWorktreeRemoval {
 	removal: "removed" | "branch-kept";
 }

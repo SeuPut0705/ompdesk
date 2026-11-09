@@ -4,7 +4,8 @@
  *
  * Local only: git runs on the computer this module runs on, which is where a paired device's tab answers too (local
  * handlers run where the tab's omp runs). The listing and the removal read the repository again each time; the
- * caller's word is never taken for a state. Nothing here forces: `worktree remove` without `--force`, `branch -d`.
+ * caller's word is never taken for a state. Nothing here forces: `worktree remove` without `--force`, and the branch
+ * with `update-ref -d` against the tip judged landed.
  * `git worktree remove` deletes ignored files without asking, so every removal first runs the caller's `prepare`
  * (disk care's private archive of what no tool makes again, `src/main/disk/`), which may keep the worktree.
  *
@@ -244,8 +245,8 @@ export type BeforeRemove = (worktree: RpcOrphanWorktree) => Promise<(removed: bo
 /**
  * Remove one orphaned worktree whose work is landed (or never begun), after reading it again: a path that is not in
  * the fresh listing is `not_orphan`, one that is not `landed` or `untouched` is `not_removable`. `removeSafeWorktree`
- * then checks landed and clean once more, and the branch goes only with `branch -d` (`branch-kept` when a squash merge
- * leaves it unmerged by ancestry).
+ * then checks landed and clean once more and deletes the branch at the tip it judged (`branch-kept` when `keepBranch`
+ * asks or the branch moved meanwhile).
  */
 export async function removeOrphanWorktree(
 	cwd: string,
