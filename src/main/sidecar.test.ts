@@ -1556,35 +1556,43 @@ describe("SidecarManager", () => {
 			}
 		}, 20_000);
 
-		it("stops a started omp that answers nothing and starts it again, reading starting until its retries run out", async () => {
-			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit", answers: "never" });
-			const statuses: SidecarStatus[] = [];
-			const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, startAnswerMs: 400 });
-			sidecar.on("status", ({ status }: SidecarStatusPayload) => statuses.push(status));
+		it("waits for an omp slow to answer, however long: never stopped, never error, its start place goes to the next tab", async () => {
+			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-slow-${process.pid}-${Date.now()}`);
+			const slow = await loggedOmp({ onTerm: "exit", answers: { gate } });
+			const quick = await loggedOmp({ onTerm: "exit", answers: "always" });
+			// One start at a time, with no cap of the queue's own: only the slow bound lets the second tab start.
+			const queue = new OmpStartQueue(1, 60_000);
+			const late = new SidecarManager({
+				omp: ompAt(slow.binaryPath),
+				cwd: slow.tempDir,
+				startQueue: queue,
+				startAnswerMs: 1_000,
+			});
+			const next = new SidecarManager({ omp: ompAt(quick.binaryPath), cwd: quick.tempDir, startQueue: queue });
+			const statuses: SidecarStatusPayload[] = [];
+			late.on("status", (payload: SidecarStatusPayload) => statuses.push(payload));
 			try {
-				const failed = Promise.withResolvers<void>();
-				sidecar.on("status", ({ status }: SidecarStatusPayload) => {
-					if (status === "error") failed.resolve();
-				});
-				sidecar.start();
-				await failed.promise;
-				await sidecar.whenExited();
-				const spawns = (await lines()).filter(line => line.word === "spawn");
-				// The first start and two more, each after the one before it exited.
-				expect(spawns).toHaveLength(3);
-				// A freed pid goes to the next process Windows creates, so a live pid is the omp only if it started
-				// before the omp logged its exit (`ompRuns`).
-				const exitedAt = new Map(
-					(await lines()).filter(line => line.word === "exit").map(line => [line.pid, line.at]),
-				);
-				const runs = await Promise.all(
-					spawns.map(spawn => ompRuns(spawn.pid, exitedAt.get(spawn.pid) ?? Date.now())),
-				);
-				expect(runs).toEqual([false, false, false]);
-				expect(statuses.filter(status => status !== "starting")).toEqual(["error"]);
+				late.start();
+				await vi.waitFor(async () => expect((await slow.lines()).map(line => line.word)).toEqual(["spawn"]));
+				const nextReady = waitForReady(next);
+				next.start();
+				await nextReady;
+				// The second tab is up and the first omp still runs, waited for: one spawn, its tab slow.
+				expect((await slow.lines()).map(line => line.word)).toEqual(["spawn"]);
+				expect(late.statusPayload).toMatchObject({ status: "starting", slow: true });
+				const lateReady = waitForReady(late);
+				await fs.writeFile(gate, "");
+				await lateReady;
+				expect((await slow.lines()).map(line => line.word)).toEqual(["spawn"]);
+				expect(statuses.map(payload => payload.status)).toEqual(["starting", "starting", "ready"]);
+				expect(late.statusPayload).not.toHaveProperty("slow");
 			} finally {
-				sidecar.dispose();
-				await fs.rm(tempDir, RM_TEMP);
+				late.dispose();
+				next.dispose();
+				await Promise.all([late.whenExited(), next.whenExited()]);
+				await fs.rm(gate, { force: true });
+				await fs.rm(slow.tempDir, RM_TEMP);
+				await fs.rm(quick.tempDir, RM_TEMP);
 			}
 		}, 20_000);
 	});
