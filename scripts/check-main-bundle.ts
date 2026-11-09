@@ -346,7 +346,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 2,175,035.
 // A session row holds its family chip's slot only while the chip draws (9 Nov 2026, sidebar-family.ts
 // `familyChipCounts`/`hasFamilyChip`, read with the family hide state by both session lists): 2,175,243.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_175_243;
+// An agent's question shows its form's paragraph and pictures above the choices, and a bot decision's pictures unfolded
+// (9 Nov 2026, ExtensionDialog.tsx `AskDialog` drawing `context`, BotDecisions.tsx `PICTURE`; the ask card is the
+// first screen), and a picture named by a Windows drive path read as a path (markdown.tsx `WINDOWS_DRIVES`): 2,175,491.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_175_491;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

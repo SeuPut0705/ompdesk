@@ -4454,6 +4454,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.quitJournal": "Aborted tool result kept when the app quits during a tool",
 	"bridgeHealth.feature.turnStages": "Logging of slow or empty turns",
 	"bridgeHealth.feature.botAvatar": "Bot avatar drawn on the image model",
+	"bridgeHealth.feature.askForm": "Pictures and paragraphs of an agent's question form",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
 	"bridgeHealth.feature.phoneImages": "Phone photos (HEIC) for the model",
 	"bridgeHealth.feature.sessionOwner": "Waiting for another omp to release a session",

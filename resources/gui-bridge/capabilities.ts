@@ -92,6 +92,7 @@ export const FEATURES = {
 	quitJournal: "A quit while a tool runs journals the tool's aborted result before the process ends",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
 	botAvatar: "Bot avatar drawn on the image model role (Settings › Bot › Generate)",
+	askForm: "An ask form's paragraphs, tables and pictures on its question card",
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -1441,6 +1442,25 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
 			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
 			[`${AGENT}/tools/image-gen`]: ["imageGenTool.execute()"],
+		},
+	},
+	/**
+	 * ask-form.ts: `formDialog` defined on the session's RPC UI context (`extensionRunner.getUIContext()`), asking a form
+	 * through the context's own `askDialog`; the form's parse, questions, values and checks are stock's html-form helpers,
+	 * and duplicate option labels are told apart as stock's field-by-field walk does.
+	 */
+	askForm: {
+		session: ["extensionRunner.hasUI()", "extensionRunner.getUIContext()"],
+		modules: {
+			"@oh-my-pi/pi-tui/html-form/parse": ["parseHtmlForm()", "spansText()"],
+			"@oh-my-pi/pi-tui/html-form/data": [
+				"fieldQuestions()",
+				"choiceValue()",
+				"textValue()",
+				"fieldError()",
+				"defaultFormData()",
+			],
+			"@oh-my-pi/pi-tui/render/render-utils": ["disambiguateDisplayLabels()"],
 		},
 	},
 };

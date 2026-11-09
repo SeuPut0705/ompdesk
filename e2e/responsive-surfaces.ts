@@ -1523,6 +1523,24 @@ export const SURFACES: readonly Surface[] = [
 			}),
 	},
 	{
+		id: "card-ask-pictures",
+		area: "A",
+		title: "Ask card of an ask form with pictures: the drafts side by side above the question, before anything is picked",
+		// The host's fake omp asks it (e2e/fixture/rpc-ui.ts "fixture ask pictures"), as the bridge's ask form sends a
+		// form of pictures; Escape answers it, which ends that turn.
+		open: async page => {
+			const tab = await shownTab(page);
+			if (!tab) throw new Error("the view shows no session to ask in");
+			await page.evaluate(
+				tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture ask pictures" }),
+				tab.tabId,
+			);
+		},
+		ready: "[data-ask-context] [data-figure-row] figure:nth-child(3) img",
+		when: () => false,
+		parity: { session: "work", after: closeOverlay },
+	},
+	{
 		id: "card-approval",
 		area: "A",
 		title: "Tool approval card with a long command",

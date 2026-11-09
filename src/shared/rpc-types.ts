@@ -1728,6 +1728,11 @@ export interface ExtensionAskDialogQuestion {
 	options: ExtensionAskDialogOption[];
 	multi?: boolean;
 	recommended?: number;
+	/**
+	 * OMPdesk's own: Markdown the card draws above the question, before anything is picked. The bridge's ask form
+	 * (resources/gui-bridge/ask-form.ts) puts an `ask` form's paragraphs, tables and pictures here; stock never sets it.
+	 */
+	context?: string;
 }
 export interface ExtensionAskDialogResultItem {
 	id: string;

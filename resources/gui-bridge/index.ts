@@ -113,6 +113,7 @@ const AREAS: readonly Area[] = [
 	{ name: "quit-journal", features: ["quitJournal"], load: () => import("./quit-journal") },
 	{ name: "turn-stages", features: ["turnStages"], load: () => import("./turn-stages") },
 	{ name: "bot-avatar", features: ["botAvatar"], load: () => import("./bot-avatar") },
+	{ name: "ask-form", features: ["askForm"], load: () => import("./ask-form") },
 ];
 
 function builtins(failures: readonly AreaFailure[]): BridgeMethods {

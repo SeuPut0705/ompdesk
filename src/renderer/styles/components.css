@@ -479,6 +479,14 @@
 	font-size: var(--sc-font-sm);
 	line-height: var(--sc-leading-normal);
 }
+/* An ask card's pictures are thumbnails (a click opens each full size), so the question and its choices stay in view. */
+[data-ask-context] .markdown-body .omp-md-figures {
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
+	margin: 0.5em 0;
+}
+[data-ask-context] .markdown-body .omp-md-figure-image {
+	max-height: 8rem;
+}
 .markdown-body a {
 	color: var(--sc-accent);
 	text-decoration: underline;

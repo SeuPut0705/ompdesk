@@ -5028,6 +5028,40 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					},
 				],
 			});
+		} else if (message === "fixture ask pictures") {
+			// An `ask` form with three drafts as the bridge's ask form puts it on the card (resources/gui-bridge/ask-form.ts):
+			// the form's paragraph and pictures as Markdown above the question, local pictures by absolute path.
+			const shots = nodePath.join(process.cwd(), "shots");
+			fs.mkdirSync(shots, { recursive: true });
+			const drafts = {
+				"draft-a.png": nodePath.join(E2E_DIR, "../native/memory/docs/web-projects-home.png"),
+				"draft-b.png": nodePath.join(E2E_DIR, "../native/memory/docs/web-project-view.png"),
+				"draft-c.png": nodePath.join(E2E_DIR, "../resources/brand/social-preview.png"),
+			};
+			for (const [name, from] of Object.entries(drafts)) fs.copyFileSync(from, nodePath.join(shots, name));
+			// Escaped as the bridge escapes a destination (a Windows path's backslashes).
+			const shot = (name: string) => nodePath.join(shots, name).replace(/[\\<>]/g, "\\$&");
+			write({
+				type: "extension_ui_request",
+				id: "fixture-ask-pictures",
+				method: "ask",
+				questions: [
+					{
+						id: "field-0",
+						header: "Home screen",
+						question: "Which draft should ship?",
+						options: [{ label: "A" }, { label: "B" }, { label: "C" }],
+						recommended: 0,
+						context: [
+							"Three drafts of the home screen\\:",
+							"",
+							`![A\\: projects list](<${shot("draft-a.png")}>)`,
+							`![B\\: one project open](<${shot("draft-b.png")}>)`,
+							`![C\\: social card](<${shot("draft-c.png")}>)`,
+						].join("\n"),
+					},
+				],
+			});
 		} else if (message === "fixture long ask") {
 			// One question with many described options: taller than a 2×2 pane.
 			write({

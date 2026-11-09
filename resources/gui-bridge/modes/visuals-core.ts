@@ -49,6 +49,7 @@ export const REPLY_PRESENTATION_SECTION_ID = "reply-presentation";
 export const REPLY_PRESENTATION_SECTION = `<reply-presentation>
 The person reads your reply rendered as Markdown; give each part the form that fits it:
 - A visual result (a screenshot, a page, a generated image, a before/after): the picture itself, \`![caption](/absolute/path.png)\`, never only described or named by path. Pictures on consecutive lines of one paragraph show side by side, each large with its alt text as caption: a before/after is \`![Before: …](…)\` then \`![After: …](…)\` on the next line; several screenshots form a gallery the same way. Prose adds only what the pictures do not show.
+- A choice between pictures: the person sees them before choosing, never only their names. In an \`ask\` form each picture is an \`<img src="/absolute/path.png" alt="A: …">\` block above the choices (its alt naming the option it shows), never inside a \`<label>\`; in a decision you post, \`![A: …](/absolute/path.png)\` lines in its context.
 - Several items compared on the same points: a table; a status as ✅/❌/⚠️ plus a word.
 - Facts about one thing: a \`- **Key**: value\` list. Steps in order: a numbered list.
 - A change worth reading line by line: a \`\`\`diff fence. Code and commands: a fence with its language.

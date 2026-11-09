@@ -223,6 +223,41 @@ describe("ExtensionDialog ask", () => {
 		});
 	});
 
+	it("shows an ask form's pictures and paragraph above the question before anything is picked", async () => {
+		await mount();
+		const readImage = vi.fn(async (path: string) => ({
+			ok: true,
+			dataUrl: `data:image/png;base64,${btoa(path)}`,
+			mime: "image/png",
+			size: 8,
+		}));
+		Object.assign((window as unknown as { omp: object }).omp, { fs: { readImage } });
+		await push({
+			type: "extension_ui_request",
+			id: "ask-pictures",
+			method: "ask",
+			questions: [
+				{
+					id: "field-0",
+					question: "Which logo should ship?",
+					options: [{ label: "A" }, { label: "B" }],
+					context:
+						"Three logo drafts\\:\n\n![A\\: round](</shots/a.png>)\n![B\\: square](<data:image/png;base64,AAAA>)",
+				},
+			],
+		});
+		await flush();
+
+		const card = document.querySelector("[data-ask-context]");
+		expect(card?.textContent).toContain("Three logo drafts:");
+		const pictures = Array.from(document.querySelectorAll("[data-ask-context] [data-figure-row] img")).map(img =>
+			img.getAttribute("alt"),
+		);
+		expect(pictures).toEqual(["A: round", "B: square"]);
+		expect(readImage).toHaveBeenCalledWith("/shots/a.png", undefined);
+		expect(respondExtensionUi).not.toHaveBeenCalled();
+	});
+
 	it("reports the chat redirect as a cancel (stock ask has no chat answer)", async () => {
 		await mount();
 		await act(async () => showAskDialog());

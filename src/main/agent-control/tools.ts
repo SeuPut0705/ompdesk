@@ -651,7 +651,11 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					items: { type: "string" },
 					description: `decide: the choices you offer (at most ${BOT_DECISION_OPTIONS_MAX}); omit for a free answer.`,
 				},
-				context: { type: "string", description: "decide: what the owner needs to know to decide." },
+				context: {
+					type: "string",
+					description:
+						"decide: what the owner needs to know to decide, as Markdown; a choice between pictures shows each picture as a `![A: …](/absolute/path.png)` line.",
+				},
 				operation: {
 					type: "string",
 					description:

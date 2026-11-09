@@ -555,6 +555,11 @@ function AskDialog({
 					</div>
 				)}
 				<div className="space-y-2.5" key={question.id} ref={bodyRef}>
+					{question.context && (
+						<div className="text-sc-sm" data-ask-context>
+							<MarkdownRenderer content={question.context} />
+						</div>
+					)}
 					<div className="space-y-1">
 						{question.header && total === 1 && (
 							<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>

@@ -538,6 +538,36 @@ describe("the bot's decision cards", () => {
 		expect(query("[data-bot-decision-context]")?.textContent).toContain("One flaky e2e retried twice.");
 	});
 
+	it("show the pictures of a choice before any click, beside an operation, in a box that does not clip them", async () => {
+		installApi();
+		const window_ = window as unknown as { omp: Record<string, unknown> };
+		window_.omp.fs = {
+			readImage: vi.fn(async (path: string) => ({
+				ok: true,
+				dataUrl: `data:image/png;base64,${btoa(path)}`,
+				mime: "image/png",
+				size: 8,
+			})),
+		};
+		await mountDesk(
+			desk({
+				decisions: [
+					{
+						...OPEN,
+						operation: "use logo B",
+						context: "Two drafts.\n\n![A: round](/shots/a.png)\n![B: square](/shots/b.png)",
+					},
+				],
+			}),
+		);
+		const context = query("[data-bot-decision-context]");
+		expect(queryAll("[data-bot-decision-context] [data-figure-row] img").map(img => img.getAttribute("alt"))).toEqual(
+			["A: round", "B: square"],
+		);
+		expect(context?.className).not.toContain("max-h");
+		expect(query("[data-bot-decision-details]")).toBeNull();
+	});
+
 	it("send the draft as the owner edited it with the answer, and none when it was left as the bot wrote it", async () => {
 		const api = installApi();
 		await mountDesk(

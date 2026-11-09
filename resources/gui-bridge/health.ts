@@ -39,6 +39,8 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 	"@oh-my-pi/pi-tui/chat/image-loading": () => import("@oh-my-pi/pi-tui/chat/image-loading"),
 	"@oh-my-pi/pi-coding-agent/utils/image-resize": () => import("@oh-my-pi/pi-coding-agent/utils/image-resize"),
 	"@oh-my-pi/pi-tui/tools/read": () => import("@oh-my-pi/pi-tui/tools/read"),
+	"@oh-my-pi/pi-tui/html-form/parse": () => import("@oh-my-pi/pi-tui/html-form/parse"),
+	"@oh-my-pi/pi-tui/html-form/data": () => import("@oh-my-pi/pi-tui/html-form/data"),
 	"@oh-my-pi/pi-agent-core": () => import("@oh-my-pi/pi-agent-core"),
 	"@oh-my-pi/pi-ai": () => import("@oh-my-pi/pi-ai"),
 	"@oh-my-pi/pi-ai/auth/blocks": () => import("@oh-my-pi/pi-ai/auth/blocks"),

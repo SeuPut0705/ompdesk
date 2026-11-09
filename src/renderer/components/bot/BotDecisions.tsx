@@ -27,10 +27,15 @@ import { useBotTab } from "./bot-tab";
 
 /** Lists, headings, fences, quotes, emphasis, code spans and links: anything else reads best as the plain text it is. */
 const MARKDOWN_HINT = /(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)|\*\*|`[^`\n]+`|\]\(/;
+/** A Markdown picture (`![A: …](/abs/path.png)`): the owner sees it before answering, never folded or clipped. */
+const PICTURE = /!\[[^\]\n]*\]\(/;
 
 function DecisionContext({ text }: { text: string }) {
 	return (
-		<div className="max-h-32 overflow-y-auto text-sc-sm text-(--sc-text-secondary)" data-bot-decision-context>
+		<div
+			className={`${PICTURE.test(text) ? "" : "max-h-32 overflow-y-auto "}text-sc-sm text-(--sc-text-secondary)`}
+			data-bot-decision-context
+		>
 			{MARKDOWN_HINT.test(text) ? (
 				<MarkdownRenderer content={text} />
 			) : (
@@ -110,8 +115,11 @@ function DecisionCard({
 		// An accepted answer leaves with main's change; a refused one stays to try again.
 		if (!ok) setPending(false);
 	};
-	// With an operation or a draft to look at, the bot's notes wait behind "See details"; alone they show.
-	const tucked = decision.context !== undefined && (decision.operation !== undefined || decision.draft !== undefined);
+	// With an operation or a draft to look at, the bot's notes wait behind "See details"; alone or with pictures they show.
+	const tucked =
+		decision.context !== undefined &&
+		!PICTURE.test(decision.context) &&
+		(decision.operation !== undefined || decision.draft !== undefined);
 	return (
 		<li
 			aria-hidden={exiting || undefined}
