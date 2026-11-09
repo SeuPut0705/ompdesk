@@ -13,7 +13,99 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp, runBridgeProbe } from "./test-bridge-probe";
+
+/**
+ * The probe both suites run as a bridge extension: every `read` call of `messages` (a JS expression giving assistant
+ * messages) must get a group target exactly when stock's own rule compacts it (its URL router's `compactTranscript`),
+ * shown as stock's `splitPathAndSel` splits it; then the fixed probes and one sample of the session's token meter.
+ */
+const probeSource = (messages: string) => `
+import { InternalUrlRouter } from "@oh-my-pi/pi-coding-agent/internal-urls/router";
+import { splitUrlScheme } from "@oh-my-pi/pi-tui/tools/url-scheme-host";
+import { splitPathAndSel } from "@oh-my-pi/pi-tui/tools/read";
+import { decorateMessages, methods, readGroupTarget } from "./stream-metadata";
+export default function(pi) {
+ pi.on("session_start", async () => {
+  try {
+   const messages = ${messages};
+   const decorated = decorateMessages(messages);
+   let reads = 0;
+   for (const message of decorated) for (const block of message.content ?? []) {
+    if (block.type !== "toolCall" || block.name !== "read") continue;
+    reads++;
+    const target = block.arguments.__ompReadGroup;
+    const rawPath = block.arguments.path ?? block.arguments.file_path;
+    const scheme = typeof rawPath === "string" ? splitUrlScheme(rawPath)?.scheme : undefined;
+    const spec = scheme ? InternalUrlRouter.instance().spec(scheme) : undefined;
+    const eligible = typeof rawPath === "string" && (!spec || spec.compactTranscript === true);
+    if ((target !== null) !== eligible) throw new Error("eligibility mismatch: " + scheme);
+    if (target) {
+     const expected = splitPathAndSel(block.arguments.path ?? block.arguments.file_path);
+     if (target.path !== expected.path || target.selector !== expected.sel) throw new Error("display mismatch");
+    }
+   }
+   const probes = ["https://example.com", "xd://lsp", "src/a.ts:-5", "skill://example"].map(path => readGroupTarget({path}));
+   const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+   session.tokenRate.seed(640, 10000);
+   let rate;
+   await methods["stream_metadata.start"]({}, {pi, session: () => session, emit: event => { if (event.type === "token_rate") rate = event.rate; }});
+   console.error("STREAM_METADATA_RESULT=" + JSON.stringify({reads, probes, rate}));
+   process.exit(0);
+  } catch (error) {
+   console.error("STREAM_METADATA_RESULT=" + JSON.stringify({ error: String((error && error.message) || error) }));
+   process.exit(1);
+  }
+ });
+}
+`;
+
+const PROBES = [{ path: "https://example.com" }, { path: "xd://lsp" }, { path: "src/a.ts", selector: "-5" }, null];
+
+/**
+ * The same rules on the installed omp wherever it is installed (CI included), over one `read` call of every kind of
+ * path an agent passes. The replay below needs the person's own sessions, so it runs on a developer's machine only,
+ * and until 10 Nov 2026 it was the only suite that asked stock about `readGroupTarget` and the token meter.
+ */
+describe.skipIf(!existsSync(omp))("stream metadata on stock omp", () => {
+	it("groups a read exactly when stock compacts it, shows it as stock splits it, and samples the session meter", () => {
+		const paths = [
+			"src/a.ts",
+			"src/a.ts:10-20",
+			"notes.md:-5",
+			"https://example.com/page",
+			"xd://lsp",
+			"skill://example",
+			"agent://1-Worker",
+			"artifact://12",
+			"local://plan.md",
+			"pr://12/diff",
+			"issue://7",
+			"mcp://resource",
+			"history://1-Worker",
+			"proc://bg_1",
+			"omp://rpc.md",
+			"rule://composer",
+			"ssh://host/etc/hosts",
+		];
+		const messages = [
+			{
+				role: "assistant",
+				content: paths.map((path, index) => ({
+					type: "toolCall",
+					id: `call_${index}`,
+					name: "read",
+					arguments: { path },
+				})),
+			},
+		];
+		expect(runBridgeProbe(probeSource(JSON.stringify(messages)), "STREAM_METADATA_RESULT")).toEqual({
+			reads: paths.length,
+			probes: PROBES,
+			rate: 64,
+		});
+	}, 120_000);
+});
 
 const agentDir = join(homedir(), ".omp", "agent");
 describe.skipIf(!existsSync(omp) || !existsSync(join(agentDir, "agent.db")))("real stock stream metadata", () => {
@@ -47,41 +139,9 @@ describe.skipIf(!existsSync(omp) || !existsSync(join(agentDir, "agent.db")))("re
 			const extension = join(root, "bridge", "probe.ts");
 			writeFileSync(
 				extension,
-				`
-import { InternalUrlRouter } from "@oh-my-pi/pi-coding-agent/internal-urls/router";
-import { splitUrlScheme } from "@oh-my-pi/pi-tui/tools/url-scheme-host";
-import { splitPathAndSel } from "@oh-my-pi/pi-tui/tools/read";
-import { decorateMessages, methods, readGroupTarget } from "./stream-metadata";
-export default function(pi) {
- pi.on("session_start", async () => {
-  const rows = (await Bun.file(${JSON.stringify(join(root, "replay.jsonl"))}).text()).split("\\n").filter(Boolean).map(line => JSON.parse(line));
-  const messages = rows.filter(row => row.type === "message" && row.message?.role === "assistant").map(row => row.message);
-  const decorated = decorateMessages(messages);
-  let reads = 0;
-  for (const message of decorated) for (const block of message.content ?? []) {
-   if (block.type !== "toolCall" || block.name !== "read") continue;
-   reads++;
-   const target = block.arguments.__ompReadGroup;
-   const rawPath = block.arguments.path ?? block.arguments.file_path;
-   const scheme = typeof rawPath === "string" ? splitUrlScheme(rawPath)?.scheme : undefined;
-   const spec = scheme ? InternalUrlRouter.instance().spec(scheme) : undefined;
-   const eligible = typeof rawPath === "string" && (!spec || spec.compactTranscript === true);
-   if ((target !== null) !== eligible) throw new Error("eligibility mismatch");
-   if (target) {
-    const expected = splitPathAndSel(block.arguments.path ?? block.arguments.file_path);
-    if (target.path !== expected.path || target.selector !== expected.sel) throw new Error("display mismatch");
-   }
-  }
-  const probes = ["https://example.com", "xd://lsp", "src/a.ts:-5", "skill://example"].map(path => readGroupTarget({path}));
-  const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
-  session.tokenRate.seed(640, 10000);
-  let rate;
-  await methods["stream_metadata.start"]({}, {pi, session: () => session, emit: event => { if (event.type === "token_rate") rate = event.rate; }});
-  console.error("STREAM_METADATA_RESULT=" + JSON.stringify({reads, probes, rate}));
-  process.exit(0);
- });
-}
-`,
+				probeSource(
+					`(await Bun.file(${JSON.stringify(join(root, "replay.jsonl"))}).text()).split("\\n").filter(Boolean).map(line => JSON.parse(line)).filter(row => row.type === "message" && row.message?.role === "assistant").map(row => row.message)`,
+				),
 			);
 			const result = spawnSync(
 				OMP_COMMAND.file,
@@ -118,12 +178,7 @@ export default function(pi) {
 				rate: number;
 			};
 			expect(report.reads).toBeGreaterThan(0);
-			expect(report.probes).toEqual([
-				{ path: "https://example.com" },
-				{ path: "xd://lsp" },
-				{ path: "src/a.ts", selector: "-5" },
-				null,
-			]);
+			expect(report.probes).toEqual(PROBES);
 			expect(report.rate).toBeCloseTo(64);
 		} finally {
 			rmSync(root, { recursive: true, force: true });

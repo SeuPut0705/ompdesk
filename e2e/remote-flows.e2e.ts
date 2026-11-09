@@ -18,6 +18,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { en } from "../src/renderer/locales/en";
 import { ko } from "../src/renderer/locales/ko";
 import { tinyPptx, tinyXlsx } from "./file-viewer-fixtures";
+import { FIXTURE_MIN_OMP_VERSION, FIXTURE_NEWER_OMP_VERSION } from "./fixture/version";
 import { capture, cssString, exitApp, openDestination, variants } from "./harness";
 import {
 	connectHost,
@@ -348,16 +349,16 @@ for (const language of variants(["en", "ko"] as const))
 			let client: RemoteInstance | null = null;
 			try {
 				const versionFile = path.join(parent, "host-omp-version");
-				await fs.writeFile(versionFile, "18.12.6\n");
+				await fs.writeFile(versionFile, `${FIXTURE_MIN_OMP_VERSION}\n`);
 				const hostProfile = await makeRemoteProfile(parent, "b", {
 					language: hostLanguage,
 					theme: hostTheme,
-					// B's omp: signed in to Anthropic with Sonnet as the default role, at 18.12.6 (the floor) with 18.13.0 out.
+					// B's omp: signed in to Anthropic with Sonnet as the default role, at the floor with a newer release out.
 					env: {
 						OMP_GUI_TEST_LOGIN: "1",
 						OMP_GUI_TEST_MODELS: "1",
 						OMP_GUI_TEST_VERSION_FILE: versionFile,
-						OMP_GUI_TEST_LATEST_OMP: "18.13.0",
+						OMP_GUI_TEST_LATEST_OMP: FIXTURE_NEWER_OMP_VERSION,
 					},
 				});
 				const clientProfile = await makeRemoteProfile(parent, "a", {
@@ -444,8 +445,8 @@ for (const language of variants(["en", "ko"] as const))
 						.locator("[data-setting-row]")
 						.filter({ hasText: t("updates.core.hostDescription", { device: "Host B" }) });
 					await expect(ompRow.locator(`[data-device-chip="${deviceId}"]`)).toBeVisible();
-					await expect(ompRow).toContainText("18.12.6", { timeout: 30_000 });
-					await expect(ompRow).toContainText("18.13.0");
+					await expect(ompRow).toContainText(FIXTURE_MIN_OMP_VERSION, { timeout: 30_000 });
+					await expect(ompRow).toContainText(FIXTURE_NEWER_OMP_VERSION);
 					await expect(ompRow.getByRole("button", { name: t("updates.core.update") })).toBeVisible();
 					// B26: the host's OMPdesk, with the version the host reports (the app's own, package.json).
 					const desktopRow = settings.locator("#setting-updates-host");

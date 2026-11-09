@@ -907,13 +907,17 @@ export const methods: BridgeMethods = {
 			const catalog = await refreshCatalog(env, session, asRecord(params).forceRefresh === true);
 			return { providers: buildProviders(session), ...catalog };
 		},
-		/** Explicit "disconnect the provider": removes every stored account (one account: stock `logout`). */
+		/**
+		 * Explicit "disconnect the provider": removes every stored account (one account: stock `logout`). Stock's
+		 * `logoutCredential` takes the session (omp 18.18.2; a model registry and session id before): it also refreshes
+		 * the session's scoped models itself.
+		 */
 		provider_logout: async (params, env) => {
 			const session = env.session();
 			const providerId = requiredString(params, "providerId");
 			const accounts = await listLogoutAccounts(session.modelRegistry.authStorage, providerId, session.sessionId);
 			for (const account of accounts) {
-				await logoutCredential(session.modelRegistry, providerId, account.credentialId, session.sessionId);
+				await logoutCredential(session, providerId, account.credentialId);
 			}
 			emitCatalogUpdate(env, session);
 			return { providerId };

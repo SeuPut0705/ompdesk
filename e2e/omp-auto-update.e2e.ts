@@ -2,12 +2,12 @@
  * omp updates itself, end to end, with the fixture omp's `update --check` and a
  * fake installer (`OMP_GUI_TEST_OMP_UPDATES=1`, `OMP_GUI_TEST_INSTALLER`; both are
  * needed for a test launch to check at all). The check runs on the fixture omp
- * with that omp's folder first on PATH and reports 18.13.0
- * (`OMP_GUI_TEST_LATEST_OMP`), newer than the fixture (18.12.6), so main runs the
+ * with that omp's folder first on PATH and reports a newer release
+ * (`OMP_GUI_TEST_LATEST_OMP`, `NEWER`) than the fixture (`FLOOR`), so main runs the
  * omp-update plan on its own while the tab keeps its process and its draft; once
  * the installer reports the new version, main re-detects omp, restarts the idle
- * tab on it (the boot log shows 18.12.6 then 18.13.0), shows one "omp updated to
- * 18.13.0" toast, and the restarted bridge's capabilities probe names a feature
+ * tab on it (the boot log shows the floor then the newer one), shows one "omp updated to
+ * …" toast, and the restarted bridge's capabilities probe names a feature
  * the new omp lacks. With the pref off nothing checks on its own, and "Update
  * now" still works.
  */
@@ -17,9 +17,10 @@ import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
+import { FIXTURE_MIN_OMP_VERSION as FLOOR, FIXTURE_NEWER_OMP_VERSION as NEWER } from "./fixture/version";
 import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible } from "./harness";
 
-/** The fake installer: logs each call; the omp update waits for the test's `go` file, then "installs" 18.13.0. */
+/** The fake installer: logs each call; the omp update waits for the test's `go` file, then "installs" `NEWER`. */
 const INSTALLER = `
 import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -28,8 +29,8 @@ const dir = process.env.OMPDESK_FAKE_INSTALLER_DIR;
 appendFileSync(join(dir, "installs.log"), item + " " + method + "\\n");
 if (item === "omp" && method === "omp-update") {
 	while (!existsSync(join(dir, "go"))) await Bun.sleep(25);
-	writeFileSync(process.env.OMPDESK_FAKE_VERSION_FILE, "18.13.0");
-	console.log("Updated to 18.13.0");
+	writeFileSync(process.env.OMPDESK_FAKE_VERSION_FILE, "${NEWER}");
+	console.log("Updated to ${NEWER}");
 } else {
 	console.log("fake " + item + " install");
 }
@@ -74,7 +75,7 @@ async function launch(name: string, prefs: Record<string, unknown>): Promise<Lau
 			OMP_GUI_OMP: omp,
 			OMP_GUI_TEST_INSTALLER: installer,
 			OMP_GUI_TEST_OMP_UPDATES: "1",
-			OMP_GUI_TEST_LATEST_OMP: "18.13.0",
+			OMP_GUI_TEST_LATEST_OMP: NEWER,
 			OMP_GUI_TEST_UPDATE_CHECK_LOG: path.join(root, "update-checks.log"),
 			OMP_GUI_TEST_VERSION_FILE: path.join(root, "omp-version"),
 			OMP_GUI_TEST_BOOT_LOG: path.join(root, "boots.log"),
@@ -113,14 +114,14 @@ async function releaseInstaller(launched: Launched): Promise<void> {
 	await fs.writeFile(path.join(launched.root, "installer", "go"), "");
 }
 
-/** After "go": one toast, the idle tab restarted on 18.13.0, its draft kept, the probe's warning, the state in Settings. */
+/** After "go": one toast, the idle tab restarted on `NEWER`, its draft kept, the probe's warning, the state in Settings. */
 async function expectUpdated(launched: Launched): Promise<void> {
 	const { page } = launched;
-	await expect(page.getByText("omp updated to 18.13.0")).toBeVisible({ timeout: 30_000 });
-	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.6", "18.13.0"]);
+	await expect(page.getByText(`omp updated to ${NEWER}`)).toBeVisible({ timeout: 30_000 });
+	await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual([FLOOR, NEWER]);
 	await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 	await expect(page.locator(".omp-composer-input").first()).toHaveValue(DRAFT);
-	// The restarted bridge answered the capabilities probe for 18.13.0; planMode is missing there.
+	// The restarted bridge answered the capabilities probe for the newer omp; planMode is missing there.
 	await expect(page.getByText(/lacks internals OMPdesk needs for: Plan mode/)).toBeVisible({ timeout: 30_000 });
 	expect(await installs(launched)).toEqual(["omp omp-update"]);
 	// Every check (main's, and Settings' on the tab) ran with this omp's folder first on PATH: stock's
@@ -133,9 +134,9 @@ async function expectUpdated(launched: Launched): Promise<void> {
 		.poll(() => page.evaluate(() => window.omp.ompUpdate.getState()), { timeout: 30_000 })
 		.toMatchObject({
 			phase: "idle",
-			installed: "18.13.0",
-			latest: "18.13.0",
-			updatedTo: "18.13.0",
+			installed: NEWER,
+			latest: NEWER,
+			updatedTo: NEWER,
 			failure: null,
 		});
 	expect(launched.errors).toEqual([]);
@@ -148,11 +149,11 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 		const { page } = launched;
 		await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 		await page.locator(".omp-composer-input").first().fill(DRAFT);
-		// Nobody clicked: main found 18.13.0 > 18.12.6 and runs the installer, which waits for `go`.
+		// Nobody clicked: main found a release newer than the installed floor and runs the installer, which waits for `go`.
 		await expect.poll(() => updatePhase(page), { timeout: 30_000 }).toBe("updating");
 		await expect.poll(() => installs(launched), { timeout: 30_000 }).toEqual(["omp omp-update"]);
 		// The install never touches the running tab: same process, still ready.
-		expect(await boots(launched)).toEqual(["18.12.6"]);
+		expect(await boots(launched)).toEqual([FLOOR]);
 		expect(await sidecarStatus(page)).toBe("ready");
 		await releaseInstaller(launched);
 		await expectUpdated(launched);
@@ -164,7 +165,7 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 			"aria-checked",
 			"true",
 		);
-		await expect(settings.getByTestId("omp-update-status")).toHaveText("omp 18.13.0 is the latest.");
+		await expect(settings.getByTestId("omp-update-status")).toHaveText(`omp ${NEWER} is the latest.`);
 		// On a local tab "This computer" is the only place that updates omp: no second omp row above it.
 		await expect(settings.getByText("The omp CLI installed on this system", { exact: false })).toHaveCount(0);
 	} finally {
@@ -202,7 +203,7 @@ for (const [language, themeName] of [
 			await shot("1-updating-settings");
 			await page.keyboard.press("Escape");
 			await releaseInstaller(launched);
-			await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual(["18.12.6", "18.13.0"]);
+			await expect.poll(() => boots(launched), { timeout: 30_000 }).toEqual([FLOOR, NEWER]);
 			await expect.poll(() => sidecarStatus(page), { timeout: 30_000 }).toBe("ready");
 			await expect(page.locator("[role='status'], [role='alert']").first()).toBeVisible({ timeout: 30_000 });
 			await shot("2-updated-toast");

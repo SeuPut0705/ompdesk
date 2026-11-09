@@ -852,6 +852,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"modelRegistry.authStorage.keys.source()",
 			"modelRegistry.authStorage.oauth.identity()",
 			"modelRegistry.getProviderBaseUrl()",
+			// Stock's `logoutCredential(session, …)` calls it (omp 18.18.2).
+			"refreshScopedModels()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai/oauth": ["getOAuthProviders()", "getOAuthCredentialProvider()"],

@@ -3,7 +3,62 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdtempSync, rmSync, write
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
+import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp, runBridgeProbe } from "./test-bridge-probe";
+
+/**
+ * What needs no account of the person's, wherever omp is installed (CI included): stock's selectors on made-up
+ * reports and credits, and the account listing of a throwaway credential in an empty private agent dir. Each line
+ * names what it would mean when it fails.
+ */
+const SELECTORS_PROBE = `
+import { methods } from "./settings";
+import { shapeResetPasses } from "./reset-passes-core";
+import { storedRoleValue } from "./role-values";
+import { reportMatchesActiveAccount } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/active-oauth-account";
+import { toResetUsageAccounts } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage";
+import { extractExplicitThinkingSelector } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
+export default function(pi) {
+ pi.on("session_start", async () => {
+  try {
+   const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+   const env = {pi, session: () => session, context: () => undefined, emit: () => {}};
+   const failures = [];
+   const hold = (what, ok) => { if (!ok) failures.push(what); };
+   const limit = {id: "test", scope: {}, amount: {unit: "requests"}};
+   const report = {provider: "test", fetchedAt: Date.now(), metadata: {email: "other@example.test", accountId: "same"}, limits: [limit]};
+   hold("email must decide", !reportMatchesActiveAccount(report, {email: "me@example.test", accountId: "same"}));
+   hold("org presence gate ignored", !reportMatchesActiveAccount({...report, metadata: {email: "me@example.test", orgId: "org"}}, {email: "me@example.test"}));
+   hold("account_id ignored", reportMatchesActiveAccount({...report, metadata: {account_id: "same"}}, {accountId: "same"}));
+   hold("project scope ignored", reportMatchesActiveAccount({...report, metadata: {}, limits: [{...limit, scope: {projectId: "project"}}]}, {projectId: "project"}));
+   const codex = {provider: "openai-codex", credentialId: 1, active: false, availableCount: 1, credits: []};
+   hold("manual Codex exhaustion gate remained", shapeResetPasses(toResetUsageAccounts([codex])[0])?.redeemable === true);
+   const claude = {...codex, provider: "anthropic", credits: [{id: "unbound", usable: true}]};
+   hold("Claude pin ignored", !shapeResetPasses(toResetUsageAccounts([claude])[0])?.redeemable);
+   const expired = {...codex, redeemableCount: 0, credits: [{id: "expired", usable: false, status: "expired", expiresAt: "2000-01-01T00:00:00Z"}]};
+   hold("expired stock refusal ignored", !shapeResetPasses(toResetUsageAccounts([expired])[0])?.redeemable);
+   const selector = value => extractExplicitThinkingSelector(value, undefined, {isLiteralModelId: (_provider, id) => id === "literal:max"});
+   hold("literal max interpreted as thinking", storedRoleValue("advisor", "test/literal:max", selector) === "test/literal:max:auto");
+   hold("explicit max lost", storedRoleValue("advisor", "test/model:max", selector) === "test/model:max");
+   const auth = session.modelRegistry.authStorage;
+   const provider = "ompdesk-accounts-probe";
+   await auth.credentials.upsert(provider, {type: "api_key", key: "throwaway-not-a-real-key"});
+   const stored = auth.credentials.list(provider).map(row => row.id);
+   const listed = (await methods.provider_accounts({providerId: provider}, env)).accounts.map(row => row.credentialId);
+   console.error("SELECTORS_PROBE=" + JSON.stringify({failures, stored: stored.length, listed: JSON.stringify(listed) === JSON.stringify(stored)}));
+   process.exit(0);
+  } catch (error) {
+   console.error("SELECTORS_PROBE=" + JSON.stringify({ error: String((error && error.stack) || error) }));
+   process.exit(1);
+  }
+ });
+}
+`;
+
+describe.skipIf(!existsSync(omp))("stock account selectors and listing, with no account of the person's", () => {
+	it("matches reports, shapes reset passes, keeps a literal model id and lists a stored credential", () => {
+		expect(runBridgeProbe(SELECTORS_PROBE, "SELECTORS_PROBE")).toEqual({ failures: [], stored: 1, listed: true });
+	}, 120_000);
+});
 
 const source = join(homedir(), ".omp", "agent");
 describe.skipIf(!existsSync(omp) || !existsSync(join(source, "agent.db")))("real stock account/reset adapters", () => {
@@ -34,11 +89,9 @@ import { resolveUsedFraction } from "@oh-my-pi/pi-ai";
 import { methods } from "./settings";
 import { matchReportAccount } from "./accounts-core";
 import { shapeResetPasses } from "./reset-passes-core";
-import { storedRoleValue } from "./role-values";
 import { reportMatchesActiveAccount } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/active-oauth-account";
 import { toResetUsageAccounts } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage";
 import { summarizeUsageResetCredits } from "@oh-my-pi/pi-tui/overlays/usage-display";
-import { extractExplicitThinkingSelector } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 function oldMatch(report, accounts, count) {
  const identity = report.metadata ?? {};
  const sameOrg = account => identity.orgId === undefined || account.orgId === undefined || account.orgId === identity.orgId;
@@ -91,21 +144,6 @@ export default function(pi) {
     }
    }
    if (usage.reports.length !== raw.length) throw new Error("usage report count mismatch");
-   const limit = {id: "test", scope: {}, amount: {unit: "requests"}};
-   const report = {provider: "test", fetchedAt: Date.now(), metadata: {email: "other@example.test", accountId: "same"}, limits: [limit]};
-   if (reportMatchesActiveAccount(report, {email: "me@example.test", accountId: "same"})) throw new Error("email must decide");
-   if (reportMatchesActiveAccount({...report, metadata: {email: "me@example.test", orgId: "org"}}, {email: "me@example.test"})) throw new Error("org presence gate ignored");
-   if (!reportMatchesActiveAccount({...report, metadata: {account_id: "same"}}, {accountId: "same"})) throw new Error("account_id ignored");
-   if (!reportMatchesActiveAccount({...report, metadata: {}, limits: [{...limit, scope: {projectId: "project"}}]}, {projectId: "project"})) throw new Error("project scope ignored");
-   const codex = {provider: "openai-codex", credentialId: 1, active: false, availableCount: 1, credits: []};
-   if (!shapeResetPasses(toResetUsageAccounts([codex])[0])?.redeemable) throw new Error("manual Codex exhaustion gate remained");
-   const claude = {...codex, provider: "anthropic", credits: [{id: "unbound", usable: true}]};
-   if (shapeResetPasses(toResetUsageAccounts([claude])[0])?.redeemable) throw new Error("Claude pin ignored");
-   const expired = {...codex, redeemableCount: 0, credits: [{id: "expired", usable: false, status: "expired", expiresAt: "2000-01-01T00:00:00Z"}]};
-   if (shapeResetPasses(toResetUsageAccounts([expired])[0])?.redeemable) throw new Error("expired stock refusal ignored");
-   const selector = value => extractExplicitThinkingSelector(value, undefined, {isLiteralModelId: (_provider, id) => id === "literal:max"});
-   if (storedRoleValue("advisor", "test/literal:max", selector) !== "test/literal:max:auto") throw new Error("literal max interpreted as thinking");
-   if (storedRoleValue("advisor", "test/model:max", selector) !== "test/model:max") throw new Error("explicit max lost");
    const provider = "ompdesk-logout-probe";
    await auth.credentials.upsert(provider, {type: "api_key", key: "throwaway-not-a-real-key"});
    const added = auth.credentials.list(provider).length;
