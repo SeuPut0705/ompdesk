@@ -66,6 +66,8 @@ function setup(
 		mailOutboxFile?: string;
 		/** `AgentControlHostDeps.sendOutboxFile`. */
 		sendOutboxFile?: string;
+		/** `AgentControlHostDeps.sessionFatesFile`. */
+		sessionFatesFile?: string;
 		sessions?: AgentControlHostDeps["sessions"];
 		remote?: AgentControlHostDeps["remote"];
 		summaries?: AgentControlHostDeps["summaries"];
@@ -190,6 +192,7 @@ function setup(
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
 		sendOutboxFile: options.sendOutboxFile,
+		sessionFatesFile: options.sessionFatesFile,
 		fileEdits,
 		releaseTab: async (target, tabId, stillReleasable) => {
 			const at = webTabs.findIndex(tab => tab.tabId === tabId);
@@ -1271,8 +1274,10 @@ describe("AgentControlRuntime", () => {
 				],
 			],
 		]);
+		// What became of a session an id named is kept beside the profile (`agent-session-fates.json`).
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-session-fates-"));
 		const launch = () => {
-			const started = setup();
+			const started = setup({ sessionFatesFile: path.join(dir, "agent-session-fates.json") });
 			started.deps.prefs = {
 				get: key => prefs.get(key),
 				set: (key, value) => void prefs.set(key, value),
@@ -1302,6 +1307,7 @@ describe("AgentControlRuntime", () => {
 			expect((await stop(second, "15bece0493c7d5ff")).isError).toBe(true);
 		} finally {
 			initDeletedSessions(null);
+			await fs.rm(dir, { recursive: true, force: true });
 		}
 	});
 

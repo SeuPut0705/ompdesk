@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AGENT_CONTROL_TOOLS, isAgentControlTool } from "../../shared/agent-control";
-import { AGENT_CONTROL_DEFINITIONS, ARGS } from "./tools";
+import { BOT_TOOL_REFERENCE } from "./bot-tools";
+import { AGENT_CONTROL_DEFINITIONS, ARGS, looseArgs } from "./tools";
 
 describe("OMPdesk control tool definitions", () => {
 	it("registers one definition per tool, each with a JSON schema stock accepts and a strict argument parser", () => {
@@ -135,9 +136,11 @@ describe("ompdesk_bot arguments", () => {
 	});
 });
 
-describe("schema text states what the parser accepts", () => {
+describe("the schema states the bounds the parser enforces", () => {
 	interface Property {
 		description?: string;
+		maximum?: number;
+		maxLength?: number;
 		anyOf?: { properties?: Record<string, Property> }[];
 	}
 	const properties = (name: string): Record<string, Property> => {
@@ -147,14 +150,25 @@ describe("schema text states what the parser accepts", () => {
 		const schema = definition.parameters as { properties: Record<string, Property> };
 		return schema.properties;
 	};
+	const referenceLine = (name: string): string =>
+		BOT_TOOL_REFERENCE.split("\n").find(line => line.startsWith(`- ${name} `)) ?? "";
 
-	it("gives the ompdesk_bot text cap the parser enforces, for a duty and for a fact", () => {
+	it("gives the ompdesk_bot text cap as the schema's maxLength, and the bot's reference line prints it", () => {
 		const bot = ARGS[AGENT_CONTROL_TOOLS.bot];
-		expect(properties(AGENT_CONTROL_TOOLS.bot).text?.description).toMatch(/at most 300|300 characters/i);
+		const cap = properties(AGENT_CONTROL_TOOLS.bot).text?.maxLength as number;
 		for (const action of ["duty_add", "remember"]) {
-			expect(bot.parse({ action, text: "x".repeat(300) })).toMatchObject({ action });
-			expect(() => bot.parse({ action, text: "x".repeat(301) })).toThrow();
+			expect(bot.parse({ action, text: "x".repeat(cap) })).toMatchObject({ action });
+			expect(() => bot.parse({ action, text: "x".repeat(cap + 1) })).toThrow();
 		}
+		expect(referenceLine(AGENT_CONTROL_TOOLS.bot)).toContain(`text?: string ≤${cap} [duty_add, remember]`);
+	});
+
+	it("gives the page size of ompdesk_session_read as the schema's maximum, and the bot's reference line prints it", () => {
+		const read = ARGS[AGENT_CONTROL_TOOLS.read];
+		const most = properties(AGENT_CONTROL_TOOLS.read).limit?.maximum as number;
+		expect(read.parse({ session: "abcd", limit: most })).toMatchObject({ limit: most });
+		expect(() => read.parse({ session: "abcd", limit: most + 1 })).toThrow();
+		expect(referenceLine(AGENT_CONTROL_TOOLS.read)).toContain(`limit?: int 1..${most}`);
 	});
 
 	it("says worktree.base takes any ref, and the parser passes one on", () => {
@@ -165,5 +179,41 @@ describe("schema text states what the parser accepts", () => {
 		expect(ARGS[AGENT_CONTROL_TOOLS.open].parse({ worktree: { base: "origin/release-1.2" } })).toMatchObject({
 			worktree: { base: "origin/release-1.2" },
 		});
+	});
+});
+
+describe("arguments a model wrote as JSON text", () => {
+	const open = (raw: unknown) => ARGS[AGENT_CONTROL_TOOLS.open].parse(looseArgs(AGENT_CONTROL_TOOLS.open, raw));
+
+	it("reads a boolean, an object and an array written as text where the schema takes no string", () => {
+		expect(open({ message: "go", worktree: "true", throwaway: "false" })).toMatchObject({
+			worktree: true,
+			throwaway: false,
+		});
+		expect(open({ message: "go", worktree: '{"base":"main"}' })).toMatchObject({ worktree: { base: "main" } });
+		expect(open({ sessions: '[{"message":"a","worktree":"true"},{"message":"b"}]' }).sessions).toEqual([
+			{ message: "a", worktree: true },
+			{ message: "b" },
+		]);
+		const read = ARGS[AGENT_CONTROL_TOOLS.read].parse(
+			looseArgs(AGENT_CONTROL_TOOLS.read, { session: "abcd", limit: "5" }),
+		);
+		expect(read.limit).toBe(5);
+		const app = ARGS[AGENT_CONTROL_TOOLS.app].parse(
+			looseArgs(AGENT_CONTROL_TOOLS.app, { action: "settings.theme", args: '{"value":"nord"}' }),
+		);
+		expect(app.args).toEqual({ value: "nord" });
+	});
+
+	it("leaves text fields as typed, and still refuses text that spells no value of the field", () => {
+		// A message, a session id and a model that read as JSON stay the text the model wrote.
+		expect(open({ message: "true", model: "42" })).toMatchObject({ message: "true", model: "42" });
+		expect(
+			ARGS[AGENT_CONTROL_TOOLS.send].parse(
+				looseArgs(AGENT_CONTROL_TOOLS.send, { session: "1234", message: '{"a":1}' }),
+			),
+		).toMatchObject({ session: "1234", message: '{"a":1}' });
+		expect(() => open({ message: "go", worktree: "yes please" })).toThrow();
+		expect(() => open({ message: "go", worktree: "{broken" })).toThrow();
 	});
 });

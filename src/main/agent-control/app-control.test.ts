@@ -48,6 +48,20 @@ class FakePorts implements AppPorts {
 		if (command.type === "set_setting") this.stock[command.path] = command.value;
 		return { type: "response", success: true, data: this.rpcData[command.type] ?? {} } as RpcResponse;
 	};
+	/** Every command sent to another computer's omp, with the device it was sent to. */
+	rpcOns: { device: string; command: RpcCommand }[] = [];
+	/** What each device's omp answers by command type; its own stock settings sit in `deviceStock`. */
+	deviceData: Record<string, Record<string, unknown>> = {};
+	deviceStock: Record<string, Record<string, unknown>> = {};
+	rpcOn = async (_tab: string, device: string, command: RpcCommand): Promise<RpcResponse> => {
+		this.rpcOns.push({ device, command });
+		const stock = this.deviceStock[device] ?? {};
+		this.deviceStock[device] = stock;
+		if (command.type === "get_settings")
+			return { type: "response", success: true, data: { values: stock } } as RpcResponse;
+		if (command.type === "set_setting") stock[command.path] = command.value;
+		return { type: "response", success: true, data: this.deviceData[device]?.[command.type] ?? {} } as RpcResponse;
+	};
 	invoke = async (_tab: string, channel: string, args: readonly unknown[]): Promise<unknown> => {
 		this.invoked.push({ channel, args });
 		if (channel === WEB_BLOCKS_LIST) return [{ id: "node:nHOST", scope: "node", name: "Studio" }];
@@ -1080,5 +1094,361 @@ describe("a caller tab on a paired host", () => {
 		for (const id of ["updates.status", "updates.check", "updates.apply"])
 			expect(await refusal(control.run(CALLER, id, { host: true })), id).toContain("paired host");
 		expect(ports.invoked).toEqual([]);
+	});
+});
+
+const HOUR = 3_600_000;
+
+describe("usage.read", () => {
+	it("gives each window its own label with its reset time, and the saved resets", async () => {
+		const ports = new FakePorts();
+		const week = Date.parse("2026-11-12T08:10:00Z");
+		const soon = Date.now() + 25 * HOUR + 30 * 60_000;
+		const limit = (id: string, label: string, usedFraction: number, resetsAt?: number) => ({
+			id,
+			label,
+			usedFraction,
+			windowId: "7d",
+			windowLabel: "7 Day",
+			...(resetsAt ? { resetsAt } : {}),
+		});
+		ports.rpcData.get_usage = {
+			reports: [
+				{
+					provider: "prov-a",
+					account: "me@example.test",
+					fetchedAt: Date.now(),
+					limits: [
+						limit("prov-a:7d", "Prov 7 Day", 0.98, soon),
+						limit("prov-a:7d:alt", "Prov 7 Day (Alt)", 0.42, week),
+						limit("prov-a:5h", "Prov 5 Hour", 0),
+					],
+					resetPasses: {
+						count: 2,
+						usableCount: 1,
+						expiresAt: Date.parse("2027-03-09T00:00:00Z"),
+						clears: [],
+						early: false,
+						redeemable: true,
+					},
+				},
+			],
+		};
+		const text = await new AppControl(ports).run(CALLER, "usage.read", {});
+		const rows = text.split("\n");
+		const seven = rows.find(row => row.includes("Prov 7 Day:"));
+		const alt = rows.find(row => row.includes("Prov 7 Day (Alt):"));
+		expect(seven).toMatch(/98% used, resets \d{4}-\d\d-\d\dT[\d:]+Z \(in 1d1h\)/);
+		expect(alt).toContain("42% used, resets 2026-11-12T08:10:00Z");
+		expect(rows.find(row => row.includes("Prov 5 Hour:"))).toContain("0% used");
+		expect(rows.find(row => row.includes("Prov 5 Hour:"))).not.toContain("resets");
+		expect(text).not.toContain("7 Day 98%");
+		expect(text).toContain("saved resets: 2 (1 spendable now)");
+		expect(text).toContain("2027-03-09T00:00:00Z");
+	});
+
+	it("tells windows that still share a label apart by their id", async () => {
+		const ports = new FakePorts();
+		ports.rpcData.get_usage = {
+			reports: [
+				{
+					provider: "prov-a",
+					fetchedAt: Date.now(),
+					limits: [
+						{ id: "x:1", label: "Week", usedFraction: 0.1 },
+						{ id: "x:2", label: "Week", usedFraction: 0.2 },
+					],
+				},
+			],
+		};
+		const text = await new AppControl(ports).run(CALLER, "usage.read", {});
+		expect(text).toContain("Week [x:1]: 10% used");
+		expect(text).toContain("Week [x:2]: 20% used");
+	});
+});
+
+describe("models.list", () => {
+	const catalogOn = (ports: FakePorts) => {
+		const model = (provider: string, id: string) => ({ provider, id });
+		ports.rpcData.get_providers = {
+			providers: [
+				{ id: "prov-a", name: "Prov A", authenticated: true, account: "me@example.test", modelCount: 2 },
+				{ id: "prov-b", name: "Prov B", authenticated: true, modelCount: 1 },
+				{ id: "agg", name: "Aggregator", authenticated: false, modelCount: 3 },
+			],
+			models: [
+				model("prov-a", "model-a"),
+				model("prov-a", "model-b"),
+				model("prov-b", "model-c"),
+				model("agg", "x-one"),
+				model("agg", "x-two"),
+				model("agg", "x-three"),
+			],
+		};
+		ports.rpcData.get_model_roles = {
+			roles: [
+				{ id: "default", model: "prov-a/model-a", effective: { model: "prov-a/model-a", source: "configured" } },
+				{ id: "smol", effective: { model: "prov-b/model-c", source: "fallback", via: "default" } },
+				{ id: "plan", effective: { source: "none" } },
+			],
+			candidateModels: [],
+		};
+	};
+
+	it("prints the role assignments, then only signed-in providers' models and what it left out", async () => {
+		const ports = new FakePorts();
+		catalogOn(ports);
+		const text = await new AppControl(ports).run(CALLER, "models.list", {});
+		expect(ports.rpcs).toContainEqual({ type: "get_model_roles", compact: true });
+		expect(text).toContain("- default: prov-a/model-a");
+		expect(text).toContain("- smol: prov-b/model-c");
+		expect(text).toContain("- plan: (none)");
+		expect(text.indexOf("default: prov-a/model-a")).toBeLessThan(text.indexOf("- prov-a/model-b"));
+		expect(text).toContain("- prov-a/model-b");
+		expect(text).toContain("- prov-b/model-c");
+		expect(text).not.toContain("x-one");
+		expect(text.trimEnd().split("\n").at(-1)).toMatch(/3 models of 1 provider.*provider.*query.*all: true/);
+	});
+
+	it("lists a provider's models, a text match, or everything when asked", async () => {
+		const ports = new FakePorts();
+		catalogOn(ports);
+		const control = new AppControl(ports);
+		const byProvider = await control.run(CALLER, "models.list", { provider: "agg" });
+		expect(byProvider).toContain("- agg/x-two");
+		expect(byProvider).not.toContain("prov-a/model-a");
+		expect(byProvider).not.toContain("left out");
+
+		const byQuery = await control.run(CALLER, "models.list", { query: "MODEL-C" });
+		expect(byQuery).toContain("- prov-b/model-c");
+		expect(byQuery).not.toContain("prov-a/model-a");
+
+		const everything = await control.run(CALLER, "models.list", { all: true });
+		for (const id of ["prov-a/model-a", "prov-b/model-c", "agg/x-one", "agg/x-three"])
+			expect(everything).toContain(`- ${id}`);
+		expect(everything).not.toContain("left out");
+
+		expect(await control.run(CALLER, "models.list", { query: "nothing-like-this" })).toContain("No model matches");
+	});
+
+	it("keeps the default answer short when a signed-in provider is an aggregator: its catalog is cut and named", async () => {
+		const ports = new FakePorts();
+		ports.rpcData.get_providers = {
+			providers: [{ id: "agg", name: "Aggregator", authenticated: true }],
+			models: Array.from({ length: 650 }, (_, index) => ({ provider: "agg", id: `m-${index}` })),
+		};
+		ports.rpcData.get_model_roles = { roles: [], candidateModels: [] };
+		const control = new AppControl(ports);
+		const short = await control.run(CALLER, "models.list", {});
+		expect(short.split("\n").length).toBeLessThan(50);
+		expect(short).toContain('610 more of agg; ask with provider: "agg" or a query.');
+		// Asked for, the whole catalog comes.
+		expect((await control.run(CALLER, "models.list", { provider: "agg" })).split("\n").length).toBeGreaterThan(650);
+	});
+});
+
+describe("a named device", () => {
+	it("sends usage.read, models.list and models.set_role to that computer's omp, never the caller's", async () => {
+		const ports = new FakePorts();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "usage.read", { refresh: true, device: "Studio" });
+		await control.run(CALLER, "models.list", { device: "Studio", all: true });
+		await control.run(CALLER, "models.set_role", { role: "slow", modelId: "prov/model-a", device: "Studio" });
+		expect(ports.rpcOns).toEqual([
+			{ device: "Studio", command: { type: "get_usage", refresh: true } },
+			{ device: "Studio", command: { type: "get_model_roles", compact: true } },
+			{ device: "Studio", command: { type: "get_providers" } },
+			{ device: "Studio", command: { type: "set_model_role", role: "slow", modelId: "prov/model-a" } },
+		]);
+		expect(ports.rpcs).toEqual([]);
+
+		await control.run(CALLER, "models.set_role", { role: "slow", modelId: "prov/model-a" });
+		expect(ports.rpcs).toEqual([{ type: "set_model_role", role: "slow", modelId: "prov/model-a" }]);
+		expect(ports.rpcOns).toHaveLength(4);
+	});
+
+	it("checks the tier before it sends anything to the device", async () => {
+		const ports = new FakePorts();
+		const attempt: AppAction = {
+			id: "test.remote_power",
+			area: "test",
+			description: "Tries a power setting on another computer.",
+			args: NO_ARGS,
+			tier: "change",
+			run: async ctx => {
+				await ctx.rpc({ type: "set_setting", path: "tools.approvalMode", value: "yolo" }, "Studio");
+				return { text: "" };
+			},
+		};
+		const control = new AppControl(ports, { [attempt.id]: attempt });
+		await refusal(control.run(CALLER, attempt.id, {}));
+		expect(ports.rpcOns).toEqual([]);
+	});
+});
+
+describe("omp_settings", () => {
+	const entry = (path: string, type: string, extra: Record<string, unknown> = {}) => ({
+		path,
+		type,
+		value: null,
+		default: null,
+		label: path,
+		...extra,
+	});
+	const SCHEMA = {
+		entries: [
+			entry("retry.fallbackChains", "record", { label: "Fallback chains" }),
+			entry("retry.fallbackOn", "array", { label: "Fallback on", value: ["rate_limit"] }),
+			entry("compaction.thresholdTokens", "number", { label: "Compaction threshold" }),
+			entry("compaction.strategy", "enum", { options: [{ value: "context-full", label: "Full" }] }),
+			entry("tui.renderMermaid", "boolean"),
+			entry("tools.approvalMode", "enum", { options: [{ value: "yolo", label: "Yolo" }] }),
+			entry("search.apiKey", "string", { secret: true, value: "sk-live-secret", label: "Search key" }),
+		],
+		tabs: [],
+	};
+	const studio = () => {
+		const ports = new FakePorts();
+		ports.deviceData.Studio = { get_settings_schema: SCHEMA };
+		ports.deviceStock.Studio = {
+			"retry.fallbackOn": ["rate_limit"],
+			"compaction.thresholdTokens": 100000,
+			"search.apiKey": "sk-live-secret",
+			"tools.approvalMode": "ask",
+		};
+		return ports;
+	};
+
+	it("reads by path and finds by words on the named computer", async () => {
+		const ports = studio();
+		const control = new AppControl(ports);
+		const byPath = await control.run(CALLER, "omp_settings.get", {
+			paths: ["compaction.thresholdTokens", "retry.fallbackOn"],
+			device: "Studio",
+		});
+		expect(byPath).toContain("compaction.thresholdTokens: 100000");
+		expect(byPath).toContain('retry.fallbackOn: ["rate_limit"]');
+		expect(ports.rpcOns.map(call => call.command.type)).toEqual(["get_settings_schema", "get_settings"]);
+		expect(ports.rpcs).toEqual([]);
+
+		const found = await control.run(CALLER, "omp_settings.get", { query: "fallback", device: "Studio" });
+		expect(found).toContain("retry.fallbackChains");
+		expect(found).toContain("retry.fallbackOn");
+		expect(found).not.toContain("compaction.thresholdTokens");
+	});
+
+	it("never shows a credential, by path or by a query that matches it", async () => {
+		const ports = studio();
+		const control = new AppControl(ports);
+		expect(
+			await refusal(control.run(CALLER, "omp_settings.get", { paths: ["search.apiKey"], device: "Studio" })),
+		).toContain("never available");
+		const found = await control.run(CALLER, "omp_settings.get", { query: "search", device: "Studio" });
+		expect(found).not.toContain("sk-live-secret");
+		expect(found).not.toContain("search.apiKey");
+		expect(ports.rpcOns.filter(call => call.command.type === "get_settings")).toEqual([]);
+		await refusal(control.run(CALLER, "omp_settings.set", { path: "search.apiKey", value: "x", device: "Studio" }));
+		expect(ports.deviceStock.Studio?.["search.apiKey"]).toBe("sk-live-secret");
+	});
+
+	it("refuses the power switches and a path the schema does not list, for get and for set", async () => {
+		const ports = studio();
+		const control = new AppControl(ports);
+		for (const path of ["tools.approvalMode", "providers.openai", "not.a.setting"]) {
+			await refusal(control.run(CALLER, "omp_settings.get", { paths: [path], device: "Studio" }));
+			await refusal(control.run(CALLER, "omp_settings.set", { path, value: "yolo", device: "Studio" }));
+		}
+		expect(ports.rpcOns.filter(call => call.command.type !== "get_settings_schema")).toEqual([]);
+		expect(ports.deviceStock.Studio?.["tools.approvalMode"]).toBe("ask");
+
+		const full = studio();
+		full.full = true;
+		const message = await refusal(
+			new AppControl(full).run(CALLER, "omp_settings.set", {
+				path: "tools.approvalMode",
+				value: "yolo",
+				device: "Studio",
+			}),
+		);
+		expect(message).toContain("agent_power.set");
+		expect(full.deviceStock.Studio?.["tools.approvalMode"]).toBe("ask");
+	});
+
+	it("checks the value against the schema entry before it writes", async () => {
+		const ports = studio();
+		const control = new AppControl(ports);
+		const bad: [string, unknown][] = [
+			["tui.renderMermaid", "yes"],
+			["compaction.thresholdTokens", "100000"],
+			["compaction.strategy", "other"],
+			["retry.fallbackOn", "rate_limit"],
+			["retry.fallbackChains", ["a"]],
+		];
+		for (const [path, value] of bad)
+			await refusal(control.run(CALLER, "omp_settings.set", { path, value, device: "Studio" }));
+		expect(ports.rpcOns.some(call => call.command.type === "set_setting")).toBe(false);
+
+		await control.run(CALLER, "omp_settings.set", {
+			path: "compaction.strategy",
+			value: "context-full",
+			device: "Studio",
+		});
+		await control.run(CALLER, "omp_settings.set", {
+			path: "retry.fallbackChains",
+			value: { main: ["prov/model-a", "prov/model-b"] },
+			device: "Studio",
+		});
+		expect(ports.deviceStock.Studio?.["compaction.strategy"]).toBe("context-full");
+		expect(ports.deviceStock.Studio?.["retry.fallbackChains"]).toEqual({ main: ["prov/model-a", "prov/model-b"] });
+	});
+
+	it("writes on the device, journals it and restores it there with app.undo", async () => {
+		const ports = studio();
+		const control = new AppControl(ports);
+		await control.run(CALLER, "omp_settings.set", {
+			path: "retry.fallbackOn",
+			value: ["rate_limit", "overloaded"],
+			device: "Studio",
+		});
+		expect(ports.deviceStock.Studio?.["retry.fallbackOn"]).toEqual(["rate_limit", "overloaded"]);
+		expect(ports.rpcs).toEqual([]);
+		expect(ports.notes).toHaveLength(1);
+		expect(ports.notes[0]).toContain("retry.fallbackOn on Studio");
+		// The window's Undo button writes through the focused tab, which may run on another computer: no button.
+		expect(ports.events.at(-1)).toEqual({ kind: "toast", message: ports.notes[0] });
+
+		ports.rpcOns.length = 0;
+		await control.run(CALLER, "app.undo", {});
+		expect(ports.deviceStock.Studio?.["retry.fallbackOn"]).toEqual(["rate_limit"]);
+		expect(ports.rpcOns.at(-1)).toEqual({
+			device: "Studio",
+			command: { type: "set_setting", path: "retry.fallbackOn", value: ["rate_limit"] },
+		});
+		expect(ports.rpcs).toEqual([]);
+		await refusal(control.run(CALLER, "app.undo", {}));
+	});
+
+	it("works on the caller's own omp when no device is named, and its toast keeps the Undo", async () => {
+		const ports = new FakePorts();
+		ports.rpcData.get_settings_schema = SCHEMA;
+		ports.stock["compaction.thresholdTokens"] = 100000;
+		const control = new AppControl(ports);
+		await control.run(CALLER, "omp_settings.set", { path: "compaction.thresholdTokens", value: 50000 });
+		expect(ports.stock["compaction.thresholdTokens"]).toBe(50000);
+		expect(ports.rpcOns).toEqual([]);
+		expect(ports.events.at(-1)).toMatchObject({
+			kind: "toast",
+			undo: { kind: "setting", path: "compaction.thresholdTokens", value: 100000 },
+		});
+		await control.run(CALLER, "app.undo", {});
+		expect(ports.stock["compaction.thresholdTokens"]).toBe(100000);
+	});
+
+	it("keeps every other route default-deny: no direct schema or arbitrary settings read", () => {
+		expect(rpcTier({ type: "get_settings_schema" })).toBe("never");
+		expect(rpcTier({ type: "get_settings", paths: ["retry.fallbackOn"] })).toBe("never");
+		expect(rpcTier({ type: "set_setting", path: "retry.fallbackOn", value: [] })).toBe("never");
+		expect(rpcTier({ type: "get_providers" })).toBe("read");
+		expect(rpcTier({ type: "get_model_roles", compact: true })).toBe("read");
 	});
 });

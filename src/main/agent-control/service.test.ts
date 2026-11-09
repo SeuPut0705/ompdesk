@@ -21,6 +21,7 @@ import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
+import { PendingCleanups } from "./pending-cleanups";
 import { SendOutbox, type SentAnswer } from "./send-outbox";
 import {
 	AgentControl,
@@ -38,9 +39,11 @@ import {
 	renderMessage,
 	type ScheduleRow,
 	type ScheduleSource,
+	SessionFolderMissing,
 	type SpawnRequest,
 	type StoredSession,
 } from "./service";
+import { SessionFates } from "./session-fates";
 import { tabCloseStep } from "./tab-close";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
@@ -86,6 +89,8 @@ class FakeHost implements AgentControlHost {
 	/** Durable sends (`send-outbox.ts`) and what the receiver's bridge says of them; absent unless a test gives them. */
 	sendOutbox?: SendOutbox;
 	sentMarks?: (tabId: string, marks: string[]) => Promise<SentAnswer | null>;
+	/** The app's side of `ompdesk_app`; absent unless a test gives it. */
+	appPorts?: AgentControlHost["appPorts"];
 
 	constructor(...tabs: Partial<FakeTab>[]) {
 		for (const tab of tabs) this.add(tab);
@@ -228,6 +233,17 @@ class FakeHost implements AgentControlHost {
 	};
 	closed: ClosedChild[] = [];
 	closedChildren = () => this.closed;
+	/** What became of the sessions an id named (`session-fates.ts`); two launches share one through its file. */
+	fates?: SessionFates;
+	cleanups?: PendingCleanups;
+	/** Tombstones (`deleted-sessions.ts`): when a session file, or a saved id, was deleted outside the control tools. */
+	tombstones = new Map<string, number>();
+	deletedAt = (session: { path: string; device?: string } | { id: string }) =>
+		this.tombstones.get("id" in session ? session.id : session.path);
+	/** What opening a saved session fails with (the folder it worked in is gone). */
+	reopenError: Error | null = null;
+	/** Transcript cursors the session has outgrown (it wrote more since that page). */
+	staleCursors = new Set<string>();
 	scheduleRows: ScheduleRow[] = [];
 	scheduleSource: ScheduleSource | null = {
 		list: async () => this.scheduleRows,
@@ -332,6 +348,7 @@ class FakeHost implements AgentControlHost {
 	/** Extra fields of every tab `spawn` opens (a paired web page's tab carries `webEdits`). */
 	spawnPatch: Partial<FakeTab> = {};
 	spawn = async (caller: string, request: SpawnRequest) => {
+		if (request.sessionPath && this.reopenError) throw this.reopenError;
 		this.spawned.push(request);
 		const tab = this.add({
 			...this.spawnPatch,
@@ -352,11 +369,14 @@ class FakeHost implements AgentControlHost {
 	};
 	/** An omp that answers `agent_control_worker` only this long after it was asked (a just-started omp under load). */
 	workerAnswersAfterMs = 0;
+	/** Command types the omp never answers (it hangs, or died with the command in its queue). */
+	unanswered = new Set<string>();
 
 	command = async (tabId: string, command: RpcCommand, timeoutMs?: number): Promise<RpcResponse> => {
 		this.sent.push({ tabId, command });
 		const tab = this.tabsById.get(tabId);
 		if (!tab) return bad("gone");
+		if (this.unanswered.has(command.type)) return new Promise<RpcResponse>(() => {});
 		// rpc-client.ts: a command not answered within its budget (8 s unless the caller names one) rejects.
 		if (command.type === "agent_control_worker" && this.workerAnswersAfterMs > (timeoutMs ?? 8_000))
 			throw new Error(`RPC timeout (${timeoutMs ?? 8_000}ms): agent_control_worker`);
@@ -375,6 +395,8 @@ class FakeHost implements AgentControlHost {
 			case "get_last_assistant_text":
 				return ok({ text: tab.last ?? null });
 			case "get_transcript_page":
+				if (command.cursor && this.staleCursors.has(command.cursor))
+					return { ...bad("RPC message cursor is stale"), code: "stale_cursor" } as RpcResponse;
 				return ok({
 					messages: tab.messages ?? [],
 					totalMessages: (tab.messages ?? []).length,
@@ -733,15 +755,73 @@ describe("ompdesk_session_open", () => {
 		expect(prompts(failing, [...failing.tabsById.keys()].find(id => id !== "main0001") ?? "")).toEqual([]);
 	});
 
-	it("marks a just-started session a worker even when its omp takes longer than the default 8 s to answer", async () => {
+	it("marks a just-started session a worker however long its omp takes to answer: no time limit fails a live start", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
-		host.workerAnswersAfterMs = 12_000;
+		// Past every bound this command once had (8 s, then 60 s): three of the bot's opens failed on the last one.
+		host.workerAnswersAfterMs = 10 * 60_000;
 		const result = await control(host).run("main0001", T.open, { message: "go", worktree: { base: "default" } });
-		expect(result.isError).toBe(false);
+		expect(result.isError, result.text).toBe(false);
 		expect(result.text).toContain("Opened session");
 		const child = [...host.tabsById.keys()].find(id => id !== "main0001") ?? "";
 		expect(prompts(host, child)).toHaveLength(1);
 		expect(host.discarded).toEqual([]);
+	});
+
+	it("fails an open whose omp dies with a command unanswered, and says why its omp ended", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.unanswered.add("agent_control_worker");
+		vi.useFakeTimers();
+		try {
+			let settled = false;
+			const opening = control(host)
+				.run("main0001", T.open, { message: "go" })
+				.finally(() => {
+					settled = true;
+				});
+			await vi.advanceTimersByTimeAsync(5 * 60_000);
+			expect(settled).toBe(false);
+			const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+			Object.assign(child, { status: "exited", failure: "omp exited with code 1: Cannot find module 'left-pad'" });
+			host.emit();
+			await vi.advanceTimersByTimeAsync(10_000);
+			const result = await opening;
+			expect(result.isError).toBe(true);
+			expect(result.text).toContain("Marking the session as a worker failed");
+			expect(result.text).toContain(
+				"its omp process exited (omp exited with code 1: Cannot find module 'left-pad')",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("says why a session that could not start failed, as its omp said it", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		const spawn = host.spawn;
+		host.spawn = async (caller, request) => {
+			const opened = await spawn(caller, request);
+			Object.assign(host.tabsById.get(opened.tabId) as FakeTab, {
+				status: "error",
+				failure: "omp was not found: install it or set its path",
+			});
+			return opened;
+		};
+		const result = await control(host).run("main0001", T.open, { message: "go" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain(
+			"The session could not start: its omp failed to start (omp was not found: install it or set its path)",
+		);
+	});
+
+	it("takes a boolean or an object argument written as JSON text", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		const service = control(host);
+		const flagged = await service.run("main0001", T.open, { message: "go", worktree: "true", throwaway: "true" });
+		expect(flagged.isError, flagged.text).toBe(false);
+		expect(flagged.text).toContain("throwaway");
+		const based = await service.run("main0001", T.open, { message: "go", worktree: '{"base":"main"}' });
+		expect(based.isError, based.text).toBe(false);
+		expect(host.spawned.map(request => request.worktree)).toEqual([{}, { base: "main" }]);
 	});
 
 	it.each([
@@ -3769,7 +3849,31 @@ describe("ompdesk_session_read of a saved session", () => {
 		const earlier = (await service.run("main0001", T.read, { session: "11111111-aaaa", before: "3", limit: 2 })).text;
 		expect(earlier).toContain("message 1");
 		expect(earlier).toContain("message 2");
-		expect((await service.run("main0001", T.read, { session: "11111111-aaaa", before: "99" })).isError).toBe(true);
+	});
+
+	it("answers a cursor the session has outgrown with its newest page, saying so, for a saved and an open session", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001" },
+			{ tabId: "live0002", title: "Live", messages: [{ role: "user", content: "live text" } as AgentMessage] },
+		);
+		host.storedRows = [storedRow({})];
+		host.storedTranscripts.set("/s/proj/one.jsonl", transcript);
+		const service = control(host);
+		// An index past the end, and the cursor a read of its open tab returned: neither is a page of the saved copy.
+		for (const before of ["99", "cur1"]) {
+			const saved = await service.run("main0001", T.read, { session: "11111111-aaaa", before, limit: 2 });
+			expect(saved.isError, saved.text).toBe(false);
+			expect(saved.text).toContain(`The cursor "${before}" names no page of this session as it is now`);
+			expect(saved.text).toContain("message 4");
+			expect(saved.text).toContain('{"session":"11111111-aaaa","before":"3"}');
+		}
+		// The open session wrote a message since the page the cursor came from.
+		host.staleCursors.add("cur0");
+		const live = await service.run("main0001", T.read, { session: "live0002", before: "cur0" });
+		expect(live.isError, live.text).toBe(false);
+		expect(live.text).toContain('The cursor "cur0" names no page of this session as it is now');
+		expect(live.text).toContain("live text");
+		expect(live.text).toContain('"before":"cur1"');
 	});
 
 	it("refuses a hidden saved session and an unknown id", async () => {
@@ -5608,5 +5712,356 @@ describe("messages that outlive the omp they were handed to", () => {
 		await service.redeliverSends(tabOf);
 		expect(outbox.pending()).toEqual([]);
 		expect(prompts(after, "kid00009")).toHaveLength(2);
+	});
+});
+
+describe("an id keeps naming its session after its tab is gone, and says when the session was deleted", () => {
+	// 3 to 10 Nov 2026, the bot's journals: `No session "<id>"` 14 times on ids ompdesk_session_open had returned.
+	let dir: string;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "agent-session-fates-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+	const kid: Partial<FakeTab> = { tabId: "kid00002", title: "Fix the parser", sessionPath: "/s/kid.jsonl" };
+	const said = [{ role: "assistant", content: "the whole table" } as AgentMessage];
+	/** One launch of the app over the fates file the launches share. */
+	const launch = (...tabs: Partial<FakeTab>[]) => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" }, ...tabs);
+		host.fates = new SessionFates(join(dir, "agent-session-fates.json"));
+		host.storedTranscripts.set("/s/kid.jsonl", said);
+		return { host, service: control(host) };
+	};
+
+	it("reads a session whose tab the person closed by the id it was opened with, in this launch and the next", async () => {
+		const first = launch(kid);
+		// The person closes the tab in its window: the pool releases it, with the session it held.
+		first.host.tabsById.delete("kid00002");
+		first.service.released("kid00002", {
+			path: "/s/kid.jsonl",
+			title: "Fix the parser",
+			cwd: "/repo",
+			formerIds: [],
+		});
+		const read = await first.service.run("boss0001", T.read, { session: "kid00002" });
+		expect(read.isError, read.text).toBe(false);
+		expect(read.text).toContain("the whole table");
+		// A relaunch (an update): the tab is gone for good, its id still names the saved session.
+		const second = launch();
+		const again = await second.service.run("boss0001", T.read, { session: "kid00002" });
+		expect(again.isError, again.text).toBe(false);
+		expect(again.text).toContain("the whole table");
+		// Reopened since, the old id names the tab that holds it now.
+		second.host.add({ tabId: "kid00009", sessionPath: "/s/kid.jsonl", last: "newer answer" });
+		expect((await second.service.run("boss0001", T.result, { session: "kid00002" })).text).toContain("newer answer");
+	});
+
+	it("keeps a child it closed itself readable and its own to delete after a relaunch", async () => {
+		const first = launch(kid);
+		first.host.parents.set("kid00002", "boss0001");
+		expect((await first.service.run("boss0001", T.stop, { session: "kid00002", close: true })).isError).toBe(false);
+		const second = launch();
+		expect((await second.service.run("boss0001", T.read, { session: "kid00002" })).text).toContain("the whole table");
+		const deleted = await second.service.run("boss0001", T.stop, { session: "kid00002", delete: true });
+		expect(deleted.isError, deleted.text).toBe(false);
+		expect(second.host.cards).toEqual([]);
+		expect(second.host.deletedStored).toEqual([{ path: "/s/kid.jsonl", device: undefined }]);
+	});
+
+	it("says a deleted session was deleted, by whom and when, whatever is asked of its id", async () => {
+		const { host, service } = launch();
+		await service.run("boss0001", T.open, { message: "look it up", throwaway: true });
+		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "boss0001") as FakeTab;
+		Object.assign(child, {
+			busy: false,
+			title: "Lookup",
+			sessionPath: "/s/lookup.jsonl",
+			autoClosable: true,
+			lastRun: { stopReason: "stop" },
+			last: "Found it.\nResult: ok",
+		});
+		await service.autoClose("boss0001");
+		await service.autoClose("boss0001");
+		expect(host.deletedStored).toEqual([{ path: "/s/lookup.jsonl", device: undefined }]);
+		for (const [tool, args] of [
+			[T.read, { session: child.tabId }],
+			[T.result, { session: child.tabId }],
+			[T.stop, { session: child.tabId, close: true }],
+			[T.send, { session: child.tabId, message: "one more thing" }],
+			[T.compare, { sessions: [child.tabId] }],
+		] as const) {
+			const gone = await service.run("boss0001", tool, args);
+			expect(gone.isError, tool).toBe(true);
+			expect(gone.text, tool).toMatch(
+				/"Lookup"\) was deleted on \d{4}-\d\d-\d\d \d\d:\d\d UTC by OMPdesk \(it was opened as throwaway/,
+			);
+			expect(gone.text, tool).not.toContain("No session");
+		}
+		// A delete of it again is no error, and says the same.
+		const again = await service.run("boss0001", T.stop, { session: child.tabId, delete: true });
+		expect(again.isError).toBe(false);
+		expect(again.text).toMatch(/already deleted on \d{4}-.* by OMPdesk/);
+	});
+
+	it("says so for a session deleted outside the control tools, by its tab id and by its saved id", async () => {
+		const { host, service } = launch({ ...kid, sessionPath: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl" });
+		// The sidebar's Delete: the tab closes as any tab does, then the file goes and a tombstone says when.
+		host.tabsById.delete("kid00002");
+		service.released("kid00002", {
+			path: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl",
+			title: "Fix the parser",
+			cwd: "/repo",
+			formerIds: [],
+		});
+		host.tombstones.set("/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl", Date.UTC(2026, 10, 9, 4, 12));
+		host.tombstones.set("01abc-other", Date.UTC(2026, 10, 9, 4, 12));
+		for (const session of ["kid00002", "01abc-kid", "01abc-other"]) {
+			const gone = await service.run("boss0001", T.read, { session });
+			expect(gone.isError, session).toBe(true);
+			expect(gone.text, session).toContain("was deleted on 2026-11-09 04:12 UTC by someone in OMPdesk");
+		}
+		// An id nothing ever named is still unknown.
+		expect((await service.run("boss0001", T.read, { session: "nope9999" })).text).toContain('No session "nope9999"');
+	});
+
+	it("never shows a hidden session's title or transcript through the id its tab had", async () => {
+		const { host, service } = launch({ ...kid, hidden: true });
+		host.tabsById.delete("kid00002");
+		service.released("kid00002", {
+			path: "/s/kid.jsonl",
+			title: "Private notes",
+			cwd: "/repo",
+			formerIds: [],
+			hidden: true,
+		});
+		const read = await service.run("boss0001", T.read, { session: "kid00002" });
+		expect(read.isError).toBe(true);
+		expect(read.text).toContain("hid this session");
+		expect(read.text).not.toContain("Private notes");
+	});
+});
+
+describe("a message to a closed child whose folder is gone", () => {
+	// 3 to 10 Nov 2026: three sends failed on "The folder this saved session belongs in no longer exists" alone.
+	async function closedChild(worktree: boolean) {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		const service = control(host);
+		await service.run("main0001", T.open, { message: "do it", ...(worktree ? { worktree: true } : {}) });
+		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+		Object.assign(child, {
+			busy: false,
+			title: "Fix the parser",
+			sessionPath: "/s/kid.jsonl",
+			...(worktree ? { cwd: "/wt/w" } : {}),
+			autoClosable: true,
+			lastRun: { stopReason: "stop" },
+			last: "Done.\nResult: ok",
+		});
+		if (worktree) host.landings.set("omp/agent/w", { hasWork: true, landed: true, clean: true });
+		await service.autoClose("main0001");
+		await service.autoClose("main0001");
+		expect(host.tabsById.has(child.tabId)).toBe(false);
+		host.closed = host.closedRecords;
+		return { host, service, child };
+	}
+
+	it("says the control tools removed its worktree once its work landed, and how the follow-up goes on", async () => {
+		const { host, service, child } = await closedChild(true);
+		expect(host.removed).toEqual(["omp/agent/w"]);
+		host.reopenError = new SessionFolderMissing("/wt/w", null);
+		const sent = await service.run("main0001", T.send, { session: child.tabId, message: "one more fix" });
+		expect(sent.isError).toBe(true);
+		expect(sent.text).toContain("OMPdesk removed that worktree when it closed the session");
+		expect(sent.text).toContain("your message was not delivered");
+		expect(sent.text).toContain('ompdesk_session_open {"message":"…","folder":"/repo","worktree":true}');
+		expect(sent.text).toContain(`ompdesk_session_read {"session":"${child.tabId}"}`);
+		expect(prompts(host, child.tabId)).toHaveLength(1);
+	});
+
+	it("names the restore call when disk care saved the folder, for a send as for a reopen", async () => {
+		const { host, service, child } = await closedChild(false);
+		host.reopenError = new SessionFolderMissing("/repo", { id: "saved-7", branch: "omp/agent/w", removedAt: 0 });
+		const sent = await service.run("main0001", T.send, { session: child.tabId, message: "one more fix" });
+		expect(sent.isError).toBe(true);
+		expect(sent.text).toContain(`ompdesk_session_open {"reopen":"${child.tabId}","restore":true}`);
+		expect(sent.text).toContain("then send your message to the id that returns");
+	});
+});
+
+describe("a cleanup refused while the person was in the session", () => {
+	// 3 to 10 Nov 2026: 6 stops of sessions the bot had opened were refused, and nothing reminded it of them.
+	const seen: Partial<FakeTab> = { tabId: "seen0002", title: "Seen", looked: true, sessionPath: "/s/a.jsonl" };
+	const setup = () => {
+		const host = new FakeHost(
+			{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false, sessionPath: "/s/boss.jsonl" },
+			seen,
+			{ tabId: "typed003", title: "Typed", userTouched: true, sessionPath: "/s/b.jsonl" },
+		);
+		host.parents.set("seen0002", "boss0001");
+		host.parents.set("typed003", "boss0001");
+		return { host, service: control(host), boss: host.tabsById.get("boss0001") as FakeTab };
+	};
+	const toBoss = (host: FakeHost) => host.mails.filter(mail => mail.to === "boss0001");
+
+	it("is kept, and listed to its caller once, at the start of its next turn the person's own message starts", async () => {
+		const { host, service, boss } = setup();
+		const refused = await service.run("boss0001", T.stop, { session: "seen0002", close: true });
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toMatch(/not started by the user's own message/);
+		expect(refused.text).toContain("pending cleanup");
+		await service.run("boss0001", T.stop, { session: "typed003", delete: true });
+		expect(toBoss(host)).toEqual([]);
+
+		// The person's message joins the turn that runs: no turn of theirs starts, so the list waits.
+		service.personTyped("boss0001");
+		expect(toBoss(host)).toEqual([]);
+
+		// The turn ended; the person's next message starts one.
+		boss.busy = false;
+		service.personTyped("boss0001");
+		expect(toBoss(host)).toHaveLength(1);
+		const [note] = toBoss(host);
+		expect(note?.delivery).toEqual({ triggerTurn: false });
+		expect(note?.content).toContain('ompdesk_session_stop {"session":"seen0002","close":true}');
+		expect(note?.content).toContain('ompdesk_session_stop {"session":"typed003","delete":true}');
+
+		// In that turn the same call works, and nothing is listed again.
+		Object.assign(boss, { busy: true, personTurn: true });
+		const closed = await service.run("boss0001", T.stop, { session: "seen0002", close: true });
+		expect(closed.isError, closed.text).toBe(false);
+		boss.busy = false;
+		service.personTyped("boss0001");
+		expect(toBoss(host).filter(mail => mail.content.includes("pending cleanups"))).toHaveLength(1);
+	});
+
+	it("lists nothing that is done since: a tab that closed, a call that went through later", async () => {
+		const { host, service, boss } = setup();
+		await service.run("boss0001", T.stop, { session: "seen0002", close: true });
+		await service.run("boss0001", T.stop, { session: "typed003", close: true });
+		// The person closed one tab themselves; they left the other, and a later close of it went through.
+		host.tabsById.delete("seen0002");
+		(host.tabsById.get("typed003") as FakeTab).userTouched = false;
+		expect((await service.run("boss0001", T.stop, { session: "typed003", close: true })).isError).toBe(false);
+		boss.busy = false;
+		service.personTyped("boss0001");
+		expect(toBoss(host).filter(mail => mail.content.includes("pending cleanups"))).toEqual([]);
+	});
+
+	it("survives a relaunch, and follows the bot into its next conversation", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "agent-pending-cleanups-"));
+		try {
+			const file = join(dir, "agent-pending-cleanups.json");
+			const before = setup();
+			before.host.cleanups = new PendingCleanups(file);
+			Object.assign(before.boss, { bot: "on" });
+			const first = control(before.host);
+			await first.run("boss0001", T.stop, { session: "seen0002", close: true });
+
+			// After the relaunch the bot's conversation has renewed: another tab id, another session file.
+			const after = new FakeHost(
+				{ tabId: "boss0009", title: "Boss", bot: "on", sessionPath: "/s/boss-2.jsonl" },
+				seen,
+			);
+			after.cleanups = new PendingCleanups(file);
+			control(after).personTyped("boss0009");
+			const told = after.mails.filter(mail => mail.to === "boss0009");
+			expect(told).toHaveLength(1);
+			expect(told[0]?.content).toContain('ompdesk_session_stop {"session":"seen0002","close":true}');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("an app action on another computer", () => {
+	const usage = { reports: [] };
+	/** The app's side of `ompdesk_app`, as far as an action that only sends an RPC command needs it. */
+	const withApp = (host: FakeHost) => {
+		host.appPorts = {
+			getPref: () => undefined,
+			device: () => undefined,
+			setPref: async () => {},
+			rpc: async () => ok(usage),
+			invoke: async () => undefined,
+			fire: () => {},
+			send: () => {},
+			confirm: async () => true,
+			manageEnabled: () => true,
+			fullEnabled: () => true,
+			note: async () => {},
+			text: key => key,
+			localize: en => en,
+			sidebarView: () => ({ pinnedProjects: [], pinnedSessions: [], projectOrder: [], aliases: {} }) as never,
+			openPrivacyPane: async () => {},
+			callerTitle: () => "Boss",
+		};
+		return control(host);
+	};
+	const read = { action: "usage.read", args: { device: desktop.name } };
+	const asked = (host: FakeHost) =>
+		host.sent.filter(entry => entry.command.type === "get_usage").map(entry => entry.tabId);
+
+	it("asks a session that already runs there", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "Boss" },
+			{ tabId: "remo0002", device: desktop.id, deviceName: desktop.name },
+		);
+		host.deviceList = [desktop];
+		const result = await withApp(host).run("main0001", T.app, read);
+		expect(result.isError, result.text).toBe(false);
+		expect(asked(host)).toEqual(["remo0002"]);
+		expect(host.spawned).toEqual([]);
+	});
+
+	it("opens a session there for the one call when none runs there, and closes and deletes it again", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		const result = await withApp(host).run("main0001", T.app, read);
+		expect(result.isError, result.text).toBe(false);
+		expect(host.spawned).toEqual([{ device: desktop.id }]);
+		const [opened] = asked(host);
+		expect(opened).not.toBe("main0001");
+		expect(host.deleted).toEqual([opened]);
+		expect(host.tabsById.size).toBe(1);
+		// No message went to it: nothing ran on a model there.
+		expect(prompts(host, opened as string)).toEqual([]);
+	});
+
+	it("writes an omp setting there through one opened session: its schema, its value and the write", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		const stock: Record<string, unknown> = { "compaction.thresholdTokens": 100000 };
+		const answer = host.command;
+		host.command = async (tabId, command, timeoutMs) => {
+			if (command.type === "get_settings_schema")
+				return ok({
+					entries: [
+						{ path: "compaction.thresholdTokens", type: "number", value: stock["compaction.thresholdTokens"] },
+					],
+				});
+			if (command.type === "get_settings") return ok({ values: stock });
+			if (command.type === "set_setting") stock[command.path] = command.value;
+			return answer(tabId, command, timeoutMs);
+		};
+		const result = await withApp(host).run("main0001", T.app, {
+			action: "omp_settings.set",
+			args: { path: "compaction.thresholdTokens", value: 50000, device: desktop.name },
+		});
+		expect(result.isError, result.text).toBe(false);
+		expect(stock["compaction.thresholdTokens"]).toBe(50000);
+		// Three commands, one omp started there, and it is gone again.
+		expect(host.spawned).toEqual([{ device: desktop.id }]);
+		expect(host.deleted).toHaveLength(1);
+		expect(host.tabsById.size).toBe(1);
+	});
+
+	it("refuses a computer that is not paired, naming the ones that are", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
+		host.deviceList = [desktop];
+		const result = await withApp(host).run("main0001", T.app, { action: "usage.read", args: { device: "Nowhere" } });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain(desktop.name);
+		expect(host.spawned).toEqual([]);
 	});
 });

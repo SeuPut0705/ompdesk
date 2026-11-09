@@ -40,7 +40,7 @@ describe("the bot's tool reference", () => {
 		expect(lineOf("ompdesk_session_result")).toContain("sessions?: string[]");
 		expect(lineOf("ompdesk_session_open")).toContain("worktree?: bool|{branch?: string, base?: string}");
 		expect(lineOf("ompdesk_bot")).toContain("question?: string [decide]");
-		expect(lineOf("ompdesk_bot")).toContain("text?: string [duty_add, remember]");
+		expect(lineOf("ompdesk_bot")).toContain("text?: string ≤300 [duty_add, remember]");
 	});
 
 	it("refuses a name that is no control tool", () => {
