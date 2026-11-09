@@ -405,6 +405,38 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: absent }] }));
 		process.kill(absent);
 	});
+
+	it("a leftover that is ours but still runs after its stop stays in the file and is not reported stopped; the next launch retries", async () => {
+		const file = await tempFile();
+		const [stuck, stopped] = [idleOmp().pid ?? 0, idleOmp().pid ?? 0];
+		await fs.writeFile(file, JSON.stringify({ omps: [{ pid: stuck }, { pid: stopped }] }));
+		const both = `${stuck} omp -e /bridge/index.ts\n${stopped} omp -e /bridge/index.ts`;
+		const stopPid = vi.fn(async (pid: number) => {
+			if (pid === stuck) return false;
+			process.kill(pid);
+			return true;
+		});
+
+		const first = await new OmpProcesses(file, "/bridge", {
+			platform: "darwin",
+			runCommand: psScripted(both),
+			stopPid,
+		}).reapLeftovers();
+
+		expect(first).toEqual([stopped]);
+		expect(stopPid).toHaveBeenCalledTimes(2);
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [{ pid: stuck }] }));
+		expect(pidAlive(stuck)).toBe(true);
+
+		const next = await new OmpProcesses(file, "/bridge", {
+			platform: "darwin",
+			runCommand: psScripted(`${stuck} omp -e /bridge/index.ts`),
+		}).reapLeftovers();
+
+		expect(next).toEqual([stuck]);
+		await vi.waitFor(() => expect(pidAlive(stuck)).toBe(false));
+		await vi.waitFor(async () => expect(await readFile(file)).toEqual({ omps: [] }));
+	}, 20_000);
 });
 
 describe("windowsStartTimes", () => {

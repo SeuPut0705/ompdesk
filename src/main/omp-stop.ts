@@ -122,9 +122,9 @@ export function stopOmp(child: ChildProcess, options: StopOptions = {}): Promise
 /**
  * Stops an omp this app did not spawn in this run (one an earlier instance left behind, `omp-processes.ts`): the same
  * steps as `stopOmp` over a bare pid. No `exit` event reaches a process that is not the parent, so the OS is asked for
- * the pid every `PID_POLL_MS`. Resolves once the pid is gone, or after the kill's wait.
+ * the pid every `PID_POLL_MS`. Resolves once the pid is gone, or after the kill's wait, with whether it is gone.
  */
-export async function stopOmpPid(pid: number): Promise<void> {
+export async function stopOmpPid(pid: number): Promise<boolean> {
 	const goneWithin = async (ms: number): Promise<boolean> => {
 		for (const until = Date.now() + ms; Date.now() < until; ) {
 			if (!pidAlive(pid)) return true;
@@ -132,12 +132,12 @@ export async function stopOmpPid(pid: number): Promise<void> {
 		}
 		return !pidAlive(pid);
 	};
-	if (!pidAlive(pid)) return;
+	if (!pidAlive(pid)) return true;
 	if (process.platform !== "win32") {
 		try {
 			process.kill(pid, "SIGTERM");
 		} catch {}
-		if (await goneWithin(STOP_GRACE_MS)) return;
+		if (await goneWithin(STOP_GRACE_MS)) return true;
 	}
 	console.warn(`[omp-stop] leftover omp ${pid} still runs: killing it`);
 	killTree(pid, () => {
@@ -145,5 +145,5 @@ export async function stopOmpPid(pid: number): Promise<void> {
 			process.kill(pid);
 		} catch {}
 	});
-	await goneWithin(KILL_WAIT_MS);
+	return goneWithin(KILL_WAIT_MS);
 }

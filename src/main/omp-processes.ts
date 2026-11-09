@@ -40,6 +40,8 @@ export interface OmpProcessesOptions {
 	startTimes?: (pids: number[]) => Promise<Map<number, number>>;
 	/** Runs `ps` for the POSIX command-line lookup of the launch's reap (default: `execFile`). */
 	runCommand?: CommandRunner;
+	/** Stops a leftover pid; resolves whether it is gone (default: `stopOmpPid`). */
+	stopPid?: (pid: number) => Promise<boolean>;
 	platform?: NodeJS.Platform;
 	retryDelaysMs?: readonly number[];
 	/** One line per failed lookup: its phase, cause (`timeout`, `error`, `gave-up`), duration and pids. */
@@ -56,6 +58,7 @@ export class OmpProcesses {
 	readonly #startTimes: (pids: number[]) => Promise<Map<number, number>>;
 	readonly #platform: NodeJS.Platform;
 	readonly #runCommand: CommandRunner;
+	readonly #stopPid: (pid: number) => Promise<boolean>;
 	readonly #retryDelaysMs: readonly number[];
 	readonly #log: (message: string, details: Record<string, string | number | boolean>) => void;
 	#identifyDone: Promise<void> = Promise.resolve();
@@ -75,6 +78,7 @@ export class OmpProcesses {
 		this.#startTimes = options.startTimes ?? windowsStartTimes;
 		this.#platform = options.platform ?? process.platform;
 		this.#runCommand = options.runCommand ?? run;
+		this.#stopPid = options.stopPid ?? stopOmpPid;
 		this.#retryDelaysMs = options.retryDelaysMs ?? IDENTIFY_RETRY_DELAYS_MS;
 		this.#log = options.log ?? ((message, details) => console.warn(`[omp-processes] ${message}`, details));
 	}
@@ -195,21 +199,23 @@ export class OmpProcesses {
 	 * Stops the omps the file names that still run and are still the process this app started, never a reused pid of
 	 * another program: on POSIX the pid's command line holds this app's gui-bridge path; on Windows (whose command lines
 	 * only WMI gives, which wedges: e2e-ci-windows.md › Stopping an omp) the process's creation time equals the one
-	 * recorded at its spawn. An entry leaves the file only when it was stopped, its pid is gone, or the lookup read the
-	 * pid and it is not ours (another creation time, another command line). A pid that still runs but the lookup did
-	 * not resolve (the lookup failed, named no such pid, gave no usable time, or the entry has no recorded time) is
-	 * neither stopped nor forgotten: it stays in the file for the next launch. Resolves with the pids it stopped.
+	 * recorded at its spawn. An entry leaves the file only when it was stopped (the pid is gone afterwards), its pid
+	 * is gone, or the lookup read the pid and it is not ours (another creation time, another command line). A pid that
+	 * still runs but the lookup did not resolve (the lookup failed, named no such pid, gave no usable time, or the
+	 * entry has no recorded time) or that survives its stop is neither forgotten nor reported: it stays in the file
+	 * for the next launch. Resolves with the pids it confirmed stopped.
 	 */
 	async reapLeftovers(): Promise<number[]> {
 		this.#leftovers = this.#read().filter(({ pid }) => !this.#live.has(pid) && pidAlive(pid));
 		if (this.#leftovers.length === 0) return [];
 		const verdict = await this.#classify(this.#leftovers);
 		if (verdict === null) return [];
-		await Promise.all(verdict.ours.map(pid => stopOmpPid(pid)));
-		const settled = new Set([...verdict.ours, ...verdict.notOurs]);
+		const gone = await Promise.all(verdict.ours.map(pid => this.#stopPid(pid)));
+		const stopped = verdict.ours.filter((_, index) => gone[index]);
+		const settled = new Set([...stopped, ...verdict.notOurs]);
 		this.#leftovers = this.#leftovers.filter(({ pid }) => !settled.has(pid));
 		this.#save();
-		return verdict.ours;
+		return stopped;
 	}
 
 	/**
