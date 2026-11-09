@@ -278,7 +278,12 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 					{
 						source: "omp-slow-start",
 						message: `omp has not answered ${Math.round(report.waitedMs / 1000)} s after its start; still waiting`,
-						details: { stderr: report.stderr },
+						details: {
+							stderr: report.stderr,
+							ompLog: report.ompLog,
+							ready: report.ready,
+							unanswered: report.unanswered,
+						},
 					},
 					{ cwd: report.cwd },
 				);

@@ -661,7 +661,7 @@ export type RuntimeErrorSource =
 	| "settle-watch"
 	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
 	| "sidecar-restart"
-	/** A tab's omp that has not answered its first `get_state` after `START_SLOW_MS` and is still waited for (src/main/sidecar.ts): `details.stderr` is its tail. */
+	/** A tab's omp that has not answered its first `get_state` after `START_SLOW_MS` and is still waited for (src/main/sidecar.ts `SlowStartReport`): `details.stderr` and `details.ompLog` (its own log) are its tails, `details.ready` whether it printed `ready`, `details.unanswered` the stock commands it holds. */
 	| "omp-slow-start"
 	/** An omp whose CPU priority could not be lowered below the app's (src/main/agent-priority.ts), logged once: `message` is why. */
 	| "process-priority"

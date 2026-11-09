@@ -47,6 +47,7 @@ import {
 	sessionOpen,
 	withoutSessionEnv,
 } from "./omp-launch";
+import { ompLogTail } from "./omp-log-tail";
 import type { OmpProcesses } from "./omp-processes";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
 import type { OmpStartQueue, StartSlotRelease } from "./omp-start-queue";
@@ -355,8 +356,10 @@ export interface SidecarOptions {
 	 * Electron's `app`, so the manager must keep working without it.
 	 */
 	reportFailure?: (report: SidecarFailureReport) => void;
-	/** Logs a start that has not answered after `START_SLOW_MS`, with its stderr tail so far; once per spawn. */
-	reportSlowStart?: (report: { waitedMs: number; stderr: string[]; cwd: string }) => void;
+	/** Logs a start that has not answered after `START_SLOW_MS`, with what it said so far; once per spawn. */
+	reportSlowStart?: (report: SlowStartReport) => void;
+	/** The last lines omp `pid` wrote to its own log (default `ompLogTail`; tests inject). */
+	readOmpLog?: (pid: number, spawnedAt: Date) => Promise<string[]>;
 	/**
 	 * Lowers a spawned omp's CPU priority below the app's own (agent-priority.ts); the tools it starts inherit it.
 	 * Default: `lowerAgentPriority`. The factory injects one that logs the first failure to gui-runtime.jsonl.
@@ -373,6 +376,19 @@ export interface SidecarOptions {
 	processes?: Pick<OmpProcesses, "track">;
 	/** How long a started omp may stay silent before its tab reads slow (`START_SLOW_MS`; tests shorten it). */
 	startSlowMs?: number;
+}
+
+/** A start past `START_SLOW_MS`, as handed to `reportSlowStart`. */
+export interface SlowStartReport {
+	waitedMs: number;
+	stderr: string[];
+	/** The omp's own log tail (`ompLogTail`): what it said when stderr says nothing. */
+	ompLog: string[];
+	/** omp printed `ready` (it reached its RPC loop's setup), so the wait is in what follows. */
+	ready: boolean;
+	/** The stock commands sent and not answered, oldest first: the one omp is held in leads. */
+	unanswered: string[];
+	cwd: string;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -427,8 +443,12 @@ export class SidecarManager extends EventEmitter {
 	#releaseSlot: StartSlotRelease | null = null;
 	/** Fires `#startIsSlow` when this spawn has not answered its first `get_state` in `START_SLOW_MS`. */
 	#slowTimer: NodeJS.Timeout | null = null;
-	/** This spawn passed `START_SLOW_MS` without an answer: its `starting` carries `slow` and the stderr tail. */
+	/** This spawn passed `START_SLOW_MS` without an answer: its `starting` carries `slow` and what omp said. */
 	#slow = false;
+	/** The slow spawn's own log tail, shown while its stderr is empty. */
+	#slowLog: string[] = [];
+	/** When this spawn started: the day its omp log is named by. */
+	#spawnedAt = new Date(0);
 	/**
 	 * Spawn-cycle counter, bumped whenever a cycle is torn down or started.
 	 * Every continuation that outlives the synchronous spawn (protocol
@@ -647,6 +667,8 @@ export class SidecarManager extends EventEmitter {
 
 	#launch(runtime: OmpRuntime, generation: number): void {
 		this.#lastStderr = [];
+		this.#slowLog = [];
+		this.#spawnedAt = new Date();
 		this.#bootedThisSpawn = false;
 		this.#session = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
@@ -1168,9 +1190,10 @@ export class SidecarManager extends EventEmitter {
 
 	/**
 	 * The started omp has not answered after `waitedMs` (8 Nov 2026: a relaunch's omps went silent after their model
-	 * discovery; 9 Nov 2026: every new omp of a MacBook stayed silent past 45 s). It keeps running and is waited for: its
-	 * place in the start queue goes to the next tab, and the tab reads `starting` with `slow` and the omp's stderr tail
-	 * until it answers (`ready`), exits (the crash path) or the person restarts it.
+	 * discovery; 9 Nov 2026: every new omp of a MacBook stayed silent past 45 s, its stderr empty). It keeps running and
+	 * is waited for: its place in the start queue goes to the next tab, and the tab reads `starting` with `slow` and the
+	 * omp's stderr tail, or its own log's when stderr is empty, until it answers (`ready`), exits (the crash path) or the
+	 * person restarts it. The log line also says whether omp printed `ready` and which commands it holds.
 	 */
 	#startIsSlow(generation: number, waitedMs: number): void {
 		if (!this.#isLive(generation)) return;
@@ -1178,12 +1201,26 @@ export class SidecarManager extends EventEmitter {
 		this.#releaseSlot?.();
 		this.#releaseSlot = null;
 		this.#slow = true;
-		this.#options.reportSlowStart?.({ waitedMs, stderr: [...this.#lastStderr], cwd: this.#options.cwd });
-		this.#showSlow();
+		const pid = this.#child?.pid;
+		const read = this.#options.readOmpLog ?? ompLogTail;
+		const ompLog = pid === undefined ? Promise.resolve([]) : read(pid, this.#spawnedAt).catch(() => []);
+		void ompLog.then(lines => {
+			if (!this.#isLive(generation) || !this.#slow) return;
+			this.#slowLog = lines;
+			this.#options.reportSlowStart?.({
+				waitedMs,
+				stderr: [...this.#lastStderr],
+				ompLog: lines,
+				ready: this.#bootedThisSpawn,
+				unanswered: this.#rpcClient?.unanswered() ?? [],
+				cwd: this.#options.cwd,
+			});
+			this.#showSlow();
+		});
 	}
 
 	#showSlow(): void {
-		const tail = this.#lastStderr.join("\n").trim();
+		const tail = this.#lastStderr.join("\n").trim() || this.#slowLog.join("\n");
 		this.#setStatus("starting", { slow: true, ...(tail ? { message: tail } : {}) });
 	}
 

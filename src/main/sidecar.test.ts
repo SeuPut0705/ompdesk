@@ -15,7 +15,7 @@ import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import type { OmpResolution } from "./omp-runtime";
 import { OmpStartQueue } from "./omp-start-queue";
 import { STOP_GRACE_MS } from "./omp-stop";
-import { type SidecarFailureReport, SidecarManager } from "./sidecar";
+import { type SidecarFailureReport, SidecarManager, type SlowStartReport } from "./sidecar";
 import { ANSWERS_COMMANDS, ompRuns, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
@@ -1593,6 +1593,49 @@ describe("SidecarManager", () => {
 				await fs.rm(gate, { force: true });
 				await fs.rm(slow.tempDir, RM_TEMP);
 				await fs.rm(quick.tempDir, RM_TEMP);
+			}
+		}, 20_000);
+
+		it("a slow start with nothing on stderr shows the omp's own log, and its log line says it printed ready and holds get_state", async () => {
+			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-slowlog-${process.pid}-${Date.now()}`);
+			const slow = await loggedOmp({ onTerm: "exit", answers: { gate } });
+			const logLine = "14:15:30 warn model discovery failed for provider provider=llama.cpp";
+			const asked: number[] = [];
+			const reports: SlowStartReport[] = [];
+			const sidecar = new SidecarManager({
+				omp: ompAt(slow.binaryPath),
+				cwd: slow.tempDir,
+				startSlowMs: 300,
+				readOmpLog: async pid => {
+					asked.push(pid);
+					return [logLine];
+				},
+				reportSlowStart: report => reports.push(report),
+			});
+			try {
+				sidecar.start();
+				await vi.waitFor(() => expect(sidecar.statusPayload).toMatchObject({ status: "starting", slow: true }));
+				const [spawn] = await slow.lines();
+				expect(asked).toEqual([spawn?.pid]);
+				expect(sidecar.statusPayload.message).toBe(logLine);
+				expect(reports).toEqual([
+					{
+						waitedMs: 300,
+						stderr: [],
+						ompLog: [logLine],
+						ready: true,
+						unanswered: ["get_state"],
+						cwd: slow.tempDir,
+					},
+				]);
+				const ready = waitForReady(sidecar);
+				await fs.writeFile(gate, "");
+				await ready;
+			} finally {
+				sidecar.dispose();
+				await sidecar.whenExited();
+				await fs.rm(gate, { force: true });
+				await fs.rm(slow.tempDir, RM_TEMP);
 			}
 		}, 20_000);
 	});

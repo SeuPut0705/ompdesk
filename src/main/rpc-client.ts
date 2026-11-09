@@ -82,6 +82,11 @@ export class RpcClient {
 		return promise;
 	}
 
+	/** The types of the stock commands omp has not answered yet, oldest first. */
+	unanswered(): string[] {
+		return [...this.#pending.values()].map(entry => entry.command.type);
+	}
+
 	/** Route an inbound response frame to its waiting promise. */
 	onResponse(frame: RpcResponse): boolean {
 		const id = frame.id;
