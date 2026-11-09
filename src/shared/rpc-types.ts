@@ -2951,4 +2951,9 @@ export interface SidecarStatusPayload {
 	 * go (SidecarManager `#whenSessionLetGo`), so a relaunch's continuation waits for that `ready` instead of giving up.
 	 */
 	sessionHeld?: true;
+	/**
+	 * On `starting`: the omp has not answered its first `get_state` after `START_SLOW_MS` (sidecar.ts). It still runs and
+	 * is waited for, never stopped for it; `message` is its stderr tail so far, and Restart is the person's call.
+	 */
+	slow?: true;
 }

@@ -255,6 +255,10 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
 			...(deps.startQueue ? { startQueue: deps.startQueue } : {}),
 			...(deps.processes ? { processes: deps.processes } : {}),
+			// Test seam: the slow-start parity surface (e2e/parity.e2e.ts) waits seconds, not START_SLOW_MS.
+			...(Number(process.env.OMP_GUI_START_SLOW_MS) > 0
+				? { startSlowMs: Number(process.env.OMP_GUI_START_SLOW_MS) }
+				: {}),
 			bootModel: runtime => bootModelSelector(runtime, bridgeDir),
 			// Finder-launched omp has no terminal, and a sidecar that dies before
 			// it can write its own log only speaks through stderr — land the tail
@@ -265,6 +269,16 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 						source: "sidecar-restart",
 						message: report.reason,
 						details: { attempt: report.attempt, maxAttempts: report.maxAttempts, stderr: report.stderr },
+					},
+					{ cwd: report.cwd },
+				);
+			},
+			reportSlowStart: report => {
+				writeRuntimeLog(
+					{
+						source: "omp-slow-start",
+						message: `omp has not answered ${Math.round(report.waitedMs / 1000)} s after its start; still waiting`,
+						details: { stderr: report.stderr },
 					},
 					{ cwd: report.cwd },
 				);

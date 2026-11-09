@@ -4358,6 +4358,9 @@ export const en: Record<string, string> = {
 	"sidecar.notResponding": "omp isn't responding. Restart it to continue.",
 	"sidecar.restartingTitle": "Restarting omp",
 	"sidecar.heldTitle": "Waiting for the session",
+	"sidecar.slowTitle": "omp is taking long to start",
+	"sidecar.slow":
+		"It is still starting and the session opens as soon as it answers. Nothing was stopped. Restart if it stays like this.",
 	"sidecar.attempt": "Restart attempt {attempt}/{maxAttempts}",
 	"sidecar.exhausted": "Gave up after {maxAttempts} restart attempts. Check the Logs panel, then restart.",
 	"sidecar.project": "Project: {cwd}",

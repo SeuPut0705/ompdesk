@@ -482,8 +482,8 @@ interface PrefsSchema {
 /** The first-run credential check is only worth it while it beats omp's boot; past this it says "cannot tell". */
 const SIGNED_IN_TIMEOUT_MS = 10_000;
 /**
- * Longest a command waits for its tab's omp to finish starting: three starts that answer nothing (sidecar.ts
- * `START_ANSWER_MS`, `MAX_START_STALLS`) take longer, and then the tab reads `error`, which the command is told.
+ * Longest a command waits for its tab's omp to finish starting before it is answered `sidecar_not_ready`. The omp is
+ * not stopped then: a slow one keeps starting (sidecar.ts `START_SLOW_MS`) and the command can be sent again.
  */
 const START_WAIT_MS = 60_000;
 

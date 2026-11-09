@@ -128,6 +128,21 @@ describe("SidecarBanner", () => {
 		expect(container.querySelector("[role='alert']")).toBeNull();
 	});
 
+	it("shows an omp slow to start as a wait with what it printed and Restart, never as a failure", async () => {
+		useSessionStore.getState().setStatus("starting", "/tmp/project");
+		useSessionStore.getState().setSidecarError("fetching models from anthropic…", null, false, true);
+		await mount(<SidecarBanner />);
+
+		expect(container.textContent).toContain(translate("sidecar.slowTitle"));
+		expect(container.textContent).toContain(translate("sidecar.slow"));
+		expect(container.querySelector("pre")?.textContent).toBe("fetching models from anthropic…");
+		expect(container.textContent).not.toContain(translate("sidecar.title"));
+		expect(container.querySelector("[role='status']")).not.toBeNull();
+		expect(container.querySelector("[role='alert']")).toBeNull();
+		await click(0);
+		expect(restart).toHaveBeenCalled();
+	});
+
 	it("marks an exhausted crash loop as a failure with the last reason", async () => {
 		useSessionStore.getState().setStatus("error", "/tmp/project");
 		useSessionStore.getState().setSidecarError("Exit code 1 — omp: command not found", {

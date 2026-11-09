@@ -1566,7 +1566,7 @@ describe("SidecarManager", () => {
 				omp: ompAt(slow.binaryPath),
 				cwd: slow.tempDir,
 				startQueue: queue,
-				startAnswerMs: 1_000,
+				startSlowMs: 1_000,
 			});
 			const next = new SidecarManager({ omp: ompAt(quick.binaryPath), cwd: quick.tempDir, startQueue: queue });
 			const statuses: SidecarStatusPayload[] = [];

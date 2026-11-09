@@ -40,6 +40,8 @@ export interface SessionStore {
 	sidecarRestart: SidecarRestartProgress | null;
 	/** The error is a session another omp still holds: the tab opens it by itself once that omp lets go. */
 	sidecarHeld: boolean;
+	/** The omp is still starting past `START_SLOW_MS`, waited for; `sidecarError` is its stderr tail ("" when none). */
+	sidecarSlow: boolean;
 	/** The banner was dismissed by the user. A new diagnostic — or the sidecar
 	 * coming back — clears it; the one that was closed stays hidden. */
 	sidecarDismissed: boolean;
@@ -90,7 +92,12 @@ export interface SessionStore {
 	checkoutPeers: CheckoutPeers | null;
 	setFromState: (state: RpcSessionState) => void;
 	setStatus: (status: SidecarStatus, cwd: string) => void;
-	setSidecarError: (error: string | null, restart?: SidecarRestartProgress | null, held?: boolean) => void;
+	setSidecarError: (
+		error: string | null,
+		restart?: SidecarRestartProgress | null,
+		held?: boolean,
+		slow?: boolean,
+	) => void;
 	clearSidecarError: () => void;
 	dismissSidecarBanner: () => void;
 	reset: () => void;
@@ -109,6 +116,7 @@ const initialState = {
 	sidecarError: null as string | null,
 	sidecarRestart: null as SidecarRestartProgress | null,
 	sidecarHeld: false,
+	sidecarSlow: false,
 	sidecarDismissed: false,
 	isStreaming: false,
 	isCompacting: false,
@@ -152,10 +160,22 @@ export function snapshotModeState(
 export const createSessionStore = () =>
 	createStore<SessionStore>()((set, get) => ({
 		...initialState,
-		setSidecarError: (error, restart = null, held = false) =>
-			set({ sidecarError: error, sidecarRestart: restart, sidecarHeld: held, sidecarDismissed: false }),
+		setSidecarError: (error, restart = null, held = false, slow = false) =>
+			set({
+				sidecarError: error,
+				sidecarRestart: restart,
+				sidecarHeld: held,
+				sidecarSlow: slow,
+				sidecarDismissed: false,
+			}),
 		clearSidecarError: () =>
-			set({ sidecarError: null, sidecarRestart: null, sidecarHeld: false, sidecarDismissed: false }),
+			set({
+				sidecarError: null,
+				sidecarRestart: null,
+				sidecarHeld: false,
+				sidecarSlow: false,
+				sidecarDismissed: false,
+			}),
 		dismissSidecarBanner: () => set({ sidecarDismissed: true }),
 		setSwitchPending: switchPending => set({ switchPending }),
 		saveTranscriptView: transcriptView => set({ transcriptView }),

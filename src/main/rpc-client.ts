@@ -23,7 +23,7 @@ interface PendingRequest {
 	command: RpcCommand;
 	resolve: (response: RpcResponse) => void;
 	reject: (error: Error) => void;
-	timer: NodeJS.Timeout;
+	timer: NodeJS.Timeout | undefined;
 }
 
 export interface RpcClientOptions {
@@ -62,7 +62,7 @@ export class RpcClient {
 		return promise;
 	}
 
-	/** Send straight to omp, bypassing GUI-side handlers. */
+	/** Send straight to omp, bypassing GUI-side handlers. `Number.POSITIVE_INFINITY`: no deadline (only an answer or `rejectAll` settles it). */
 	stock(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
 		return this.#stock(cmd, `gui-${++this.#nextId}`, timeoutMs);
 	}
@@ -70,10 +70,13 @@ export class RpcClient {
 	#stock(cmd: RpcCommand, id: string, timeoutMs?: number): Promise<RpcResponse> {
 		const { promise, resolve, reject } = Promise.withResolvers<RpcResponse>();
 		const timeout = timeoutMs ?? this.#timeout;
-		const timer = setTimeout(() => {
-			this.#pending.delete(id);
-			reject(new RpcTimeoutError(timeout, cmd.type));
-		}, timeout);
+		// setTimeout would read Infinity as 1 ms.
+		const timer = Number.isFinite(timeout)
+			? setTimeout(() => {
+					this.#pending.delete(id);
+					reject(new RpcTimeoutError(timeout, cmd.type));
+				}, timeout)
+			: undefined;
 		this.#pending.set(id, { command: cmd, resolve, reject, timer });
 		this.#send({ ...cmd, id });
 		return promise;

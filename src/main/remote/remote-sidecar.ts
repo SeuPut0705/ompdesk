@@ -109,7 +109,7 @@ export interface RemoteSidecarOptions {
 
 type StatusDetail = Pick<
 	SidecarStatusPayload,
-	"message" | "restart" | "modelFallback" | "reconnecting" | "sessionHeld"
+	"message" | "restart" | "modelFallback" | "reconnecting" | "sessionHeld" | "slow"
 >;
 
 /**
@@ -698,11 +698,14 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 		});
 	}
 
-	/** The host never reported the tab running: the skeleton gives way to a message naming the host, with Restart. */
+	/**
+	 * The host never reported the tab running: the skeleton gives way to a message naming the host, with Restart. A host
+	 * that says its omp is slow (`slow`) still runs it and is believed: the tab keeps showing that, never an error.
+	 */
 	#stalled(): void {
 		this.#startTimer = null;
 		const pending = this.#pending;
-		if (this.#disposed || !pending || this.#status !== "starting") return;
+		if (this.#disposed || !pending || this.#status !== "starting" || this.#detail.slow) return;
 		this.#note("stalled", { step: pending.step, status: this.#status, link: this.#link.state });
 		this.#pending = null;
 		this.#setStatus("error", { message: this.#stalledMessage(this.#seconds()) });

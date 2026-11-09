@@ -2945,6 +2945,26 @@ describe("SidecarPool background tabs", () => {
 			expect(summary()).not.toHaveProperty("failure");
 		});
 
+		it("tells every window a slow start's omp is still waited for, with its stderr tail, until it answers", () => {
+			const { pool, sidecars } = fakePool();
+			const fw = fakeWindow(1);
+			pool.acquire("/a", fw.win, "tab-a", "/sessions/a.jsonl");
+			const a = sidecars[0];
+			const listed = () => pool.tabsForWindow(fw.win).find(tab => tab.tabId === "tab-a");
+
+			a?.emit("status", { status: "starting", cwd: "/a", slow: true, message: "loading models" });
+			expect(fw.sentTo(IPC_EVENTS.TAB_STATUS).at(-1)?.data).toMatchObject({
+				status: "starting",
+				slow: true,
+				message: "loading models",
+			});
+			// No failure: the summaries every row reads see a start, nothing failed.
+			expect(pool.summarySources()[0]?.facts()).not.toHaveProperty("failure");
+			a?.emitStatus("ready");
+			expect(listed()).not.toHaveProperty("slow");
+			expect(listed()).not.toHaveProperty("message");
+		});
+
 		it("holds a scheduled retry in main: TAB_STATUS pushes it, GET_TABS re-reads it after a reload, and clearing removes it", () => {
 			const { pool, sidecars } = fakePool();
 			const fw = fakeWindow(1);

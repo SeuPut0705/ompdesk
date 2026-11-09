@@ -384,6 +384,8 @@ interface PoolEntry extends RunTracking {
 	sessionHeld?: boolean;
 	/** Why the tab's omp failed, exited or restarts, as its last status said (`IpcTabInfo.message`/`restart`). */
 	failure?: SummaryFailure;
+	/** The `starting` omp has not answered and is still waited for, with its stderr tail (`IpcTabInfo.slow`/`message`). */
+	slowStart?: { message?: string };
 	/** A plan proposal that waits for an answer (`plan_proposal` until `plan_proposal_resolved`): the tab waits on someone. */
 	planProposal?: PendingPlan;
 	/** A relaunch continues this tab's interrupted work and its turn has not started yet (turn-resume.ts). */
@@ -1001,6 +1003,12 @@ export class SidecarPool {
 			entry.status = payload.status;
 			entry.sessionHeld = payload.status === "error" && payload.sessionHeld === true;
 			entry.failure = failureOf(payload);
+			entry.slowStart =
+				payload.status === "starting" && payload.slow
+					? payload.message === undefined
+						? {}
+						: { message: payload.message }
+					: undefined;
 			// A restart/exit kills any in-flight run along with the process, and the asks and approvals
 			// it had open: the next process never heard of them, so none may outlive it as "asking".
 			// A paired host's link blip is no such exit: its omp still holds the ask, so the route (and a
@@ -3031,6 +3039,10 @@ function tabStatusPayload(entry: PoolEntry): IpcTabStatusPayload {
 	if (entry.sessionHeld && payload.status === "error") payload.sessionHeld = true;
 	if (entry.failure?.message !== undefined) payload.message = entry.failure.message;
 	if (entry.failure?.restart !== undefined) payload.restart = entry.failure.restart;
+	if (entry.slowStart && payload.status === "starting") {
+		payload.slow = true;
+		if (entry.slowStart.message !== undefined) payload.message = entry.slowStart.message;
+	}
 	if (entry.resuming) payload.resuming = true;
 	if (entry.scheduledRetry) payload.scheduledRetry = entry.scheduledRetry;
 	if (entry.device !== undefined) payload.device = entry.device;

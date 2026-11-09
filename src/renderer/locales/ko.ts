@@ -4353,6 +4353,9 @@ export const ko: Record<string, string> = {
 	"sidecar.notResponding": "omp가 응답하지 않아요. 계속하려면 다시 시작하세요.",
 	"sidecar.restartingTitle": "omp 다시 시작 중",
 	"sidecar.heldTitle": "세션을 기다리는 중",
+	"sidecar.slowTitle": "omp 시작이 오래 걸리고 있어요",
+	"sidecar.slow":
+		"아직 시작하는 중이고, 응답하면 바로 세션이 열려요. 아무것도 멈추지 않았어요. 계속 이대로면 다시 시작하세요.",
 	"sidecar.attempt": "다시 시작 시도 {attempt}/{maxAttempts}",
 	"sidecar.exhausted": "다시 시작을 {maxAttempts}번 시도한 뒤 중단했어요. 로그 패널을 확인한 뒤 다시 시작하세요.",
 	"sidecar.project": "프로젝트: {cwd}",

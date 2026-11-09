@@ -1280,6 +1280,19 @@ describe("tabs store close", () => {
 		useTabsStore.getState().applyTabStatus(tabInfo("t1", "/beta", "ready"));
 		expect(banner()?.sidecarError).toBeNull();
 	});
+
+	it("shows a slow start's stderr tail on its banner as a wait, follows the tail, and drops it once the omp answers", () => {
+		seedTabs("t0");
+		const banner = () => sessionRuntimeStore<SessionStore>("t1", "session")?.getState();
+		const slow = { ...tabInfo("t1", "/beta", "starting"), slow: true as const };
+
+		useTabsStore.getState().applyTabStatus(slow);
+		expect(banner()).toMatchObject({ sidecarError: "", sidecarSlow: true, sidecarHeld: false });
+		useTabsStore.getState().applyTabStatus({ ...slow, message: "loading models…" });
+		expect(banner()).toMatchObject({ sidecarError: "loading models…", sidecarSlow: true });
+		useTabsStore.getState().applyTabStatus(tabInfo("t1", "/beta", "ready"));
+		expect(banner()).toMatchObject({ sidecarError: null, sidecarSlow: false });
+	});
 });
 
 describe("tabs store close races and failures", () => {

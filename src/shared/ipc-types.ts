@@ -661,6 +661,8 @@ export type RuntimeErrorSource =
 	| "settle-watch"
 	/** An omp sidecar that exited and is restarting (src/main/sidecar-factory.ts): `message` is the reason, `details` the attempt and stderr. */
 	| "sidecar-restart"
+	/** A tab's omp that has not answered its first `get_state` after `START_SLOW_MS` and is still waited for (src/main/sidecar.ts): `details.stderr` is its tail. */
+	| "omp-slow-start"
 	/** An omp whose CPU priority could not be lowered below the app's (src/main/agent-priority.ts), logged once: `message` is why. */
 	| "process-priority"
 	/**
@@ -1726,10 +1728,12 @@ export interface IpcTabInfo {
 	sessionHeld?: true;
 	/**
 	 * With `status` `error`, `exited` or `restarting`: why, as the tab's omp (or its paired host) said it, and the restart
-	 * attempts so far. Every window's banner for the tab reads them from here, shown or not.
+	 * attempts so far; with `slow`, the omp's stderr tail. Every window's banner for the tab reads them from here.
 	 */
 	message?: string;
 	restart?: SidecarRestartProgress;
+	/** With `status` `starting`: its omp has not answered yet and is still waited for (`SidecarStatusPayload.slow`). */
+	slow?: true;
 	/** A relaunch continues the tab's interrupted work and its turn has not started yet (resume, src/main/turn-resume.ts). */
 	resuming?: boolean;
 	/** The tab's failed turn retries by itself at `at` (resume, src/main/turn-resume.ts). */

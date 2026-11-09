@@ -24,7 +24,6 @@ import type {
 	RpcCommand,
 	RpcReadyFrame,
 	RpcResponse,
-	SidecarRestartProgress,
 	SidecarStatus,
 	SidecarStatusPayload,
 } from "../shared/rpc-types";
@@ -71,12 +70,12 @@ const ENTRY_ID_TIMEOUT_MS = 5_000;
 /** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
 const STDERR_DRAIN_MS = 1_000;
 /**
- * How long a started omp has to answer its first RPC. Stock omp answers `get_state` within seconds even behind its
- * model discovery; a relaunch's omps that answered nothing for minutes (8 Nov 2026) never answered at all.
+ * How long a started omp may stay silent before its tab says so. Stock omp answers `get_state` within seconds; past this
+ * the tab reads `starting` with `slow` and the omp's stderr tail, its place in the start queue goes to the next tab, and
+ * the omp is still waited for. A live omp is never stopped or failed for being slow (the owner's rule, 9 Nov 2026: the
+ * 45 s stop-and-retry of 0.119.7 killed every omp of a MacBook before it could answer); only Restart stops it.
  */
-const START_ANSWER_MS = 45_000;
-/** Stops and fresh starts of an omp that answered nothing, before the tab reads `error`. */
-const MAX_START_STALLS = 2;
+const START_SLOW_MS = 20_000;
 
 /** Stock commands after which the sidecar's session identity is unknown until the next `get_state`. */
 const SESSION_CHANGING_COMMANDS: Record<string, true> = {
@@ -356,6 +355,8 @@ export interface SidecarOptions {
 	 * Electron's `app`, so the manager must keep working without it.
 	 */
 	reportFailure?: (report: SidecarFailureReport) => void;
+	/** Logs a start that has not answered after `START_SLOW_MS`, with its stderr tail so far; once per spawn. */
+	reportSlowStart?: (report: { waitedMs: number; stderr: string[]; cwd: string }) => void;
 	/**
 	 * Lowers a spawned omp's CPU priority below the app's own (agent-priority.ts); the tools it starts inherit it.
 	 * Default: `lowerAgentPriority`. The factory injects one that logs the first failure to gui-runtime.jsonl.
@@ -370,8 +371,8 @@ export interface SidecarOptions {
 	startQueue?: Pick<OmpStartQueue, "acquire">;
 	/** The app's list of the omps it runs (`omp-processes.ts`), which a quit stops and the next launch reaps. */
 	processes?: Pick<OmpProcesses, "track">;
-	/** How long a started omp has to answer its first RPC before it is stopped and started again (tests shorten it). */
-	startAnswerMs?: number;
+	/** How long a started omp may stay silent before its tab reads slow (`START_SLOW_MS`; tests shorten it). */
+	startSlowMs?: number;
 }
 
 /** One crash-loop step, as handed to `reportFailure`. */
@@ -424,11 +425,10 @@ export class SidecarManager extends EventEmitter {
 	readonly #exiting = new Set<Promise<void>>();
 	/** This spawn's place in the start queue, given back once it answered, ended or was stopped. */
 	#releaseSlot: StartSlotRelease | null = null;
-	/** Fires `#stalled` when this spawn has not answered by `#answerDeadline`. */
-	#answerTimer: NodeJS.Timeout | null = null;
-	#answerDeadline = 0;
-	/** Starts in a row that answered nothing (`#stalled`); reset by an answer and by restart(). */
-	#stalls = 0;
+	/** Fires `#startIsSlow` when this spawn has not answered its first `get_state` in `START_SLOW_MS`. */
+	#slowTimer: NodeJS.Timeout | null = null;
+	/** This spawn passed `START_SLOW_MS` without an answer: its `starting` carries `slow` and the stderr tail. */
+	#slow = false;
 	/**
 	 * Spawn-cycle counter, bumped whenever a cycle is torn down or started.
 	 * Every continuation that outlives the synchronous spawn (protocol
@@ -451,7 +451,7 @@ export class SidecarManager extends EventEmitter {
 	 * fires before the window subscribes; the renderer's boot snapshot
 	 * (SIDECAR_STATUS_GET) reads this so the reason is not lost.
 	 */
-	#statusDetail: Pick<SidecarStatusPayload, "message" | "restart" | "modelFallback" | "sessionEnded"> = {};
+	#statusDetail: Omit<SidecarStatusPayload, "status" | "cwd"> = {};
 	#options: SidecarOptions;
 	#runtime: OmpRuntime | null = null;
 	#proxyEnvVars: Record<string, string> = {};
@@ -558,20 +558,16 @@ export class SidecarManager extends EventEmitter {
 		]).then(([resolution, proxyVars, shellVars, builtinMcp, session, defaultBrowser, egoBrowserDir]) => {
 			if (this.#disposed || seq !== this.#startSeq) return;
 			if (session === "owned") {
-				this.#setStatus(
-					"error",
-					this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
-					undefined,
-					undefined,
-					undefined,
-					true,
-				);
+				this.#setStatus("error", {
+					message: this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
+					sessionHeld: true,
+				});
 				this.#whenSessionLetGo(seq);
 				return;
 			}
 			if (!resolution.ok) {
 				// No usable omp: nothing ran, nothing failed. Machine setup installs it and main starts this tab then.
-				this.#setStatus("waiting", resolution.error);
+				this.#setStatus("waiting", { message: resolution.error });
 				return;
 			}
 			this.#runtime = resolution.runtime;
@@ -717,9 +713,8 @@ export class SidecarManager extends EventEmitter {
 		this.#child = child;
 		this.#options.processes?.track(child);
 		this.#bridgeAddress = bridgeAddress;
-		const answerMs = this.#options.startAnswerMs ?? START_ANSWER_MS;
-		this.#answerDeadline = Date.now() + answerMs;
-		this.#answerTimer = setTimeout(() => this.#stalled(generation), answerMs);
+		const slowMs = this.#options.startSlowMs ?? START_SLOW_MS;
+		this.#slowTimer = setTimeout(() => this.#startIsSlow(generation, slowMs), slowMs);
 		this.emit("spawned");
 		const bridge = new GuiBridgeClient(bridgeAddress ?? "");
 		bridge.onEvent(event => this.#routeFrame(event));
@@ -779,6 +774,8 @@ export class SidecarManager extends EventEmitter {
 					this.#lastStderr.push(line);
 					if (this.#lastStderr.length > STDERR_TAIL_LINES) this.#lastStderr.shift();
 				}
+				// A slow start shows what omp is saying while the tab waits for it.
+				if (this.#slow) this.#showSlow();
 				this.emit("stderr", text);
 			}
 		});
@@ -788,11 +785,11 @@ export class SidecarManager extends EventEmitter {
 			this.#cleanup();
 			if (this.#disposed) return;
 			if (code === 0) {
-				this.#setStatus("exited", "Normal shutdown");
+				this.#setStatus("exited", { message: "Normal shutdown" });
 				return;
 			}
 			if (code === WINDOWS_SESSION_END_EXIT_CODE) {
-				this.#setStatus("exited", "The Windows session ended", undefined, undefined, true);
+				this.#setStatus("exited", { message: "The Windows session ended", sessionEnded: true });
 				return;
 			}
 			// `exit` can fire before stderr has drained, and the boot-failure
@@ -1040,7 +1037,7 @@ export class SidecarManager extends EventEmitter {
 					}
 					if (!this.#isLive(generation)) return;
 				}
-				this.#setStatus("ready", undefined, undefined, modelFallback);
+				this.#setStatus("ready", modelFallback ? { modelFallback } : {});
 				this.#restartCount = 0;
 			});
 		};
@@ -1086,13 +1083,13 @@ export class SidecarManager extends EventEmitter {
 			cwd: this.#options.cwd,
 		});
 		if (exhausted) {
-			this.#setStatus("error", detail, { attempt, maxAttempts: MAX_RESTART_ATTEMPTS });
+			this.#setStatus("error", { message: detail, restart: { attempt, maxAttempts: MAX_RESTART_ATTEMPTS } });
 			return;
 		}
 
 		const delay = restartDelay(attempt);
 		this.#restartCount = attempt;
-		this.#setStatus("restarting", detail, { attempt, maxAttempts: MAX_RESTART_ATTEMPTS });
+		this.#setStatus("restarting", { message: detail, restart: { attempt, maxAttempts: MAX_RESTART_ATTEMPTS } });
 
 		this.#restartTimer = setTimeout(() => {
 			this.#restartTimer = null;
@@ -1138,33 +1135,19 @@ export class SidecarManager extends EventEmitter {
 		return true;
 	}
 
-	#setStatus(
-		status: SidecarStatus,
-		message?: string,
-		restart?: SidecarRestartProgress,
-		modelFallback?: string,
-		sessionEnded?: true,
-		sessionHeld?: true,
-	): void {
+	#setStatus(status: SidecarStatus, detail: Omit<SidecarStatusPayload, "status" | "cwd"> = {}): void {
 		this.#status = status;
-		this.#statusDetail = { message, restart, modelFallback, sessionEnded, ...(sessionHeld ? { sessionHeld } : {}) };
-		this.emit("status", {
-			status,
-			message,
-			cwd: this.#options.cwd,
-			restart,
-			modelFallback,
-			sessionEnded,
-			...(sessionHeld ? { sessionHeld } : {}),
-		});
+		this.#statusDetail = detail;
+		this.emit("status", { status, cwd: this.#options.cwd, ...detail });
 	}
 
 	#cleanup(): void {
 		// Any async continuation of the current cycle (pending negotiation) is
 		// stale from here on, even before the replacement spawns.
 		this.#generation++;
-		clearTimeout(this.#answerTimer ?? undefined);
-		this.#answerTimer = null;
+		clearTimeout(this.#slowTimer ?? undefined);
+		this.#slowTimer = null;
+		this.#slow = false;
 		this.#releaseSlot?.();
 		this.#releaseSlot = null;
 		this.#detachParser?.();
@@ -1184,54 +1167,42 @@ export class SidecarManager extends EventEmitter {
 	}
 
 	/**
-	 * The started omp answered no RPC within `START_ANSWER_MS` (8 Nov 2026: every omp a relaunch started went silent
-	 * after its model discovery while an earlier one hung): it is stopped and started again through the start queue, up to
-	 * `MAX_START_STALLS` times, the tab reading `starting` all along; then `error`.
+	 * The started omp has not answered after `waitedMs` (8 Nov 2026: a relaunch's omps went silent after their model
+	 * discovery; 9 Nov 2026: every new omp of a MacBook stayed silent past 45 s). It keeps running and is waited for: its
+	 * place in the start queue goes to the next tab, and the tab reads `starting` with `slow` and the omp's stderr tail
+	 * until it answers (`ready`), exits (the crash path) or the person restarts it.
 	 */
-	#stalled(generation: number): void {
+	#startIsSlow(generation: number, waitedMs: number): void {
 		if (!this.#isLive(generation)) return;
-		const child = this.#child;
-		this.#cleanup();
-		if (child) this.#stop(child);
-		this.#stalls++;
-		const answerMs = this.#options.startAnswerMs ?? START_ANSWER_MS;
-		const reason = `omp answered nothing within ${Math.round(answerMs / 1000)} s of its start`;
-		this.#options.reportFailure?.({
-			reason,
-			attempt: Math.min(this.#stalls, MAX_START_STALLS),
-			maxAttempts: MAX_START_STALLS,
-			stderr: [...this.#lastStderr],
-			cwd: this.#options.cwd,
-		});
-		if (this.#stalls > MAX_START_STALLS) {
-			this.#setStatus("error", reason);
-			return;
-		}
-		this.#setStatus("starting");
-		this.#spawn();
+		this.#slowTimer = null;
+		this.#releaseSlot?.();
+		this.#releaseSlot = null;
+		this.#slow = true;
+		this.#options.reportSlowStart?.({ waitedMs, stderr: [...this.#lastStderr], cwd: this.#options.cwd });
+		this.#showSlow();
+	}
+
+	#showSlow(): void {
+		const tail = this.#lastStderr.join("\n").trim();
+		this.#setStatus("starting", { slow: true, ...(tail ? { message: tail } : {}) });
 	}
 
 	/**
 	 * The omp's first answer: `get_state`, the command a stalled omp never answered. Only an omp that answered reads
-	 * `ready`, and its place in the start queue goes to the next start. False when it gave no answer in time (it is
-	 * stopped and started again) or the spawn is gone.
+	 * `ready`, and its place in the start queue goes to the next start. No deadline: a slow omp is waited for, and its
+	 * exit or a stop rejects the request. False when the spawn is gone.
 	 */
 	async #answered(generation: number): Promise<boolean> {
 		const client = this.#rpcClient;
 		if (!client) return false;
-		const left = this.#answerDeadline - Date.now();
-		const answered = await client.stock({ type: "get_state" }, Math.max(1, left)).then(
+		const answered = await client.stock({ type: "get_state" }, Number.POSITIVE_INFINITY).then(
 			() => true,
 			() => false,
 		);
-		if (!this.#isLive(generation)) return false;
-		if (!answered) {
-			this.#stalled(generation);
-			return false;
-		}
-		clearTimeout(this.#answerTimer ?? undefined);
-		this.#answerTimer = null;
-		this.#stalls = 0;
+		if (!answered || !this.#isLive(generation)) return false;
+		clearTimeout(this.#slowTimer ?? undefined);
+		this.#slowTimer = null;
+		this.#slow = false;
 		this.#releaseSlot?.();
 		this.#releaseSlot = null;
 		return true;
@@ -1420,7 +1391,6 @@ export class SidecarManager extends EventEmitter {
 		this.#bootModelFallback = null;
 		this.#noModelBoot = null;
 		this.#restartCount = 0;
-		this.#stalls = 0;
 		this.start();
 	}
 

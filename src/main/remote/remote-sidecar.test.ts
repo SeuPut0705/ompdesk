@@ -180,6 +180,24 @@ describe("RemoteSidecar", () => {
 			expect(steps.at(-1)).toBe("stalled ready");
 		});
 
+		it("believes a host that says its omp is slow: the tab shows that wait past the deadline, never an error", async () => {
+			vi.useFakeTimers();
+			const { sidecar, steps } = setup({ startTimeoutMs: 5000 });
+			sidecar.start();
+			await settle();
+			sidecar.handleEvent(hostStatus("starting", { statusPayload: { slow: true, message: "loading models" } }));
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(sidecar.statusPayload).toEqual({
+				status: "starting",
+				cwd: "/canonical/p",
+				slow: true,
+				message: "loading models",
+			});
+			sidecar.handleEvent(hostStatus("ready"));
+			expect(sidecar.status).toBe("ready");
+			expect(steps).toEqual(["open", "start", "ready ready"]);
+		});
+
 		it("never fires once the host reports the tab running, and logs how the start went", async () => {
 			vi.useFakeTimers();
 			const { sidecar, steps } = setup({ startTimeoutMs: 5000 });

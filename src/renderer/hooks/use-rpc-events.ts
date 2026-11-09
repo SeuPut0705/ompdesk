@@ -722,7 +722,8 @@ export function useRpcEvents(heartbeatMs = 15_000): void {
 			if (disposed || !openTabFrame(statusTabId)) return;
 			statusVersion++;
 			const isFocused = () => useTabsStore.getState().activeTabId === statusTabId;
-			if (payload.status === "starting") {
+			// A slow start's `starting` is the same omp, still waited for: nothing to clear, and its banner stays (TAB_STATUS).
+			if (payload.status === "starting" && !payload.slow) {
 				retryPendingTabs.delete(statusTabId);
 				// A paired host may still run the omp the page shows: transcript, cards and state stay on screen, and
 				// its `ready` reads only what was missed. A plain `starting` (any new omp) clears them.

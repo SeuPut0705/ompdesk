@@ -286,27 +286,30 @@ function viewerFields(info: IpcTabInfo): Pick<SessionTab, "shared" | "viewerCoun
 /**
  * The tab's banner reason (its session store's `sidecarError`) from main's listing of it (TAB_STATUS, GET_TABS): the one
  * route to every tab's banner, shown or not. Why its omp failed, exited or restarts, as the omp or its paired host said
- * it; dropped once the tab comes back up (`previous`: the status it had). Written only when it changed, so a push about
- * anything else (a title, a task) never brings back a banner the person closed.
+ * it, or the stderr tail of an omp still starting slowly (`slow`); dropped once the tab comes back up (`previous`: the
+ * status it had). Written only when it changed, so a push about anything else (a title, a task) never brings back a
+ * banner the person closed.
  */
 function applyTabFailure(session: { getState(): SessionStore }, info: IpcTabInfo, previous: string | undefined): void {
 	const state = session.getState();
 	const failure = failureOf(info);
-	if (!failure) {
-		if (previous !== undefined && failureOf({ status: previous })) state.clearSidecarError();
+	const slow = info.status === "starting" && info.slow === true;
+	if (!failure && !slow) {
+		if ((previous !== undefined && failureOf({ status: previous })) || state.sidecarSlow) state.clearSidecarError();
 		return;
 	}
-	const reason = failure.message ?? translate("events.sidecarProcessFailed");
-	const restart = failure.restart ?? null;
+	const reason = slow ? (info.message ?? "") : (failure?.message ?? translate("events.sidecarProcessFailed"));
+	const restart = failure?.restart ?? null;
 	const held = isSessionHeld(info);
 	if (
 		state.sidecarError === reason &&
 		state.sidecarHeld === held &&
+		state.sidecarSlow === slow &&
 		state.sidecarRestart?.attempt === restart?.attempt &&
 		state.sidecarRestart?.maxAttempts === restart?.maxAttempts
 	)
 		return;
-	state.setSidecarError(reason, restart, held);
+	state.setSidecarError(reason, restart, held, slow);
 }
 
 /** The tab's automatic title: what a push says (null clears), else the previous one while the same session keeps its title. */
