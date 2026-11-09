@@ -88,7 +88,6 @@ import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
 import { recordTurnStop } from "./turn-stop-log";
 import type { ClientWindow } from "./web/client-window";
 
-const READY_TIMEOUT_MS = 120_000;
 const RELEASE_POLL_MS = 15_000;
 const RELEASE_CACHE_MS = 60_000;
 const GIT_MS = 30_000;
@@ -450,6 +449,12 @@ export class Autopilot {
 	readonly #deps: AutopilotDeps;
 	readonly #runs = new Map<string, Run>();
 	readonly #childRuns = new Map<string, ChildRun>();
+	/**
+	 * A run's start waiting for its new tab's omp (`#ready`), by tab: it ends the wait with an error when the tab is
+	 * released or the user stops the run. No deadline: a slow omp is waited for, and `SidecarManager.dispose` drops the
+	 * listeners without a status, so the pool's release is what ends a wait on a closed tab.
+	 */
+	readonly #startWaits = new Map<string, (error: Error) => void>();
 	readonly #tabOf = new WeakMap<object, string>();
 	readonly #approver: AutopilotApprover;
 	readonly #releaseCache = new Map<string, { at: number; value: AutopilotReleaseProcedure | null }>();
@@ -497,6 +502,7 @@ export class Autopilot {
 
 	/** The pool released the tab (closed by the user, or by us). */
 	tabReleased(tabId: string): void {
+		this.#startWaits.get(tabId)?.(new Error("The Autopilot tab is gone."));
 		this.#childRuns.delete(tabId);
 		this.#awaitingResume.delete(tabId);
 		this.#continuedOnReady.delete(tabId);
@@ -648,6 +654,14 @@ export class Autopilot {
 		if (!run) throw new AutopilotError(this.#deps.text("autopilot.err.noRun"), "autopilot_no_run");
 		switch (action.action) {
 			case "stop":
+				if (run.starting) {
+					const endWait = this.#startWaits.get(tabId);
+					// The start is still waiting for the tab's omp: nothing is armed to stop yet, the start ends.
+					if (endWait) {
+						endWait(new Error("Autopilot's start was stopped."));
+						return this.#idleStatus(sidecar);
+					}
+				}
 				await this.#beginStop(run, "user");
 				break;
 			case "stop_after_ship":
@@ -2049,21 +2063,18 @@ export class Autopilot {
 		if (!sidecar) throw new Error("The Autopilot tab is gone.");
 		if (sidecar.status === "ready") return sidecar;
 		const { promise, resolve, reject } = Promise.withResolvers<SidecarLike>();
-		const timer = setTimeout(
-			() => finish(new Error("The Autopilot session did not start in time.")),
-			READY_TIMEOUT_MS,
-		);
 		const listener = (payload: { status: string }) => {
 			if (payload.status === "ready") finish(null);
 			else if (payload.status === "error" || payload.status === "exited")
 				finish(new Error("The Autopilot session failed to start."));
 		};
 		const finish = (error: Error | null) => {
-			clearTimeout(timer);
 			sidecar.off("status", listener);
+			this.#startWaits.delete(tabId);
 			if (error) reject(error);
 			else resolve(sidecar);
 		};
+		this.#startWaits.set(tabId, finish);
 		sidecar.on("status", listener);
 		// A tab nobody has shown yet may still be asleep.
 		if (sidecar.status === "asleep") sidecar.start();

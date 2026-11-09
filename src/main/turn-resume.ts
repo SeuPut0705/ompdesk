@@ -476,13 +476,6 @@ function restoreSummary(data: Record<string, unknown> | undefined): string {
 }
 
 /**
- * How long a resume waits for its tab's omp to come up. A cold spawn takes seconds; a worktree's
- * `onStart` hook can hold the start gate longer. Past this the attempt failed: the marker stays and the continuation
- * runs again once the tab next reads ready (a listener on the tab's status, never a poll).
- */
-export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
-
-/**
  * How long a continuation's `restore_interrupted` and `retry` may take. Stock's restore reads every subagent
  * transcript of the session before it answers (577 files, 1.1 GB took over 8 s on a cold relaunch, past the RPC
  * client's default 8 s, so the reply was cut and logged `failed` while stock went on reviving).
@@ -490,37 +483,11 @@ export const RESUME_READY_TIMEOUT_MS = 5 * 60_000;
 export const RESUME_COMMAND_TIMEOUT_MS = 2 * 60_000;
 
 /**
- * How many times one launch marker's continuation may fail (its omp not ready, or every command it sent unanswered)
- * and be tried again in this launch, each try once its tab next reads `ready`. Past it the marker stays in the file for
+ * How many times one launch marker's continuation may fail (every command it sent unanswered, or its omp failed to
+ * start) and be tried again in this launch, each try once its tab next reads `ready`. Past it the marker stays in the file for
  * the next launch and nothing more is sent in this one.
  */
 export const LAUNCH_CONTINUATION_ATTEMPTS = 3;
-
-/**
- * Resolves once `sidecar` can take commands; false when it fails, has already failed, or is not
- * ready within {@link RESUME_READY_TIMEOUT_MS}.
- */
-function whenReady(sidecar: SidecarLike): Promise<boolean> {
-	if (sidecar.status === "ready") return Promise.resolve(true);
-	// No further status comes on its own (`startTab` starts only an asleep tab), except for a session another omp
-	// still holds: the tab opens it by itself once that omp lets go (`sessionHeld`), so the continuation waits on.
-	const ended = (payload: { status: string; sessionHeld?: true }) =>
-		(payload.status === "error" && payload.sessionHeld !== true) || payload.status === "exited";
-	if (ended(sidecar.statusPayload ?? { status: sidecar.status })) return Promise.resolve(false);
-	const { promise, resolve } = Promise.withResolvers<boolean>();
-	const finish = (ready: boolean) => {
-		clearTimeout(timer);
-		sidecar.off("status", listener);
-		resolve(ready);
-	};
-	const listener = (payload: { status: string; sessionHeld?: true }) => {
-		if (payload.status === "ready") finish(true);
-		else if (ended(payload)) finish(false);
-	};
-	const timer = setTimeout(() => finish(false), RESUME_READY_TIMEOUT_MS);
-	sidecar.on("status", listener);
-	return promise;
-}
 
 /** One tab's scheduled retry and what it was armed for: any of these changing calls it off. */
 interface ArmedRetry extends IpcScheduledRetry {
@@ -562,6 +529,12 @@ export class TurnResume {
 	 * reaches a resume still waiting for its omp to come up.
 	 */
 	readonly #cancels = new Map<string, number>();
+	/**
+	 * Per tab, what ends a continuation's wait for its omp to come up (`#whenReady`). The wait has no deadline: a slow
+	 * start is not a failure. It ends when the tab reads ready, its omp fails or exits, the tab closes (the pool's
+	 * `dispose` emits no status, it only drops the listeners) or the continuation is called off.
+	 */
+	readonly #readyWaits = new Map<string, Set<() => void>>();
 	/** Held tabs whose taken-over run (stock's retry saga) has not ended yet: its end comes next, not a new run. */
 	readonly #takenOverRuns = new Set<string>();
 	/** A scheduled retry per tab (state lives here, in main, so a renderer reload keeps it). */
@@ -601,6 +574,7 @@ export class TurnResume {
 		// A closed tab has nothing left to continue: its launch marker (held offline, or still waiting for
 		// its omp) leaves the file now, not when the network returns, and its bookkeeping goes with it.
 		for (const tabId of [...this.#scheduled.keys()]) if (!present.has(tabId)) this.#dropScheduled(tabId);
+		for (const tabId of [...this.#readyWaits.keys()]) if (!present.has(tabId)) this.#endReadyWaits(tabId);
 		for (const tabs of [
 			this.#pending,
 			this.#waiting,
@@ -646,6 +620,7 @@ export class TurnResume {
 			if (before) {
 				this.#superseded.add(before);
 				this.#cancels.set(fact.tabId, (this.#cancels.get(fact.tabId) ?? 0) + 1);
+				this.#endReadyWaits(fact.tabId);
 			}
 			const next: ResumeMarker = { ...marker };
 			this.#pending.set(fact.tabId, next);
@@ -945,6 +920,42 @@ export class TurnResume {
 		);
 	}
 
+	/**
+	 * Resolves once `sidecar` can take commands; false when its omp fails or exits, has already failed, or the wait is
+	 * ended from outside (`#endReadyWaits`). It carries no deadline: a spawn held by a worktree's `onStart` hook or a busy
+	 * machine is slow, not failed, and the continuation goes on when the tab reads `ready`.
+	 */
+	#whenReady(tabId: string, sidecar: SidecarLike): Promise<boolean> {
+		if (sidecar.status === "ready") return Promise.resolve(true);
+		// No further status comes on its own (`startTab` starts only an asleep tab), except for a session another omp
+		// still holds: the tab opens it by itself once that omp lets go (`sessionHeld`), so the continuation waits on.
+		const ended = (payload: { status: string; sessionHeld?: true }) =>
+			(payload.status === "error" && payload.sessionHeld !== true) || payload.status === "exited";
+		if (ended(sidecar.statusPayload ?? { status: sidecar.status })) return Promise.resolve(false);
+		const { promise, resolve } = Promise.withResolvers<boolean>();
+		const waits = this.#readyWaits.get(tabId) ?? new Set<() => void>();
+		this.#readyWaits.set(tabId, waits);
+		const giveUp = () => finish(false);
+		const finish = (ready: boolean) => {
+			sidecar.off("status", listener);
+			waits.delete(giveUp);
+			if (waits.size === 0 && this.#readyWaits.get(tabId) === waits) this.#readyWaits.delete(tabId);
+			resolve(ready);
+		};
+		const listener = (payload: { status: string; sessionHeld?: true }) => {
+			if (payload.status === "ready") finish(true);
+			else if (ended(payload)) finish(false);
+		};
+		waits.add(giveUp);
+		sidecar.on("status", listener);
+		return promise;
+	}
+
+	/** The tab closed or its continuation was called off: whatever still waits for its omp stops waiting. */
+	#endReadyWaits(tabId: string): void {
+		for (const giveUp of [...(this.#readyWaits.get(tabId) ?? [])]) giveUp();
+	}
+
 	async #run(tabId: string, action: ResumeAction, held: HeldFor): Promise<boolean> {
 		const generation = this.#cancels.get(tabId) ?? 0;
 		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
@@ -963,7 +974,7 @@ export class TurnResume {
 		// continuation of the replacement owns the marker and the goal report.
 		const own = this.#pending.get(tabId);
 		const superseded = (): boolean => own !== undefined && this.#superseded.has(own);
-		// A failed try (the omp was not ready, or no command got an answer) keeps the marker: the next `ready` of the tab
+		// A failed try (the omp failed to start, or no command got an answer) keeps the marker: the next `ready` of the tab
 		// tries again, up to LAUNCH_CONTINUATION_ATTEMPTS, and past that the marker still waits in the file for the next
 		// launch. A try someone called off, a superseded one or one whose marker already left `#pending` fails nothing.
 		const failedTry = (): { attempt: number; retrying: boolean } | null => {
@@ -982,7 +993,7 @@ export class TurnResume {
 			return calledOff();
 		};
 		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
-		const ready = sidecar ? await whenReady(sidecar) : false;
+		const ready = sidecar ? await this.#whenReady(tabId, sidecar) : false;
 		if (ready) await stale();
 		if (!sidecar || !ready || calledOff()) {
 			const failed = sidecar && !ready ? failedTry() : null;
@@ -1190,6 +1201,7 @@ export class TurnResume {
 		retry?.off();
 		const heldLaunch = (this.#waiting.has(tabId) || retry !== undefined) && this.#pending.has(tabId);
 		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
+		this.#endReadyWaits(tabId);
 		this.#waiting.delete(tabId);
 		this.#probing.delete(tabId);
 		this.#takenOverRuns.delete(tabId);
