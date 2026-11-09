@@ -168,8 +168,9 @@ const AGENT_BRIEF = "<ompdesk-agent-message ";
  * session (stock writes one when a chat is deleted and the next one starts):
  * its first message becomes "", so the sidebar treats it as empty instead of
  * listing the English placeholder as a conversation that comes back after every delete.
- * A row whose first prompt is an agent brief is streamed too, for the prompt-origin entry journaled in front of
- * that prompt: a session a paired device's agent opened here has its opener on that device, not in this list.
+ * A row whose first prompt is an agent brief is streamed too, for the prompt-origin entry of that prompt: a session a
+ * paired device's agent opened here has its opener on that device, not in this list. The bridge journals that entry
+ * on the prompt's `message_end` (prompt-origin-core.ts), so after the prompt: the read goes on to the next message.
  */
 async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionInfo[]> {
 	const scanned = (row: StockSessionInfo) =>
@@ -213,14 +214,19 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 								entry.data !== null &&
 								"deviceId" in entry.data &&
 								typeof entry.data.deviceId === "string"
-							)
+							) {
 								origin = entry.data.deviceId;
+								// The first prompt's own origin, journaled right after it: nothing more to read.
+								if (text) return false;
+							}
 							if (!HEADER_ENTRY_TYPES.has(String(entry.type))) conversation = true;
 							else if (entry.type === "custom_message" && !("display" in entry && entry.display === false))
 								conversation = true;
 							return undefined;
 						}
 						conversation = true;
+						// The message after the first prompt: its origin, if any, came before this.
+						if (text) return false;
 						if (!("message" in entry) || typeof entry.message !== "object" || entry.message === null)
 							return undefined;
 						const message = entry.message;
@@ -228,7 +234,8 @@ async function withFirstPrompts(rows: StockSessionInfo[]): Promise<StockSessionI
 						const content = message.content;
 						if (typeof content !== "string" && !Array.isArray(content)) return undefined;
 						text = stock.textContent(content, " ");
-						return text ? false : undefined;
+						// A person's prompt has no device to find; an agent's brief may have one after it.
+						return text && !text.startsWith(AGENT_BRIEF) ? false : undefined;
 					},
 					{ maxBytes: FIRST_PROMPT_READ_LIMIT },
 				);

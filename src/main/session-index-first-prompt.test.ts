@@ -58,9 +58,11 @@ describe.skipIf(!stockRoot)("SessionIndex first prompt", () => {
 		expect(info?.firstMessage).toBe("Create the file notes.txt containing alpha.");
 	});
 
-	// A paired device's agent opened the session on this computer: its first prompt is that agent's brief and stock's
-	// prompt-origin entry names the device. The sidebar must tell it from a child of a session listed here.
-	it("reports the device the first prompt came from, in front of a long notice or not", async () => {
+	// A paired device's agent opened the session on this computer: its first prompt is that agent's brief and the
+	// bridge's prompt-origin entry names the device. The bridge journals it on the prompt's `message_end`, so after the
+	// prompt (the fixture had it in front, which the bridge never writes: the read stopped at the prompt and missed it).
+	// The sidebar must tell such a session from a child of a session listed here.
+	it("reports the device the first prompt came from, journaled after it, behind a long notice or not", async () => {
 		agent = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-first-prompt-"));
 		await fs.chmod(agent, 0o700);
 		process.env.PI_CODING_AGENT_DIR = agent;
@@ -74,38 +76,37 @@ describe.skipIf(!stockRoot)("SessionIndex first prompt", () => {
 			display: false,
 		};
 		const brief = '<ompdesk-agent-message from="Mac session">\nTitle: Measure\n\nDo it.\n</ompdesk-agent-message>';
-		const journal = (id: string, withNotice: boolean, origin: boolean) =>
+		const origin = {
+			type: "custom",
+			customType: "ompdesk.prompt-origin",
+			data: { deviceId: "mac-1", name: "Mac", timestamp: 1 },
+		};
+		const prompt = { type: "message", id: "u1", message: { role: "user", content: [{ type: "text", text: brief }] } };
+		const answer = {
+			type: "message",
+			id: "a1",
+			message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Ok." }] },
+		};
+		const journal = (id: string, entries: readonly object[]) =>
 			[
 				{ type: "title", v: 1, title: "" },
 				{ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: dir },
-				...(withNotice ? [notice] : []),
-				...(origin
-					? [
-							{
-								type: "custom",
-								customType: "ompdesk.prompt-origin",
-								data: { deviceId: "mac-1", name: "Mac", timestamp: 1 },
-							},
-						]
-					: []),
-				{ type: "message", id: "u1", message: { role: "user", content: [{ type: "text", text: brief }] } },
-				{
-					type: "message",
-					id: "a1",
-					message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Ok." }] },
-				},
+				...entries,
 			]
 				.map(line => JSON.stringify(line))
 				.join("\n");
-		await fs.writeFile(path.join(project, "long.jsonl"), `${journal("long", true, true)}\n`);
-		await fs.writeFile(path.join(project, "short.jsonl"), `${journal("short", false, true)}\n`);
-		await fs.writeFile(path.join(project, "here.jsonl"), `${journal("here", true, false)}\n`);
+		await fs.writeFile(path.join(project, "long.jsonl"), `${journal("long", [notice, prompt, origin, answer])}\n`);
+		await fs.writeFile(path.join(project, "short.jsonl"), `${journal("short", [prompt, origin, answer])}\n`);
+		await fs.writeFile(path.join(project, "here.jsonl"), `${journal("here", [notice, prompt, answer])}\n`);
+		// A device's prompt later in a session this computer started does not make the device its opener.
+		await fs.writeFile(path.join(project, "later.jsonl"), `${journal("later", [prompt, answer, origin])}\n`);
 		index = new SessionIndex(dir, dir);
 		const rows = await index.list("global");
 		const byId = Object.fromEntries(rows.map(row => [row.id, row]));
 		expect(byId.long?.promptOriginDevice).toBe("mac-1");
 		expect(byId.short?.promptOriginDevice).toBe("mac-1");
 		expect(byId.here?.promptOriginDevice).toBeUndefined();
+		expect(byId.later?.promptOriginDevice).toBeUndefined();
 		expect(byId.long?.firstMessage).toContain("ompdesk-agent-message");
 	});
 

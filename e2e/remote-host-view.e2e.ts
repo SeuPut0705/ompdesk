@@ -94,9 +94,7 @@ test("the host's own window lists, views and works in a session its paired devic
 				)
 			)[0]?.sessionPath ?? "";
 		expect(sessionPath).not.toBe("");
-		// One row in its project group, whatever kind: the brief makes it the project's loose child, where it stays
-		// whether the device's tab holds it or not (selecting a row never moves it).
-		const hostRow = b.locator(`[data-session-path=${cssString(sessionPath)}]`);
+		const hostRow = b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`);
 		await expect(b.locator(`[data-session-group=${cssString(hostProfile.project)}]`).locator(hostRow)).toHaveCount(
 			1,
 			{
@@ -137,9 +135,8 @@ test("the host's own window lists, views and works in a session its paired devic
 				})
 				.toBe(deviceOmp);
 			// The device's agent opened it, so it is a child of the opener there, and its folder on PC-B is no project of
-			// the opener's: it is in PC-B's list too (its project's loose child: the brief folds it, held or not), the same
-			// session. The agent shows it.
-			await expect(a.locator(`[data-device-group] [data-session-path=${cssString(sessionPath)}]`)).toHaveCount(1);
+			// the opener's: it is a row of PC-B's list too, the same session. The agent shows it.
+			await expect(a.locator(`[data-device-session=${cssString(sessionPath)}]`)).toHaveCount(1);
 			expect((await call("ompdesk_tab_focus", { session: child })).isError).toBe(false);
 			await expect(a.getByText("Hello from the host").first()).toBeVisible({ timeout: 30_000 });
 		});
