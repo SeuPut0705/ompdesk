@@ -16,7 +16,7 @@
  */
 
 import * as fs from "node:fs/promises";
-import { createPollTracker } from "../../resources/gui-bridge/waste-guards-core";
+import { createPollTracker, waitWindowElapsed } from "../../resources/gui-bridge/waste-guards-core";
 
 const IDLE_S = 600;
 /** Model calls per tool call from which a session is reading and thinking instead of working. */
@@ -44,6 +44,8 @@ interface Entry {
 		isError?: boolean;
 		usage?: { output?: number };
 		content?: unknown;
+		details?: unknown;
+		useless?: boolean;
 	};
 }
 
@@ -74,7 +76,10 @@ export interface Pace {
 	thinkGaps: number[];
 	/** The file `read` most often and how often; absent until a file was read twice. */
 	repeatRead?: { path: string; count: number };
-	/** Shell commands that poll (`sleep N`, `gh run view/list/watch`, `pgrep`, `tail -f`) and reads of `proc://`. */
+	/**
+	 * Polls: shell commands that poll (`sleep N`, `gh run view/list/watch`, `pgrep`, `tail -f`), reads of `proc://`, and
+	 * `wait` calls that came back with nothing (stock's window ran out while the jobs ran on).
+	 */
 	polls: number;
 }
 
@@ -165,6 +170,7 @@ export function pace(lines: Iterable<string>): Pace {
 			}
 			row.calls++;
 			if (entry.message.isError) row.errors++;
+			if (name === "wait" && waitWindowElapsed(entry.message)) polls++;
 			tools[name] = row;
 		}
 	}

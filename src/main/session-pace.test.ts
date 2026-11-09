@@ -171,6 +171,30 @@ describe("session-pace", () => {
 			expect(pace(session(bash("gh run watch 1 --exit-status", { async: true }))).polls).toBe(0);
 		});
 
+		it("counts nothing a backgrounded bash does, however it loops", () => {
+			const loop = "for i in 1 2 3; do gh run list --commit abc; sleep 5; done; gh run watch 1";
+			expect(pace(session(bash(loop, { async: true }), bash(loop, { async: true }))).polls).toBe(0);
+		});
+
+		it("counts a wait that came back with its jobs still running, not one that brought news", () => {
+			const waitResult = (atS: number, id: string, extra: Record<string, unknown>) =>
+				JSON.stringify({
+					type: "message",
+					message: { role: "toolResult", timestamp: T0 + atS * 1000, toolCallId: id, toolName: "wait", ...extra },
+				});
+			const running = { id: "bg_1", type: "bash", status: "running" };
+			const lines = [
+				user(0),
+				call(1, "w1", "wait", {}),
+				waitResult(6, "w1", { useless: true, details: { op: "wait", jobs: [running] } }),
+				call(7, "w2", "wait", {}),
+				waitResult(17, "w2", { useless: true, details: { op: "wait", jobs: [running] } }),
+				call(18, "w3", "wait", {}),
+				waitResult(20, "w3", { details: { op: "wait", jobs: [{ ...running, status: "completed" }] } }),
+			];
+			expect(pace(lines).polls).toBe(2);
+		});
+
 		it("names waste from five polls, four are none", () => {
 			const four = pace(
 				session(

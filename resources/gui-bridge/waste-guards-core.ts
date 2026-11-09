@@ -1,14 +1,19 @@
 /**
- * Three measured wastes of agent sessions (rules; wiring: waste-guards.ts; `.omp/rules/waste-guards.md`).
+ * Four measured wastes of agent sessions (rules; wiring: waste-guards.ts; `.omp/rules/waste-guards.md`).
  *
  * 1. A `bash` service start whose `ready.log` can never match. Stock watches the service's output for the pattern, and a
  *    command whose stdout goes to a file shows none of it: the call waited the whole `ready.timeout` (5 calls, 55 min in
  *    one session, `> file 2>&1` with `ready.log` and 600 to 900 s).
  * 2. Polling: a repeated look at a job (sleep then check, the same `gh run` or `pgrep` or `read proc://` again,
- *    `tail -f`) that a backgrounded job or a schedule delivers by itself. The first look at a target is not a poll, and
- *    `gh run view --log-failed` is diagnosis. One non-blocking hint per kind and process.
+ *    `tail -f`) that a backgrounded job or a schedule delivers by itself. The first look at a target is not a poll,
+ *    `gh run view --log-failed` is diagnosis, and nothing in an `async: true` bash is a poll (it runs without the model
+ *    and its result is delivered once). One non-blocking hint per kind and process.
  * 3. An `edit` the tool refused for anchoring to lines the latest read never showed, or a tag the session never got
  *    (36 errors in 14 days, all agent misuse). One non-blocking hint per process.
+ * 4. A `wait` that comes back with nothing: stock's `wait` returns when its window (5 s, 10 s, 30 s, 60 s, 300 s,
+ *    restarting at 5 s after any wait that brought news) runs out while every job it watches still runs, and each such
+ *    return is a model call that only waits again (296 in 7 days on one Mac, against 106 polls). The bridge's `wait`
+ *    calls stock's again until something is new (`waitWindowElapsed`).
  *
  * No omp imports: the GUI's vitest runs it (src/main/bridge-waste-guards.test.ts).
  */
@@ -284,8 +289,8 @@ export interface Look {
 
 const SLEEP_THEN_COMMAND = /\bsleep\s+[\d.]+[smhd]?\s*(?:;|&&|\|\||\||&|\n)\s*\S/;
 const WHILE_SLEEP = /\bwhile\b[\s\S]*\bsleep\b/;
-const GH_RUN = /\bgh\s+run\s+(list|view|watch)\b/;
-const PGREP = /\bpgrep\b/;
+/** `gh run` subcommands that look at runs. */
+const GH_RUN_LOOK = /^(?:list|view|watch)$/;
 const TAIL_FOLLOW = /\btail\b[^|;&\n]*?\s(?:-[A-Za-z]*[fF][A-Za-z0-9]*|--follow(?:=\w+)?)(?=\s|$)/;
 /** `gh run view` flags that take a value, so the number after one is not the run id. */
 const GH_VIEW_VALUE_FLAG = /^(?:-a|--attempt|-j|--job|--json|-q|--jq|-t|--template|-R|--repo)$/;
@@ -344,17 +349,23 @@ function words(src: string): string[] {
 	return out.filter(word => !/^\d*[<>]/.test(word));
 }
 
-/** The `gh run` and `pgrep` looks of a command: what each one looks at, so a repeat can be told from a first look. */
-function commandLooks(command: string, background: boolean): Look[] {
+/**
+ * The `gh run` and `pgrep` looks of a command: what each one looks at, so a repeat can be told from a first look. Read
+ * from the words, so a quoted mention (`grep -c "gh run watch"`) is not a look.
+ */
+function commandLooks(command: string): Look[] {
 	const looks: Look[] = [];
 	for (const part of segments(command)) {
-		const gh = GH_RUN.exec(part);
-		if (gh) {
-			const args = words(part.slice(gh.index + gh[0].length));
-			if (gh[1] === "watch") {
-				// Under `async: true` the result is delivered, which is the way the hint recommends, not a poll.
-				if (!background) looks.push({ kind: "gh-run" });
-			} else if (gh[1] === "list") {
+		const said = words(part);
+		const gh = said.findIndex(
+			(word, i) => word === "gh" && said[i + 1] === "run" && GH_RUN_LOOK.test(said[i + 2] ?? ""),
+		);
+		if (gh >= 0) {
+			const sub = said[gh + 2];
+			const args = said.slice(gh + 3);
+			if (sub === "watch") {
+				looks.push({ kind: "gh-run" });
+			} else if (sub === "list") {
 				looks.push({ kind: "gh-run", key: `list ${args.join(" ")}` });
 			} else if (!args.some(arg => arg === "--log" || arg === "--log-failed")) {
 				// `view --log`/`--log-failed` reads what failed: a diagnosis, never a status look.
@@ -372,8 +383,8 @@ function commandLooks(command: string, background: boolean): Look[] {
 				looks.push({ kind: "gh-run", key: `view ${target}` });
 			}
 		}
-		const pgrep = PGREP.exec(part);
-		if (pgrep) looks.push({ kind: "pgrep", key: words(part.slice(pgrep.index + pgrep[0].length)).join(" ") });
+		const pgrep = said.findIndex(word => word === "pgrep" || word.endsWith("/pgrep"));
+		if (pgrep >= 0) looks.push({ kind: "pgrep", key: said.slice(pgrep + 1).join(" ") });
 	}
 	return looks;
 }
@@ -385,11 +396,12 @@ export function pollLooks(toolName: string, input: Record<string, unknown>): Loo
 		const proc = typeof input.path === "string" ? /^proc:\/\/([^/:?#]+)/.exec(input.path)?.[1] : undefined;
 		return proc ? [{ kind: "proc", key: proc }] : [];
 	}
-	if (toolName !== "bash" || typeof input.command !== "string") return [];
+	// A backgrounded bash runs without the model and delivers its result once, whatever it sleeps or checks inside.
+	if (toolName !== "bash" || typeof input.command !== "string" || input.async === true) return [];
 	const command = withoutHeredocs(input.command);
 	const looks: Look[] = [];
 	if (SLEEP_THEN_COMMAND.test(command) || WHILE_SLEEP.test(command)) looks.push({ kind: "sleep" });
-	looks.push(...commandLooks(command, input.async === true));
+	looks.push(...commandLooks(command));
 	if (TAIL_FOLLOW.test(command)) looks.push({ kind: "tail-f" });
 	return looks;
 }
@@ -429,6 +441,38 @@ export interface ToolOutcome {
 /** True for an `edit` the tool refused because its anchors or tag were not from a read the session made. */
 export function editMisuse(toolName: string, outcome: ToolOutcome | undefined): boolean {
 	return toolName === "edit" && outcome?.isError === true && EDIT_MISUSE.test(outcome.text);
+}
+
+/** The bridge's `wait` (stock's `wait`, called again while its window runs out with nothing new). */
+export const WAIT_DESCRIPTION = `Wait only when blocked with nothing else to do.
+Blocks until a background job or service you started finishes, a message arrives, or the answer to a question you sent this run comes in. It does not return while your jobs only keep running.
+Nothing you started running and no answer owed? Returns at once.
+- MUST wait only on your own jobs/services, or rarely the answer to a question that blocks you.
+- NEVER wait for another agent's progress or for messages nobody owes you.
+- Result in, other jobs still running? SHOULD act on it before waiting again.
+Results and messages auto-deliver. NEVER poll while work remains.`;
+
+/** The parts of a tool result that tell a `wait` which came back with nothing from one that brought news. */
+export interface WaitResult {
+	details?: unknown;
+	useless?: boolean;
+}
+
+/**
+ * True for a stock `wait` result that came back only because its window ran out while every job it watched still
+ * runs: stock flags it `useless` and lists the jobs, none settled. A wait on nothing, on a service alone, or for a reply
+ * lists no job, and a finished job, a message or an interrupt is never `useless`; none of those count.
+ */
+export function waitWindowElapsed(result: WaitResult): boolean {
+	const { details } = result;
+	if (result.useless !== true || typeof details !== "object" || details === null) return false;
+	if (!("op" in details) || details.op !== "wait" || !("jobs" in details) || !Array.isArray(details.jobs))
+		return false;
+	const jobs: unknown[] = details.jobs;
+	return (
+		jobs.length > 0 &&
+		jobs.every(job => typeof job === "object" && job !== null && "status" in job && job.status === "running")
+	);
 }
 
 /**

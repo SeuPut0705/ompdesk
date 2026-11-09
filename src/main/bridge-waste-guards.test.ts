@@ -6,6 +6,7 @@ import {
 	POLL_HINT,
 	READY_LOG_REASON,
 	readyLogCannotMatch,
+	waitWindowElapsed,
 } from "../../resources/gui-bridge/waste-guards-core";
 
 /** The measured calls: a named service with `ready.log` and a command. */
@@ -177,8 +178,43 @@ describe("polling kinds", () => {
 		["a plain file read", "read", { path: "src/main/index.ts:1-40" }],
 		["another tool", "grep", { pattern: "sleep 5; x" }],
 		["gh run watch under async: true", "bash", { command: "gh run watch 42 --exit-status", async: true }],
-	] as const)("%s is no poll", (_label, tool, input) => {
-		expect(polled([tool, { ...input }], [tool, { ...input }])[0]).toEqual([]);
+		[
+			"a loop that finds a new run and watches it, under async: true",
+			"bash",
+			{
+				command:
+					"for i in $(seq 1 30); do RUN=$(gh run list --commit abc --json databaseId -q '.[0].databaseId'); [ -n \"$RUN\" ] && break; sleep 5; done; gh run watch $RUN",
+				async: true,
+			},
+		],
+		["a quoted mention of gh run", "bash", { command: 'grep -c "gh run watch" log.txt' }],
+		["a quoted mention of pgrep", "bash", { command: "grep 'pgrep -f omp' notes.md" }],
+	] as const)("%s is no poll, the second time either", (_label, tool, input) => {
+		expect(polled([tool, { ...input }], [tool, { ...input }])).toEqual([[], []]);
+	});
+});
+
+describe("a wait that came back with nothing", () => {
+	const running = { id: "bg_1", type: "bash", status: "running" };
+	const done = { id: "bg_2", type: "bash", status: "completed" };
+
+	it("is stock's elapsed window with every watched job still running", () => {
+		expect(waitWindowElapsed({ useless: true, details: { op: "wait", jobs: [running] } })).toBe(true);
+		expect(
+			waitWindowElapsed({ useless: true, details: { op: "wait", jobs: [running, { ...running, id: "bg_3" }] } }),
+		).toBe(true);
+	});
+
+	it("is not a result with news, nothing to wait on, a service or a reply", () => {
+		// A job settled.
+		expect(waitWindowElapsed({ details: { op: "wait", jobs: [done, running] } })).toBe(false);
+		expect(waitWindowElapsed({ useless: true, details: { op: "wait", jobs: [done, running] } })).toBe(false);
+		// Nothing to wait for, a service's or a reply's window: no job listed, so blocking on would never end.
+		expect(waitWindowElapsed({ useless: true, details: { op: "wait", jobs: [] } })).toBe(false);
+		// A message or an interrupt.
+		expect(waitWindowElapsed({ details: { op: "wait", jobs: [], interrupted: true } })).toBe(false);
+		expect(waitWindowElapsed({ useless: true, details: { op: "poll", jobs: [running] } })).toBe(false);
+		expect(waitWindowElapsed({ useless: true })).toBe(false);
 	});
 });
 
