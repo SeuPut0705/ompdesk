@@ -1403,6 +1403,34 @@ export function runRpcUi(): void {
 	/** OMPdesk control tools' confirmation cards (`agent_control.confirm`) waiting for the person's answer. */
 	const agentCards = new Map<string, Reply>();
 	/**
+	 * `OMP_GUI_TEST_START_FILE`: a JSON file read on every `get_state` and every 100 ms while one is held. While it holds
+	 * `{"holdGetState": true}` the omp starts as a real one loading its models does: it prints one stderr line when it
+	 * boots and leaves every `get_state` unanswered; the held ones are answered as usual once the file no longer says
+	 * so (a spec that writes another script, or removes the file, ends the wait).
+	 */
+	const startFile = process.env.OMP_GUI_TEST_START_FILE;
+	const startHeld = (): boolean => {
+		try {
+			return startFile ? JSON.parse(fs.readFileSync(startFile, "utf8")).holdGetState === true : false;
+		} catch {
+			return false;
+		}
+	};
+	const heldStates = new Set<() => void>();
+	let heldStateTimer: NodeJS.Timeout | undefined;
+	const holdState = (answer: () => void) => {
+		heldStates.add(answer);
+		heldStateTimer ??= setInterval(() => {
+			if (startHeld()) return;
+			for (const held of [...heldStates]) {
+				heldStates.delete(held);
+				held();
+			}
+			clearInterval(heldStateTimer);
+			heldStateTimer = undefined;
+		}, 100);
+	};
+	/**
 	 * gui-bridge voice.ts. `stt_prepare` always answers (the dictation model is ready, as on a machine with it cached);
 	 * with `OMP_GUI_TEST_VOICE_FILE` the streams answer too, scripted by that JSON file, read on every call so a spec can
 	 * change it between calls: `{prepare?: {language, percent}}` keeps the language's model downloading at that percent
@@ -5335,7 +5363,8 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				ok();
 				break;
 			case "get_state":
-				ok(state());
+				if (startHeld()) holdState(() => ok(state()));
+				else ok(state());
 				break;
 			case "cycle_model":
 				model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
@@ -6729,6 +6758,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 
 	/** `OMP_GUI_TEST_BOOT_DELAY_MS`: the real omp takes seconds to boot; the audits of what a window shows meanwhile set it. */
 	const begin = () => {
+		if (startHeld()) process.stderr.write("fixture: loading models (held by the test)\n");
 		const delayMs = Number(process.env.OMP_GUI_TEST_BOOT_DELAY_MS) || 0;
 		if (delayMs > 0) setTimeout(startRpc, delayMs);
 		else startRpc();

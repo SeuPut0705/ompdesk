@@ -133,6 +133,51 @@ async function endBotCall(page: Page): Promise<void> {
 	await scriptVoice({});
 }
 
+/** The fake omp's start script (`startFile`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
+async function scriptStart(script: Record<string, unknown>): Promise<void> {
+	const file = process.env.OMP_GUI_TEST_START_FILE;
+	if (!file) throw new Error("the slow start surface needs OMP_GUI_TEST_START_FILE (e2e/parity.e2e.ts sets it)");
+	await fs.writeFile(file, JSON.stringify(script));
+}
+
+/** The tab the view shows: its id and status as the view's own `window.omp` lists them. */
+async function shownTab(page: Page): Promise<{ tabId: string; status: string } | undefined> {
+	const tab = (await page.evaluate(() => window.omp.tabs.list())).find(entry => entry.active);
+	return tab ? { tabId: tab.tabId, status: String(tab.status) } : undefined;
+}
+
+/**
+ * Restarts the host's omp for the session the view shows while its fake holds `get_state` (the host's
+ * `OMP_GUI_START_SLOW_MS` is 1.5 s): the banner shows once the omp has not answered for that long. No control restarts
+ * a ready session (the banner and Settings offer Restart only on a session that is not), so it is `window.omp.sidecar.restart`,
+ * the call that Restart makes, with the view's own tab (a paired computer's and the phone's go to the host through the link).
+ */
+async function restartSlowStart(page: Page): Promise<void> {
+	await scriptStart({ holdGetState: true });
+	const tab = await shownTab(page);
+	if (!tab) throw new Error("the view shows no session to restart");
+	await page.evaluate(tabId => window.omp.sidecar.restart({ tabId }), tab.tabId);
+	await page.getByText("omp is taking long to start", { exact: true }).first().waitFor({ timeout: 30_000 });
+	await page.getByText("fixture: loading models (held by the test)").first().waitFor({ timeout: 15_000 });
+}
+
+/** Lets the held omp answer and waits until the view's session is ready again (an `error` on the way fails the surface). */
+async function endSlowStart(page: Page): Promise<void> {
+	await scriptStart({});
+	const until = Date.now() + 60_000;
+	for (;;) {
+		const status = (await shownTab(page))?.status;
+		if (status === "error") throw new Error("the session went to error while it started slowly");
+		if (status === "ready") break;
+		if (Date.now() > until) throw new Error(`the session is still ${status} 60 s after the omp may answer`);
+		await page.waitForTimeout(250);
+	}
+	await page
+		.getByText("omp is taking long to start", { exact: true })
+		.first()
+		.waitFor({ state: "detached", timeout: 15_000 });
+}
+
 /** Write omp's `stt.enabled` the way the Settings row does (`set_setting`; the composer reads it back on `config_update`). */
 async function setDictation(page: Page, enabled: boolean): Promise<void> {
 	const reply = await page.evaluate(enabled => window.omp.rpc.setSetting("stt.enabled", enabled), enabled);
@@ -799,6 +844,16 @@ export const SURFACES: readonly Surface[] = [
 		ready: '[data-dictation="transcribing"]:not(:has([data-dictation-download]))',
 		when: () => false,
 		parity: { session: "work", after: endDictationTake },
+	},
+	{
+		id: "session-slow-start",
+		area: "A",
+		title: "A session whose omp has not answered its first state for a while: the amber banner with omp's stderr line and Restart, nothing failed",
+		open: restartSlowStart,
+		ready: "text=omp is taking long to start",
+		// The fake omp's start script exists only in the parity sheet's two apps; the audits' harness page has no omp.
+		when: () => false,
+		parity: { session: "work", after: endSlowStart },
 	},
 	{
 		id: "board-strip",

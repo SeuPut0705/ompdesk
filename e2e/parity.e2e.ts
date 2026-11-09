@@ -140,6 +140,8 @@ if (dir) {
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-parity-")));
 		// The voice surfaces (calls and composer dictation) script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
 		process.env.OMP_GUI_TEST_VOICE_FILE = path.join(parent, "voice.json");
+		// `session-slow-start` holds the fake omp's `get_state` through this file (e2e/fixture/rpc-ui.ts `startFile`).
+		process.env.OMP_GUI_TEST_START_FILE = path.join(parent, "start.json");
 		let host: RemoteInstance | undefined;
 		let client: RemoteInstance | undefined;
 		let proxy: ServeProxy | undefined;
@@ -150,6 +152,8 @@ if (dir) {
 				language: "en",
 				theme: "light",
 				prefs: { botEnabled: true },
+				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
+				env: { OMP_GUI_START_SLOW_MS: "1500" },
 			});
 			await seedProject(hostProfile.project);
 			const clientProfile = await makeRemoteProfile(parent, "client", {
