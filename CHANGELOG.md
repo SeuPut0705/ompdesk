@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.119.11] - 2026-11-10
+
+답 아래 사용량 줄이 어느 폭에서나 한 줄로 보이고, 같은 값을 두 번 보여 주지 않아요.
+
+### 고친 것
+- 휴대폰에서 답 아래 사용량 줄이 두세 줄로 쌓였어요. 이제 늘 한 줄이에요. 폭이 좁아지면 모델 이름이 먼저 말줄임으로 줄고, 그다음 덜 중요한 값부터 하나씩 빠져요(첫 토큰 시간, 속도, 캐시, 걸린 시간, 입력 순). 모델, 출력, 비용은 늘 보여요. 빠진 값은 줄에 마우스를 올리면 모두 보여요.
+- 메시지 시각이 사용량 줄과 바로 아래 답 동작 줄에 두 번 나왔어요. 이제 사용량 줄에서는 빠져요.
+- 첫 토큰 시간(TTFT)이 걸린 시간과 같으면 같은 숫자가 두 번 나왔어요. 이제 같을 때는 TTFT를 줄에 보여 주지 않아요.
+
+<!-- en -->
+
+The usage row under a reply stays one line at any width and says nothing twice.
+
+### Fixed
+- On a phone the usage row under a reply stacked into two or three lines. It is now always one line: as it narrows the model's name gives way to an ellipsis, then one value goes at a time, least useful first (first-token time, throughput, cache, duration, input). The model, the output and the cost always stay; the row's tooltip names every value.
+- The message time showed twice, in the usage row and in the reply's actions right below. The row leaves it out now.
+- A first-token time equal to the duration showed the same number twice. The row leaves it out then.
+
 ## [0.119.10] - 2026-11-09
 
 사이드바에서 누른 줄이 아닌 다른 세션이 선택되던 문제와, 세션을 고를 때마다 다른 줄 제목이 잘리는 위치가 바뀌던 문제를 고쳤어요. 에이전트가 그림을 넣어 묻는 선택 질문은 고르기 전에 그림이 보여요.
