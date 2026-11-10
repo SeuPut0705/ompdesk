@@ -1061,7 +1061,8 @@ describe("WorkBoard account limit", () => {
 			{ id: "p:7d:opus", label: "7 Day (Opus)", windowId: "7d", usedFraction: 0.99 },
 		];
 		expect(accountWindows(many).map(entry => entry.limit.id)).toEqual(["p:7d", "p:monthly"]);
-		expect(many.map(limit => shortWindowLabel(limit))).toEqual(["30D", "5H", "7D", "7D"]);
+		// A model-scoped limit is named by its model: its window is the gauge beside it.
+		expect(many.map(limit => shortWindowLabel(limit))).toEqual(["30D", "5H", "7D", "Opus"]);
 	});
 
 	it("hides for a provider with no usage windows", async () => {

@@ -1,4 +1,5 @@
-/* Usage gauges (components/common/UsageGauges.tsx): shared by the work board and the sidebar usage lines. */
+/* Usage gauges (components/common/UsageGauges.tsx): shared by the work board, the sidebar usage lines and the
+   Settings accounts list. */
 
 .omp-usage-gauges {
 	display: grid;
@@ -8,6 +9,12 @@
 
 .omp-usage-gauges[data-count="1"] {
 	grid-template-columns: minmax(0, 1fr);
+}
+
+/* Every window, each in its column of the provider's set (Settings accounts list): the same window lines up down the
+   list, and a window an account does not report leaves its column empty. */
+.omp-usage-gauges[data-columns] {
+	grid-template-columns: repeat(var(--omp-usage-columns), minmax(0, 1fr));
 }
 
 .omp-usage-gauge {

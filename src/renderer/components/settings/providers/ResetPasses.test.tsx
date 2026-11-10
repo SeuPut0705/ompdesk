@@ -162,15 +162,19 @@ describe("reset pass badge", () => {
 });
 
 describe("reset passes on provider accounts", () => {
-	it("shows each account's passes and holds the action while stock says it is unavailable", async () => {
+	it("shows each account's passes as a ticket with the count, and holds the action while stock says it is unavailable", async () => {
 		await mountAccounts([healthy, limited]);
-		expect(text()).toContain(resetPassSummary(usable, translate));
-		expect(text()).toContain(translate("resetPasses.countOne"));
-		expect(text()).toContain(
+		const pass = (account: string) => button(translate("resetPasses.useFor", { account }));
+		// The row carries the count alone; how many are usable and the expiry are the button's tooltip.
+		expect(pass("home@example.com")?.textContent).toBe("2");
+		expect(pass("home@example.com")?.getAttribute("title")).toBe(resetPassSummary(usable, translate));
+		expect(pass("home@example.com")?.disabled).toBe(false);
+		expect(pass("work@example.com")?.textContent).toBe("1");
+		expect(pass("work@example.com")?.getAttribute("title")).toContain(
 			translate("resetPasses.unavailable", { reason: translate("resetPasses.unavailableUnknown") }),
 		);
-		expect(button(translate("resetPasses.useFor", { account: "work@example.com" }))?.disabled).toBe(true);
-		expect(button(translate("resetPasses.useFor", { account: "home@example.com" }))?.disabled).toBe(false);
+		expect(pass("work@example.com")?.disabled).toBe(true);
+		expect(text()).not.toContain(translate("resetPasses.use"));
 	});
 
 	it("explains the spend, redeems only after confirming, and shows the refreshed quota", async () => {
@@ -233,7 +237,7 @@ describe("reset passes on provider accounts", () => {
 });
 
 describe("reset passes on the Usage page", () => {
-	it("shows the same badge and action on the account's quota card", async () => {
+	it("shows the same ticket and action on the account's quota card", async () => {
 		const report: UsageReport = {
 			provider: "anthropic",
 			fetchedAt: 0,
@@ -245,7 +249,8 @@ describe("reset passes on the Usage page", () => {
 		getUsage.mockResolvedValue(ok("get_usage", { reports: [report] }));
 		useSessionStore.setState({ status: "ready" });
 		await mount(<UsageQuotas />);
-		expect(text()).toContain(resetPassSummary(usable, translate));
-		expect(button(translate("resetPasses.useFor", { account: "home@example.com" }))?.disabled).toBe(false);
+		const pass = button(translate("resetPasses.useFor", { account: "home@example.com" }));
+		expect(pass?.getAttribute("title")).toBe(resetPassSummary(usable, translate));
+		expect(pass?.disabled).toBe(false);
 	});
 });

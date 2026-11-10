@@ -123,33 +123,33 @@ function ProviderReportCard({
 					<span className="min-w-0 text-sc-sm break-all text-(--sc-text-muted)">{report.account}</span>
 				)}
 				{report.active && <Badge variant="success">{t("usage.inUse")}</Badge>}
-				{report.fetchedAt > 0 && (
-					<span
-						className="ml-auto text-sc-xs tabular-nums text-(--sc-text-muted)"
-						data-usage-updated
-						title={formatClock(report.fetchedAt)}
-					>
-						{t("usage.updatedAgo", { time: formatSpan(now - report.fetchedAt) })}
-					</span>
-				)}
+				<span className="ml-auto flex items-center gap-2">
+					{report.fetchedAt > 0 && (
+						<span
+							className="text-sc-xs tabular-nums text-(--sc-text-muted)"
+							data-usage-updated
+							title={formatClock(report.fetchedAt)}
+						>
+							{t("usage.updatedAgo", { time: formatSpan(now - report.fetchedAt) })}
+						</span>
+					)}
+					{report.resetPasses &&
+						(report.credentialId !== undefined ? (
+							<ResetPassControl
+								account={report.account ?? providerName}
+								credentialId={report.credentialId}
+								disabled={!ready}
+								limits={limits}
+								onRedeemed={onRedeemed}
+								passes={report.resetPasses}
+								providerId={report.provider}
+								providerName={providerName}
+							/>
+						) : (
+							<Badge variant="info">{resetPassSummary(report.resetPasses, t)}</Badge>
+						))}
+				</span>
 			</header>
-			{report.resetPasses &&
-				(report.credentialId !== undefined ? (
-					<ResetPassControl
-						account={report.account ?? providerName}
-						credentialId={report.credentialId}
-						disabled={!ready}
-						limits={limits}
-						onRedeemed={onRedeemed}
-						passes={report.resetPasses}
-						providerId={report.provider}
-						providerName={providerName}
-					/>
-				) : (
-					<Badge className="self-start" variant="info">
-						{resetPassSummary(report.resetPasses, t)}
-					</Badge>
-				))}
 			<Notes notes={report.notes} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">

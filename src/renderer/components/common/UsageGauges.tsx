@@ -2,13 +2,19 @@
  * One subscription account's usage as inline gauges: a bar per window (the two tightest, shortest first) with the
  * window's short name and the share used inside it ("5H 62%", "7D 41%"). The fill is the share used, as in
  * Settings; from 80 % the fill turns warning, at 100 % danger. `resets` adds each window's time to reset beneath
- * its bar. Shared by the work board's account row and the sidebar's usage lines.
+ * its bar. Shared by the work board's account row and the sidebar's usage lines. With `columns` (the Settings
+ * accounts list) it draws every measured window, model-scoped ones included ("Fable 44%"), each in its column of
+ * the provider's shared set, and leaves the column of a window the account does not report empty.
  */
+import type { CSSProperties } from "react";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
 import { formatSpan, formatSpanCompact } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { usageLimitLabel } from "../../lib/usage-labels";
-import { accountWindows, shortWindowLabel } from "../../lib/usage-windows";
+import { accountGauges, accountWindows, gaugeColumn, shortWindowLabel } from "../../lib/usage-windows";
+
+/** Columns drawn on one line; a provider with more wraps the rest under them. */
+export const MAX_USAGE_COLUMNS = 4;
 
 /** From here the window is near its limit (warning); at 100 % it is the limit (danger). */
 export const NEAR_FRACTION = 0.8;
@@ -64,24 +70,49 @@ export function UsageGauges({
 	limits,
 	resets = false,
 	compact = false,
+	columns,
+	tracks,
 }: {
 	limits: readonly UsageLimit[];
 	resets?: boolean;
 	compact?: boolean;
+	/** `gaugeColumns` of the provider's accounts: every window, each in its column. */
+	columns?: readonly string[];
+	/** With `columns`: the grid's column count, when a list of several providers shares one wider than this one's. */
+	tracks?: number;
 }) {
 	const t = useT();
-	const windows = accountWindows(limits);
+	const windows = columns ? accountGauges(limits) : accountWindows(limits);
 	if (windows.length === 0) return null;
 	const now = Date.now();
+	const slots = columns
+		? columns.map(column => windows.find(entry => gaugeColumn(entry.limit) === column) ?? column)
+		: windows;
 	return (
-		<span className="omp-usage-gauges" data-compact={compact || undefined} data-count={windows.length}>
-			{windows.map(({ limit, fraction }) => {
+		<span
+			className="omp-usage-gauges"
+			data-columns={columns ? "" : undefined}
+			data-compact={compact || undefined}
+			data-count={windows.length}
+			style={
+				columns
+					? ({
+							"--omp-usage-columns": Math.min(Math.max(columns.length, tracks ?? 0), MAX_USAGE_COLUMNS),
+						} as CSSProperties)
+					: undefined
+			}
+		>
+			{slots.map(slot => {
+				if (typeof slot === "string") {
+					return <span aria-hidden className="omp-usage-gauge" data-empty="" data-window={slot} key={slot} />;
+				}
+				const { limit, fraction } = slot;
 				const percent = Math.round(Math.min(1, fraction) * 100);
 				return (
 					<span
 						className="omp-usage-gauge"
 						data-state={fraction >= 1 ? "limit" : fraction >= NEAR_FRACTION ? "near" : "ok"}
-						data-window={limit.windowId ?? limit.id}
+						data-window={columns ? gaugeColumn(limit) : (limit.windowId ?? limit.id)}
 						key={limit.id}
 					>
 						<span

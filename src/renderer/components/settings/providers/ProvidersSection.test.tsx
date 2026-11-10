@@ -1300,7 +1300,8 @@ describe("ProviderAccounts", () => {
 		expect(body).toContain("home@example.com");
 		expect(body).toContain(translate("providers.accounts.inUse"));
 		expect(body.split(translate("providers.accounts.inUse")).length).toBe(2);
-		expect(body.split(translate("providers.state.signedIn")).length).toBe(3);
+		// Every account listed is signed in: the rows do not say so.
+		expect(body).not.toContain(translate("providers.state.signedIn"));
 		// Both windows as gauges with the share used inside, the short window first.
 		const gaugeText = (account: string) =>
 			Array.from(document.querySelectorAll(`[data-provider-account="${account}"] .omp-usage-gauge-text`)).map(
@@ -1309,10 +1310,51 @@ describe("ProviderAccounts", () => {
 		expect(gaugeText("7")).toEqual(["5H6%", "7D61%"]);
 		const bars = Array.from(document.querySelectorAll('[data-provider-account="7"] [role="progressbar"]'));
 		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["6", "61"]);
+		// No gauge of the skipped account says why: the badge does.
 		expect(body).toContain(translate("providers.accounts.limitedUntil", { time: formatClock(limitedUntil) }));
 		// The account-switching mode sits with the accounts, for this device's omp.
 		expect(document.querySelector('[data-models-rotation] [role="radiogroup"]')).toBeTruthy();
 		expect(accountRotationGet).toHaveBeenLastCalledWith(undefined);
+	});
+
+	it("draws every window an account reports, a model's own limit too, each in the same column down the list", async () => {
+		const resetsAt = Date.now() + 3 * 60 * 60_000;
+		const fable = (usedFraction: number) => ({
+			id: "anthropic:7d:fable",
+			label: "Claude 7 Day (Fable)",
+			windowId: "7d",
+			windowLabel: "Claude 7 Day",
+			usedFraction,
+			resetsAt,
+		});
+		await mountWithAccounts([
+			{ ...accounts[0], limits: [fable(0.07), ...accounts[0].limits] },
+			{
+				...accounts[1],
+				// Claude reports no 5 hour window for this one.
+				limits: [{ id: "anthropic:7d", label: "Claude 7 Day", usedFraction: 1, resetsAt }, fable(0.44)],
+			},
+		]);
+		const columns = (account: string) =>
+			Array.from(document.querySelectorAll(`[data-provider-account="${account}"] .omp-usage-gauge`)).map(gauge => [
+				gauge.getAttribute("data-window"),
+				gauge.querySelector(".omp-usage-gauge-text")?.textContent ?? null,
+			]);
+		expect(columns("7")).toEqual([
+			["5h", "5H6%"],
+			["7d", "7D61%"],
+			["7d:fable", "Fable7%"],
+		]);
+		expect(columns("9")).toEqual([
+			["5h", null],
+			["7d", "7D100%"],
+			["7d:fable", "Fable44%"],
+		]);
+		// The full gauge and the reset under it say the account is at its limit, and until when: no badge repeats it.
+		expect(text()).not.toContain(translate("providers.accounts.limitedUntil", { time: formatClock(limitedUntil) }));
+		expect(
+			document.querySelector('[data-provider-account="9"] [data-window="7d"] .omp-usage-gauge-reset')?.textContent,
+		).toMatch(/^↻ \d/);
 	});
 
 	it("signs out of every account from any account's menu", async () => {

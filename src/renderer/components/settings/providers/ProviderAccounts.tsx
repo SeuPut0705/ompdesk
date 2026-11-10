@@ -1,9 +1,11 @@
 /**
  * The stored sign-ins of one connected subscription provider, as a group of Settings › Models & accounts
  * (ProvidersSection): the provider's header (brand, account count, "Add account", the provider's own
- * ⋯: refresh quotas, sign out of every account) and an account row under it each (ConnectedRow) with its
- * tightest live quota and its reset, the one this tab's session is using, and the ones omp is skipping
- * after they hit a limit. omp itself picks between the accounts; the rows only show that and add or
+ * ⋯: refresh quotas, sign out of every account) and an account row under it each (ConnectedRow) with every
+ * live quota window it reports and its reset (model-scoped ones too, each window in the same column down the
+ * list), the one this tab's session is using, and its saved resets. An account omp is skipping after it hit a
+ * limit reads from its full gauge; a badge says so only when no gauge does (the owner's call, 10 Nov 2026: the
+ * reset under the gauge already says until when). omp itself picks between the accounts; the rows only show that and add or
  * remove accounts. "Add account" is the same sign-in flow (a different identity adds a row); removing
  * logs out that one credential, and the last one disconnects the provider. The read lives in
  * `useProviderAccounts`, owned by the provider's group; it is always live (lib/usage-reports.ts): each
@@ -22,10 +24,10 @@ import { copyText, formatClock, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { accountWindows } from "../../../lib/usage-windows";
+import { accountGauges, gaugeColumns } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
 import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from "../../common";
-import { UsageGauges, usageTooltip } from "../../common/UsageGauges";
+import { MAX_USAGE_COLUMNS, NEAR_FRACTION, UsageGauges, usageTooltip } from "../../common/UsageGauges";
 import { bareEmail } from "../../layout/AccountLimit";
 import { useSettingsNavigate } from "../settings-navigation";
 import { ConnectedRow, ProviderGroupItem } from "./ConnectedRow";
@@ -40,6 +42,27 @@ function quotaLimits(account: ProviderAccount): UsageLimit[] {
 	if (account.limits.some(limit => limit.usedFraction !== undefined)) return account.limits;
 	if (account.remainingFraction === undefined) return [];
 	return [{ id: "quota", label: "Quota", windowId: "quota", usedFraction: 1 - account.remainingFraction }];
+}
+
+/**
+ * What every account row of the list shares, so the same window stands in the same column from one provider to the
+ * next (Claude's three gauges over ChatGPT's two): the gauge columns of the provider that has most, and whether any
+ * account has a reset pass.
+ */
+export interface AccountRowLayout {
+	quotaColumns: number;
+	pass: boolean;
+}
+
+export function accountRowLayout(results: readonly (ProviderAccountsResult | null)[]): AccountRowLayout {
+	const lists = results.map(result => result?.accounts ?? []);
+	return {
+		quotaColumns: Math.min(
+			MAX_USAGE_COLUMNS,
+			Math.max(0, ...lists.map(accounts => gaugeColumns(accounts.map(quotaLimits)).length)),
+		),
+		pass: lists.some(accounts => accounts.some(account => account.resetPasses !== undefined)),
+	};
 }
 
 export interface ProviderAccountsState {
@@ -113,11 +136,24 @@ export function useProviderAccounts(
 	return { result, error, loading, load };
 }
 
-/** The account's windows as shared gauges (share used, reset beneath each); the tooltip lists every window and the read's age. */
-function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) {
+/**
+ * The account's windows as shared gauges (share used, reset beneath each), each in its column of the provider's
+ * set, on the track count the whole list shares; the tooltip lists every window and the read's age.
+ */
+function QuotaCell({
+	account,
+	columns,
+	tracks,
+	now,
+}: {
+	account: ProviderAccount;
+	columns: readonly string[];
+	tracks: number;
+	now: number;
+}) {
 	const t = useT();
 	const limits = quotaLimits(account);
-	if (accountWindows(limits).length === 0) return null;
+	if (accountGauges(limits).length === 0) return null;
 	const title = [
 		usageTooltip({ provider: "", fetchedAt: account.fetchedAt ?? 0, limits }, "", t)
 			.split("\n")
@@ -129,12 +165,32 @@ function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) 
 		.join("\n");
 	return (
 		<div
-			className="order-4 flex w-full shrink-0 flex-col gap-1 pl-[1.875rem] @xl:order-3 @xl:w-64 @xl:pl-0"
 			data-quota-updated={account.fetchedAt === undefined ? undefined : formatClock(account.fetchedAt)}
 			title={title}
 		>
-			<UsageGauges limits={limits} resets />
+			<UsageGauges columns={columns} limits={limits} resets tracks={tracks} />
 		</div>
+	);
+}
+
+/** In use, and what no gauge of the row says: skipped after a limit, or low, with no window at or near its end. */
+function AccountBadges({ account }: { account: ProviderAccount }) {
+	const t = useT();
+	const gauges = accountGauges(quotaLimits(account));
+	return (
+		<>
+			{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
+			{account.state === "depleted" && !gauges.some(gauge => gauge.fraction >= 1) && (
+				<Badge variant="warning">
+					{account.limitedUntil !== undefined
+						? t("providers.accounts.limitedUntil", { time: formatClock(account.limitedUntil) })
+						: t("providers.accounts.limited")}
+				</Badge>
+			)}
+			{account.state === "reserve" && !gauges.some(gauge => gauge.fraction >= NEAR_FRACTION) && (
+				<Badge variant="warning">{t("providers.accounts.low")}</Badge>
+			)}
+		</>
 	);
 }
 
@@ -146,6 +202,7 @@ function QuotaCell({ account, now }: { account: ProviderAccount; now: number }) 
 export function ProviderAccountRows({
 	group,
 	state,
+	layout,
 	sidecarReady,
 	adding,
 	onAdd,
@@ -154,6 +211,7 @@ export function ProviderAccountRows({
 }: {
 	group: ProviderGroup;
 	state: ProviderAccountsState;
+	layout: AccountRowLayout;
 	sidecarReady: boolean;
 	/** A sign-in for this provider is in flight. */
 	adding: boolean;
@@ -173,6 +231,8 @@ export function ProviderAccountRows({
 	const accounts = result?.accounts ?? [];
 	const now = useNowTick(accounts.length > 0);
 
+	// The provider's own windows, in the first of the columns the whole list shares.
+	const columns = gaugeColumns(accounts.map(quotaLimits));
 	const remove = async (account: ProviderAccount) => {
 		setPendingRemove(null);
 		setRemoving(account.credentialId);
@@ -259,21 +319,9 @@ export function ProviderAccountRows({
 					account={bareEmail(account.label)}
 					accountTitle={[account.label, account.detail].filter(Boolean).join("\n")}
 					actionName={`${fullName} ${bareEmail(account.label)}`}
-					badges={
-						<>
-							{account.inUse && <Badge variant="success">{t("providers.accounts.inUse")}</Badge>}
-							{account.state === "depleted" && (
-								<Badge variant="warning">
-									{account.limitedUntil !== undefined
-										? t("providers.accounts.limitedUntil", { time: formatClock(account.limitedUntil) })
-										: t("providers.accounts.limited")}
-								</Badge>
-							)}
-							{account.state === "reserve" && <Badge variant="warning">{t("providers.accounts.low")}</Badge>}
-						</>
-					}
-					below={
-						account.resetPasses && (
+					badges={<AccountBadges account={account} />}
+					pass={
+						!layout.pass ? undefined : account.resetPasses ? (
 							<ResetPassControl
 								account={account.label}
 								credentialId={account.credentialId}
@@ -286,7 +334,7 @@ export function ProviderAccountRows({
 								providerId={provider.id}
 								providerName={shortName}
 							/>
-						)
+						) : null
 					}
 					busy={removing === account.credentialId}
 					key={account.credentialId}
@@ -324,7 +372,8 @@ export function ProviderAccountRows({
 							onSelect: () => setPendingRemove(account),
 						},
 					]}
-					quota={<QuotaCell account={account} now={now} />}
+					quota={<QuotaCell account={account} columns={columns} now={now} tracks={layout.quotaColumns} />}
+					quotaColumns={layout.quotaColumns}
 					rowProps={{ "data-provider-account": account.credentialId }}
 				/>
 			))}

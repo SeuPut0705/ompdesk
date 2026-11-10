@@ -98,16 +98,41 @@ function account(
 	};
 }
 
+/** Claude's model-scoped weekly cap, as stock reports it beside the whole-account windows. */
+function fable(usedFraction: number) {
+	return {
+		id: "anthropic:7d:fable",
+		label: "Claude 7 Day (Fable)",
+		windowId: "7d",
+		windowLabel: "Claude 7 Day",
+		usedFraction,
+		resetsAt: Date.now() + 3 * 24 * 60 * MINUTE,
+	};
+}
+
+const PASSES = { count: 2, usableCount: 1, clears: ["anthropic:7d"], early: false, redeemable: true };
+
 /** What `get_provider_accounts` answers for one of the providers above. */
 export function accountsFor(providerId: string): ProviderAccount[] {
 	switch (providerId) {
-		case "anthropic":
+		case "anthropic": {
+			const work = account(1, "work@example.com", "anthropic", 0.34, 0.52, { inUse: true });
+			const home = account(2, "home@example.com", "anthropic", 1, 0.9, {
+				limitedUntil: Date.now() + 95 * MINUTE,
+				resetPasses: { ...PASSES, expiresAt: Date.now() + 120 * 24 * 60 * MINUTE },
+			});
+			const studio = account(3, "studio@example.com", "anthropic", 0.08, 0.31, {
+				resetPasses: { ...PASSES, count: 1, usableCount: 0, redeemable: false },
+			});
+			const lab = account(4, "a-rather-long-address-for-the-lab@example-company.com", "anthropic", 0.61, 0.7);
 			return [
-				account(1, "work@example.com", "anthropic", 0.34, 0.52, { inUse: true }),
-				account(2, "home@example.com", "anthropic", 1, 0.9, { limitedUntil: Date.now() + 95 * MINUTE }),
-				account(3, "studio@example.com", "anthropic", 0.08, 0.31),
-				account(4, "a-rather-long-address-for-the-lab@example-company.com", "anthropic", 0.61, 0.7),
+				{ ...work, limits: [...work.limits, fable(0.07)] },
+				{ ...home, limits: [...home.limits, fable(0.44)] },
+				// Claude reports no 5 hour window for some accounts.
+				{ ...studio, limits: [...studio.limits.slice(1), fable(0.43)] },
+				{ ...lab, limits: [...lab.limits, fable(0.86)] },
 			];
+		}
 		case "openai-codex":
 			return [
 				account(11, "personal@example.com", "openai-codex", 0.12, 0.2),

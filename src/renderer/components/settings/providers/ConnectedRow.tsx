@@ -7,13 +7,15 @@
  * (the plan stock's name carries, the account count), and at the right a visible "Add account"
  * button for a subscription (hidden for a provider with one credential) beside the provider-level ⋯.
  * A subscription's accounts are `ConnectedRow`s under it, indented, without the mark or the name:
- * account, signed-in state, badges, quota, and only that account's actions. A provider with one
- * credential (API key, env) is the header alone, with its detail and state on the same line.
+ * account, state badges, quota, a reset pass, and only that account's actions, on one line where
+ * the list is wide (the quota under the account where it is not). An account row says nothing of
+ * being signed in: every account listed is. A provider with one credential (API key, env) is the
+ * header alone, with its detail and state on the same line.
  * `data-provider-row` is on the group, `data-provider-account` on each account row.
  */
 
 import { CheckCircle2, MoreHorizontal, Plus } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
 import { Button, type ContextMenuItem, MenuButton, Spinner } from "../../common";
 import { ProviderMark } from "./ProviderMark";
@@ -160,14 +162,21 @@ export function ProviderGroupItem({
 	);
 }
 
-/** One account of a subscription, indented under its header: no mark, no provider name. */
+/**
+ * One account of a subscription, indented under its header: no mark, no provider name. From 42 rem of list (`@2xl`:
+ * Settings in the default 1280 px window), one line:
+ * account and badges, quota, reset pass, ⋯; narrower, the quota takes the line under them. The quota and reset-pass
+ * slots keep their width in every row of a provider (`quota` and `pass` may be empty), so the same window stands in
+ * the same column down the list.
+ */
 export function ConnectedRow({
 	account,
 	accountTitle,
 	actionName,
 	badges,
 	quota,
-	below,
+	quotaColumns = 0,
+	pass,
 	menu,
 	busy = false,
 	rowProps,
@@ -177,12 +186,14 @@ export function ConnectedRow({
 	accountTitle?: string;
 	/** Names the ⋯ ("{provider} {account}"). */
 	actionName: string;
-	/** State marks after "Signed in": in use, limited. */
+	/** State marks after the account: in use, and a limit no gauge shows. */
 	badges?: ReactNode;
-	/** The account's quota gauges (QuotaCell). */
+	/** The account's quota cell (QuotaCell); renders nothing for an account without a report. */
 	quota?: ReactNode;
-	/** Full-width detail under the row (a reset pass). */
-	below?: ReactNode;
+	/** Gauge columns the provider's accounts share (0: none reports a quota): the quota slot's width on the one-line row. */
+	quotaColumns?: number;
+	/** The account's reset pass, `null` for an account without one; `undefined` when no account of the provider has any. */
+	pass?: ReactNode;
 	/** This account's actions; no menu when empty. */
 	menu: ContextMenuItem[];
 	/** An action is running for this row. */
@@ -191,28 +202,39 @@ export function ConnectedRow({
 }) {
 	const t = useT();
 	return (
-		<li {...rowProps} className="@container py-1">
-			<div className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 pr-2.5 pl-[calc(0.625rem+1.25rem+0.625rem)]">
-				<span
-					className="order-1 min-w-0 flex-1 basis-24 truncate text-sc-sm text-(--sc-text)"
-					data-account-label
-					title={accountTitle}
-				>
-					{account}
-				</span>
-				<span className="order-3 flex shrink-0 basis-full flex-wrap items-center gap-1.5 @xl:order-2 @xl:basis-auto">
-					<SignedIn />
+		<li {...rowProps} className="@container py-1.5">
+			<div className="flex flex-wrap items-start gap-x-3 gap-y-1.5 pr-2.5 pl-[calc(0.625rem+1.25rem+0.625rem)]">
+				<span className="order-1 flex min-h-(--sc-control-sm) min-w-0 flex-1 basis-24 items-center gap-2">
+					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" data-account-label title={accountTitle}>
+						{account}
+					</span>
 					{badges}
 				</span>
-				{quota && <div className="order-4 basis-full @xl:order-3 @xl:basis-auto">{quota}</div>}
+				{quotaColumns > 0 && (
+					// 3px: the 22px bar on the centre line of the 28px controls beside it. An account without a report
+					// keeps the slot on the one-line row and takes no line of its own under it.
+					<div
+						className="order-4 basis-full empty:hidden @2xl:order-2 @2xl:w-[calc(var(--omp-quota-columns)*6.5rem)] @2xl:shrink-0 @2xl:basis-auto @2xl:pt-[3px] @2xl:empty:block"
+						style={{ "--omp-quota-columns": quotaColumns } as CSSProperties}
+					>
+						{quota}
+					</div>
+				)}
+				{pass !== undefined && (
+					<span
+						className="order-2 flex shrink-0 justify-end empty:hidden @2xl:order-3 @2xl:w-[3.75rem] @2xl:empty:flex"
+						data-account-pass
+					>
+						{pass}
+					</span>
+				)}
 				<RowMenu
 					busy={busy}
-					className="order-2 @xl:order-4"
+					className="order-3 @2xl:order-4"
 					label={t("providers.row.actions", { name: actionName })}
 					menu={menu}
 				/>
 			</div>
-			{below && <div className="pt-1 pr-2.5 pl-[calc(0.625rem+1.25rem+0.625rem)]">{below}</div>}
 		</li>
 	);
 }

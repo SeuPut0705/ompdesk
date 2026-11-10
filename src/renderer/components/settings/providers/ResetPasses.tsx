@@ -1,23 +1,25 @@
 /**
  * An account's saved rate-limit resets ("reset passes", stock's saved resets):
- * a badge with the count and the soonest expiry, and "Use reset", which
- * explains what one resets and that it spends a pass, then spends it through
- * the tab's omp (`redeem_reset_pass`: stock's `/usage reset` path, on the host
- * for a paired host's tab). Settings › Models & providers (ProviderAccounts)
- * and Insights › Usage (UsageQuotas) show the same control.
+ * one compact button, a ticket and the count (the owner's call, 10 Nov 2026:
+ * no words on the row), whose tooltip says how many, how many are usable now
+ * and the soonest expiry. It explains what one resets and that it spends a
+ * pass, then spends it through the tab's omp (`redeem_reset_pass`: stock's
+ * `/usage reset` path, on the host for a paired host's tab). Settings › Models
+ * & accounts (ProviderAccounts) and Insights › Usage (UsageQuotas) show the
+ * same control.
  *
  * Manual eligibility follows stock toResetUsageAccounts. Stock redeemResetCredit
  * decides whether there is anything to reset; automatic exhaustion policy is separate.
  */
 
-import { RotateCcw } from "lucide-react";
+import { Ticket } from "lucide-react";
 import { useState } from "react";
 import type { ResetPasses, ResetPassRedeemResult, UsageLimit } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ConfirmDialog } from "../../common";
+import { Button, ConfirmDialog } from "../../common";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -142,21 +144,21 @@ export function ResetPassControl({
 	};
 
 	return (
-		<span className="inline-flex min-w-0 flex-wrap items-center gap-1.5" data-reset-passes={credentialId}>
-			<Badge variant="info">{resetPassSummary(passes, t)}</Badge>
+		<span className="inline-flex min-w-0 items-center" data-reset-passes={credentialId}>
 			<Button
 				aria-label={t("resetPasses.useFor", { account })}
 				disabled={disabled || busy || !passes.redeemable}
-				icon={<RotateCcw />}
+				icon={<Ticket />}
 				loading={busy}
 				onClick={() => setConfirming(true)}
 				size="sm"
-				title={hint}
-				variant="ghost"
+				title={[resetPassSummary(passes, t), hint].filter(Boolean).join("\n")}
+				variant="secondary"
 			>
-				{t("resetPasses.use")}
+				<span className="tabular-nums" data-reset-pass-count>
+					{passes.count}
+				</span>
 			</Button>
-			{hint && <span className="text-sc-xs text-(--sc-text-muted)">{hint}</span>}
 			<ConfirmDialog
 				busy={busy}
 				confirmLabel={t("resetPasses.use")}

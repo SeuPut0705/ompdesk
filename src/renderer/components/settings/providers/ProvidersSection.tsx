@@ -22,7 +22,7 @@
  */
 
 import { CircleDashed, FileCode2, KeyRound, LogOut, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { CustomProviderView } from "../../../../shared/ipc-types";
 import type { ProviderAccountsResult, ProviderInfo } from "../../../../shared/rpc-types";
 import { useUsage } from "../../../hooks/use-usage-reports";
@@ -49,7 +49,7 @@ import { ProviderGroupItem } from "./ConnectedRow";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { LocalEnginesRow } from "./LocalEnginesRow";
 import { ModelOverrides } from "./ModelOverrides";
-import { ProviderAccountRows, useProviderAccounts } from "./ProviderAccounts";
+import { type AccountRowLayout, accountRowLayout, ProviderAccountRows, useProviderAccounts } from "./ProviderAccounts";
 import {
 	authLabel,
 	type ProviderCatalog,
@@ -71,6 +71,7 @@ function ConnectedProviderRows({
 	login,
 	busyProvider,
 	sidecarReady,
+	layout,
 	handlers,
 	revision,
 	usagePolls,
@@ -82,6 +83,8 @@ function ConnectedProviderRows({
 	login: ProviderLogin;
 	busyProvider: string | null;
 	sidecarReady: boolean;
+	/** The columns every account row of the list shares. */
+	layout: AccountRowLayout;
 	handlers: RowHandlers;
 	revision: number;
 	/** The tab's usage poll count (`UsageFeed.polls`): each move re-reads the account quotas. */
@@ -100,6 +103,7 @@ function ConnectedProviderRows({
 			<ProviderAccountRows
 				adding={login.state.running}
 				group={group}
+				layout={layout}
 				onAdd={() => void login.start(provider.id)}
 				onChanged={onChanged}
 				onSignOutAll={() => handlers.onLogout?.(provider)}
@@ -301,6 +305,7 @@ export function ProvidersSection({
 			previous[providerId] === result ? previous : { ...previous, [providerId]: result },
 		);
 	}, []);
+	const rowLayout = useMemo(() => accountRowLayout(Object.values(accountResults)), [accountResults]);
 	const { providers, load } = catalog;
 	// The account rows' quotas follow the tab's one usage poll, joined here once while any row lists accounts.
 	const usagePolls = useUsage(feed => feed.polls, !(providerForm && catalog.options) && providers.some(listsAccounts));
@@ -519,6 +524,7 @@ export function ProvidersSection({
 								group={group}
 								handlers={handlers}
 								key={group.provider.id}
+								layout={rowLayout}
 								login={login}
 								onAccounts={onAccounts}
 								onChanged={() => load(true)}
