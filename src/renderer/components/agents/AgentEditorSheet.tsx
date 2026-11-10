@@ -30,10 +30,12 @@ import { toastError } from "../../stores/toast";
 import {
 	Banner,
 	Button,
+	Card,
 	ErrorDetail,
 	IconButton,
 	Input,
 	MenuButton,
+	SectionLabel,
 	Select,
 	Sheet,
 	Skeleton,
@@ -171,7 +173,7 @@ type PatternMode = "off" | "on" | "custom";
 function Section({ title, children }: { title: string; children: ReactNode }) {
 	return (
 		<section className="flex flex-col gap-4 border-t border-(--sc-divider) pt-5 first:border-t-0 first:pt-0">
-			<h3 className="text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">{title}</h3>
+			<SectionLabel>{title}</SectionLabel>
 			{children}
 		</section>
 	);
@@ -582,62 +584,67 @@ function AgentEditorForm({
 					{draft.model.length === 0 ? (
 						<p className="text-sc-sm text-(--sc-text-muted)">{t("agentStudio.model.empty")}</p>
 					) : (
-						<ol className="flex flex-col divide-y divide-(--sc-divider) rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-							{draft.model.map((entry, index) => {
-								const role = roleByValue.get(entry);
-								return (
-									<li className="flex items-center gap-2 py-1 pr-1 pl-3" key={entry}>
-										<span className="w-5 shrink-0 text-sc-xs text-(--sc-text-subtle)">{index + 1}</span>
-										<span className="min-w-0 flex-1">
-											{role || !entry.includes("/") ? (
-												<span className="block truncate font-mono text-sc-sm text-(--sc-text)">
-													{entry}
-												</span>
-											) : (
-												<span className="block text-sc-sm text-(--sc-text)" title={entry}>
-													<ModelLabel provider={modelRefOf(entry).provider} label={modelLabelOf(entry)} />
-												</span>
-											)}
-											{role && (
-												<span className="block truncate text-sc-xs text-(--sc-text-muted)">
-													{role.model
-														? t("agentStudio.model.roleResolved", {
-																role: role.name,
-																model: compactModelText(modelLabelOf(role.model)),
-															})
-														: t("agentStudio.model.roleUnset", { role: role.name })}
-												</span>
-											)}
-										</span>
-										<IconButton
-											disabled={index === 0}
-											icon={<ArrowUp />}
-											label={t("agentStudio.model.moveUp", { entry })}
-											onClick={() => moveModel(index, -1)}
-											size="sm"
-										/>
-										<IconButton
-											disabled={index === draft.model.length - 1}
-											icon={<ArrowDown />}
-											label={t("agentStudio.model.moveDown", { entry })}
-											onClick={() => moveModel(index, 1)}
-											size="sm"
-										/>
-										<IconButton
-											icon={<X />}
-											label={t("agentStudio.model.remove", { entry })}
-											onClick={() =>
-												set(
-													"model",
-													draft.model.filter(item => item !== entry),
-												)
-											}
-											size="sm"
-										/>
-									</li>
-								);
-							})}
-						</ol>
+						<Card padding="none">
+							<ol className="flex flex-col divide-y divide-(--sc-divider)">
+								{draft.model.map((entry, index) => {
+									const role = roleByValue.get(entry);
+									return (
+										<li className="flex items-center gap-2 py-1 pr-1 pl-3" key={entry}>
+											<span className="w-5 shrink-0 text-sc-xs text-(--sc-text-subtle)">{index + 1}</span>
+											<span className="min-w-0 flex-1">
+												{role || !entry.includes("/") ? (
+													<span className="block truncate font-mono text-sc-sm text-(--sc-text)">
+														{entry}
+													</span>
+												) : (
+													<span className="block text-sc-sm text-(--sc-text)" title={entry}>
+														<ModelLabel
+															provider={modelRefOf(entry).provider}
+															label={modelLabelOf(entry)}
+														/>
+													</span>
+												)}
+												{role && (
+													<span className="block truncate text-sc-xs text-(--sc-text-muted)">
+														{role.model
+															? t("agentStudio.model.roleResolved", {
+																	role: role.name,
+																	model: compactModelText(modelLabelOf(role.model)),
+																})
+															: t("agentStudio.model.roleUnset", { role: role.name })}
+													</span>
+												)}
+											</span>
+											<IconButton
+												disabled={index === 0}
+												icon={<ArrowUp />}
+												label={t("agentStudio.model.moveUp", { entry })}
+												onClick={() => moveModel(index, -1)}
+												size="sm"
+											/>
+											<IconButton
+												disabled={index === draft.model.length - 1}
+												icon={<ArrowDown />}
+												label={t("agentStudio.model.moveDown", { entry })}
+												onClick={() => moveModel(index, 1)}
+												size="sm"
+											/>
+											<IconButton
+												icon={<X />}
+												label={t("agentStudio.model.remove", { entry })}
+												onClick={() =>
+													set(
+														"model",
+														draft.model.filter(item => item !== entry),
+													)
+												}
+												size="sm"
+											/>
+										</li>
+									);
+								})}
+							</ol>
+						</Card>
 					)}
 					<div className="flex flex-wrap items-center gap-2">
 						<MenuButton

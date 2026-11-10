@@ -3,8 +3,9 @@ import { resultDetails, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { PREVIEW_SCROLL_MD } from "../../../lib/preview";
 import { asNumber, asString } from "../../../lib/wire-value";
+import { Badge } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
-import { Chip, ParseIssues } from "./AstEditRenderer";
+import { ParseIssues } from "./AstEditRenderer";
 import { countMatches, GroupedMatchList, parseDisplayGroups } from "./GrepRenderer";
 import { ToolTextPreview } from "./ToolTextPreview";
 
@@ -40,11 +41,15 @@ export function AstGrepRenderer({ args, result, isError, isPartial, partialResul
 			</div>
 			{settled && (
 				<div className="flex flex-wrap items-center gap-1">
-					<Chip>{t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}</Chip>
-					<Chip>{t("tools.grep.files", { count: fileCount })}</Chip>
-					{scope && <Chip title={scope}>{t("tools.astedit.scope", { path: scope })}</Chip>}
-					{filesSearched > 0 && <Chip>{t("tools.astedit.searched", { count: filesSearched })}</Chip>}
-					{limitReached && <Chip warning>{t("tools.astedit.limitChip")}</Chip>}
+					<Badge>{t("tools.grep.matches", { count: matchCount, plural: matchCount === 1 ? "" : "es" })}</Badge>
+					<Badge>{t("tools.grep.files", { count: fileCount })}</Badge>
+					{scope && (
+						<span title={scope} className="min-w-0">
+							<Badge className="max-w-64 truncate">{t("tools.astedit.scope", { path: scope })}</Badge>
+						</span>
+					)}
+					{filesSearched > 0 && <Badge>{t("tools.astedit.searched", { count: filesSearched })}</Badge>}
+					{limitReached && <Badge variant="warning">{t("tools.astedit.limitChip")}</Badge>}
 				</div>
 			)}
 			{settled && matchCount > 0 && <GroupedMatchList groups={groups} matchCount={matchCount} />}

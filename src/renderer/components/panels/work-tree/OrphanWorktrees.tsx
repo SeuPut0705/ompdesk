@@ -16,8 +16,7 @@ import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
-import { ConfirmDialog, IconButton, SkeletonRows } from "../../common";
-import { SettingInfo } from "../../common/SettingInfo";
+import { ConfirmDialog, IconButton, SettingInfo, SkeletonRows } from "../../common";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
 
 /** The ones a removal may take: nothing in them the user could lose. */

@@ -9,6 +9,7 @@ import type { ImageContent } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { queueChipLabel } from "../../../lib/queue-chip";
 import type { QueueLane } from "../../../stores/queue";
+import { LinkButton } from "../../common";
 
 /** Characters of a message that name its row's buttons ("Edit: <first 40 chars>", DR-11). */
 const ROW_NAME_CHARS = 40;
@@ -32,15 +33,15 @@ export function QueueLaneHeading({ lane, count, onClear }: { lane: QueueLane; co
 			<span className="shrink-0 tabular-nums">{count}</span>
 			<span className="min-w-0 flex-1 truncate font-normal">· {t(`composerQueue.laneSub.${lane}`)}</span>
 			{onClear ? (
-				<button
+				<LinkButton
 					aria-label={t("composerQueue.clearLane", { lane: t(`composerQueue.lane.${lane}`) })}
-					className="shrink-0 rounded-(--sc-radius-xs) px-1 font-normal text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)"
+					className="shrink-0 px-1 font-normal"
 					data-lane-clear={lane}
 					onClick={onClear}
-					type="button"
+					tone="muted"
 				>
 					{t("queuePanel.clearLane")}
-				</button>
+				</LinkButton>
 			) : null}
 		</div>
 	);

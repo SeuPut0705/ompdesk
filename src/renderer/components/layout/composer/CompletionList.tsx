@@ -8,8 +8,7 @@ import { memo, type RefObject, useEffect, useLayoutEffect, useRef, useState } fr
 import { currentShellMode, useShellInput } from "../../../hooks/use-shell-mode";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Kbd, OptionRow } from "../../common";
-import { useHeldOverlay } from "../../common/use-held-overlay";
+import { Kbd, OptionRow, useHeldOverlay } from "../../common";
 import type { CompletionItem, CompletionMenu } from "./use-completion-menu";
 
 /** The label with the spans the query matched set in the accent colour (the history search's `<mark>` look). */

@@ -12,18 +12,18 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ConfirmDialog, CopyButton, LinkButton } from "../common";
-import { BoardSection, CappedRows, Dot } from "../layout/work-board/board-parts";
+import { Badge, Button, ConfirmDialog, CopyButton, LinkButton, StatusDot, type StatusTone } from "../common";
+import { BoardSection, CappedRows } from "../layout/work-board/board-parts";
 import { AreaIcon } from "./AreaIcon";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 /** Cycles the board lists before the older ones fold into one "+N more" row. */
 const SHOWN_CYCLES = 5;
 
-const VERIFY_TONE: Record<AutopilotCycleRecord["verify"], "success" | "danger" | "muted" | "warning"> = {
+const VERIFY_TONE: Record<AutopilotCycleRecord["verify"], StatusTone> = {
 	green: "success",
 	red: "danger",
-	skipped: "muted",
+	skipped: "neutral",
 	unreported: "warning",
 };
 
@@ -92,8 +92,8 @@ function CycleRow({
 				<span className="min-w-0 flex-1 truncate">{title}</span>
 				<span className="omp-work-board-meta flex items-center gap-1.5">
 					<span className="tabular-nums">{cycle.n}</span>
-					<span aria-label={verify} className="inline-flex" data-autopilot-verify-dot role="img">
-						<Dot tone={VERIFY_TONE[cycle.verify]} />
+					<span className="inline-flex" data-autopilot-verify-dot>
+						<StatusDot label={verify} labelHidden tone={VERIFY_TONE[cycle.verify]} />
 					</span>
 				</span>
 			</button>

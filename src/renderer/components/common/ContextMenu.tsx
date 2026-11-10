@@ -59,6 +59,8 @@ export interface ContextMenuItem {
 	/** Disabled items render but never fire. */
 	disabled?: boolean;
 	disabledReason?: string;
+	/** Hover text of an enabled item (what it does in more words than its label); the label when omitted. */
+	tooltip?: string;
 	/** Starts a new group: a divider renders above this item (ignored on the first). */
 	separatorBefore?: boolean;
 	/** `altKey`: Option/Alt was held while choosing (click or Enter); an item may read it as the variant of its action. */
@@ -291,7 +293,7 @@ export function ContextMenu({
 						}}
 						onMouseEnter={() => setActiveIndex(index)}
 						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-						title={item.disabled ? item.disabledReason : item.label}
+						title={item.disabled ? item.disabledReason : (item.tooltip ?? item.label)}
 						type="button"
 					>
 						<MenuItemView item={item} />

@@ -9,7 +9,7 @@
  * offers to delete the project's saved sessions with it. There is no separate "Remove from sidebar".
  */
 import { Archive, ArrowDown, ArrowUp, GitBranchPlus, Pencil, Pin, PinOff, SquareTerminal, Trash2 } from "lucide-react";
-import type { ContextMenuItem } from "../../common/ContextMenu";
+import type { ContextMenuItem } from "../../common";
 
 /** What is true of the project; every list answers these the same way. */
 export interface ProjectMenuFacts {

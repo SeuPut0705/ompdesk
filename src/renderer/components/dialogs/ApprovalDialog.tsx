@@ -22,7 +22,7 @@ import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import type { ApprovalSelect } from "../../stores/extension-ui";
-import { Badge, type BadgeVariant } from "../common";
+import { Badge, type BadgeVariant, Card } from "../common";
 import { ChoiceList, PromptCard, TimeoutFooter } from "./PromptCard";
 
 export type ApprovalResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
@@ -156,7 +156,7 @@ export function ApprovalDialog({
 			}}
 		>
 			<div className="mb-1 truncate font-mono text-sc-sm font-semibold">{toolName}</div>
-			<div className="mb-2 max-h-[30vh] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) px-3 py-2">
+			<Card className="mb-2 max-h-[30vh] overflow-y-auto" padding="sm" surface="2">
 				{body ? (
 					<pre className="font-mono text-sc-sm leading-(--sc-leading-normal) break-words whitespace-pre-wrap text-(--sc-text-secondary)">
 						{body}
@@ -164,7 +164,7 @@ export function ApprovalDialog({
 				) : (
 					<span className="text-sc-sm text-(--sc-text-muted) italic">{t("approval.noArgs")}</span>
 				)}
-			</div>
+			</Card>
 			<ChoiceList choices={choices} onChoose={choose} />
 		</PromptCard>
 	);

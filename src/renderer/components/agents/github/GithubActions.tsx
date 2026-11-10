@@ -7,7 +7,17 @@ import { github, useGithubLoad } from "../../../lib/github";
 import { githubEventLabel } from "../../../lib/github-state";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
-import { AsyncSection, Button, ConfirmDialog, IconButton, Input, MasterDetail, Modal, Select } from "../../common";
+import {
+	AsyncSection,
+	Button,
+	Card,
+	ConfirmDialog,
+	IconButton,
+	Input,
+	MasterDetail,
+	Modal,
+	Select,
+} from "../../common";
 import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState, useGithubMutation } from "./shared";
 
 type RunAction = { kind: "rerun"; failedOnly: boolean } | { kind: "cancel" };
@@ -126,12 +136,14 @@ export function RunDetail({
 								{logLoad.data.truncated && (
 									<p className="mb-1 text-sc-xs text-(--sc-text-muted)">{t("github.runs.logTruncated")}</p>
 								)}
-								<pre
-									className="max-h-[60vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border) bg-(--sc-surface-1) p-3 font-mono text-sc-xs whitespace-pre text-(--sc-text)"
-									data-github-log
-								>
-									{logLoad.data.text || t("github.runs.logEmpty")}
-								</pre>
+								<Card padding="none" surface="1">
+									<pre
+										className="max-h-[60vh] overflow-auto p-3 font-mono text-sc-xs whitespace-pre text-(--sc-text)"
+										data-github-log
+									>
+										{logLoad.data.text || t("github.runs.logEmpty")}
+									</pre>
+								</Card>
 							</>
 						)}
 					</AsyncSection>

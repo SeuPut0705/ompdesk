@@ -61,6 +61,51 @@ export function useFieldIds(
 	return { controlId, noteId, describedBy: cx(describedBy, note && noteId) || undefined };
 }
 
+const FIELD_LABEL = "mb-1.5 block text-sc-sm font-medium text-(--sc-text-secondary)";
+
+export type FieldLabelProps = {
+	children: ReactNode;
+	/** For `aria-labelledby` on a control a `<label>` cannot name (a radio group: `SegmentedChoice`, `ChoiceCards`). */
+	id?: string;
+	className?: string;
+} & (
+	| {
+			as?: "label";
+			/** The form element it names (a `<select>`, an `<input>`, a picker's trigger button). */
+			htmlFor?: string;
+	  }
+	| { as: "legend" | "span"; htmlFor?: never }
+);
+
+/**
+ * The label above a field, worn by any control that is not an `Input` (a `SegmentedChoice`, a model select, a group of
+ * checkboxes) so every field's label reads the same. `label` with `htmlFor` names a form element; `legend` names its
+ * `<fieldset>`; a `span` with an `id` names a radio group through the group's `aria-labelledby` (`htmlFor` names only
+ * form elements, never a `role="radiogroup"`).
+ */
+export function FieldLabel({ as = "label", htmlFor, id, className, children }: FieldLabelProps) {
+	const classes = cx(FIELD_LABEL, className);
+	if (as === "legend") {
+		return (
+			<legend className={classes} id={id}>
+				{children}
+			</legend>
+		);
+	}
+	if (as === "span") {
+		return (
+			<span className={classes} id={id}>
+				{children}
+			</span>
+		);
+	}
+	return (
+		<label className={classes} htmlFor={htmlFor} id={id}>
+			{children}
+		</label>
+	);
+}
+
 /** Label above, hint or error below. Used by every field primitive. */
 export function FieldShell({
 	label,
@@ -83,11 +128,7 @@ export function FieldShell({
 }) {
 	return (
 		<div className={className}>
-			{label && (
-				<label className="mb-1.5 block text-sc-sm font-medium text-(--sc-text-secondary)" htmlFor={controlId}>
-					{label}
-				</label>
-			)}
+			{label && <FieldLabel htmlFor={controlId}>{label}</FieldLabel>}
 			{children}
 			{error ? (
 				<span className="mt-1.5 block text-sc-sm text-(--sc-danger)" id={noteId}>

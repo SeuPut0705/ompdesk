@@ -24,7 +24,7 @@ import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
-import { Button, IconButton, SwitchTile, Tabs, Tooltip } from "../../common";
+import { Button, IconButton, SectionLabel, SwitchTile, Tabs, Tooltip } from "../../common";
 import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
 import { GoalModeConfig } from "../../modes/ModeConfig";
 
@@ -109,9 +109,7 @@ export function ModesSection({
 			className="flex flex-col gap-2 break-keep"
 			data-composer-modes-section
 		>
-			<h3 className="text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
-				{t("input.modes.label")}
-			</h3>
+			<SectionLabel>{t("input.modes.label")}</SectionLabel>
 			<PlanModeConfig />
 			<Tabs
 				activeId={formTab ?? ""}

@@ -15,7 +15,7 @@ import { useAgentReviewStore } from "../../../stores/agent-review";
 import { useClosedChildrenStore } from "../../../stores/closed-children";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
-import { CostAmount, hasCost } from "../../common/CostAmount";
+import { CostAmount, hasCost } from "../../common";
 import { BoardRow, CappedRows, elapsedLabel, KindMark, type RowTag, SECTION_CAP } from "./board-parts";
 import { openOpenedChild } from "./open-peer";
 import { childActivity, type OpenedChildRow } from "./opened-children";

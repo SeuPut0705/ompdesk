@@ -53,11 +53,7 @@ import { asArray } from "../../lib/wire-value";
 import { useMemoryPageStore } from "../../stores/memory-page";
 import { useUiStore } from "../../stores/ui";
 import { pageMayUse } from "../../web/runtime";
-import { Badge, type BadgeVariant } from "../common/Badge";
-import { Button } from "../common/Button";
-import { Collapse } from "../common/Collapse";
-import { DisclosureButton } from "../common/DisclosureButton";
-import { LinkButton } from "../common/LinkButton";
+import { Badge, type BadgeVariant, Button, Collapse, DisclosureButton, LinkButton } from "../common";
 import {
 	asFileDiagnostics,
 	DiagnosticsList,

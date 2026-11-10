@@ -9,8 +9,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { stepIntent } from "../chat/work/work-steps";
-import { Spinner } from "../common";
-import { Collapse } from "../common/Collapse";
+import { Collapse, Spinner, StatusDot } from "../common";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
 import { getToolHeader, getToolRenderer } from "./index";
 import { PathLink } from "./media/PathLink";
@@ -117,6 +116,7 @@ export function ToolStatusIcon({
 	runningIndicator: RunningIndicator;
 	kindIcon: ReactNode;
 }) {
+	const t = useT();
 	return (
 		<span
 			aria-hidden
@@ -129,7 +129,7 @@ export function ToolStatusIcon({
 				runningIndicator === "spinner" ? (
 					<Spinner size="sm" spin />
 				) : (
-					<span className="size-1.5 rounded-full bg-(--sc-text-muted)" />
+					<StatusDot label={t("tools.status.running")} labelHidden tone="neutral" />
 				)
 			) : state === "error" ? (
 				<CircleX />

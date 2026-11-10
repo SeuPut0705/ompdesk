@@ -8,7 +8,7 @@
 import { AlertTriangle, Check } from "lucide-react";
 import type { ReactElement } from "react";
 import { useT } from "../../../lib/i18n";
-import { WorkingArc } from "../../common/WorkingArc";
+import { WorkingArc } from "../../common";
 import { type FoldSummary, foldSummaryText } from "./fold-summary";
 
 export function SidebarFoldSummary({ summary }: { summary: FoldSummary }): ReactElement | null {

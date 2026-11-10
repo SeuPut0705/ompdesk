@@ -9,7 +9,7 @@ import { inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { AsyncSection } from "../common";
+import { AsyncSection, Card } from "../common";
 
 export const STATS_RANGES = ["1h", "24h", "7d", "30d", "90d", "all"] as const;
 export type StatsRange = (typeof STATS_RANGES)[number];
@@ -96,7 +96,7 @@ export function MetricCard({
 }) {
 	const empty = EMPTY_FIGURE.test(value);
 	return (
-		<div className="omp-metric-card flex min-w-0 flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+		<Card className="omp-metric-card flex min-w-0 flex-col gap-1 px-4 py-3" padding="none">
 			<div className="truncate text-sc-xs text-(--sc-text-muted)" title={label}>
 				{label}
 			</div>
@@ -111,7 +111,7 @@ export function MetricCard({
 			</div>
 			{/* The detail wraps: a clipped "You 0 · Assist…" hides the figure it explains. */}
 			{sub && <div className="text-sc-xs break-words text-(--sc-text-muted)">{sub}</div>}
-		</div>
+		</Card>
 	);
 }
 
@@ -149,7 +149,7 @@ export function StatTable<T>({
 	onRowClick?: (row: T) => void;
 }) {
 	return (
-		<div className="overflow-x-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+		<Card className="overflow-x-auto" padding="none">
 			<table className="w-full border-collapse text-sc-sm text-(--sc-text-secondary)">
 				<thead>
 					<tr className="border-b border-(--sc-divider)">
@@ -205,18 +205,18 @@ export function StatTable<T>({
 					))}
 				</tbody>
 			</table>
-		</div>
+		</Card>
 	);
 }
 
 /** Bordered chart container; `height` is the canvas height in px (charts need a fixed box). */
 export function ChartBox({ height = 260, children }: { height?: number; children: ReactNode }) {
 	return (
-		<div className="rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
+		<Card padding="lg">
 			<div className="relative w-full" style={{ height }}>
 				{children}
 			</div>
-		</div>
+		</Card>
 	);
 }
 

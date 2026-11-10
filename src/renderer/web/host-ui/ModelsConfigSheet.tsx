@@ -1,10 +1,7 @@
 import { Monitor } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WebModelsText } from "../../../shared/web-host";
-import { Button } from "../../components/common/Button";
-import { Sheet } from "../../components/common/Sheet";
-import { Spinner } from "../../components/common/Spinner";
-import { TextEditor } from "../../components/common/TextEditor";
+import { Button, Sheet, Spinner, TextEditor } from "../../components/common";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { hostActionError } from "./errors";

@@ -5,8 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { useT } from "../../../lib/i18n";
-import { Checkbox } from "../../common/Checkbox";
-import { ConfirmDialog } from "../../common/ConfirmDialog";
+import { Checkbox, ConfirmDialog } from "../../common";
 
 export interface ProjectDeleteDialogProps {
 	/** The project asked about; null closes the dialog. */

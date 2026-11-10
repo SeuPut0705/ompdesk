@@ -35,11 +35,13 @@ import {
 	Badge,
 	Banner,
 	Button,
+	Card,
 	Checkbox,
 	ErrorDetail,
 	IconButton,
 	InlineNotice,
 	Input,
+	SectionLabel,
 	Sheet,
 	Spinner,
 	SwitchField,
@@ -197,12 +199,12 @@ function SettingFieldRow({
 					</div>
 				</div>
 			) : (
-				<div className="mt-2 flex items-center justify-between rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-1.5">
+				<Card className="mt-2 flex items-center justify-between px-3 py-1.5" padding="none">
 					<span className="text-sc-sm text-(--sc-text-muted)">••••••••</span>
 					<Button disabled={saving} onClick={onReplace} size="sm" type="button" variant="ghost">
 						{t("pluginDetail.replace")}
 					</Button>
-				</div>
+				</Card>
 			);
 		} else {
 			control = (
@@ -627,7 +629,6 @@ export function PluginDetailBody({
 			{t("common.retry")}
 		</Button>
 	);
-	const groupLabel = "mb-1 text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase";
 
 	if (detail === null && loading) {
 		return (
@@ -673,7 +674,7 @@ export function PluginDetailBody({
 					/>
 				</section>
 				<section>
-					<h3 className={groupLabel}>{t("pluginDetail.features")}</h3>
+					<SectionLabel className="mb-1">{t("pluginDetail.features")}</SectionLabel>
 					{detail.features.length === 0 ? (
 						<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("pluginDetail.featuresEmpty")}</p>
 					) : (
@@ -722,7 +723,7 @@ export function PluginDetailBody({
 					)}
 				</section>
 				<section>
-					<h3 className={groupLabel}>{t("pluginDetail.settings")}</h3>
+					<SectionLabel className="mb-1">{t("pluginDetail.settings")}</SectionLabel>
 					{fields.length === 0 ? (
 						<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("pluginDetail.settingsEmpty")}</p>
 					) : (

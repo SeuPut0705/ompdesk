@@ -1,7 +1,6 @@
 import { Monitor, Smartphone } from "lucide-react";
 import { useState } from "react";
-import { Button } from "../../components/common/Button";
-import { Sheet } from "../../components/common/Sheet";
+import { Button, Sheet } from "../../components/common";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { failureText, hostActionError } from "./errors";

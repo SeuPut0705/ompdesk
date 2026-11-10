@@ -17,8 +17,17 @@ import { listboxTarget } from "../../lib/listbox-nav";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, InlineNotice, Input, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
-import { SectionLabel } from "../common/SectionLabel";
+import {
+	Button,
+	EmptyState,
+	InlineNotice,
+	Input,
+	Modal,
+	OptionRow,
+	SearchField,
+	SectionLabel,
+	SkeletonRows,
+} from "../common";
 import { groupToolsBySource } from "./tool-groups";
 
 export function ForceToolDialog() {

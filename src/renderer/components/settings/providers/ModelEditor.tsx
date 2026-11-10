@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { CustomProviderModelInput, CustomProviderOptions } from "../../../../shared/ipc-types";
 import { useT } from "../../../lib/i18n";
-import { Button, Checkbox, IconButton, Input, Select } from "../../common";
+import { Button, Card, Checkbox, IconButton, Input, Select } from "../../common";
 
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
 type CostField = (typeof COST_FIELDS)[number];
@@ -92,7 +92,7 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 	};
 
 	return (
-		<div className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+		<Card padding="none">
 			<div className="flex items-center gap-2 px-3 py-2">
 				<div className="flex-1">
 					<Input
@@ -443,7 +443,7 @@ function ModelEditor({ model, readonly, disabled, onUpdate, onRemove, canRemove,
 					/>
 				</div>
 			)}
-		</div>
+		</Card>
 	);
 }
 

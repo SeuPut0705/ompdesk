@@ -7,7 +7,7 @@ import { acceptsActiveTabEvents } from "../../lib/tab-routing";
 import { useTabCommand } from "../../stores/session-runtime-context";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Modal, Spinner } from "../common";
+import { Button, Card, InlineNotice, Modal, Spinner } from "../common";
 
 type LiveAction =
 	| { kind: "frame"; frame: RpcLiveFrame }
@@ -139,11 +139,11 @@ export function LiveVoiceDialog() {
 						</span>
 					) : null}
 				</div>
-				<div className="space-y-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-4">
+				<Card className="space-y-3" padding="lg">
 					<Level label={t("live.input")} value={state.inputLevel} />
 					<Level label={t("live.output")} value={state.outputLevel} />
-				</div>
-				<div className="max-h-64 min-h-24 space-y-2 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-md">
+				</Card>
+				<Card className="max-h-64 min-h-24 space-y-2 overflow-y-auto text-sc-md">
 					{state.transcript.length > 0 ? (
 						state.transcript.map(entry => (
 							<div key={`${entry.role}:${entry.turn}`}>
@@ -161,7 +161,7 @@ export function LiveVoiceDialog() {
 						<div className="text-(--sc-text-muted)">{t("live.waiting")}</div>
 					)}
 					<div ref={transcriptEnd} />
-				</div>
+				</Card>
 				{state.error ? <InlineNotice live title={state.error} tone="danger" /> : null}
 			</div>
 		</Modal>

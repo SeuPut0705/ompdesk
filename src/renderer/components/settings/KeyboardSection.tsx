@@ -33,7 +33,7 @@ import {
 } from "../../lib/keymap";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Kbd } from "../common";
+import { Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Kbd } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 interface StaticHotkeyRow {
@@ -294,7 +294,7 @@ export function KeyboardSection({ query }: { query: string }) {
 								}
 								footer={
 									capturing && captureAction ? (
-										<div className="mt-2 flex flex-col gap-1 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) px-3 py-2">
+										<Card className="mt-2 flex flex-col gap-1" padding="sm" surface="2">
 											<div className="flex flex-wrap items-center gap-2">
 												<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)" role="status">
 													{t("hotkeys.remap.rebinding", { action: t(captureAction.labelKey) })}
@@ -334,7 +334,7 @@ export function KeyboardSection({ query }: { query: string }) {
 													{captureConflictLabel}
 												</span>
 											)}
-										</div>
+										</Card>
 									) : undefined
 								}
 								id={actionId ? `keyboard-action-${actionId}` : undefined}

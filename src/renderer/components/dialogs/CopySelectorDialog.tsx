@@ -10,7 +10,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, InlineNotice, Modal, SkeletonRows } from "../common";
+import { Button, EmptyState, InlineNotice, ListRow, Modal, SectionLabel, SkeletonRows } from "../common";
 
 export function CopySelectorDialog() {
 	const tabRpc = useTabRpc();
@@ -143,33 +143,26 @@ export function CopySelectorDialog() {
 							<SkeletonRows className="py-2" label={t("copySelector.loading")} widths={[60, 44, 70, 52]} />
 						) : (
 							flat.map((item, index) => (
-								<button
-									aria-current={index === selectedIndex ? "true" : undefined}
-									className={`flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) py-1.5 pr-2 text-left text-sc-md ${
-										index === selectedIndex
-											? "bg-(--sc-selected) text-(--sc-text)"
-											: "text-(--sc-text-secondary) hover:bg-(--sc-hover)"
-									}`}
-									data-copy-index={index}
+								<ListRow
+									buttonProps={{
+										"data-copy-index": index,
+										onDoubleClick: () => void copyTarget(item.target),
+									}}
 									key={item.target.id}
+									meta={item.target.hint}
 									onClick={() => setSelectedId(item.target.id)}
-									onDoubleClick={() => void copyTarget(item.target)}
-									style={{ paddingLeft: `calc(var(--sc-space-2) + ${item.depth} * var(--sc-space-4))` }}
-									type="button"
-								>
-									<span className="min-w-0 flex-1 truncate">{item.target.label}</span>
-									{item.target.hint && (
-										<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.target.hint}</span>
-									)}
-								</button>
+									rowProps={{
+										style: { paddingLeft: `calc(var(--sc-space-2) + ${item.depth} * var(--sc-space-4))` },
+									}}
+									selected={index === selectedIndex}
+									title={item.target.label}
+								/>
 							))
 						)}
 					</div>
 					<div className="flex min-h-0 flex-col">
 						<div className="min-h-0 flex-1 overflow-auto p-4">
-							<div className="mb-2 text-sc-xs font-medium text-(--sc-text-muted)">
-								{t("copySelector.preview")}
-							</div>
+							<SectionLabel className="mb-2">{t("copySelector.preview")}</SectionLabel>
 							<pre className="whitespace-pre-wrap break-words font-mono text-sc-sm leading-relaxed text-(--sc-text)">
 								{selected?.preview ?? ""}
 							</pre>

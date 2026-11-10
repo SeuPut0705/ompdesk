@@ -5,8 +5,7 @@ import { cx, formatDuration, resultDetails, resultText, sanitizeToolText } from 
 import { useT } from "../../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../../lib/preview";
 import { asArray, asNonEmptyString, asRecord } from "../../../lib/wire-value";
-import { ProgressBar } from "../../common/ProgressBar";
-import { Spinner } from "../../common/Spinner";
+import { ProgressBar, Spinner } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 
 type JobStatus = "running" | "completed" | "failed" | "cancelled";

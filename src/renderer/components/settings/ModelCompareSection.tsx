@@ -44,6 +44,7 @@ import {
 	Badge,
 	type BadgeVariant,
 	Button,
+	Card,
 	EmptyState,
 	IconButton,
 	InlineNotice,
@@ -461,7 +462,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 		body = (
 			// Wide matrix: scrolls both ways inside the section instead of pushing
 			// the page wider than a 900px window.
-			<div className="max-h-[70vh] overflow-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+			<Card className="max-h-[70vh] overflow-auto" padding="none">
 				<table className="w-full min-w-[42rem] border-separate border-spacing-0 text-left text-sc-md">
 					<thead className="sticky top-0 z-(--sc-z-raised) bg-(--sc-surface-1)">
 						<tr>
@@ -647,7 +648,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 						})}
 					</tbody>
 				</table>
-			</div>
+			</Card>
 		);
 	}
 

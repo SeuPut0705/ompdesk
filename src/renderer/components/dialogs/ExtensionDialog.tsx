@@ -48,7 +48,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { approvalHeldBack } from "../autopilot/autopilot-view";
-import { Badge, Button, Input, Kbd, LinkButton, TextArea } from "../common";
+import { Badge, Button, Card, Input, Kbd, LinkButton, TextArea } from "../common";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock, useBelowEditorDock } from "./ask-dock";
 import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
@@ -737,9 +737,13 @@ function OpenUrlDialog({
 					{request.instructions}
 				</p>
 			)}
-			<p className="mb-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) px-3 py-2 font-mono text-sc-sm break-all text-(--sc-text-secondary) select-text">
+			<Card
+				className="mb-2 font-mono text-sc-sm break-all text-(--sc-text-secondary) select-text"
+				padding="sm"
+				surface="2"
+			>
 				{target}
-			</p>
+			</Card>
 			<ChoiceList
 				choices={[
 					{ key: "open", label: t("extDialog.openUrl.open") },

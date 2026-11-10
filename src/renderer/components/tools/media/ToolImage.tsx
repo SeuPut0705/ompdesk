@@ -2,7 +2,7 @@ import { ImageOff } from "lucide-react";
 import { useState } from "react";
 import { basename } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { ZoomableImage, type ZoomableImageProps } from "../../common/ZoomableImage";
+import { ZoomableImage, type ZoomableImageProps } from "../../common";
 import { FileChip } from "./FileChip";
 
 /**

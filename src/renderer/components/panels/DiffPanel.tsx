@@ -21,7 +21,7 @@ import { PREVIEW_TEXT_CHARS } from "../../lib/preview";
 import { useSessionStore } from "../../stores/session";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
 import { type ChangesMode, useUiStore } from "../../stores/ui";
-import { DisclosureButton, EmptyState, IconButton, Select } from "../common";
+import { Card, DisclosureButton, EmptyState, IconButton, Select } from "../common";
 import { workspaceRelativePath } from "./FilesPanel";
 import { PANEL_ROW_SURFACE, PanelToolbar } from "./PanelChrome";
 import { RepositoryChanges } from "./RepositoryChanges";
@@ -225,7 +225,10 @@ const LINE_CLASS: Record<DiffLine["type"], string> = {
 function SplitDiff({ diff }: { diff: string }) {
 	const rows = useMemo(() => toSplitRows(parseDiff(diff)), [diff]);
 	return (
-		<div className="grid grid-cols-2 gap-px overflow-x-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-border-subtle) font-mono text-sc-sm leading-(--sc-leading-normal)">
+		<Card
+			className="grid grid-cols-2 gap-px overflow-x-auto bg-(--sc-border-subtle) font-mono text-sc-sm leading-(--sc-leading-normal)"
+			padding="none"
+		>
 			{(["left", "right"] as const).map(side => (
 				<div className="min-w-0 bg-(--sc-surface-2)" key={side}>
 					{rows.map((row, index) => {
@@ -243,7 +246,7 @@ function SplitDiff({ diff }: { diff: string }) {
 					})}
 				</div>
 			))}
-		</div>
+		</Card>
 	);
 }
 
@@ -406,9 +409,9 @@ function EditTimelineRow({
 				</span>
 			</DisclosureButton>
 			{expanded && (
-				<div className="mt-0.5 overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1">
+				<Card className="mt-0.5 overflow-hidden py-1" padding="none" surface="2">
 					<EditPreview entry={entry} />
-				</div>
+				</Card>
 			)}
 		</div>
 	);

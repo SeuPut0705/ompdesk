@@ -37,8 +37,17 @@ import { toastError } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import { BrandMark, Button, JumpToLatest, Kbd, Skeleton, Spinner } from "../common";
-import { Collapse } from "../common/Collapse";
+import {
+	BrandMark,
+	Button,
+	Collapse,
+	JumpToLatest,
+	Kbd,
+	Skeleton,
+	Spinner,
+	StatusDot,
+	type StatusTone,
+} from "../common";
 import { FirstRunSetupSlot, useFirstRunActive } from "../onboarding/FirstRunSlot";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -1674,6 +1683,18 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	);
 }
 
+/** A snapshot task's dot: its tone, and the word read out in place of colour. */
+const TODO_STATUS: Record<
+	TodoSnapshot["phases"][number]["tasks"][number]["status"],
+	{ tone: StatusTone; label: string }
+> = {
+	pending: { tone: "neutral", label: "todoPanel.status.pending" },
+	in_progress: { tone: "working", label: "todoPanel.status.inProgress" },
+	completed: { tone: "success", label: "todoPanel.status.completed" },
+	blocked: { tone: "warning", label: "todoPanel.status.blocked" },
+	abandoned: { tone: "danger", label: "todoPanel.status.abandoned" },
+};
+
 /**
  * Archived todo state rendered inline in the transcript where the change
  * happened (todo store history). Collapses to a one-line summary; expanding
@@ -1721,20 +1742,12 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 							)}
 							{phase.tasks.map((task, taskIndex) => (
 								<div key={`${task.content}-${taskIndex}`} className="flex items-center gap-2 py-0.5 text-sc-sm">
-									<span
-										aria-hidden
-										className={cx(
-											"size-1.5 shrink-0 rounded-full",
-											task.status === "completed"
-												? "bg-(--sc-success)"
-												: task.status === "in_progress"
-													? "bg-(--sc-accent)"
-													: task.status === "abandoned"
-														? "bg-(--sc-danger)"
-														: task.status === "blocked"
-															? "bg-(--sc-warning)"
-															: "bg-(--sc-border)",
-										)}
+									<StatusDot
+										className="shrink-0"
+										label={t(TODO_STATUS[task.status].label)}
+										labelHidden
+										pulse={false}
+										tone={TODO_STATUS[task.status].tone}
 									/>
 									<span
 										className={cx(

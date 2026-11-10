@@ -1,8 +1,7 @@
 import { Download, Eye, FolderSearch, Monitor } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import type { IpcOpenPathResult } from "../../../shared/ipc-types";
-import { Button } from "../../components/common/Button";
-import { Sheet } from "../../components/common/Sheet";
+import { Button, Sheet } from "../../components/common";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";

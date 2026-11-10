@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Kbd } from "../../common/Kbd";
+import { Kbd } from "../../common";
 
 /** The most chips the composer shows (and the most Alt+N digits it answers). */
 export const MAX_NEXT_PROMPT_CHIPS = 3;

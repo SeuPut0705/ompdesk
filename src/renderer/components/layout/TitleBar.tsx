@@ -51,6 +51,7 @@ import { useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { useWebLinkLost } from "../../web/link-status";
 import {
+	AutoTitleButton,
 	Badge,
 	Button,
 	type ContextMenuItem,
@@ -62,7 +63,6 @@ import {
 	Spinner,
 	Tooltip,
 } from "../common";
-import { AutoTitleButton } from "../common/AutoTitleButton";
 import { WorkspaceDialog } from "../dialogs/WorkspaceDialog";
 import { DeviceChip } from "../remote/DeviceChip";
 import { ForkParent } from "./ForkParent";

@@ -23,6 +23,7 @@ import {
 	type BadgeVariant,
 	Banner,
 	Button,
+	Card,
 	ConfirmDialog,
 	EmptyState,
 	ErrorDetail,
@@ -30,9 +31,11 @@ import {
 	Input,
 	ListRow,
 	PathText,
+	ProgressBar,
 	Select,
 	SkeletonRows,
 	Spinner,
+	type StatusTone,
 } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 import { useModelText } from "./use-model-text";
@@ -47,6 +50,14 @@ const SEVERITY_BADGE: Record<Severity, BadgeVariant> = {
 	low: "success",
 	informational: "info",
 };
+const SEVERITY_TONE: Record<Severity, StatusTone> = {
+	critical: "danger",
+	high: "danger",
+	medium: "warning",
+	low: "success",
+	informational: "info",
+};
+
 const SEVERITY_FILL: Record<Severity, string> = {
 	critical: "bg-(--sc-danger)",
 	high: "bg-(--sc-danger)",
@@ -451,7 +462,7 @@ export function SecuritySection() {
 						{t("security.empty.unscanned")}
 					</p>
 				) : (
-					<div className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+					<Card className="security-master-detail overflow-hidden" padding="none">
 						<section aria-label={t("security.currentRisk")} className="security-findings-pane min-w-0">
 							<div className="border-b border-(--sc-divider) px-3 py-3">
 								<div className="flex items-center justify-between gap-3">
@@ -462,22 +473,15 @@ export function SecuritySection() {
 								</div>
 								{findings.length > 0 && (
 									<>
-										<div
-											aria-hidden
-											className="mt-2 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
-											data-risk-gauge
-										>
-											{SEVERITIES.map(severity => {
-												const count = counts[severity];
-												if (count === 0) return null;
-												return (
-													<span
-														className={SEVERITY_FILL[severity]}
-														key={severity}
-														style={{ width: `${(count / findings.length) * 100}%` }}
-													/>
-												);
-											})}
+										{/* The badges below say the same counts in words, so the bar stays out of the reading order. */}
+										<div aria-hidden className="mt-2" data-risk-gauge>
+											<ProgressBar
+												segments={SEVERITIES.map(severity => ({
+													label: t(`security.severity.${severity}`),
+													tone: SEVERITY_TONE[severity],
+													value: counts[severity],
+												}))}
+											/>
 										</div>
 										<div className="mt-2 flex flex-wrap gap-1.5">
 											{SEVERITIES.filter(severity => counts[severity] > 0).map(severity => (
@@ -613,7 +617,7 @@ export function SecuritySection() {
 								</Banner>
 							)}
 						</aside>
-					</div>
+					</Card>
 				)}
 
 				{selectedFinding && (

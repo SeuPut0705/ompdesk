@@ -1,7 +1,7 @@
 import { FileCode2 } from "lucide-react";
-import type { ReactNode } from "react";
 import { cx, resultDetails, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
+import { Badge } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { ToolTextPreview } from "./ToolTextPreview";
 
@@ -78,22 +78,6 @@ export function parseChangeGroups(text: string): ChangeGroup[] {
 	return groups;
 }
 
-export function Chip({ children, title, warning }: { children: ReactNode; title?: string; warning?: boolean }) {
-	return (
-		<span
-			title={title}
-			className={cx(
-				"max-w-64 shrink-0 truncate rounded px-1 py-px font-mono text-omp-xxs tabular-nums",
-				warning
-					? "bg-[var(--omp-warning)]/15 text-[var(--omp-warning)]"
-					: "bg-[var(--omp-bg-tertiary)] text-[var(--omp-muted)]", // surface-ok: tiny count/info pill
-			)}
-		>
-			{children}
-		</span>
-	);
-}
-
 /** ast-grep/ast-edit `parseErrors` (capped at stock's PARSE_ERRORS_LIMIT, `parseErrorsTotal` before the cap). */
 export function ParseIssues({ details }: { details: Record<string, unknown> | undefined }) {
 	const t = useT();
@@ -166,24 +150,28 @@ export function AstEditRenderer({ args, result, isError, isPartial, partialResul
 				<span className="min-w-0 flex-1 truncate text-[var(--omp-text)]" title={fullPattern || undefined}>
 					{pattern || t("tools.astedit.fallback")}
 				</span>
-				{ops.length > 1 && <Chip>{t("tools.astedit.rewrites", { count: ops.length })}</Chip>}
+				{ops.length > 1 && <Badge>{t("tools.astedit.rewrites", { count: ops.length })}</Badge>}
 				{staged && !isPartial && !isError && totalReplacements > 0 && (
-					<Chip warning>{t("tools.astedit.proposed")}</Chip>
+					<Badge variant="warning">{t("tools.astedit.proposed")}</Badge>
 				)}
 			</div>
 
 			{/* Meta chips: counts, scope, searched, limit (TUI status-line meta) */}
 			{hasDetails && !isPartial && !isError && (
 				<div className="flex flex-wrap items-center gap-1">
-					<Chip>
+					<Badge>
 						{t("tools.astedit.replacements", {
 							count: totalReplacements,
 						})}
-					</Chip>
-					{totalReplacements > 0 && <Chip>{t("tools.astedit.files", { count: filesTouched })}</Chip>}
-					{scope && <Chip title={scope}>{t("tools.astedit.scope", { path: scope })}</Chip>}
-					{filesSearched > 0 && <Chip>{t("tools.astedit.searched", { count: filesSearched })}</Chip>}
-					{limitReached && <Chip warning>{t("tools.astedit.limitChip")}</Chip>}
+					</Badge>
+					{totalReplacements > 0 && <Badge>{t("tools.astedit.files", { count: filesTouched })}</Badge>}
+					{scope && (
+						<span title={scope} className="min-w-0">
+							<Badge className="max-w-64 truncate">{t("tools.astedit.scope", { path: scope })}</Badge>
+						</span>
+					)}
+					{filesSearched > 0 && <Badge>{t("tools.astedit.searched", { count: filesSearched })}</Badge>}
+					{limitReached && <Badge variant="warning">{t("tools.astedit.limitChip")}</Badge>}
 				</div>
 			)}
 

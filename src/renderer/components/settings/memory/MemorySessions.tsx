@@ -12,8 +12,7 @@ import type {
 } from "../../../../shared/ai-memory";
 import { formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, CopyButton, ListRow, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
-import { TimeAgo } from "../../common/TimeAgo";
+import { Badge, Button, CopyButton, ListRow, MasterDetail, SettingInfo, SkeletonRows, TimeAgo } from "../../common";
 import { HOME_AGENT, MemoryFrame, MutedLine, ReadError } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 

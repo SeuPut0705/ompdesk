@@ -20,6 +20,7 @@ import {
 	Badge,
 	type BadgeVariant,
 	Button,
+	Card,
 	Checkbox,
 	IconButton,
 	InlineNotice,
@@ -291,14 +292,10 @@ export function PrConversation({ detail }: { detail: RpcPrDetail }) {
 			{!comments && !error ? (
 				<div aria-label={t("prCenter.loading")} className="flex flex-col gap-2" role="status">
 					{[0, 1].map(index => (
-						<div
-							aria-hidden
-							className="flex flex-col gap-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-3 py-2"
-							key={index}
-						>
+						<Card aria-hidden className="flex flex-col gap-2" key={index} padding="sm">
 							<Skeleton className="h-3 w-32" />
 							<Skeleton className="h-3 w-[80%]" />
-						</div>
+						</Card>
 					))}
 				</div>
 			) : comments && comments.entries.length === 0 ? (
@@ -306,30 +303,29 @@ export function PrConversation({ detail }: { detail: RpcPrDetail }) {
 			) : (
 				<ul className="flex flex-col gap-2">
 					{comments?.entries.map((entry, index) => (
-						<li
-							className="flex flex-col gap-1 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-3 py-2"
-							key={`${entry.createdAt}:${index}`}
-						>
-							<div className="flex flex-wrap items-center gap-2 text-sc-xs text-(--sc-text-muted)">
-								<span className="text-(--sc-text-secondary)">@{entry.author}</span>
-								{entry.kind === "review" && entry.state && (
-									<Badge variant={REVIEW_STATE_TONE[entry.state] ?? "default"}>
-										{t(`prCenter.review.state.${entry.state}`)}
-									</Badge>
-								)}
-								{entry.kind === "inline" && entry.path && (
-									<span className="font-mono">
-										{entry.path}
-										{entry.line ? `:${entry.line}` : ""}
-									</span>
-								)}
-								<span className="ml-auto">{formatTimeAgo(entry.createdAt)}</span>
-							</div>
-							{entry.body.trim() && (
-								<div className="text-sc-sm">
-									<MarkdownRenderer content={entry.body} />
+						<li key={`${entry.createdAt}:${index}`}>
+							<Card className="flex flex-col gap-1" padding="sm">
+								<div className="flex flex-wrap items-center gap-2 text-sc-xs text-(--sc-text-muted)">
+									<span className="text-(--sc-text-secondary)">@{entry.author}</span>
+									{entry.kind === "review" && entry.state && (
+										<Badge variant={REVIEW_STATE_TONE[entry.state] ?? "default"}>
+											{t(`prCenter.review.state.${entry.state}`)}
+										</Badge>
+									)}
+									{entry.kind === "inline" && entry.path && (
+										<span className="font-mono">
+											{entry.path}
+											{entry.line ? `:${entry.line}` : ""}
+										</span>
+									)}
+									<span className="ml-auto">{formatTimeAgo(entry.createdAt)}</span>
 								</div>
-							)}
+								{entry.body.trim() && (
+									<div className="text-sc-sm">
+										<MarkdownRenderer content={entry.body} />
+									</div>
+								)}
+							</Card>
 						</li>
 					))}
 				</ul>

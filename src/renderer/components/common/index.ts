@@ -33,6 +33,8 @@ export { ErrorDetail } from "./ErrorDetail";
 export { IconButton, type IconButtonProps, type IconButtonSize } from "./IconButton";
 export { InlineNotice, type InlineNoticeTone } from "./InlineNotice";
 export {
+	FieldLabel,
+	type FieldLabelProps,
 	type FieldSize,
 	Input,
 	type InputProps,
@@ -54,6 +56,7 @@ export {
 	useMasterDetail,
 } from "./MasterDetail";
 export { Modal, type ModalAnchor, type ModalPlacement, type ModalProps, type ModalSize } from "./Modal";
+export { OptionGroup, type OptionGroupProps } from "./OptionGroup";
 export { OptionRow, type OptionRowProps } from "./OptionRow";
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
@@ -92,7 +95,7 @@ export {
 	SwitchTile,
 	type SwitchTileProps,
 } from "./Switch";
-export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
+export { type TabChangeVia, type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
 export { TextEditor, type TextEditorLanguage, type TextEditorProps } from "./TextEditor";
 export { TimeAgo } from "./TimeAgo";
 export { ToastStack } from "./Toast";

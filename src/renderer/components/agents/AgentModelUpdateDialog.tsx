@@ -10,7 +10,7 @@ import type { AgentFileScope } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toast, toastError } from "../../stores/toast";
-import { Button, Modal } from "../common";
+import { Button, Card, Modal } from "../common";
 
 export interface AgentModelUpdateTarget {
 	name: string;
@@ -101,10 +101,10 @@ export function AgentModelUpdateDialog({
 			{target && (
 				<div className="flex flex-col gap-3">
 					<p className="text-sc-sm break-all text-(--sc-text-muted)">{target.filePath}</p>
-					<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-divider)">
+					<Card className="overflow-hidden" padding="none">
 						<DiffLines label={t("agentHub.defs.roleModel.removed")} lines={target.edit.before} sign="-" />
 						<DiffLines label={t("agentHub.defs.roleModel.added")} lines={target.edit.after} sign="+" />
-					</div>
+					</Card>
 					<p className="text-sc-sm text-(--sc-text-secondary)">{t("agentHub.defs.roleModel.only")}</p>
 					{!target.offer.legacy && (
 						<p className="text-sc-sm text-(--sc-warning)">{t("agentHub.defs.roleModel.edited")}</p>

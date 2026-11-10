@@ -24,6 +24,8 @@ export interface ChoiceCardsProps<V extends string> {
 	onChange: (next: V) => void;
 	/** Each card carries its value in this attribute (`data-mcp-transport="stdio"`) for tests and callers. */
 	optionAttr: `data-${string}`;
+	/** The group's id; a `FieldLabel` names it by `aria-labelledby`. */
+	id?: string;
 	"aria-label"?: string;
 	"aria-labelledby"?: string;
 	disabled?: boolean;

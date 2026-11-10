@@ -17,7 +17,7 @@ import { lastUsedAccounts } from "../../../lib/usage-reports";
 import { useModelStore } from "../../../stores/model";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
-import { UsageGauges, usageDescription, usageTooltip } from "../../common/UsageGauges";
+import { UsageGauges, usageDescription, usageTooltip } from "../../common";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { AccountAddress, bareEmail, shortAccountLabel } from "../AccountLimit";
 

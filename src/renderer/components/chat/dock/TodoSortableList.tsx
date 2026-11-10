@@ -28,8 +28,15 @@ import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { onEscape } from "../../../lib/keymap";
 import type { UiTodoPhase, UiTodoTask } from "../../../stores/todo";
-import { DisclosureButton, IconButton } from "../../common";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, type ContextMenuItem } from "../../common/ContextMenu";
+import {
+	anchorFromEvent,
+	ContextMenu,
+	type ContextMenuAnchor,
+	type ContextMenuItem,
+	DisclosureButton,
+	IconButton,
+	StatusDot,
+} from "../../common";
 
 const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
 	pending: "todoPanel.status.pending",
@@ -52,8 +59,9 @@ function nextStatus(current: TodoTask["status"]): TodoTask["status"] {
 }
 
 function TodoStatusIcon({ status }: { status: TodoTask["status"] }) {
+	const t = useT();
 	if (status === "in_progress") {
-		return <span aria-hidden="true" className="size-2 rounded-full bg-(--sc-accent)" />;
+		return <StatusDot label={t(STATUS_LABEL_KEY.in_progress)} labelHidden pulse={false} size="md" tone="working" />;
 	}
 	if (status === "completed") {
 		return <CheckCircle2 aria-hidden="true" className="text-(--sc-text-muted)" size={16} />;

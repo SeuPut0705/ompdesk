@@ -13,8 +13,7 @@ import {
 } from "../../lib/thinking";
 import { useMessagesStore } from "../../stores/messages";
 import { useUiStore } from "../../stores/ui";
-import { DisclosureButton, LiveText } from "../common";
-import { Collapse } from "../common/Collapse";
+import { Collapse, DisclosureButton, LiveText } from "../common";
 import { formatTokenRate } from "./TurnOutputMeter";
 
 export interface ThinkingBlockProps {

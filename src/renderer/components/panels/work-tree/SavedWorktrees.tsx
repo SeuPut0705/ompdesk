@@ -15,8 +15,7 @@ import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
-import { Button } from "../../common";
-import { SettingInfo } from "../../common/SettingInfo";
+import { Button, SettingInfo } from "../../common";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
 
 interface SavedList {

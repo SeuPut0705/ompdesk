@@ -5,8 +5,7 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { AsyncSection, EmptyState, Modal, SearchField } from "../common";
-import { SectionLabel } from "../common/SectionLabel";
+import { AsyncSection, EmptyState, Modal, SearchField, SectionLabel } from "../common";
 import { groupToolsBySource } from "./tool-groups";
 
 /**

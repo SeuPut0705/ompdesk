@@ -73,11 +73,20 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
-import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
-import { Collapse } from "../../common/Collapse";
-import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { anchorFromEvent, ContextMenu, type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
-import { TimeAgo } from "../../common/TimeAgo";
+import {
+	anchorFromEvent,
+	Button,
+	Collapse,
+	ConfirmDialog,
+	ContextMenu,
+	type ContextMenuItem,
+	IconButton,
+	InlineNotice,
+	ListRow,
+	MenuButton,
+	Spinner,
+	TimeAgo,
+} from "../../common";
 import { workingAgentCount } from "../live-work";
 import { SessionLiveAge, SessionLiveTitle } from "../SessionLiveTitle";
 import { childFoldSignal, type FoldSignal, type FoldSummary, foldSummary } from "./fold-summary";

@@ -36,7 +36,7 @@ import { basename, cx, formatBytes, uiLocale } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useLinkMenu } from "../../../lib/link-menu";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { IconButton } from "../../common/IconButton";
+import { IconButton } from "../../common";
 import { fileExtension, fileIconKind, viewerKind } from "../../panels/viewers/file-kind";
 import { parseDelimited } from "../../panels/viewers/parse";
 import { FileActions, previewFile } from "./file-actions";

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import type { TodoSnapshot } from "../../../stores/todo";
-import { Collapse } from "../../common/Collapse";
+import { Collapse } from "../../common";
 
 /**
  * A finished card's todo progress as its own todo call recorded it: one row, read-only, opening the list in place.

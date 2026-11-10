@@ -100,7 +100,7 @@ export function PeerLimitsDialog({
 						})}
 					</p>
 				)}
-				<button className="hidden" type="submit" />
+				<Button className="hidden" type="submit" />
 			</form>
 		</Modal>
 	);

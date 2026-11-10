@@ -7,8 +7,7 @@ import { createElement, type KeyboardEvent as ReactKeyboardEvent, type MouseEven
 import { RAIL_PINS, type RailPin } from "../../../../shared/sidebar-prefs";
 import { useT } from "../../../lib/i18n";
 import { RAIL_PIN_LABEL_KEYS, useSidebarPrefs } from "../../../stores/sidebar-prefs";
-import { Modal, SwitchTile } from "../../common";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor, Modal, SwitchTile } from "../../common";
 import { RAIL_PIN_ICONS } from "./rail-pin-icons";
 
 export function SidebarPinsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {

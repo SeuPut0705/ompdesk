@@ -14,7 +14,7 @@ import { memo, type ReactNode, type RefObject, useEffect, useMemo, useState } fr
 import { useT } from "../../lib/i18n";
 import { PREVIEW_HEIGHT_LG } from "../../lib/preview";
 import { SVG_PALETTE_VARIABLES, type SvgPalette, sanitizeSvg, svgDataUrl, svgFillsWidth } from "../../lib/svg-preview";
-import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
+import { ZoomableImage, type ZoomableImageHandle } from "../common";
 import { CodeBlock } from "./CodeBlock";
 import { Figure } from "./Figure";
 

@@ -26,8 +26,17 @@ import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { accountGauges, gaugeColumns } from "../../../lib/usage-windows";
 import { toast, toastError } from "../../../stores/toast";
-import { Badge, Button, ConfirmDialog, type ContextMenuItem, InlineNotice } from "../../common";
-import { MAX_USAGE_COLUMNS, NEAR_FRACTION, UsageGauges, usageTooltip } from "../../common/UsageGauges";
+import {
+	Badge,
+	Button,
+	ConfirmDialog,
+	type ContextMenuItem,
+	InlineNotice,
+	MAX_USAGE_COLUMNS,
+	NEAR_FRACTION,
+	UsageGauges,
+	usageTooltip,
+} from "../../common";
 import { bareEmail } from "../../layout/AccountLimit";
 import { useSettingsNavigate } from "../settings-navigation";
 import { ConnectedRow, ProviderGroupItem } from "./ConnectedRow";

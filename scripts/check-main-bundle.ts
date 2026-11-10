@@ -295,7 +295,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // (`use-modal-layer.ts`), `StatusDot` and the segmented `ProgressBar`, the question card titled by its question, the
 // plan sheet's review footer and numbering, the composer's Mode rows as tiles, the pickers' `EmptyState`s and the
 // work tree rows' fixed columns, all on surfaces the first screen holds: 2,184,833, 8,292 bytes over the measure above.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_184_833;
+// The first screen's private dots, frames, notices and labels moved onto the kit, whose `Tabs` carries a tab's marks
+// and tooltip and whose `Banner`, `Sheet`, `ListRow` and menu items took the options their private copies had
+// (10 Nov 2026): 2,185,228, 395 bytes more.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_185_228;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

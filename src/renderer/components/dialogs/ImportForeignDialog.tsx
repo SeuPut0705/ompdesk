@@ -22,6 +22,7 @@ import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
 import {
 	Button,
+	Card,
 	Checkbox,
 	EmptyState,
 	IconButton,
@@ -387,11 +388,12 @@ export function ImportForeignDialog() {
 			{importError && (
 				<InlineNotice className="mb-2" detail={importError.cause} live title={importError.message} tone="danger" />
 			)}
-			<div
+			<Card
 				className={cx(
-					"max-h-[46vh] overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)",
+					"max-h-[46vh] overflow-y-auto",
 					(state?.loading || state?.error || filtered.length > 0) && "min-h-48",
 				)}
+				padding="none"
 			>
 				{state?.loading && <SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />}
 				{state?.error && (
@@ -457,7 +459,7 @@ export function ImportForeignDialog() {
 							</span>
 						</label>
 					))}
-			</div>
+			</Card>
 		</Modal>
 	);
 }

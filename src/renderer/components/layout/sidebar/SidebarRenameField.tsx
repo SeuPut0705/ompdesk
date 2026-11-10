@@ -11,8 +11,7 @@ import { useAutoTitle } from "../../../hooks/use-auto-title";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { onEscape } from "../../../lib/keymap";
-import { Input } from "../../common";
-import { AutoTitleButton } from "../../common/AutoTitleButton";
+import { AutoTitleButton, Input } from "../../common";
 
 interface SidebarRenameFieldProps {
 	value: string;

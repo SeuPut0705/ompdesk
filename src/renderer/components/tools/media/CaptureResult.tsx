@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ZoomableImage } from "../../common/ZoomableImage";
+import { ZoomableImage } from "../../common";
 import { ToolTextPreview } from "../renderers/ToolTextPreview";
 
 /**

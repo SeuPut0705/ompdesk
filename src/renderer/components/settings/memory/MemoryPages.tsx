@@ -23,11 +23,12 @@ import {
 	ListRow,
 	MasterDetail,
 	SearchField,
+	SectionLabel,
 	SettingInfo,
 	SkeletonRows,
 	TextArea,
+	TimeAgo,
 } from "../../common";
-import { TimeAgo } from "../../common/TimeAgo";
 import { MemoryFrame, MutedLine, ReadError, unusualTier, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
@@ -126,10 +127,13 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 			})}
 			{deleted.length > 0 && (
 				<section data-memory-group="deleted">
-					<h4 className="flex items-center gap-1 px-1 pt-2 pb-1 text-sc-xs font-semibold text-(--sc-text-muted) uppercase">
+					<SectionLabel
+						action={<SettingInfo text={t("memory.pages.deleted.info")} />}
+						as="h4"
+						className="px-1 pt-2 pb-1"
+					>
 						{t("memory.pages.deleted")}
-						<SettingInfo text={t("memory.pages.deleted.info")} />
-					</h4>
+					</SectionLabel>
 					{deleted.map(item => (
 						<div
 							className="flex items-center gap-2 px-2 py-1 text-sc-sm"

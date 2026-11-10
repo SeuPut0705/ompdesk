@@ -34,7 +34,7 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { settleTabPlanApproval } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Spinner, TextArea } from "../common";
+import { InlineNotice, Spinner, TextArea } from "../common";
 import { type Choice, ChoiceList, PromptCard } from "./PromptCard";
 
 type SubmitKind = PlanApprovalSubmitState["kind"];
@@ -244,11 +244,7 @@ export function PlanApprovalDialog() {
 						<p className="text-sc-sm text-(--sc-text-muted)">{t("planApproval.emptyPlan")}</p>
 					)}
 				</div>
-				{notice !== null && (
-					<div className="rounded-(--sc-radius-md) border border-(--sc-warning) px-3 py-2 text-sc-sm text-(--sc-warning)">
-						{notice}
-					</div>
-				)}
+				{notice !== null && <InlineNotice title={notice} tone="warning" />}
 				<ChoiceList choices={choices} onChoose={choose} />
 				{showRefine && (
 					<TextArea

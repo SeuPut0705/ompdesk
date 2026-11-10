@@ -66,7 +66,7 @@ describe("the plan document sheet", () => {
 		await mount("## Steps\n1. Reproduce\n2. Fix\n\n## Risks\n- Same race elsewhere\n");
 		const numbers = [...container.querySelectorAll("section span.text-right")].map(span => span.textContent);
 		expect(numbers).toEqual(["1", "2", "1"]);
-		expect(container.querySelector('[data-tab-id="steps"] span')?.textContent).toBe("2");
+		expect(container.querySelector('[data-tab-id="steps"]')?.textContent).toBe("Steps2");
 	});
 	it("is a reader with plan mode off: no feedback box, no approve or request", async () => {
 		await mount("## Steps\n1. Reproduce\n", false);

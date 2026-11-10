@@ -123,11 +123,58 @@ describe("Tabs", () => {
 		expect(change).toHaveBeenLastCalledWith("a");
 	});
 
-	it("reports the clicked tab's id", async () => {
+	it("reports the clicked tab's id, and that a click moved it", async () => {
 		const change = vi.fn();
 		await mount(<Tabs activeId="a" onChange={change} tabs={TABS} />);
 		await act(async () => tabs()[2].click());
-		expect(change).toHaveBeenCalledExactlyOnceWith("c");
+		expect(change).toHaveBeenCalledExactlyOnceWith("c", "click");
+	});
+
+	it("says a key moved the selection, so a caller can keep focus on the strip", async () => {
+		const change = vi.fn();
+		await mount(<Tabs activeId="a" onChange={change} tabs={TABS} />);
+		await press("ArrowRight");
+		await press("End");
+		expect(change.mock.calls).toEqual([
+			["b", "key"],
+			["c", "key"],
+		]);
+	});
+
+	it("carries a tab's tooltip, data hooks and marks, and the list's own data hooks", async () => {
+		await mount(
+			<Tabs
+				activeId="q0"
+				ariaLabel="Questions"
+				data-ask-steps=""
+				onChange={() => {}}
+				tabs={[
+					{
+						id: "q0",
+						label: "Target",
+						tooltip: "Target · Where should this deploy?",
+						attrs: { "data-ask-step": 0 },
+						leading: <svg aria-hidden data-mark="done" />,
+						trailing: <span className="sr-only">, answered</span>,
+					},
+					{ id: "q1", label: "2", attrs: { "data-ask-step": 1 } },
+				]}
+				variant="segmented"
+			/>,
+		);
+		const list = document.querySelector("[role='tablist']");
+		expect(list?.hasAttribute("data-ask-steps")).toBe(true);
+		const [first, second] = tabs();
+		expect(first.getAttribute("title")).toBe("Target · Where should this deploy?");
+		expect(first.getAttribute("data-ask-step")).toBe("0");
+		expect(first.getAttribute("data-tab-id")).toBe("q0");
+		// The mark leads the label; the words that complete the name trail it.
+		expect(first.firstElementChild?.querySelector("[data-mark='done']")).not.toBeNull();
+		expect(first.lastElementChild?.textContent).toBe(", answered");
+		expect(first.textContent).toBe("Target, answered");
+		expect(second.getAttribute("title")).toBeNull();
+		expect(second.getAttribute("data-ask-step")).toBe("1");
+		expect(second.querySelector("[data-mark]")).toBeNull();
 	});
 
 	it("does not report a click on a disabled tab", async () => {

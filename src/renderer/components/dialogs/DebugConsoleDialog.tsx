@@ -42,10 +42,13 @@ import {
 	Badge,
 	type BadgeVariant,
 	Button,
+	Card,
 	DisclosureButton,
 	EmptyState,
 	InlineNotice,
+	ListRow,
 	Modal,
+	SectionLabel,
 	SkeletonRows,
 	Spinner,
 	TextArea,
@@ -310,25 +313,19 @@ function SessionRow({
 	const location = summaryLocation(session);
 	if (location) details.push(location);
 	return (
-		<button
-			aria-current={selected ? "true" : undefined}
-			className={cx(
-				"flex min-h-10 w-full flex-col gap-1 rounded-(--sc-radius-md) border border-transparent px-3 py-2 text-left",
-				selected ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-			)}
+		<ListRow
+			description={details.length > 0 ? details.join(" · ") : undefined}
+			meta={<span className="font-mono">{session.id}</span>}
 			onClick={onSelect}
-			type="button"
-		>
-			<div className="flex flex-wrap items-center gap-2">
-				<span className="font-mono text-sc-md font-medium text-(--sc-text)">{session.adapter}</span>
-				<StatusBadge status={session.status} t={t} />
-				{active ? <Badge variant="info">{t("debug.active")}</Badge> : null}
-				<span className="ml-auto font-mono text-sc-xs text-(--sc-text-muted)">{session.id}</span>
-			</div>
-			{details.length > 0 ? (
-				<div className="truncate text-sc-sm text-(--sc-text-muted)">{details.join(" · ")}</div>
-			) : null}
-		</button>
+			selected={selected}
+			title={
+				<span className="inline-flex items-center gap-2">
+					<span className="font-mono font-medium">{session.adapter}</span>
+					<StatusBadge status={session.status} t={t} />
+					{active ? <Badge variant="info">{t("debug.active")}</Badge> : null}
+				</span>
+			}
+		/>
 	);
 }
 
@@ -343,7 +340,7 @@ function ThreadsTable({
 }) {
 	if (threads.length === 0) return <EmptyState size="sm" title={t("debug.emptyThreads")} />;
 	return (
-		<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+		<Card className="overflow-hidden" padding="none">
 			<div className="grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-2 border-b border-(--sc-divider) px-3 py-1.5 text-sc-xs font-medium text-(--sc-text-muted)">
 				<span>{t("debug.col.id")}</span>
 				<span>{t("debug.col.name")}</span>
@@ -363,7 +360,7 @@ function ThreadsTable({
 					)}
 				</div>
 			))}
-		</div>
+		</Card>
 	);
 }
 
@@ -433,7 +430,7 @@ function SnapshotCard({
 	const location = summaryLocation(snapshot);
 	const frame = [snapshot.frameName, location].filter((part): part is string => Boolean(part)).join(" @ ");
 	return (
-		<div className="flex flex-col gap-1.5 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2.5">
+		<Card className="flex flex-col gap-1.5" padding="sm">
 			<div className="flex flex-wrap items-center gap-2">
 				<span className="font-mono text-sc-md font-medium text-(--sc-text)">{snapshot.adapter}</span>
 				<StatusBadge status={snapshot.status} t={t} />
@@ -448,7 +445,7 @@ function SnapshotCard({
 					<MetaRow label={t("debug.meta.exitCode")} value={String(snapshot.exitCode)} />
 				) : null}
 			</div>
-		</div>
+		</Card>
 	);
 }
 
@@ -610,19 +607,23 @@ export function DebugConsoleDialog() {
 		>
 			<div className="flex flex-col gap-4">
 				<section>
-					<div className="mb-1 flex items-center justify-between">
-						<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.sessions")}</span>
-						<Button
-							disabled={!sidecarReady || pending > 0}
-							icon={<RefreshCw />}
-							onClick={() => void refreshSessions()}
-							size="sm"
-							variant="ghost"
-							title={!sidecarReady ? t("common.notConnected") : undefined}
-						>
-							{t("common.refresh")}
-						</Button>
-					</div>
+					<SectionLabel
+						action={
+							<Button
+								disabled={!sidecarReady || pending > 0}
+								icon={<RefreshCw />}
+								onClick={() => void refreshSessions()}
+								size="sm"
+								variant="ghost"
+								title={!sidecarReady ? t("common.notConnected") : undefined}
+							>
+								{t("common.refresh")}
+							</Button>
+						}
+						className="mb-1"
+					>
+						{t("debug.sessions")}
+					</SectionLabel>
 					{sessions === null ? (
 						sessionsError ? (
 							<InlineNotice
@@ -716,21 +717,23 @@ export function DebugConsoleDialog() {
 
 				{activeSession || result ? (
 					<section>
-						<div className="mb-1 flex items-center justify-between">
-							<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.result")}</span>
-							{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}
-						</div>
-						<div className="max-h-72 min-h-28 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+						<SectionLabel
+							action={<span>{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}</span>}
+							className="mb-1"
+						>
+							{t("debug.result")}
+						</SectionLabel>
+						<Card className="max-h-72 min-h-28 overflow-auto">
 							{result ? (
 								<ResultBody result={result} t={t} />
 							) : (
 								<EmptyState size="sm" title={t("debug.noResult")} />
 							)}
-						</div>
+						</Card>
 					</section>
 				) : null}
 
-				<section className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+				<Card padding="none">
 					<DisclosureButton
 						chevronClassName="size-(--sc-icon-sm)"
 						className="min-h-9 rounded-(--sc-radius-md) px-3 py-2 text-sc-md font-medium text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text)"
@@ -765,7 +768,7 @@ export function DebugConsoleDialog() {
 							/>
 						</div>
 					) : null}
-				</section>
+				</Card>
 			</div>
 		</Modal>
 	);

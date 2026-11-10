@@ -17,6 +17,7 @@ import {
 	type BadgeVariant,
 	Banner,
 	Button,
+	Card,
 	ConfirmDialog,
 	CopyButton,
 	ErrorDetail,
@@ -344,7 +345,7 @@ export function SshSection() {
 					{!editing ? (
 						emptyState
 					) : (
-						<div className="ssh-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+						<Card className="ssh-master-detail overflow-hidden" padding="none">
 							<section aria-label={t("ssh.title")} className="ssh-list-pane min-w-0 overflow-y-auto p-1.5">
 								{data?.hosts.map(host => {
 									const health = hostHealth(host, tests[host.name]);
@@ -553,7 +554,7 @@ export function SshSection() {
 									/>
 								)}
 							</aside>
-						</div>
+						</Card>
 					)}
 				</div>
 			)}

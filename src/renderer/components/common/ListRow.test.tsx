@@ -81,4 +81,16 @@ describe("ListRow", () => {
 		expect(row).toMatch(new RegExp(`id="${describedBy[1]}"[^>]*>~/work/app<`));
 		expect(renderToStaticMarkup(<ListRow onClick={() => {}} title="app" />)).not.toContain("aria-describedby");
 	});
+
+	it("lets a description take two lines before it is cut, one by default", () => {
+		const description = (lines?: 1 | 2) =>
+			/<span class="([^"]*)" id="[^"]*">a snippet<\/span>/.exec(
+				renderToStaticMarkup(
+					<ListRow description="a snippet" descriptionLines={lines} onClick={() => {}} title="Hit" />,
+				),
+			)?.[1] ?? "";
+		expect(description()).toContain("truncate");
+		expect(description(2)).toContain("line-clamp-2");
+		expect(description(2)).not.toContain("truncate");
+	});
 });

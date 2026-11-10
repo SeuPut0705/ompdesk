@@ -84,6 +84,37 @@ describe("Sheet placements", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
+	it("draws no header ✕ for a sheet whose footer has Cancel, and still closes on Escape", async () => {
+		const onClose = vi.fn();
+		await mount(
+			<Sheet
+				closeButton={false}
+				footer={<button type="button">Cancel</button>}
+				onClose={onClose}
+				open
+				title="Details"
+			>
+				body
+			</Sheet>,
+		);
+		expect(document.querySelector("[data-dialog-close]")).toBeNull();
+		expect(document.querySelector("h2")?.textContent).toBe("Details");
+		await act(async () => {
+			const event = new Event("keydown", { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "key", { value: "Escape" });
+			document.dispatchEvent(event);
+		});
+		expect(onClose).toHaveBeenCalledTimes(1);
+		await act(async () => root?.unmount());
+		root = undefined;
+		await mount(
+			<Sheet onClose={() => {}} open title="Details">
+				body
+			</Sheet>,
+		);
+		expect(document.querySelector("[data-dialog-close]")).not.toBeNull();
+	});
+
 	it("opens on its body's first control, never the header's close, and on a touch screen on the panel", async () => {
 		const focused: unknown[] = [];
 		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {

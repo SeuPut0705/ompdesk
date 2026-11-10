@@ -17,8 +17,7 @@ import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-co
 import { useAwaitingConnection, useScheduledRetry } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, DisclosureButton } from "../common";
-import { Collapse } from "../common/Collapse";
+import { Banner, Button, Collapse, DisclosureButton } from "../common";
 
 const ACTION_LABEL_KEYS: Record<TurnErrorAction, string> = {
 	retry: "turnError.action.retry",

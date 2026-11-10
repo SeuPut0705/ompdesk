@@ -10,7 +10,7 @@ import { useState } from "react";
 import type { ProviderInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Badge, Button, EmptyState, SearchField, SkeletonRows, Spinner } from "../../common";
+import { Badge, Button, EmptyState, ListRow, SearchField, SkeletonRows, Spinner } from "../../common";
 import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
@@ -127,19 +127,18 @@ export function ProviderPicker({
 									(login.state.running && login.state.providerId === provider.id);
 								return (
 									<li key={provider.id}>
-										<button
-											aria-label={t("providers.picker.connect", { provider: provider.name })}
-											className="flex h-8 w-full items-center gap-2 rounded-(--sc-radius-md) px-2 text-left text-sc-md text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
-											data-provider-connect={provider.id}
+										<ListRow
+											buttonProps={{
+												"aria-label": t("providers.picker.connect", { provider: provider.name }),
+												"data-provider-connect": provider.id,
+											}}
 											disabled={!loginReady || busy}
+											leading={<ProviderMark provider={provider} />}
+											meta={busy ? <Spinner size="sm" spin /> : undefined}
 											onClick={() => void login.start(provider.id)}
-											title={loginReady ? undefined : t("providers.notConnected")}
-											type="button"
-										>
-											<ProviderMark provider={provider} />
-											<span className="min-w-0 flex-1 truncate">{provider.name}</span>
-											{busy && <Spinner size="sm" spin />}
-										</button>
+											title={provider.name}
+											titleText={loginReady ? undefined : t("providers.notConnected")}
+										/>
 									</li>
 								);
 							})}

@@ -39,7 +39,7 @@ import {
 	Badge,
 	Button,
 	EmptyState,
-	ErrorDetail,
+	InlineNotice,
 	Kbd,
 	Modal,
 	type ModalAnchor,
@@ -356,21 +356,29 @@ export function ModelPicker() {
 					role={showOptions ? "listbox" : undefined}
 				>
 					{error ? (
-						<div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
-							<span className="text-sc-sm text-(--sc-danger)">
-								{error.message}
-								<ErrorDetail className="mt-1" error={error.cause} />
-							</span>
-							<span className="text-sc-xs text-(--sc-text-muted)">{t("modelPicker.notRespondingHint")}</span>
-							<Button
-								disabled={!sidecarReady}
-								onClick={() => void load(true, t("modelPicker.stillNotResponding"))}
-								size="sm"
-								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
-							>
-								{t("common.retry")}
-							</Button>
-						</div>
+						<InlineNotice
+							action={
+								<Button
+									disabled={!sidecarReady}
+									onClick={() => void load(true, t("modelPicker.stillNotResponding"))}
+									size="sm"
+									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+								>
+									{t("common.retry")}
+								</Button>
+							}
+							className="px-2"
+							detail={error.cause}
+							title={
+								<>
+									{error.message}
+									<span className="block text-sc-xs text-(--sc-text-muted)">
+										{t("modelPicker.notRespondingHint")}
+									</span>
+								</>
+							}
+							tone="danger"
+						/>
 					) : loading ? (
 						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : availableModels.length === 0 ? (

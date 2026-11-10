@@ -8,8 +8,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { AiMemoryPageRef, AiMemoryProjectRef } from "../../../../shared/ai-memory";
 import { useT } from "../../../lib/i18n";
 import { useMemoryPageStore } from "../../../stores/memory-page";
-import { ListRow, SearchField } from "../../common";
-import { TimeAgo } from "../../common/TimeAgo";
+import { ListRow, SearchField, TimeAgo } from "../../common";
 import { projectLabel } from "./MemorySection";
 import { MutedLine, ReadError, unusualTier } from "./memory-ui";
 

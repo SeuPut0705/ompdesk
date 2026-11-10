@@ -24,13 +24,13 @@ export interface SectionLabelProps {
 	className?: string;
 }
 
+/** The label's type and colour, shared with a picker's group header (`OptionGroup`), which may not be a heading. */
+export const SECTION_LABEL_TEXT = "text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase";
+
 export function SectionLabel({ children, as: Heading = "h3", count, action, id, className }: SectionLabelProps) {
 	const heading = (
 		<Heading
-			className={cx(
-				"flex min-w-0 items-baseline gap-1.5 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase",
-				!action && className,
-			)}
+			className={cx("flex min-w-0 items-baseline gap-1.5", SECTION_LABEL_TEXT, !action && className)}
 			data-section-label=""
 			id={id}
 		>

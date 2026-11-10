@@ -49,6 +49,7 @@ import {
 	EmptyState,
 	ErrorDetail,
 	IconButton,
+	SectionLabel,
 	SettingInfo,
 	SkeletonRows,
 	Spinner,
@@ -388,10 +389,9 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 function RowGroup({ label, count, children }: { label: ReactNode; count: number; children: ReactNode }) {
 	return (
 		<section className="flex flex-col">
-			<h3 className="flex items-center gap-2 pb-1 font-mono text-sc-xs font-semibold tracking-wide text-(--sc-text-muted) uppercase">
+			<SectionLabel className="pb-1" count={count}>
 				{label}
-				<span className="font-sans font-normal tabular-nums">{count}</span>
-			</h3>
+			</SectionLabel>
 			<div className="divide-y divide-(--sc-divider) border-y border-(--sc-divider)">{children}</div>
 		</section>
 	);

@@ -5,7 +5,8 @@
  *
  * One tab stop: the held option (or, while nothing is held yet, the first enabled one). Arrow keys move between the
  * enabled options; `selectOnArrow` (default) picks as it moves, otherwise Enter or Space picks the focused one (a
- * choice that asks to confirm, such as full access). Name the group with `aria-label` or `aria-labelledby`.
+ * choice that asks to confirm, such as full access). Name the group with `aria-label` or `aria-labelledby` (a visible
+ * `FieldLabel as="span"` above it, by its `id`).
  *
  * `fit`: `auto` gives each segment its label's width plus an even share of the rest (a long short label keeps its
  * room), `equal` equal widths, `content` segments as wide as their labels and the track as wide as they are.
@@ -32,6 +33,8 @@ export interface SegmentedChoiceProps<V extends string> {
 	value: V | null;
 	onChange: (next: V) => void;
 	optionAttr: `data-${string}`;
+	/** The group's id (another control's `aria-controls`, a test's hook); a `FieldLabel` names it by `aria-labelledby`. */
+	id?: string;
 	"aria-label"?: string;
 	"aria-labelledby"?: string;
 	"aria-busy"?: boolean;

@@ -134,6 +134,30 @@ describe("ContextMenu", () => {
 		expect(onA).not.toHaveBeenCalled();
 	});
 
+	it("hovers an item's tooltip, else its label, and a disabled item's reason", async () => {
+		await mount(
+			<ContextMenu
+				items={[
+					{ id: "a", label: "Fork", tooltip: "Start a new session from this message", onSelect() {} },
+					{ id: "b", label: "Rename", onSelect() {} },
+					{
+						id: "c",
+						label: "Delete",
+						tooltip: "Remove it",
+						disabled: true,
+						disabledReason: "Running",
+						onSelect() {},
+					},
+				]}
+				onClose={() => {}}
+				x={10}
+				y={10}
+			/>,
+		);
+		const titles = [...document.body.querySelectorAll("[data-menu-item]")].map(item => item.getAttribute("title"));
+		expect(titles).toEqual(["Start a new session from this message", "Rename", "Running"]);
+	});
+
 	it("arrows navigate, Enter selects the active item", async () => {
 		const onA = vi.fn();
 		const onB = vi.fn();

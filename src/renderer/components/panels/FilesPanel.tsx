@@ -52,8 +52,9 @@ import {
 	SearchField,
 	SkeletonRows,
 	Tooltip,
+	type TreeNode,
+	TreeView,
 } from "../common";
-import { type TreeNode, TreeView } from "../common/TreeView";
 import { PathLink } from "../tools/media/PathLink";
 import { FileContentSearch } from "./FileContentSearch";
 import { PanelToolbar } from "./PanelChrome";

@@ -17,7 +17,7 @@ import {
 	FileVideo,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { PinchZoomArea } from "../../common/PinchZoomArea";
+import { PinchZoomArea } from "../../common";
 import { type FileIconKind, fileIconKind, type ViewerKind, viewerKind } from "./file-kind";
 import { HexView } from "./HexView";
 import { AvView, ImageView } from "./MediaViews";

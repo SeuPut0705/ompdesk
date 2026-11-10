@@ -45,7 +45,7 @@ import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { reorderProjects } from "../../../lib/project-order";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
+import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common";
 
 export interface DeviceSection {
 	/** `LOCAL_DEVICE` or a paired host's deviceId. */

@@ -6,7 +6,7 @@ import { cx, formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
-import { Button, ErrorDetail, Input, Modal, Select } from "../common";
+import { Button, Card, ErrorDetail, Input, Modal, Select } from "../common";
 import { FieldShell } from "../common/Input";
 import { ModelLabel } from "../settings/ModelLabel";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
@@ -130,17 +130,17 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 							/>
 							<div className="flex flex-wrap gap-1" data-benchmark-chips>
 								{selectors.map(selector => (
-									<button
-										type="button"
+									<Button
 										disabled={running}
-										className="flex min-h-(--sc-hit-min) max-w-full items-center gap-1 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs hover:bg-(--sc-hover) disabled:opacity-50"
+										className="max-w-full"
 										key={selector}
 										onClick={() => setModels(selectors.filter(value => value !== selector).join(", "))}
 										aria-label={t("benchmark.removeModel", { model: selector })}
+										size="sm"
+										trailingIcon={<X aria-hidden />}
 									>
 										<span className="truncate">{selector}</span>
-										<X aria-hidden className="size-(--sc-icon-sm)" />
-									</button>
+									</Button>
 								))}
 							</div>
 						</div>
@@ -209,7 +209,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 					</div>
 				)}
 				{result?.success && (
-					<div className="overflow-x-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+					<Card className="overflow-x-auto" padding="none">
 						<table className="w-full text-left text-sc-xs">
 							<thead className="text-(--sc-text-muted)">
 								<tr className="border-b border-(--sc-divider)">
@@ -258,7 +258,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 								})}
 							</tbody>
 						</table>
-					</div>
+					</Card>
 				)}
 			</div>
 		</Modal>

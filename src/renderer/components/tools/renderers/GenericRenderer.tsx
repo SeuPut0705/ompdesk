@@ -1,7 +1,7 @@
 import { cx, extractImageDataUrl, resultDetails, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
-import { ZoomableImage } from "../../common/ZoomableImage";
+import { ZoomableImage } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { JsonTree, parseJsonOutput } from "./JsonTree";
 import { metaTruncation, stripGeneratedOutputNotice, TruncationNote } from "./output-meta";

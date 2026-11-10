@@ -1,7 +1,7 @@
 import { Image as ImageIcon } from "lucide-react";
 import { extractImageDataUrls, resultDetails, resultText } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { ZoomableImage } from "../../common/ZoomableImage";
+import { ZoomableImage } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { ToolTextPreview } from "./ToolTextPreview";
 

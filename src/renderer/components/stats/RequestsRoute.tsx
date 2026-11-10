@@ -12,7 +12,7 @@ import { inlineFailure } from "../../lib/error-detail";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedTabDevice } from "../../stores/remote";
-import { Badge, Button, ErrorDetail, Sheet, Spinner } from "../common";
+import { Badge, Button, Card, ErrorDetail, Sheet, Spinner } from "../common";
 import { ModelLabel } from "../settings/ModelLabel";
 import { compactModelLabel, compactModelLabels, compactModelText } from "../settings/providers/provider-marks";
 import { projectLabel } from "./ProjectsRoute";
@@ -84,10 +84,10 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 					[t("stats.requests.detail.cacheRead"), compact(row.usage?.cacheRead ?? 0)],
 					[t("stats.requests.detail.cacheWrite"), compact(row.usage?.cacheWrite ?? 0)],
 				].map(([label, value]) => (
-					<div className="rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2" key={label}>
+					<Card padding="sm" key={label}>
 						<dt className="text-sc-xs text-(--sc-text-muted)">{label}</dt>
 						<dd className="mt-0.5 truncate text-sc-sm tabular-nums text-(--sc-text)">{value}</dd>
-					</div>
+					</Card>
 				))}
 			</dl>
 			{row.errorMessage && (

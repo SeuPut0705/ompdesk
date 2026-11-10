@@ -7,7 +7,7 @@ import { useT } from "../../../lib/i18n";
 import { isRenderableMessageText } from "../../../lib/messages";
 import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
-import { Collapse } from "../../common/Collapse";
+import { Collapse } from "../../common";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
 import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
 import { useStageCall } from "../LiveStepPeek";

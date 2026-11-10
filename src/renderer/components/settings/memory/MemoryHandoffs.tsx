@@ -7,8 +7,17 @@ import { useState } from "react";
 import type { AiMemoryHandoff, AiMemoryProjectRef } from "../../../../shared/ai-memory";
 import { formatTimeAgo, oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, ConfirmDialog, ListRow, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
-import { TimeAgo } from "../../common/TimeAgo";
+import {
+	Badge,
+	Button,
+	ConfirmDialog,
+	ListRow,
+	MasterDetail,
+	SectionLabel,
+	SettingInfo,
+	SkeletonRows,
+	TimeAgo,
+} from "../../common";
 import { HOME_AGENT, MemoryFrame, MutedLine, ReadError, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
@@ -139,7 +148,7 @@ function stateKey(state: string): "open" | "accepted" | "expired" {
 function Block({ label, text }: { label: string; text: string }) {
 	return (
 		<section className="flex flex-col gap-0.5">
-			<h4 className="text-sc-xs font-semibold text-(--sc-text-muted) uppercase">{label}</h4>
+			<SectionLabel as="h4">{label}</SectionLabel>
 			<p className="max-h-60 overflow-y-auto text-sc-sm break-words whitespace-pre-wrap text-(--sc-text-secondary)">
 				{text}
 			</p>

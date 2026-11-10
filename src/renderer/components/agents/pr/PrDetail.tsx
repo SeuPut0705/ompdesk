@@ -23,7 +23,7 @@ import { useT } from "../../../lib/i18n";
 import { MarkdownRenderer } from "../../../lib/markdown";
 import { openExternal } from "../../../lib/open-external";
 import { usePrCenterStore } from "../../../stores/pr-center";
-import { Badge, Button, DisclosureButton, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
+import { Badge, Button, Card, DisclosureButton, EmptyState, ErrorDetail, InlineNotice, Skeleton } from "../../common";
 import { PrConversation, PrEditButton, PrMergeButton } from "./PrActions";
 
 const BODY_COLLAPSE_LINES = 12;
@@ -53,38 +53,40 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 	const t = useT();
 	const expanded = usePrCenterStore(state => state.expandedFiles[path]);
 	return (
-		<li className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
-			<DisclosureButton
-				className="px-3 py-2 hover:bg-(--sc-hover)"
-				onToggle={() => void usePrCenterStore.getState().toggleFile(path)}
-				open={expanded !== undefined}
-			>
-				<span className="min-w-0 flex-1 truncate font-mono text-sc-sm text-(--sc-text)">{path}</span>
-				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-success)">+{additions}</span>
-				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-danger)">−{deletions}</span>
-			</DisclosureButton>
-			{expanded?.phase === "loading" && (
-				<div className="border-t border-(--sc-divider) px-3 py-2">
-					<div aria-label={t("prCenter.diffLoading")} className="flex flex-col gap-2" role="status">
-						<Skeleton className="h-3 w-[70%]" />
-						<Skeleton className="h-3 w-[85%]" />
-						<Skeleton className="h-3 w-[55%]" />
+		<li>
+			<Card className="overflow-hidden" padding="none">
+				<DisclosureButton
+					className="px-3 py-2 hover:bg-(--sc-hover)"
+					onToggle={() => void usePrCenterStore.getState().toggleFile(path)}
+					open={expanded !== undefined}
+				>
+					<span className="min-w-0 flex-1 truncate font-mono text-sc-sm text-(--sc-text)">{path}</span>
+					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-success)">+{additions}</span>
+					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-danger)">−{deletions}</span>
+				</DisclosureButton>
+				{expanded?.phase === "loading" && (
+					<div className="border-t border-(--sc-divider) px-3 py-2">
+						<div aria-label={t("prCenter.diffLoading")} className="flex flex-col gap-2" role="status">
+							<Skeleton className="h-3 w-[70%]" />
+							<Skeleton className="h-3 w-[85%]" />
+							<Skeleton className="h-3 w-[55%]" />
+						</div>
 					</div>
-				</div>
-			)}
-			{expanded?.phase === "error" && (
-				<InlineNotice
-					className="border-t border-(--sc-divider) px-3"
-					live
-					title={t("prCenter.diffFailed")}
-					tone="danger"
-				/>
-			)}
-			{expanded?.phase === "ready" && (
-				<div className="overflow-x-auto border-t border-(--sc-divider) bg-(--sc-surface-1) py-1">
-					<DiffView diff={expanded.diff} filePath={path} />
-				</div>
-			)}
+				)}
+				{expanded?.phase === "error" && (
+					<InlineNotice
+						className="border-t border-(--sc-divider) px-3"
+						live
+						title={t("prCenter.diffFailed")}
+						tone="danger"
+					/>
+				)}
+				{expanded?.phase === "ready" && (
+					<div className="overflow-x-auto border-t border-(--sc-divider) bg-(--sc-surface-1) py-1">
+						<DiffView diff={expanded.diff} filePath={path} />
+					</div>
+				)}
+			</Card>
 		</li>
 	);
 }
@@ -248,22 +250,24 @@ export function PrDetail() {
 
 			{detail.checks.length > 0 && (
 				<Section title={t("prCenter.section.checks", { count: String(detail.checks.length) })}>
-					<ul className="flex flex-col divide-y divide-(--sc-divider) rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
-						{detail.checks.map((check, index) => (
-							<li
-								className="flex items-center gap-2 px-3 py-2 text-sc-sm"
-								data-pr-check
-								// One rollup can hold two checks of one name (a `check` job in two workflows).
-								key={`${index}:${check.name}`}
-							>
-								<CheckIcon conclusion={check.conclusion} status={check.status} />
-								<span className="min-w-0 truncate text-(--sc-text)">{check.name}</span>
-								<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)">
-									{githubStateLabel(t, check.conclusion ?? check.status)}
-								</span>
-							</li>
-						))}
-					</ul>
+					<Card padding="none">
+						<ul className="flex flex-col divide-y divide-(--sc-divider)">
+							{detail.checks.map((check, index) => (
+								<li
+									className="flex items-center gap-2 px-3 py-2 text-sc-sm"
+									data-pr-check
+									// One rollup can hold two checks of one name (a `check` job in two workflows).
+									key={`${index}:${check.name}`}
+								>
+									<CheckIcon conclusion={check.conclusion} status={check.status} />
+									<span className="min-w-0 truncate text-(--sc-text)">{check.name}</span>
+									<span className="ml-auto shrink-0 text-sc-xs text-(--sc-text-muted)">
+										{githubStateLabel(t, check.conclusion ?? check.status)}
+									</span>
+								</li>
+							))}
+						</ul>
+					</Card>
 				</Section>
 			)}
 

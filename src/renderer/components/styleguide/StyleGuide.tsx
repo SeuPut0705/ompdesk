@@ -9,9 +9,11 @@
  */
 
 import {
+	AlertCircle,
 	ArrowUp,
 	BarChart3,
 	Bot,
+	Check,
 	Copy,
 	FileText,
 	Folder,
@@ -51,6 +53,7 @@ import {
 	DisclosureButton,
 	EmptyState,
 	ErrorDetail,
+	FieldLabel,
 	IconButton,
 	InlineNotice,
 	Input,
@@ -64,6 +67,7 @@ import {
 	MasterDetail,
 	MenuButton,
 	Modal,
+	OptionGroup,
 	OptionRow,
 	PageLayout,
 	PanelErrorBoundary,
@@ -394,6 +398,8 @@ export default function StyleGuide() {
 	const [query, setQuery] = useState("");
 	const [tab, setTab] = useState("changes");
 	const [segment, setSegment] = useState("plan");
+	const [step, setStep] = useState("q0");
+	const [formSheetOpen, setFormSheetOpen] = useState(false);
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const [tiles, setTiles] = useState({ fast: true, voice: false });
 	const [note, setNote] = useState("# Notes\n\nPlan first, then edit.");
@@ -438,7 +444,13 @@ export default function StyleGuide() {
 
 	const menuItems = [
 		{ id: "rename", label: "Rename", icon: Pencil, shortcut: "⌘R", onSelect: () => {} },
-		{ id: "copy", label: "Copy link", icon: Copy, onSelect: () => {} },
+		{
+			id: "copy",
+			label: "Copy link",
+			icon: Copy,
+			tooltip: "Copy a link that opens this session",
+			onSelect: () => {},
+		},
 		{ id: "pin", label: "Pin to top", checked: true, onSelect: () => {} },
 		{ id: "delete", label: "Delete session", icon: Trash2, danger: true, onSelect: () => {} },
 	];
@@ -856,6 +868,25 @@ export default function StyleGuide() {
 								]}
 								variant="segmented"
 							/>
+							<Tabs
+								activeId={step}
+								ariaLabel="Questions"
+								className="w-64"
+								onChange={setStep}
+								tabs={[
+									{
+										id: "q0",
+										label: "Deploy target",
+										tooltip: "Deploy target · Where should this deploy?",
+										leading: <Check aria-hidden className="size-3 text-(--sc-success)" />,
+										trailing: <span className="sr-only">, answered</span>,
+									},
+									{ id: "q1", label: "Tests", tooltip: "Tests · Run the tests first?" },
+									{ id: "q2", label: "Release notes", tooltip: "Release notes · Write them now?" },
+									{ id: "q3", label: "Announce", tooltip: "Announce · Post in the team channel?" },
+								]}
+								variant="segmented"
+							/>
 						</Block>
 						<Block
 							className="rounded-(--sc-radius-lg) bg-(--sc-surface-1) p-2"
@@ -887,20 +918,33 @@ export default function StyleGuide() {
 								onClick={() => {}}
 								title="Bundle size investigation"
 							/>
+							<ListRow
+								description="…the settings page groups each provider's accounts under its mark, and a signed-out account offers Connect beside its name…"
+								descriptionLines={2}
+								leading={<FileText />}
+								onClick={() => {}}
+								title="decisions/settings-layout.md"
+							/>
 							<ListRow disabled leading={<GitBranch />} meta="3d" onClick={() => {}} title="Archived worktree" />
 						</Block>
-						<Block className="space-y-3" label="SegmentedChoice (a value, applied at once)">
-							<SegmentedChoice
-								aria-label="Tool approval"
-								onChange={setApproval}
-								optionAttr="data-styleguide-approval"
-								options={[
-									{ value: "ask", label: "Ask" },
-									{ value: "remember", label: "Remember", name: "Ask and remember" },
-									{ value: "full", label: "Full", name: "Full access" },
-								]}
-								value={approval}
-							/>
+						<Block className="space-y-3" label="FieldLabel · SegmentedChoice (a value, applied at once)">
+							<div>
+								<FieldLabel as="span" id="styleguide-approval-label">
+									Tool approval
+								</FieldLabel>
+								<SegmentedChoice
+									aria-labelledby="styleguide-approval-label"
+									id="styleguide-approval"
+									onChange={setApproval}
+									optionAttr="data-styleguide-approval"
+									options={[
+										{ value: "ask", label: "Ask" },
+										{ value: "remember", label: "Remember", name: "Ask and remember" },
+										{ value: "full", label: "Full", name: "Full access" },
+									]}
+									value={approval}
+								/>
+							</div>
 						</Block>
 						<Block label="ChoiceCards (a value whose options need a hint)">
 							<ChoiceCards
@@ -915,16 +959,31 @@ export default function StyleGuide() {
 								value={scope}
 							/>
 						</Block>
-						<Block className="space-y-2" label="OptionRow (a picker's rows) · LinkButton">
+						<Block className="space-y-2" label="OptionGroup · OptionRow (a picker's rows) · LinkButton">
 							<div aria-label="Branches" role="listbox">
-								<OptionRow active id="styleguide-option-0">
-									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-									main
-								</OptionRow>
-								<OptionRow active={false} id="styleguide-option-1" size="sm">
-									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-									feature/settings
-								</OptionRow>
+								<OptionGroup count={2} icon={<GitBranch />} label="Local">
+									<OptionRow active id="styleguide-option-0">
+										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+										main
+									</OptionRow>
+									<OptionRow active={false} id="styleguide-option-1" size="sm">
+										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+										feature/settings
+									</OptionRow>
+								</OptionGroup>
+								<OptionGroup
+									action={
+										<Button className="ml-auto" size="sm" variant="ghost">
+											Connect
+										</Button>
+									}
+									label="origin"
+								>
+									<OptionRow active={false} id="styleguide-option-2" size="sm">
+										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+										origin/main
+									</OptionRow>
+								</OptionGroup>
 							</div>
 							<p className="text-sc-sm text-(--sc-text-secondary)">
 								The judge model needs a key from <LinkButton onClick={() => {}}>OpenRouter</LinkButton>.{" "}
@@ -1050,6 +1109,38 @@ export default function StyleGuide() {
 						<Banner variant="warning">omp 18.7 or newer is required. Run omp update.</Banner>
 						<Banner onDismiss={() => {}} variant="success">
 							Provider connected.
+						</Banner>
+						<Banner
+							actions={
+								<Button size="sm" variant="ghost">
+									Check again
+								</Button>
+							}
+							compact
+							dismissLabel="Dismiss update failure"
+							icon={<AlertCircle className="text-(--sc-warning)" />}
+							onDismiss={() => {}}
+							variant="neutral"
+						>
+							<span className="line-clamp-2">
+								Couldn't download the update. The installed version keeps working.
+							</span>
+						</Banner>
+						<Banner
+							actions={
+								<Button size="sm" variant="ghost">
+									See details
+								</Button>
+							}
+							compact
+							icon={<BrandMark size={16} />}
+							onDismiss={() => {}}
+							variant="neutral"
+						>
+							<p className="py-0.5 break-keep">
+								<span className="font-semibold text-(--sc-text)">OMPdesk 0.3.0 is here.</span> Pictures in
+								questions show before you answer.
+							</p>
 						</Banner>
 					</Block>
 					<Block className="grid grid-cols-2 items-start gap-3" label="Toast">
@@ -1252,6 +1343,7 @@ export default function StyleGuide() {
 					<div className="flex flex-wrap gap-2">
 						<Button onClick={() => setDialogOpen(true)}>Open dialog</Button>
 						<Button onClick={() => setSheetOpen(true)}>Open sheet</Button>
+						<Button onClick={() => setFormSheetOpen(true)}>Open sheet with Cancel (no ✕)</Button>
 						<Button onClick={() => setPopoverOpen(open => !open)} ref={popoverAnchor}>
 							Open popover
 						</Button>
@@ -1345,6 +1437,25 @@ export default function StyleGuide() {
 				<ListRow meta="acme-opus-5" title="Model" />
 				<ListRow meta="42%" title="Context" />
 				<ListRow meta="$0.06" title="Cost" />
+			</Sheet>
+			<Sheet
+				closeButton={false}
+				footer={
+					<>
+						<Button onClick={() => setFormSheetOpen(false)} variant="ghost">
+							Cancel
+						</Button>
+						<Button onClick={() => setFormSheetOpen(false)} variant="primary">
+							Save
+						</Button>
+					</>
+				}
+				onClose={() => setFormSheetOpen(false)}
+				open={formSheetOpen}
+				placement="bottom"
+				title="Rename session"
+			>
+				<Input aria-label="Session name" defaultValue="Redesign the settings page" />
 			</Sheet>
 			<Popover
 				anchorRef={popoverAnchor}

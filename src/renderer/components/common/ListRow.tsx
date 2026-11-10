@@ -23,6 +23,8 @@ type DataAttributes = { [key: `data-${string}`]: string | number | boolean | und
 export interface ListRowProps {
 	title: ReactNode;
 	description?: ReactNode;
+	/** Lines the description may take before it is cut: 1 (default) or 2 (a search hit's snippet). */
+	descriptionLines?: 1 | 2;
 	leading?: ReactNode;
 	/** Quiet right-aligned text (relative time, count) or a Kbd. */
 	meta?: ReactNode;
@@ -87,6 +89,7 @@ const QUIET_FADE =
 export function ListRow({
 	title,
 	description,
+	descriptionLines = 1,
 	leading,
 	meta,
 	actions,
@@ -173,7 +176,13 @@ export function ListRow({
 					</span>
 				)}
 				{description && (
-					<span className="block truncate text-sc-sm text-(--sc-text-muted)" id={descriptionId}>
+					<span
+						className={cx(
+							"text-sc-sm text-(--sc-text-muted)",
+							descriptionLines === 2 ? "line-clamp-2 break-words" : "block truncate",
+						)}
+						id={descriptionId}
+					>
 						{description}
 					</span>
 				)}

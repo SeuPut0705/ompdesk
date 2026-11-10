@@ -23,18 +23,20 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | An icon-only action | `IconButton` (`label` required: name and tooltip; `pressed` toggles, `loading` shows work) | `Button` without text, a bare icon with a `title` |
 | Copy to clipboard | `CopyButton` | your own icon swap |
 | An action that reads as a link inside text (a name in a sentence, "Add a note", a commit hash) | `LinkButton` (`accent`, `muted`) | an underlined `<button>` of your own |
-| A list of actions | `MenuButton` (⋯ menus), `ContextMenu` (right click, `anchorFromEvent`); both, like `Modal`, give focus back to the opener or, when the chosen item removed it, to what took its place in the same session tab (`focus-place.ts`; a tab switch hands focus to the new composer instead) | a hand-made popover of buttons |
+| A list of actions | `MenuButton` (⋯ menus), `ContextMenu` (right click, `anchorFromEvent`); both, like `Modal`, give focus back to the opener or, when the chosen item removed it, to what took its place in the same session tab (`focus-place.ts`; a tab switch hands focus to the new composer instead); an item's `tooltip` says more than its label on hover | a hand-made popover of buttons |
 | A setting that applies at once | `Switch` (bare), `SwitchField` (settings-style row), `SwitchTile` (two-column grid) | a checkbox |
 | A choice applied on submit, or rows picked from a list | `Checkbox` (`indeterminate` for select-all), `Radio` | a raw `<input type="checkbox">` |
-| One of 2–5 short values, applied at once (thinking level, approval, rotation) | `SegmentedChoice` (a radio group; `fit`, `selectOnArrow`) | `Tabs` (they switch views), hand-made `role="radio"` buttons |
+| One of 2–5 short values, applied at once (thinking level, approval, rotation) | `SegmentedChoice` (a radio group; `fit`, `selectOnArrow`, `id`) | `Tabs` (they switch views), hand-made `role="radio"` buttons |
 | One of a few options that each need a line of explanation (an MCP server's transport, its scope) | `ChoiceCards` (a radio group of cards with a hint; one tab stop, arrows pick) | hand-made `role="radio"` cards |
 | One value from ≤ ~15 fixed options | `Select` (native popup) | a custom dropdown |
 | A long, searchable or rich list (models, sessions, branches) | a picker: `Modal size="picker" placement="top"` | `Select` |
 | Text entry | `Input`, `TextArea` (auto-grow), `SearchField`; long documents `TextEditor` | a raw `<input>` |
+| The label over a control that is not an `Input` (a `SegmentedChoice`, a model select, a group of checkboxes) | `FieldLabel` (`Input`'s label look; `as` `label` with `htmlFor` for a form element, `legend` in a `<fieldset>`, `span` with an `id` the radio group's `aria-labelledby` names) | a hand `text-sc-sm font-medium` label |
 | A picker's search over its result list | `SearchField` with `listbox` (the field is the list's combobox; rows are `OptionRow`, no tab stops) | rows the Tab key walks |
-| Sibling views of one surface | `Tabs` (`underline` sections, `segmented` 2–4 modes) | buttons that look like tabs |
+| Sibling views of one surface | `Tabs` (`underline` sections, `segmented` 2–4 modes or a row of steps; both scroll sideways when they do not fit; a tab takes `tooltip`, `leading`/`trailing` marks and `attrs` hooks; `onChange` says `click` or `key`) | buttons that look like tabs |
 | A row of a picker's listbox driven from its field (`aria-activedescendant`) | `OptionRow` (`active` highlight, `selected`, `size`) | a copied row class string |
-| A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus) | a copied row class string |
+| A group of those rows under its name (a provider, a category) | `OptionGroup` (`role="group"` named by `label`; the header is `SectionLabel`'s look with an optional `icon`, `count`, `action`, `sticky`) | a heading inside a listbox, a header class of your own |
+| A navigable row (sessions, agents, providers) | `ListRow` (one click target, actions on hover/focus; `descriptionLines={2}` for a snippet) | a copied row class string |
 | A header that opens and folds what is under it (a diff file, an entry, an Advanced group) | `DisclosureButton` (`open`, `onToggle`; owns `aria-expanded`, the turning chevron and the focus ring) | a `<button aria-expanded>` with its own chevron swap |
 | The body such a header opens and folds | `Collapse` (`open`; grows and shrinks its height on the motion tokens, unmounts when closed, instant where motion is off) | `{open && <Body/>}`, `<details>`, a `grid-template-rows` trick of your own |
 | A list whose rows are added, removed or reordered while on screen | `useListMotion` (`hooks/use-list-motion.ts`; `data-flip-key` on each row: rows glide to their new places) and `usePresence` (a removed row leaves with its exit) | rows that jump, a per-list FLIP |
@@ -47,7 +49,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A destination page | `PageLayout` | a page frame of your own |
 | A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last; it opens on its first field, else the first control of its body, else the panel, never on the header's ✕; on close focus returns to the opener, or to what took its place when the dialog's action removed it) | a dialog from a dialog |
 | "Yes, really" before something irreversible | `ConfirmDialog` (safe action focused) | `window.confirm` |
-| Detail too big for a popover, smaller than a page | `Sheet` (`right`, `left` drawer, `bottom` action sheet, `full`) | a Sheet over a Modal |
+| Detail too big for a popover, smaller than a page | `Sheet` (`right`, `left` drawer, `bottom` action sheet, `full`; `closeButton={false}` when the footer has Cancel) | a Sheet over a Modal |
 | Quick contextual controls by their trigger | `Popover` | a Modal |
 | A label for an unspelled control | `Tooltip` (prefer `IconButton`, which wires it) | essential information only in a tooltip |
 | A longer explanation of a row | `SettingInfo` (the (i) glyph), `splitDescription` | a paragraph under a label |
@@ -57,7 +59,7 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A bordered frame around content inside a surface (a code box, a result, a table, a group of fields) | `Card` (`padding`, `surface`) | a copied `rounded-(--sc-radius-md) border border-(--sc-border-subtle)` |
 | A file path or URL on one line (a tool's location, a repository root) | `PathText` (the middle gives way, the tail stays; the full text is the tooltip) | `truncate` on the whole path, which cuts the file name |
 | A session's name on a surface (a row, a header, the title bar) | `SessionTitle` (`parts` from `lib/session-title.ts`: the name the person set, then ` · ` and the automatic title muted; the automatic part is cut first; `live` puts the working shimmer on the name) | `sessionDisplayTitle` rendered as a bare string, which drops the automatic title |
-| A persistent condition of a surface | `Banner` (one sentence, ≤ 2 actions) | a toast |
+| A persistent condition of a surface | `Banner` (one sentence, ≤ 2 actions; `neutral` for a quiet notice, `icon`, `compact` for one quiet row, `dismissLabel`; DOM attributes and `ref` reach the row) | a toast |
 | One part of a surface failed or is degraded | `InlineNotice` (with Retry; cause as `ErrorDetail`) | stacked Banners |
 | Brief feedback after an action | a toast (`stores/toast`, drawn by `ToastStack`) | a Banner |
 | Nothing to show yet | `EmptyState` (with the fixing action) | a sentence alone |

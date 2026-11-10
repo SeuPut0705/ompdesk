@@ -1,8 +1,6 @@
 import { Monitor } from "lucide-react";
 import { useRef, useState } from "react";
-import { Button } from "../../components/common/Button";
-import { Sheet } from "../../components/common/Sheet";
-import { TextEditor } from "../../components/common/TextEditor";
+import { Button, Sheet, TextEditor } from "../../components/common";
 import { useT } from "../../lib/i18n";
 import { hostActionError } from "./errors";
 import type { HostPrompt } from "./host-ui-store";

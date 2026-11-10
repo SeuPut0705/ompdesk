@@ -1,6 +1,6 @@
 /** The quiet row between the field and the toolbar that never covers the draft: the dictation bar, or the error a take ended in. */
 import { useRef } from "react";
-import { Collapse } from "../../common/Collapse";
+import { Collapse } from "../../common";
 import { DictationFailureNotice, DictationOverlay } from "./DictationOverlay";
 import type { ComposerDictation } from "./use-composer-dictation";
 

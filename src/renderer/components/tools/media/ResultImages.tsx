@@ -1,6 +1,6 @@
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { ZoomableImage } from "../../common/ZoomableImage";
+import { ZoomableImage } from "../../common";
 
 export function ResultImages({ images, livePreview }: { images: readonly string[]; livePreview?: boolean }) {
 	const t = useT();

@@ -17,7 +17,18 @@ import type { RemoteDirListing } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { settleRemoteDirectory, useHostView, useRemotePickerStore } from "../../stores/remote";
-import { Button, IconButton, InlineNotice, ListRow, Modal, SearchField, SkeletonRows, Spinner } from "../common";
+import {
+	Button,
+	Card,
+	EmptyState,
+	IconButton,
+	InlineNotice,
+	ListRow,
+	Modal,
+	SearchField,
+	SkeletonRows,
+	Spinner,
+} from "../common";
 
 /** Typing pause before the host is asked for the filtered level. */
 const FILTER_DELAY_MS = 150;
@@ -178,18 +189,20 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 						tone="danger"
 					/>
 				)}
-				<div
+				<Card
 					aria-busy={loading}
 					aria-label={t("remote.picker.list")}
-					className="h-72 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-1"
+					className="h-72 overflow-y-auto p-1"
+					padding="none"
 					role="group"
 				>
 					{!listing && loading ? (
 						<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 					) : listing && listing.entries.length === 0 ? (
-						<p className="px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">
-							{query ? t("remote.picker.noMatch", { query }) : t("remote.picker.empty")}
-						</p>
+						<EmptyState
+							size="sm"
+							title={query ? t("remote.picker.noMatch", { query }) : t("remote.picker.empty")}
+						/>
 					) : (
 						// A row stays clickable while a level loads: a click starts the latest
 						// navigation, which outranks the read in flight (a filter typed a moment ago).
@@ -204,7 +217,7 @@ export function RemoteFolderPicker({ open, deviceId, deviceName, onClose, onPick
 							/>
 						))
 					)}
-				</div>
+				</Card>
 				{listing?.truncated && (
 					<p className="text-sc-sm text-(--sc-text-muted)" data-remote-picker-truncated>
 						{t("remote.picker.truncated")}

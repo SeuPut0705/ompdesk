@@ -21,9 +21,18 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
-import { Collapse } from "../common/Collapse";
-import type { GalleryImage } from "../common/ZoomableImage";
+import {
+	Badge,
+	Button,
+	Card,
+	Collapse,
+	CopyButton,
+	DisclosureButton,
+	type GalleryImage,
+	IconButton,
+	InlineNotice,
+	MenuButton,
+} from "../common";
 import { isAbsoluteChatPath, referencedFiles } from "../tools/media/chat-media";
 import { ToolImage } from "../tools/media/ToolImage";
 import { type RunningIndicator, ToolCard } from "../tools/ToolCard";
@@ -190,7 +199,7 @@ function MentionedFile({ file }: { file: NonNullable<AgentMessage["files"]>[numb
 	const t = useT();
 	const [open, setOpen] = useState(false);
 	return (
-		<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1)">
+		<Card className="overflow-hidden" padding="none" surface="1">
 			<DisclosureButton
 				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
 				className="px-3 py-2 font-mono text-sc-sm text-(--sc-text)"
@@ -217,7 +226,7 @@ function MentionedFile({ file }: { file: NonNullable<AgentMessage["files"]>[numb
 					{file.content.length > FILE_PREVIEW_CHARS ? `\n${t("chat.context.previewTruncated")}` : ""}
 				</pre>
 			</Collapse>
-		</div>
+		</Card>
 	);
 }
 
@@ -270,11 +279,7 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 				) : (
 					<>
 						{message.shortSummary && <MarkdownRenderer content={message.shortSummary} />}
-						{typeof message.warning === "string" && (
-							<p role="status" className="text-sc-md text-(--sc-warning)">
-								{message.warning}
-							</p>
-						)}
+						{typeof message.warning === "string" && <InlineNotice live title={message.warning} tone="warning" />}
 						{message.summary && (
 							<>
 								<DisclosureButton

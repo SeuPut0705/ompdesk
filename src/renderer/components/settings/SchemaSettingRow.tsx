@@ -36,7 +36,7 @@ import { useLang, useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { toastError } from "../../stores/toast";
-import { Badge, Button, IconButton, Input, Select, Spinner, TextArea } from "../common";
+import { Badge, Button, Card, IconButton, Input, Select, Spinner, TextArea } from "../common";
 import { ArrayChipEditor } from "./editors/ArrayChipEditor";
 import { ProviderLimitsEditor } from "./editors/ProviderLimitsEditor";
 import { RecordKvEditor } from "./editors/RecordKvEditor";
@@ -427,12 +427,12 @@ function SchemaSettingRow({
 		let editor: ReactNode;
 		if (masked) {
 			editor = (
-				<div className="flex items-center justify-between rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2">
+				<Card className="flex items-center justify-between" padding="sm">
 					<span className="text-sc-sm text-(--sc-text-muted)">••••••••</span>
 					<Button icon={<Eye />} onClick={() => setRevealed(true)} size="sm" type="button" variant="ghost">
 						{t("common.reveal")}
 					</Button>
-				</div>
+				</Card>
 			);
 		} else if (stringArray) {
 			editor = (

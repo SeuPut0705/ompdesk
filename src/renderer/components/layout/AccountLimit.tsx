@@ -10,7 +10,7 @@ import { useT } from "../../lib/i18n";
 import { lastUsedAccounts } from "../../lib/usage-reports";
 import { useModelStore } from "../../stores/model";
 import { useUiStore } from "../../stores/ui";
-import { UsageGauges, usageDescription, usageTooltip } from "../common/UsageGauges";
+import { UsageGauges, usageDescription, usageTooltip } from "../common";
 import { ProviderMark } from "../settings/providers/ProviderMark";
 
 /**

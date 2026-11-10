@@ -17,7 +17,7 @@
  * changes here send prompt/steer messages instead, and the footer says so.
  */
 
-import { CheckCircle2, Circle, ClipboardList, FileWarning, MessageSquare, RefreshCw, Send } from "lucide-react";
+import { CheckCircle2, Circle, ClipboardList, MessageSquare, RefreshCw, Send } from "lucide-react";
 import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PlanModeState } from "../../../../shared/rpc-types";
 import { useTabGuard } from "../../../hooks/use-tab-guard";
@@ -35,8 +35,8 @@ import {
 	Badge,
 	Button,
 	EmptyState,
-	ErrorDetail,
 	IconButton,
+	InlineNotice,
 	Spinner,
 	Switch,
 	SwitchField,
@@ -443,14 +443,17 @@ export function PlanDockCard({
 			{loading && !loaded ? (
 				<Spinner className="w-full justify-center py-6" label={t("common.loading")} />
 			) : error ? (
-				<div className="flex flex-col items-center justify-center gap-2 px-6 py-4 text-center">
-					<FileWarning aria-hidden="true" className="text-(--sc-warning)" size={20} />
-					<div className="text-sc-sm leading-snug text-(--sc-text-muted)">{error.message}</div>
-					<ErrorDetail error={error.cause} />
-					<Button onClick={() => void load()} size="sm">
-						{t("common.retry")}
-					</Button>
-				</div>
+				<InlineNotice
+					action={
+						<Button onClick={() => void load()} size="sm">
+							{t("common.retry")}
+						</Button>
+					}
+					className="px-3"
+					detail={error.cause}
+					title={error.message}
+					tone="warning"
+				/>
 			) : content == null ? (
 				presentation === "sheet" ? (
 					<EmptyState icon={<ClipboardList />} size="sm" title={t("planPanel.emptyTitle")} />

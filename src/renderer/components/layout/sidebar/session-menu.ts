@@ -31,7 +31,7 @@ import {
 	X,
 } from "lucide-react";
 import { type KeymapPlatform, PLATFORM } from "../../../lib/keymap";
-import type { ContextMenuItem, MenuSelectModifiers } from "../../common/ContextMenu";
+import type { ContextMenuItem, MenuSelectModifiers } from "../../common";
 
 /** What is true of the row; every list answers these the same way. */
 export interface SessionMenuFacts {

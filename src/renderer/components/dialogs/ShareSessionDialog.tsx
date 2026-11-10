@@ -1,4 +1,4 @@
-import { AlertTriangle, ExternalLink, FileX } from "lucide-react";
+import { ExternalLink, FileX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcShareSessionPreview, RpcShareSessionResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -7,7 +7,7 @@ import { openExternal } from "../../lib/open-external";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Button, CopyButton, EmptyState, InlineNotice, Modal, Spinner } from "../common";
+import { Button, Card, CopyButton, EmptyState, InlineNotice, Modal, Spinner } from "../common";
 
 /** A snapshot with no entries (`{"entries":[]}`): a session with nothing in it yet. */
 function isEmptySnapshot(text: string): boolean {
@@ -138,9 +138,9 @@ export function ShareSessionDialog() {
 					<div>
 						<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{t("shareDialog.url")}</div>
 						<div className="flex flex-wrap items-end gap-2">
-							<code className="min-w-0 flex-1 basis-48 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-sm break-all text-(--sc-text)">
-								{result.url}
-							</code>
+							<Card className="min-w-0 flex-1 basis-48" padding="sm">
+								<code className="text-sc-sm break-all text-(--sc-text)">{result.url}</code>
+							</Card>
 							<CopyButton label={t("shareDialog.copy")} text={result.url} variant="secondary" />
 							<Button
 								aria-label={t("shareDialog.open")}
@@ -153,12 +153,7 @@ export function ShareSessionDialog() {
 							</Button>
 						</div>
 					</div>
-					{result.truncated ? (
-						<div className="flex items-start gap-2 rounded-(--sc-radius-md) border border-(--sc-warning) p-3 text-sc-sm text-(--sc-warning)">
-							<AlertTriangle aria-hidden className="mt-px size-(--sc-icon-md) shrink-0" />
-							{t("shareDialog.truncated")}
-						</div>
-					) : null}
+					{result.truncated ? <InlineNotice title={t("shareDialog.truncated")} tone="warning" /> : null}
 				</div>
 			) : preview ? (
 				empty ? (
@@ -175,14 +170,14 @@ export function ShareSessionDialog() {
 								{t("shareDialog.previewTrimmed")}
 							</p>
 						)}
-						<pre
+						<Card
 							tabIndex={0}
 							role="region"
 							aria-label={t("shareDialog.preview")}
-							className="max-h-[40vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3 text-sc-sm whitespace-pre-wrap break-words"
+							className="max-h-[40vh] overflow-auto"
 						>
-							{preview.preview}
-						</pre>
+							<pre className="text-sc-sm whitespace-pre-wrap break-words">{preview.preview}</pre>
+						</Card>
 					</div>
 				)
 			) : null}

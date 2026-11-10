@@ -12,8 +12,7 @@ import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { useUiStore } from "../../stores/ui";
-import { Button, Checkbox, Input, Modal, SegmentedChoice, TextArea } from "../common";
-import { SettingInfo } from "../common/SettingInfo";
+import { Button, Card, Checkbox, Input, Modal, SegmentedChoice, SettingInfo, TextArea } from "../common";
 
 const LOG_TAIL_LINES = 20;
 
@@ -126,9 +125,11 @@ export function FeedbackDialog() {
 						<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)">
 							{t("feedback.capturedError")}
 						</span>
-						<pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) p-2.5 font-mono text-sc-xs text-(--sc-danger)">
-							{prefill.error}
-						</pre>
+						<Card className="max-h-24 overflow-auto" padding="sm" surface="2">
+							<pre className="whitespace-pre-wrap break-words font-mono text-sc-xs text-(--sc-danger)">
+								{prefill.error}
+							</pre>
+						</Card>
 					</div>
 				)}
 
@@ -141,10 +142,7 @@ export function FeedbackDialog() {
 					required
 				/>
 
-				<div
-					data-feedback-include
-					className="space-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3"
-				>
+				<Card data-feedback-include className="space-y-2">
 					<label className="flex items-start gap-2.5 text-sc-sm text-(--sc-text)">
 						<Checkbox
 							checked={includeEnv}
@@ -182,7 +180,7 @@ export function FeedbackDialog() {
 							</details>
 						)}
 					</div>
-				</div>
+				</Card>
 
 				<p className="text-sc-sm leading-relaxed text-(--sc-text-muted)">{t("feedback.note")}</p>
 			</div>

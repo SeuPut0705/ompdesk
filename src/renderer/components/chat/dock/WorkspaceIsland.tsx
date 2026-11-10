@@ -12,6 +12,7 @@ import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
+import { StatusDot } from "../../common";
 
 /** Subagent statuses that are doing work; `idle`/`parked` agents wait for a follow-up. */
 const WORKING_STATUSES: Record<string, true> = { started: true, running: true, pending: true };
@@ -88,10 +89,12 @@ export function WorkspaceIsland() {
 					<Bot aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
 					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.agents")}</span>
 					{working > 0 && (
-						<span className="flex shrink-0 items-center gap-1 tabular-nums">
-							<span aria-hidden className="omp-pulse-dot size-1.5 rounded-full bg-(--sc-info)" />
-							{t("dock.island.working", { count: working })}
-						</span>
+						<StatusDot
+							className="shrink-0 tabular-nums"
+							label={t("dock.island.working", { count: working })}
+							pulse
+							tone="info"
+						/>
 					)}
 					{waiting > 0 && (
 						<span className="shrink-0 tabular-nums text-(--sc-text-muted)">
@@ -111,10 +114,12 @@ export function WorkspaceIsland() {
 					<GitBranch aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
 					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.sessions")}</span>
 					{running > 0 && (
-						<span className="flex shrink-0 items-center gap-1 tabular-nums">
-							<span aria-hidden className="omp-pulse-dot size-1.5 rounded-full bg-(--sc-info)" />
-							{t("dock.island.working", { count: running })}
-						</span>
+						<StatusDot
+							className="shrink-0 tabular-nums"
+							label={t("dock.island.working", { count: running })}
+							pulse
+							tone="info"
+						/>
 					)}
 					{needYou > 0 && (
 						<span

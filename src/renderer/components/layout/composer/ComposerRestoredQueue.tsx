@@ -19,7 +19,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { type RestoredQueueItem, useComposerStore } from "../../../stores/composer";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { Button, IconButton, Tooltip } from "../../common";
+import { Button, IconButton, LinkButton, Tooltip } from "../../common";
 import { QueueImageTiles, queueRowName } from "./queue-lane";
 
 function HeldChip({ item, onSettled }: { item: RestoredQueueItem; onSettled: () => void }) {
@@ -40,18 +40,18 @@ function HeldChip({ item, onSettled }: { item: RestoredQueueItem; onSettled: () 
 					<span className="sr-only">{laneName}</span>
 				</span>
 			</Tooltip>
-			<button
+			<LinkButton
 				aria-label={t("composerQueue.pausedEdit", { text: name })}
-				className="min-w-0 truncate rounded-(--sc-radius-xs) text-left"
+				className="min-w-0 truncate"
 				onClick={() => {
 					restoreHeldToDraft(item.id);
 					onSettled();
 				}}
 				title={queueChipLabel(item.text, item.images.length)}
-				type="button"
+				tone="muted"
 			>
 				{queueChipLabel(item.text, item.images.length)}
-			</button>
+			</LinkButton>
 			{item.images.length > 0 && item.text !== "" && (
 				<QueueImageTiles count={item.images.length} images={item.images.map(image => image.content)} />
 			)}

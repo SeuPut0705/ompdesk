@@ -30,11 +30,13 @@ import { useUiStore } from "../../../stores/ui";
 import {
 	Badge,
 	Button,
+	Card,
 	Checkbox,
 	ErrorDetail,
 	InlineNotice,
 	Modal,
 	SearchField,
+	SectionLabel,
 	SettingInfo,
 	Spinner,
 	Tabs,
@@ -502,7 +504,7 @@ export function ModelSetupDialog() {
 											{t("modelSetup.pick.count", { count: pickedModels.length })}
 										</span>
 									</div>
-									<div className="max-h-64 space-y-0.5 overflow-y-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1">
+									<Card className="max-h-64 space-y-0.5 overflow-y-auto px-2 py-1" padding="none">
 										{visibleGroups.map(group => (
 											<div
 												aria-labelledby={`model-setup-provider-${group.provider}`}
@@ -532,7 +534,7 @@ export function ModelSetupDialog() {
 												</div>
 											</div>
 										))}
-									</div>
+									</Card>
 								</div>
 							))}
 
@@ -603,14 +605,9 @@ export function ModelSetupDialog() {
 						<div className="grid grid-cols-1 gap-x-4 @2xl:grid-cols-2 @5xl:grid-cols-3 [html[data-input=touch]_&]:gap-y-0.5">
 							{rowGroups.map((group, index) => (
 								<section className="contents" data-model-setup-group={group.id} key={group.id}>
-									<h3
-										className={cx(
-											"col-span-full text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase",
-											index > 0 && "pt-1.5",
-										)}
-									>
+									<SectionLabel className={cx("col-span-full", index > 0 && "pt-1.5")}>
 										{t(`modelRoles.group.${group.id}`)}
-									</h3>
+									</SectionLabel>
 									<ul className="contents">
 										{group.rows.map(row => (
 											<RoleRow
@@ -643,9 +640,7 @@ export function ModelSetupDialog() {
 								)}
 								{evidence.plan.sources.length > 0 && (
 									<div>
-										<h3 className="pb-1 text-sc-xs font-medium tracking-wide text-(--sc-text-muted) uppercase">
-											{t("modelSetup.review.sources")}
-										</h3>
+										<SectionLabel className="pb-1">{t("modelSetup.review.sources")}</SectionLabel>
 										<ul className="space-y-1">
 											{evidence.plan.sources.map(source => (
 												<li key={source.url}>

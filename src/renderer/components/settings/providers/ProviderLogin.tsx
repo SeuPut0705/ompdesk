@@ -38,7 +38,7 @@ import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { tabReady } from "../../../stores/tab-ready-gate";
 import { toastError } from "../../../stores/toast";
 import { webPwa } from "../../../web/pwa";
-import { Banner, Button, IconButton, Input, Spinner } from "../../common";
+import { Banner, Button, Card, IconButton, Input, Spinner } from "../../common";
 
 interface LoginPrompt {
 	id: string;
@@ -401,7 +401,7 @@ export function ProviderLoginPanel({
 	const progressKey = state.progress === null ? undefined : STOCK_PROGRESS[state.progress];
 
 	return (
-		<div className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3">
+		<Card className="flex flex-col gap-3" surface="1">
 			{state.link && (
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<p className="min-w-0 flex-1 text-sc-sm text-(--sc-text-secondary)">
@@ -499,6 +499,6 @@ export function ProviderLoginPanel({
 					)}
 				</div>
 			)}
-		</div>
+		</Card>
 	);
 }

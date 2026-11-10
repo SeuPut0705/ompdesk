@@ -13,8 +13,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { saveImage } from "../../lib/image-actions";
 import { toastError } from "../../stores/toast";
-import { CopyButton, IconButton } from "../common";
-import type { ZoomableImageHandle } from "../common/ZoomableImage";
+import { Card, CopyButton, IconButton, type ZoomableImageHandle } from "../common";
 import { CodeBlock } from "./CodeBlock";
 import { FigureHeader } from "./FigureHeader";
 
@@ -156,7 +155,7 @@ export function Figure({
 	}
 	return (
 		<div className={className} data-figure={kind}>
-			<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1) text-(--sc-text)">
+			<Card className="overflow-hidden text-(--sc-text)" padding="none" surface="1">
 				<FigureHeader title={title}>
 					{toggle}
 					<CopyButton label={t("chat.copyCode")} text={code} />
@@ -174,7 +173,7 @@ export function Figure({
 				<div className={cx(shown === "preview" ? "overflow-x-auto" : "overflow-auto")}>
 					{shown === "preview" && preview ? preview(zoom) : codeView}
 				</div>
-			</div>
+			</Card>
 		</div>
 	);
 }

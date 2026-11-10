@@ -18,8 +18,7 @@ import { ACCOUNT_ROTATION_MODES, type AccountRotationMode } from "../../../../sh
 import { useT } from "../../../lib/i18n";
 import { useHostView } from "../../../stores/remote";
 import { toastError } from "../../../stores/toast";
-import { SegmentedChoice, Spinner } from "../../common";
-import { SettingInfo } from "../../common/SettingInfo";
+import { SegmentedChoice, SettingInfo, Spinner } from "../../common";
 
 const LABEL_KEY: Record<AccountRotationMode, string> = {
 	quota: "providers.rotation.quota",

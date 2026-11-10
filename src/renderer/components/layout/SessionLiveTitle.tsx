@@ -12,9 +12,7 @@ import type { SessionSummary } from "../../../shared/session-summary";
 import { useOpenedChildren } from "../../hooks/use-opened-children";
 import type { SessionRun } from "../../lib/session-run";
 import type { TitleParts } from "../../lib/session-title";
-import { type LiveState, SessionTitle } from "../common";
-import { TimeAgo } from "../common/TimeAgo";
-import { WorkingArc } from "../common/WorkingArc";
+import { type LiveState, SessionTitle, TimeAgo, WorkingArc } from "../common";
 import { liveWorkState, workingAgentCount } from "./live-work";
 
 interface SessionLiveProps {

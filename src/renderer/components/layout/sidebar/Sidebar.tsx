@@ -6,8 +6,6 @@ import {
 	ArchiveRestore,
 	BarChart3,
 	Bot,
-	ChevronDown,
-	ChevronRight,
 	CircleHelp,
 	Compass,
 	Download,
@@ -113,9 +111,14 @@ import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
 import {
+	anchorFromEvent,
 	Badge,
 	BrandMark,
 	Button,
+	Collapse,
+	ConfirmDialog,
+	ContextMenu,
+	type ContextMenuAnchor,
 	type ContextMenuItem,
 	EmptyState,
 	ErrorDetail,
@@ -126,11 +129,8 @@ import {
 	MenuButton,
 	SearchField,
 	SkeletonRows,
+	TimeAgo,
 } from "../../common";
-import { Collapse } from "../../common/Collapse";
-import { ConfirmDialog } from "../../common/ConfirmDialog";
-import { anchorFromEvent, ContextMenu, type ContextMenuAnchor } from "../../common/ContextMenu";
-import { TimeAgo } from "../../common/TimeAgo";
 import { WorkspaceDialog } from "../../dialogs/WorkspaceDialog";
 import { StarterGuide } from "../../onboarding/StarterGuide";
 import { ForkParent } from "../ForkParent";
@@ -2116,9 +2116,10 @@ export function Sidebar() {
 							data-flip-key="archived"
 							onContextMenu={event => setArchivedMenu(anchorFromEvent(event))}
 						>
-							<button
-								aria-expanded={archivedOpen || query.length > 0}
-								className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-sm font-medium text-(--sc-text-muted) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+							<SidebarFoldButton
+								className="text-(--sc-text-muted)"
+								folded={!archivedOpen && query.length === 0}
+								icon={<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />}
 								data-roving-item="archived"
 								onClick={() => setArchivedOpen(!archivedOpen)}
 								onFocus={() => setFocusKey("archived")}
@@ -2135,19 +2136,12 @@ export function Sidebar() {
 									}
 								}}
 								tabIndex={-1}
-								type="button"
 							>
-								{archivedOpen || query ? (
-									<ChevronDown aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								) : (
-									<ChevronRight aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-								)}
-								<Archive aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 								<span className="min-w-0 flex-1 truncate">
 									{t("sidebar.archived", { count: archivedRows.length })}
 								</span>
 								{!archivedOpen && !query && <SidebarFoldSummary summary={foldSummary(archivedFoldSignals())} />}
-							</button>
+							</SidebarFoldButton>
 							<span className="relative flex shrink-0 items-center pr-1">
 								<IconButton
 									className="pointer-events-none opacity-0 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-focus-within/head:pointer-events-auto group-focus-within/head:opacity-100 group-hover/head:pointer-events-auto group-hover/head:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"

@@ -7,13 +7,14 @@ import {
 	TERMINAL_KEYS,
 	type TerminalKey,
 } from "../../lib/terminal-keys";
+import { Button } from "../common";
 
 /** How long an arrow is held before it repeats, and the gap between repeats. */
 const REPEAT_DELAY_MS = 400;
 const REPEAT_MS = 100;
 
-const BUTTON =
-	"flex h-(--sc-control-md) min-w-(--sc-control-md) shrink-0 items-center justify-center rounded-(--sc-radius-sm) border border-(--sc-border) bg-(--sc-field) px-2 text-sc-sm text-(--sc-text) select-none active:bg-(--sc-pressed) aria-pressed:bg-(--sc-selected) disabled:opacity-50 focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)";
+/** A held modifier reads as pressed beside its neighbours. */
+const KEY = "min-w-(--sc-control-md) aria-pressed:bg-(--sc-selected)";
 
 /**
  * The keys a soft keyboard lacks, above it (design §7.2): text size on the left, then a row that scrolls sideways.
@@ -64,43 +65,44 @@ export function TerminalKeyBar({
 			data-terminal-keybar
 		>
 			<div className="flex shrink-0 items-center gap-1">
-				<button
+				<Button
 					aria-label={t("panel.terminal.fontSmaller")}
-					className={BUTTON}
+					className={KEY}
+					variant="secondary"
 					data-terminal-font="smaller"
 					disabled={fontScale <= FONT_SCALE_MIN}
 					onClick={() => onFontScale("smaller")}
-					type="button"
 				>
 					A−
-				</button>
-				<button
+				</Button>
+				<Button
 					aria-label={t("panel.terminal.fontScale", { percent: fontScale })}
-					className={`${BUTTON} tabular-nums`}
+					className={`${KEY} tabular-nums`}
+					variant="secondary"
 					data-terminal-font="reset"
 					onClick={() => onFontScale("reset")}
-					type="button"
 				>
 					{fontScale}%
-				</button>
-				<button
+				</Button>
+				<Button
 					aria-label={t("panel.terminal.fontLarger")}
-					className={BUTTON}
+					className={KEY}
+					variant="secondary"
 					data-terminal-font="larger"
 					disabled={fontScale >= FONT_SCALE_MAX}
 					onClick={() => onFontScale("larger")}
-					type="button"
 				>
 					A+
-				</button>
+				</Button>
 			</div>
 			{/* The scroller clips its keys' hit areas to its own box: it takes the bar's padding, so a key's reach fills the bar. */}
 			<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1 [scrollbar-width:none]">
 				{TERMINAL_KEYS.map(key => (
-					<button
+					<Button
 						aria-label={key.aria ? t(key.aria) : undefined}
 						aria-pressed={key.modifier ? held[key.modifier] : undefined}
-						className={BUTTON}
+						className={KEY}
+						variant="secondary"
 						data-terminal-key={key.id}
 						disabled={disabled}
 						key={key.id}
@@ -117,10 +119,9 @@ export function TerminalKeyBar({
 						}}
 						onPointerLeave={stop}
 						onPointerUp={stop}
-						type="button"
 					>
 						{key.label}
-					</button>
+					</Button>
 				))}
 			</div>
 		</div>

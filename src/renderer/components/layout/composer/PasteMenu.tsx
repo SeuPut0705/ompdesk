@@ -6,8 +6,7 @@
 import type { RefObject } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Button } from "../../common";
-import { useHeldOverlay } from "../../common/use-held-overlay";
+import { Button, useHeldOverlay } from "../../common";
 import type { PendingPaste } from "./use-composer-paste";
 
 export function PasteMenu({

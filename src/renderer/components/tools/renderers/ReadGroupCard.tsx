@@ -13,7 +13,7 @@ import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { UsageRow } from "../../chat/UsageRow";
-import { Collapse } from "../../common/Collapse";
+import { Collapse } from "../../common";
 import {
 	AFTER_INTENT_CLASS,
 	type RunningIndicator,

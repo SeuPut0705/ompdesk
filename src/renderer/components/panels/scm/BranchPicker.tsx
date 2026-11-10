@@ -11,13 +11,22 @@ import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, u
 import type { RpcGitBranch } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
 import { useFocusedScope } from "../../../lib/focused-scope";
-import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import type { TabRpc } from "../../../lib/tab-rpc";
-import { Button, ConfirmDialog, InlineNotice, MenuButton, Popover, SearchField, SkeletonRows } from "../../common";
-import { PANEL_ROW } from "../PanelChrome";
+import {
+	Button,
+	ConfirmDialog,
+	EmptyState,
+	InlineNotice,
+	MenuButton,
+	Popover,
+	SearchField,
+	SectionLabel,
+	SkeletonRows,
+} from "../../common";
+import { PanelListRow } from "../PanelChrome";
 import type { NameRequest } from "./NameDialog";
 import type { ScmRunner } from "./use-scm-action";
 
@@ -108,9 +117,9 @@ export function BranchPicker({
 		const held = item.worktree !== null;
 		return (
 			<div className="flex items-center gap-1" key={`${item.remote ? "r" : "l"}:${item.name}`}>
-				<button
+				<PanelListRow
 					aria-current={item.current ? "true" : undefined}
-					className={cx(PANEL_ROW, "min-w-0 flex-1", item.current && "bg-(--sc-selected)")}
+					className="min-w-0 flex-1"
 					data-branch-row
 					disabled={item.current || held}
 					onKeyDown={moveBetweenRows}
@@ -118,7 +127,6 @@ export function BranchPicker({
 						act("switch", { type: "git_branch", action: "switch", name: item.name }, t("scm.branch.switchFailed"))
 					}
 					title={held ? t("scm.branch.heldBy", { path: item.worktree ?? "" }) : item.name}
-					type="button"
 				>
 					<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 					<span className="min-w-0 flex-1 truncate">{item.name}</span>
@@ -126,7 +134,7 @@ export function BranchPicker({
 						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("scm.branch.current")}</span>
 					)}
 					{held && <span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("scm.branch.held")}</span>}
-				</button>
+				</PanelListRow>
 				{!item.remote && !item.current && (
 					<MenuButton
 						align="end"
@@ -235,8 +243,7 @@ export function BranchPicker({
 					/>
 					<div className="max-h-[min(24rem,60dvh)] overflow-y-auto" ref={listRef}>
 						{query.trim() && !exact && (
-							<button
-								className={PANEL_ROW}
+							<PanelListRow
 								onClick={() =>
 									act(
 										"create",
@@ -244,13 +251,12 @@ export function BranchPicker({
 										t("scm.branch.createFailed"),
 									)
 								}
-								type="button"
 							>
 								<Plus aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 								<span className="min-w-0 flex-1 truncate">
 									{t("scm.branch.create", { name: query.trim() })}
 								</span>
-							</button>
+							</PanelListRow>
 						)}
 						{error ? (
 							<InlineNotice detail={error} live title={t("scm.branch.loadFailed")} tone="danger" />
@@ -259,18 +265,18 @@ export function BranchPicker({
 						) : (
 							<>
 								{local.length > 0 && (
-									<p className="px-2 pt-1 pb-0.5 text-sc-xs text-(--sc-text-muted)">{t("scm.branch.local")}</p>
+									<SectionLabel as="h4" className="px-2 pt-1 pb-0.5">
+										{t("scm.branch.local")}
+									</SectionLabel>
 								)}
 								{local.map(row)}
 								{remote.length > 0 && (
-									<p className="px-2 pt-2 pb-0.5 text-sc-xs text-(--sc-text-muted)">
+									<SectionLabel as="h4" className="px-2 pt-2 pb-0.5">
 										{t("scm.branch.remote")}
-									</p>
+									</SectionLabel>
 								)}
 								{remote.map(row)}
-								{shown.length === 0 && !query.trim() && (
-									<p className="px-2 py-2 text-sc-sm text-(--sc-text-muted)">{t("scm.branch.none")}</p>
-								)}
+								{shown.length === 0 && !query.trim() && <EmptyState size="sm" title={t("scm.branch.none")} />}
 							</>
 						)}
 					</div>

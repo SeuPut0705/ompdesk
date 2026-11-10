@@ -10,7 +10,7 @@ import type { InlineFailure } from "../../../lib/error-detail";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useFocusedTabDevice, useHostView } from "../../../stores/remote";
-import { Button, IconButton, InlineNotice, Skeleton } from "../../common";
+import { Button, Card, IconButton, InlineNotice, Skeleton } from "../../common";
 import { PathLink } from "../../tools/media/PathLink";
 
 export interface FileInfo {
@@ -57,7 +57,7 @@ export function ViewerFallbackCard({ path, title, detail }: { path: string; titl
 	const t = useT();
 	const remote = useFocusedTabDevice() !== undefined;
 	return (
-		<div className="m-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-4" data-viewer-fallback>
+		<Card className="m-3" data-viewer-fallback padding="lg">
 			<p className="text-sc-sm break-words text-(--sc-text)">{title}</p>
 			{detail && <p className="mt-1 text-sc-xs break-words text-(--sc-text-muted)">{detail}</p>}
 			{!remote && (
@@ -69,7 +69,7 @@ export function ViewerFallbackCard({ path, title, detail }: { path: string; titl
 					<span>{t("fileViewer.openDefault")}</span>
 				</PathLink>
 			)}
-		</div>
+		</Card>
 	);
 }
 

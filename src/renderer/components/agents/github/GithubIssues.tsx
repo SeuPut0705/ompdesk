@@ -10,6 +10,7 @@ import {
 	AsyncSection,
 	Badge,
 	Button,
+	Card,
 	IconButton,
 	Input,
 	MasterDetail,
@@ -164,16 +165,16 @@ function IssueDetail({
 				className="flex flex-col gap-3 border-t border-(--sc-divider) pt-4"
 			>
 				{issue.comments.map((entry, index) => (
-					<div
-						className="rounded-(--sc-radius-md) border border-(--sc-border) px-3 py-2"
+					<Card
 						// Comments only append; a position names one comment while this issue shows.
 						key={`${index}:${entry.createdAt}`}
+						padding="sm"
 					>
 						<div className="mb-1 text-sc-xs text-(--sc-text-muted)">
 							{entry.author} · {formatTimeAgo(entry.createdAt)}
 						</div>
 						<MarkdownRenderer content={entry.body} />
-					</div>
+					</Card>
 				))}
 				<form
 					className="flex flex-col gap-2"

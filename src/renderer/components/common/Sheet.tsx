@@ -12,7 +12,8 @@
  * (a drawer), `bottom` (an action or detail sheet, content-high) or `full` (a
  * full-screen sheet that still reads as a layer). Bottom and full sheets carry
  * a drag handle: pulling it down dismisses, and on the web shell the system
- * back gesture closes the topmost sheet.
+ * back gesture closes the topmost sheet. `closeButton={false}` leaves the ✕ out of the header for a sheet whose footer
+ * has its own Cancel (Escape, the scrim and the handle still close it).
  */
 
 import { X } from "lucide-react";
@@ -188,9 +189,19 @@ export interface SheetProps
 	 * names on each node any streaming output inserts.
 	 */
 	kind?: string;
+	/** The header's ✕; off for a sheet whose footer carries Cancel. */
+	closeButton?: boolean;
 }
 
-export function Sheet({ open, onClose, size = "md", placement = "right", kind, ...surface }: SheetProps) {
+export function Sheet({
+	open,
+	onClose,
+	size = "md",
+	placement = "right",
+	kind,
+	closeButton = true,
+	...surface
+}: SheetProps) {
 	const titleId = useId();
 	const panelRef = useRef<HTMLDivElement>(null);
 	// A side sheet's slide is short (`omp-slide-in-right`, `med`), so it leaves in `fast`; the others cross the screen.
@@ -232,7 +243,7 @@ export function Sheet({ open, onClose, size = "md", placement = "right", kind, .
 				<SheetSurface
 					{...surface}
 					handle={sideEdge ? undefined : <SheetHandle onClose={onClose} panelRef={panelRef} />}
-					onClose={onClose}
+					onClose={closeButton ? onClose : undefined}
 					placement={placement}
 					titleId={titleId}
 				/>

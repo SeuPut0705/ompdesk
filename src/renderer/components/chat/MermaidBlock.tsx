@@ -10,8 +10,7 @@ import { memo, type ReactNode, type RefObject, useEffect, useState } from "react
 import { useT } from "../../lib/i18n";
 import { svgDataUrl } from "../../lib/svg-preview";
 import type { ResolvedTheme } from "../../lib/theme";
-import { Skeleton } from "../common/Skeleton";
-import { ZoomableImage, type ZoomableImageHandle } from "../common/ZoomableImage";
+import { Skeleton, ZoomableImage, type ZoomableImageHandle } from "../common";
 import { Figure, type FigureMode } from "./Figure";
 
 let mermaidPromise: Promise<Mermaid> | null = null;

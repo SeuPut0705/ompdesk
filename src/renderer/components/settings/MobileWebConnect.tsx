@@ -11,8 +11,7 @@ import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { toast } from "../../stores/toast";
-import { Button, Spinner } from "../common";
-import { QrCode } from "../common/QrCode";
+import { Button, QrCode, Spinner } from "../common";
 import { SettingsSection } from "./SettingsLayout";
 import { IosInstallSteps } from "./WebNotificationsSection";
 

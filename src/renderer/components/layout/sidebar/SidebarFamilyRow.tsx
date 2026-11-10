@@ -8,9 +8,7 @@
 import { Bot, Check, GitBranch, GitMerge, MessageSquare, Pause, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cx } from "../../../lib/format";
-import type { ListRowProps } from "../../common/ListRow";
-import { SessionTitle } from "../../common/SessionTitle";
-import { WorkingArc } from "../../common/WorkingArc";
+import { type ListRowProps, SessionTitle, WorkingArc } from "../../common";
 import type { FamilyKind, FamilyState } from "./sidebar-family";
 
 const KIND_ICON = { subagent: Bot, worktree: GitBranch, session: MessageSquare } as const;

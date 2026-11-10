@@ -18,7 +18,7 @@ import type { RpcContextInspectResult } from "../../../shared/rpc-types";
 import { formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Banner, Button, ErrorDetail, SkeletonRows } from "../common";
+import { Banner, Button, Card, ErrorDetail, ProgressBar, SkeletonRows } from "../common";
 import { CATEGORY_COLOR, CONTEXT_CATEGORIES, ContextInspector } from "./ContextInspector";
 
 interface CategoryRow {
@@ -99,26 +99,23 @@ export function ContextBreakdown({ refreshKey = 0 }: { refreshKey?: number }) {
 		: t("contextReport.usedWithoutWindow", { used: formatTokens(usedTokens) });
 
 	return (
-		<div className="flex flex-col gap-4 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
+		<Card className="flex flex-col gap-4" padding="lg">
 			<div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 				<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text-secondary)">
 					{report.model || t("contextReport.noModel")}
 				</span>
 				<span className="shrink-0 text-sc-sm font-medium tabular-nums text-(--sc-text)">{summary}</span>
 			</div>
-			<div
-				aria-label={summary}
-				className="flex h-2.5 w-full gap-px overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
-				role="img"
-			>
-				{filled.map(row => (
-					<span
-						className="h-full min-w-0.5"
-						key={row.key}
-						style={{ width: `${(row.tokens / barDenominator) * 100}%`, backgroundColor: row.color }}
-					/>
-				))}
-			</div>
+			<ProgressBar
+				ariaLabel={summary}
+				height={10}
+				segments={filled.map(row => ({
+					color: row.color,
+					label: t(`contextInspector.cat.${row.key}`),
+					value: row.tokens,
+				}))}
+				total={barDenominator}
+			/>
 			<ul className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-2 text-sc-sm">
 				{categories.map(row => (
 					<li className="col-span-4 grid grid-cols-subgrid items-center" key={row.key}>
@@ -144,6 +141,6 @@ export function ContextBreakdown({ refreshKey = 0 }: { refreshKey?: number }) {
 				</Button>
 			</div>
 			<ContextInspector onClose={() => setInspecting(false)} open={inspecting} />
-		</div>
+		</Card>
 	);
 }

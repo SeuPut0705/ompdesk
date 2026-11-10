@@ -1,12 +1,7 @@
 import { ArrowUp, File, Folder, Home, Smartphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { WEB_HOST_LIST_MAX_ENTRIES, type WebHostListing } from "../../../shared/web-host";
-import { Button } from "../../components/common/Button";
-import { IconButton } from "../../components/common/IconButton";
-import { Input, SearchField } from "../../components/common/Input";
-import { ListRow } from "../../components/common/ListRow";
-import { Sheet } from "../../components/common/Sheet";
-import { Spinner } from "../../components/common/Spinner";
+import { Button, EmptyState, IconButton, Input, ListRow, SearchField, Sheet, Spinner } from "../../components/common";
 import { basename, formatBytes } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import type { FileFilter, HostActions } from "../host-hooks";
@@ -204,7 +199,7 @@ export function HostBrowserSheet({ mode, title, defaultPath, filters, host, onDo
 						/>
 					))}
 					{!loading && !error && entries.length === 0 && (
-						<p className="py-4 text-sc-sm text-(--sc-text-muted)">{t("hostUi.browser.empty")}</p>
+						<EmptyState size="sm" title={t("hostUi.browser.empty")} />
 					)}
 					{listing?.truncated && (
 						<p className="py-2 text-sc-xs text-(--sc-text-muted)">

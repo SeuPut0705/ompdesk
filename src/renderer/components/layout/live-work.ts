@@ -6,7 +6,7 @@
  * and the cue holds a still warning colour instead of the sweep.
  */
 import type { SubagentSnapshot } from "../../../shared/rpc-types";
-import type { LiveState } from "../common/LiveShimmer";
+import type { LiveState } from "../common";
 import { isLiveSubagentStatus } from "../panels/subagent-graph";
 
 /** Subagents that are live but waiting for a follow-up, not working (the work board's own split). */

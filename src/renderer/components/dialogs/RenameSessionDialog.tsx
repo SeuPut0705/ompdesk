@@ -11,8 +11,7 @@ import { useT } from "../../lib/i18n";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Input, Modal } from "../common";
-import { AutoTitleButton } from "../common/AutoTitleButton";
+import { AutoTitleButton, Button, Input, Modal } from "../common";
 
 export function RenameSessionDialog() {
 	const tabRpc = useTabRpc();

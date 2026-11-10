@@ -15,8 +15,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { type DockCardId, isDockCardCollapsed, useUiStore } from "../../../stores/ui";
-import { Button } from "../../common";
-import { Collapse } from "../../common/Collapse";
+import { Button, Collapse } from "../../common";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 interface DockCardProps {

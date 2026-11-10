@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { asRecord } from "../../../lib/wire-value";
-import { type TreeNode, TreeView } from "../../common/TreeView";
+import { type TreeNode, TreeView } from "../../common";
 
 /**
  * Bounded JSON tree for tool output, after stock `pi-tui/tools/json-tree.ts`

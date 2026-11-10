@@ -8,7 +8,7 @@ import { useNowTick } from "../../../lib/now-tick";
 import { asArray, asNumber, asRecord, asString } from "../../../lib/wire-value";
 import { useSessionRuntime } from "../../../stores/session-runtime-context";
 import { type SubagentsStore, useSubagentsStore } from "../../../stores/subagents";
-import { ErrorDetail } from "../../common";
+import { Badge, ErrorDetail } from "../../common";
 import type { ToolRendererProps } from "../ToolCard";
 import { resultDetails } from "./result";
 import { ToolTextPreview } from "./ToolTextPreview";
@@ -44,17 +44,6 @@ import {
 
 function AgentBadge({ agent }: { agent: string }) {
 	return <span className="shrink-0 font-mono text-omp-xxs text-[var(--omp-dim)]">[{agent}]</span>;
-}
-
-function StatusBadge({ color, children }: { color: string; children: string }) {
-	return (
-		<span
-			className="shrink-0 rounded px-1 py-px font-mono text-omp-xxs font-semibold"
-			style={{ background: `color-mix(in srgb, ${color} 15%, transparent)`, color }}
-		>
-			{children}
-		</span>
-	);
 }
 
 interface StatOpts {
@@ -365,13 +354,13 @@ function ProgressAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; d
 				)}
 				{agent && agent !== "task" && <AgentBadge agent={agent} />}
 				{retryState && status === "running" ? (
-					<StatusBadge color="var(--omp-warning)">{t("tools.task.badge.retrying")}</StatusBadge>
+					<Badge variant="warning">{t("tools.task.badge.retrying")}</Badge>
 				) : retryFailure && (status === "failed" || status === "aborted") ? (
-					<StatusBadge color="var(--omp-error)">{t("tools.task.badge.rateLimited")}</StatusBadge>
+					<Badge variant="error">{t("tools.task.badge.rateLimited")}</Badge>
 				) : status === "failed" ? (
-					<StatusBadge color="var(--omp-error)">{t("subagent.status.failed")}</StatusBadge>
+					<Badge variant="error">{t("subagent.status.failed")}</Badge>
 				) : status === "aborted" ? (
-					<StatusBadge color="var(--omp-error)">{t("subagent.status.cancelled")}</StatusBadge>
+					<Badge variant="error">{t("subagent.status.cancelled")}</Badge>
 				) : null}
 				{status === "running" && !description && assignment && (
 					<span className="min-w-0 truncate text-[var(--omp-dim)]" title={assignment}>
@@ -505,6 +494,8 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 				: statusKey === "cancelled"
 					? "var(--omp-error)"
 					: "var(--omp-warning)";
+	const statusVariant =
+		statusKey === "done" ? "success" : statusKey === "failed" || statusKey === "cancelled" ? "error" : "warning";
 	const statusLabel =
 		statusKey === "cancelled"
 			? t("subagent.status.cancelled")
@@ -536,9 +527,9 @@ function ResultAgentRow({ row, depth, ctx }: { row: Record<string, unknown>; dep
 					</span>
 				)}
 				{agent && agent !== "task" && <AgentBadge agent={agent} />}
-				<StatusBadge color={statusColor}>{statusLabel}</StatusBadge>
+				<Badge variant={statusVariant}>{statusLabel}</Badge>
 				{retryFailure && (aborted || !success) && (
-					<StatusBadge color="var(--omp-error)">{t("tools.task.badge.rateLimited")}</StatusBadge>
+					<Badge variant="error">{t("tools.task.badge.rateLimited")}</Badge>
 				)}
 				<AgentStats
 					stats={{

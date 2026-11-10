@@ -7,7 +7,7 @@ import { ImageIcon } from "lucide-react";
 import { type ComponentProps, useState } from "react";
 import { formatBytes } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { ZoomableImage } from "../../common/ZoomableImage";
+import { ZoomableImage } from "../../common";
 
 /** "HEIC" for `image/heic`; the subtype in capitals. */
 function formatName(mimeType: string): string {

@@ -19,8 +19,7 @@ import { useTabsStore } from "../../../stores/tabs";
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
-import { type ContextMenuItem, MenuButton } from "../../common/ContextMenu";
-import { IconButton } from "../../common/IconButton";
+import { type ContextMenuItem, IconButton, MenuButton } from "../../common";
 
 /** Where the person looking at the file sits, which decides how they reach it. */
 export type FileSurface = "local" | "remote" | "web";

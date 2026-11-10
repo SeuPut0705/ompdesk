@@ -9,8 +9,7 @@ import { translate, useT } from "../../../lib/i18n";
 import { revealAndFocus } from "../../../lib/reveal-focus";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore, type WorkBoardSectionId } from "../../../stores/work-board";
-import { IconButton } from "../../common";
-import { Collapse } from "../../common/Collapse";
+import { Collapse, IconButton } from "../../common";
 
 /**
  * A running row's clock: nothing in the first ten seconds, ten-second steps under a minute, then whole minutes, so a

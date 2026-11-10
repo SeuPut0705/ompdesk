@@ -24,7 +24,7 @@ import { queueChipLabel } from "../../../lib/queue-chip";
 import { useComposerStore } from "../../../stores/composer";
 import { type QueueLane, useQueuedMessages, useQueueStore } from "../../../stores/queue";
 import { useSettingsStore } from "../../../stores/settings";
-import { Button, IconButton, MenuButton, Popover, Tooltip } from "../../common";
+import { Button, IconButton, LinkButton, MenuButton, Popover, Tooltip } from "../../common";
 import { type QueueActions, useQueueActions } from "../../panels/use-queue-actions";
 import { QueueImageTiles, QueueLaneHeading, queueRowName } from "./queue-lane";
 
@@ -94,20 +94,20 @@ const QueueRow = memo(function QueueRow({
 				</span>
 			</Tooltip>
 			<div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-				<button
+				<LinkButton
 					aria-expanded={open}
 					className={cx(
-						"max-w-full min-w-0 rounded-(--sc-radius-xs) py-0.5 text-left text-sc-sm text-(--sc-text-secondary)",
+						"max-w-full min-w-0 py-0.5 text-sc-sm",
 						open ? "whitespace-pre-wrap break-words" : "truncate",
-						item.text === "" && "italic text-(--sc-text-muted)",
+						item.text === "" && "italic",
 					)}
 					data-queue-row-text
 					onClick={() => setOpen(value => !value)}
 					title={open ? t("composerQueue.previewLess") : t("composerQueue.preview")}
-					type="button"
+					tone="muted"
 				>
 					{label || "…"}
-				</button>
+				</LinkButton>
 				{moved && (
 					<span
 						className="max-w-full truncate rounded-full bg-(--sc-accent-soft) px-2 text-sc-xs whitespace-nowrap text-(--sc-accent-on-soft)"

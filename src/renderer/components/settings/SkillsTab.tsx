@@ -22,6 +22,7 @@ import {
 	Badge,
 	Banner,
 	Button,
+	Card,
 	ConfirmDialog,
 	EmptyState,
 	ErrorDetail,
@@ -513,7 +514,7 @@ export function SkillsTab({ query }: { query: string }) {
 				{newButton}
 			</div>
 
-			<div className="skills-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+			<Card className="skills-master-detail overflow-hidden" padding="none">
 				<aside className="skills-list-pane min-h-0">{listBody}</aside>
 				<section
 					aria-label={selected?.name ?? t("settings.skills.title")}
@@ -521,7 +522,7 @@ export function SkillsTab({ query }: { query: string }) {
 				>
 					{detailBody}
 				</section>
-			</div>
+			</Card>
 
 			<ConfirmDialog
 				busy={busyName !== null}
