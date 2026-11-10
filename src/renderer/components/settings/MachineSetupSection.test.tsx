@@ -98,6 +98,8 @@ describe("MachineSetupSection", () => {
 		expect(row("bun")?.textContent).toContain(translate("machineSetup.required"));
 		expect(row("git")?.textContent).toContain(translate("machineSetup.optional"));
 		expect(row("bun")?.textContent).toContain("/usr/local/bin/bun");
+		// The check mark says a tool is there: no "Installed" words on its row.
+		expect(row("bun")?.textContent).not.toContain(translate("machineSetup.phase.present"));
 
 		const node = row("node");
 		expect(node?.getAttribute("data-phase")).toBe("unavailable");

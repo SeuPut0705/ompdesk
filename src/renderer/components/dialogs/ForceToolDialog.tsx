@@ -7,7 +7,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
  * get_active_tools so only forceable tools are offered.
  */
 
-import { Wrench, X } from "lucide-react";
+import { Check, SearchX, Wrench, X } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { RpcActiveTool, RpcActiveToolsResult, RpcForceToolState } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -17,7 +17,9 @@ import { listboxTarget } from "../../lib/listbox-nav";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, InlineNotice, Input, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
+import { Button, EmptyState, InlineNotice, Input, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
+import { SectionLabel } from "../common/SectionLabel";
+import { groupToolsBySource } from "./tool-groups";
 
 export function ForceToolDialog() {
 	const tabRpc = useTabRpc();
@@ -68,13 +70,9 @@ export function ForceToolDialog() {
 		void refresh();
 	}, [open, refresh]);
 
-	const filtered = useMemo(() => {
-		const query = filter.trim().toLowerCase();
-		if (!query) return tools;
-		return tools.filter(
-			tool => tool.name.toLowerCase().includes(query) || tool.description?.toLowerCase().includes(query),
-		);
-	}, [tools, filter]);
+	const groups = useMemo(() => groupToolsBySource(tools, filter), [tools, filter]);
+	// The arrows walk the rows in the order the groups draw them.
+	const filtered = useMemo(() => groups.flatMap(group => group.tools), [groups]);
 
 	const listboxId = useId();
 	const selectedIndex = filtered.findIndex(tool => tool.name === selected);
@@ -162,7 +160,7 @@ export function ForceToolDialog() {
 							</Button>
 						) : null}
 					</div>
-					<Button onClick={close} variant="secondary">
+					<Button onClick={close} variant="ghost">
 						{t("common.cancel")}
 					</Button>
 					<Button
@@ -180,6 +178,7 @@ export function ForceToolDialog() {
 			<div className="flex min-h-0 flex-1 flex-col gap-3">
 				{/* Tool picker */}
 				<SearchField
+					autoFocus
 					label={t("forceTool.filterPlaceholder")}
 					listbox={{
 						id: listboxId,
@@ -201,29 +200,52 @@ export function ForceToolDialog() {
 					) : loadError ? (
 						<InlineNotice className="p-3" detail={loadError.cause} live title={loadError.message} tone="danger" />
 					) : filtered.length === 0 ? (
-						<div className="px-3 py-8 text-center text-sc-sm text-(--sc-text-muted)">{t("forceTool.empty")}</div>
+						<EmptyState
+							icon={tools.length === 0 ? <Wrench /> : <SearchX />}
+							size="sm"
+							title={tools.length === 0 ? t("forceTool.empty") : t("activeTools.noMatch")}
+						/>
 					) : (
-						filtered.map(tool => (
-							<OptionRow
-								active={selected === tool.name}
-								className="items-start"
-								id={`${listboxId}-${tool.name}`}
-								key={tool.name}
-								onClick={() => setSelected(tool.name)}
-							>
-								<span className="mt-0.5 shrink-0">
-									<Badge variant={tool.name === current ? "info" : "muted"}>{tool.source}</Badge>
-								</span>
-								<span className="min-w-0">
-									<span className="block truncate font-mono text-sc-md text-(--sc-text)">{tool.name}</span>
-									{tool.description ? (
-										<span className="block text-sc-sm break-words text-(--sc-text-muted)">
-											{tool.description}
-										</span>
-									) : null}
-								</span>
-							</OptionRow>
-						))
+						groups.map(group => {
+							const name = t(`activeTools.source.${group.source}`);
+							return (
+								<div aria-label={name} key={group.source} role="group">
+									{/* A heading may not stand in a listbox: the group's name is its label, this is its look. */}
+									<div aria-hidden className="px-2.5 pt-2 pb-1">
+										<SectionLabel count={group.tools.length}>{name}</SectionLabel>
+									</div>
+									{group.tools.map(tool => (
+										<OptionRow
+											active={selected === tool.name}
+											className="items-start"
+											id={`${listboxId}-${tool.name}`}
+											key={tool.name}
+											onClick={() => setSelected(tool.name)}
+										>
+											<span className="min-w-0 flex-1">
+												<span className="block truncate font-mono text-sc-md text-(--sc-text)">
+													{tool.name}
+												</span>
+												{tool.description ? (
+													<span className="block text-sc-sm break-words text-(--sc-text-muted)">
+														{tool.description}
+													</span>
+												) : null}
+											</span>
+											{tool.name === current && (
+												<>
+													<Check
+														aria-hidden
+														className="mt-0.5 size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
+													/>
+													<span className="sr-only">{t("tabSwitcher.current")}</span>
+												</>
+											)}
+										</OptionRow>
+									))}
+								</div>
+							);
+						})
 					)}
 				</div>
 

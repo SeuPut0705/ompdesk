@@ -27,9 +27,9 @@ export function ConfirmSheet({
 		prompt.resolve(confirmed);
 		onSettled();
 	};
+	// The sentence is the body, as a confirm dialog's message is, so the body is never an empty band between dividers.
 	return (
 		<Sheet
-			description={t(quit ? "hostUi.quit.body" : "hostUi.update.body")}
 			footer={
 				<>
 					<Button onClick={() => answer(false)} variant="ghost">
@@ -45,9 +45,10 @@ export function ConfirmSheet({
 			placement="bottom"
 			title={t(quit ? "hostUi.quit.title" : "hostUi.update.title")}
 		>
-			<div data-host-sheet={prompt.kind}>
+			<div className="flex flex-col gap-1 text-sc-sm text-(--sc-text-secondary)" data-host-sheet={prompt.kind}>
+				<p>{t(quit ? "hostUi.quit.body" : "hostUi.update.body")}</p>
 				{running > 0 && (
-					<p className="text-sc-sm text-(--sc-text-secondary)" data-host-running={running}>
+					<p data-host-running={running}>
 						{t(quit ? "hostUi.quit.running" : "hostUi.update.running", { count: running })}
 					</p>
 				)}

@@ -492,15 +492,9 @@ function AskDialog({
 					</div>
 				</>
 			}
-			headerAside={
-				total > 1 ? (
-					<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">
-						{t("extDialog.ask.step", { current: step + 1, total })}
-					</span>
-				) : undefined
-			}
 			icon={MessageCircleQuestion}
-			label={t("extDialog.ask.title")}
+			// Every ask is a question: the card names this one by its header, else its question's first line.
+			label={question.header || question.question.split("\n", 1)[0]}
 			onCancel={onCancel}
 			onDigit={n => {
 				const option = question.options[n - 1];
@@ -561,9 +555,6 @@ function AskDialog({
 						</div>
 					)}
 					<div className="space-y-1">
-						{question.header && total === 1 && (
-							<div className="text-sc-xs font-medium text-(--sc-text-muted)">{question.header}</div>
-						)}
 						<p
 							className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
 							id={questionId}

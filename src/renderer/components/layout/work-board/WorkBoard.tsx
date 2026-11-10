@@ -35,7 +35,7 @@ import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
-import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
+import { isApprovalRequest, isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
 import { useSessionStore } from "../../../stores/session";
@@ -397,9 +397,14 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const speed = turnLive && rate != null && rate > 0 ? t("chat.meter.rate", { rate: formatTokenRate(rate) }) : "";
 	const jumpKey = actionShortcut("board.focus");
 
+	// Each row's tag is the same kind `sessionAttention` names on the head, so an approval never reads as a question.
 	const askItems = [
-		...(planProposal ? [{ id: "plan", label: t("workBoard.planReview"), review: true }] : []),
-		...blocking.map(request => ({ id: request.id, label: requestLabel(request, t), review: false })),
+		...(planProposal ? [{ id: "plan", label: t("workBoard.planReview"), kind: "review" as const }] : []),
+		...blocking.map(request => ({
+			id: request.id,
+			label: requestLabel(request, t),
+			kind: isApprovalRequest(request) ? ("approval" as const) : ("ask" as const),
+		})),
 	];
 	const waitingChildren = opened.rows.filter(row => row.status === "waiting");
 	const nowChildren = opened.rows.filter(row => row.status !== "waiting");
@@ -508,7 +513,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								label={item.label}
 								lead={<Dot tone="warning" />}
 								onClick={() => focusPrompt(pane)}
-								tag={{ word: t(item.review ? "workBoard.kind.review" : "workBoard.kind.ask"), tone: "warning" }}
+								tag={{ word: t(`workBoard.kind.${item.kind}`), tone: "warning" }}
 								title={item.label}
 							/>
 						)}

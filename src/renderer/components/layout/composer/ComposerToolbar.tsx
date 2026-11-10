@@ -312,18 +312,17 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 					{
 						id: "history",
 						label: t("input.history.title"),
-						description: t("input.history.menuDesc"),
 						icon: History,
 						shortcut: "⌃R",
 						onSelect: onOpenHistory,
 					},
+					// Listed only while dictation is off, so the item names its action instead of saying it is off.
 					...(sttEnabled
 						? []
 						: [
 								{
 									id: "dictation",
-									label: t("voice.menu.off"),
-									description: t("voice.menu.offDesc"),
+									label: t("voice.menu.enable"),
 									icon: Mic,
 									onSelect: () => useUiStore.getState().openSettings(STT_SETTING_TARGET),
 								},

@@ -43,6 +43,36 @@ export function SettingsTiles({ children }: { children: ReactNode }) {
 	return <div data-settings-tiles>{children}</div>;
 }
 
+/**
+ * An empty list in Settings: one row, its glyph, a muted "nothing yet" and the action that fills it (New, Browse); a
+ * hint sits behind the (i). The one empty form across Settings' lists, never a centred card.
+ */
+export function SettingsEmptyRow({
+	icon,
+	label,
+	description,
+	action,
+	id,
+}: {
+	icon: ReactNode;
+	label: ReactNode;
+	description?: string;
+	action?: ReactNode;
+	id?: string;
+}) {
+	return (
+		<SettingsRow
+			compactControl
+			control={action}
+			description={description}
+			icon={icon}
+			id={id}
+			label={<span className="text-(--sc-text-muted)">{label}</span>}
+			tipOnly
+		/>
+	);
+}
+
 export interface SettingsSectionProps {
 	id?: string;
 	/** Omit when the page header already names this content (the section's only group). */
@@ -53,6 +83,8 @@ export interface SettingsSectionProps {
 	children: ReactNode;
 	className?: string;
 	scope?: SettingsScope;
+	/** The group is a collection (devices, users, accounts): a nested one names it even with no description or actions. */
+	list?: boolean;
 }
 
 export function SettingsSection({
@@ -63,6 +95,7 @@ export function SettingsSection({
 	children,
 	className,
 	scope: ownScope,
+	list,
 }: SettingsSectionProps) {
 	const headingId = useId();
 	const inheritedScope = useContext(SettingsScopeContext);
@@ -71,9 +104,9 @@ export function SettingsSection({
 	const t = useT();
 	// Whose settings a group holds only matters while the focused tab runs on a paired host.
 	const host = useFocusedHost();
-	// A nested group's title stays implicit over bare rows, but names the
-	// description and actions it carries: they never float unlabeled.
-	const showTitle = Boolean(title) && (!nested || Boolean(description || actions));
+	// A nested group's title stays implicit over bare rows, but names a collection and the description and actions it
+	// carries: they never float unlabeled.
+	const showTitle = Boolean(title) && (!nested || Boolean(list || description || actions));
 	const tipOnly = useContext(SettingsTipOnlyContext);
 	const { inline, tip, note } = splitDescription(description, tipOnly && showTitle);
 	// A long description of a titled group moves behind an info glyph; an untitled one stays a line
@@ -163,8 +196,10 @@ export interface SettingsRowProps {
 	control?: ReactNode;
 	/** Full-width content under the label (lists, structured editors). */
 	children?: ReactNode;
-	/** Extra content under the row (errors, source details). */
+	/** Extra content under the row (errors, source details, lists); starts at the label column. */
 	footer?: ReactNode;
+	/** A short fact about the control (a version, space used, a last check), small and muted under it. */
+	status?: ReactNode;
 	/** Boolean rows and one-button rows keep the control compact and right-aligned (never stacked on a phone). */
 	compactControl?: boolean;
 	/** Every string description goes behind the info glyph, however short (a row that must stay one line). */
@@ -182,6 +217,7 @@ export function SettingsRow({
 	control,
 	children,
 	footer,
+	status,
 	compactControl,
 	tipOnly,
 	className,
@@ -238,10 +274,24 @@ export function SettingsRow({
 						)}
 					</div>
 				</div>
-				{control !== undefined && <div className="settings-field-control">{control}</div>}
+				{(control !== undefined || status !== undefined) && (
+					<div className="settings-field-control">
+						{control}
+						{status !== undefined && (
+							<p className="mt-0.5 text-sc-xs break-keep text-(--sc-text-muted)" data-setting-status>
+								{status}
+							</p>
+						)}
+					</div>
+				)}
 			</div>
-			{children !== undefined && <div className="mt-1 min-w-0">{children}</div>}
-			{footer}
+			{/* Under a row with an icon, content starts where its label does (`[data-settings-row-detail]`, global.css). */}
+			{children !== undefined && (
+				<div className="mt-1 min-w-0" data-settings-row-detail={icon ? "" : undefined}>
+					{children}
+				</div>
+			)}
+			{footer !== undefined && <div data-settings-row-detail={icon ? "" : undefined}>{footer}</div>}
 		</div>
 	);
 }

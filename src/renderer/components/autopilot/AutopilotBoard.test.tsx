@@ -175,7 +175,10 @@ describe("an Autopilot run on the work board", () => {
 		expect($("[data-autopilot-state]")?.getAttribute("data-autopilot-state")).toBe("running");
 		expect($("[data-autopilot-totals]")?.textContent).toContain("1.8M");
 		expect($("[data-autopilot-state]")?.getAttribute("title")).toContain("↑12");
-		expect($('[data-board-section="autopilot"]')?.textContent).toContain(translate("autopilot.cycleN", { n: 3 }));
+		// The head names the cycle; the section under it does not say it again.
+		const cycleThree = translate("autopilot.cycleN", { n: 3 });
+		expect($("[data-board-autopilot-text]")?.textContent).toContain(cycleThree);
+		expect($('[data-board-section="autopilot"]')?.textContent).not.toContain(cycleThree);
 		expect($("[data-autopilot-cycle-live]")?.textContent).toContain(translate("autopilot.area.performance"));
 		expect($("[data-autopilot-child]")).not.toBeNull();
 		await act(async () => $("[data-autopilot-focus-row]")?.click());

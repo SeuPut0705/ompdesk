@@ -147,11 +147,20 @@ export function SheetSurface({
 						{description && <div className="mt-0.5 text-sc-sm text-(--sc-text-muted)">{description}</div>}
 					</div>
 					{onClose && (
-						<IconButton icon={<X />} label={t("common.close")} onClick={onClose} size="sm" tooltip={false} />
+						<IconButton
+							data-dialog-close=""
+							icon={<X />}
+							label={t("common.close")}
+							onClick={onClose}
+							size="sm"
+							tooltip={false}
+						/>
 					)}
 				</div>
 			)}
-			<div className={cx("omp-sheet-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}>{children}</div>
+			<div className={cx("omp-sheet-body min-h-0 flex-1 overflow-y-auto", bodyClassName)} data-dialog-body="">
+				{children}
+			</div>
 			{footer && (
 				<div
 					className={cx(

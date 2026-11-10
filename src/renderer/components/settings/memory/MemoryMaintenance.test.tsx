@@ -39,6 +39,7 @@ describe("Memory › Maintenance", () => {
 		await click(q("[data-memory-lint-run]"));
 		expect(api.lint).toHaveBeenCalledWith(PROJECT);
 		expect(text("[data-memory-finding]")).toContain("Two pages share a title");
+		expect(text("[data-memory-finding]")).toContain("Duplicate");
 		await click(qa("[data-memory-finding] button")[0] ?? null);
 		expect(useMemoryPageStore.getState().pending).toMatchObject({ ...PROJECT, path: "notes/a.md" });
 	});

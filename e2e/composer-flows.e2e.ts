@@ -655,9 +655,7 @@ test("+ › Dictation explains where to turn dictation on while it is off", asyn
 	try {
 		await expect(page.getByRole("button", { name: "Start dictation" })).toHaveCount(0);
 		await page.getByRole("button", { name: "Attach and more" }).click();
-		const item = page.getByRole("menuitem", { name: /Dictation/ });
-		await expect(item).toContainText("Turn on dictation in Settings");
-		await item.click();
+		await page.getByRole("menuitem", { name: /Turn on dictation/ }).click();
 		await expect(page.locator('[data-settings-page="true"]')).toBeVisible();
 		expect(errors).toEqual([]);
 	} finally {

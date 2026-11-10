@@ -53,7 +53,7 @@ import {
 import { AddMarketplaceForm, MarketplaceCard } from "../panels/inventory/MarketplacesSection";
 import { PluginDetailSheet } from "../panels/inventory/PluginDetailSheet";
 import { filterMarketplaces, filterPlugins, filterTemplates } from "../panels/inventory-utils";
-import { SettingsRow } from "./SettingsLayout";
+import { SettingsEmptyRow, SettingsRow } from "./SettingsLayout";
 
 export type PluginsTab = "plugins" | "marketplaces" | "templates";
 
@@ -339,15 +339,14 @@ function PluginsTab({
 				{() =>
 					plugins.length === 0 ? (
 						total === 0 ? (
-							<EmptyState
-								actions={
+							<SettingsEmptyRow
+								action={
 									<Button onClick={onBrowseMarketplaces} size="sm">
 										{t("invPanel.plugins.browseMarketplaces")}
 									</Button>
 								}
 								icon={<PackageOpen />}
-								size="sm"
-								title={t("invPanel.plugins.empty")}
+								label={t("invPanel.plugins.empty")}
 							/>
 						) : (
 							<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -443,11 +442,10 @@ function MarketplacesTab({
 						<AddMarketplaceForm onAdded={resource.reload} ready={resource.ready} />
 						{marketplaces.length === 0 ? (
 							total === 0 ? (
-								<EmptyState
+								<SettingsEmptyRow
 									description={t("invPanel.marketplaces.emptyHint")}
 									icon={<Store />}
-									size="sm"
-									title={t("invPanel.marketplaces.empty")}
+									label={t("invPanel.marketplaces.empty")}
 								/>
 							) : (
 								<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -519,11 +517,10 @@ function TemplatesTab({
 				{() =>
 					templates.length === 0 ? (
 						total === 0 ? (
-							<EmptyState
+							<SettingsEmptyRow
 								description={t("invPanel.templates.emptyHint")}
 								icon={<FileText />}
-								size="sm"
-								title={t("invPanel.templates.empty")}
+								label={t("invPanel.templates.empty")}
 							/>
 						) : (
 							<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -555,9 +552,14 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 
 	const tabs = useMemo<TabItem[]>(
 		() => [
-			{ id: "plugins", label: t("invPanel.tabs.plugins"), badge: plugins.data?.plugins.length },
-			{ id: "marketplaces", label: t("invPanel.tabs.marketplaces"), badge: marketplaces.data?.marketplaces.length },
-			{ id: "templates", label: t("invPanel.tabs.templates"), badge: templates.data?.templates.length },
+			// A zero count says nothing the empty tab does not.
+			{ id: "plugins", label: t("invPanel.tabs.plugins"), badge: plugins.data?.plugins.length || undefined },
+			{
+				id: "marketplaces",
+				label: t("invPanel.tabs.marketplaces"),
+				badge: marketplaces.data?.marketplaces.length || undefined,
+			},
+			{ id: "templates", label: t("invPanel.tabs.templates"), badge: templates.data?.templates.length || undefined },
 		],
 		[t, plugins.data, marketplaces.data, templates.data],
 	);

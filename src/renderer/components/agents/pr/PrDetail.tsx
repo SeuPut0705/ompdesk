@@ -89,7 +89,7 @@ function FileRow({ path, additions, deletions }: { path: string; additions: numb
 	);
 }
 
-export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
+export function PrDetail() {
 	const t = useT();
 	const detail = usePrCenterStore(state => state.detail);
 	const detailLoading = usePrCenterStore(state => state.detailLoading);
@@ -100,11 +100,6 @@ export function PrDetail({ onCreateOpen }: { onCreateOpen: () => void }) {
 	if (selected === null) {
 		return (
 			<EmptyState
-				actions={
-					<Button onClick={onCreateOpen} size="sm" variant="primary">
-						{t("prCenter.create")}
-					</Button>
-				}
 				className="h-full"
 				description={t("prCenter.noSelection")}
 				icon={<GitPullRequest />}

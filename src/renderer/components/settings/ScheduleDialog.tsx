@@ -14,11 +14,12 @@ import {
 	type ScheduleFrequency,
 	scheduleDraftProblem,
 } from "../../../shared/schedules";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { frequencySummary, weekdayNames } from "../../lib/schedule-text";
 import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
-import { Button, Input, Modal, Select, SwitchField, Tabs, TextArea } from "../common";
+import { Button, Input, Modal, PathText, SegmentedChoice, Select, SwitchField, TextArea } from "../common";
+import { FieldShell } from "../common/Input";
+import { ModelValueSelect } from "./ModelValueSelect";
 
 type IntervalUnit = "minutes" | "hours";
 
@@ -167,18 +168,19 @@ export function ScheduleDialog({
 					rows={4}
 					value={form.prompt}
 				/>
-				<div className="flex flex-col gap-1.5">
-					<span className="text-sc-sm font-medium text-(--sc-text)">{t("schedules.field.project")}</span>
+				<FieldShell
+					controlId={`${formId}-cwd`}
+					error={touched && problem === "cwd" ? t("schedules.problem.cwd") : undefined}
+					label={t("schedules.field.project")}
+					noteId={`${formId}-cwd-note`}
+				>
 					<div className="flex min-w-0 items-center gap-2">
-						<span
-							className={cx(
-								"min-w-0 flex-1 truncate font-mono text-sc-sm",
-								form.cwd ? "text-(--sc-text)" : "text-(--sc-text-muted)",
+						<span className="flex min-w-0 flex-1 text-sc-sm" data-schedule-cwd>
+							{form.cwd ? (
+								<PathText path={form.cwd} />
+							) : (
+								<span className="text-(--sc-text-muted)">{t("schedules.field.noFolder")}</span>
 							)}
-							data-schedule-cwd
-							title={form.cwd || undefined}
-						>
-							{form.cwd || t("schedules.field.noFolder")}
 						</span>
 						<Button
 							icon={<FolderOpen />}
@@ -192,33 +194,29 @@ export function ScheduleDialog({
 							{t("schedules.field.chooseFolder")}
 						</Button>
 					</div>
-					{touched && problem === "cwd" && (
-						<p className="text-sc-xs text-(--sc-danger)" role="alert">
-							{t("schedules.problem.cwd")}
-						</p>
-					)}
-				</div>
-				<div className="flex flex-col gap-2">
-					<span className="text-sc-sm font-medium text-(--sc-text)" id={`${formId}-repeat`}>
-						{t("schedules.field.repeat")}
-					</span>
+				</FieldShell>
+				<FieldShell
+					controlId={`${formId}-repeat`}
+					label={t("schedules.field.repeat")}
+					noteId={`${formId}-repeat-note`}
+				>
 					{form.fixed ? (
 						<div className="flex flex-col gap-0.5" data-schedule-fixed-trigger>
 							<span className="text-sc-md text-(--sc-text)">{frequencySummary(form.fixed)}</span>
 							<span className="text-sc-xs text-(--sc-text-muted)">{t("schedules.field.triggerFixed")}</span>
 						</div>
 					) : (
-						<>
-							<Tabs
-								activeId={form.kind}
-								ariaLabel={t("schedules.field.repeat")}
-								compact
-								onChange={id => set("kind", id === "interval" ? "interval" : "daily")}
-								tabs={[
-									{ id: "daily", label: t("schedules.repeat.daily") },
-									{ id: "interval", label: t("schedules.repeat.interval") },
+						<div className="flex flex-col gap-2">
+							<SegmentedChoice
+								aria-label={t("schedules.field.repeat")}
+								fit="content"
+								onChange={kind => set("kind", kind)}
+								optionAttr="data-schedule-repeat"
+								options={[
+									{ value: "daily", label: t("schedules.repeat.daily") },
+									{ value: "interval", label: t("schedules.repeat.interval") },
 								]}
-								variant="segmented"
+								value={form.kind}
 							/>
 							{form.kind === "interval" ? (
 								<div className="flex items-end gap-2">
@@ -254,7 +252,7 @@ export function ScheduleDialog({
 										value={form.time}
 									/>
 									<fieldset className="flex flex-col gap-1.5">
-										<legend className="mb-1.5 text-sc-sm font-medium text-(--sc-text)">
+										<legend className="mb-1.5 text-sc-sm font-medium text-(--sc-text-secondary)">
 											{t("schedules.field.days")}
 										</legend>
 										<div className="flex flex-wrap gap-1">
@@ -283,18 +281,22 @@ export function ScheduleDialog({
 									</fieldset>
 								</div>
 							)}
-						</>
+						</div>
 					)}
-				</div>
-				<Input
-					hint={t("schedules.field.modelHint")}
+				</FieldShell>
+				<FieldShell
+					controlId={`${formId}-model`}
 					label={t("schedules.field.model")}
-					mono
-					onChange={event => set("model", event.target.value)}
-					placeholder={t("schedules.field.modelPlaceholder")}
-					spellCheck={false}
-					value={form.model}
-				/>
+					noteId={`${formId}-model-note`}
+				>
+					<ModelValueSelect
+						ariaLabel={t("schedules.field.model")}
+						kind="model"
+						onCommit={value => set("model", value)}
+						placeholder={t("schedules.field.modelHint")}
+						value={form.model}
+					/>
+				</FieldShell>
 				<SwitchField
 					checked={form.autoApprove}
 					description={t("schedules.field.autoApproveDesc")}

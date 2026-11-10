@@ -43,6 +43,7 @@ import {
 	type BadgeVariant,
 	Button,
 	DisclosureButton,
+	EmptyState,
 	InlineNotice,
 	Modal,
 	SkeletonRows,
@@ -340,9 +341,7 @@ function ThreadsTable({
 	snapshot: DebugSessionSummary | undefined;
 	t: TranslateFn;
 }) {
-	if (threads.length === 0) {
-		return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.emptyThreads")}</div>;
-	}
+	if (threads.length === 0) return <EmptyState size="sm" title={t("debug.emptyThreads")} />;
 	return (
 		<div className="overflow-hidden rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 			<div className="grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-2 border-b border-(--sc-divider) px-3 py-1.5 text-sc-xs font-medium text-(--sc-text-muted)">
@@ -369,9 +368,7 @@ function ThreadsTable({
 }
 
 function FrameList({ frames, t }: { frames: DebugStackFrame[]; t: TranslateFn }) {
-	if (frames.length === 0) {
-		return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.emptyFrames")}</div>;
-	}
+	if (frames.length === 0) return <EmptyState size="sm" title={t("debug.emptyFrames")} />;
 	return (
 		<div className="flex flex-col gap-0.5">
 			{frames.map((frame, index) => {
@@ -475,7 +472,7 @@ function ResultBody({ result, t }: { result: DebugResultData; t: TranslateFn }) 
 		case "output": {
 			const output = asString(details?.output) ?? resultText(result.data);
 			if (output) return <pre className={SCROLLBACK_CLASS}>{output}</pre>;
-			return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.noOutput")}</div>;
+			return <EmptyState size="sm" title={t("debug.noOutput")} />;
 		}
 		case "continue":
 		case "step_over":
@@ -495,7 +492,7 @@ function ResultBody({ result, t }: { result: DebugResultData; t: TranslateFn }) 
 	}
 	const text = resultText(result.data);
 	if (text) return <pre className={SCROLLBACK_CLASS}>{text}</pre>;
-	return <div className="px-3 py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("debug.noResult")}</div>;
+	return <EmptyState size="sm" title={t("debug.noResult")} />;
 }
 
 export function DebugConsoleDialog() {
@@ -651,29 +648,32 @@ export function DebugConsoleDialog() {
 							<SkeletonRows className="py-2" label={t("common.loading")} widths={[60, 44, 70, 52]} />
 						)
 					) : sessions.length === 0 ? (
-						<div className="flex flex-col items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-4 py-6 text-center">
-							<Bug aria-hidden className="size-(--sc-icon-md) text-(--sc-text-muted)" />
-							<span className="text-sc-md font-medium text-(--sc-text)">{t("debug.noSessions")}</span>
-							<span className="max-w-sm text-sc-sm text-(--sc-text-muted)">{t("debug.noSessionsHint")}</span>
-							<div className="mt-1 flex flex-wrap justify-center gap-2" data-debug-examples>
-								<Button
-									icon={<Rocket />}
-									onClick={() => fillExample(LAUNCH_EXAMPLE)}
-									size="sm"
-									variant="secondary"
-								>
-									{t("debug.fillLaunch")}
-								</Button>
-								<Button
-									icon={<Plug />}
-									onClick={() => fillExample(ATTACH_EXAMPLE)}
-									size="sm"
-									variant="secondary"
-								>
-									{t("debug.fillAttach")}
-								</Button>
-							</div>
-						</div>
+						<EmptyState
+							actions={
+								<div className="flex flex-wrap justify-center gap-2" data-debug-examples>
+									<Button
+										icon={<Rocket />}
+										onClick={() => fillExample(LAUNCH_EXAMPLE)}
+										size="sm"
+										variant="secondary"
+									>
+										{t("debug.fillLaunch")}
+									</Button>
+									<Button
+										icon={<Plug />}
+										onClick={() => fillExample(ATTACH_EXAMPLE)}
+										size="sm"
+										variant="secondary"
+									>
+										{t("debug.fillAttach")}
+									</Button>
+								</div>
+							}
+							description={t("debug.noSessionsHint")}
+							icon={<Bug />}
+							size="sm"
+							title={t("debug.noSessions")}
+						/>
 					) : (
 						<div className="flex max-h-40 flex-col gap-1.5 overflow-auto">
 							{sessionsError ? (
@@ -693,39 +693,42 @@ export function DebugConsoleDialog() {
 					)}
 				</section>
 
-				<div className="flex flex-wrap gap-2">
-					{ACTION_DEFS.map(def => (
-						<Button
-							disabled={!sidecarReady || pending > 0 || !def.enabled(activeSession)}
-							icon={def.icon}
-							key={def.action}
-							onClick={() => void runAction({ action: def.action })}
-							size="sm"
-							variant={def.danger ? "danger" : "secondary"}
-							title={!sidecarReady ? t("common.notConnected") : undefined}
-						>
-							{t(def.labelKey)}
-						</Button>
-					))}
-				</div>
+				{/* With no session the step actions are all inert: the empty state above says what to do instead. */}
+				{activeSession ? (
+					<div className="flex flex-wrap gap-2">
+						{ACTION_DEFS.map(def => (
+							<Button
+								disabled={!sidecarReady || pending > 0 || !def.enabled(activeSession)}
+								icon={def.icon}
+								key={def.action}
+								onClick={() => void runAction({ action: def.action })}
+								size="sm"
+								variant={def.danger ? "danger" : "secondary"}
+								title={!sidecarReady ? t("common.notConnected") : undefined}
+							>
+								{t(def.labelKey)}
+							</Button>
+						))}
+					</div>
+				) : null}
 
 				{error ? <InlineNotice detail={error.cause} live title={error.message} tone="danger" /> : null}
 
-				<section>
-					<div className="mb-1 flex items-center justify-between">
-						<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.result")}</span>
-						{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}
-					</div>
-					<div className="max-h-72 min-h-28 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
-						{result ? (
-							<ResultBody result={result} t={t} />
-						) : (
-							<div className="flex min-h-24 items-center justify-center text-sc-sm text-(--sc-text-muted)">
-								{t("debug.noResult")}
-							</div>
-						)}
-					</div>
-				</section>
+				{activeSession || result ? (
+					<section>
+						<div className="mb-1 flex items-center justify-between">
+							<span className="text-sc-sm font-medium text-(--sc-text)">{t("debug.result")}</span>
+							{pending > 0 ? <Spinner label={t("debug.running")} size="sm" /> : null}
+						</div>
+						<div className="max-h-72 min-h-28 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) p-3">
+							{result ? (
+								<ResultBody result={result} t={t} />
+							) : (
+								<EmptyState size="sm" title={t("debug.noResult")} />
+							)}
+						</div>
+					</section>
+				) : null}
 
 				<section className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
 					<DisclosureButton
@@ -752,19 +755,14 @@ export function DebugConsoleDialog() {
 									</Button>
 								))}
 							</div>
-							<div>
-								<label className="mb-1 block text-sc-sm font-medium text-(--sc-text)" htmlFor="debug-request">
-									{t("debug.request")}
-								</label>
-								<TextArea
-									id="debug-request"
-									mono
-									onChange={event => setRequest(event.target.value)}
-									rows={7}
-									spellCheck={false}
-									value={request}
-								/>
-							</div>
+							<TextArea
+								label={t("debug.request")}
+								mono
+								onChange={event => setRequest(event.target.value)}
+								rows={7}
+								spellCheck={false}
+								value={request}
+							/>
 						</div>
 					) : null}
 				</section>

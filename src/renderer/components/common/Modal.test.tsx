@@ -193,6 +193,33 @@ describe("Modal", () => {
 		trigger.remove();
 	});
 
+	it("opens on its first field, else its body's first control, and never on the header's close", async () => {
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+		await mount(
+			<Modal footer={<button type="button">Import</button>} onClose={() => {}} open title="Import">
+				<button type="button">Filter</button>
+				<input aria-label="Search" />
+			</Modal>,
+		);
+		// Typing goes to the search field, even though a button comes first.
+		expect(activeElement?.getAttribute("aria-label")).toBe("Search");
+		await render(
+			<Modal onClose={() => {}} open={false} title="Import">
+				{null}
+			</Modal>,
+		);
+		await flush();
+
+		await render(
+			<Modal footer={<button type="button">OK</button>} onClose={() => {}} open title="Notice">
+				<button type="button">Details</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("Details");
+	});
+
 	it("puts focus where its opener sat when the dialog's action removed it", async () => {
 		const list = document.createElement("ul");
 		for (const name of ["a", "b", "c"]) {

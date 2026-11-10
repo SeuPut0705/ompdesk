@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 import type { AutopilotStatus } from "../resources/gui-bridge/modes/autopilot-contracts";
 import { writeShellGh } from "./fixture/shell-gh";
 import { launchApp, readRecords } from "./harness";
@@ -355,4 +355,19 @@ export async function startFromSheet(page: Page, language: Language): Promise<Ru
 	await page.getByRole("tab", { name: AUTOPILOT_TAB[language] }).click();
 	await page.locator("[data-autopilot-start]").click();
 	return waitForRunTab(page);
+}
+
+/**
+ * Bring the run's section of the work board into view the way a user does. A board docked with that section open
+ * already shows it beside the composer (the composer's "show the run" gives way there): nothing to click. Otherwise
+ * the composer's "show the run" reveals it. Resolves with the section.
+ */
+export async function showRun(page: Page): Promise<Locator> {
+	const section = page.locator('[data-board-section="autopilot"]').first();
+	const open = page.locator("[data-autopilot-chip-open]");
+	await expect(async () => {
+		if (!(await section.isVisible())) await open.click({ timeout: 1_000 });
+		await expect(section).toBeVisible({ timeout: 1_000 });
+	}).toPass({ timeout: 15_000 });
+	return section;
 }

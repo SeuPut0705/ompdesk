@@ -4,7 +4,7 @@
  * action menu (switch here / branch / open in new window).
  */
 
-import { Bot, CornerDownLeft, ExternalLink, GitBranch, Info, Play, User } from "lucide-react";
+import { Bot, CornerDownLeft, ExternalLink, GitBranch, Info, MoreHorizontal, Play, User } from "lucide-react";
 import { memo } from "react";
 import { cx, formatClock, formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
@@ -72,7 +72,7 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 			title={entry.entryId}
 			style={{ left: x, top: y, width: TREE_NODE_WIDTH, height: TREE_NODE_HEIGHT }}
 		>
-			<div className="flex min-w-0 items-center gap-1.5 pr-4">
+			<div className="flex min-w-0 items-center gap-1.5 pr-7">
 				<RoleGlyph role={entry.role} />
 				<span className={cx("shrink-0 text-sc-xs font-medium", meta.className)}>{t(meta.labelKey)}</span>
 				{entry.timestamp > 0 && (
@@ -104,14 +104,20 @@ const SessionTreeNodeCard = memo(function SessionTreeNodeCard({
 			)}
 			{/* Node actions: switch the active leaf here (any node), branch (user
 			    nodes only, server gate), or open an independent session from here
-			    in a new window (any node). The wrapper keeps the press from
-			    starting a node drag on the canvas. */}
-			<span className="absolute -top-3 -right-3" onPointerDown={event => event.stopPropagation()}>
+			    in a new window (any node). Like every row menu, a ⋯ shown on hover or
+			    focus, always on the selected node, while it works and under a finger.
+			    The wrapper keeps the press from starting a node drag on the canvas. */}
+			<span className="absolute top-1.5 right-1.5" onPointerDown={event => event.stopPropagation()}>
 				<MenuButton
 					align="end"
-					className="rounded-(--sc-radius-full) opacity-70 transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard) group-hover:opacity-100 focus-visible:opacity-100"
+					className={cx(
+						"transition-opacity duration-(--sc-duration-fast) ease-(--sc-ease-standard)",
+						selected || branching === entry.entryId
+							? "opacity-100"
+							: "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 [@media(hover:none)]:opacity-100",
+					)}
 					disabled={branching !== null}
-					icon={branching === entry.entryId ? <Spinner inheritColor size="sm" /> : <GitBranch />}
+					icon={branching === entry.entryId ? <Spinner inheritColor size="sm" /> : <MoreHorizontal />}
 					items={[
 						{
 							id: "switch",

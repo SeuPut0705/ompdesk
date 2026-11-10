@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAiMemoryStore } from "../../../stores/ai-memory";
 import { useMemoryPageStore } from "../../../stores/memory-page";
 import { SettingsNavigationProvider } from "../settings-navigation";
+import { resetMemorySearchForTest } from "./MemorySearch";
 import { MemorySection, resolveProject } from "./MemorySection";
 import {
 	API,
@@ -19,6 +20,8 @@ import {
 	q,
 	qa,
 	settle,
+	submit,
+	type,
 } from "./memory-test-harness";
 
 let api = fakeMemoryApi();
@@ -40,7 +43,10 @@ beforeEach(() => {
 	api.handoffs.mockResolvedValue([handoff("h1", "open")]);
 	installApi(api);
 });
-afterEach(cleanup);
+afterEach(async () => {
+	resetMemorySearchForTest();
+	await cleanup();
+});
 
 describe("resolveProject", () => {
 	it("prefers the pick, then the project named after the folder, then the newest", () => {
@@ -97,5 +103,21 @@ describe("Memory page", () => {
 		});
 		await settle();
 		expect(api.pages).toHaveBeenLastCalledWith({ workspace: "work", project: "api" });
+	});
+
+	it("on Search the project picker's first option searches every project, with no second scope control", async () => {
+		await show("search");
+		const select = q("[data-memory-project]");
+		expect(qa("[data-memory-project] option").map(option => option.textContent)[0]).toBe("All projects");
+		expect(button("This project")).toBeNull();
+		await act(async () => {
+			const key = Object.getOwnPropertyNames(select).find(name => name.startsWith("__reactProps$")) as string;
+			const props = (select as unknown as Record<string, { onChange: (event: unknown) => void }>)[key];
+			props?.onChange({ target: { value: "*" } });
+		});
+		await settle();
+		await type(q("[data-memory-search] input"), "sqlite");
+		await submit(q("[data-memory-search] form"));
+		expect(api.search).toHaveBeenLastCalledWith("sqlite", undefined);
 	});
 });

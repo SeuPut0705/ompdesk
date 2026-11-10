@@ -8,6 +8,13 @@ export const en: Record<string, string> = {
 	"memory.profile.empty": "Fills in from your sessions.",
 	"memory.profile.general": "General",
 	"memory.profile.edit": "Edit",
+	"memory.profile.category.stack": "Stack",
+	"memory.profile.category.architecture": "Architecture",
+	"memory.profile.category.workflow": "Workflow",
+	"memory.profile.category.testing": "Testing",
+	"memory.profile.category.tools": "Tools",
+	"memory.profile.category.style": "Style",
+	"memory.profile.category.habits": "Habits",
 };
 export const ko: Record<string, string> = {
 	"memory.profile.status": "프로필",
@@ -18,4 +25,11 @@ export const ko: Record<string, string> = {
 	"memory.profile.empty": "세션을 거치며 채워져요.",
 	"memory.profile.general": "일반",
 	"memory.profile.edit": "편집",
+	"memory.profile.category.stack": "기술 스택",
+	"memory.profile.category.architecture": "아키텍처",
+	"memory.profile.category.workflow": "작업 방식",
+	"memory.profile.category.testing": "테스트",
+	"memory.profile.category.tools": "도구",
+	"memory.profile.category.style": "스타일",
+	"memory.profile.category.habits": "습관",
 };

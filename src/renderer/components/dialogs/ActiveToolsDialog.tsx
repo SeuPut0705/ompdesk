@@ -1,13 +1,13 @@
-import { Search } from "lucide-react";
+import { SearchX } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { RpcActiveTool, RpcActiveToolsResult, RpcToolSource } from "../../../shared/rpc-types";
+import type { RpcActiveTool, RpcActiveToolsResult } from "../../../shared/rpc-types";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { AsyncSection, Badge, Input, Modal } from "../common";
-
-const SOURCE_ORDER: RpcToolSource[] = ["builtin", "mcp", "extension", "plugin"];
+import { AsyncSection, EmptyState, Modal, SearchField } from "../common";
+import { SectionLabel } from "../common/SectionLabel";
+import { groupToolsBySource } from "./tool-groups";
 
 /**
  * Native /tools: every tool currently visible to the agent, grouped by
@@ -51,23 +51,15 @@ export function ActiveToolsDialog() {
 		void reload();
 	}, [open, reload]);
 
-	const groups = useMemo(() => {
-		const q = query.trim().toLowerCase();
-		const matches = (tool: RpcActiveTool): boolean =>
-			!q || tool.name.toLowerCase().includes(q) || (tool.description ?? "").toLowerCase().includes(q);
-		return SOURCE_ORDER.map(source => ({
-			source,
-			tools: tools.filter(tool => tool.source === source && matches(tool)),
-		})).filter(group => group.tools.length > 0);
-	}, [tools, query]);
+	const groups = useMemo(() => groupToolsBySource(tools, query), [tools, query]);
 
 	return (
 		<Modal onClose={close} open={open} size="lg" title={t("activeTools.title")}>
 			<div className="space-y-3">
-				<Input
-					aria-label={t("activeTools.search")}
-					leadingIcon={<Search />}
-					onChange={event => setQuery(event.target.value)}
+				<SearchField
+					autoFocus
+					label={t("activeTools.search")}
+					onValueChange={setQuery}
 					placeholder={t("activeTools.search")}
 					value={query}
 				/>
@@ -83,17 +75,14 @@ export function ActiveToolsDialog() {
 					onRetry={() => void reload()}
 				>
 					{groups.length === 0 ? (
-						<div className="py-4 text-sc-sm text-(--sc-text-muted)">{t("activeTools.noMatch")}</div>
+						<EmptyState icon={<SearchX />} size="sm" title={t("activeTools.noMatch")} />
 					) : (
 						<div className="space-y-4">
 							{groups.map(group => (
 								<section key={group.source}>
-									<div className="mb-1.5 flex items-center gap-2">
-										<span className="text-sc-xs font-medium text-(--sc-text-muted)">
-											{t(`activeTools.source.${group.source}`)}
-										</span>
-										<Badge variant="muted">{group.tools.length}</Badge>
-									</div>
+									<SectionLabel className="mb-1.5" count={group.tools.length}>
+										{t(`activeTools.source.${group.source}`)}
+									</SectionLabel>
 									<div className="divide-y divide-(--sc-divider)">
 										{group.tools.map(tool => (
 											<div className="px-3 py-1.5" key={`${group.source}:${tool.name}`}>

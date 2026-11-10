@@ -15,7 +15,7 @@ import { branchSessionFromEntry } from "../../lib/messages";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows, Spinner } from "../common";
+import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows, Spinner } from "../common";
 
 interface BranchEntry {
 	entryId: string;
@@ -190,9 +190,10 @@ export function BranchPickerDialog() {
 					) : loading ? (
 						<SkeletonRows className="py-2" label={t("branchPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : filtered.length === 0 ? (
-						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
-							{entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}
-						</div>
+						<EmptyState
+							size="sm"
+							title={entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}
+						/>
 					) : (
 						filtered.map((entry, index) => {
 							const isActive = index === activeIndex;

@@ -321,8 +321,15 @@ describe("ExtensionDialog ask", () => {
 		expect(card().textContent).toContain("Where should this deploy?");
 		expect(card().textContent).not.toContain("Run the tests first?");
 		expect(buttonWithText("Submit")).toBeUndefined();
-		// The step chip says the header; the body does not repeat it above the question.
-		expect((card().textContent?.match(/Target/g) ?? []).length).toBe(1);
+		// The card is named by the current question's header; the step chip says it too, the body does not repeat it.
+		expect(card().getAttribute("aria-label")).toBe("Target");
+		expect(
+			(
+				card()
+					.querySelector("form")
+					?.textContent?.match(/Target/g) ?? []
+			).length,
+		).toBe(1);
 		// A chip cuts a long label: hovering it names the label and the question that step asks.
 		expect(card().querySelector('[data-ask-step="0"]')?.getAttribute("title")).toBe(
 			"Target · Where should this deploy?",
@@ -424,10 +431,11 @@ describe("ExtensionDialog ask", () => {
 			});
 			await flush();
 		};
-		expect(card().textContent).toContain(translate("extDialog.ask.step", { current: 1, total: 3 }));
+		// A question without a header names the card by its question.
+		expect(card().getAttribute("aria-label")).toBe("Where should this deploy?");
 		await press("2");
 		expect(card().textContent).toContain("Which checks should run first?");
-		expect(card().textContent).toContain(translate("extDialog.ask.step", { current: 2, total: 3 }));
+		expect(card().getAttribute("aria-label")).toBe("Which checks should run first?");
 		await press("1");
 		await press("3");
 		expect(card().textContent).toContain("Which checks should run first?");

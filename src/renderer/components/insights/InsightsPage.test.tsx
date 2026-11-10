@@ -195,6 +195,21 @@ describe("InsightsPage", () => {
 		expect(document.querySelector("h2")?.textContent).toBe("Build the Tally app");
 	});
 
+	it("shows premium requests only for a session that made some", async () => {
+		const omp = installOmp();
+		omp.getSessionStats.mockResolvedValue({
+			type: "response",
+			command: "get_session_stats",
+			success: true,
+			data: { ...stats, premiumRequests: 0 },
+		});
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useSessionStore.setState({ sessionId: stats.sessionId });
+		useUiStore.getState().openInsights("stats", "session");
+		await mount();
+		expect(document.body.textContent).not.toContain("Premium requests");
+	});
+
 	it("shows the advisor's spend, calls and advisories with its share of the session's spend", async () => {
 		const omp = installOmp();
 		omp.getSessionStats.mockResolvedValue({
@@ -419,8 +434,8 @@ describe("InsightsPage", () => {
 		const card = document.querySelector("section");
 		expect(card?.querySelector("[data-usage-updated]")?.textContent).toMatch(/^Updated 1[0-2]s ago$/);
 		expect(card?.textContent).toContain("resets in 4d 3h");
-		const refresh = () =>
-			Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Refresh");
+		// The refresh sits at the end of the page's tab row, not on a line of its own above the cards.
+		const refresh = () => document.querySelector<HTMLButtonElement>('button[aria-label="Refresh"]');
 		await act(async () => refresh()?.click());
 		expect(omp.getUsage).toHaveBeenLastCalledWith(true);
 	});

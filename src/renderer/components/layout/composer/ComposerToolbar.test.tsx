@@ -366,11 +366,11 @@ describe("+ menu Dictation item", () => {
 		});
 	}
 
-	it("explains where to turn dictation on while it is off, and opens Settings without writing the setting", async () => {
+	it("names the action while dictation is off, on one line, and opens Settings without writing the setting", async () => {
 		await render();
 		await openMenu();
-		const item = items().find(entry => entry.textContent?.includes(translate("voice.menu.off")));
-		expect(item?.textContent).toContain(translate("voice.menu.offDesc"));
+		const item = items().find(entry => entry.textContent?.includes(translate("voice.menu.enable")));
+		expect(item?.textContent?.trim()).toBe(translate("voice.menu.enable"));
 		await act(async () => {
 			item?.dispatchEvent(new Event("click", { bubbles: true, cancelable: true }));
 		});
@@ -383,7 +383,7 @@ describe("+ menu Dictation item", () => {
 		useSettingsStore.setState({ sttEnabled: true });
 		await render();
 		await openMenu();
-		expect(items().some(entry => entry.textContent?.includes(translate("voice.menu.off")))).toBe(false);
+		expect(items().some(entry => entry.textContent?.includes(translate("voice.menu.enable")))).toBe(false);
 	});
 });
 

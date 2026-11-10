@@ -198,6 +198,14 @@ describe("controls close enough to take each other's taps", () => {
 		expect(read("../components/layout/composer/ChoiceRow.tsx")).toContain("items-center gap-2 py-0.5");
 	});
 
+	it("keeps Stats' (i) clear of Sync beside it, a 36 px target that wraps with Sync", () => {
+		expect(rule('html[data-input="touch"] [data-stats-sync]')).toMatch(/gap:\s*12px/);
+		const glyph = rule('html[data-input="touch"] [data-stats-sync] > [data-setting-info]');
+		expect(glyph).toMatch(/--hit-gap-x:\s*20px/);
+		expect(glyph).toMatch(/--hit-gap-y:\s*20px/);
+		declares("../components/stats/AllSessionsStats.tsx", 'className="flex items-center gap-2" data-stats-sync');
+	});
+
 	it("spaces a figure header's buttons 10 px apart on touch, each a 36 px target", () => {
 		expect(rule('html[data-input="touch"] [data-figure-header]')).toMatch(
 			/--hit-gap-x:\s*10px;[^}]*--hit-gap-y:\s*10px/,

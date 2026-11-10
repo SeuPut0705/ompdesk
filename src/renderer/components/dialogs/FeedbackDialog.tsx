@@ -89,7 +89,7 @@ export function FeedbackDialog() {
 			title={t("feedback.title")}
 			footer={
 				<>
-					<Button onClick={close} size="sm" variant="secondary">
+					<Button onClick={close} size="sm" variant="ghost">
 						{t("feedback.cancel")}
 					</Button>
 					<Button disabled={!canSubmit} icon={<ExternalLink />} onClick={submit} size="sm" variant="primary">

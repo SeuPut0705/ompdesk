@@ -700,6 +700,11 @@ describe("MobileWebSection allowed users", () => {
 		expect(own?.querySelector("button")).toBeNull();
 		fake.api.command.mockClear();
 		await click(translate("mobileWeb.users.remove", { user: "lee@example.com" }));
+		await act(async () => {
+			(Array.from(document.body.querySelectorAll('[role="menuitem"]')) as unknown as HTMLElement[])
+				.find(entry => (entry.textContent ?? "").trim() === translate("remote.remove"))
+				?.click();
+		});
 		expect(requests()).toEqual([{ action: "set-allowed-users", users: ["kim@example.com"] }]);
 	});
 

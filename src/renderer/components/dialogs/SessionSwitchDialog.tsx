@@ -74,7 +74,7 @@ export function SessionSwitchDialog() {
 			size="sm"
 			footer={
 				<>
-					<Button variant="secondary" disabled={busy !== null} onClick={dismiss}>
+					<Button variant="ghost" disabled={busy !== null} onClick={dismiss}>
 						{t("common.cancel")}
 					</Button>
 					<Button

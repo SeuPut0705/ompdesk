@@ -581,6 +581,13 @@ export function AgentDefinitions() {
 
 	const loadedState = rpc.state;
 	const notConnected = !rpc.ready ? t("agentHub.notConnected") : undefined;
+	// No agent at all: the empty state carries the actions that make one, and no filter has anything to split.
+	const noAgents = Boolean(loadedState) && entries.length === 0;
+	const sourceTabs = SOURCE_FILTERS.filter(
+		source => source === "all" || source === sourceFilter || sourceCounts[source] > 0,
+	);
+	const showSources =
+		sourceFilter !== "all" || sourceTabs.some(source => source !== "all" && sourceCounts[source] < sourceCounts.all);
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -592,17 +599,19 @@ export function AgentDefinitions() {
 					placeholder={t("agentHub.defs.searchPlaceholder")}
 					value={query}
 				/>
-				<Tabs
-					activeId={sourceFilter}
-					ariaLabel={t("agents.defs.sourceFilter")}
-					onChange={id => setSourceFilter(id as SourceFilter)}
-					tabs={SOURCE_FILTERS.map(source => ({
-						id: source,
-						label: source === "all" ? t("agentHub.source.all") : t(`agentHub.source.${source}`),
-						badge: sourceCounts[source],
-					}))}
-					variant="segmented"
-				/>
+				{showSources && (
+					<Tabs
+						activeId={sourceFilter}
+						ariaLabel={t("agents.defs.sourceFilter")}
+						onChange={id => setSourceFilter(id as SourceFilter)}
+						tabs={sourceTabs.map(source => ({
+							id: source,
+							label: source === "all" ? t("agentHub.source.all") : t(`agentHub.source.${source}`),
+							badge: sourceCounts[source],
+						}))}
+						variant="segmented"
+					/>
+				)}
 				<div className="ml-auto flex flex-wrap items-center gap-2">
 					<IconButton
 						disabled={!rpc.ready}
@@ -611,24 +620,28 @@ export function AgentDefinitions() {
 						loading={rpc.loading}
 						onClick={rpc.refresh}
 					/>
-					<Button
-						disabled={!rpc.ready}
-						icon={<LayoutTemplate />}
-						onClick={() => setGalleryOpen(true)}
-						title={notConnected}
-						variant="secondary"
-					>
-						{t("agentStudio.templates")}
-					</Button>
-					<Button
-						disabled={!rpc.ready}
-						icon={<Plus />}
-						onClick={() => openNew()}
-						title={notConnected}
-						variant="primary"
-					>
-						{t("agentStudio.newAgent")}
-					</Button>
+					{!noAgents && (
+						<>
+							<Button
+								disabled={!rpc.ready}
+								icon={<LayoutTemplate />}
+								onClick={() => setGalleryOpen(true)}
+								title={notConnected}
+								variant="secondary"
+							>
+								{t("agentStudio.templates")}
+							</Button>
+							<Button
+								disabled={!rpc.ready}
+								icon={<Plus />}
+								onClick={() => openNew()}
+								title={notConnected}
+								variant="primary"
+							>
+								{t("agentStudio.newAgent")}
+							</Button>
+						</>
+					)}
 				</div>
 			</div>
 
@@ -654,23 +667,50 @@ export function AgentDefinitions() {
 						title={t("agentHub.loadFailed")}
 					/>
 				)
+			) : noAgents ? (
+				<EmptyState
+					actions={
+						<>
+							<Button
+								disabled={!rpc.ready}
+								icon={<Plus />}
+								onClick={() => openNew()}
+								size="sm"
+								title={notConnected}
+								variant="primary"
+							>
+								{t("agentStudio.newAgent")}
+							</Button>
+							<Button
+								disabled={!rpc.ready}
+								icon={<LayoutTemplate />}
+								onClick={() => setGalleryOpen(true)}
+								size="sm"
+								title={notConnected}
+								variant="secondary"
+							>
+								{t("agentStudio.templates")}
+							</Button>
+						</>
+					}
+					description={t("agentHub.defs.emptyHint")}
+					icon={<Users />}
+					title={t("agentHub.defs.empty")}
+				/>
 			) : filtered.length === 0 ? (
 				<EmptyState
 					actions={
-						query || sourceFilter !== "all" ? (
-							<Button
-								onClick={() => {
-									setQuery("");
-									setSourceFilter("all");
-								}}
-								size="sm"
-								variant="secondary"
-							>
-								{t("agents.defs.clearFilters")}
-							</Button>
-						) : undefined
+						<Button
+							onClick={() => {
+								setQuery("");
+								setSourceFilter("all");
+							}}
+							size="sm"
+							variant="secondary"
+						>
+							{t("agents.defs.clearFilters")}
+						</Button>
 					}
-					description={t("agentHub.defs.emptyHint")}
 					icon={<Users />}
 					title={t("agentHub.defs.empty")}
 				/>

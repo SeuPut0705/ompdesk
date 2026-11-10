@@ -6,7 +6,7 @@
  * unsupported, not HTTPS, iOS in a Safari tab). On iOS push exists only for a page on the Home Screen, so the
  * Add to Home Screen steps show there; Chromium offers its own install prompt; Samsung Internet and Firefox get their menu steps.
  */
-import { Download } from "lucide-react";
+import { Bell, Download } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { WEB_PUSH_CATEGORIES, type WebPushCategory } from "../../../shared/web-push";
 import { useT } from "../../lib/i18n";
@@ -49,12 +49,12 @@ function InstallSection({ pwa }: { pwa: WebPwa }) {
 	const t = useT();
 	const guidance = useInstallGuidance(pwa);
 	const [busy, setBusy] = useState(false);
-	if (guidance === "none") return null;
+	// Installed there is nothing to do: no group at all.
+	if (guidance === "none" || guidance === "installed") return null;
 	const steps = installStepKeys(guidance);
 	return (
 		<SettingsSection title={t("web.install.title")}>
 			<div data-web-install={guidance}>
-				{guidance === "installed" && <SettingsRow id="settings-web-install" label={t("web.install.installed")} />}
 				{guidance === "ios-share" && (
 					<SettingsRow id="settings-web-install" label={t("web.install.iosTitle")}>
 						<IosInstallSteps />
@@ -186,8 +186,9 @@ function NotificationsSection({ pwa }: { pwa: WebPwa }) {
 							</Button>
 						)
 					}
+					icon={<Bell />}
 					id="settings-web-push"
-					label={view.subscribed ? t("web.push.on") : t("web.push.off")}
+					label={t("web.push.label")}
 				/>
 				{view.subscribed && (
 					<>

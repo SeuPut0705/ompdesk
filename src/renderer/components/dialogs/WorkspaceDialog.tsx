@@ -23,7 +23,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { useTabsStore } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { Button, Modal, OptionRow, SearchField } from "../common";
+import { Button, EmptyState, Modal, OptionRow, SearchField } from "../common";
 
 interface WorkspaceRow {
 	cwd: string;
@@ -215,11 +215,9 @@ export function WorkspaceDialog({
 					role={shown.length > 0 ? "listbox" : undefined}
 				>
 					{workspaces.length === 0 ? (
-						<div className="px-2 py-8 text-center text-sc-md text-(--sc-text-muted)">{t("workspaces.empty")}</div>
+						<EmptyState size="sm" title={t("workspaces.empty")} />
 					) : shown.length === 0 ? (
-						<div className="px-2 py-8 text-center text-sc-md text-(--sc-text-muted)">
-							{t("workspaces.noMatch")}
-						</div>
+						<EmptyState size="sm" title={t("workspaces.noMatch")} />
 					) : (
 						shown.map((ws, index) => {
 							const isCurrent = ws.cwd === cwd;

@@ -71,7 +71,7 @@ async function mount(): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<PrDetail onCreateOpen={() => {}} />
+				<PrDetail />
 			</I18nProvider>,
 		);
 	});

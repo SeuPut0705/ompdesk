@@ -48,12 +48,12 @@ describe("Memory › Pages", () => {
 	it("opens a page and renders its markdown", async () => {
 		api.readPage.mockResolvedValue(pageOf("notes/n.md", "Note N"));
 		await mount(<MemoryPages project={PROJECT} />);
-		await click(q('[data-memory-page="notes/n.md"]'));
+		await click(q('[data-memory-page="notes/n.md"] button'));
 		expect(api.readPage).toHaveBeenCalledWith({ ...PROJECT, path: "notes/n.md" });
 		expect(text("[data-memory-body]")).toContain("Body of Note N.");
 		expect(q("[data-memory-body] strong")?.textContent).toBe("Note N");
 		// The open page's row is the current item of the list, not a toggle button a screen reader reads as "pressed".
-		const row = q('[data-memory-page="notes/n.md"]');
+		const row = q('[data-memory-page="notes/n.md"] button');
 		expect(row?.getAttribute("aria-current")).toBe("true");
 		expect(row?.hasAttribute("aria-pressed")).toBe(false);
 	});
@@ -61,7 +61,7 @@ describe("Memory › Pages", () => {
 	it("saves an edit through writePage and keeps kind, tier, tags and pin", async () => {
 		api.readPage.mockResolvedValue(pageOf("notes/n.md", "Note N", { pinned: true }));
 		await mount(<MemoryPages project={PROJECT} />);
-		await click(q('[data-memory-page="notes/n.md"]'));
+		await click(q('[data-memory-page="notes/n.md"] button'));
 		await click(q("[data-memory-edit]"));
 		await type(q("[data-memory-editor]"), "new body");
 		await click(q("[data-memory-save]"));
@@ -81,7 +81,7 @@ describe("Memory › Pages", () => {
 	it("pins an unpinned page with the same body", async () => {
 		api.readPage.mockResolvedValue(pageOf("notes/n.md", "Note N"));
 		await mount(<MemoryPages project={PROJECT} />);
-		await click(q('[data-memory-page="notes/n.md"]'));
+		await click(q('[data-memory-page="notes/n.md"] button'));
 		await click(q("[data-memory-pin]"));
 		expect(api.writePage).toHaveBeenCalledWith(
 			expect.objectContaining({ path: "notes/n.md", pinned: true, body: "# Note N\n\nBody of **Note N**." }),
@@ -91,7 +91,7 @@ describe("Memory › Pages", () => {
 	it("rates a page", async () => {
 		api.readPage.mockResolvedValue(pageOf("notes/n.md", "Note N"));
 		await mount(<MemoryPages project={PROJECT} />);
-		await click(q('[data-memory-page="notes/n.md"]'));
+		await click(q('[data-memory-page="notes/n.md"] button'));
 		await click(q("[data-memory-helpful]"));
 		await click(q("[data-memory-not-helpful]"));
 		expect(api.feedback.mock.calls).toEqual([
@@ -103,7 +103,7 @@ describe("Memory › Pages", () => {
 	it("deletes after asking, lists it under Deleted, and Restore reads it back from its revision", async () => {
 		api.readPage.mockResolvedValue(pageOf("notes/n.md", "Note N"));
 		await mount(<MemoryPages project={PROJECT} />);
-		await click(q('[data-memory-page="notes/n.md"]'));
+		await click(q('[data-memory-page="notes/n.md"] button'));
 		await click(q("[data-memory-delete]"));
 		expect(api.deletePage).not.toHaveBeenCalled();
 		await click(
@@ -124,7 +124,7 @@ describe("Memory › Pages", () => {
 		api.readPage.mockResolvedValue(pageOf("sessions/s.md", "Session S", { kind: "session" }));
 		await mount(<MemoryPages project={PROJECT} />);
 		await click(q('[data-memory-group-toggle="session"]'));
-		await click(q('[data-memory-page="sessions/s.md"]'));
+		await click(q('[data-memory-page="sessions/s.md"] button'));
 		expect(q("[data-memory-edit]")?.hasAttribute("disabled")).toBe(true);
 		expect(q("[data-memory-pin]")?.hasAttribute("disabled")).toBe(true);
 		expect(q("[data-memory-delete]")?.hasAttribute("disabled")).toBe(false);

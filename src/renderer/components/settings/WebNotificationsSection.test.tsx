@@ -260,10 +260,11 @@ describe("WebNotificationsSection", () => {
 		expect(q("[data-web-install-steps]")?.textContent).toContain(translate("web.install.firefox2"));
 	});
 
-	it("says the app is installed when it runs standalone, and shows no install steps on desktop", async () => {
+	it("shows no install group once the app runs standalone, nor on desktop", async () => {
 		const standalone = build({ install: { standalone: true } });
 		await mount(<WebNotificationsSection pwa={standalone.pwa} />);
-		expect(q('[data-web-install="installed"]')).not.toBeNull();
+		expect(q("[data-web-install]")).toBeNull();
+		expect(document.body.textContent).not.toContain(translate("web.install.title"));
 		await act(async () => {
 			roots.pop()?.unmount();
 		});

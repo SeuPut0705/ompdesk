@@ -38,7 +38,6 @@ import {
 	IconButton,
 	MenuButton,
 	SkeletonRows,
-	Spinner,
 	Switch,
 } from "../common";
 import { MailAccounts } from "./MailAccounts";
@@ -139,7 +138,9 @@ export function SchedulesSection() {
 	const running = new Map(state.runs.filter(run => run.status === "running").map(run => [run.scheduleId, run]));
 	const lastRun = (id: string) => state.runs.find(run => run.scheduleId === id && run.status !== "running");
 	const names = new Map(state.schedules.map(schedule => [schedule.id, schedule.name]));
-	const runs = showAllRuns ? state.runs : state.runs.slice(0, RUNS_SHOWN);
+	// A running run lives on its schedule's row (with Stop): Recent runs lists finished ones only.
+	const finished = state.runs.filter(run => run.status !== "running");
+	const runs = showAllRuns ? finished : finished.slice(0, RUNS_SHOWN);
 	const newButton = (
 		<Button
 			data-schedule-new
@@ -154,7 +155,11 @@ export function SchedulesSection() {
 
 	return (
 		<>
-			<SettingsSection actions={state.schedules.length > 0 ? newButton : undefined} id="settings-schedules-list">
+			<SettingsSection
+				actions={state.schedules.length > 0 ? newButton : undefined}
+				id="settings-schedules-list"
+				title={t("settings.section.schedules")}
+			>
 				{/* The "only while OMPdesk is open" rule sits behind the master row's info glyph, not as a paragraph. */}
 				<SettingsRow
 					compactControl
@@ -191,11 +196,6 @@ export function SchedulesSection() {
 							const next = state.nextRuns[schedule.id];
 							return (
 								<li className="flex items-center gap-2 py-1.5" data-schedule={schedule.id} key={schedule.id}>
-									<Switch
-										checked={schedule.enabled}
-										label={t("schedules.enabled", { name: schedule.name })}
-										onCheckedChange={enabled => void send({ action: "setEnabled", id: schedule.id, enabled })}
-									/>
 									<CalendarClock aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text-muted)" />
 									<div className="flex min-w-0 flex-1 flex-col">
 										<span className="omp-sched-name truncate text-sc-md font-medium text-(--sc-text)">
@@ -203,8 +203,8 @@ export function SchedulesSection() {
 										</span>
 										<span className="omp-sched-meta flex min-w-0 items-center gap-1.5 text-sc-xs text-(--sc-text-muted)">
 											{active ? (
-												<Badge variant="info">
-													<Spinner size="sm" /> {t("schedules.status.running")}
+												<Badge dot pulse variant="info">
+													{t("schedules.status.running")}
 												</Badge>
 											) : (
 												last && (
@@ -229,6 +229,15 @@ export function SchedulesSection() {
 										</span>
 									</div>
 									<div className="flex shrink-0 items-center gap-0.5">
+										{/* Every switch in Settings stands in the right column; this one leads the row's actions. */}
+										<Switch
+											checked={schedule.enabled}
+											className="me-1.5"
+											label={t("schedules.enabled", { name: schedule.name })}
+											onCheckedChange={enabled =>
+												void send({ action: "setEnabled", id: schedule.id, enabled })
+											}
+										/>
 										{active ? (
 											<IconButton
 												icon={<Square />}
@@ -276,14 +285,13 @@ export function SchedulesSection() {
 
 			<MailAccounts device={device} />
 
-			{state.runs.length > 0 && (
+			{finished.length > 0 && (
 				<SettingsSection id="settings-schedules-runs" title={t("schedules.runs")}>
 					<ul className="flex flex-col" data-schedule-runs>
 						{runs.map(run => (
 							<RunRow
 								key={run.id}
 								name={names.get(run.scheduleId) ?? t("schedules.deletedSchedule")}
-								onStop={() => void send({ action: "stop", runId: run.id })}
 								onToggleLog={() => setOpenLog(current => (current === run.id ? null : run.id))}
 								open={openLog === run.id}
 								run={run}
@@ -291,14 +299,14 @@ export function SchedulesSection() {
 							/>
 						))}
 					</ul>
-					{state.runs.length > RUNS_SHOWN && (
+					{finished.length > RUNS_SHOWN && (
 						<Button
 							aria-expanded={showAllRuns}
 							onClick={() => setShowAllRuns(value => !value)}
 							size="sm"
 							variant="ghost"
 						>
-							{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: state.runs.length })}
+							{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: finished.length })}
 						</Button>
 					)}
 				</SettingsSection>
@@ -333,14 +341,12 @@ function RunRow({
 	name,
 	open,
 	onToggleLog,
-	onStop,
 	device,
 }: {
 	run: ScheduleRun;
 	name: string;
 	open: boolean;
 	onToggleLog: () => void;
-	onStop: () => void;
 	device: string | undefined;
 }) {
 	const t = useT();
@@ -375,9 +381,6 @@ function RunRow({
 					{formatTimeAgo(run.startedAt)}
 					{duration ? ` · ${duration}` : ""}
 				</span>
-				{run.status === "running" && (
-					<IconButton icon={<Square />} label={t("schedules.stop", { name })} onClick={onStop} size="sm" />
-				)}
 				{run.status !== "skipped" && (
 					<Button aria-expanded={open} icon={<Chevron />} onClick={onToggleLog} size="sm" variant="ghost">
 						{open ? t("schedules.hideLog") : t("schedules.showLog")}

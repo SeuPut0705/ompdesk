@@ -3,7 +3,7 @@
  * console, the terminal omp and the privacy line. One line a row; every explanation is a tooltip. Memory and learning
  * are always on (29 Oct 2026): there is no switch.
  */
-import { Activity, FolderOpen, KeyRound, Lock, RefreshCw, SquareTerminal } from "lucide-react";
+import { FolderOpen, KeyRound, RefreshCw, SquareTerminal } from "lucide-react";
 import { useState } from "react";
 import type {
 	AiMemoryOverview,
@@ -14,7 +14,7 @@ import type {
 } from "../../../../shared/ai-memory";
 import { formatBytes, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, CopyButton, InlineNotice, SettingInfo } from "../../common";
+import { Badge, Button, CopyButton, IconButton, InlineNotice, SettingInfo } from "../../common";
 import { SettingsRow } from "../SettingsLayout";
 import { projectLabel } from "./MemorySection";
 import { useMemoryAction } from "./memory-ui";
@@ -106,7 +106,6 @@ export function MemoryOverview({
 						<InlineNotice detail={state.detail} title={t(`memory.phase.${state.phase}`)} tone="danger" />
 					) : undefined
 				}
-				icon={<Activity />}
 				id="setting-aiMemory-status"
 				label={t("memory.overview.status")}
 			/>
@@ -197,44 +196,36 @@ export function MemoryOverview({
 						tipOnly
 						compactControl
 						control={
-							<Button
-								disabled={!ready}
-								loading={busy === "console"}
-								onClick={() => void act("console", () => window.omp.aiMemory.openWeb())}
-								size="sm"
-								variant="secondary"
-							>
-								{t("memory.overview.console.open")}
-							</Button>
+							<span className="inline-flex items-center gap-1">
+								<Button
+									aria-label={t("memory.overview.console.open")}
+									disabled={!ready}
+									loading={busy === "console"}
+									onClick={() => void act("console", () => window.omp.aiMemory.openWeb())}
+									size="sm"
+									variant="secondary"
+								>
+									{t("memory.overview.console.openShort")}
+								</Button>
+								<IconButton
+									disabled={state.phase !== "ready" && state.phase !== "unreachable"}
+									icon={<KeyRound />}
+									label={t("memory.overview.password")}
+									loading={busy === "password"}
+									onClick={() =>
+										void act(
+											"password",
+											() => window.omp.aiMemory.copyWebPassword(),
+											t("memory.overview.passwordCopied"),
+										)
+									}
+									size="sm"
+								/>
+							</span>
 						}
 						description={t("memory.overview.console.info")}
 						id="setting-aiMemory-console"
 						label={t("memory.overview.console")}
-					/>
-					<SettingsRow
-						tipOnly
-						compactControl
-						control={
-							<Button
-								disabled={state.phase !== "ready" && state.phase !== "unreachable"}
-								icon={<KeyRound />}
-								loading={busy === "password"}
-								onClick={() =>
-									void act(
-										"password",
-										() => window.omp.aiMemory.copyWebPassword(),
-										t("memory.overview.passwordCopied"),
-									)
-								}
-								size="sm"
-								variant="secondary"
-							>
-								{t("memory.overview.password")}
-							</Button>
-						}
-						description={t("memory.overview.password.info")}
-						id="setting-aiMemory-password"
-						label={t("memory.overview.passwordLabel")}
 					/>
 				</>
 			)}
@@ -249,6 +240,11 @@ export function MemoryOverview({
 								</span>
 							)}
 							<Button
+								aria-label={t(
+									state.wiring.terminal
+										? "memory.overview.terminal.remove"
+										: "memory.overview.terminal.connect",
+								)}
 								disabled={starting || busy !== null}
 								icon={<SquareTerminal />}
 								loading={busy === "terminal"}
@@ -268,8 +264,8 @@ export function MemoryOverview({
 							>
 								{t(
 									state.wiring.terminal
-										? "memory.overview.terminal.remove"
-										: "memory.overview.terminal.connect",
+										? "memory.overview.terminal.removeShort"
+										: "memory.overview.terminal.use",
 								)}
 							</Button>
 						</span>
@@ -288,7 +284,6 @@ export function MemoryOverview({
 						{t("memory.overview.privacy.line")}
 					</span>
 				}
-				icon={<Lock />}
 				id="settings-memory-privacy"
 				label={t("memory.overview.privacy")}
 			/>

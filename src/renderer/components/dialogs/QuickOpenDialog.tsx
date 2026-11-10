@@ -15,7 +15,7 @@ import { listboxTarget } from "../../lib/listbox-nav";
 import { rankQuickOpen } from "../../lib/quick-open";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
+import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionRow, SearchField, SkeletonRows } from "../common";
 
 /** Directory depth and file cap of the walk (a large repo lists its first files). */
 const LIST_DEPTH = 12;
@@ -182,11 +182,12 @@ export function QuickOpenDialog() {
 					) : listing.state === "loading" ? (
 						<SkeletonRows className="py-2" label={t("quickOpen.loading")} widths={[60, 44, 70, 52]} />
 					) : listing.state === "no-folder" ? (
-						<p className="py-10 text-center text-sc-sm text-(--sc-text-muted)">{t("quickOpen.noFolder")}</p>
+						<EmptyState size="sm" title={t("quickOpen.noFolder")} />
 					) : matches.length === 0 ? (
-						<p className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
-							{listing.paths.length === 0 ? t("quickOpen.empty") : t("quickOpen.noMatch", { query })}
-						</p>
+						<EmptyState
+							size="sm"
+							title={listing.paths.length === 0 ? t("quickOpen.empty") : t("quickOpen.noMatch", { query })}
+						/>
 					) : (
 						matches.map((path, index) => {
 							const slash = path.lastIndexOf("/");

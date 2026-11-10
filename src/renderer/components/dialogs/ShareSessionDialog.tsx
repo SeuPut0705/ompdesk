@@ -1,4 +1,4 @@
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcShareSessionPreview, RpcShareSessionResult } from "../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
@@ -7,7 +7,7 @@ import { openExternal } from "../../lib/open-external";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Button, CopyButton, InlineNotice, Modal, Spinner } from "../common";
+import { Button, CopyButton, EmptyState, InlineNotice, Modal, Spinner } from "../common";
 
 /** A snapshot with no entries (`{"entries":[]}`): a session with nothing in it yet. */
 function isEmptySnapshot(text: string): boolean {
@@ -111,15 +111,22 @@ export function ShareSessionDialog() {
 						>
 							{t("shareDialog.refreshPreview")}
 						</Button>
-						<Button
-							loading={uploading}
-							disabled={uploading || !sidecarReady || empty}
-							onClick={() => void upload()}
-							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
-							variant="primary"
-						>
-							{t("shareDialog.upload")}
-						</Button>
+						{empty ? null : (
+							<Button
+								loading={uploading}
+								disabled={uploading || !sidecarReady}
+								onClick={() => void upload()}
+								// Where the upload goes is the upload's own detail.
+								title={
+									sidecarReady
+										? `${t("shareDialog.destination")}: ${preview.store === "gist" ? t("shareDialog.gistDestination") : ""}${preview.serverUrl}`
+										: t("sidecar.notResponding")
+								}
+								variant="primary"
+							>
+								{t("shareDialog.upload")}
+							</Button>
+						)}
 					</>
 				) : undefined
 			}
@@ -154,28 +161,20 @@ export function ShareSessionDialog() {
 					) : null}
 				</div>
 			) : preview ? (
-				<div className="space-y-3">
-					<p className="text-sc-md text-(--sc-text-secondary)">{t("shareDialog.previewHint")}</p>
-					<p className="break-all text-sc-sm text-(--sc-text-muted)">
-						{t("shareDialog.destination")}: {preview.store === "gist" ? t("shareDialog.gistDestination") : ""}
-						{preview.serverUrl}
-					</p>
-					<p className="text-sc-sm text-(--sc-text-muted)">
-						{t(preview.redactionEnabled ? "shareDialog.redactionOn" : "shareDialog.redactionOff")}
-					</p>
-					{preview.truncated && (
-						<p role="status" className="text-sc-sm text-(--sc-warning)">
-							{t("shareDialog.previewTrimmed")}
+				empty ? (
+					<div role="status">
+						<EmptyState icon={<FileX />} size="sm" title={t("shareDialog.empty")} />
+					</div>
+				) : (
+					<div className="space-y-3">
+						<p className="text-sc-sm text-(--sc-text-muted)">
+							{t(preview.redactionEnabled ? "shareDialog.noteRedacted" : "shareDialog.noteUnredacted")}
 						</p>
-					)}
-					{empty ? (
-						<p
-							role="status"
-							className="rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-4 text-center text-sc-md text-(--sc-text-muted)"
-						>
-							{t("shareDialog.empty")}
-						</p>
-					) : (
+						{preview.truncated && (
+							<p role="status" className="text-sc-sm text-(--sc-warning)">
+								{t("shareDialog.previewTrimmed")}
+							</p>
+						)}
 						<pre
 							tabIndex={0}
 							role="region"
@@ -184,8 +183,8 @@ export function ShareSessionDialog() {
 						>
 							{preview.preview}
 						</pre>
-					)}
-				</div>
+					</div>
+				)
 			) : null}
 			{error && (
 				<InlineNotice

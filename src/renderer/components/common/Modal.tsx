@@ -132,12 +132,20 @@ export const DialogSurface = forwardRef<HTMLDivElement, DialogSurfaceProps>(func
 						)}
 					</div>
 					{onClose && (
-						<IconButton icon={<X />} label={t("common.close")} onClick={onClose} size="sm" tooltip={false} />
+						<IconButton
+							data-dialog-close=""
+							icon={<X />}
+							label={t("common.close")}
+							onClick={onClose}
+							size="sm"
+							tooltip={false}
+						/>
 					)}
 				</div>
 			)}
 			<div
 				className={cx("omp-dialog-body min-h-0 flex-1 overflow-y-auto", bodyClassName)}
+				data-dialog-body=""
 				ref={bodyRef}
 				tabIndex={overflow.y && plainText ? 0 : undefined}
 			>

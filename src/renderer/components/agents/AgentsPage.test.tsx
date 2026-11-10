@@ -185,6 +185,26 @@ describe("AgentsPage", () => {
 		expect(omp.setSetting).toHaveBeenCalledWith("task.agentPrewalk", { reviewer: "on" });
 	});
 
+	it("offers the ways to make an agent in the empty list, once, with no source filter while there are none", async () => {
+		const omp = installOmp();
+		omp.getAgentDefinitions.mockImplementation(async () => ok("get_agent_definitions", { agents: [] }));
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openAgents("definitions");
+		await mount();
+		expect(queryAll('[aria-label="Source"]')).toHaveLength(0);
+		expect(queryAll("button").filter(button => button.textContent?.trim() === "New agent")).toHaveLength(1);
+		expect(queryAll("button").filter(button => button.textContent?.trim() === "Templates")).toHaveLength(1);
+		expect(document.body.textContent).toContain("Start from a template or write a new agent.");
+	});
+
+	it("shows the source filter when the agents come from more than one source", async () => {
+		installOmp();
+		useSessionStore.getState().setStatus("ready", "/repo");
+		useUiStore.getState().openAgents("definitions");
+		await mount();
+		expect(queryAll('[aria-label="Source"]')).toHaveLength(1);
+	});
+
 	it("connects right in the PR center when GitHub CLI is missing: the card's sign-in installs it, no download page", async () => {
 		const omp = installOmp();
 		const github = fakeGithubAuth(

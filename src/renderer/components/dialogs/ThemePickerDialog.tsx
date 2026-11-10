@@ -22,7 +22,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Modal, OptionRow, SearchField } from "../common";
+import { EmptyState, Modal, OptionRow, SearchField } from "../common";
 import { ThemePreview } from "../settings/ThemePicker";
 
 interface ThemeEntry {
@@ -159,11 +159,7 @@ export function ThemePickerDialog() {
 					ref={listRef}
 					role={filtered.length > 0 ? "listbox" : undefined}
 				>
-					{filtered.length === 0 && (
-						<div className="px-3 py-8 text-center text-sc-md text-(--sc-text-muted)">
-							{t("themePicker.empty")}
-						</div>
-					)}
+					{filtered.length === 0 && <EmptyState size="sm" title={t("themePicker.empty")} />}
 					{groups.map(group => {
 						const rows = group.items.map(({ entry, i }) => {
 							const isSystem = entry.selection === "system";

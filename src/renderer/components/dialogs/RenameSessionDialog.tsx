@@ -74,7 +74,7 @@ export function RenameSessionDialog() {
 			size="sm"
 			footer={
 				<>
-					<Button type="button" variant="secondary" onClick={close}>
+					<Button type="button" variant="ghost" onClick={close}>
 						{t("common.cancel")}
 					</Button>
 					<Button

@@ -1,8 +1,9 @@
 /**
- * The Autopilot tab of the Mode popover: the start sheet while no run is live, the run's summary and controls while
- * one is. Starting always opens a new worktree tab on a new `autopilot/<date>` branch cut from the folder's own branch
- * (the Branch row shows that branch, nothing else) and runs there with every tool approved, so this sheet is where the
- * user consents to that (it replaces the full-access confirmation).
+ * The Autopilot tab of the Mode popover: the start sheet while no run is live, the way to the run and its controls
+ * while one is (the tab's badge says it runs; the board says where). Starting always opens a new worktree tab on a new
+ * `autopilot/<date>` branch cut from the folder's own branch (the Branch row shows that branch, nothing else) and runs
+ * there with every tool approved, so this sheet is where the user consents to that (it replaces the full-access
+ * confirmation).
  */
 
 import { CircleCheck, GitBranch, LayoutDashboard, Rocket, TriangleAlert } from "lucide-react";
@@ -59,22 +60,15 @@ function useIsRepo(): boolean | null {
 	return isRepo;
 }
 
-/** The sentence that says where the run is, with the controls that apply to it. */
+/** The way to the run on the work board, with the controls that apply to it; the cycle and branch are its tooltip. */
 function RunSummary({ onOpened }: { onOpened?: () => void }) {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const text = useAutopilotStateText();
 	const branch = useAutopilotStore(s => s.status.branch);
 	return (
-		<div className="flex flex-col gap-3" data-autopilot-run>
-			<p className="text-sc-sm text-(--sc-text-muted)">{t("autopilot.sheet.running")}</p>
-			<div className="flex min-w-0 flex-col gap-0.5 rounded-(--sc-radius-md) bg-(--sc-surface-2) px-3 py-2">
-				<span className="truncate text-sc-md font-medium" data-autopilot-run-text>
-					{text}
-				</span>
-				{branch && <span className="truncate font-mono text-sc-xs text-(--sc-text-muted)">{branch}</span>}
-			</div>
-			<div className="flex flex-wrap items-center gap-1.5" data-autopilot-run-actions>
+		<div className="flex flex-wrap items-center gap-1.5" data-autopilot-run data-autopilot-run-actions>
+			<Tooltip content={[text, branch].filter(Boolean).join(" · ") || t("autopilot.chip.open")} describe={false}>
 				<Button
 					data-autopilot-open-screen
 					icon={<LayoutDashboard aria-hidden />}
@@ -87,8 +81,8 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 				>
 					{t("autopilot.chip.open")}
 				</Button>
-				<AutopilotControls compact />
-			</div>
+			</Tooltip>
+			<AutopilotControls compact />
 		</div>
 	);
 }

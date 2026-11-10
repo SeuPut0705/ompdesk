@@ -157,7 +157,8 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 		expect(await sidecarStatus(page)).toBe("ready");
 		await releaseInstaller(launched);
 		await expectUpdated(launched);
-		// Settings › Updates & about › This computer: the switch is on and the status says so.
+		// Settings › Updates & about › This computer: the switch is on, omp's row names the new version, and no status
+		// line speaks while omp is current.
 		const settings = page.locator("[data-settings-page]");
 		await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 		await settings.locator('[data-settings-section="updates"]').click();
@@ -165,7 +166,10 @@ test("a newer omp installs on its own; the idle tab restarts on it with its draf
 			"aria-checked",
 			"true",
 		);
-		await expect(settings.getByTestId("omp-update-status")).toHaveText(`omp ${NEWER} is the latest.`);
+		const ompRow = settings.locator('[data-setup-item="omp"]');
+		await expect(ompRow).toContainText(NEWER);
+		await expect(ompRow.getByTestId("omp-update-now")).toBeVisible();
+		await expect(settings.getByTestId("omp-update-status")).toHaveCount(0);
 		// On a local tab "This computer" is the only place that updates omp: no second omp row above it.
 		await expect(settings.getByText("The omp CLI installed on this system", { exact: false })).toHaveCount(0);
 	} finally {
@@ -209,7 +213,7 @@ for (const [language, themeName] of [
 			await shot("2-updated-toast");
 			await pressShortcutUntilVisible(page, "ControlOrMeta+Comma", settings);
 			await settings.locator('[data-settings-section="updates"]').click();
-			await expect(settings.getByTestId("omp-update-status")).toBeVisible();
+			await expect(settings.locator('[data-setup-item="omp"]')).toContainText(NEWER);
 			await shot("3-updated-settings");
 		} finally {
 			await close(launched);

@@ -157,7 +157,7 @@ export function WorktreeDialog() {
 			size="sm"
 			footer={
 				<>
-					<Button type="button" variant="secondary" onClick={requestClose} disabled={creating}>
+					<Button type="button" variant="ghost" onClick={requestClose} disabled={creating}>
 						{t("common.cancel")}
 					</Button>
 					<Button

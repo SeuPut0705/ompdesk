@@ -1,7 +1,7 @@
 /**
- * Settings › Security: readiness, scan controls, findings by severity with a
- * detail/disposition editor, and recent scans. Turning the security feature
- * on is its own decision, so a scan that would flip it asks first.
+ * Settings › Security: what is missing for a scan, one scan row (scope, Scan, the repository under its label), then
+ * once a scan exists findings by severity with a detail/disposition editor and recent scans. Turning the security
+ * feature on is its own decision, so a scan that would flip it asks first.
  */
 import { CheckCircle2, CircleDashed, FileCode2, Play, ScanSearch, ShieldCheck, X, XCircle } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +34,7 @@ import {
 	SkeletonRows,
 	Spinner,
 } from "../common";
-import { SettingsSection } from "./SettingsLayout";
+import { SettingsRow, SettingsSection } from "./SettingsLayout";
 import { useModelText } from "./use-model-text";
 
 const ACTIVE_PHASES: Record<string, true> = { queued: true, preparing: true, reviewing: true, publishing: true };
@@ -346,89 +346,98 @@ export function SecuritySection() {
 	} else {
 		body = (
 			<div className="flex flex-col gap-3 py-3">
-				{/* Colour means "needs attention": a ready part is plain text in a quiet pill, a missing one is amber. */}
-				<div className="flex flex-wrap items-center gap-2">
-					<Badge dot={!dashboard.enabled} variant={dashboard.enabled ? "default" : "warning"}>
-						{dashboard.enabled ? t("security.ready.enabled") : t("security.ready.disabled")}
-					</Badge>
-					<Badge dot={!dashboard.modelReady} variant={dashboard.modelReady ? "default" : "warning"}>
-						{dashboard.modelReady
-							? t("security.ready.model", {
-									model: dashboard.modelLabel ? modelText(dashboard.modelLabel) : "—",
-								})
-							: t("security.ready.noModel")}
-					</Badge>
-					<Badge dot={!dashboard.repositoryRoot} variant={dashboard.repositoryRoot ? "default" : "warning"}>
-						{dashboard.repositoryRoot ? t("security.ready.repository") : t("security.ready.noRepository")}
-					</Badge>
-					{scanTimes[0] && (
-						<span className="ml-auto text-sc-xs text-(--sc-text-muted)">
-							{t("security.lastScan", { time: scanTimes[0] })}
-						</span>
-					)}
-				</div>
-
-				<div className="flex flex-wrap items-center gap-2" data-security-scan-row>
-					<Select
-						aria-label={t("security.scan.scope")}
-						controlSize="sm"
-						onChange={event => {
-							const kind = event.target.value;
-							if (kind === "ref_diff") setTarget({ kind: "ref_diff", baseRevision, headRevision });
-							else if (kind === "repository") setTarget({ kind: "repository" });
-							else setTarget({ kind: "working_tree" });
-						}}
-						options={[
-							{ value: "working_tree", label: t("security.target.workingTree") },
-							{ value: "repository", label: t("security.target.repository") },
-							{ value: "ref_diff", label: t("security.target.diff") },
-						]}
-						value={target.kind}
-					/>
-					<Button
-						disabled={!sidecarReady || !dashboard.repositoryRoot || !dashboard.modelReady || !!activeOperation}
-						icon={<Play />}
-						loading={running}
-						onClick={requestScan}
-						size="sm"
-						title={scanDisabledReason}
-						variant="primary"
-					>
-						{t(`security.scan.${targetLabel(target)}`)}
-					</Button>
-					{scanDisabledReason && (
-						<span className="text-sc-xs text-(--sc-text-muted)" role="status">
-							{scanDisabledReason}
-						</span>
-					)}
-				</div>
-
-				{target.kind === "ref_diff" && (
-					<div className="security-revision-grid grid gap-2">
-						<Input
-							label={t("security.target.base")}
-							mono
-							onChange={event => setBaseRevision(event.target.value)}
-							value={baseRevision}
-						/>
-						<Input
-							label={t("security.target.head")}
-							mono
-							onChange={event => setHeadRevision(event.target.value)}
-							value={headRevision}
-						/>
-					</div>
-				)}
-
-				{dashboard.repositoryRoot && (
-					<div className="flex items-center gap-3 text-sc-sm">
-						<span className="shrink-0 font-medium text-(--sc-text)">{t("security.repository")}</span>
-						<PathText className="flex-1" path={dashboard.repositoryRoot} />
-						{dashboard.revision && (
-							<span className="shrink-0 font-mono text-sc-xs text-(--sc-text-muted)">{dashboard.revision}</span>
+				{/* Only what is missing gets a chip; a ready part needs no word. */}
+				{(!dashboard.enabled || !dashboard.modelReady || !dashboard.repositoryRoot) && (
+					<div className="flex flex-wrap items-center gap-2">
+						{!dashboard.enabled && (
+							<Badge dot variant="warning">
+								{t("security.ready.disabled")}
+							</Badge>
+						)}
+						{!dashboard.modelReady && (
+							<Badge dot variant="warning">
+								{t("security.ready.noModel")}
+							</Badge>
+						)}
+						{!dashboard.repositoryRoot && (
+							<Badge dot variant="warning">
+								{t("security.ready.noRepository")}
+							</Badge>
 						)}
 					</div>
 				)}
+
+				<SettingsRow
+					control={
+						<span className="inline-flex items-center justify-end gap-2" data-security-scan-row>
+							<Select
+								aria-label={t("security.scan.scope")}
+								controlSize="sm"
+								onChange={event => {
+									const kind = event.target.value;
+									if (kind === "ref_diff") setTarget({ kind: "ref_diff", baseRevision, headRevision });
+									else if (kind === "repository") setTarget({ kind: "repository" });
+									else setTarget({ kind: "working_tree" });
+								}}
+								options={[
+									{ value: "working_tree", label: t("security.target.workingTree") },
+									{ value: "repository", label: t("security.target.repository") },
+									{ value: "ref_diff", label: t("security.target.diff") },
+								]}
+								value={target.kind}
+							/>
+							<Button
+								disabled={
+									!sidecarReady || !dashboard.repositoryRoot || !dashboard.modelReady || !!activeOperation
+								}
+								icon={<Play />}
+								loading={running}
+								onClick={requestScan}
+								size="sm"
+								title={scanDisabledReason}
+								variant="primary"
+							>
+								{t("security.scan.run")}
+							</Button>
+						</span>
+					}
+					description={
+						dashboard.repositoryRoot ? (
+							<span className="flex min-w-0 items-center gap-2">
+								<PathText className="flex-1" path={dashboard.repositoryRoot} />
+								{dashboard.revision && <span className="shrink-0 font-mono">{dashboard.revision}</span>}
+							</span>
+						) : undefined
+					}
+					icon={<ScanSearch />}
+					label={t("security.scan.label")}
+					status={
+						[
+							scanDisabledReason,
+							dashboard.modelReady && dashboard.modelLabel ? modelText(dashboard.modelLabel) : null,
+							scanTimes[0] ? t("security.lastScan", { time: scanTimes[0] }) : null,
+						]
+							.filter(Boolean)
+							.join(" · ") || undefined
+					}
+				>
+					{target.kind === "ref_diff" ? (
+						<div className="security-revision-grid grid gap-2">
+							<Input
+								label={t("security.target.base")}
+								mono
+								onChange={event => setBaseRevision(event.target.value)}
+								value={baseRevision}
+							/>
+							<Input
+								label={t("security.target.head")}
+								mono
+								onChange={event => setHeadRevision(event.target.value)}
+								value={headRevision}
+							/>
+						</div>
+					) : undefined}
+				</SettingsRow>
 
 				{error && (
 					<Banner live title={t("security.actionFailed")} variant="danger">
@@ -436,166 +445,176 @@ export function SecuritySection() {
 					</Banner>
 				)}
 
-				<div
-					className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
-					data-idle={(findings.length === 0 && emptyState === "unscanned") || undefined}
-				>
-					<section aria-label={t("security.currentRisk")} className="security-findings-pane min-w-0">
-						<div className="border-b border-(--sc-divider) px-3 py-3">
-							<div className="flex items-center justify-between gap-3">
-								<h3 className="text-sc-md font-semibold text-(--sc-text)">{t("security.currentRisk")}</h3>
-								{selectedScan && (
-									<span className="text-sc-xs text-(--sc-text-muted)">{selectedScan.scan.producer}</span>
-								)}
-							</div>
-							{findings.length > 0 && (
-								<>
-									<div
-										aria-hidden
-										className="mt-2 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
-										data-risk-gauge
-									>
-										{SEVERITIES.map(severity => {
-											const count = counts[severity];
-											if (count === 0) return null;
-											return (
-												<span
-													className={SEVERITY_FILL[severity]}
-													key={severity}
-													style={{ width: `${(count / findings.length) * 100}%` }}
-												/>
-											);
-										})}
-									</div>
-									<div className="mt-2 flex flex-wrap gap-1.5">
-										{SEVERITIES.filter(severity => counts[severity] > 0).map(severity => (
-											<Badge key={severity} variant={SEVERITY_BADGE[severity]}>
-												{t(`security.severity.${severity}`)} {counts[severity]}
-											</Badge>
-										))}
-									</div>
-								</>
-							)}
-						</div>
-						{findings.length === 0 && emptyState === "unscanned" ? (
-							// An idle project needs one quiet line, not a 140 px empty state.
-							<p className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)" role="status">
-								{t("security.empty.unscanned")}
-							</p>
-						) : findings.length === 0 ? (
-							<div role="status">
-								<EmptyState
-									description={emptyState === "clear" ? t("security.empty.description") : undefined}
-									icon={
-										emptyState === "clear" ? (
-											<ShieldCheck className="text-(--sc-success)" />
-										) : emptyState === "running" ? (
-											<Spinner />
-										) : (
-											<ScanSearch />
-										)
-									}
-									size="sm"
-									title={t(emptyState === "clear" ? "security.empty.title" : `security.empty.${emptyState}`)}
-								/>
-							</div>
-						) : (
-							<div className="max-h-80 overflow-y-auto p-1.5">
-								{SEVERITIES.map(severity => {
-									const group = findings.filter(item => item.severity === severity);
-									if (group.length === 0) return null;
-									return (
-										<div className="mb-3" key={severity}>
-											<div className="mb-1 px-2.5 text-sc-xs font-semibold text-(--sc-text-secondary)">
-												{t(`security.severity.${severity}`)} ({group.length})
-											</div>
-											{group.map(finding => (
-												<ListRow
-													description={<span className="font-mono">{findingPath(finding)}</span>}
-													key={finding.id}
-													leading={
-														<span
-															aria-hidden
-															className={cx(
-																"size-1.5 rounded-(--sc-radius-full)",
-																SEVERITY_FILL[severity],
-															)}
-														/>
-													}
-													meta={[finding.confidence, finding.validation, finding.disposition].join(" · ")}
-													onClick={() => setSelectedFindingId(finding.id)}
-													selected={selectedFindingId === finding.id}
-													title={finding.title}
-													titleText={finding.title}
-												/>
+				{findings.length === 0 && emptyState === "unscanned" && dashboard.scans.length === 0 && !activeOperation ? (
+					// Before the first scan there is nothing to frame: one quiet line, the card comes with a scan.
+					<p className="text-sc-sm text-(--sc-text-muted)" data-security-idle role="status">
+						{t("security.empty.unscanned")}
+					</p>
+				) : (
+					<div className="security-master-detail overflow-hidden rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+						<section aria-label={t("security.currentRisk")} className="security-findings-pane min-w-0">
+							<div className="border-b border-(--sc-divider) px-3 py-3">
+								<div className="flex items-center justify-between gap-3">
+									<h3 className="text-sc-md font-semibold text-(--sc-text)">{t("security.currentRisk")}</h3>
+									{selectedScan && (
+										<span className="text-sc-xs text-(--sc-text-muted)">{selectedScan.scan.producer}</span>
+									)}
+								</div>
+								{findings.length > 0 && (
+									<>
+										<div
+											aria-hidden
+											className="mt-2 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
+											data-risk-gauge
+										>
+											{SEVERITIES.map(severity => {
+												const count = counts[severity];
+												if (count === 0) return null;
+												return (
+													<span
+														className={SEVERITY_FILL[severity]}
+														key={severity}
+														style={{ width: `${(count / findings.length) * 100}%` }}
+													/>
+												);
+											})}
+										</div>
+										<div className="mt-2 flex flex-wrap gap-1.5">
+											{SEVERITIES.filter(severity => counts[severity] > 0).map(severity => (
+												<Badge key={severity} variant={SEVERITY_BADGE[severity]}>
+													{t(`security.severity.${severity}`)} {counts[severity]}
+												</Badge>
 											))}
 										</div>
-									);
-								})}
+									</>
+								)}
 							</div>
-						)}
-					</section>
-
-					<aside className="security-insights-pane min-w-0 p-3">
-						{/* Why/fix explain a finding; with none there is nothing to explain. */}
-						{findings.length > 0 && (
-							<>
-								<h3 className="text-sc-sm font-semibold text-(--sc-text)">{t("security.why")}</h3>
-								<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
-									{selectedFinding?.summary ?? t("security.whyDefault")}
+							{findings.length === 0 && emptyState === "unscanned" ? (
+								// An idle project needs one quiet line, not a 140 px empty state.
+								<p className="px-3 py-2.5 text-sc-sm text-(--sc-text-muted)" role="status">
+									{t("security.empty.unscanned")}
 								</p>
-								<h3 className="mt-5 text-sc-sm font-semibold text-(--sc-text)">{t("security.suggestion")}</h3>
-								<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
-									{selectedFinding?.remediation ?? t("security.suggestionDefault")}
-								</p>
-							</>
-						)}
-						<div className={cx(findings.length > 0 && "mt-5 border-t border-(--sc-divider) pt-3")}>
-							<h3 className="mb-2 text-sc-sm font-semibold text-(--sc-text)">{t("security.recentScans")}</h3>
-							{dashboard.scans.slice(0, RECENT_SCANS).map((scan, index) => (
-								<ListRow
-									disabled={!sidecarReady}
-									key={scan.id}
-									leading={
-										scan.status === "completed" ? (
-											<CheckCircle2 className="text-(--sc-success)" />
-										) : scan.status === "failed" ? (
-											<XCircle className="text-(--sc-danger)" />
-										) : (
-											<CircleDashed className="text-(--sc-warning)" />
-										)
-									}
-									meta={`${scan.findingCount} · ${scanTimes[index] ?? ""}`}
-									onClick={() => void pickScan(scan.id)}
-									title={t(`security.target.${targetLabel(scan.target)}`)}
-								/>
-							))}
-							{dashboard.scans.length === 0 && (
-								<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("security.noScans")}</p>
-							)}
-						</div>
-						{activeOperation && (
-							<Banner
-								actions={
-									<Button
-										disabled={!sidecarReady}
-										onClick={() => void cancelOperation()}
+							) : findings.length === 0 ? (
+								<div role="status">
+									<EmptyState
+										description={emptyState === "clear" ? t("security.empty.description") : undefined}
+										icon={
+											emptyState === "clear" ? (
+												<ShieldCheck className="text-(--sc-success)" />
+											) : emptyState === "running" ? (
+												<Spinner />
+											) : (
+												<ScanSearch />
+											)
+										}
 										size="sm"
-										title={notConnectedTitle}
-										variant="ghost"
-									>
-										{t("security.cancel")}
-									</Button>
-								}
-								className="mt-4"
-								live
-								variant="warning"
-							>
-								<Spinner inheritColor label={t(`security.phase.${activeOperation.phase}`)} size="sm" />
-							</Banner>
-						)}
-					</aside>
-				</div>
+										title={t(
+											emptyState === "clear" ? "security.empty.title" : `security.empty.${emptyState}`,
+										)}
+									/>
+								</div>
+							) : (
+								<div className="max-h-80 overflow-y-auto p-1.5">
+									{SEVERITIES.map(severity => {
+										const group = findings.filter(item => item.severity === severity);
+										if (group.length === 0) return null;
+										return (
+											<div className="mb-3" key={severity}>
+												<div className="mb-1 px-2.5 text-sc-xs font-semibold text-(--sc-text-secondary)">
+													{t(`security.severity.${severity}`)} ({group.length})
+												</div>
+												{group.map(finding => (
+													<ListRow
+														description={<span className="font-mono">{findingPath(finding)}</span>}
+														key={finding.id}
+														leading={
+															<span
+																aria-hidden
+																className={cx(
+																	"size-1.5 rounded-(--sc-radius-full)",
+																	SEVERITY_FILL[severity],
+																)}
+															/>
+														}
+														meta={[finding.confidence, finding.validation, finding.disposition].join(
+															" · ",
+														)}
+														onClick={() => setSelectedFindingId(finding.id)}
+														selected={selectedFindingId === finding.id}
+														title={finding.title}
+														titleText={finding.title}
+													/>
+												))}
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</section>
+
+						<aside className="security-insights-pane min-w-0 p-3">
+							{/* Why/fix explain a finding; with none there is nothing to explain. */}
+							{findings.length > 0 && (
+								<>
+									<h3 className="text-sc-sm font-semibold text-(--sc-text)">{t("security.why")}</h3>
+									<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
+										{selectedFinding?.summary ?? t("security.whyDefault")}
+									</p>
+									<h3 className="mt-5 text-sc-sm font-semibold text-(--sc-text)">
+										{t("security.suggestion")}
+									</h3>
+									<p className="mt-1.5 text-sc-sm text-(--sc-text-muted)">
+										{selectedFinding?.remediation ?? t("security.suggestionDefault")}
+									</p>
+								</>
+							)}
+							<div className={cx(findings.length > 0 && "mt-5 border-t border-(--sc-divider) pt-3")}>
+								<h3 className="mb-2 text-sc-sm font-semibold text-(--sc-text)">{t("security.recentScans")}</h3>
+								{dashboard.scans.slice(0, RECENT_SCANS).map((scan, index) => (
+									<ListRow
+										disabled={!sidecarReady}
+										key={scan.id}
+										leading={
+											scan.status === "completed" ? (
+												<CheckCircle2 className="text-(--sc-success)" />
+											) : scan.status === "failed" ? (
+												<XCircle className="text-(--sc-danger)" />
+											) : (
+												<CircleDashed className="text-(--sc-warning)" />
+											)
+										}
+										meta={`${scan.findingCount} · ${scanTimes[index] ?? ""}`}
+										onClick={() => void pickScan(scan.id)}
+										title={t(`security.target.${targetLabel(scan.target)}`)}
+									/>
+								))}
+								{dashboard.scans.length === 0 && (
+									<p className="py-2 text-sc-sm text-(--sc-text-muted)">{t("security.noScans")}</p>
+								)}
+							</div>
+							{activeOperation && (
+								<Banner
+									actions={
+										<Button
+											disabled={!sidecarReady}
+											onClick={() => void cancelOperation()}
+											size="sm"
+											title={notConnectedTitle}
+											variant="ghost"
+										>
+											{t("security.cancel")}
+										</Button>
+									}
+									className="mt-4"
+									live
+									variant="warning"
+								>
+									<Spinner inheritColor label={t(`security.phase.${activeOperation.phase}`)} size="sm" />
+								</Banner>
+							)}
+						</aside>
+					</div>
+				)}
 
 				{selectedFinding && (
 					<section

@@ -12,6 +12,17 @@ import { SettingsRow } from "../SettingsLayout";
 import { MutedLine, ReadError } from "./memory-ui";
 import { useMemoryRead } from "./use-memory-read";
 
+/** ai-memory's profile categories with a label of their own; a category a newer server adds shows as is. */
+const CATEGORIES: Record<string, true> = {
+	stack: true,
+	architecture: true,
+	workflow: true,
+	testing: true,
+	tools: true,
+	style: true,
+	habits: true,
+};
+
 export function MemoryProfile() {
 	const t = useT();
 	const read = useMemoryRead<AiMemoryProfile>("profile", () => window.omp.aiMemory.profile());
@@ -46,8 +57,12 @@ export function MemoryProfile() {
 			)}
 			{groups.map(([category, entries]) => (
 				<section data-memory-profile-group={category} key={category}>
-					<h3 className="px-1 pt-3 pb-1 text-sc-xs font-semibold text-(--sc-text-muted) uppercase">
-						{category || t("memory.profile.general")}
+					<h3 className="px-1 pt-3 pb-1 text-sc-xs font-semibold text-(--sc-text-muted)">
+						{!category
+							? t("memory.profile.general")
+							: Object.hasOwn(CATEGORIES, category)
+								? t(`memory.profile.category.${category}`)
+								: category}
 					</h3>
 					{entries.map(entry => (
 						<div

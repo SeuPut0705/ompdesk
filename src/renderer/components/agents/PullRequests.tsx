@@ -237,7 +237,7 @@ export function PullRequests() {
 				</div>
 			</div>
 			<MasterDetail
-				detail={<PrDetail onCreateOpen={() => setCreateOpen(true)} />}
+				detail={<PrDetail />}
 				label={t("prCenter.listLabel")}
 				list={
 					<>

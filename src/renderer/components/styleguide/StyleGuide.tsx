@@ -13,10 +13,13 @@ import {
 	BarChart3,
 	Bot,
 	Copy,
+	FileText,
+	Folder,
 	FolderGit2,
 	GitBranch,
 	Inbox,
 	MessageSquarePlus,
+	Mic,
 	MoreHorizontal,
 	Pencil,
 	Plus,
@@ -24,46 +27,80 @@ import {
 	Settings,
 	Sparkles,
 	Trash2,
+	Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { UsageLimit } from "../../../shared/rpc-types";
 import { cx } from "../../lib/format";
 import { applyTheme, resolveTheme, type ThemeMode } from "../../lib/theme";
+import { toast } from "../../stores/toast";
 import {
+	AsyncSection,
+	AutoTitleButton,
 	Badge,
 	Banner,
 	BrandMark,
 	Button,
+	Card,
 	Checkbox,
 	ChoiceCards,
+	Collapse,
+	ConfirmDialog,
 	CopyButton,
+	CostAmount,
 	DisclosureButton,
 	EmptyState,
+	ErrorDetail,
 	IconButton,
 	InlineNotice,
 	Input,
+	JumpToLatest,
 	Kbd,
+	LangSwitcher,
 	LinkButton,
 	ListRow,
+	LiveSweep,
+	LiveText,
+	MasterDetail,
 	MenuButton,
 	Modal,
 	OptionRow,
+	PageLayout,
+	PanelErrorBoundary,
 	PathText,
+	PinchZoomArea,
 	Popover,
 	ProgressBar,
+	type ProgressSegment,
+	QrCode,
 	Radio,
+	RootErrorBoundary,
 	SearchField,
+	SectionLabel,
 	SegmentedChoice,
 	Select,
 	SessionTitle,
+	SettingInfo,
 	Sheet,
 	Skeleton,
 	SkeletonRows,
 	Spinner,
+	StatusDot,
+	SwapText,
 	Switch,
 	SwitchField,
+	SwitchTile,
 	Tabs,
 	TextArea,
+	TextEditor,
+	TimeAgo,
+	ToastStack,
 	Tooltip,
+	type TreeNode,
+	TreeView,
+	UsageGauges,
+	WorkingArc,
+	ZoomableImage,
 } from "../common";
 import { MenuItemView, MenuSurface, menuItemClasses } from "../common/ContextMenu";
 import { DialogSurface } from "../common/Modal";
@@ -294,6 +331,50 @@ function Swatch({ token, value }: { token: string; value: string }) {
 	);
 }
 
+// ── Sample data for the kit's live samples ─────────────────────────────────
+
+const NOW = Date.now();
+const EIGHT_MINUTES_AGO = new Date(NOW - 8 * 60_000).toISOString();
+
+const SAMPLE_LIMITS: UsageLimit[] = [
+	{ id: "5h", label: "5 hour", windowId: "5h", usedFraction: 0.62, resetsAt: NOW + 114 * 60_000 },
+	{ id: "7d", label: "7 day", windowId: "7d", usedFraction: 0.86, resetsAt: NOW + 3 * 86_400_000 },
+];
+
+const STEP_SHARES: ProgressSegment[] = [
+	{ value: 3, label: "Done", tone: "success" },
+	{ value: 1, label: "Working", tone: "working" },
+	{ value: 1, label: "Blocked", tone: "warning" },
+	{ value: 2, label: "Pending", tone: "neutral" },
+];
+
+const CONTEXT_SHARES: ProgressSegment[] = [
+	{ value: 18_000, label: "System prompt", color: "var(--sc-info)" },
+	{ value: 42_000, label: "Messages", color: "var(--sc-accent)" },
+	{ value: 9_000, label: "Tool results", color: "var(--sc-warning)" },
+];
+
+const SAMPLE_TREE: TreeNode[] = [
+	{
+		id: "src",
+		label: "src",
+		icon: <Folder />,
+		children: [
+			{ id: "app", label: "app.ts", icon: <FileText />, trailing: "M" },
+			{ id: "store", label: "store.ts", icon: <FileText /> },
+		],
+	},
+	{ id: "readme", label: "README.md", icon: <FileText />, trailing: "A" },
+];
+
+const SWAP_TITLES = ["New session", "Fix the login redirect", "Fix the login redirect loop on Safari"];
+
+/** Throws while `crash` is set, so the error boundaries' samples show their fallback on demand. */
+function CrashOnRender({ crash, children }: { crash: boolean; children: ReactNode }) {
+	if (crash) throw new Error("Unexpected payload: rows is not iterable");
+	return children;
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function StyleGuide() {
@@ -313,6 +394,13 @@ export default function StyleGuide() {
 	const [query, setQuery] = useState("");
 	const [tab, setTab] = useState("changes");
 	const [segment, setSegment] = useState("plan");
+	const [confirmOpen, setConfirmOpen] = useState(false);
+	const [tiles, setTiles] = useState({ fast: true, voice: false });
+	const [note, setNote] = useState("# Notes\n\nPlan first, then edit.");
+	const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set(["src"]));
+	const [detailPick, setDetailPick] = useState<string | null>("model");
+	const [titleStep, setTitleStep] = useState(0);
+	const [crash, setCrash] = useState({ panel: false, root: false });
 
 	// The app shell locks html/body/#root to the viewport; this page scrolls the document instead.
 	useEffect(() => {
@@ -709,6 +797,39 @@ export default function StyleGuide() {
 							Default branch
 						</label>
 					</Block>
+					<Block
+						className="grid grid-cols-3 gap-6"
+						label="SwitchTile · SettingInfo · AutoTitleButton · TextEditor"
+					>
+						<div className="grid grid-cols-2 gap-2" data-switch-grid>
+							<SwitchTile
+								checked={tiles.fast}
+								description="Answers sooner on the same model, at a higher price."
+								icon={<Zap />}
+								label="Fast mode"
+								onCheckedChange={fast => setTiles(s => ({ ...s, fast }))}
+							/>
+							<SwitchTile
+								checked={tiles.voice}
+								description="Reads each reply aloud as it arrives."
+								icon={<Mic />}
+								label="Read aloud"
+								onCheckedChange={voice => setTiles(s => ({ ...s, voice }))}
+							/>
+						</div>
+						<div className="space-y-3">
+							<div className="flex items-center gap-1.5 text-sc-md">
+								Memory recall
+								<SettingInfo text="Before each turn, the agent looks up what earlier sessions in this project learned and reads the pages that match." />
+							</div>
+							<Input
+								aria-label="Session name"
+								defaultValue="Fix the login redirect"
+								trailing={<AutoTitleButton onClick={() => {}} pending={false} />}
+							/>
+						</div>
+						<TextEditor ariaLabel="Notes" className="h-28" language="markdown" onChange={setNote} value={note} />
+					</Block>
 				</Section>
 
 				<Section id="navigation" title="Navigation & lists">
@@ -822,9 +943,81 @@ export default function StyleGuide() {
 								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-success)">+12</span>
 								<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-danger)">−3</span>
 							</DisclosureButton>
-							{disclosureOpen && (
+							<Collapse open={disclosureOpen}>
 								<p className="pl-8 text-sc-sm text-(--sc-text-secondary)">The file's diff opens here.</p>
-							)}
+							</Collapse>
+						</Block>
+						<Block className="space-y-3" label="SectionLabel (a group's label)">
+							<SectionLabel
+								action={
+									<LinkButton onClick={() => {}} tone="muted">
+										Clear
+									</LinkButton>
+								}
+								count={4}
+							>
+								Projects
+							</SectionLabel>
+							<SectionLabel as="h4">Model roles</SectionLabel>
+						</Block>
+						<Block label="TreeView">
+							<TreeView
+								expanded={treeOpen}
+								nodes={SAMPLE_TREE}
+								onExpandedChange={setTreeOpen}
+								selectedId="app"
+							/>
+						</Block>
+						<Block label="MasterDetail (list beside detail; one pane on a phone)">
+							<Card className="flex h-40 overflow-hidden" padding="none">
+								<MasterDetail
+									detail={
+										<p className="p-3 text-sc-sm text-(--sc-text-secondary)">
+											{detailPick === "model"
+												? "acme-opus-5 · thinking high"
+												: "Plan mode · ask before edits"}
+										</p>
+									}
+									label="Settings groups"
+									list={
+										<>
+											<ListRow
+												onClick={() => setDetailPick("model")}
+												selected={detailPick === "model"}
+												title="Model"
+											/>
+											<ListRow
+												onClick={() => setDetailPick("behavior")}
+												selected={detailPick === "behavior"}
+												title="Behavior"
+											/>
+										</>
+									}
+									onBack={() => setDetailPick(null)}
+									open={detailPick !== null}
+								/>
+							</Card>
+						</Block>
+						<Block label="PageLayout (a destination page)">
+							<Card className="h-56 overflow-hidden" padding="none">
+								<PageLayout
+									actions={
+										<Button icon={<Plus />} size="sm">
+											New agent
+										</Button>
+									}
+									description="Agents this project can start."
+									title="Agents"
+								>
+									<p className="text-sc-sm text-(--sc-text-secondary)">The page's body scrolls here.</p>
+								</PageLayout>
+							</Card>
+						</Block>
+						<Block label="JumpToLatest · LangSwitcher">
+							<Card className="relative flex h-28 items-start justify-end overflow-hidden" padding="sm">
+								<LangSwitcher />
+								<JumpToLatest className="bottom-3" pinned={false} />
+							</Card>
 						</Block>
 					</div>
 				</Section>
@@ -884,6 +1077,8 @@ export default function StyleGuide() {
 							<ProgressBar label="Usage" value={0.94} />
 							<ProgressBar ariaLabel="Download" tone="progress" value={0.42} />
 							<ProgressBar ariaLabel="Updating omp" tone="progress" />
+							<ProgressBar label="Steps" segments={STEP_SHARES} valueText="3 of 7" />
+							<ProgressBar ariaLabel="Context by kind" segments={CONTEXT_SHARES} total={128_000} />
 						</Block>
 						<Block label="Tooltip (inline render)">
 							<TooltipBubble content="Search sessions" shortcut="⌘K" />
@@ -940,6 +1135,113 @@ export default function StyleGuide() {
 							/>
 						</Block>
 					</div>
+					<div className="grid grid-cols-3 gap-6">
+						<Block className="space-y-2" label="StatusDot (a state as a dot and its word)">
+							<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sc-sm text-(--sc-text-secondary)">
+								<StatusDot label="Online" tone="success" />
+								<StatusDot label="Needs a look" tone="warning" />
+								<StatusDot label="Offline" tone="danger" />
+								<StatusDot label="Synced" tone="info" />
+								<StatusDot label="Idle" tone="neutral" />
+								<StatusDot label="Running" tone="working" />
+							</div>
+							<div className="flex items-center gap-2 text-sc-sm">
+								<StatusDot label="Online" labelHidden size="md" tone="success" />
+								Mac mini (the word is read aloud and shown on hover)
+							</div>
+						</Block>
+						<Block className="space-y-2 text-sc-sm" label="Card — padding × surface">
+							<Card padding="sm">sm · no surface</Card>
+							<Card surface="1">md · surface 1</Card>
+							<Card padding="lg" surface="2">
+								lg · surface 2
+							</Card>
+						</Block>
+						<Block className="space-y-2 text-sc-sm" label="TimeAgo · CostAmount · UsageGauges">
+							<div className="flex items-center gap-3">
+								<TimeAgo className="tabular-nums text-(--sc-text-muted)" iso={EIGHT_MINUTES_AGO} />
+								<CostAmount className="tabular-nums" kinds={{ charged: 0.09, estimate: 0.18, unknown: 0 }} />
+							</div>
+							<UsageGauges limits={SAMPLE_LIMITS} resets />
+						</Block>
+					</div>
+					<div className="grid grid-cols-3 gap-6">
+						<Block className="space-y-3 text-sc-sm" label="LiveText · LiveSweep · WorkingArc · SwapText">
+							<div className="flex items-center gap-2">
+								<WorkingArc state="turn" />
+								<LiveText state="turn" text="Refactor the session store" />
+							</div>
+							<Card className="relative isolate overflow-hidden" padding="sm">
+								<LiveSweep state="turn" />
+								The light crosses this box while its session works.
+							</Card>
+							<div className="flex items-center gap-2">
+								<SwapText className="min-w-0 flex-1 truncate" scope="styleguide">
+									{SWAP_TITLES[titleStep % SWAP_TITLES.length] ?? ""}
+								</SwapText>
+								<Button onClick={() => setTitleStep(step => step + 1)} size="sm">
+									Next title
+								</Button>
+							</div>
+						</Block>
+						<Block className="space-y-3" label="AsyncSection (loading · error · empty)">
+							<AsyncSection error={null} loading loadingLabel="Loading sessions…">
+								{null}
+							</AsyncSection>
+							<AsyncSection error="connect ECONNREFUSED 127.0.0.1:4317" loading={false} onRetry={() => {}}>
+								{null}
+							</AsyncSection>
+							<AsyncSection empty emptyLabel="No schedules yet." error={null} loading={false}>
+								{null}
+							</AsyncSection>
+						</Block>
+						<Block className="space-y-3" label="ErrorDetail · PanelErrorBoundary · RootErrorBoundary">
+							<ErrorDetail error={new Error("EACCES: permission denied, open '~/.omp/agent/config.yml'")} />
+							<div className="flex flex-wrap gap-2">
+								<Button onClick={() => setCrash(c => ({ ...c, panel: !c.panel }))} size="sm">
+									{crash.panel ? "Mend the panel" : "Break the panel"}
+								</Button>
+								<Button onClick={() => setCrash(c => ({ ...c, root: !c.root }))} size="sm">
+									{crash.root ? "Mend the app" : "Break the app"}
+								</Button>
+							</div>
+							<Card className="h-36 overflow-hidden" padding="none">
+								<PanelErrorBoundary key={String(crash.panel)}>
+									<CrashOnRender crash={crash.panel}>
+										<p className="p-3 text-sc-sm text-(--sc-text-secondary)">A panel fed by wire data.</p>
+									</CrashOnRender>
+								</PanelErrorBoundary>
+							</Card>
+							{crash.root && (
+								<Card className="h-80 overflow-hidden" padding="none">
+									<RootErrorBoundary>
+										<CrashOnRender crash>{null}</CrashOnRender>
+									</RootErrorBoundary>
+								</Card>
+							)}
+						</Block>
+					</div>
+					<div className="grid grid-cols-3 gap-6">
+						<Block label="ZoomableImage">
+							<ZoomableImage
+								alt="OMPdesk on a wide window"
+								className="max-h-40 rounded-(--sc-radius-md)"
+								src="./screenshots/wide.png"
+							/>
+						</Block>
+						<Block label="PinchZoomArea (two fingers on a touch screen)">
+							<Card className="h-40 overflow-hidden" padding="none">
+								<PinchZoomArea className="h-full">
+									<pre className="p-3 font-mono text-sc-xs text-(--sc-text-secondary)">
+										{"export function resume(id: string) {\n\treturn omp.sessions.open(id);\n}"}
+									</pre>
+								</PinchZoomArea>
+							</Card>
+						</Block>
+						<Block label="QrCode">
+							<QrCode size={128} title="Pair this phone" value="https://example.com/pair#0000" />
+						</Block>
+					</div>
 				</Section>
 
 				<Section
@@ -956,6 +1258,10 @@ export default function StyleGuide() {
 						<MenuButton items={menuItems} label="Open menu">
 							Open menu
 						</MenuButton>
+						<Button onClick={() => setConfirmOpen(true)}>Open confirm</Button>
+						<Button onClick={() => toast({ variant: "success", message: "Link copied to clipboard." })}>
+							Show a toast
+						</Button>
 						<Tooltip content="Tooltips show after a short hover or on keyboard focus" shortcut="⌘/">
 							<Button variant="ghost">Hover for tooltip</Button>
 						</Tooltip>
@@ -1051,6 +1357,16 @@ export default function StyleGuide() {
 					<SwitchField checked={false} label="Auto-retry" onCheckedChange={() => {}} />
 				</div>
 			</Popover>
+			<ConfirmDialog
+				confirmLabel="Delete"
+				message="“Redesign the settings page” and its 48 messages will be removed from this Mac."
+				onCancel={() => setConfirmOpen(false)}
+				onConfirm={() => setConfirmOpen(false)}
+				open={confirmOpen}
+				title="Delete this session?"
+				warning="This can't be undone."
+			/>
+			<ToastStack />
 		</div>
 	);
 }

@@ -45,6 +45,20 @@ function quotaLimits(account: ProviderAccount): UsageLimit[] {
 }
 
 /**
+ * What a row names each account by: the bare address, and the label's parenthetical ("team", "pro") muted after it only
+ * where another account of the provider shares that address, so two logins with one email are told apart.
+ */
+export function accountNames(labels: readonly string[]): { address: string; suffix?: string }[] {
+	const addresses = labels.map(bareEmail);
+	return labels.map((label, index) => {
+		const address = addresses[index] ?? label;
+		const shared = addresses.filter(other => other === address).length > 1;
+		const suffix = shared ? /\(([^)]*)\)\s*$/.exec(label.trim())?.[1]?.trim() : undefined;
+		return suffix ? { address, suffix } : { address };
+	});
+}
+
+/**
  * What every account row of the list shares, so the same window stands in the same column from one provider to the
  * next (Claude's three gauges over ChatGPT's two): the gauge columns of the provider that has most, and whether any
  * account has a reset pass.
@@ -229,6 +243,7 @@ export function ProviderAccountRows({
 	const [pendingRemove, setPendingRemove] = useState<ProviderAccount | null>(null);
 	const [removing, setRemoving] = useState<number | null>(null);
 	const accounts = result?.accounts ?? [];
+	const names = accountNames(accounts.map(account => account.label));
 	const now = useNowTick(accounts.length > 0);
 
 	// The provider's own windows, in the first of the columns the whole list shares.
@@ -314,11 +329,12 @@ export function ProviderAccountRows({
 				/>
 			}
 		>
-			{accounts.map(account => (
+			{accounts.map((account, index) => (
 				<ConnectedRow
-					account={bareEmail(account.label)}
+					account={names[index]?.address ?? account.label}
+					accountSuffix={names[index]?.suffix}
 					accountTitle={[account.label, account.detail].filter(Boolean).join("\n")}
-					actionName={`${fullName} ${bareEmail(account.label)}`}
+					actionName={`${fullName} ${[names[index]?.address, names[index]?.suffix].filter(Boolean).join(" ")}`}
 					badges={<AccountBadges account={account} />}
 					pass={
 						!layout.pass ? undefined : account.resetPasses ? (

@@ -33,7 +33,7 @@ import {
 	Switch,
 	TextArea,
 } from "../common";
-import { SettingsRow } from "./SettingsLayout";
+import { SettingsEmptyRow } from "./SettingsLayout";
 
 type SkillFilter = "all" | "enabled" | "disabled" | "managed" | "project" | "user";
 type EditorState = {
@@ -483,12 +483,11 @@ export function SkillsTab({ query }: { query: string }) {
 	// holding only Refresh over an empty card.
 	if (nothingInstalled)
 		return (
-			<SettingsRow
-				compactControl
-				control={newButton}
+			<SettingsEmptyRow
+				action={newButton}
 				icon={<BookOpen />}
 				id="settings-skills-empty"
-				label={<span className="text-(--sc-text-muted)">{t("settings.skills.none")}</span>}
+				label={t("settings.skills.none")}
 			/>
 		);
 	return (

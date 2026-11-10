@@ -84,19 +84,27 @@ describe("Sheet placements", () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
-	it("takes focus on its close button, but on a touch screen on the panel, so no ring shows over it", async () => {
+	it("opens on its body's first control, never the header's close, and on a touch screen on the panel", async () => {
 		const focused: unknown[] = [];
 		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
 			focused.push(this);
 		});
 		await mount(
 			<Sheet onClose={() => {}} open title="Details">
+				<button type="button">Refresh</button>
+			</Sheet>,
+		);
+		expect((focused.at(-1) as HTMLElement).textContent).toBe("Refresh");
+		await act(async () => root?.unmount());
+		root = undefined;
+		focused.length = 0;
+		await mount(
+			<Sheet onClose={() => {}} open title="Details">
 				body
 			</Sheet>,
 		);
-		const dialog = document.querySelector('[role="dialog"]');
-		expect(focused.at(-1)).not.toBe(dialog);
-		expect((focused.at(-1) as HTMLElement).closest('[role="dialog"]')).toBe(dialog);
+		// Nothing to act on in the body: the panel itself, not the ✕.
+		expect(focused.at(-1)).toBe(document.querySelector('[role="dialog"]'));
 		await act(async () => root?.unmount());
 		root = undefined;
 		focused.length = 0;
@@ -104,7 +112,7 @@ describe("Sheet placements", () => {
 		try {
 			await mount(
 				<Sheet onClose={() => {}} open title="Details">
-					body
+					<button type="button">Refresh</button>
 				</Sheet>,
 			);
 			expect(focused.at(-1)).toBe(document.querySelector('[role="dialog"]'));

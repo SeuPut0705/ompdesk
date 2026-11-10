@@ -6,7 +6,7 @@
  * identity: the confirm says so). Main owns the lists; every action answers with the whole new list (devices,
  * blocks) or state (users).
  */
-import { Ban, Gauge, MoreHorizontal, Pencil, ShieldCheck, Smartphone } from "lucide-react";
+import { Ban, Gauge, MoreHorizontal, Pencil, ShieldCheck, Smartphone, Trash2, UserRound } from "lucide-react";
 import { useId, useState } from "react";
 import type { PeerView } from "../../../shared/ipc-types";
 import {
@@ -25,7 +25,7 @@ import { mobileWebCommand, mobileWebDeviceAction, mobileWebUnblock } from "../..
 import { Badge, Button, ConfirmDialog, IconButton, Input, ListRow, MenuButton, Select, Switch } from "../common";
 import { DeviceNameField } from "./DeviceNameField";
 import { PeerLimitsDialog, peerUsageLine } from "./PeerLimitsDialog";
-import { SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsSection, SettingsSwitchRow, SettingsTipOnly } from "./SettingsLayout";
 
 /**
  * The one "approve new devices on this computer" switch, for phones (Mobile web) and computers (OMPdesk sharing)
@@ -265,7 +265,7 @@ export function MobileWebDevices({ devices }: { devices: WebDeviceInfo[] }) {
 export function MobileWebBlocked({ blocked }: { blocked: WebBlockedInfo[] }) {
 	const t = useT();
 	return (
-		<SettingsSection title={t("mobileWeb.blocked.title")}>
+		<SettingsSection list title={t("mobileWeb.blocked.title")}>
 			<div className="flex flex-col gap-px py-2" data-mobile-web-blocked>
 				{blocked.map(entry => {
 					const user = entry.tailscaleLogin ?? "";
@@ -320,66 +320,74 @@ export function MobileWebAllowedUsers({ state }: { state: MobileWebState }) {
 		await save([...state.allowedUsers, login]);
 	};
 	return (
-		<SettingsSection description={t("mobileWeb.users.desc")} title={t("mobileWeb.users.title")}>
-			<ul className="flex flex-col gap-px py-2" data-mobile-web-users>
-				{state.allowedUsers.map(user => {
-					const isOwn = user.trim().toLowerCase() === own;
-					return (
-						<li
-							className="flex min-h-(--sc-control-md) min-w-0 items-center gap-2 px-2 text-sc-md"
-							data-mobile-web-user={user}
-							key={user}
-						>
-							<span className="min-w-0 flex-1 truncate" title={user}>
-								{user}
-							</span>
-							{isOwn ? (
-								<Badge variant="muted">{t("mobileWeb.users.you")}</Badge>
-							) : (
-								<Button
-									aria-label={t("mobileWeb.users.remove", { user })}
-									disabled={saving}
-									onClick={() => void save(state.allowedUsers.filter(entry => entry !== user))}
-									size="sm"
-									variant="ghost"
-								>
-									{t("remote.remove")}
-								</Button>
-							)}
-						</li>
-					);
-				})}
-			</ul>
-			<form
-				className="flex min-w-0 items-center gap-2"
-				onSubmit={event => {
-					event.preventDefault();
-					void add();
-				}}
-			>
-				<Input
-					aria-label={t("mobileWeb.users.add")}
-					className="min-w-0 flex-1"
-					controlSize="sm"
-					data-mobile-web-user-input
-					id={inputId}
-					onChange={event => setDraft(event.target.value)}
-					onKeyDown={event => {
-						if (isImeKeyEvent(event) && event.key === "Enter") event.preventDefault();
+		// The explanation sits behind the title's (i): a collection never opens with a paragraph.
+		<SettingsTipOnly value>
+			<SettingsSection description={t("mobileWeb.users.desc")} list title={t("mobileWeb.users.title")}>
+				<div className="flex flex-col gap-px py-2" data-mobile-web-users>
+					{state.allowedUsers.map(user => {
+						const isOwn = user.trim().toLowerCase() === own;
+						return (
+							<div data-mobile-web-user={user} key={user}>
+								<ListRow
+									leading={<UserRound aria-hidden />}
+									meta={isOwn ? <Badge variant="muted">{t("mobileWeb.users.you")}</Badge> : undefined}
+									title={user}
+									titleText={user}
+									trailing={
+										isOwn ? undefined : (
+											<MenuButton
+												align="end"
+												disabled={saving}
+												icon={<MoreHorizontal />}
+												items={[
+													{
+														id: "remove",
+														label: t("remote.remove"),
+														icon: Trash2,
+														onSelect: () => void save(state.allowedUsers.filter(entry => entry !== user)),
+													},
+												]}
+												label={t("mobileWeb.users.remove", { user })}
+												size="sm"
+											/>
+										)
+									}
+								/>
+							</div>
+						);
+					})}
+				</div>
+				<form
+					className="flex min-w-0 items-center gap-2"
+					onSubmit={event => {
+						event.preventDefault();
+						void add();
 					}}
-					placeholder={t("mobileWeb.users.placeholder")}
-					value={draft}
-				/>
-				<Button
-					data-mobile-web-user-add
-					disabled={draft.trim() === "" || saving}
-					size="sm"
-					type="submit"
-					variant="secondary"
 				>
-					{t("mobileWeb.users.addButton")}
-				</Button>
-			</form>
-		</SettingsSection>
+					<Input
+						aria-label={t("mobileWeb.users.add")}
+						className="min-w-0 flex-1"
+						controlSize="sm"
+						data-mobile-web-user-input
+						id={inputId}
+						onChange={event => setDraft(event.target.value)}
+						onKeyDown={event => {
+							if (isImeKeyEvent(event) && event.key === "Enter") event.preventDefault();
+						}}
+						placeholder={t("mobileWeb.users.placeholder")}
+						value={draft}
+					/>
+					<Button
+						data-mobile-web-user-add
+						disabled={draft.trim() === "" || saving}
+						size="sm"
+						type="submit"
+						variant="secondary"
+					>
+						{t("mobileWeb.users.addButton")}
+					</Button>
+				</form>
+			</SettingsSection>
+		</SettingsTipOnly>
 	);
 }

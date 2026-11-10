@@ -141,8 +141,10 @@ describe("the Run sheet is one line per row", () => {
 		// Speed (Fast, Slow, Ultrafast) and Advanced (Auto-compact, Extended, Auto-retry, Prewalk, Steer, Interrupt).
 		expect(grids).toHaveLength(2);
 		for (const grid of grids) expect(grid.className).toContain("grid-cols-2");
+		// Plus the Mode section's Plan and Auto mode, each a whole-row tile with its glyph like the others.
 		const tiles = Array.from(sheet.querySelectorAll("[data-switch-tile]"));
-		expect(tiles).toHaveLength(9);
+		expect(tiles).toHaveLength(11);
+		expect(sheet.querySelector("[data-switch-field]")).toBeNull();
 		for (const tile of tiles) {
 			expect(tile.querySelector("[data-setting-icon] svg")).not.toBeNull();
 			expect(tile.querySelector("[data-setting-info]")).not.toBeNull();

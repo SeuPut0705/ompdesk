@@ -8,7 +8,16 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const HERE = import.meta.dirname;
-const NOT_COMPONENTS = new Set(["INLINE_DESCRIPTION_MAX", "LIVE_PERIOD_MS", "useWindowVisible"]);
+const NOT_COMPONENTS = new Set([
+	"hasCost",
+	"INLINE_DESCRIPTION_MAX",
+	"LIVE_PERIOD_MS",
+	"MAX_USAGE_COLUMNS",
+	"NEAR_FRACTION",
+	"usageDescription",
+	"usageTooltip",
+	"useWindowVisible",
+]);
 
 function exportedNames(): string[] {
 	const barrel = readFileSync(join(HERE, "index.ts"), "utf8");

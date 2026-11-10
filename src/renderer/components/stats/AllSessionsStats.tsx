@@ -15,7 +15,7 @@ import { useT } from "../../lib/i18n";
 import { runStatsSync } from "../../lib/stats-sync";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { toast, toastError } from "../../stores/toast";
-import { Button, EmptyState, Tabs } from "../common";
+import { Button, EmptyState, SettingInfo, Tabs } from "../common";
 import { CostsRoute } from "./CostsRoute";
 import { ErrorsRoute } from "./ErrorsRoute";
 import { FrustrationRoute } from "./FrustrationRoute";
@@ -150,18 +150,20 @@ export function AllSessionsStats() {
 				</ul>
 			</nav>
 			<section aria-label={t(active.labelKey)} className="min-w-0 flex-1">
-				<div className="flex flex-wrap items-center gap-3">
-					<h2 className="text-sc-xl font-semibold text-(--sc-text)">{t(active.labelKey)}</h2>
-					<div className="ml-auto flex flex-wrap items-center gap-2">
-						<Tabs
-							activeId={range}
-							ariaLabel={t("stats.rangeAria")}
-							// Six ranges are wider than a phone: they wrap rather than cut "All time" off.
-							className="max-w-full flex-wrap"
-							onChange={id => setRange(id as StatsRange)}
-							tabs={STATS_RANGES.map(value => ({ id: value, label: t(`stats.range.${value}`) }))}
-							variant="segmented"
-						/>
+				{/* The selected nav item names the section on screen; the heading stays for the outline a screen reader walks. */}
+				<h2 className="sr-only">{t(active.labelKey)}</h2>
+				<div className="mb-6 flex flex-wrap items-center justify-end gap-2">
+					<Tabs
+						activeId={range}
+						ariaLabel={t("stats.rangeAria")}
+						// Six ranges are wider than a phone: they wrap rather than cut "All time" off.
+						className="max-w-full flex-wrap"
+						onChange={id => setRange(id as StatsRange)}
+						tabs={STATS_RANGES.map(value => ({ id: value, label: t(`stats.range.${value}`) }))}
+						variant="segmented"
+					/>
+					{/* Sync and the (i) about what it counts wrap as one, so the glyph never ends up alone on a line. */}
+					<div className="flex items-center gap-2" data-stats-sync>
 						<Button
 							icon={<RefreshCw />}
 							onClick={() => void sync()}
@@ -171,11 +173,9 @@ export function AllSessionsStats() {
 						>
 							{t("stats.sync")}
 						</Button>
+						<SettingInfo text={t("stats.scope")} />
 					</div>
 				</div>
-				<p className="mt-1 mb-6 text-sc-xs text-(--sc-text-muted)">
-					{t("stats.scope", { range: t(`stats.range.${range}`) })}
-				</p>
 				<View key={`${route}:${refreshKey}`} range={range} />
 			</section>
 		</div>

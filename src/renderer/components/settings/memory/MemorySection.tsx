@@ -19,9 +19,12 @@ import { MemoryMaintenance } from "./MemoryMaintenance";
 import { MemoryOverview } from "./MemoryOverview";
 import { MemoryPages } from "./MemoryPages";
 import { MemoryProfile } from "./MemoryProfile";
-import { MemorySearch } from "./MemorySearch";
+import { MemorySearch, useSearchScope } from "./MemorySearch";
 import { MemorySessions } from "./MemorySessions";
 import { projectKey, useMemoryRead } from "./use-memory-read";
+
+/** The picker's "All projects" entry on Search; a project key always holds a slash, so this never names one. */
+const ALL_PROJECTS = "*";
 
 export function projectLabel(project: AiMemoryProjectRef): string {
 	return project.workspace === "default" || project.workspace === project.project
@@ -77,6 +80,7 @@ export function MemorySection({ sub }: { sub?: string }) {
 	const project = useMemo(() => resolveProject(projects.data ?? [], picked, cwd), [projects.data, picked, cwd]);
 
 	const handoffCount = useOpenHandoffCount(ready ? project : null);
+	const [searchScope, setSearchScope] = useSearchScope();
 
 	if (!state) {
 		return (
@@ -113,14 +117,22 @@ export function MemorySection({ sub }: { sub?: string }) {
 							controlSize="sm"
 							data-memory-project
 							onChange={event => {
+								if (event.target.value === ALL_PROJECTS) {
+									setSearchScope("all");
+									return;
+								}
 								const [workspace, name] = event.target.value.split("/");
 								if (workspace && name) setProject({ workspace, project: name });
+								setSearchScope("project");
 							}}
-							options={(projects.data ?? []).map(entry => ({
-								value: projectKey(entry),
-								label: projectLabel(entry),
-							}))}
-							value={projectKey(project)}
+							options={[
+								...(tab === "search" ? [{ value: ALL_PROJECTS, label: t("memory.search.all") }] : []),
+								...(projects.data ?? []).map(entry => ({
+									value: projectKey(entry),
+									label: projectLabel(entry),
+								})),
+							]}
+							value={tab === "search" && searchScope === "all" ? ALL_PROJECTS : projectKey(project)}
 						/>
 					)}
 				</div>
@@ -137,7 +149,7 @@ export function MemorySection({ sub }: { sub?: string }) {
 						{t("memory.noProjects")}
 					</p>
 				) : tab === "search" ? (
-					<MemorySearch project={project} />
+					<MemorySearch project={project} scope={searchScope} />
 				) : tab === "pages" ? (
 					<MemoryPages project={project} />
 				) : tab === "handoffs" ? (

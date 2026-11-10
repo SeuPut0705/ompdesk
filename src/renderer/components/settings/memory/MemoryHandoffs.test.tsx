@@ -26,13 +26,24 @@ describe("Memory › Handoffs", () => {
 		expect(rows.map(row => row.getAttribute("data-memory-handoff"))).toEqual(["h-open", "h-old"]);
 		expect(rows[0]?.textContent).toContain("Finish the cache");
 		expect(rows[1]?.textContent).toContain("Used");
+		// omp is the only agent OMPdesk wires, so a row never names it.
+		expect(rows[0]?.textContent).not.toContain("omp");
+	});
+
+	it("names an agent other than omp", async () => {
+		api.handoffs.mockResolvedValue([handoff("h-codex", "open", { agent: "codex", summary: "Port the parser" })]);
+		installApi(api);
+		await mount(<MemoryHandoffs project={PROJECT} />);
+		expect(text('[data-memory-handoff="h-codex"]')).toContain("codex");
+		await click(q('[data-memory-handoff="h-codex"] button'));
+		expect(text("[data-memory-handoff-detail]")).toContain("From codex");
 	});
 
 	it("reads one without claiming it and shows questions and next steps", async () => {
 		await mount(<MemoryHandoffs project={PROJECT} />);
-		await click(q('[data-memory-handoff="h-open"]'));
+		await click(q('[data-memory-handoff="h-open"] button'));
 		const detail = text("[data-memory-handoff-detail]");
-		expect(detail).toContain("From omp");
+		expect(detail).not.toContain("From omp");
 		expect(detail).toContain("Finish the cache");
 		expect(detail).toContain("Which db?");
 		expect(detail).toContain("Add the test");
@@ -41,7 +52,7 @@ describe("Memory › Handoffs", () => {
 
 	it("cancels an open one after asking", async () => {
 		await mount(<MemoryHandoffs project={PROJECT} />);
-		await click(q('[data-memory-handoff="h-open"]'));
+		await click(q('[data-memory-handoff="h-open"] button'));
 		await click(q("[data-memory-handoff-cancel]"));
 		expect(api.cancelHandoff).not.toHaveBeenCalled();
 		const confirm =
@@ -55,7 +66,7 @@ describe("Memory › Handoffs", () => {
 
 	it("offers no Cancel for a used handoff and says so when there are none", async () => {
 		await mount(<MemoryHandoffs project={PROJECT} />);
-		await click(q('[data-memory-handoff="h-old"]'));
+		await click(q('[data-memory-handoff="h-old"] button'));
 		expect(q("[data-memory-handoff-cancel]")).toBeNull();
 		await cleanup();
 		api.handoffs.mockResolvedValue([]);

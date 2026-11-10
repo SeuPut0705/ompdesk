@@ -174,7 +174,9 @@ for (const [language, theme] of variants([
 			const agents = page.locator('section[data-destination="agents"]');
 			await agents.getByRole("tab", { name: "GitHub", exact: true }).click();
 			const center = agents.locator("[data-github-center]");
-			await expect(center.locator("[data-github-repo-shown]")).toHaveText("o/r");
+			// The field already names the project's repository: nothing repeats it beside the field.
+			await expect(center.getByLabel("Repository (owner/name)")).toHaveAttribute("placeholder", "o/r");
+			await expect(center.locator("[data-github-repo-shown]")).toHaveCount(0);
 			await center.getByRole("button", { name: /Login button misaligned/ }).click();
 			const issue = center.locator('[data-github-issue="12"]');
 			await expect(issue).toContainText("The button is 2px off.");
@@ -191,7 +193,7 @@ for (const [language, theme] of variants([
 			// C99: another repository by owner/name, then back to the project's.
 			await center.getByLabel("Repository (owner/name)").fill("other/lib");
 			await center.getByRole("button", { name: "Use", exact: true }).click();
-			await expect(center.locator("[data-github-repo-shown]")).toHaveText("other/lib");
+			await expect(center.locator("[data-github-repo-shown]")).toHaveCount(0);
 			await expect(center.getByRole("button", { name: /Other issue/ })).toBeVisible();
 			await center.getByRole("button", { name: "Use this project's repository", exact: true }).click();
 			await expect(center.getByRole("button", { name: /Login button misaligned/ })).toBeVisible();

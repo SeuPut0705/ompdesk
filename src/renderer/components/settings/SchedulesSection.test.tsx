@@ -214,8 +214,9 @@ describe("SchedulesSection", () => {
 		await click(row?.querySelector('[aria-label="Stop Nightly tidy"]') ?? null);
 		expect(command).toHaveBeenCalledWith({ action: "stop", runId: "r1" }, undefined);
 
+		// The running run is said once, on its schedule's row: Recent runs lists finished ones only.
+		expect(document.body.querySelector('[data-schedule-run-row="r1"]')).toBeNull();
 		state = { ...state, runs: [] };
-		await click(document.body.querySelector('[data-schedule-run-row="r1"] [aria-label="Stop Nightly tidy"]'));
 		await act(async () =>
 			reactProps(
 				document.body.querySelector('[role="switch"][aria-label="Run Nightly tidy on schedule"]') as object,

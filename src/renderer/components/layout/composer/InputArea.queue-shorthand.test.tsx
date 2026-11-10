@@ -1625,8 +1625,8 @@ describe("InputArea composer keys", () => {
 		const labels = Array.from(document.querySelectorAll("[data-menu-item]")).map(item => item.textContent ?? "");
 		expect(labels).toHaveLength(4);
 		expect(labels.some(label => label.includes("Expand composer") || label.includes("Set a goal"))).toBe(false);
-		// Dictation is off here: the menu still lists it, and says where to turn it on.
-		expect(labels.some(label => label.includes(translate("voice.menu.off")))).toBe(true);
+		// Dictation is off here: the menu still lists it, named by its action.
+		expect(labels.some(label => label.includes(translate("voice.menu.enable")))).toBe(true);
 		expect(labels.some(label => label.includes("Review a change"))).toBe(false);
 		expect(labels.at(-1)).toBe(translate("input.addMenu.skills"));
 		const skillsItem = Array.from(document.querySelectorAll("[data-menu-item]")).at(-1) as unknown as TestElement;

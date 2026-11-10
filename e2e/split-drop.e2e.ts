@@ -123,18 +123,21 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture ask" }),
 			unfocused,
 		);
-		const ask = unfocusedPane.getByRole("region", { name: "Questions", exact: true });
-		await expect(ask).toContainText("Where should this deploy?");
+		// The card is named by the question on screen: its header, so the name follows the steps.
+		const askStep = (header: string) => unfocusedPane.getByRole("region", { name: header, exact: true });
+		await expect(askStep("Target")).toContainText("Where should this deploy?");
 		await expect(unfocusedPane).toHaveAttribute("data-active", "false");
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.tabId).toBe(first);
-		await ask.locator("[data-choice]").nth(1).click();
-		await expect(ask).toContainText("Which checks should run first?");
-		await ask.locator("[data-choice]").nth(0).click();
-		await ask.locator("[data-choice]").nth(2).click();
-		await ask.getByRole("button", { name: "Next", exact: true }).click();
-		await ask.locator("[data-choice]").nth(0).click();
-		await ask.getByRole("button", { name: "Submit", exact: true }).click();
-		await expect(ask).toHaveCount(0);
+		await askStep("Target").locator("[data-choice]").nth(1).click();
+		const checks = askStep("Checks");
+		await expect(checks).toContainText("Which checks should run first?");
+		await checks.locator("[data-choice]").nth(0).click();
+		await checks.locator("[data-choice]").nth(2).click();
+		await checks.getByRole("button", { name: "Next", exact: true }).click();
+		const notify = askStep("Notify");
+		await notify.locator("[data-choice]").nth(0).click();
+		await notify.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect(unfocusedPane.locator("[data-ask-steps]")).toHaveCount(0);
 		await expect
 			.poll(() => recorded("fixture-ask"))
 			.toEqual([
@@ -295,7 +298,7 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture long ask" }),
 			quarterTab,
 		);
-		const longAsk = quarter.getByRole("region", { name: "Questions", exact: true });
+		const longAsk = quarter.getByRole("region", { name: "Region", exact: true });
 		await expect(longAsk).toContainText("Which region should host the release?");
 		const paneBox = await quarter.boundingBox();
 		const submit = longAsk.getByRole("button", { name: "Submit", exact: true });

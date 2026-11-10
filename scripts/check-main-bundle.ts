@@ -291,7 +291,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The answer to a steer reads right under it, above the card of its calls, streaming as finalized (10 Nov 2026,
 // chat-stream-utils.ts `endsOnSteer`, ChatStream.tsx `ProcessGroup` `answerFirst`; the transcript is the first
 // screen): 2,176,541.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_176_541;
+// The design pass over every menu and the kit's new parts (10 Nov 2026): a dialog's first focus on its first field
+// (`use-modal-layer.ts`), `StatusDot` and the segmented `ProgressBar`, the question card titled by its question, the
+// plan sheet's review footer and numbering, the composer's Mode rows as tiles, the pickers' `EmptyState`s and the
+// work tree rows' fixed columns, all on surfaces the first screen holds: 2,184,833, 8,292 bytes over the measure above.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_184_833;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

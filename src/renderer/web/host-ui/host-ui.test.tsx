@@ -261,6 +261,8 @@ describe("ConfirmSheet", () => {
 		const resolve = vi.fn();
 		await mount(<ConfirmSheet onSettled={() => {}} prompt={{ kind: "update", resolve }} />);
 		expect($("[data-host-running]")).toBeNull();
+		// With no turn running the body still holds the sentence, never an empty band.
+		expect($('[data-host-sheet="update"]')?.textContent).toBe(translate("hostUi.update.body"));
 		expect(text()).toContain(translate("hostUi.update.title"));
 		await clickText(translate("hostUi.cancel"));
 		expect(resolve).toHaveBeenCalledWith(false);

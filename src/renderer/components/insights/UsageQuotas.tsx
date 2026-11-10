@@ -4,8 +4,9 @@
  * reset countdowns, how old each report is and provider notes. Reports come
  * from stock's usage cache through the tab's one usage poll
  * (hooks/use-usage-reports.ts): read when the page mounts, when it shows
- * another session tab, and live while it is open; the explicit refresh has
- * stock probe every provider now. The session's own
+ * another session tab, and live while it is open; the explicit refresh
+ * (`UsageRefresh`, at the end of the Insights tab row) has stock probe every
+ * provider now. The session's own
  * token/cost figures live in Insights › Stats › This session. An account with
  * saved rate-limit resets shows them and can spend one (ResetPassControl).
  */
@@ -21,7 +22,7 @@ import { usageLimitLabel } from "../../lib/usage-labels";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, EmptyState, ErrorDetail, ProgressBar, SkeletonRows } from "../common";
+import { Badge, Banner, Button, EmptyState, ErrorDetail, IconButton, ProgressBar, SkeletonRows } from "../common";
 import { ResetPassControl, resetPassSummary } from "../settings/providers/ResetPasses";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -162,6 +163,33 @@ function ProviderReportCard({
 	);
 }
 
+/** Usage's re-read at the end of the Insights tab row: stock probes every provider first. */
+export function UsageRefresh() {
+	const t = useT();
+	const ready = useSessionStore(s => s.status) === "ready";
+	const feed = useUsage(usage => usage);
+	const readUsage = useUsageRead();
+	const [reading, setReading] = useState(false);
+	const refresh = async () => {
+		setReading(true);
+		try {
+			await readUsage(true);
+		} finally {
+			setReading(false);
+		}
+	};
+	return (
+		<IconButton
+			disabled={!ready}
+			icon={<RefreshCw />}
+			label={t("common.refresh")}
+			loading={reading || (ready && feed.reports === null && feed.error === null)}
+			onClick={() => void refresh()}
+			size="sm"
+		/>
+	);
+}
+
 export function UsageQuotas() {
 	const t = useT();
 	const status = useSessionStore(s => s.status);
@@ -169,7 +197,6 @@ export function UsageQuotas() {
 	const openInsights = useUiStore(s => s.openInsights);
 	const feed = useUsage(usage => usage);
 	const readUsage = useUsageRead();
-	const [reading, setReading] = useState(false);
 	const refreshProviders = useModelStore(s => s.refreshProviders);
 	// Read through a ref: the catalog arriving must not re-run the catalog read below.
 	const providerCount = useRef(0);
@@ -178,7 +205,7 @@ export function UsageQuotas() {
 	const reports = ready ? feed.reports : null;
 	// omp still installing (`waiting`) or just starting after it: nothing to read yet, and nothing failed.
 	const error = ready ? feed.error : status === "waiting" || status === "starting" ? null : t("usage.notConnected");
-	const loading = reading || (ready && feed.reports === null && feed.error === null);
+	const loading = ready && feed.reports === null && feed.error === null;
 
 	// The cards name providers from the catalog; read it once when nothing has yet.
 	useEffect(() => {
@@ -186,45 +213,15 @@ export function UsageQuotas() {
 			void refreshProviders(false).catch(() => undefined);
 	}, [reports, refreshProviders]);
 
-	/**
-	 * A read outside the poll; resolves to the reports, `null` when it failed. `refresh` has stock probe every
-	 * provider first.
-	 */
-	const read = async (refresh: boolean): Promise<UsageReport[] | null> => {
-		setReading(true);
-		try {
-			const result = await readUsage(refresh);
-			return result.ok ? result.reports : null;
-		} finally {
-			setReading(false);
-		}
-	};
-
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex flex-wrap items-center justify-end gap-3">
-				<Button
-					disabled={!ready}
-					icon={<RefreshCw />}
-					loading={loading}
-					onClick={() => void read(true)}
-					size="sm"
-					title={!ready ? t("usage.notConnected") : undefined}
-					variant="secondary"
-				>
-					{t("common.refresh")}
-				</Button>
-			</div>
-
 			{error && (
 				<Banner live title={t("usage.loadFailed")} variant="danger">
 					<ErrorDetail error={error} />
 				</Banner>
 			)}
-			{loading && reports === null && (
-				<SkeletonRows className="py-4" label={t("common.loading")} widths={[58, 72, 44, 66]} />
-			)}
-			{reports && reports.length === 0 && !loading && (
+			{loading && <SkeletonRows className="py-4" label={t("common.loading")} widths={[58, 72, 44, 66]} />}
+			{reports && reports.length === 0 && (
 				<EmptyState
 					actions={
 						<Button onClick={() => openInsights("stats", "session")} size="sm" variant="secondary">
@@ -242,11 +239,15 @@ export function UsageQuotas() {
 						<ProviderReportCard
 							key={`${report.provider}-${report.credentialId ?? report.account ?? index}`}
 							now={now}
-							onRedeemed={async () =>
-								(await read(false))?.find(
-									entry => entry.provider === report.provider && entry.credentialId === report.credentialId,
-								)?.limits
-							}
+							onRedeemed={async () => {
+								const read = await readUsage(false);
+								return read.ok
+									? read.reports.find(
+											entry =>
+												entry.provider === report.provider && entry.credentialId === report.credentialId,
+										)?.limits
+									: undefined;
+							}}
 							ready={ready}
 							report={report}
 							t={t}

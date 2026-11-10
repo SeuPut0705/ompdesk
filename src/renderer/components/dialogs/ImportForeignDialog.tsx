@@ -327,6 +327,7 @@ export function ImportForeignDialog() {
 				>
 					<div className="min-w-0 flex-1">
 						<SearchField
+							autoFocus
 							label={t("import.search")}
 							onValueChange={setQuery}
 							placeholder={t("import.search")}

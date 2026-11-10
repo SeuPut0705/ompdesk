@@ -18,6 +18,17 @@ import { SettingsRow } from "../SettingsLayout";
 import { MutedLine, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
+/** ai-memory's lint finding kinds with a label of their own; a kind a newer server adds shows as is. */
+const LINT_KINDS: Record<string, true> = {
+	broken_link: true,
+	contradiction: true,
+	duplicate: true,
+	feedback_flagged: true,
+	pinned_expiring: true,
+	rule_suggestion: true,
+	stale: true,
+};
+
 export function MemoryMaintenance({ project, state }: { project: AiMemoryProjectRef; state: AiMemoryState }) {
 	const t = useT();
 	const { busy, run } = useMemoryAction();
@@ -109,7 +120,9 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 							data-memory-finding={finding.kind}
 							key={`${finding.kind}:${finding.message}`}
 						>
-							<Badge variant={finding.severity === "error" ? "error" : "warning"}>{finding.kind}</Badge>
+							<Badge variant={finding.severity === "error" ? "error" : "warning"}>
+								{Object.hasOwn(LINT_KINDS, finding.kind) ? t(`memory.lint.kind.${finding.kind}`) : finding.kind}
+							</Badge>
 							<span className="min-w-0 flex-1 truncate" title={finding.message}>
 								{finding.message}
 							</span>
@@ -131,7 +144,7 @@ export function MemoryMaintenance({ project, state }: { project: AiMemoryProject
 			<SettingsRow
 				tipOnly
 				control={
-					<span className="flex items-center gap-1">
+					<span className="inline-flex items-center gap-1">
 						<Button
 							data-memory-sweep-preview
 							loading={busy === "preview"}

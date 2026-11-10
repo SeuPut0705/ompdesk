@@ -7,8 +7,9 @@ import { useState } from "react";
 import type { AiMemoryHandoff, AiMemoryProjectRef } from "../../../../shared/ai-memory";
 import { formatTimeAgo, oneLine } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, ConfirmDialog, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
-import { LIST_ROW, MemoryFrame, MutedLine, ReadError, useMemoryAction } from "./memory-ui";
+import { Badge, Button, ConfirmDialog, ListRow, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
+import { TimeAgo } from "../../common/TimeAgo";
+import { HOME_AGENT, MemoryFrame, MutedLine, ReadError, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
 export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
@@ -31,33 +32,39 @@ export function MemoryHandoffs({ project }: { project: AiMemoryProjectRef }) {
 			<ReadError error={read.error} onRetry={read.refresh} />
 			{read.data === undefined && !read.error && <SkeletonRows label={t("common.loading")} widths={[70, 55]} />}
 			{read.data && items.length === 0 && <MutedLine data-memory-empty>{t("memory.handoffs.empty")}</MutedLine>}
-			{items.map(item => (
-				<button
-					aria-current={item.id === openId ? "true" : undefined}
-					className={LIST_ROW}
-					data-list-item
-					data-memory-handoff={item.id}
-					key={item.id}
-					onClick={() => setOpenId(item.id)}
-					type="button"
-				>
-					<span className="shrink-0 font-medium">{item.agent || "?"}</span>
-					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{formatTimeAgo(item.createdAt)}</span>
-					<span className="min-w-0 flex-1 truncate text-(--sc-text-secondary)">{oneLine(item.summary)}</span>
-					{item.state !== "open" && (
-						<Badge variant="muted">{t(`memory.handoffs.state.${stateKey(item.state)}`)}</Badge>
-					)}
-				</button>
-			))}
+			{items.map(item => {
+				const agent = item.agent || "?";
+				return (
+					<ListRow
+						key={item.id}
+						meta={
+							<span className="flex items-center gap-2">
+								{agent !== HOME_AGENT && <span>{agent}</span>}
+								{item.state !== "open" && (
+									<Badge variant="muted">{t(`memory.handoffs.state.${stateKey(item.state)}`)}</Badge>
+								)}
+								{item.createdAt && <TimeAgo iso={item.createdAt} />}
+							</span>
+						}
+						onClick={() => setOpenId(item.id)}
+						rowProps={{ "data-memory-handoff": item.id }}
+						selected={item.id === openId}
+						title={oneLine(item.summary)}
+						titleText={oneLine(item.summary)}
+					/>
+				);
+			})}
 		</div>
 	);
 
 	const detail = chosen ? (
 		<article className="flex min-w-0 flex-col gap-2 p-3" data-memory-handoff-detail={chosen.id}>
 			<header className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm">
-				<h3 className="font-semibold text-(--sc-text)">
-					{t("memory.handoffs.from", { agent: chosen.agent || "?" })}
-				</h3>
+				{chosen.agent !== HOME_AGENT && (
+					<h3 className="font-semibold text-(--sc-text)">
+						{t("memory.handoffs.from", { agent: chosen.agent || "?" })}
+					</h3>
+				)}
 				<span className="text-sc-xs text-(--sc-text-muted)">{formatTimeAgo(chosen.createdAt)}</span>
 				<Badge variant={chosen.state === "open" ? "accent" : "muted"}>
 					{t(`memory.handoffs.state.${stateKey(chosen.state)}`)}

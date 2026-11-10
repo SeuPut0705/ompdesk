@@ -22,8 +22,9 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
-import { Button, IconButton, SwitchField, Tabs, Tooltip } from "../../common";
+import { Button, IconButton, SwitchTile, Tabs, Tooltip } from "../../common";
 import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
 import { GoalModeConfig } from "../../modes/ModeConfig";
 
@@ -139,18 +140,22 @@ export function ModesSection({
 
 /**
  * Autopilot's "show the run" button and the auto-mode "This request" chip: extra buttons beside the Run chip. The run
- * is shown on this pane's work board (docked, or its strip expanded), never in the side panel.
+ * is shown on this pane's work board (docked, or its strip expanded), never in the side panel. While the board docks
+ * with the run's section open it already shows the run beside the composer, so the button gives way there
+ * (components.css, `data-run-folded`); the Mode tab's own button stays.
  */
 export function ComposerModeExtras() {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const autopilotLive = useAutopilotStore(isLiveAutopilot);
+	const runFolded = useWorkBoardStore(state => state.collapsed.autopilot === true);
 	return (
 		<>
 			{autopilotLive && (
 				<IconButton
 					className="omp-composer-chip"
 					data-autopilot-chip-open
+					data-run-folded={runFolded || undefined}
 					icon={<LayoutDashboard />}
 					label={t("autopilot.chip.open")}
 					onClick={() => useUiStore.getState().revealWorkBoard(tabId)}
@@ -201,13 +206,13 @@ function PlanModeConfig() {
 	const { enabled: planModeEnabled, pending, toggle } = usePlanToggle();
 
 	return (
-		<SwitchField
+		<SwitchTile
 			checked={planModeEnabled}
-			className="-mx-2"
+			className="-mx-1.5"
 			data-plan-mode
 			description={t("input.modes.planDesc")}
-			infoOnly
 			disabled={pending}
+			icon={MODE_ICONS.plan}
 			label={t("input.modes.planToggle")}
 			onCheckedChange={next => void toggle(next)}
 		/>
@@ -219,12 +224,12 @@ function AutoModeSwitch() {
 	const t = useT();
 	const [enabled, setEnabled] = useAutoModePref();
 	return (
-		<SwitchField
+		<SwitchTile
 			checked={enabled}
-			className="-mx-2"
+			className="-mx-1.5"
 			data-auto-mode-switch
 			description={t("input.autoMode.desc")}
-			infoOnly
+			icon={<Sparkles aria-hidden />}
 			label={t("input.autoMode.label")}
 			onCheckedChange={setEnabled}
 		/>

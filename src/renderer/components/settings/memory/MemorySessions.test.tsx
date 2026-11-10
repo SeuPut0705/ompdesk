@@ -37,20 +37,22 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Memory › Sessions", () => {
-	it("lists sessions with folder, count and badges", async () => {
+	it("lists sessions by folder with status, a counted glyph and no agent name for omp", async () => {
 		await mount(<MemorySessions project={PROJECT} />);
 		const row = text('[data-memory-session="s-1"]');
-		expect(row).toContain("omp · app");
-		expect(row).toContain("60");
+		expect(row).toContain("app");
+		expect(row).not.toContain("omp");
+		expect(row).toContain("60 observations");
 		expect(row).toContain("Open");
 		expect(row).toContain("Page failed");
 	});
 
 	it("opens the raw observations read-only, collapses long bodies and pages by 50", async () => {
 		await mount(<MemorySessions project={PROJECT} />);
-		await click(q('[data-memory-session="s-1"]'));
+		await click(q('[data-memory-session="s-1"] button'));
 		expect(api.observations).toHaveBeenCalledWith(PROJECT, "s-1", 0);
-		expect(text("[data-memory-observation]")).toContain("user-prompt");
+		expect(text("[data-memory-observation]")).toContain("Prompt");
+		expect(text("[data-memory-observation]")).not.toContain("user-prompt");
 		expect(text("[data-memory-observation] pre").endsWith("…")).toBe(true);
 		await click(button("Show more"));
 		expect(text("[data-memory-observation] pre").length).toBe(500);

@@ -153,6 +153,7 @@ export function SessionInsights() {
 
 	const history = stats.history;
 	const totalTokens = history?.totalTokens ?? stats.tokens.total;
+	const premiumRequests = history?.premiumRequests ?? stats.premiumRequests;
 	const orchestration = history
 		? history.orchestrationInput + history.orchestrationOutput + history.orchestrationCacheRead
 		: 0;
@@ -207,10 +208,10 @@ export function SessionInsights() {
 						label={t("usage.cacheRead")}
 						value={formatTokens(history?.cacheRead ?? stats.tokens.cacheRead)}
 					/>
-					<MetricCard
-						label={t("usage.premiumRequests")}
-						value={String(history?.premiumRequests ?? stats.premiumRequests)}
-					/>
+					{/* Only Copilot-style providers count premium requests: a 0 would sit on every other user's page. */}
+					{premiumRequests > 0 && (
+						<MetricCard label={t("usage.premiumRequests")} value={String(premiumRequests)} />
+					)}
 				</MetricGrid>
 			</div>
 			{history && <p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("sessionInfo.scope")}</p>}
@@ -243,7 +244,9 @@ export function SessionInsights() {
 						<h3 className="mb-3 text-sc-md font-semibold text-(--sc-text)">{t("sessionInfo.section.usage")}</h3>
 						<FactList
 							facts={[
-								{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) },
+								...(stats.premiumRequests > 0
+									? [{ label: t("sessionInfo.premiumRequests"), value: String(stats.premiumRequests) }]
+									: []),
 								{ label: t("sessionInfo.cost"), value: formatUsd(stats.cost) },
 								{ label: t("sessionInfo.toolResults"), value: String(stats.toolResults) },
 								...(history?.compactions !== undefined

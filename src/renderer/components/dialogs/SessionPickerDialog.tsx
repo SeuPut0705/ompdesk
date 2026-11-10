@@ -26,6 +26,7 @@ import { useUiStore } from "../../stores/ui";
 import {
 	Badge,
 	Button,
+	EmptyState,
 	IconButton,
 	InlineNotice,
 	Kbd,
@@ -294,13 +295,16 @@ export function SessionPickerDialog() {
 					) : loading ? (
 						<SkeletonRows className="py-3" label={t("sessionPicker.loading")} widths={[70, 52, 64, 46, 58]} />
 					) : filtered.length === 0 && !contentPending ? (
-						<div className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
-							{sessions.length === 0
-								? scope === "local"
-									? t("sessionPicker.emptyLocal")
-									: t("sessionPicker.empty")
-								: t("sessionPicker.noMatch", { query })}
-						</div>
+						<EmptyState
+							size="sm"
+							title={
+								sessions.length === 0
+									? scope === "local"
+										? t("sessionPicker.emptyLocal")
+										: t("sessionPicker.empty")
+									: t("sessionPicker.noMatch", { query })
+							}
+						/>
 					) : (
 						filtered.map((session, index) => {
 							const snippet = contentOnly.has(session.path) ? contentHits.get(session.path) : undefined;

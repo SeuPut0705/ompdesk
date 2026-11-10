@@ -88,4 +88,15 @@ describe("CopySelectorDialog", () => {
 		expect(rows().map(row => row.getAttribute("aria-current"))).toEqual([null, "true"]);
 		expect(focused).toBe(rows()[1]);
 	});
+
+	it("with nothing to copy, shows one empty state and no Copy", async () => {
+		rpc.getCopyTargets.mockResolvedValue(ok({ targets: [] }));
+		await act(async () => useUiStore.setState({ copySelectorOpen: false }));
+		await act(async () => useUiStore.setState({ copySelectorOpen: true }));
+		await flush();
+		expect(document.body.textContent).toContain("Nothing to copy yet.");
+		expect(document.body.textContent).not.toContain("Preview");
+		const buttons = Array.from(document.querySelectorAll("button")).map(button => button.textContent?.trim());
+		expect(buttons).not.toContain("Copy");
+	});
 });

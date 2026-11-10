@@ -19,17 +19,20 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 });
 
-async function mount(content: string | null) {
+async function mount(content: string | null, planMode = true) {
 	useTabsStore.setState({
 		activeTabId: "plan-tab",
 		tabs: [{ id: "plan-tab", cwd: "/work", status: "ready", kind: "agent", unreadDone: false }],
 		bundles: new Map(),
 	});
-	useSessionStore.setState({ planModeEnabled: true, sessionFile: "/work/session.jsonl", cwd: "/work" });
+	useSessionStore.setState({ planModeEnabled: planMode, sessionFile: "/work/session.jsonl", cwd: "/work" });
 	Object.assign(window, {
 		omp: {
 			rpc: {
-				getPlanMode: vi.fn(async () => ({ success: true, data: { enabled: true, planFilePath: "/work/plan.md" } })),
+				getPlanMode: vi.fn(async () => ({
+					success: true,
+					data: { enabled: planMode, planFilePath: "/work/plan.md" },
+				})),
 			},
 			fs: { readPlan: vi.fn(async () => ({ ok: true, path: content === null ? null : "/work/plan.md", content })) },
 		},
@@ -58,5 +61,19 @@ describe("the plan document sheet", () => {
 		await mount(null);
 		expect(container.textContent).toContain("No plan");
 		expect(container.querySelectorAll("textarea")).toHaveLength(0);
+	});
+	it("numbers each section's items from 1 and counts only the steps on the tab", async () => {
+		await mount("## Steps\n1. Reproduce\n2. Fix\n\n## Risks\n- Same race elsewhere\n");
+		const numbers = [...container.querySelectorAll("section span.text-right")].map(span => span.textContent);
+		expect(numbers).toEqual(["1", "2", "1"]);
+		expect(container.querySelector('[data-tab-id="steps"] span')?.textContent).toBe("2");
+	});
+	it("is a reader with plan mode off: no feedback box, no approve or request", async () => {
+		await mount("## Steps\n1. Reproduce\n", false);
+		expect(container.textContent).toContain("Reproduce");
+		expect(container.querySelectorAll("textarea")).toHaveLength(0);
+		expect([...container.querySelectorAll("button")].some(button => button.textContent?.includes("Approve"))).toBe(
+			false,
+		);
 	});
 });

@@ -73,13 +73,7 @@ export function ComputerUseRow() {
 				/>
 			}
 			description={t("settings.gui.computerUseDesc")}
-			footer={
-				note && (
-					<p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)" data-computer-use-installed={installed}>
-						{note}
-					</p>
-				)
-			}
+			status={note ? <span data-computer-use-installed={installed}>{note}</span> : undefined}
 			htmlFor={id}
 			icon={<Monitor />}
 			id="setting-gui-computerUse"

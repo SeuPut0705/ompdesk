@@ -5,12 +5,15 @@
  */
 
 export { AsyncSection, type AsyncSectionProps } from "./AsyncSection";
+export { AutoTitleButton } from "./AutoTitleButton";
 export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
 export { Banner, type BannerProps, type BannerVariant } from "./Banner";
 export { BrandMark, type BrandMarkProps, type BrandMarkVariant } from "./BrandMark";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
+export { Card, type CardPadding, type CardProps, type CardSurface } from "./Card";
 export { Checkbox, type CheckboxProps, Radio, type RadioProps } from "./Checkbox";
 export { type ChoiceCard, ChoiceCards, type ChoiceCardsProps } from "./ChoiceCards";
+export { Collapse } from "./Collapse";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog";
 export {
 	anchorFromEvent,
@@ -20,8 +23,10 @@ export {
 	type MenuAlign,
 	MenuButton,
 	type MenuButtonProps,
+	type MenuSelectModifiers,
 } from "./ContextMenu";
 export { CopyButton, type CopyButtonProps } from "./CopyButton";
+export { CostAmount, hasCost } from "./CostAmount";
 export { DisclosureButton, type DisclosureButtonProps } from "./DisclosureButton";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { ErrorDetail } from "./ErrorDetail";
@@ -53,8 +58,18 @@ export { OptionRow, type OptionRowProps } from "./OptionRow";
 export { PageLayout, type PageLayoutProps } from "./PageLayout";
 export { PanelErrorBoundary } from "./PanelErrorBoundary";
 export { PathText, type PathTextProps } from "./PathText";
+export { PinchZoomArea } from "./PinchZoomArea";
 export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover";
-export { ProgressBar, type ProgressBarProps, type ProgressBarTone } from "./ProgressBar";
+export {
+	ProgressBar,
+	type ProgressBarProps,
+	type ProgressBarTone,
+	type ProgressSegment,
+	type SegmentedProgressBarProps,
+} from "./ProgressBar";
+export { QrCode } from "./QrCode";
+export { RootErrorBoundary } from "./RootErrorBoundary";
+export { SectionLabel, type SectionLabelProps } from "./SectionLabel";
 export {
 	SegmentedChoice,
 	type SegmentedChoiceProps,
@@ -66,6 +81,8 @@ export { INLINE_DESCRIPTION_MAX, SettingInfo, splitDescription } from "./Setting
 export { Sheet, type SheetPlacement, type SheetProps, type SheetSize } from "./Sheet";
 export { Skeleton, SkeletonRows } from "./Skeleton";
 export { Spinner, type SpinnerProps, type SpinnerSize } from "./Spinner";
+export { StatusDot, type StatusDotProps, type StatusTone } from "./StatusDot";
+export { SwapText } from "./SwapText";
 export {
 	Switch,
 	SwitchField,
@@ -77,7 +94,11 @@ export {
 } from "./Switch";
 export { type TabItem, Tabs, type TabsProps, type TabsVariant } from "./Tabs";
 export { TextEditor, type TextEditorLanguage, type TextEditorProps } from "./TextEditor";
+export { TimeAgo } from "./TimeAgo";
 export { ToastStack } from "./Toast";
 export { Tooltip, type TooltipProps, type TooltipSide } from "./Tooltip";
 export { type TreeNode, TreeView, type TreeViewProps } from "./TreeView";
-export { ZoomableImage, type ZoomableImageProps } from "./ZoomableImage";
+export { MAX_USAGE_COLUMNS, NEAR_FRACTION, UsageGauges, usageDescription, usageTooltip } from "./UsageGauges";
+export { useHeldOverlay } from "./use-held-overlay";
+export { WorkingArc } from "./WorkingArc";
+export { type GalleryImage, ZoomableImage, type ZoomableImageHandle, type ZoomableImageProps } from "./ZoomableImage";

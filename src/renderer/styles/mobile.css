@@ -663,12 +663,6 @@ html[data-input="touch"] [data-autopilot-controls] {
 	--hit-gap-y: 14px;
 }
 
-/* The full board's three labelled controls wrap onto a second row where the board is narrow (icon beside the label,
-   never stacked over it): the rows sit 14 px apart, as bounded, so Stop now's reach never takes the row above's taps. */
-html[data-input="touch"] [data-autopilot-control-row] {
-	row-gap: 14px;
-}
-
 /* The Work tree's icon button ends its section's head, as the aside does: a 22 px box that reaches 36 (7 px each way,
    14 px apart from the fold button beside it and bounded 14 px), 8 px in from the board's edge so its reach stays inside
    the board and never makes a docked board scroll sideways. */
@@ -1585,6 +1579,18 @@ html[data-input="touch"] [data-switch-tile] > [data-setting-info] {
 html[data-input="touch"] [data-switch-tile] > [role="switch"] {
 	--hit-gap-x: 8px;
 	--hit-gap-y: 12px;
+}
+
+/* Stats' (i) sits 8 px after Sync: its 44 px reach covered Sync's right edge, which then opened the tooltip. On touch it
+   reaches 10 px each way (a 36 px target) and sits 12 px from Sync, so its reach stops short of it. The two wrap as one
+   (`data-stats-sync`), so the 4 px more never strands the (i) on a line of its own. */
+html[data-input="touch"] [data-stats-sync] {
+	gap: 12px;
+}
+
+html[data-input="touch"] [data-stats-sync] > [data-setting-info] {
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
 }
 
 /* Tabs (common/Tabs.tsx): on touch a tab is a row tall and its reach stays inside its own bar. An underline bar's tabs

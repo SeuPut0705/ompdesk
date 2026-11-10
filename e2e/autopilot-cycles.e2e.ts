@@ -20,6 +20,7 @@ import {
 	makeApProfile,
 	recorded,
 	setAutopilot,
+	showRun,
 	startFromSheet,
 	startRun,
 	status,
@@ -291,8 +292,7 @@ test("a usage limit waits for the quota in main, wakes at the reset and retries 
 		expect(waiting.quotaResetAt).toBeGreaterThan(Date.now() - 60_000);
 		expect(waiting.cycles?.length).toBe(1);
 		expect(await page.evaluate(() => window.omp.prefs.get("quotaResume"))).toBeFalsy();
-		await page.locator("[data-autopilot-chip-open]").click();
-		await expect(page.locator('[data-board-section="autopilot"]').first()).toBeVisible();
+		await showRun(page);
 		await expect(page.locator("[data-run-settings-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
 		await capture(page, "quota-wait");
 		// After the reset stock `retry` runs, cycle 2 completes and the run goes on.

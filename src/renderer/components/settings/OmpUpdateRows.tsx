@@ -1,29 +1,27 @@
 /**
- * Settings › Updates & about › This computer, first rows: one "Keep tools up to date" switch (default on) for omp
- * (main `omp-updater.ts`), the tool CLIs and extensions (their rows follow below), then omp's "Update now"
- * button, what main last learned from npm, and, after a failed attempt, why and that the next check retries.
- * OMPdesk's own update stays manual (the section above).
+ * Settings › Updates & about › This computer: one "Keep tools up to date" switch (default on) for omp (main
+ * `omp-updater.ts`), the tool CLIs and extensions (their rows follow below). omp's own "Update now" and what main
+ * last learned from npm sit on omp's machine-setup row (`OmpUpdateNowButton`, `OmpUpdateStatus`): one row for omp,
+ * not two. OMPdesk's own update stays manual (the section above).
  */
-import { RefreshCcw, RefreshCw, SquareTerminal } from "lucide-react";
+import { RefreshCcw, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { TOOLS_AUTO_UPDATE_PREF } from "../../../shared/desktop-prefs";
 import type { OmpUpdateFailure, OmpUpdateState } from "../../../shared/omp-update";
 import { saveGuiPreference } from "../../lib/display-preferences";
 import { useT } from "../../lib/i18n";
 import { useOmpUpdateStore } from "../../stores/omp-update";
-import { Button, InlineNotice } from "../common";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { IconButton, InlineNotice } from "../common";
+import { SettingsSwitchRow } from "./SettingsLayout";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function statusText(t: Translate, state: OmpUpdateState): string {
+/** What is going on or newer; nothing while omp is current, unchecked or left to the person (the switch says so). */
+function statusText(t: Translate, state: OmpUpdateState): string | null {
 	if (state.phase === "checking") return t("ompUpdate.status.checking");
 	if (state.phase === "updating") return t("ompUpdate.status.updating");
-	if (!state.scheduled) return t("ompUpdate.status.manualOnly");
-	if (state.installed === null || state.latest === null) return t("ompUpdate.status.notChecked");
-	return state.latest === state.installed
-		? t("ompUpdate.status.current", { version: state.installed })
-		: t("ompUpdate.status.available", { version: state.installed, latest: state.latest });
+	if (state.installed === null || state.latest === null || state.latest === state.installed) return null;
+	return t("ompUpdate.status.available", { version: state.installed, latest: state.latest });
 }
 
 function failureTitle(t: Translate, failure: OmpUpdateFailure, state: OmpUpdateState): string {
@@ -43,48 +41,60 @@ export function OmpUpdateFailureNotice({ state }: { state: OmpUpdateState }) {
 	);
 }
 
-export function OmpUpdateRows() {
+/** omp's "Update now", in the action slot of its machine-setup row. */
+export function OmpUpdateNowButton() {
 	const t = useT();
 	const state = useOmpUpdateStore(store => store.state);
 	const updateNow = useOmpUpdateStore(store => store.updateNow);
+	const busy = state?.phase !== undefined && state.phase !== "idle";
+	return (
+		<IconButton
+			data-testid="omp-update-now"
+			disabled={state === null || busy}
+			icon={<RefreshCw />}
+			label={t("ompUpdate.now")}
+			loading={busy}
+			onClick={() => void updateNow()}
+			size="sm"
+			variant="secondary"
+		/>
+	);
+}
+
+/** Under omp's machine-setup row: a check or update under way, a newer version, or the last failure. */
+export function OmpUpdateStatus() {
+	const t = useT();
+	const state = useOmpUpdateStore(store => store.state);
+	if (!state) return null;
+	const text = statusText(t, state);
+	return (
+		<>
+			{text && (
+				<p className="ps-6 text-sc-xs break-words text-(--sc-text-muted)" data-testid="omp-update-status">
+					{text}
+				</p>
+			)}
+			<OmpUpdateFailureNotice state={state} />
+		</>
+	);
+}
+
+export function OmpUpdateRows() {
+	const t = useT();
+	const state = useOmpUpdateStore(store => store.state);
 	useEffect(() => {
 		useOmpUpdateStore.getState().ensureLoaded();
 	}, []);
-	const busy = state?.phase !== undefined && state.phase !== "idle";
 	return (
-		<>
-			<SettingsSwitchRow
-				icon={<RefreshCcw />}
-				checked={state?.enabled ?? true}
-				description={t("toolsUpdate.autoDesc")}
-				tipOnly
-				disabled={state === null}
-				id="setting-gui-toolsAutoUpdate"
-				label={t("toolsUpdate.auto")}
-				onCheckedChange={next => void saveGuiPreference(TOOLS_AUTO_UPDATE_PREF, next, () => {})}
-			/>
-			<SettingsRow
-				control={
-					<Button
-						data-testid="omp-update-now"
-						disabled={state === null || busy}
-						icon={<RefreshCw />}
-						onClick={() => void updateNow()}
-						size="sm"
-						variant="secondary"
-					>
-						{t("ompUpdate.now")}
-					</Button>
-				}
-				icon={<SquareTerminal />}
-				id="setting-omp-update-now"
-				label={t("ompUpdate.nowLabel")}
-			>
-				<p className="text-sc-xs break-words text-(--sc-text-muted)" data-testid="omp-update-status">
-					{state ? statusText(t, state) : t("ompUpdate.status.notChecked")}
-				</p>
-				{state && <OmpUpdateFailureNotice state={state} />}
-			</SettingsRow>
-		</>
+		<SettingsSwitchRow
+			icon={<RefreshCcw />}
+			checked={state?.enabled ?? true}
+			description={t("toolsUpdate.autoDesc")}
+			tipOnly
+			disabled={state === null}
+			id="setting-gui-toolsAutoUpdate"
+			label={t("toolsUpdate.auto")}
+			onCheckedChange={next => void saveGuiPreference(TOOLS_AUTO_UPDATE_PREF, next, () => {})}
+		/>
 	);
 }

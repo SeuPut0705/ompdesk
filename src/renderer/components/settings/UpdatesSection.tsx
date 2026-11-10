@@ -17,7 +17,6 @@ import {
 	Server,
 	Star,
 	Stethoscope,
-	Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -36,7 +35,6 @@ import { useSecondsUntil } from "../../lib/use-seconds-until";
 import { useFocusedHost, useHostView } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { toast, toastError } from "../../stores/toast";
-import { useUiStore } from "../../stores/ui";
 import { runUpdaterAction, useUpdaterStore } from "../../stores/updater";
 import {
 	Badge,
@@ -59,16 +57,16 @@ import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 export type UpdateOverviewState = "checking" | "healthy" | "attention" | "error";
 
-const OVERVIEW_BANNER: Record<UpdateOverviewState, BannerVariant> = {
+type ShownOverview = Exclude<UpdateOverviewState, "healthy">;
+
+const OVERVIEW_BANNER: Record<ShownOverview, BannerVariant> = {
 	checking: "info",
-	healthy: "success",
 	attention: "warning",
 	error: "danger",
 };
 
-const OVERVIEW_TITLE: Record<UpdateOverviewState, string> = {
+const OVERVIEW_TITLE: Record<ShownOverview, string> = {
 	checking: "updates.systemChecking",
-	healthy: "updates.systemHealthy",
 	attention: "updates.systemAttention",
 	error: "updates.systemError",
 };
@@ -209,13 +207,16 @@ export function UpdatesSection() {
 				</Button>
 			</div>
 
-			<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
-				{overview === "error" && (appError || coreError) ? (
-					<UpdateFailureLines app={appError} core={coreError} />
-				) : status.state === "auth-required" ? (
-					t(ACCESS_MESSAGE[status.reason])
-				) : undefined}
-			</Banner>
+			{/* Healthy, the rows' own badges say so: the banner speaks only for a check, a failure or what needs doing. */}
+			{overview !== "healthy" && (
+				<Banner className="my-3" live title={t(OVERVIEW_TITLE[overview])} variant={OVERVIEW_BANNER[overview]}>
+					{overview === "error" && (appError || coreError) ? (
+						<UpdateFailureLines app={appError} core={coreError} />
+					) : status.state === "auth-required" ? (
+						t(ACCESS_MESSAGE[status.reason])
+					) : undefined}
+				</Banner>
+			)}
 
 			<SettingsRow
 				badge={host ? <Badge variant="muted">{t("settings.navGroup.app")}</Badge> : undefined}
@@ -625,26 +626,17 @@ function PluginDoctorRow() {
 	return (
 		<HostScoped>
 			<SettingsRow
+				compactControl
 				control={
-					<div className="flex flex-wrap items-center justify-end gap-2">
-						<Button
-							icon={<Wrench />}
-							onClick={() => useUiStore.getState().openSettings("updates:setting-machine-setup")}
-							size="sm"
-							variant="ghost"
-						>
-							{t("diagnostics.machine")}
-						</Button>
-						<Button
-							disabled={!sidecarReady || running}
-							icon={<Stethoscope />}
-							loading={running}
-							onClick={() => void run()}
-							size="sm"
-						>
-							{t("diagnostics.run")}
-						</Button>
-					</div>
+					<Button
+						disabled={!sidecarReady || running}
+						icon={<Stethoscope />}
+						loading={running}
+						onClick={() => void run()}
+						size="sm"
+					>
+						{t("diagnostics.run")}
+					</Button>
 				}
 				description={t("diagnostics.description")}
 				tipOnly

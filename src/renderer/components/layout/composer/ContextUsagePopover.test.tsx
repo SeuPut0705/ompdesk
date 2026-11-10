@@ -201,7 +201,10 @@ describe("ContextUsagePopover", () => {
 		const dialog = document.querySelector("#omp-context-usage-popover");
 		expect(dialog?.textContent).toContain("Context usage 16%");
 		expect(dialog?.textContent).toContain("~161.9k / 1.0M");
-		expect(dialog?.textContent).toContain("Context remaining838.1k");
+		// The used tokens are said once, in the header; what is left is in the bar's value text.
+		expect(dialog?.textContent?.match(/161\.9k/g)).toHaveLength(1);
+		expect(dialog?.textContent).not.toContain(translate("contextUsage.remaining"));
+		expect(dialog?.querySelector('[role="progressbar"]')?.getAttribute("aria-valuetext")).toContain("838.1k");
 		expect(dialog?.textContent).toContain("System context~1.5k");
 		expect(dialog?.textContent).toContain("Tools~6.4k");
 		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~154.0k`);

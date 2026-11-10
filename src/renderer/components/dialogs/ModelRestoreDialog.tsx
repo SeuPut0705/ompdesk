@@ -40,7 +40,7 @@ export function ModelRestoreDialog() {
 			title={t("modelRestore.title")}
 			footer={
 				<>
-					<Button autoFocus onClick={close} size="sm" variant="secondary">
+					<Button autoFocus onClick={close} size="sm" variant="ghost">
 						{t("common.cancel")}
 					</Button>
 					{currentLabel ? (

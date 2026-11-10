@@ -18,7 +18,7 @@ import { useTabHistoryStore } from "../../lib/tab-history";
 import { tabSignalPresentation } from "../../lib/tab-signal";
 import { type SessionTab, tabChipParts, useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { IconButton, Kbd, Modal, SearchField, SessionTitle, Tabs } from "../common";
+import { EmptyState, IconButton, Kbd, Modal, SearchField, SessionTitle, Tabs } from "../common";
 
 type Sort = "recent" | "order";
 
@@ -143,9 +143,7 @@ export function TabOverviewDialog() {
 					role={rows.length > 0 ? "listbox" : undefined}
 				>
 					{rows.length === 0 ? (
-						<p className="py-10 text-center text-sc-sm text-(--sc-text-muted)">
-							{t("tabOverview.noMatch", { query })}
-						</p>
+						<EmptyState size="sm" title={t("tabOverview.noMatch", { query })} />
 					) : (
 						rows.map((tab, index) => {
 							const position = tabs.indexOf(tab);

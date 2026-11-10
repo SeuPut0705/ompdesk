@@ -753,6 +753,12 @@
 	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
 }
 
+/* The docked board shows the run beside the composer, so the composer's "show the run" chip (ComposerModeExtras)
+   gives way unless the board's run section is folded. */
+.omp-session-pane[data-work-board] [data-autopilot-chip-open]:not([data-run-folded]) {
+	display: none;
+}
+
 .omp-work-board-slot {
 	position: absolute;
 	z-index: var(--sc-z-raised);
@@ -843,32 +849,21 @@
    column's left gutter (its right edge sits a step left of the text edge), so
    it reads as part of the transcript rather than a detached window control.
    Ticks lengthen toward the text on hover/focus and for the current turn.
-   Hidden when the gutter is too narrow to hold it (container query below). */
+   The nav box spans the transcript column (the pane less its scrollbar and the
+   docked board's reserve), so the container query below judges the gutter by
+   the column's own width and hides the rail before it would draw over text. */
 .omp-conversation-nav {
+	container: omp-transcript-column / inline-size;
 	position: absolute;
 	z-index: var(--sc-z-sticky);
 	top: var(--sc-space-6);
 	bottom: var(--sc-space-6);
-	left: max(
-		var(--sc-space-2),
-		calc(
-			(100% - var(--omp-scrollbar-size) - var(--omp-board-reserve, 0px) - var(--omp-column-reading)) / 2 -
-				var(--sc-space-3) -
-				var(--sc-hit-min)
-		)
-	);
+	left: 0;
+	right: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve, 0px));
 	display: flex;
 	flex-direction: column;
 	justify-content: center;
-	width: var(--sc-hit-min);
-	opacity: 0.75;
 	pointer-events: none;
-	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
-}
-
-.omp-conversation-nav:hover,
-.omp-conversation-nav:focus-within {
-	opacity: 1;
 }
 
 .omp-conversation-nav-stack {
@@ -876,8 +871,24 @@
 	display: flex;
 	flex-direction: column;
 	gap: clamp(2px, 0.6vh, 6px);
-	width: 100%;
+	width: var(--sc-hit-min);
 	max-height: 100%;
+	margin-inline-start: calc((100% - var(--omp-column-reading)) / 2 - var(--sc-space-3) - var(--sc-hit-min));
+	opacity: 0.75;
+	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-conversation-nav-stack:hover,
+.omp-conversation-nav-stack:focus-within {
+	opacity: 1;
+}
+
+/* The rail needs its 28 px hit width, 12 px to the text and 8 px from the pane's edge, beside each side of the 48rem
+   reading column: 48rem + 2 × 48 px = 54rem. */
+@container omp-transcript-column (width < 54rem) {
+	.omp-conversation-nav-stack {
+		display: none;
+	}
 }
 
 .omp-conversation-nav-stack.is-dense {

@@ -29,9 +29,10 @@
  * Locale (renderer .ts/.tsx, tests excluded): a number or date is formatted with `uiLocale()`, never the OS locale
  * (`toLocaleString()` with no locale; see scripts/lint-locale.mjs); an exception carries `locale-ok: <reason>`.
  *
- * Controls (renderer .tsx outside components/common, tests excluded): no new raw `<button>`, raw checkbox or radio, or
- * hand-made `role="dialog"`; the shared components are catalogued in components/common/README.md (see
- * scripts/lint-controls.mjs and its per-file baseline); an exception carries `controls-ok: <reason>`.
+ * Controls (renderer .tsx outside components/common, tests excluded): no new raw `<button>`, raw checkbox or radio,
+ * hand-made `role="dialog"`, `role="tab"`/`"tablist"` or `role="progressbar"`, or turning lucide loader; the shared
+ * components are catalogued in components/common/README.md (see scripts/lint-controls.mjs and its per-file
+ * baseline); an exception carries `controls-ok: <reason>`.
  *
  * The same run checks the gui-bridge (resources/gui-bridge): a `before_agent_start` handler that returns its own
  * `systemPrompt` instead of registering a section (see scripts/lint-prompt-sections.mjs); an exception carries

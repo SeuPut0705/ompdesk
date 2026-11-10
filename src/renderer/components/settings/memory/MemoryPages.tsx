@@ -20,13 +20,15 @@ import {
 	Button,
 	ConfirmDialog,
 	DisclosureButton,
+	ListRow,
 	MasterDetail,
 	SearchField,
 	SettingInfo,
 	SkeletonRows,
 	TextArea,
 } from "../../common";
-import { LIST_ROW, MemoryFrame, MutedLine, ReadError, useMemoryAction } from "./memory-ui";
+import { TimeAgo } from "../../common/TimeAgo";
+import { MemoryFrame, MutedLine, ReadError, unusualTier, useMemoryAction } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
 const OTHER = "other";
@@ -109,22 +111,15 @@ export function MemoryPages({ project }: { project: AiMemoryProjectRef }) {
 						</DisclosureButton>
 						{!folded &&
 							list.map(page => (
-								<button
-									aria-current={open?.path === page.path ? "true" : undefined}
-									className={LIST_ROW}
-									data-list-item
-									data-memory-page={page.path}
+								<ListRow
 									key={page.path}
+									meta={page.updatedAt ? <TimeAgo iso={page.updatedAt} /> : undefined}
 									onClick={() => setOpen({ ...project, path: page.path })}
-									title={page.path}
-									type="button"
-								>
-									<span className="min-w-0 flex-1 truncate">{page.title || page.path}</span>
-									{page.tier && <Badge variant="muted">{t(`memory.tier.${page.tier}`)}</Badge>}
-									<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
-										{formatTimeAgo(page.updatedAt)}
-									</span>
-								</button>
+									rowProps={{ "data-memory-page": page.path }}
+									selected={open?.path === page.path}
+									title={page.title || page.path}
+									titleText={page.path}
+								/>
 							))}
 					</section>
 				);
@@ -229,12 +224,12 @@ function PageReader({ target, onClose }: { target: MemoryPageTarget; onClose: ()
 				{!page.markdown.trimStart().startsWith(`# ${page.title}`) && (
 					<h3 className="truncate text-sc-md font-semibold text-(--sc-text)">{page.title}</h3>
 				)}
-				<p className="flex min-w-0 flex-wrap items-center gap-x-2 text-sc-xs text-(--sc-text-muted)">
-					<span className="truncate" title={page.path}>
-						{page.path}
-					</span>
+				<p
+					className="flex min-w-0 flex-wrap items-center gap-x-2 text-sc-xs text-(--sc-text-muted)"
+					title={page.path}
+				>
 					{page.kind && <span>{t(`memory.kind.${page.kind}`)}</span>}
-					{page.tier && <span>{t(`memory.tier.${page.tier}`)}</span>}
+					{unusualTier(page) && <span>{t(`memory.tier.${unusualTier(page)}`)}</span>}
 					<span>{formatTimeAgo(page.updatedAt)}</span>
 					{page.pinned && <Badge variant="accent">{t("memory.pages.pinned")}</Badge>}
 				</p>

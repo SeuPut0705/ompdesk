@@ -207,7 +207,8 @@ test("an email routine: the owner adds a mailbox in Settings, and new mail to it
 		const account = settings.locator("[data-mail-account]").filter({ hasText: "Work" });
 		await expect(account).toBeVisible();
 		imap.mail.push({ uid: 1, headers: "From: old@example.com\r\nSubject: already there" });
-		await account.locator("[data-mail-test]").click();
+		await account.getByRole("button", { name: "Actions for Work", exact: true }).click();
+		await page.getByRole("menuitem", { name: "Test", exact: true }).click();
 		await expect(account.locator("[data-mail-test-result]")).toContainText("Mailbox opened: 1 message");
 		// The password never comes back to a window.
 		const listed = await page.evaluate(() => window.omp.mailAccounts.command({ action: "list" }));

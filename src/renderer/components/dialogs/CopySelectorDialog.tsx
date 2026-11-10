@@ -1,4 +1,4 @@
-import { Check, ClipboardCopy } from "lucide-react";
+import { Check, ClipboardCopy, ClipboardX } from "lucide-react";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { CopyTarget } from "../../../shared/rpc-types";
 import { flattenCopyTargets } from "../../lib/copy-targets";
@@ -10,7 +10,7 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Modal, SkeletonRows } from "../common";
+import { Button, EmptyState, InlineNotice, Modal, SkeletonRows } from "../common";
 
 export function CopySelectorDialog() {
 	const tabRpc = useTabRpc();
@@ -20,7 +20,8 @@ export function CopySelectorDialog() {
 	const close = useUiStore(state => state.closeCopySelector);
 	const [targets, setTargets] = useState<CopyTarget[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [loading, setLoading] = useState(false);
+	// Loading until the first answer, so the first opening never flashes the empty state.
+	const [loading, setLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
 	const [error, setError] = useState<InlineFailure | null>(null);
 	const listRef = useRef<HTMLDivElement>(null);
@@ -101,6 +102,8 @@ export function CopySelectorDialog() {
 			void copyTarget(selected);
 		}
 	};
+	// With nothing to copy there is no list to pick from and no preview: one empty state, and no Copy.
+	const nothing = !error && !loading && flat.length === 0;
 
 	return (
 		<Modal
@@ -110,64 +113,70 @@ export function CopySelectorDialog() {
 			size="lg"
 			title={t("copySelector.title")}
 			footer={
-				<Button
-					disabled={selected?.content === undefined}
-					icon={copied ? <Check /> : <ClipboardCopy />}
-					onClick={() => void copyTarget(selected)}
-					size="sm"
-					variant="primary"
-				>
-					{copied ? t("copySelector.copied") : t("copySelector.copy")}
-				</Button>
+				nothing ? undefined : (
+					<Button
+						disabled={selected?.content === undefined}
+						icon={copied ? <Check /> : <ClipboardCopy />}
+						onClick={() => void copyTarget(selected)}
+						size="sm"
+						variant="primary"
+					>
+						{copied ? t("copySelector.copied") : t("copySelector.copy")}
+					</Button>
+				)
 			}
 		>
-			<div
-				className="grid h-[62vh] min-h-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)] max-sm:grid-cols-1 max-sm:grid-rows-2"
-				onKeyDown={onKeyDown}
-			>
+			{nothing ? (
+				<EmptyState icon={<ClipboardX />} size="sm" title={t("copySelector.empty")} />
+			) : (
 				<div
-					className="min-h-0 overflow-y-auto border-r border-(--sc-divider) p-2 max-sm:border-r-0 max-sm:border-b"
-					ref={listRef}
+					className="grid h-[62vh] min-h-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)] max-sm:grid-cols-1 max-sm:grid-rows-2"
+					onKeyDown={onKeyDown}
 				>
-					{error ? (
-						<InlineNotice className="p-4" detail={error.cause} live title={error.message} tone="danger" />
-					) : loading ? (
-						<SkeletonRows className="py-2" label={t("copySelector.loading")} widths={[60, 44, 70, 52]} />
-					) : flat.length === 0 ? (
-						<div className="p-8 text-center text-sc-sm text-(--sc-text-muted)">{t("copySelector.empty")}</div>
-					) : (
-						flat.map((item, index) => (
-							<button
-								aria-current={index === selectedIndex ? "true" : undefined}
-								className={`flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) py-1.5 pr-2 text-left text-sc-md ${
-									index === selectedIndex
-										? "bg-(--sc-selected) text-(--sc-text)"
-										: "text-(--sc-text-secondary) hover:bg-(--sc-hover)"
-								}`}
-								data-copy-index={index}
-								key={item.target.id}
-								onClick={() => setSelectedId(item.target.id)}
-								onDoubleClick={() => void copyTarget(item.target)}
-								style={{ paddingLeft: `calc(var(--sc-space-2) + ${item.depth} * var(--sc-space-4))` }}
-								type="button"
-							>
-								<span className="min-w-0 flex-1 truncate">{item.target.label}</span>
-								{item.target.hint && (
-									<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.target.hint}</span>
-								)}
-							</button>
-						))
-					)}
-				</div>
-				<div className="flex min-h-0 flex-col">
-					<div className="min-h-0 flex-1 overflow-auto p-4">
-						<div className="mb-2 text-sc-xs font-medium text-(--sc-text-muted)">{t("copySelector.preview")}</div>
-						<pre className="whitespace-pre-wrap break-words font-mono text-sc-sm leading-relaxed text-(--sc-text)">
-							{selected?.preview ?? ""}
-						</pre>
+					<div
+						className="min-h-0 overflow-y-auto border-r border-(--sc-divider) p-2 max-sm:border-r-0 max-sm:border-b"
+						ref={listRef}
+					>
+						{error ? (
+							<InlineNotice className="p-4" detail={error.cause} live title={error.message} tone="danger" />
+						) : loading ? (
+							<SkeletonRows className="py-2" label={t("copySelector.loading")} widths={[60, 44, 70, 52]} />
+						) : (
+							flat.map((item, index) => (
+								<button
+									aria-current={index === selectedIndex ? "true" : undefined}
+									className={`flex min-h-9 w-full items-center gap-2 rounded-(--sc-radius-md) py-1.5 pr-2 text-left text-sc-md ${
+										index === selectedIndex
+											? "bg-(--sc-selected) text-(--sc-text)"
+											: "text-(--sc-text-secondary) hover:bg-(--sc-hover)"
+									}`}
+									data-copy-index={index}
+									key={item.target.id}
+									onClick={() => setSelectedId(item.target.id)}
+									onDoubleClick={() => void copyTarget(item.target)}
+									style={{ paddingLeft: `calc(var(--sc-space-2) + ${item.depth} * var(--sc-space-4))` }}
+									type="button"
+								>
+									<span className="min-w-0 flex-1 truncate">{item.target.label}</span>
+									{item.target.hint && (
+										<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{item.target.hint}</span>
+									)}
+								</button>
+							))
+						)}
+					</div>
+					<div className="flex min-h-0 flex-col">
+						<div className="min-h-0 flex-1 overflow-auto p-4">
+							<div className="mb-2 text-sc-xs font-medium text-(--sc-text-muted)">
+								{t("copySelector.preview")}
+							</div>
+							<pre className="whitespace-pre-wrap break-words font-mono text-sc-sm leading-relaxed text-(--sc-text)">
+								{selected?.preview ?? ""}
+							</pre>
+						</div>
 					</div>
 				</div>
-			</div>
+			)}
 		</Modal>
 	);
 }

@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { IpcBenchmarkModelReport, IpcBenchmarkProfile, IpcBenchmarkRunResult } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatUsd } from "../../lib/format";
@@ -7,6 +7,7 @@ import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
 import { Button, ErrorDetail, Input, Modal, Select } from "../common";
+import { FieldShell } from "../common/Input";
 import { ModelLabel } from "../settings/ModelLabel";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 import { compactModelLabels, modelRefOf } from "../settings/providers/provider-marks";
@@ -35,6 +36,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 	// so a run that produced no rows still has a reason to show.
 	const [stderr, setStderr] = useState<string | null>(null);
 	const [result, setResult] = useState<IpcBenchmarkRunResult | null>(null);
+	const modelsId = useId();
 
 	useEffect(() => {
 		if (!open || models) return;
@@ -114,33 +116,35 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		>
 			<div className="space-y-4">
 				<div className="grid grid-cols-[minmax(0,1fr)_9rem_5.5rem_5.5rem] gap-3 max-md:grid-cols-2 max-sm:grid-cols-1">
-					<div className="space-y-2" data-benchmark-models>
-						<span className="text-sc-md">{t("benchmark.models")}</span>
-						<ModelValueSelect
-							kind="model"
-							value=""
-							placeholder={t("benchmark.addModel")}
-							disabled={running || selectors.length >= 8}
-							onCommit={value => {
-								if (value) setModels([...new Set([...selectors, value])].join(", "));
-							}}
-						/>
-						<div className="flex flex-wrap gap-1" data-benchmark-chips>
-							{selectors.map(selector => (
-								<button
-									type="button"
-									disabled={running}
-									className="flex min-h-(--sc-hit-min) max-w-full items-center gap-1 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs hover:bg-(--sc-hover) disabled:opacity-50"
-									key={selector}
-									onClick={() => setModels(selectors.filter(value => value !== selector).join(", "))}
-									aria-label={t("benchmark.removeModel", { model: selector })}
-								>
-									<span className="truncate">{selector}</span>
-									<X aria-hidden className="size-(--sc-icon-sm)" />
-								</button>
-							))}
+					<FieldShell controlId={modelsId} label={t("benchmark.models")} noteId={`${modelsId}-note`}>
+						<div className="space-y-2" data-benchmark-models>
+							<ModelValueSelect
+								ariaLabel={t("benchmark.models")}
+								kind="model"
+								value=""
+								placeholder={t("benchmark.addModel")}
+								disabled={running || selectors.length >= 8}
+								onCommit={value => {
+									if (value) setModels([...new Set([...selectors, value])].join(", "));
+								}}
+							/>
+							<div className="flex flex-wrap gap-1" data-benchmark-chips>
+								{selectors.map(selector => (
+									<button
+										type="button"
+										disabled={running}
+										className="flex min-h-(--sc-hit-min) max-w-full items-center gap-1 rounded-(--sc-radius-sm) border border-(--sc-border-subtle) px-2 py-1 text-sc-xs hover:bg-(--sc-hover) disabled:opacity-50"
+										key={selector}
+										onClick={() => setModels(selectors.filter(value => value !== selector).join(", "))}
+										aria-label={t("benchmark.removeModel", { model: selector })}
+									>
+										<span className="truncate">{selector}</span>
+										<X aria-hidden className="size-(--sc-icon-sm)" />
+									</button>
+								))}
+							</div>
 						</div>
-					</div>
+					</FieldShell>
 					<Select
 						label={t("benchmark.profile")}
 						disabled={running}

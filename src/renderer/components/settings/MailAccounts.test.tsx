@@ -158,8 +158,11 @@ describe("MailAccounts", () => {
 		expect(row("a1")?.textContent).toContain("Work mail");
 		expect(row("a1")?.textContent).toContain("owner@example.com @ imap.example.com · INBOX");
 		expect(row("a2")?.textContent).toContain("me @ imap.home.test · Bots");
-		expect(document.body.querySelector("[data-mail-note]")?.textContent).toBe(
-			"Passwords are stored encrypted on this computer. Use account labels when referring to email accounts.",
+		// The note sits behind the section's info glyph, not as a paragraph under the list.
+		expect(document.body.querySelector("[data-mail-note]")).toBeNull();
+		expect(document.body.querySelector("#settings-mail-accounts [data-setting-info]")).not.toBeNull();
+		expect(document.body.querySelector("#settings-mail-accounts")?.textContent).toContain(
+			"Passwords are stored encrypted on this computer.",
 		);
 		expect(document.body.querySelector("[data-mail-elsewhere]")).toBeNull();
 	});
@@ -249,25 +252,29 @@ describe("MailAccounts", () => {
 		);
 	});
 
-	it("tests an account and shows the message count or the error on its row", async () => {
+	it("tests an account from its ⋯ and shows the message count or the error on its row", async () => {
+		const runTest = async (account: string) => {
+			await menuItem(account, "Test");
+			await settle();
+		};
 		await mount();
-		await click(button("Test Work mail"));
+		await runTest("Work mail");
 		expect(test).toHaveBeenCalledWith("a1");
 		expect(row("a1")?.querySelector("[data-mail-test-result]")?.textContent).toBe("Mailbox opened: 12 messages");
 		expect(row("a2")?.querySelector("[data-mail-test-result]")).toBeNull();
 
 		testResult = { ok: true, messages: 1 };
-		await click(button("Test Work mail"));
+		await runTest("Work mail");
 		expect(row("a1")?.querySelector("[data-mail-test-result]")?.textContent).toBe("Mailbox opened: 1 message");
 
 		testResult = { ok: false, error: "Login failed: invalid credentials" };
-		await click(button("Test Personal"));
+		await runTest("Personal");
 		expect(row("a2")?.querySelector("[data-mail-test-result]")?.textContent).toBe(
 			"Login failed: invalid credentials",
 		);
 
 		testResult = new Error("link dropped");
-		await click(button("Test Personal"));
+		await runTest("Personal");
 		expect(row("a2")?.querySelector("[data-mail-test-result]")?.textContent).toBe("link dropped");
 	});
 

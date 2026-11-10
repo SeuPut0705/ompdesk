@@ -119,6 +119,9 @@ export function GithubCenter() {
 	const repoName = repoOverride ?? (host ? null : checkoutRepo);
 	const targetKey = `${host}|${repoOverride ?? ""}`;
 	const sectionProps = { target, repoName, targetKey };
+	const placeholder = checkoutRepo && !host ? checkoutRepo : "owner/name";
+	// The field already reads the repository the sections show (as its placeholder or its applied value): say it once.
+	const repoInField = repoName !== null && repoName === (repoInput.trim() || placeholder);
 	return (
 		<div className="flex min-h-0 flex-1 flex-col" data-github-center>
 			<div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-(--sc-divider) px-6 py-3 min-[1280px]:px-10">
@@ -161,7 +164,7 @@ export function GithubCenter() {
 							setRepoInput(event.target.value);
 							setRepoInvalid(false);
 						}}
-						placeholder={checkoutRepo && !host ? checkoutRepo : "owner/name"}
+						placeholder={placeholder}
 						value={repoInput}
 					/>
 					<Button size="sm" type="submit" variant="secondary">
@@ -180,9 +183,11 @@ export function GithubCenter() {
 						</Button>
 					)}
 				</form>
-				<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text-muted)" data-github-repo-shown>
-					{repoName ?? t("github.noRepository")}
-				</span>
+				{!repoInField && (
+					<span className="min-w-0 truncate font-mono text-sc-sm text-(--sc-text-muted)" data-github-repo-shown>
+						{repoName ?? t("github.noRepository")}
+					</span>
+				)}
 				<Tabs
 					activeId={section}
 					ariaLabel={t("github.sections")}

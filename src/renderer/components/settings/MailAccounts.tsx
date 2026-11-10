@@ -1,10 +1,10 @@
 /**
  * Settings › Schedules › Email accounts: the mailboxes this computer's email routines poll over IMAP/TLS. Each row names
- * the account (label, `username @ host`, mailbox) with Test (logs in and opens the mailbox once, the answer stays on
- * the row), Edit and Remove. Main keeps the accounts and the encrypted passwords; a password is write-only, so nothing
+ * the account (label, `username @ host`, mailbox) with Test, Edit and Remove behind its ⋯ (Test logs in and opens the
+ * mailbox once, the answer stays on the row). Main keeps the accounts and the encrypted passwords; a password is write-only, so nothing
  * here reads, shows or logs one. A tab on a paired host shows one line instead: its accounts are set on that computer.
  */
-import { CheckCircle2, Mail, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Mail, MoreHorizontal, Pencil, PlugZap, Plus, RefreshCw, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type {
 	MailAccount,
@@ -14,7 +14,7 @@ import type {
 } from "../../../shared/mail-accounts";
 import { useT } from "../../lib/i18n";
 import { toastError } from "../../stores/toast";
-import { Banner, Button, ConfirmDialog, ErrorDetail, MenuButton, SkeletonRows } from "../common";
+import { Banner, Button, ConfirmDialog, ErrorDetail, MenuButton, SkeletonRows, Spinner } from "../common";
 import { MailAccountDialog } from "./MailAccountDialog";
 import { SettingsSection } from "./SettingsLayout";
 
@@ -121,6 +121,8 @@ function LocalMailAccounts() {
 						{t("mail.add")}
 					</Button>
 				}
+				// The "only while OMPdesk is open" note sits behind the title's (i), never as a paragraph under the list.
+				description={t("mail.note")}
 				id="settings-mail-accounts"
 				title={t("mail.title")}
 			>
@@ -165,20 +167,18 @@ function LocalMailAccounts() {
 										)}
 									</div>
 									<div className="flex shrink-0 items-center gap-0.5">
-										<Button
-											aria-label={t("mail.testAccount", { name: account.label })}
-											data-mail-test
-											loading={result === "testing"}
-											onClick={() => void test(account.id)}
-											size="sm"
-											variant="ghost"
-										>
-											{t("mail.test")}
-										</Button>
+										{result === "testing" && <Spinner label={t("mail.test")} size="sm" spin />}
 										<MenuButton
 											align="end"
 											icon={<MoreHorizontal />}
 											items={[
+												{
+													id: "test",
+													label: t("mail.test"),
+													icon: PlugZap,
+													disabled: result === "testing",
+													onSelect: () => void test(account.id),
+												},
 												{
 													id: "edit",
 													label: t("mail.edit"),
@@ -202,9 +202,6 @@ function LocalMailAccounts() {
 						})}
 					</ul>
 				)}
-				<p className="text-sc-xs text-(--sc-text-muted)" data-mail-note>
-					{t("mail.note")}
-				</p>
 			</SettingsSection>
 
 			<MailAccountDialog

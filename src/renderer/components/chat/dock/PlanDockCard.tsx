@@ -77,11 +77,16 @@ export function resolvePlanFsPath(
 }
 
 interface PlanStep {
+	/** Unique across the plan: tells two sections' step 1 apart. */
 	index: number;
+	/** The number shown, counted from 1 again under each heading. */
+	ordinal: number;
 	text: string;
 	done: boolean;
 	/** True when the source line was a `- [ ]` / `- [x]` checklist item. */
 	checkbox: boolean;
+	/** A plain `-` item: a note such as a risk, not a step to take, unless the plan has no other kind. */
+	bullet: boolean;
 }
 
 interface PlanSection {
@@ -93,7 +98,7 @@ interface PlanSection {
 function parsePlanSections(markdown: string): PlanSection[] {
 	const sections: PlanSection[] = [];
 	let current: PlanSection = { heading: null, steps: [] };
-	let ordinal = 0;
+	let index = 0;
 	const pushCurrent = () => {
 		if (current.steps.length > 0) sections.push(current);
 	};
@@ -109,12 +114,14 @@ function parsePlanSections(markdown: string): PlanSection[] {
 		const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
 		const text = (checkbox?.[2] ?? numbered?.[1] ?? bullet?.[1])?.trim();
 		if (text) {
-			ordinal += 1;
+			index += 1;
 			current.steps.push({
-				index: ordinal,
+				index,
+				ordinal: current.steps.length + 1,
 				text,
 				done: checkbox ? checkbox[1].toLowerCase() === "x" : false,
 				checkbox: checkbox != null,
+				bullet: checkbox == null && numbered == null,
 			});
 		}
 	}
@@ -346,7 +353,7 @@ export function PlanDockCard({
 		setStepFeedback({ ...stepFeedback, sending: true });
 		const target = displayPath ?? "the plan";
 		const ok = await sendPlanMessage(
-			`Feedback on plan step ${stepFeedback.step.index} — “${truncate(stepFeedback.step.text, 80)}” (${target}):\n${text}`,
+			`Feedback on plan step ${stepFeedback.step.ordinal} — “${truncate(stepFeedback.step.text, 80)}” (${target}):\n${text}`,
 			t,
 			rpc,
 			isStreaming,
@@ -356,7 +363,12 @@ export function PlanDockCard({
 	}, [stepFeedback, displayPath, rpc, t, isStreaming]);
 
 	const sections = useMemo(() => parsePlanSections(content ?? ""), [content]);
-	const stepCount = useMemo(() => sections.reduce((n, section) => n + section.steps.length, 0), [sections]);
+	// The count names the steps to take: numbered and checklist items, or every item of a plan made only of bullets.
+	const stepCount = useMemo(() => {
+		const items = sections.flatMap(section => section.steps);
+		const steps = items.filter(step => !step.bullet);
+		return (steps.length > 0 ? steps : items).length;
+	}, [sections]);
 	const doneCount = useMemo(
 		() => sections.reduce((n, section) => n + section.steps.filter(step => step.done).length, 0),
 		[sections],
@@ -509,7 +521,7 @@ export function PlanDockCard({
 															)
 														) : (
 															<span className="w-4 shrink-0 pt-px text-right text-sc-2xs tabular-nums text-(--sc-text-muted)">
-																{step.index}
+																{step.ordinal}
 															</span>
 														)}
 														<span
@@ -523,7 +535,7 @@ export function PlanDockCard({
 														<IconButton
 															className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 															icon={<MessageSquare />}
-															label={t("planPanel.stepFeedbackAria", { index: step.index })}
+															label={t("planPanel.stepFeedbackAria", { index: step.ordinal })}
 															onClick={() => setStepFeedback({ step, draft: "", sending: false })}
 															size="sm"
 														/>
@@ -532,14 +544,14 @@ export function PlanDockCard({
 														<div className="mb-1 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-transparent p-1.5">
 															<TextArea
 																aria-label={t("planPanel.stepFeedbackPlaceholder", {
-																	index: step.index,
+																	index: step.ordinal,
 																})}
 																autoFocus
 																onChange={event =>
 																	setStepFeedback({ ...stepFeedback, draft: event.target.value })
 																}
 																placeholder={t("planPanel.stepFeedbackPlaceholder", {
-																	index: step.index,
+																	index: step.ordinal,
 																})}
 																rows={2}
 																value={stepFeedback.draft}
@@ -570,12 +582,12 @@ export function PlanDockCard({
 						)}
 					</div>
 
-					{/* Review footer: approve / request changes, all as chat messages. */}
-					{!proposalPending && (
+					{/* Review footer: approve / request changes, all as chat messages. Only a plan under review in plan
+					    mode can be approved; without it the sheet is a reader. */}
+					{reviewable && !proposalPending && (
 						<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
 							<TextArea
 								aria-label={t("planPanel.feedbackPlaceholder")}
-								disabled={!reviewable}
 								onChange={event => setPlanFeedback(event.target.value)}
 								placeholder={t("planPanel.feedbackPlaceholder")}
 								rows={2}
@@ -592,7 +604,6 @@ export function PlanDockCard({
 									</span>
 								) : (
 									<Button
-										disabled={!reviewable}
 										icon={<CheckCircle2 />}
 										loading={approving}
 										onClick={() => void approve()}
@@ -603,7 +614,7 @@ export function PlanDockCard({
 									</Button>
 								)}
 								<Button
-									disabled={!reviewable || !planFeedback.trim()}
+									disabled={!planFeedback.trim()}
 									loading={sendingPlan}
 									onClick={() => void requestChanges()}
 									size="sm"

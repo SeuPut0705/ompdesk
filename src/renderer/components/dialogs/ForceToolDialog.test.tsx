@@ -197,4 +197,14 @@ describe("ForceToolDialog", () => {
 		expect(rpc.setForceTool).toHaveBeenCalledWith({ tool: "read" });
 		expect(rpc.prompt).not.toHaveBeenCalled();
 	});
+
+	it("groups the tools under their source, with no raw source on each row, and marks the forced one", async () => {
+		rpc.getForceTool.mockResolvedValueOnce(ok({ tool: "write" }));
+		await mount();
+		const group = document.querySelector('[role=listbox] [role=group][aria-label="Built-in"]');
+		expect(group?.querySelectorAll("[role=option]")).toHaveLength(2);
+		const options = Array.from(document.querySelectorAll("[role=option]"));
+		expect(options.some(option => option.textContent?.includes("builtin"))).toBe(false);
+		expect(options.map(option => option.textContent?.includes("Current"))).toEqual([false, true]);
+	});
 });

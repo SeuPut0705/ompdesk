@@ -1,14 +1,13 @@
 /**
  * One model role (stock's or OMPdesk's own) in Settings › Models & accounts › Model roles: what it is for
- * and what an empty one falls back to (`model-role-text.ts`, generic for a role
- * no locale knows), the model it really runs on (`effective`, resolved by stock
- * in the bridge, an empty role's fallback included), that model's provider
- * account state with its live quota, the thinking level and the picker filtered
- * by stock's `accepts` (the entry's candidates).
+ * and what an empty one falls back to (`model-role-text.ts`, generic for a role no locale knows) behind the (i), and
+ * the picker filtered by stock's `accepts` (the entry's candidates). The line under it says only what the picker does
+ * not: an empty role's resolved model (`effective`, resolved by stock in the bridge) and its source, an account
+ * problem (off, not signed in, a window near its limit) and a thinking level other than following the session.
  */
 
 import { CircleDashed } from "lucide-react";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
 import type {
 	CompactionPoint,
@@ -24,6 +23,7 @@ import { inUseReport, tightestLimit } from "../../lib/usage-reports";
 import { useUiStore } from "../../stores/ui";
 import { Badge, LinkButton, ProgressBar, Tooltip } from "../common";
 import { SettingInfo } from "../common/SettingInfo";
+import { NEAR_FRACTION } from "../common/UsageGauges";
 import { CompactsAt } from "./CompactsAt";
 import { JUDGE_ASSIST_SETTING_TARGET } from "./JudgeAssistRow";
 import { ModelValueSelect, modelValueGroups } from "./ModelValueSelect";
@@ -40,7 +40,8 @@ import { SettingsRow } from "./SettingsLayout";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
-function ProviderState({
+/** The account only when it is a problem: off, not signed in, or the tightest window near its limit. */
+function providerProblem({
 	provider,
 	usage,
 	t,
@@ -60,30 +61,25 @@ function ProviderState({
 	}
 	const report = inUseReport(usage, provider.id);
 	const quota = report ? tightestLimit(report) : null;
-	const percent = quota ? Math.round(quota.fraction * 100) : null;
-	const title =
-		quota && percent !== null
-			? t("modelRoles.quotaTitle", { limit: usageLimitLabel(quota.limit, t), percent })
-			: undefined;
+	if (!quota || quota.fraction < NEAR_FRACTION) return null;
+	const percent = Math.round(quota.fraction * 100);
+	const title = t("modelRoles.quotaTitle", { limit: usageLimitLabel(quota.limit, t), percent });
 	return (
-		<>
-			<Badge dot variant="success">
-				{t("modelRoles.account.signedIn")}
-			</Badge>
-			{quota && percent !== null && (
-				<span className="inline-flex items-center gap-1.5" title={title}>
-					<span className="w-12">
-						<ProgressBar ariaLabel={title} height={3} value={quota.fraction} valueText="" />
-					</span>
-					<span className="tabular-nums">{t("modelRoles.quota", { percent })}</span>
-				</span>
-			)}
-		</>
+		<span className="inline-flex items-center gap-1.5" data-role-quota title={title}>
+			<span className="w-12">
+				<ProgressBar ariaLabel={title} height={3} value={quota.fraction} valueText="" />
+			</span>
+			<span className="tabular-nums">{t("modelRoles.quota", { percent })}</span>
+		</span>
 	);
 }
 
-/** The effective model, its source, account state and thinking level. */
-function EffectiveLine({
+/**
+ * What the picker does not say: for a role left empty the model it resolves to and where that comes from; an account
+ * problem; a thinking level other than following the session; where compaction starts. Nothing at all for a role set
+ * directly with no problem, so that row stays one line.
+ */
+function effectiveLine({
 	entry,
 	labels,
 	roleName,
@@ -127,6 +123,7 @@ function EffectiveLine({
 	}
 	const slash = effective.model.indexOf("/");
 	const providerId = effective.model.slice(0, slash);
+	const inherited = !entry.model;
 	const label =
 		labels.get(effective.model) ??
 		compactModelLabel({ provider: providerId, id: effective.model.slice(slash + 1), name: effective.name });
@@ -143,26 +140,23 @@ function EffectiveLine({
 			: effective.source === "session"
 				? t("modelRoles.src.session")
 				: undefined;
+	const account = providerProblem({ provider: providers.find(provider => provider.id === providerId), t, usage });
+	if (!inherited && !account && !levelName && !compaction) return null;
 	return (
-		<div
-			className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-sm text-(--sc-text-secondary)"
-			data-role-status
-		>
-			<span
-				className="flex items-baseline gap-1.5 font-medium text-(--sc-text)"
-				title={[effective.name, effective.model].filter(Boolean).join(" · ")}
-			>
-				{label.name}
-				{label.suffix && (
-					<span className="text-sc-xs font-normal text-(--sc-text-muted) tabular-nums">{label.suffix}</span>
-				)}
-			</span>
-			{source && <span className="text-(--sc-text-muted)">{source}</span>}
-			<ProviderState provider={providers.find(provider => provider.id === providerId)} t={t} usage={usage} />
-			<span className="text-(--sc-text-muted)">
-				{levelName ? t("modelRoles.thinking", { level: levelName }) : t("modelRoles.thinkingSession")}
-			</span>
-			{compaction && <CompactsAt className="text-(--sc-text-muted)" compact point={compaction} />}
+		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-xs text-(--sc-text-muted)" data-role-status>
+			{inherited && (
+				<span
+					className="flex items-baseline gap-1.5 text-(--sc-text-secondary)"
+					title={[effective.name, effective.model].filter(Boolean).join(" · ")}
+				>
+					{label.name}
+					{label.suffix && <span className="tabular-nums text-(--sc-text-muted)">{label.suffix}</span>}
+				</span>
+			)}
+			{inherited && source && <span>{source}</span>}
+			{account}
+			{levelName && <span>{t("modelRoles.thinking", { level: levelName })}</span>}
+			{compaction && <CompactsAt compact point={compaction} />}
 		</div>
 	);
 }
@@ -278,7 +272,34 @@ export function ModelRoleRow({
 	// What the role is for and, while empty, what it follows: both in the info tooltip.
 	const use = rolePurpose(entry, name, t, lang);
 	const fallback = roleFallback(entry, t, roleName);
-
+	const line = effectiveLine({ compaction, entry, labels, providers, roleName, t, usage });
+	const details = [
+		line && <Fragment key="line">{line}</Fragment>,
+		entry.effective?.skipped && <SkippedLine effective={entry.effective} key="skipped" providers={providers} t={t} />,
+		entry.id === "judge" && (
+			// Quiet pointer to what OMPdesk asks this role (Settings › Agent behavior), never a notice about the model.
+			<p className="text-sc-xs" key="judge">
+				<LinkButton
+					data-judge-assist-link=""
+					onClick={() => useUiStore.getState().openSettings(JUDGE_ASSIST_SETTING_TARGET)}
+				>
+					{t("modelRoles.judgeSmallDecisions")}
+				</LinkButton>
+			</p>
+		),
+		entry.source === "project" && (
+			<p className="text-sc-xs text-(--sc-text-muted)" key="project">
+				{t("modelRoles.sourceProject")}
+			</p>
+		),
+		// The effective line already says whether the role resolves (a role can run on another role's model with an
+		// empty pool of its own); this one speaks only for a bridge that reports no resolution.
+		candidates.length === 0 && !entry.effective && (
+			<p className="text-sc-xs text-(--sc-text-muted)" key="none">
+				{t("modelRoles.noCandidates")}
+			</p>
+		),
+	].filter(Boolean);
 	return (
 		<SettingsRow
 			// Stock's tag (SLOW, SMOL …) is an id, not something to read: it sits in a tooltip on the name, and not at all
@@ -315,37 +336,7 @@ export function ModelRoleRow({
 				)
 			}
 		>
-			<div className="space-y-0.5" data-settings-row-detail>
-				<EffectiveLine
-					compaction={compaction}
-					entry={entry}
-					labels={labels}
-					providers={providers}
-					roleName={roleName}
-					t={t}
-					usage={usage}
-				/>
-				{entry.effective?.skipped && <SkippedLine effective={entry.effective} providers={providers} t={t} />}
-				{entry.id === "judge" && (
-					// Quiet pointer to what OMPdesk asks this role (Settings › Agent behavior), never a notice about the model.
-					<p className="text-sc-xs">
-						<LinkButton
-							data-judge-assist-link=""
-							onClick={() => useUiStore.getState().openSettings(JUDGE_ASSIST_SETTING_TARGET)}
-						>
-							{t("modelRoles.judgeSmallDecisions")}
-						</LinkButton>
-					</p>
-				)}
-				{entry.source === "project" && (
-					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.sourceProject")}</p>
-				)}
-				{/* The effective line already says whether the role resolves (a role can run on another role's
-				    model with an empty pool of its own); this one speaks only for a bridge that reports no resolution. */}
-				{candidates.length === 0 && !entry.effective && (
-					<p className="text-sc-xs text-(--sc-text-muted)">{t("modelRoles.noCandidates")}</p>
-				)}
-			</div>
+			{details.length > 0 ? <div className="space-y-0.5">{details}</div> : undefined}
 		</SettingsRow>
 	);
 }

@@ -61,7 +61,7 @@ import { type McpCardAction, type McpReauthPhase, McpServerCard } from "../panel
 import { McpServerWizard } from "../panels/mcp/McpServerWizard";
 import { AgentControlRow } from "./AgentControlRow";
 import { BuiltinReaRow } from "./BuiltinReaRow";
-import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsEmptyRow, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
 
 export type ExtensionsTab = "skills" | "mcp" | "hooks" | "contextFiles" | "commands";
@@ -340,7 +340,7 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 			);
 		}
 	} else if (total === 0) {
-		body = <EmptyState actions={emptyAction} icon={TAB_ICON[tabId]} size="sm" title={t(`extPanel.empty.${tabId}`)} />;
+		body = <SettingsEmptyRow action={emptyAction} icon={TAB_ICON[tabId]} label={t(`extPanel.empty.${tabId}`)} />;
 	} else if (visible === 0) {
 		body = <EmptyState icon={<Search />} size="sm" title={t("extPanel.noMatch", { query: trimmed })} />;
 	} else {
@@ -851,10 +851,11 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 	const tabs: TabItem[] = useMemo(
 		() => [
 			{ id: "skills", label: t("settings.skills.title") },
-			{ id: "mcp", label: t("settings.extensions.mcp.title"), badge: mcp.data?.length },
-			{ id: "hooks", label: t("extPanel.tabs.hooks"), badge: hooks.data?.length },
-			{ id: "contextFiles", label: t("extPanel.tabs.contextFiles"), badge: contextFiles.data?.length },
-			{ id: "commands", label: t("extPanel.tabs.commands"), badge: commands.data?.length },
+			// A zero count says nothing the empty tab does not.
+			{ id: "mcp", label: t("settings.extensions.mcp.title"), badge: mcp.data?.length || undefined },
+			{ id: "hooks", label: t("extPanel.tabs.hooks"), badge: hooks.data?.length || undefined },
+			{ id: "contextFiles", label: t("extPanel.tabs.contextFiles"), badge: contextFiles.data?.length || undefined },
+			{ id: "commands", label: t("extPanel.tabs.commands"), badge: commands.data?.length || undefined },
 		],
 		[t, hooks.data, contextFiles.data, mcp.data, commands.data],
 	);

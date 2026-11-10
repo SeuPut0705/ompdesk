@@ -2,6 +2,7 @@
  * Memory › Sessions: the recent captured sessions with their observation counts. A session opens its raw
  * observations (prompts, tool calls, stops) read-only, 50 a page.
  */
+import { ListTree } from "lucide-react";
 import { useState } from "react";
 import type {
 	AiMemoryObservation,
@@ -11,14 +12,29 @@ import type {
 } from "../../../../shared/ai-memory";
 import { formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
-import { Badge, Button, CopyButton, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
-import { LIST_ROW, MemoryFrame, MutedLine, ReadError } from "./memory-ui";
+import { Badge, Button, CopyButton, ListRow, MasterDetail, SettingInfo, SkeletonRows } from "../../common";
+import { TimeAgo } from "../../common/TimeAgo";
+import { HOME_AGENT, MemoryFrame, MutedLine, ReadError } from "./memory-ui";
 import { projectKey, useMemoryRead } from "./use-memory-read";
 
 const PAGE = 50;
 const LONG = 400;
 
 const folder = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).pop() ?? cwd;
+
+/** ai-memory's observation kinds with a label of their own; a kind a newer server adds shows as is. */
+const OBSERVATION_KINDS: Record<string, true> = {
+	"session-start": true,
+	"user-prompt": true,
+	"pre-tool-use": true,
+	"post-tool-use": true,
+	"pre-compact": true,
+	"post-compaction": true,
+	notification: true,
+	stop: true,
+	"session-end": true,
+	other: true,
+};
 
 export function MemorySessions({ project }: { project: AiMemoryProjectRef }) {
 	const t = useT();
@@ -37,32 +53,39 @@ export function MemorySessions({ project }: { project: AiMemoryProjectRef }) {
 			<ReadError error={read.error} onRetry={read.refresh} />
 			{read.data === undefined && !read.error && <SkeletonRows label={t("common.loading")} widths={[70, 55]} />}
 			{read.data && read.data.length === 0 && <MutedLine data-memory-empty>{t("memory.sessions.empty")}</MutedLine>}
-			{(read.data ?? []).map(session => (
-				<button
-					aria-current={session.id === openId ? "true" : undefined}
-					className={LIST_ROW}
-					data-list-item
-					data-memory-session={session.id}
-					key={session.id}
-					onClick={() => setOpenId(session.id)}
-					title={session.cwd}
-					type="button"
-				>
-					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{formatTimeAgo(session.startedAt)}</span>
-					<span className="min-w-0 flex-1 truncate">
-						{session.agent} · {folder(session.cwd)}
-					</span>
-					{!session.endedAt && <Badge variant="info">{t("memory.sessions.open")}</Badge>}
-					{session.consolidation &&
-						session.consolidation !== "completed" &&
-						session.consolidation !== "superseded" && (
-							<Badge variant={session.consolidation === "failed" ? "error" : "muted"}>
-								{t(`memory.sessions.job.${session.consolidation}`)}
-							</Badge>
-						)}
-					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">{session.observations}</span>
-				</button>
-			))}
+			{(read.data ?? []).map(session => {
+				const count = t("memory.sessions.total", { count: session.observations });
+				return (
+					<ListRow
+						key={session.id}
+						meta={
+							<span className="flex items-center gap-2">
+								{!session.endedAt && <Badge variant="info">{t("memory.sessions.open")}</Badge>}
+								{session.consolidation &&
+									session.consolidation !== "completed" &&
+									session.consolidation !== "superseded" && (
+										<Badge variant={session.consolidation === "failed" ? "error" : "muted"}>
+											{t(`memory.sessions.job.${session.consolidation}`)}
+										</Badge>
+									)}
+								<span className="flex items-center gap-0.5" title={count}>
+									<ListTree aria-hidden className="size-(--sc-icon-sm)" />
+									<span aria-hidden>{session.observations}</span>
+									<span className="sr-only">{count}</span>
+								</span>
+								{session.startedAt && <TimeAgo iso={session.startedAt} />}
+							</span>
+						}
+						onClick={() => setOpenId(session.id)}
+						rowProps={{ "data-memory-session": session.id }}
+						selected={session.id === openId}
+						title={
+							session.agent === HOME_AGENT ? folder(session.cwd) : `${session.agent} · ${folder(session.cwd)}`
+						}
+						titleText={session.cwd}
+					/>
+				);
+			})}
 		</div>
 	);
 
@@ -99,11 +122,10 @@ function Observations({ project, session }: { project: AiMemoryProjectRef; sessi
 			<header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sc-xs text-(--sc-text-muted)">
 				<span className="font-mono">{session.id.slice(0, 8)}</span>
 				<CopyButton label={t("memory.sessions.copyId")} text={session.id} />
-				<span>{session.agent}</span>
+				{session.agent !== HOME_AGENT && <span>{session.agent}</span>}
 				<span className="min-w-0 truncate" title={session.cwd}>
 					{session.cwd}
 				</span>
-				<span className="tabular-nums">{t("memory.sessions.total", { count: total })}</span>
 			</header>
 			<ReadError error={read.error} onRetry={read.refresh} />
 			{!data && !read.error && <SkeletonRows label={t("common.loading")} widths={[90, 70, 80]} />}
@@ -148,7 +170,11 @@ function ObservationBlock({ observation }: { observation: AiMemoryObservation })
 			data-memory-observation={observation.id}
 		>
 			<p className="flex min-w-0 items-center gap-2 text-sc-xs text-(--sc-text-muted)">
-				<Badge variant="muted">{observation.kind}</Badge>
+				<Badge variant="muted">
+					{Object.hasOwn(OBSERVATION_KINDS, observation.kind)
+						? t(`memory.observation.kind.${observation.kind}`)
+						: observation.kind}
+				</Badge>
 				<span>{formatTimeAgo(observation.createdAt)}</span>
 				<span className="min-w-0 truncate text-sc-sm text-(--sc-text)">{observation.title}</span>
 			</p>

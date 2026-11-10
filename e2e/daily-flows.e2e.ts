@@ -25,6 +25,7 @@ import {
 	mainTab,
 	makeApProfile,
 	recorded,
+	showRun,
 	startFromSheet,
 	waitForStatus,
 } from "./autopilot-harness";
@@ -1320,11 +1321,9 @@ test("daily flow f: settings, model, diagnostics bundle and autopilot chain with
 
 		await test.step("Autopilot starts from the Mode popover and ends with Stop", async () => {
 			const run = await startFromSheet(page, "en");
-			// No panel opens: the composer's "show the run" brings the run's section of the work board into view.
-			await expect(page.locator("[data-autopilot-chip-open]")).toBeVisible();
-			await page.locator("[data-autopilot-chip-open]").click();
-			const runSection = page.locator('[data-board-section="autopilot"]').first();
-			await expect(runSection).toBeVisible();
+			// No panel opens: the run's section of the work board comes into view, docked beside the composer or
+			// through the composer's "show the run".
+			const runSection = await showRun(page);
 			await expect(page.locator("[data-autopilot-state]").first()).toHaveAttribute(
 				"data-autopilot-state",
 				"running",

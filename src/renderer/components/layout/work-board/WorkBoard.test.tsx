@@ -667,7 +667,8 @@ describe("WorkBoard sections", () => {
 		expect(sections[0]).toBe("needs");
 		expect(section("needs")?.textContent).toContain("Needs you2");
 		expect(section("needs")?.querySelector("kbd")?.textContent).toBe("⌥B");
-		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toMatch(/^Ask.*Allow bash\?/);
+		// A tool approval says approval, as the head's clause does, never question.
+		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toMatch(/^Approval.*Allow bash\?/);
 		expect(pane.querySelector('[data-board-waiting="plan"]')?.textContent).toMatch(/^Review.*Plan ready for review/);
 		expect(pane.querySelector('[data-board-waiting="n1"]')).toBeNull();
 		const live = pane.querySelector('[aria-live="polite"]');

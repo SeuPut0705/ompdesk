@@ -153,7 +153,7 @@ export function HandoffDialog() {
 						disabled={running && (stage !== "summary" || cancelling)}
 						onClick={requestClose}
 						type="button"
-						variant="secondary"
+						variant="ghost"
 					>
 						{t("common.cancel")}
 					</Button>

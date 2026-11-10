@@ -34,6 +34,13 @@ export const en: Record<string, string> = {
 	"memory.maint.purge.word": "delete",
 	"memory.maint.purge.type": "Type “{word}” to confirm",
 	"memory.maint.purged": "All memory deleted",
+	"memory.lint.kind.broken_link": "Broken link",
+	"memory.lint.kind.contradiction": "Contradiction",
+	"memory.lint.kind.duplicate": "Duplicate",
+	"memory.lint.kind.feedback_flagged": "Flagged",
+	"memory.lint.kind.pinned_expiring": "Pin expiring",
+	"memory.lint.kind.rule_suggestion": "Could be a rule",
+	"memory.lint.kind.stale": "Stale",
 };
 export const ko: Record<string, string> = {
 	"memory.maint.care": "이번 주 스스로 정리함: {what}",
@@ -70,4 +77,11 @@ export const ko: Record<string, string> = {
 	"memory.maint.purge.word": "삭제",
 	"memory.maint.purge.type": "확인하려면 “{word}”를 입력하세요",
 	"memory.maint.purged": "모든 메모리를 삭제했어요",
+	"memory.lint.kind.broken_link": "깨진 링크",
+	"memory.lint.kind.contradiction": "모순",
+	"memory.lint.kind.duplicate": "중복",
+	"memory.lint.kind.feedback_flagged": "신고됨",
+	"memory.lint.kind.pinned_expiring": "고정 만료 임박",
+	"memory.lint.kind.rule_suggestion": "규칙 후보",
+	"memory.lint.kind.stale": "오래됨",
 };

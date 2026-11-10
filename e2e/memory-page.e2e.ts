@@ -52,7 +52,7 @@ test("the Memory page: search, read, edit, delete, restore and cancel a handoff 
 
 		await test.step("search across all projects and open the hit in Pages", async () => {
 			await section.getByRole("tab", { name: "Search" }).click();
-			await section.getByRole("tab", { name: "All projects", exact: true }).click();
+			await section.locator("[data-memory-project]").selectOption({ label: "All projects" });
 			const box = section.getByRole("searchbox");
 			await box.fill("sqlite");
 			await box.press("Enter");
@@ -60,8 +60,9 @@ test("the Memory page: search, read, edit, delete, restore and cancel a handoff 
 			await expect(hits.locator("[data-memory-hit]")).toHaveCount(2);
 			const hit = hits.locator('[data-memory-hit="decisions/0007-db.md"]');
 			await expect(hit).toContainText("Use SQLite for the cache");
+			// A decision's usual tier is not repeated beside its kind.
 			await expect(hit).toContainText("Decision");
-			await expect(hit).toContainText("Semantic");
+			await expect(hit).not.toContainText("Semantic");
 			await expect(hit.locator("mark")).toHaveCount(0);
 			await hit.click();
 			await expect(section.locator('[data-memory-tab="pages"]')).toBeVisible();

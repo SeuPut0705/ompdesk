@@ -143,7 +143,10 @@ export function DefaultBrowserRow() {
 		);
 	} else if (picked && pickedBrowser && !pickedBrowser.relayInstalled) {
 		note = (
-			<span className="flex flex-wrap items-center gap-2" data-default-browser-relay-missing="true">
+			<span
+				className="inline-flex flex-wrap items-center justify-end gap-2"
+				data-default-browser-relay-missing="true"
+			>
 				{t("settings.gui.defaultBrowserRelayMissing", { name: pickedBrowser.name })}
 				<Button loading={installing} onClick={() => install(pickedBrowser.id)} size="sm" variant="secondary">
 					{t("settings.gui.defaultBrowserInstall")}
@@ -179,7 +182,7 @@ export function DefaultBrowserRow() {
 				/>
 			}
 			description={t("settings.gui.defaultBrowserDesc")}
-			footer={note && <p className="mt-1 text-sc-xs break-keep text-(--sc-text-muted)">{note}</p>}
+			status={note ?? undefined}
 			htmlFor={id}
 			icon={<Globe />}
 			id="setting-gui-defaultBrowser"

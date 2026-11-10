@@ -1,14 +1,4 @@
-import {
-	Ban,
-	CheckCircle2,
-	CircleAlert,
-	CircleX,
-	Clock3,
-	Loader2,
-	MessageCircle,
-	SquareTerminal,
-	Users,
-} from "lucide-react";
+import { Ban, CheckCircle2, CircleAlert, CircleX, Clock3, MessageCircle, SquareTerminal, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { AnsiText, hasAnsi } from "../../../lib/ansi";
 import { cx, formatDuration, resultDetails, resultText, sanitizeToolText } from "../../../lib/format";
@@ -16,6 +6,7 @@ import { useT } from "../../../lib/i18n";
 import { PREVIEW_SCROLL_SM } from "../../../lib/preview";
 import { asArray, asNonEmptyString, asRecord } from "../../../lib/wire-value";
 import { ProgressBar } from "../../common/ProgressBar";
+import { Spinner } from "../../common/Spinner";
 import type { ToolRendererProps } from "../ToolCard";
 
 type JobStatus = "running" | "completed" | "failed" | "cancelled";
@@ -151,13 +142,7 @@ function statusColor(status: JobStatus): string {
 }
 
 function StatusIcon({ status }: { status: JobStatus }) {
-	// Spun on an HTML box (compositor), not the SVG (main thread every frame): see common/Spinner.
-	if (status === "running")
-		return (
-			<span aria-hidden className="inline-flex shrink-0 animate-spin">
-				<Loader2 size={12} />
-			</span>
-		);
+	if (status === "running") return <Spinner className="inline-flex shrink-0" inheritColor size="sm" />;
 	if (status === "completed") return <CheckCircle2 aria-hidden className="shrink-0" size={12} />;
 	if (status === "failed") return <CircleX aria-hidden className="shrink-0" size={12} />;
 	return <Ban aria-hidden className="shrink-0" size={12} />;
@@ -541,11 +526,7 @@ export function ProtocolWriteRenderer({
 				<span className="min-w-0 truncate text-omp-xs text-[var(--omp-muted)]">
 					{isAgent ? shortText(targetId, 120) : shortText(id, 120)}
 				</span>
-				{isPartial && (
-					<span aria-hidden className="ml-auto inline-flex animate-spin text-[var(--omp-accent)]">
-						<Loader2 size={12} />
-					</span>
-				)}
+				{isPartial && <Spinner className="ml-auto inline-flex text-[var(--omp-accent)]" inheritColor size="sm" />}
 			</div>
 			{content && (
 				<div className="whitespace-pre-wrap rounded bg-[var(--omp-code-bg)] px-2 py-1.5 text-omp-sm text-[var(--omp-muted)]">

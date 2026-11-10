@@ -38,7 +38,7 @@ import {
 import { DiskCareRow } from "./DiskCareRow";
 import { ExtensionUpdateRows } from "./ExtensionUpdateRows";
 import { MemoryComponentRow } from "./memory/MemoryComponentRow";
-import { OmpUpdateRows } from "./OmpUpdateRows";
+import { OmpUpdateNowButton, OmpUpdateRows, OmpUpdateStatus } from "./OmpUpdateRows";
 import { SettingsSection } from "./SettingsLayout";
 
 /**
@@ -106,48 +106,40 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 			: setupPresenceNote(t, item);
 	const path = setupPresencePath(item);
 	const purpose = item.id === "git" && windows ? "gitWindows" : item.id;
+	const version = item.presence?.kind === "present" ? item.presence.version : null;
 	// GitHub CLI and Node.js are tools machine setup lists and the tool updater keeps current: one row, not two.
 	const cliState = useCliUpdateStore(store => store.state);
 	const cli = cliState?.tools.find(tool => tool.id === item.id);
+	// The update check speaks only when it has something to say: a check under way, a skip, a newer or failed result.
+	const cliSays = cli && (cli.skip !== null || cli.phase !== "idle" || (cli.last && cli.last.kind !== "current"));
+	const omp = item.id === "omp" && item.phase === "present";
 	return (
 		<div
-			className="settings-row min-w-0 py-1.5"
+			className="settings-row min-w-0 py-0.5 [html[data-input=touch]_&]:py-1"
 			data-phase={item.phase}
 			data-setting-row="true"
 			data-setup-item={item.id}
 		>
-			<div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
-				<div className="min-w-0 flex-1">
-					<div className="flex min-h-(--sc-control-sm) flex-wrap items-center gap-x-2 gap-y-0.5">
-						<SetupMark phase={item.phase} />
-						<span className="text-sc-md font-medium text-(--sc-text)">{name}</span>
-						<Badge variant="muted">
-							{item.required ? t("machineSetup.required") : t("machineSetup.optional")}
-						</Badge>
-						{cli && <CliMethodBadge tool={cli} />}
-						<SettingInfo text={t(`machineSetup.purpose.${purpose}`)} />
-					</div>
-					{/* The purpose rides the info glyph: one line per tool for its status and where it lives. */}
-					<p className="flex min-w-0 items-baseline gap-x-2 ps-6 text-sc-xs text-(--sc-text-secondary)">
-						<span className="shrink-0">
-							{setupPhaseText(t, item)}
-							{note && <span className="text-(--sc-text-muted)"> · {note}</span>}
-						</span>
-						{path && <PathText className="flex-1" path={path} />}
-					</p>
-					{cli && cliState && (
-						<p
-							className="flex min-w-0 ps-6 text-sc-xs text-(--sc-text-muted)"
-							data-cli-tool={cli.id}
-							data-phase={cli.phase}
-						>
-							<CliToolStatusText state={cliState} tool={cli} />
-						</p>
-					)}
-					<SetupProgressLine className="mt-1" item={item} />
-				</div>
-				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase) || cli) && (
-					<div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+			<div className="flex min-h-(--sc-control-md) min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+				<SetupMark phase={item.phase} />
+				<span className="text-sc-md font-medium text-(--sc-text)">{name}</span>
+				{/* The mark says a tool is there: words only for any other phase. */}
+				{item.phase === "present" ? (
+					version && <span className="font-mono text-sc-xs text-(--sc-text-muted)">{version}</span>
+				) : (
+					<span className="text-sc-xs text-(--sc-text-secondary)">{setupPhaseText(t, item)}</span>
+				)}
+				{note && <span className="text-sc-xs text-(--sc-text-muted)">{note}</span>}
+				{!item.required && <Badge variant="muted">{t("machineSetup.optional")}</Badge>}
+				{cli && <CliMethodBadge tool={cli} />}
+				<SettingInfo
+					text={`${t(`machineSetup.purpose.${purpose}`)} ${item.required ? t("machineSetup.required") : t("machineSetup.optional")}`}
+				/>
+				<span className="flex min-w-0 flex-1 text-sc-xs text-(--sc-text-muted)">
+					{path && <PathText className="flex-1" path={path} />}
+				</span>
+				{(item.phase === "running" || SETUP_RETRYABLE.includes(item.phase) || cli || omp) && (
+					<div className="flex shrink-0 items-center justify-end gap-2">
 						{item.phase === "running" && (
 							<Button data-testid="setup-cancel" onClick={() => void cancel()} size="sm" variant="secondary">
 								{t("common.cancel")}
@@ -165,9 +157,21 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 							</Button>
 						)}
 						{cli && <CliUpdateNowButton tool={cli} />}
+						{omp && <OmpUpdateNowButton />}
 					</div>
 				)}
 			</div>
+			{cli && cliState && cliSays && (
+				<p
+					className="flex min-w-0 ps-6 text-sc-xs text-(--sc-text-muted)"
+					data-cli-tool={cli.id}
+					data-phase={cli.phase}
+				>
+					<CliToolStatusText state={cliState} tool={cli} />
+				</p>
+			)}
+			{omp && <OmpUpdateStatus />}
+			<SetupProgressLine className="mt-1" item={item} />
 			{cli && <CliFailureNotice tool={cli} />}
 			{item.id === "git" && windows && <GitAslrControl item={item} />}
 			{item.phase === "unavailable" && (

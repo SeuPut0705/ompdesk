@@ -331,9 +331,7 @@ describe("RemoteSection", () => {
 		}));
 		await mount();
 
-		await act(async () => {
-			buttonLabeled(translate("remote.removeLabel", { name: "Studio" }))?.click();
-		});
+		await pickPeerAction("Studio", translate("remote.remove"));
 		expect(document.body.textContent).toContain(translate("remote.removeHostBody", { name: "Studio" }));
 		await act(async () => {
 			buttonLabeled(translate("common.cancel"))?.click();

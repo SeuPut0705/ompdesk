@@ -31,7 +31,6 @@ import {
 	Router,
 	Tag,
 	Trash2,
-	Users,
 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import type { RemoteHostState, RemoteState, TailnetComputer } from "../../../shared/ipc-types";
@@ -436,29 +435,34 @@ export function RemoteSection() {
 					<>
 						<KeepAwakeRow host={host} />
 						<SettingsRow
+							control={
+								!host.listenError && host.addresses.length > 0 ? (
+									// The first address on the row's line, any other (IPv6) under it in the same column.
+									<ul className="flex flex-col items-end gap-1" data-remote-addresses>
+										{host.addresses.map(address => (
+											<li key={address}>
+												<CopyableValue value={address} />
+											</li>
+										))}
+									</ul>
+								) : undefined
+							}
 							description={t("remote.host.addressesDesc")}
 							icon={<Network />}
 							label={t("remote.host.addresses")}
+							status={
+								host.listenError ? (
+									<span className="text-(--sc-warning)" data-remote-port-in-use role="status">
+										{t("remote.host.portInUse", { ports: host.listenError.ports.join(", ") })}
+									</span>
+								) : host.addresses.length === 0 ? (
+									t("remote.host.noAddresses")
+								) : undefined
+							}
 							tipOnly
-						>
-							{host.listenError ? (
-								<p className="text-sc-sm text-(--sc-warning)" data-remote-port-in-use role="status">
-									{t("remote.host.portInUse", { ports: host.listenError.ports.join(", ") })}
-								</p>
-							) : host.addresses.length > 0 ? (
-								<ul className="flex flex-col gap-1" data-remote-addresses>
-									{host.addresses.map(address => (
-										<li key={address}>
-											<CopyableValue value={address} />
-										</li>
-									))}
-								</ul>
-							) : (
-								<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.host.noAddresses")}</p>
-							)}
-						</SettingsRow>
+						/>
 						{mobileWeb && <ConfirmNewDevicesRow state={mobileWeb} />}
-						<SettingsRow icon={<Users />} label={t("remote.host.peers")}>
+						<SettingsSection list title={t("remote.host.peers")}>
 							{host.peers.length > 0 ? (
 								<div className="flex flex-col gap-px" data-remote-peers>
 									{host.peers.map((peer, index) => {
@@ -562,7 +566,7 @@ export function RemoteSection() {
 							) : (
 								<p className="text-sc-sm text-(--sc-text-muted)">{t("remote.host.noPeers")}</p>
 							)}
-						</SettingsRow>
+						</SettingsSection>
 					</>
 				)}
 			</SettingsSection>
@@ -626,16 +630,25 @@ export function RemoteSection() {
 									}
 									titleText={entry.name}
 									trailing={
-										<Button
-											aria-label={t("remote.removeLabel", { name: entry.name })}
-											onClick={() =>
-												setPendingRemove({ kind: "host", deviceId: entry.deviceId, name: entry.name })
-											}
+										<MenuButton
+											align="end"
+											icon={<MoreHorizontal />}
+											items={[
+												{
+													id: "remove",
+													label: t("remote.remove"),
+													icon: Trash2,
+													onSelect: () =>
+														setPendingRemove({
+															kind: "host",
+															deviceId: entry.deviceId,
+															name: entry.name,
+														}),
+												},
+											]}
+											label={t("remote.peerMenu", { name: entry.name })}
 											size="sm"
-											variant="ghost"
-										>
-											{t("remote.remove")}
-										</Button>
+										/>
 									}
 								/>
 							))}

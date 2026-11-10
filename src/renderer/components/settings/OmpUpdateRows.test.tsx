@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OmpUpdateState } from "../../../shared/omp-update";
 import { I18nProvider, translate } from "../../lib/i18n";
 import { useOmpUpdateStore } from "../../stores/omp-update";
-import { OmpUpdateRows } from "./OmpUpdateRows";
+import { OmpUpdateNowButton, OmpUpdateRows, OmpUpdateStatus } from "./OmpUpdateRows";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -63,6 +63,8 @@ async function mount(state: OmpUpdateState): Promise<void> {
 		root?.render(
 			<I18nProvider>
 				<OmpUpdateRows />
+				<OmpUpdateNowButton />
+				<OmpUpdateStatus />
 			</I18nProvider>,
 		),
 	);
@@ -89,13 +91,13 @@ afterEach(async () => {
 });
 
 describe("OmpUpdateRows", () => {
-	it("shows one 'Keep tools up to date' switch on by default, says omp is the latest, and turns all three off", async () => {
+	it("shows one 'Keep tools up to date' switch on by default, says nothing while omp is current, and turns all three off", async () => {
 		await mount(ompUpdateState());
 		expect(translate("toolsUpdate.auto")).toBe("Keep tools up to date");
 		expect(document.body.textContent).toContain(translate("toolsUpdate.auto"));
 		expect(document.body.querySelector("#setting-gui-ompAutoUpdate")).toBeNull();
 		expect(toggle().getAttribute("aria-checked")).toBe("true");
-		expect(status()).toBe(translate("ompUpdate.status.current", { version: "18.8.7" }));
+		expect(status()).toBeUndefined();
 		await act(async () => toggle().click());
 		expect(prefsSet).toHaveBeenCalledWith("toolsAutoUpdate", false);
 		// Main pushes the new state after the pref change.
@@ -129,9 +131,8 @@ describe("OmpUpdateRows", () => {
 		expect(notice?.textContent).toContain("EBUSY: resource busy or locked");
 	});
 
-	it("says a build that never checks on its own still has Update now", async () => {
+	it("keeps Update now for a build that never checks on its own", async () => {
 		await mount(ompUpdateState({ scheduled: false, latest: null }));
-		expect(status()).toBe(translate("ompUpdate.status.manualOnly"));
 		expect(nowButton().disabled).toBe(false);
 	});
 });

@@ -179,8 +179,9 @@ function ChildRow({ child }: { child: AutopilotChildLive }) {
 
 /**
  * The run's first board section: the cycle in flight (its item, or "Picking an item…", with the step it is in), the
- * cycle's child sessions, the red streak from two on, where green cycles go and the controls. What the next cycle
- * should do is typed into the tab's own composer, as in any session. An ended run keeps only what it did.
+ * cycle's child sessions, the red streak from two on, where green cycles go and the controls. Titled "Now" with the
+ * cycle's own clock: the head above already names the cycle. What the next cycle should do is typed into the tab's
+ * own composer, as in any session. An ended run keeps only what it did.
  */
 function AutopilotRunSection() {
 	const t = useT();
@@ -200,7 +201,7 @@ function AutopilotRunSection() {
 		<BoardSection
 			aside={now ? formatElapsed(Math.max(0, clock - now.startedAt)) : undefined}
 			id="autopilot"
-			title={now ? t("autopilot.cycleN", { n: now.n }) : t("autopilot.now")}
+			title={t("autopilot.now")}
 		>
 			{now && item ? (
 				<BoardRow
@@ -211,7 +212,11 @@ function AutopilotRunSection() {
 					label={item}
 					lead={now.area ? <AreaIcon area={now.area} /> : <Dot ring tone="info" />}
 					meta={step ? t(`autopilot.step.${step}`) : undefined}
-					title={[item, step ? t(`autopilot.step.${step}`) : null, running ? callLabel(running) : null]
+					title={[
+						`${t("autopilot.cycleN", { n: now.n })} · ${item}`,
+						step ? t(`autopilot.step.${step}`) : null,
+						running ? callLabel(running) : null,
+					]
 						.filter(Boolean)
 						.join("\n")}
 				/>

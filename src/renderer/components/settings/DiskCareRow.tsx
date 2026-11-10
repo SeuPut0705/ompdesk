@@ -108,11 +108,8 @@ export function DiskCareRow() {
 			icon={<HardDrive />}
 			id="setting-disk-care"
 			label={t("diskCare.label")}
+			status={<span data-testid="disk-care-status">{valueLine(t, state, lastRunAgo)}</span>}
 			tipOnly
-		>
-			<p className="text-sc-sm break-words text-(--sc-text-secondary)" data-testid="disk-care-status">
-				{valueLine(t, state, lastRunAgo)}
-			</p>
-		</SettingsRow>
+		/>
 	);
 }

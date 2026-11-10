@@ -8,13 +8,13 @@
  * button for a subscription (hidden for a provider with one credential) beside the provider-level ⋯.
  * A subscription's accounts are `ConnectedRow`s under it, indented, without the mark or the name:
  * account, state badges, quota, a reset pass, and only that account's actions, on one line where
- * the list is wide (the quota under the account where it is not). An account row says nothing of
- * being signed in: every account listed is. A provider with one credential (API key, env) is the
- * header alone, with its detail and state on the same line.
+ * the list is wide (the quota under the account where it is not). No row says it is signed in:
+ * every provider and account listed is. A provider with one credential (API key, env) is the
+ * header alone, with its detail and any abnormal-state badges on the same line.
  * `data-provider-row` is on the group, `data-provider-account` on each account row.
  */
 
-import { CheckCircle2, MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useT } from "../../../lib/i18n";
 import { Button, type ContextMenuItem, MenuButton, Spinner } from "../../common";
@@ -42,16 +42,6 @@ function RowMenu({
 			) : (
 				menu.length > 0 && <MenuButton align="end" icon={<MoreHorizontal />} items={menu} label={label} size="sm" />
 			)}
-		</span>
-	);
-}
-
-function SignedIn() {
-	const t = useT();
-	return (
-		<span className="inline-flex items-center gap-1 text-sc-xs text-(--sc-text-muted)">
-			<CheckCircle2 aria-hidden className="size-(--sc-icon-sm) text-(--sc-success)" />
-			{t("providers.state.signedIn")}
 		</span>
 	);
 }
@@ -131,11 +121,8 @@ export function ProviderGroupItem({
 						)}
 					</span>
 				</div>
-				{single && detail !== undefined && (
-					<span className="flex shrink-0 items-center gap-1.5">
-						<SignedIn />
-						{badges}
-					</span>
+				{single && detail !== undefined && badges && (
+					<span className="flex shrink-0 items-center gap-1.5">{badges}</span>
 				)}
 				{onAdd && (
 					<Button
@@ -171,6 +158,7 @@ export function ProviderGroupItem({
  */
 export function ConnectedRow({
 	account,
+	accountSuffix,
 	accountTitle,
 	actionName,
 	badges,
@@ -183,6 +171,8 @@ export function ConnectedRow({
 }: {
 	/** The account: an email or id. */
 	account: string;
+	/** What tells this account from another of the provider with the same address ("team", "pro"), muted after it. */
+	accountSuffix?: string;
 	accountTitle?: string;
 	/** Names the ⋯ ("{provider} {account}"). */
 	actionName: string;
@@ -207,6 +197,12 @@ export function ConnectedRow({
 				<span className="order-1 flex min-h-(--sc-control-sm) min-w-0 flex-1 basis-24 items-center gap-2">
 					<span className="min-w-0 truncate text-sc-sm text-(--sc-text)" data-account-label title={accountTitle}>
 						{account}
+						{accountSuffix && (
+							<span className="text-(--sc-text-muted)" data-account-suffix>
+								{" "}
+								{accountSuffix}
+							</span>
+						)}
 					</span>
 					{badges}
 				</span>

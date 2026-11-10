@@ -1064,10 +1064,6 @@ html[data-platform="darwin"] .omp-sidebar-search {
 	min-height: 14rem;
 }
 
-.security-master-detail[data-idle] {
-	min-height: 0;
-}
-
 .security-finding-detail {
 	grid-template-columns: minmax(0, 1.4fr) minmax(13.75rem, 1fr);
 }

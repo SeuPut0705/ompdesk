@@ -7,6 +7,25 @@ import { focusNear, type Place, placeOf } from "./focus-place";
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Where typing goes: a text field, a text area, a select. Not a checkbox, a radio, a file or a range input. */
+const FIELD =
+	'textarea:not([disabled]), select:not([disabled]), input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]), [contenteditable="true"]';
+
+/**
+ * Where a dialog that focused nothing itself starts: its first field, else the first control of its body, else the
+ * panel. Never the header's close button (`data-dialog-close`): a ✕ opening wrapped in the focus ring is the loudest
+ * thing on screen, and typing would go nowhere. Escape closes, and Tab still reaches the ✕.
+ */
+function firstFocus(panel: HTMLElement): HTMLElement {
+	const field = panel.querySelector<HTMLElement>(FIELD);
+	if (field) return field;
+	const body = panel.querySelector<HTMLElement>("[data-dialog-body]") ?? panel;
+	const control = [...body.querySelectorAll<HTMLElement>(FOCUSABLE)].find(
+		element => !element.closest("[data-dialog-close]"),
+	);
+	return control ?? panel;
+}
+
 /**
  * Modal-layer behavior shared by Modal (Dialog) and Sheet: while `open`, the
  * panel is the topmost dialog layer, focus moves into it and is trapped,
@@ -38,11 +57,9 @@ export function useModalLayer(open: boolean, panelRef: RefObject<HTMLElement | n
 		// Preserve a caller-autofocused control inside the new dialog, but never
 		// leave focus on its trigger or on a dialog now covered by this one.
 		if (!(active instanceof HTMLElement && panel?.contains(active))) {
-			// A touch screen has no one at a keyboard: focus the panel itself, so the first control (a sheet's close
-			// button) does not wear a focus ring over a layer nobody tabbed into. Tab still enters at the first control.
-			const first =
-				document.documentElement.dataset.input === "touch" ? null : panel?.querySelector<HTMLElement>(FOCUSABLE);
-			(first ?? panel)?.focus();
+			// A touch screen has no one at a keyboard: focus the panel itself, so the first control does not wear a
+			// focus ring over a layer nobody tabbed into. Tab still enters at the first control.
+			if (panel) (document.documentElement.dataset.input === "touch" ? panel : firstFocus(panel)).focus();
 		}
 
 		const onKeyDown = (event: KeyboardEvent) => {

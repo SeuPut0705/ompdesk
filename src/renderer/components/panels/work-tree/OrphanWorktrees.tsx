@@ -151,7 +151,7 @@ export function OrphanWorktrees() {
 					{worktrees.map(worktree => {
 						const name = worktreeName(worktree);
 						const state = stateText(worktree);
-						const age = formatTimeAgo(worktree.modifiedAt);
+						const age = formatTimeAgo(worktree.modifiedAt, { older: "age" });
 						return (
 							<li
 								className={cx(
@@ -184,7 +184,10 @@ export function OrphanWorktrees() {
 										onClick={() => setPending([worktree])}
 										size="sm"
 									/>
-								) : null}
+								) : (
+									// The remove slot stays on every row, so state and age stand in the same columns.
+									<span aria-hidden className="size-(--sc-control-sm) shrink-0" />
+								)}
 							</li>
 						);
 					})}

@@ -38,6 +38,7 @@ import { useUiStore } from "../../stores/ui";
 import {
 	Badge,
 	Button,
+	EmptyState,
 	ErrorDetail,
 	Kbd,
 	Modal,
@@ -373,16 +374,17 @@ export function ModelPicker() {
 					) : loading ? (
 						<SkeletonRows className="py-2" label={t("modelPicker.loading")} widths={[60, 44, 70, 52]} />
 					) : availableModels.length === 0 ? (
-						<div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
-							<span className="text-sc-sm text-(--sc-text-secondary)">{t("modelPicker.empty")}</span>
-							<Button onClick={manageProviders} size="sm" variant="primary">
-								{t("modelPicker.connectProvider")}
-							</Button>
-						</div>
+						<EmptyState
+							actions={
+								<Button onClick={manageProviders} size="sm" variant="primary">
+									{t("modelPicker.connectProvider")}
+								</Button>
+							}
+							size="sm"
+							title={t("modelPicker.empty")}
+						/>
 					) : groups.length === 0 ? (
-						<div className="px-2 py-6 text-center text-sc-sm text-(--sc-text-muted)">
-							{t("modelPicker.noMatch", { query })}
-						</div>
+						<EmptyState size="sm" title={t("modelPicker.noMatch", { query })} />
 					) : (
 						groups.map(({ id: groupId, provider, models }) => {
 							const auth = provider === null ? undefined : authByProvider.get(provider);

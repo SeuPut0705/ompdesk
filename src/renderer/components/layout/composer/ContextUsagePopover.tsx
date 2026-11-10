@@ -346,11 +346,20 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 									<strong className="ml-1 font-semibold text-(--sc-text)">{`${Math.round(percent)}%`}</strong>
 								)}
 							</span>
-							<span className="shrink-0 text-sc-md font-semibold tabular-nums">
-								{capacityKnown
-									? `${approximateTokens(usedTokens)} / ${formatTokens(contextWindow)}`
-									: approximateTokens(usedTokens)}
-							</span>
+							{capacityKnown ? (
+								<Tooltip
+									content={`${t("contextUsage.remaining")} ${formatTokens(remainingTokens)}`}
+									describe={false}
+								>
+									<span className="shrink-0 text-sc-md font-semibold tabular-nums" data-context-figure>
+										{`${approximateTokens(usedTokens)} / ${formatTokens(contextWindow)}`}
+									</span>
+								</Tooltip>
+							) : (
+								<span className="shrink-0 text-sc-md font-semibold tabular-nums">
+									{approximateTokens(usedTokens)}
+								</span>
+							)}
 						</div>
 						{capacityKnown && compactAt !== undefined && (
 							<p className="mt-1 text-sc-xs text-(--sc-text-muted)" data-context-compacts>
@@ -385,18 +394,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 							</div>
 						)}
 
-						{capacityKnown ? (
-							<dl className="mt-3 grid grid-cols-2 gap-2">
-								<div className="rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2">
-									<dt className="text-sc-xs text-(--sc-text-muted)">{t("contextUsage.used")}</dt>
-									<dd className="text-sc-md font-semibold tabular-nums">{formatTokens(usedTokens)}</dd>
-								</div>
-								<div className="rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2">
-									<dt className="text-sc-xs text-(--sc-text-muted)">{t("contextUsage.remaining")}</dt>
-									<dd className="text-sc-md font-semibold tabular-nums">{formatTokens(remainingTokens)}</dd>
-								</div>
-							</dl>
-						) : (
+						{!capacityKnown && (
 							<div className="mt-3 rounded-(--sc-radius-md) bg-(--sc-surface-2) px-2.5 py-2 text-sc-sm text-(--sc-text-muted)">
 								{t("contextUsage.windowUnknown")}
 							</div>
@@ -437,7 +435,6 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 								))}
 							</div>
 						)}
-						<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("contextUsage.baselineHint")}</p>
 						<div
 							className={
 								sheet

@@ -17,7 +17,7 @@ import { DeviceChip } from "../remote/DeviceChip";
 import { HostScoped } from "../remote/HostScope";
 import { AllSessionsStats } from "../stats/AllSessionsStats";
 import { SessionInsights } from "./SessionInsights";
-import { UsageQuotas } from "./UsageQuotas";
+import { UsageQuotas, UsageRefresh } from "./UsageQuotas";
 
 const TAB_LABEL_KEY: Record<InsightsTab, string> = {
 	stats: "insights.tabs.stats",
@@ -40,7 +40,7 @@ export function InsightsPage() {
 		<PageLayout
 			panelLabel={t(TAB_LABEL_KEY[tab])}
 			tabs={
-				// Stats' scope sits at the end of the tab row instead of on a row of its own above the content.
+				// Stats' scope and Usage's refresh sit at the end of the tab row instead of on a row of their own above the content.
 				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
 					<Tabs
 						activeId={tab}
@@ -61,6 +61,7 @@ export function InsightsPage() {
 							variant="segmented"
 						/>
 					)}
+					{tab === "usage" && <UsageRefresh />}
 				</div>
 			}
 			title={t("insights.title")}

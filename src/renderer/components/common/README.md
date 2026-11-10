@@ -7,7 +7,9 @@ component here before a raw element, and read the component's file header for it
 
 `scripts/lint-controls.mjs` (run with the other surface rules by `scripts/lint-surfaces.mjs`, so by `bun run check` and
 `bun run check:changed`) fails a renderer component
-outside this folder that adds a raw `<button>`, a raw checkbox or radio, or a hand-made `role="dialog"`. A raw element
+outside this folder that adds a raw `<button>`, a raw checkbox or radio, a hand-made `role="dialog"`, a hand-made
+`role="tab"` or `role="tablist"` (`Tabs`, `SegmentedChoice`), a hand-made `role="progressbar"` (`ProgressBar`) or a
+turning lucide loader (`Loader2` and the like with `animate-spin`; `Spinner`). A raw element
 that has a real reason (a listbox option with `aria-activedescendant`, a row whose whole box is styled by an `omp-*`
 class) says why on the line or the one above: `controls-ok: <reason>`. Existing raw elements are frozen per file in
 `scripts/lint-controls-baseline.json`: a file may hold at most its count, and one below it fails until
@@ -37,19 +39,22 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | The body such a header opens and folds | `Collapse` (`open`; grows and shrinks its height on the motion tokens, unmounts when closed, instant where motion is off) | `{open && <Body/>}`, `<details>`, a `grid-template-rows` trick of your own |
 | A list whose rows are added, removed or reordered while on screen | `useListMotion` (`hooks/use-list-motion.ts`; `data-flip-key` on each row: rows glide to their new places) and `usePresence` (a removed row leaves with its exit) | rows that jump, a per-list FLIP |
 | An overlay's exit (menu, popover, sheet, dialog) | `useOverlayPresence(open, exitToken)` with the matching exit class (`omp-pop-out`, `omp-scale-out`, `omp-sheet-out`; docs/motion-design.md) | a surface that unmounts on close, a `setTimeout` matching a CSS duration |
-| An overlay whose content is its own data (a completion menu, a paste choice: `null` while closed) | `useHeldOverlay(value, exitToken)` (`common/use-held-overlay.ts`: the last value stays drawn while it leaves) | an overlay that empties itself while fading |
+| An overlay whose content is its own data (a completion menu, a paste choice: `null` while closed) | `useHeldOverlay` (`useHeldOverlay(value, exitToken)`: the last value stays drawn while it leaves) | an overlay that empties itself while fading |
 | A surface its owner unmounts the moment a request is answered, with no state to hold it (the agent's prompt card) | `leaveGhost(element)` from its layout-effect cleanup (`lib/motion-play.ts`: an inert copy plays the exit where it stood) | a card that vanishes |
 | A "show N more" control that disappears once the rest shows | `revealAndFocus` (`lib/reveal-focus.ts`: focus moves to the first revealed row; a list whose rows land in groups names it with `firstRevealed`) | a button that unmounts and drops focus on the page |
 | A tree | `TreeView` | nested lists with your own keys |
 | List beside detail, one pane on a phone | `MasterDetail`, `useMasterDetail`, `MasterDetailBack` (a page that lays out its own list) | your own two-column switch |
 | A destination page | `PageLayout` | a page frame of your own |
-| A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last; on close focus returns to the opener, or to what took its place when the dialog's action removed it) | a dialog from a dialog |
+| A small form, confirm or picker | `Modal` (focus trapped, Escape closes, footer primary last; it opens on its first field, else the first control of its body, else the panel, never on the header's ✕; on close focus returns to the opener, or to what took its place when the dialog's action removed it) | a dialog from a dialog |
 | "Yes, really" before something irreversible | `ConfirmDialog` (safe action focused) | `window.confirm` |
 | Detail too big for a popover, smaller than a page | `Sheet` (`right`, `left` drawer, `bottom` action sheet, `full`) | a Sheet over a Modal |
 | Quick contextual controls by their trigger | `Popover` | a Modal |
 | A label for an unspelled control | `Tooltip` (prefer `IconButton`, which wires it) | essential information only in a tooltip |
 | A longer explanation of a row | `SettingInfo` (the (i) glyph), `splitDescription` | a paragraph under a label |
 | A short status or count | `Badge` (`dot` + `pulse` while live; text says the state) | a clickable badge |
+| A state as a coloured dot and its word (a device online, a task running) | `StatusDot` (`tone`; the word beside it, or `labelHidden` where the row already says it; `pulse`, on by default for `working`) | a bare `size-1.5 rounded-full` span, colour with no word |
+| The small label over a group of rows or fields | `SectionLabel` (`as` `h3`/`h4`, `count`, one group `action`) | a hand `text-sc-xs uppercase` heading |
+| A bordered frame around content inside a surface (a code box, a result, a table, a group of fields) | `Card` (`padding`, `surface`) | a copied `rounded-(--sc-radius-md) border border-(--sc-border-subtle)` |
 | A file path or URL on one line (a tool's location, a repository root) | `PathText` (the middle gives way, the tail stays; the full text is the tooltip) | `truncate` on the whole path, which cuts the file name |
 | A session's name on a surface (a row, a header, the title bar) | `SessionTitle` (`parts` from `lib/session-title.ts`: the name the person set, then ` · ` and the automatic title muted; the automatic part is cut first; `live` puts the working shimmer on the name) | `sessionDisplayTitle` rendered as a bare string, which drops the automatic title |
 | A persistent condition of a surface | `Banner` (one sentence, ≤ 2 actions) | a toast |
@@ -59,14 +64,17 @@ class) says why on the line or the one above: `controls-ok: <reason>`. Existing 
 | A read with loading, error, empty and data | `AsyncSection` | your own state precedence |
 | Loading with a known shape | `Skeleton`, `SkeletonRows` | a spinner |
 | Work with no shape | `Spinner` (still ring; `spin` only for an action just started) | a turning ring for content |
-| Known progress or fullness | `ProgressBar` (`meter`, `progress`) | a hand-drawn bar |
+| Known progress or fullness | `ProgressBar` (`meter`, `progress`); shares of one whole in one bar with `segments` (`{ value, label, tone \| color }`, `total`) | a hand-drawn bar, a row of coloured spans |
 | A keyboard shortcut | `Kbd`, or `shortcut` on `Tooltip`/`IconButton` | shortcuts baked into labels |
-| A panel fed by free-form data | `PanelErrorBoundary` | an unguarded subtree |
+| A panel fed by free-form data | `PanelErrorBoundary` (the app root alone has `RootErrorBoundary`) | an unguarded subtree |
 | Back to the newest row of a scrolled transcript | `JumpToLatest` | another floating button |
 | An image that opens full size | `ZoomableImage` | your own viewer |
 | Content that zooms with two fingers on a touch screen (an opened file) | `PinchZoomArea` | the browser's page zoom (the page never zooms) |
 | Ages, costs, account usage | `TimeAgo`, `CostAmount`, `UsageGauges` | formatting them again |
 | Work going on | `LiveText`/`LiveSweep` (`LiveShimmer`), `WorkingArc` | a new animation |
+| Text that changes in place (an automatic title evolving) | `SwapText` (`scope` names what it belongs to) | a fade of your own |
+| A title editor's ask-for-a-title button | `AutoTitleButton` | a sparkle button of your own |
+| A code a phone camera reads (pairing) | `QrCode` (drawn locally, never by an image service) | an image URL |
 | The app's mark | `BrandMark` | an inline copy of the π |
 | The UI language switch | `LangSwitcher` | a language select of your own |
 

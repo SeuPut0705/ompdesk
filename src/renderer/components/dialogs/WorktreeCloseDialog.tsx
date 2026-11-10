@@ -14,7 +14,7 @@ import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, Spinner } from "../common";
+import { Button, Modal, PathText, Spinner } from "../common";
 
 type QueryState = { phase: "loading" } | { phase: "ready"; status: RpcGitStatus | null } | { phase: "error" };
 
@@ -94,7 +94,7 @@ export function WorktreeCloseDialog() {
 			footer={
 				query.phase !== "loading" ? (
 					<>
-						<Button variant="secondary" onClick={closePrompt} disabled={busy}>
+						<Button variant="ghost" onClick={closePrompt} disabled={busy}>
 							{t("common.cancel")}
 						</Button>
 						<Button variant="secondary" onClick={finish} disabled={busy}>
@@ -137,8 +137,9 @@ export function WorktreeCloseDialog() {
 							{t("worktreeClose.cleanBody")}
 						</p>
 					)}
-					<p className="font-mono text-sc-sm break-all text-(--sc-text-muted)" title={worktree.path}>
-						{worktree.branch} — {worktree.path}
+					<p className="flex min-w-0 items-baseline gap-1.5 text-sc-sm">
+						<span className="shrink-0 font-mono text-(--sc-text-muted)">{worktree.branch}</span>
+						<PathText path={worktree.path} />
 					</p>
 				</div>
 			)}

@@ -56,14 +56,16 @@ const DATA: Record<string, unknown> = {
 	get_active_tools: { tools: [] },
 };
 
-/** Every command the dialogs send, answered with a canned success. */
-function connect() {
+/** Every command the dialogs send, answered with a canned success (`data` replaces a command's canned answer). */
+function connect(data: Record<string, unknown> = {}) {
 	const sent: string[] = [];
 	const transport = async (command: RpcCommand): Promise<RpcResponse> => {
 		sent.push(command.type === "debug" ? `debug:${command.params.action}` : command.type);
-		const data =
-			command.type === "share_session" ? { url: "http://127.0.0.1/shared#local" } : (DATA[command.type] ?? {});
-		return { type: "response", command: command.type, success: true, data };
+		const answer =
+			command.type === "share_session"
+				? { url: "http://127.0.0.1/shared#local" }
+				: (data[command.type] ?? DATA[command.type] ?? {});
+		return { type: "response", command: command.type, success: true, data: answer };
 	};
 	const bench = { run: vi.fn(), abort: vi.fn() };
 	Object.assign(window, {
@@ -150,5 +152,24 @@ describe("dialogs that start something only on a click", () => {
 		expect(document.querySelectorAll("[role=dialog]").length).toBeGreaterThan(0);
 		expect([...new Set(sent)].sort()).toEqual(["debug:sessions", "get_active_tools"]);
 		expect(bench.run).not.toHaveBeenCalled();
+	});
+
+	it("share offers no upload for an empty session, only its empty state", async () => {
+		connect({ preview_share_session: { ...(DATA.preview_share_session as object), preview: '{"entries":[]}' } });
+		useUiStore.setState({ shareSessionOpen: true });
+		await mount(<ShareSessionDialog />);
+		expect(document.body.textContent).toContain(translate("shareDialog.empty"));
+		const buttons = Array.from(document.querySelectorAll("button")).map(button => button.textContent?.trim());
+		expect(buttons).not.toContain(translate("shareDialog.upload"));
+	});
+
+	it("debug with no session shows what to do, not inert step buttons or an empty result", async () => {
+		connect();
+		useUiStore.setState({ debugOpen: true });
+		await mount(<DebugConsoleDialog />);
+		expect(document.body.textContent).toContain(translate("debug.noSessions"));
+		const buttons = Array.from(document.querySelectorAll("button")).map(button => button.textContent?.trim());
+		expect(buttons).not.toContain(translate("debug.continue"));
+		expect(document.body.textContent).not.toContain(translate("debug.result"));
 	});
 });

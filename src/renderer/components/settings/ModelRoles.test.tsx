@@ -214,25 +214,49 @@ describe("Model roles grouped by purpose", () => {
 		expect(rowText("slow")).toContain("Not available");
 	});
 
-	it("shows the account state of the effective model's provider with its live quota", async () => {
+	it("names the account only when it is a problem: not signed in, or a window near its limit", async () => {
 		const { getUsage } = installRpc();
 		await mount();
 
 		expect(getUsage).toHaveBeenCalled();
-		// Anthropic: signed in, 42% of the tightest limit (5 hours) used.
-		expect(rowText("default")).toContain("Signed in");
-		expect(rowText("default")).toContain("42% used");
-		// OpenAI is not signed in and has no quota to show.
+		// Anthropic is signed in at 42%: nothing to say.
+		expect(rowText("default")).not.toContain("Signed in");
+		expect(rowText("default")).not.toContain("% used");
 		expect(rowText("smol")).toContain("Not signed in");
-		expect(rowText("smol")).not.toContain("% used");
 	});
 
-	it("shows the thinking level a role names, or that the session's applies", async () => {
+	it("shows the quota once the tightest window nears its limit", async () => {
+		const near = {
+			...USAGE,
+			reports: [
+				{ ...USAGE.reports[0], limits: [{ id: "anthropic:5h", label: "Claude 5 Hour", usedFraction: 0.9 }] },
+			],
+		};
+		installRpc({ getUsage: vi.fn(async () => ok(near)) });
+		await mount();
+
+		expect(rowText("default")).toContain("90% used");
+	});
+
+	it("shows a thinking level the role names, and nothing when it follows the session", async () => {
 		installRpc();
 		await mount();
 
 		expect(rowText("default")).toContain(`Thinking: ${translate("input.thinking.name.high")}`);
-		expect(rowText("smol")).toContain("Thinking: follows session");
+		expect(rowText("plan")).not.toContain("Thinking");
+	});
+
+	it("keeps a role set directly with no problem to one line", async () => {
+		installRpc({}, [
+			...ROLES,
+			role("commit", "Commit", {
+				model: "anthropic/sonnet",
+				effective: { model: "anthropic/sonnet", name: "Claude Sonnet", source: "configured" },
+			}),
+		]);
+		await mount();
+
+		expect(row("commit")?.querySelector("[data-settings-row-detail]")).toBeNull();
 	});
 
 	it("names the auto level the advisor is written with instead of printing it raw", async () => {

@@ -33,7 +33,7 @@ import {
 } from "../../lib/keymap";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Kbd, SettingInfo } from "../common";
+import { Badge, Button, ConfirmDialog, EmptyState, IconButton, Kbd } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
 
 interface StaticHotkeyRow {
@@ -223,19 +223,23 @@ export function KeyboardSection({ query }: { query: string }) {
 
 	return (
 		<div>
-			{/* Reset all and the how-to belong to the page, not to its first group. 20 px apart on every input: on
-			    touch the glyph and the button each reach 10 px, and never each other's. */}
-			<div className="mb-2 flex items-center justify-end gap-5 [--hit-gap-x:20px]" data-hotkeys-toolbar>
-				<SettingInfo text={t("hotkeys.description")} />
-				{hasOverrides && (
+			{/* Reset all belongs to the page, not to its first group; the line exists only while it shows. */}
+			{hasOverrides && (
+				<div className="mb-2 flex items-center justify-end" data-hotkeys-toolbar>
 					<Button icon={<RotateCcw />} onClick={() => setConfirmingResetAll(true)} size="sm" variant="secondary">
 						{t("hotkeys.remap.resetAll")}
 					</Button>
-				)}
-			</div>
+				</div>
+			)}
 			{groups.length === 0 && <EmptyState icon={<Keyboard />} size="sm" title={t("hotkeys.empty")} />}
-			{groups.map(group => (
-				<SettingsSection id={`keyboard-${group.id}`} key={group.id} title={t(group.titleKey)}>
+			{groups.map((group, index) => (
+				<SettingsSection
+					// The how-to rides the first group's title (i) instead of standing alone above the page.
+					description={index === 0 ? t("hotkeys.description") : undefined}
+					id={`keyboard-${group.id}`}
+					key={group.id}
+					title={t(group.titleKey)}
+				>
 					{group.rows.map(row => {
 						const actionId = row.actionId;
 						const hasOverride = actionId ? overrides[actionId] !== undefined : false;

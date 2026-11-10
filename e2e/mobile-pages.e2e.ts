@@ -386,7 +386,7 @@ for (const { engine, device } of variants(
 			const button = row.locator("[data-web-push-enable]");
 			await button.scrollIntoViewIfNeeded();
 			await expect(button).toBeVisible();
-			const label = await settled(row.getByText("Notifications are off", { exact: true }));
+			const label = await settled(row.getByText("Notifications", { exact: true }));
 			const box = await button.boundingBox();
 			const rowBox = await row.boundingBox();
 			expect((box?.y ?? 0) + (box?.height ?? 0)).toBeGreaterThan(label?.y ?? 0);

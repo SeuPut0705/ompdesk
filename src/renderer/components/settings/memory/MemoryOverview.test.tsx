@@ -46,7 +46,7 @@ describe("Memory › Overview", () => {
 			/>,
 		);
 		expect(qa("[data-setting-desc]")).toHaveLength(0);
-		expect(qa("[data-setting-info]").length).toBeGreaterThanOrEqual(6);
+		expect(qa("[data-setting-info]").length).toBeGreaterThanOrEqual(5);
 		expect(text("[data-memory-terminal]")).toBe("Connected");
 	});
 
@@ -61,12 +61,14 @@ describe("Memory › Overview", () => {
 		expect((document.body.textContent ?? "").toLowerCase().replace(".ai-memory.toml", "")).not.toContain("ai-memory");
 	});
 
-	it("the web console button is labelled and opens the console", async () => {
+	it("one web console row opens the console and copies its password", async () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
-		await click(button("Open web console"));
+		const row = q("#setting-aiMemory-console");
+		await click(row?.querySelector('button[aria-label="Open web console"]') ?? null);
 		expect(api.openWeb).toHaveBeenCalledOnce();
-		await click(button("Copy password"));
+		await click(row?.querySelector('button[aria-label="Copy password"]') ?? null);
 		expect(api.copyWebPassword).toHaveBeenCalledOnce();
+		expect(q("#setting-aiMemory-password")).toBeNull();
 	});
 
 	it("renders no on/off or learning switch: memory is always on", async () => {
@@ -141,7 +143,7 @@ describe("Memory › Overview", () => {
 
 	it("the terminal row connects and removes", async () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP]} state={memoryState()} />);
-		await click(button("Also use in the terminal omp"));
+		await click(q('button[aria-label="Also use in the terminal omp"]'));
 		expect(api.setTerminal).toHaveBeenCalledWith(true);
 	});
 });

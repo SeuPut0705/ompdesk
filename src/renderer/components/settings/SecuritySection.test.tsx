@@ -109,7 +109,7 @@ describe("SecuritySection scan", () => {
 		await mount();
 
 		await act(async () => {
-			buttonWithLabel(translate("security.scan.workingTree"))?.click();
+			buttonWithLabel(translate("security.scan.run"))?.click();
 		});
 
 		expect(setSetting).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("SecuritySection scan", () => {
 		await mount();
 
 		await act(async () => {
-			buttonWithLabel(translate("security.scan.workingTree"))?.click();
+			buttonWithLabel(translate("security.scan.run"))?.click();
 		});
 		await act(async () => {
 			buttonWithLabel(translate("security.enableScanAction"))?.click();
@@ -136,7 +136,7 @@ describe("SecuritySection scan", () => {
 		await mount();
 
 		await act(async () => {
-			buttonWithLabel(translate("security.scan.workingTree"))?.click();
+			buttonWithLabel(translate("security.scan.run"))?.click();
 		});
 
 		expect(setSetting).not.toHaveBeenCalled();
@@ -145,10 +145,12 @@ describe("SecuritySection scan", () => {
 });
 
 describe("SecuritySection with nothing found", () => {
-	it("shows no empty risk gauge and no finding-detail placeholders before there is a finding", async () => {
+	it("before the first scan shows one quiet line and no card, gauge or finding-detail placeholders", async () => {
 		await mount();
 
-		expect(bodyText()).toContain(translate("security.noScans"));
+		expect(document.querySelector("[data-security-idle]")?.textContent).toBe(translate("security.empty.unscanned"));
+		expect(document.querySelector(".security-master-detail")).toBeNull();
+		expect(bodyText()).not.toContain(translate("security.noScans"));
 		expect(bodyText()).not.toContain(translate("security.whyDefault"));
 		expect(bodyText()).not.toContain(translate("security.suggestionDefault"));
 		expect(document.querySelector("[data-risk-gauge]")).toBeNull();
