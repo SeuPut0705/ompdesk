@@ -35,6 +35,8 @@ const WINDOW_KEYS: Record<string, string> = {
 /** Refusals and outcomes with their own sentence; anything else shows stock's. */
 const OUTCOME_KEYS: Record<string, string> = {
 	not_redeemable: "resetPasses.outcome.notRedeemable",
+	// Stock's own word for the same refusal (a Claude redeem is checked by stock alone).
+	ineligible: "resetPasses.outcome.notRedeemable",
 	offer_changed: "resetPasses.outcome.offerChanged",
 	nothing_to_reset: "resetPasses.outcome.nothingToReset",
 	already_redeemed: "resetPasses.outcome.alreadyRedeemed",

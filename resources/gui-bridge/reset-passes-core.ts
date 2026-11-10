@@ -94,6 +94,8 @@ export interface ResetRedeemOutcome {
 	ok: boolean;
 	code: string;
 	provider?: string;
+	/** The account stock resolved the target to. */
+	email?: string;
 	reason?: string;
 	cleared?: string[];
 	creditId?: string;
@@ -101,6 +103,12 @@ export interface ResetRedeemOutcome {
 
 /** The stock calls a redeem makes; reset-passes.ts binds them to the live session. */
 export interface ResetPassSurface {
+	/**
+	 * Stock's redeem for this provider reads the live offer itself and refuses a changed, ineligible or missing one
+	 * before it spends (Claude). OMPdesk then lists nothing first: its own list read every account of the provider on
+	 * the same endpoint for the same answer, and that endpoint is rate-limited per source IP.
+	 */
+	verifiesOffer(provider: string): boolean;
 	/** `AgentSession.listResetCredits(undefined, provider)`: live offers of the provider's stored accounts. */
 	list(provider: string): Promise<ResetAccountStatus[]>;
 	/** Stock `toResetUsageAccounts`. */
@@ -135,9 +143,28 @@ const refusal = (code: string, message: string, reason?: string): RedeemResult =
 	...(reason ? { reason } : {}),
 });
 
-/** Refresh the stock offer and refuse a changed confirmation before stock redeems it. */
+const outcomeResult = (surface: ResetPassSurface, outcome: ResetRedeemOutcome, label: string): RedeemResult => ({
+	ok: outcome.ok,
+	code: outcome.code,
+	message: surface.describe(outcome, label),
+	...(outcome.reason ? { reason: outcome.reason } : {}),
+	...(outcome.cleared?.length ? { cleared: outcome.cleared } : {}),
+});
+
+/**
+ * Spend the pass the user confirmed. Where stock's redeem checks the live offer itself, the confirmed pass goes
+ * straight to it; elsewhere the offer is read here first and a changed confirmation is refused before stock redeems.
+ */
 export async function redeemResetPass(surface: ResetPassSurface, request: RedeemRequest): Promise<RedeemResult> {
 	const { provider, credentialId } = request;
+	if (surface.verifiesOffer(provider)) {
+		const outcome = await surface.redeem({
+			provider,
+			credentialId,
+			...(request.creditId ? { creditId: request.creditId } : {}),
+		});
+		return outcomeResult(surface, outcome, outcome.email ?? `#${credentialId}`);
+	}
 	const status = (await surface.list(provider)).find(candidate => candidate.credentialId === credentialId);
 	if (!status) return refusal("no_account", `Could not find the stored account #${credentialId}.`);
 	const account = surface.accounts([status])[0];
@@ -163,12 +190,5 @@ export async function redeemResetPass(surface: ResetPassSurface, request: Redeem
 	if (request.creditId !== undefined && account.target.creditId !== request.creditId) {
 		return refusal("offer_changed", `${label}: the reset offer changed — nothing was spent; check it and try again.`);
 	}
-	const outcome = await surface.redeem(account.target);
-	return {
-		ok: outcome.ok,
-		code: outcome.code,
-		message: surface.describe(outcome, label),
-		...(outcome.reason ? { reason: outcome.reason } : {}),
-		...(outcome.cleared?.length ? { cleared: outcome.cleared } : {}),
-	};
+	return outcomeResult(surface, await surface.redeem(account.target), label);
 }

@@ -30,6 +30,10 @@ export const methods: BridgeMethods = {
 			);
 			return redeemResetPass(
 				{
+					// pi-ai auth/resets.ts `#redeemAccountReset`, anthropic branch: `listClaudeResetCredits`, then
+					// `offer_changed` / `ineligible` / `no_credit` before `consumeClaudeResetCredit`. Codex's branch
+					// spends a given creditId unread. Pinned by bridge-reset-redeem-stock.test.ts.
+					verifiesOffer: provider => provider === "anthropic",
 					list: provider => session.listResetCredits(undefined, provider),
 					accounts: statuses => toResetUsageAccounts(statuses),
 					redeem: target => session.redeemResetCredit(target),

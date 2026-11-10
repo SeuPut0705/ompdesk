@@ -1383,7 +1383,7 @@ export const ko: Record<string, string> = {
 	"resetPasses.outcome.alreadyRedeemed": "이미 사용한 초기화권이에요.",
 	"resetPasses.outcome.noCredit": "남은 초기화권이 없어요.",
 	"resetPasses.outcome.listFailed":
-		"이 계정의 초기화권을 읽지 못했어요(네트워크 또는 로그인). 쓰지 않았으니 다시 시도해 주세요.",
+		"이 계정의 초기화권을 읽지 못했어요. 조회가 몰리면 프로바이더가 몇 분간 거절해요. 쓰지 않았으니 몇 분 뒤 다시 시도해 주세요.",
 	"resetPasses.outcome.accountUnavailable": "이 계정에 로그인하지 못했어요. 다시 로그인한 뒤 시도해 주세요.",
 	"resetPasses.outcome.inProgress": "이 계정의 초기화가 이미 진행 중이에요.",
 	"resetPasses.outcome.unconfirmed":
