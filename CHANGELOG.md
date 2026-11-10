@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.121.0] - 2026-11-10
+
+봇 기능을 없앴어요. 프로바이더와 계정 목록이 한 줄로 정리되고 Fable 한도가 보이며, Claude 초기화권을 쓸 때 조회를 한 번만 해요.
+
+### 바뀐 것
+- 봇 기능을 없앴어요. 사이드바의 봇 줄, 봇 화면과 보드, 설정의 봇 섹션, 음성 통화, 에이전트의 `ompdesk_bot` 도구가 사라졌어요. 봇의 대화는 일반 세션으로 목록에 남아요. 봇을 깨우던 반복 일정은 꺼진 채로 설정 › 일정에 남고, 봇이 자기에게 남긴 일회성 깨우기는 정리돼요. 받아쓰기, 소리 내어 읽기, 세션이 자기를 깨우는 일정, 알림은 그대로예요.
+- 설정 › 모델 및 계정의 계정 줄이 한 줄이 됐어요. 계정, 한도 막대, 초기화권, 메뉴 순서예요. 계정이 보고하는 한도를 모두 그려서 Fable 주간 한도도 보여요. 같은 한도는 목록 전체에서 같은 열에 서요.
+- 막대가 이미 100%와 초기화 시간을 보여 주는 계정에는 "까지 한도 도달" 배지를 붙이지 않아요. 계정 줄마다 반복되던 "로그인됨"도 뺐어요.
+- 초기화권은 티켓 아이콘과 개수로 보여요. 개수, 지금 쓸 수 있는 수, 만료일은 버튼에 마우스를 올리면 나오고, 누르면 전과 같은 확인 창이 떠요.
+
+### 고친 것
+- Claude 초기화권을 쓰려고 하면 "이 계정의 초기화권을 읽지 못했어요"로 거절되던 문제를 줄였어요. OMPdesk가 쓰기 전에 모든 Claude 계정의 초기화권을 따로 조회했는데, 이 조회는 몰리면 몇 분간 거절돼요. 이제 omp가 하는 조회 한 번만 해요. 그래도 거절되면 안내 문구가 그 이유를 말해요.
+
+<!-- en -->
+
+The bot is removed. The Providers & accounts list is one line per account and shows the Fable limit, and spending a Claude reset pass makes one lookup instead of several.
+
+### Changed
+- The bot is removed: its sidebar row, its pane and board, Settings › Bot, the voice call and the agent's `ompdesk_bot` tool. The bot's conversations stay in the list as ordinary sessions. A recurring schedule that woke the bot stays in Settings › Schedules, turned off, and a one-time wake the bot left for itself is cleared. Dictation, read aloud, a session's own wake-ups and notifications are unchanged.
+- An account in Settings › Models & accounts is one line: account, quota gauges, reset passes, menu. Every limit the account reports is drawn, so the Fable weekly limit shows too, and the same limit stands in the same column down the whole list.
+- An account whose gauge already shows 100% and its reset time no longer carries a "Limited until" badge, and account rows no longer repeat "Signed in".
+- Reset passes show as a ticket with a count. Hover for the count, how many are usable now and the expiry; a click opens the same confirm dialog as before.
+
+### Fixed
+- Using a Claude reset pass could be refused with "Couldn't read this account's passes". OMPdesk looked up the passes of every Claude account before spending one, and that lookup is turned away for a few minutes when many arrive. It now makes only omp's own single lookup, and the message says why when that one is refused too.
+
 ## [0.120.2] - 2026-11-10
 
 에이전트가 일하는 중에 보낸 추가 지시와 그 답이 작업 상자 안에 접히지 않고 채팅에 보여요.
