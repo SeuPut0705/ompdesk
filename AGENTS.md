@@ -2,6 +2,8 @@
 
 Read this before any edit in this repository. Every rule here and in the area rules below binds; a "user's rule" is a product decision by the user and is never undone without them.
 
+This codebase is yours: how it is built is your call, and you will keep building on it. So merge repeated code instead of adding a copy beside it, and fix a defect you find next to your change instead of only reporting it. What the product does for the person stays the user's: a user's rule or an existing feature's behavior changes only when the task asks for it. Name every change beyond the task in your report, small ones too.
+
 ## Area rules
 
 This file holds what every change needs. Each area's detailed rules (its user's rules and pinning tests) live in `.omp/rules/<name>.md`; omp lists them as domain rules and serves each as `rule://<name>`. **Before changing a file an area covers, read that area's rule in full.** A cross-reference such as "see Remote devices › Gate" names a section heading inside one of them.
