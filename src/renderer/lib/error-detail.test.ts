@@ -17,6 +17,11 @@ describe("errorDetail", () => {
 		expect(errorDetail(null)).toBe("");
 	});
 
+	it("has no text for a failed result that names no cause", () => {
+		expect(errorDetail({ ok: false })).toBe("");
+		expect(errorDetail({ ok: false, error: "ENOENT: no such file" })).toBe("ENOENT: no such file");
+	});
+
 	it("maps main's coded failures to their own localized sentence and keeps the English as detail", () => {
 		const thrown = new Error(
 			`Error invoking remote method 'sessions:delete': Error: ${codedError("session_running", "Session is currently running").message}`,
