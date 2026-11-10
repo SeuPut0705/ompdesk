@@ -121,10 +121,10 @@ test("real omp: only built-in roles are listed and each template agent runs on i
 		await command(page, tabId, {
 			type: "write_agent_file",
 			scope: "user",
-			name: "release-bot",
-			content: '---\nname: release-bot\ndescription: Ships it.\nmodel: [ "@release", "@task" ]\n---\n\nShip.\n',
+			name: "release-agent",
+			content: '---\nname: release-agent\ndescription: Ships it.\nmodel: [ "@release", "@task" ]\n---\n\nShip.\n',
 		});
-		await expect.poll(async () => (await agentsOf(page, tabId))["release-bot"]?.effectiveResolved).toBe(first);
+		await expect.poll(async () => (await agentsOf(page, tabId))["release-agent"]?.effectiveResolved).toBe(first);
 		await set("release", null);
 	} finally {
 		await exitApp(app);

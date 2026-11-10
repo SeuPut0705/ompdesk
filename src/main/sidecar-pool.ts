@@ -235,9 +235,7 @@ export type TabActivity =
 	 * A running turn moved on: a tool call started or ended, or a reply was written (its step and cost changed). Once
 	 * per event batch; what the work board re-reads a running child for (agent-control/host.ts `liveReview`).
 	 */
-	| { type: "step"; tabId: string }
-	/** An automatic compaction of the tab's context produced a result (the bot's renewal counts them: `bot-rotation.ts`). */
-	| { type: "compacted"; tabId: string };
+	| { type: "step"; tabId: string };
 
 /** A tab's facts an observer reads when its debounce ends. */
 export interface TabFacts {
@@ -529,7 +527,6 @@ export class SidecarPool {
 	/** The one builder of what every view's row shows of this computer's sessions (session-summaries.ts); set at startup. */
 	summaries: Pick<SessionSummaries, "track" | "changed"> | null = null;
 	readonly #activityObservers = new Set<(activity: TabActivity) => void>();
-	readonly #toolObservers = new Set<(tabId: string, call: { toolName: string; args: unknown }) => void>();
 
 	/** Which tabs wait on one provider together (model-wait-count.ts); fed by every tab's events, here and by host-services. */
 	readonly modelWait = new ModelWaitTracker();
@@ -574,12 +571,6 @@ export class SidecarPool {
 	observeTabs(observer: (activity: TabActivity) => void): () => void {
 		this.#activityObservers.add(observer);
 		return () => this.#activityObservers.delete(observer);
-	}
-
-	/** Be told each tool call a tab of this computer starts (name and arguments). Returns the unsubscribe. */
-	observeToolCalls(observer: (tabId: string, call: { toolName: string; args: unknown }) => void): () => void {
-		this.#toolObservers.add(observer);
-		return () => this.#toolObservers.delete(observer);
 	}
 
 	/**
@@ -1286,7 +1277,6 @@ export class SidecarPool {
 			let retryStarted = false;
 			const unsavedBefore = entry.unsavedPrompt;
 			let stepped = false;
-			let compacted = false;
 			this.modelWait.observe(entry.tabId, entry.device ?? "", events);
 			for (const event of events) {
 				if (trackRunEvent(entry, event)) runEnded = true;
@@ -1295,17 +1285,7 @@ export class SidecarPool {
 					entry.unstarted = undefined;
 				} else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
 					stepped = true;
-					// The bot's activity log hears its tabs' tool calls (shared/bot-tool-activity.ts).
-					if (event.type === "tool_execution_start" && entry.device === undefined && this.#toolObservers.size > 0)
-						for (const observer of this.#toolObservers)
-							try {
-								observer(entry.tabId, { toolName: event.toolName, args: event.args });
-							} catch (error) {
-								console.warn(`[sidecar-pool] a tool observer failed: ${error}`);
-							}
 				} else if (event.type === "auto_retry_start") retryStarted = true;
-				else if (event.type === "auto_compaction_end" && event.result && !event.aborted && !event.skipped)
-					compacted = true;
 				else if (event.type === "plan_proposal" || event.type === "plan_proposal_resolved") {
 					if (event.type === "plan_proposal")
 						entry.planProposal = { title: event.title ?? "", planFilePath: event.planFilePath };
@@ -1331,7 +1311,6 @@ export class SidecarPool {
 			if (busyChanged || runEnded || retryStarted || entry.unsavedPrompt !== unsavedBefore) this.onRunningChange?.();
 			if (busyChanged || (runEnded && !busy)) this.#announceRun(entry);
 			else if (stepped && busy) this.#announce({ type: "step", tabId: entry.tabId });
-			if (compacted) this.#announce({ type: "compacted", tabId: entry.tabId });
 			if (runSettling(entry.run) !== wasSettling) this.settleWatch?.track(entry.tabId, runSettling(entry.run));
 			if (
 				busyChanged ||
@@ -2729,18 +2708,9 @@ export class SidecarPool {
 	 */
 	closeHostDeletedSessions(device: string, sessionPaths: readonly string[]): string[] {
 		for (const sessionPath of sessionPaths) deletedSessions().add(sessionPath, device);
-		return this.closeHostEndedSessions(device, sessionPaths);
-	}
-
-	/**
-	 * Paired host `device`'s bot ended these conversations (`RemoteDevices.onHostBotEnded`): every tab here on one
-	 * closes as a deleted session's does, but nothing is recorded, since an ended conversation stays to read for 7 days
-	 * (opened again from the bot's earlier conversations, it opens). The ids closed.
-	 */
-	closeHostEndedSessions(device: string, sessionPaths: readonly string[]): string[] {
-		const ended = new Set(sessionPaths);
+		const deleted = new Set(sessionPaths);
 		const held = [...this.#entries].filter(
-			entry => entry.device === device && !entry.hostedView && entry.sessionFile && ended.has(entry.sessionFile),
+			entry => entry.device === device && !entry.hostedView && entry.sessionFile && deleted.has(entry.sessionFile),
 		);
 		this.#closeFinished(held);
 		return held.map(entry => entry.tabId);

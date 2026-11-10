@@ -92,17 +92,6 @@ export class MailOutbox {
 		return [...this.#entries.values()];
 	}
 
-	/** What still waits for `from` (this computer's) goes to `to` instead: the bot's conversation was renewed. */
-	move(from: string, to: string): void {
-		let moved = false;
-		for (const entry of this.#entries.values())
-			if (entry.device === undefined && entry.sessionPath === from) {
-				entry.sessionPath = to;
-				moved = true;
-			}
-		if (moved) this.#save();
-	}
-
 	#trim(): void {
 		const oldest = this.#now() - MAIL_OUTBOX_TTL_MS;
 		let changed = false;

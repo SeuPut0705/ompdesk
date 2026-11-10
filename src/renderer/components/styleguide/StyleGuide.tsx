@@ -26,11 +26,8 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { BOT_AVATAR_SHAPES, type BotAvatar as BotAvatarValue } from "../../../shared/bot-desk";
 import { cx } from "../../lib/format";
 import { applyTheme, resolveTheme, type ThemeMode } from "../../lib/theme";
-import { BotAvatar } from "../bot/BotAvatar";
-import type { BotMotion } from "../bot/bot-motion";
 import {
 	Badge,
 	Banner,
@@ -74,21 +71,6 @@ import { PopoverSurface } from "../common/Popover";
 import { SheetSurface } from "../common/Sheet";
 import { ToastCard } from "../common/Toast";
 import { TooltipBubble } from "../common/Tooltip";
-
-// ── Bot avatar ──────────────────────────────────────────────────────────────
-
-const BOT_MOTIONS: BotMotion[] = ["idle", "working", "waiting", "asleep", "speaking", "reconnecting"];
-
-/** A 32 x 32 sample picture, so the image avatar's ring can be reviewed without an upload. */
-const BOT_SAMPLE_PNG =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAI3klEQVR4nKWUseryWhZHfZx5iBQWFhYpUqRIkSJFihRBIhwwiEJAEYWAQSIEDBLhwD9IhAMGiRBQRCHgU8xrTLMGBr5mhjv3znzFavaGvX5sNrunjTr6o47BqGM46tBHHcaowxx1WKMOe9ThjDrcUYc36vBHHcGoQ4w6wlHHbNQRjTqWo471qCMedSSjjnTUkY068lFHMeqQo45y1FGNOtSoox51NKOOnjZ+0x+/GYzfDMdv9PEbY/zGHL+xxm/s8Rtn/MYdv/HGb/zxm2D8RozfhOM3s/GbaPxmOX6zHr+Jx2+S8Zt0/CYbv8nHb4rxGzl+U47fVOM3avymHr9pxm96mnjSF08G4slQPNHFE0M8McUTSzyxxRNHPHHFE0888cWTQDwR4kkonszEk0g8WYona/EkFk8S8SQVTzLxJBdPCvFEiieleFKJJ0o8qcWTRjzpaZOW/qRlMGkZTlr0SYsxaTEnLdakxZ60OJMWd9LiTVr8SUswaRGTlnDSMpu0RJOW5aRlPWmJJy3JpCWdtGSTlnzSUkxa5KSlnLRUkxY1aaknLc2kpadNG/rThsG0YTht0KcNxrTBnDZY0wZ72uBMG9xpgzdt8KcNwbRBTBvCacNs2hBNG5bThvW0IZ42JNOGdNqQTRvyaUMxbZDThnLaUE0b1LShnjY004aeNq/pz2sG85rhvEaf1xjzGnNeY81r7HmNM69x5zXevMaf1wTzGjGvCec1s3lNNK9ZzmvW85p4XpPMa9J5TTavyec1xbxGzmvKeU01r1Hzmnpe08xrelqk6EeKQaQYRgo9UhiRwowUVqSwI4UTKdxI4UUKP1IEkUJEijBSzCJFFCmWkWIdKeJIkUSKNFJkkSKPFEWkkJGijBRVpFCRoo4UTaToaYuK/qJisKgYLir0RYWxqDAXFdaiwl5UOIsKd1HhLSr8RUWwqBCLinBRMVtURIuK5aJivaiIFxXJoiJdVGSLinxRUSwq5KKiXFRUiwq1qKgXFc2ioqetSvqrksGqZLgq0VclxqrEXJVYqxJ7VeKsStxVibcq+cffz/+VeFWSrErSVUm2KslXJcWqRK5KylVJtSpRq5J6VdKsSnraRtLfSAYbyXAj0TcSYyMxNxJrI7E3EmcjcTfyT+W/SDaSdCPJNpJ8Iyk2ErmRlBtJtZGojaTeSJqNpKfFBf24YBAXDOMCPS4w4gIzLrDiAjsucOLiL8t/kcYFWVyQxwVFXCDjgjIuqOICFRfUcUETF/S0bU5/mzPY5gy3Ofo2x9jmmNsca5tjb/P/Wf6LbJuTb3OKbY7c5pTbnGqbo7Y59Tan2eb0tF1Gf5cx2GUMdxn6LsPYZZi7DGuX/d/yX+S7jGKXIXcZ5S6j2mWoXUa9y2h2GT1tn9Lfpwz2KcN9ir5PMfYp5j7F2qf/MfBvf9P+xR/V/72X71OKfYrcp5T7lGqfovYp9T6l2af0tCyhnyUMsoRhlqBnCUaWYGYJVpb8oeTfRX8YIEsosgSZJZRZQpUlqCyhzhKaLKGnHWL6h5jBIWZ4iNEPMcYhxjzEWIf49zdwiCkOMfIQUx5iqkOMOsTUh5jmENPTjmv6xzWD45rhcY1+XGMc15jHNdZx/fs3cFxTHNfI45ryuKY6rlHHNfVxTXNc09NOS/qnJYPTkuFpiX5aYpyWmKcl1mn5+wFOS4rTEnlaUp6WVKcl6rSkPi1pTkt6mozoy4iBjBjKCF1GGDLClBGWjH4/gIwoZISUEaWMqGSEkhG1jGhkRE/7mdH/mTH4mTH8maH/zDB+Zpg/M6yf2e8H+JlR/MyQPzPKnxnVzwz1M6P+mdH8zOhp55D+OWRwDhmeQ/RziHEOMc8h1jnEPof//yM6h+TnkOIcIs8h5TmkOoeoc0h9DmnOIT3tIuhfBIOLYHgR6BeBcRGYF4F1EdgXgXMR/7M8vQiyiyC/CIqLQF4E5UVQXQTqIqgvguYi6GkqoK8CBipgqAJ0FWCoAFMFWCrAVgGOCnBV8JfliQpIVUCmAnIVUKgAqQJKFVCpAKUCahXQqICedvXpX30GV5/h1Ue/+hhXH/PqY1197KuPc/Vxrz7e1f9TeXz1Sa4+6dUnu/rkV5/i6iOvPuXVp7r6qKtPffVprj497ebRv3kMbh7Dm4d+8zBuHubNw7p52DcP5+bh3jy8m4d/8whuHuLmEd48ZjeP6OaxvHmsbx7xzSO5eaQ3j+zmkd88ipuHvHmUN4/q5qFuHvXNo7l59LS7S//uMri7DO8u+t3FuLuYdxfr7mLfXZy7i3t38e4u/t0luLuIu0t4d5ndXaK7y/Lusr67xHeX5O6S3l2yu0t+dynuLvLuUt5dqruLurvUd5fm7tLTWod+6zBoHYatg946GK2D2TpYrYPdOjitg9s6eK2D3zoErYNoHcLWYdY6RK3DsnVYtw5x65C0DmnrkLUOeetQtA6ydShbh6p1UK1D3To0rUNPe9j0HzaDh83wYaM/bIyHjfmwsR429sPGedi4DxvvYeM/bIKHjXjYhA+b2cMmetgsHzbrh038sEkeNunDJnvY5A+b4mEjHzblw6Z62KiHTf2waR42Pe1l0X9ZDF4Ww5eF/rIwXhbmy8J6WdgvC+dl4b4svJeF/7IIXhbiZRG+LGYvi+hlsXxZrF8W8csieVmkL4vsZZG/LIqXhXxZlC+L6mWhXhb1y6J5WfS0j0n/YzL4mAw/JvrHxPiYmB8T62Nif0ycj4n7MfE+Jv7HJPiYiI9J+DGZfUyij8nyY7L+mMQfk+Rjkn5Mso9J/jEpPibyY1J+TKqPifqY1B+T5mPS0zqDfmcw6AyGnYHeGRidgdkZWJ2B3Rk4nYHbGXidgd8ZBJ2B6AzCzmDWGUSdwbIzWHcGcWeQdAZpZ5B1BnlnUHQGsjMoO4OqM1CdQd0ZNJ1BT/vq9L86g6/O8Kujf3WMr4751bG+OvZXx/nquF8d76vjf3WCr4746oRfndlXJ/rqLL86669O/NVJvjrpVyf76uRfneKrI7865Ven+uqor0791Wm+Ov8E5gsd6ZDpywAAAAAASUVORK5CYII=";
-
-const BOT_SAMPLE_AVATARS: Array<{ kind: string; avatar: BotAvatarValue }> = [
-	{ kind: "bot", avatar: { kind: "mark", shape: "bot", color: "accent" } },
-	{ kind: "heart", avatar: { kind: "mark", shape: "heart", color: "danger" } },
-	{ kind: "bird", avatar: { kind: "mark", shape: "bird", color: "info" } },
-	{ kind: "image", avatar: { kind: "image", dataUrl: BOT_SAMPLE_PNG } },
-];
 
 // ── Token inventory ─────────────────────────────────────────────────────────
 
@@ -957,45 +939,6 @@ export default function StyleGuide() {
 								title="No pull requests"
 							/>
 						</Block>
-					</div>
-				</Section>
-
-				<Section
-					id="bot-avatar"
-					intro="The bot's avatar moves by what the bot does: a mark's eyes blink, glance and talk, a picture gets a ring. One row per motion, in each sample at the inline, md and lg sizes."
-					title="Bot avatar"
-				>
-					<Block className="space-y-2" label="Every mark">
-						{(["idle", "speaking"] as const).map(motion => (
-							<div className="flex flex-wrap items-center gap-3" data-bot-shape-row={motion} key={motion}>
-								{BOT_AVATAR_SHAPES.map(shape => (
-									<BotAvatar
-										avatar={{ kind: "mark", shape, color: "accent" }}
-										key={shape}
-										motion={motion}
-										size="lg"
-									/>
-								))}
-							</div>
-						))}
-					</Block>
-					<div className="space-y-3" data-bot-motion-grid>
-						{BOT_MOTIONS.map(motion => (
-							<div className="flex flex-wrap items-center gap-4" data-bot-motion-row={motion} key={motion}>
-								<div className="w-28 text-sc-sm text-(--sc-text-muted)">{motion}</div>
-								{BOT_SAMPLE_AVATARS.map(({ kind, avatar }) => (
-									<div
-										className="flex items-center gap-5 rounded-(--sc-radius-md) bg-(--sc-surface-1) px-5 py-3"
-										data-bot-motion-cell={`${motion}-${kind}`}
-										key={kind}
-									>
-										<BotAvatar avatar={avatar} motion={motion} size="inline" />
-										<BotAvatar avatar={avatar} motion={motion} size="md" />
-										<BotAvatar avatar={avatar} motion={motion} size="lg" />
-									</div>
-								))}
-							</div>
-						))}
 					</div>
 				</Section>
 

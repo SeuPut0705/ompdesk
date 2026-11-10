@@ -9,14 +9,14 @@
  * which asks `ScheduleService.webhook`.
  *
  * The sources never start a run themselves; the service's own loop guard (`ROUTINE_CHAIN_LIMIT`) stands behind the
- * source-specific ones (files and git ignore the routine's own work, sessions never see the bot's family).
+ * source-specific ones (files and git ignore the routine's own work, sessions never see the wake-up's own family).
  * Where each polling or watching source stood is kept across a relaunch (marks.ts): a source started with its mark
  * fires once for what changed while OMPdesk was closed, and saves its new mark before it fires, so nothing fires twice.
  * A routine turned off, edited, deleted or paused loses its mark, so what happens meanwhile never fires later. Sources
- * start once `ready` resolves (the first window has loaded), so a run a relaunch fires can open the bot's session.
+ * start once `ready` resolves (the first window has loaded), so a run a relaunch fires can open a session.
  *
  * A source that cannot watch what it names tells it once per distinct failure: a runtime-log line and a failed run in
- * the routine's history (`ScheduleService.triggerFailed`), which also reaches the bot's activity log.
+ * the routine's history (`ScheduleService.triggerFailed`).
  */
 import type { Schedule, ScheduleEvent, SchedulesState } from "../../shared/schedules";
 import type { ScheduleService } from "../schedules";

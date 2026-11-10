@@ -71,7 +71,7 @@ describe("noteTypedPrompt", () => {
 		const { client: c, command } = client();
 		await noteTypedPrompt(c, {
 			type: "steer",
-			message: '<ompdesk-agent-message from="bot">\nstatus?\n</ompdesk-agent-message>',
+			message: '<ompdesk-agent-message from="worker">\nstatus?\n</ompdesk-agent-message>',
 		});
 		await noteTypedPrompt(c, { type: "abort_and_prompt", message: "again" });
 		await noteTypedPrompt(c, { type: "get_state" });

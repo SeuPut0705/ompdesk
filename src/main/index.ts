@@ -48,12 +48,7 @@ import {
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
-	AGENT_SCHEDULE_PREFIX,
-	activeBotPath,
 	agentHiddenPaths,
-	BOT_ENABLED_PREF,
-	botEnabled,
-	botRowOf,
 	parseClosedChildren,
 } from "../shared/agent-control";
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
@@ -71,7 +66,7 @@ import {
 } from "../shared/desktop-prefs";
 import { ECC_PREF } from "../shared/ecc";
 import { nativeAccelerator } from "../shared/hotkeys";
-import { IPC_COMMANDS, IPC_EVENTS, type IpcPrefsChangedPayload, type SessionKind } from "../shared/ipc-types";
+import { IPC_COMMANDS, IPC_EVENTS, type SessionKind } from "../shared/ipc-types";
 import {
 	LOCAL_ENGINE_DETECT_PREF,
 	LOCAL_ENGINES_LEDGER_PREF,
@@ -94,10 +89,6 @@ import {
 import { migrateThemeName } from "../shared/theme-names";
 import { WORKTREE_BRANCH_PREFIX_PREF, worktreeBranchPrefix } from "../shared/worktree-branch";
 import { accountRotationDeps } from "./account-rotation";
-import { BotActivityLog } from "./agent-control/bot-activity";
-import { BotDesk } from "./agent-control/bot-desk";
-import { BotHome } from "./agent-control/bot-home";
-import { TurnGate } from "./agent-control/turn-gate";
 import { agentDesktopToRun } from "./agent-desktop";
 import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
@@ -131,7 +122,7 @@ import {
 import { installCliLaunchers } from "./control-socket/cli-install";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
-import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
+import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
 import { currentDiagnosticsReport, type DiagnosticsDeps, registerDiagnosticsIpc } from "./diagnostics";
@@ -390,7 +381,10 @@ let mainPrefsStore: Store<MainPrefs> | null = null;
 function prefsStore(): Store<MainPrefs> {
 	if (!mainPrefsStore) {
 		mainPrefsStore = new Store<MainPrefs>({ name: "prefs" });
-		migrateRetiredPrefs(mainPrefsStore as unknown as Store<Record<string, unknown>>);
+		migrateRetiredPrefs(
+			mainPrefsStore as unknown as Store<Record<string, unknown>>,
+			join(app.getPath("userData"), "schedules.json"),
+		);
 		const powers = migrateAgentPowers(mainPrefsStore as unknown as Store<Record<string, unknown>>, agentDir());
 		if (powers) {
 			writeRuntimeLog({
@@ -552,7 +546,7 @@ const RECALL_TERMS_REFRESH_MS = 10 * 60_000;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
-/** Watches what event routines (Settings › Schedules, the bot's routines) wait for (src/main/routines). */
+/** Watches what event routines (Settings › Schedules) wait for (src/main/routines). */
 let routineTriggers: RoutineTriggers | null = null;
 let routineMarks: FileMarks | null = null;
 
@@ -868,22 +862,7 @@ app.whenReady().then(() => {
 	// Autopilot's coordinator is built in ipc.ts (it needs the RPC dispatcher); the factory and TurnResume read it from here.
 	const autopilotRef: { current: Autopilot | null } = { current: null };
 	const webTabNotice: IpcDeps["webTabNotice"] = { current: null };
-	const botAnswers: IpcDeps["botAnswers"] = { current: null };
 	const sessionWake: IpcDeps["sessionWake"] = { current: null };
-	const webAsk: IpcDeps["webAsk"] = { current: null };
-	// The bot's desk (agent-control/bot-desk.ts); `botDeskPush` is set in ipc.ts, and the Schedules service (the bot's
-	// own wakes) and the bot session's pref call it. Every desk change, and every tool the bot's tabs run, goes to the
-	// activity log (agent-control/bot-activity.ts).
-	const botActivity = new BotActivityLog({ file: join(app.getPath("userData"), "bot-activity.json") });
-	const botDesk = new BotDesk({
-		file: join(app.getPath("userData"), "bot-desk.json"),
-		activity: draft => void botActivity.append(draft),
-	});
-	app.on("will-quit", () => botActivity.flush());
-	const botDeskPush: IpcDeps["botDeskPush"] = { current: null };
-	// What would start a turn in the bot's conversation waits here while it renews: a window's and a paired device's.
-	const botTurns = new TurnGate();
-	const botPush: IpcDeps["botPush"] = { current: null };
 	// The desktop slot's host is built in ipc.ts next to the pool's wiring; the factory reads it from here.
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
@@ -981,34 +960,7 @@ app.whenReady().then(() => {
 		processes: ompProcesses,
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
-	sessionIndex = new SessionIndex(
-		undefined,
-		initialCwd,
-		sessionId => sessionKinds.isChat(sessionId),
-		bridgeDir,
-		sessionPath => botRowOf(sessionPath, key => prefsStore().get(key)),
-	);
-	// The bot's session, while the owner has the bot on (Settings › Bot): made here once omp is usable, when the bot is
-	// turned on, and when the sidebar's bot row is clicked first.
-	const botHome = new BotHome({
-		prefs: { get: key => prefsStore().get(key), set: (key, value) => prefsStore().set(key, value) },
-		deleted: sessionPath => deletedSessions().has(sessionPath),
-		workspace: ensureDefaultWorkspace,
-		title: () => mainT("bot.title"),
-		create: ({ cwd, title }) => sessionIndex.createNamed(cwd, title),
-		markChat: sessionId => sessionKinds.markChat(sessionId),
-		changed: key => {
-			// Its row in the list carries `bot` (a paired device draws it from there).
-			sessionIndex.relist();
-			// Every window and paired page: a renewal moves the bot to a new file while a phone views it.
-			for (const win of [...windowManager.getAllWindows(), ...(webHost?.windows.all() ?? [])]) {
-				if (!win.isDestroyed())
-					win.webContents.send(IPC_EVENTS.PREFS_CHANGED, { key } satisfies IpcPrefsChangedPayload);
-			}
-			// Its wakes are the schedules naming this file.
-			botDeskPush.current?.();
-		},
-	});
+	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
 	// The sidebar's project list: folders outlive their last session (src/main/sidebar-projects.ts).
 	const sidebarProjects = new SidebarProjects({
 		read: () => prefsStore().get(SIDEBAR_PROJECTS_PREF),
@@ -1234,8 +1186,6 @@ app.whenReady().then(() => {
 		hostName: (): string => devices.deviceName(),
 		sessionIndex,
 		agentHidden: () => agentHiddenPaths(prefs.get(AGENT_HIDDEN_PREFS_KEY)),
-		botEnded: sessionPath => botRowOf(sessionPath, key => prefs.get(key as never)) === "past",
-		turnGate: botTurns,
 		renameStoredSession: async (sessionPath, name) => {
 			const omp = await systemOmp();
 			if (!omp.ok) throw new Error(omp.error);
@@ -1311,7 +1261,7 @@ app.whenReady().then(() => {
 		prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		broadcast: (channel, data) => {
 			for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send(channel, data);
-			// A paired phone's page lists the hosts' sessions and projects too (its drawer, a host's bot pane): what changed
+			// A paired phone's page lists the hosts' sessions and projects too: what changed
 			// in a host's list reaches it as it reaches a window, or a rename or delete made anywhere stayed until a reload.
 			if (
 				channel === IPC_EVENTS.SESSIONS_CHANGED ||
@@ -1509,15 +1459,6 @@ app.whenReady().then(() => {
 				if (sidecar.device === undefined && sidecar.status === "waiting") sidecar.restart();
 			}
 			if (usable.refused) sessionIndex.relist();
-			void afterFirstTab()
-				.then(() => (botEnabled(prefsStore().get(BOT_ENABLED_PREF)) ? botHome.ensureBotSession() : undefined))
-				.catch(error =>
-					writeRuntimeLog({
-						source: "background-task",
-						message: "bot-session-failed",
-						details: { error: String(error) },
-					}),
-				);
 		},
 		beforeOptional: afterFirstTab,
 		onOmpReady: () => {
@@ -1894,23 +1835,9 @@ app.whenReady().then(() => {
 	// (`host.sessionsDeleted`) and, for a delete this computer was off the link for, asked as the link comes up
 	// (`sessions.deleted`, the paths this computer's tabs on that host hold; an older host answers none).
 	devices.onHostSessionsDeleted((host, paths) => closeHostDeletedTabs(host, paths));
-	// The host's bot renewed: its tabs here on the ended conversation close, not deleted (it stays to read). Seen as the
-	// copy of the host's list first shows a conversation ended, so a renewal this computer was away for closes them as
-	// the link comes back, and one a relaunch restored at the first read; opened later to read it, a tab stays.
-	devices.onHostBotEnded((host, paths) => {
-		const closed = sidecarPool.closeHostEndedSessions(host, paths);
-		if (closed.length > 0)
-			writeRuntimeLog({
-				source: "tab-layout",
-				message: "closed tabs of conversations their host's bot ended",
-				details: { level: "info", device: host, tabs: closed.length },
-			});
-	});
 	devices.onHostOnline(host => {
 		const held = sidecarPool.deviceSessionFiles(host);
 		if (held.length === 0) return;
-		// The copy of its list says which of them its bot ended meanwhile (`onHostBotEnded` above), whoever shows it.
-		devices.hostSessions(host).catch(() => undefined);
 		void devices
 			.deletedOnHost(host, held)
 			.then(deleted => {
@@ -1990,8 +1917,6 @@ app.whenReady().then(() => {
 			}
 			// Devices showing this computer's schedules (Settings › Schedules on a tab here) follow.
 			devices.hostSchedulesChanged(state);
-			// The bot's home lists its own wakes.
-			botDeskPush.current?.();
 			// An event routine's trigger starts, changes or stops with its schedule.
 			routineTriggers?.sync();
 		},
@@ -2017,21 +1942,6 @@ app.whenReady().then(() => {
 						reason: `The daily ${reservation.refusal === "requests" ? "request" : "token"} limit of the device that saved this schedule is used up on this computer's models`,
 					};
 		},
-		// The bot's routines (schedules that wake its session) leave one line each in its activity log as they end.
-		runEnded: (schedule, run) => {
-			if (run.status === "running" || schedule.wakeSession === undefined) return;
-			if (schedule.wakeSession !== activeBotPath(key => prefsStore().get(key as never))) return;
-			const reason = run.error ?? run.detail;
-			botActivity.append({
-				kind: "routine",
-				action: "routine_run",
-				by: "bot",
-				text: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || schedule.prompt.slice(0, 120),
-				outcome: run.status,
-				trigger: run.trigger,
-				...(reason ? { detail: reason.slice(0, 1000) } : {}),
-			});
-		},
 	});
 	// The owner's mailboxes for email routines; each password is kept encrypted by the OS keystore (mail-accounts.ts).
 	mailAccounts = new MailAccounts({
@@ -2050,14 +1960,14 @@ app.whenReady().then(() => {
 	routineTriggers = new RoutineTriggers({
 		service: scheduleService,
 		marks,
-		// What a relaunch fires may open the bot's session: sources start once the first window has loaded.
+		// What a relaunch fires may open a session: sources start once the first window has loaded.
 		ready: firstWindowLoaded(),
 		log: message => writeRuntimeLog({ source: "routines", message }),
 		github: ghApi,
 		watch: watchPath,
 		scan: scanPath,
 		git: gitPort,
-		sessions: sessionPorts(sidecarPool, () => activeBotPath(key => prefsStore().get(key as never))),
+		sessions: sessionPorts(sidecarPool),
 		mail: { account: name => mailbox.resolve(name), read: (id, cursor) => mailbox.read(id, cursor) },
 		...(process.env.OMP_GUI_TEST_EMAIL_POLL_MS
 			? { emailPollMs: Number(process.env.OMP_GUI_TEST_EMAIL_POLL_MS) }
@@ -2284,15 +2194,8 @@ app.whenReady().then(() => {
 		hostedTabs: hostServices,
 		summaries: sessionSummaries,
 		webTabNotice,
-		botAnswers,
 		sessionWake,
-		botHome,
-		botDesk,
-		botActivity,
-		botDeskPush,
-		botPush,
 		webPages: () => webHost?.windows.all() ?? [],
-		webAsk,
 		spawnWindow,
 		initialCwd: resolveInitialCwd,
 		worktreeLifecycle: lifecycle,
@@ -2304,7 +2207,6 @@ app.whenReady().then(() => {
 		mediaStreams,
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		schedules: () => scheduleService,
-		botTurns,
 		mailAccounts: () => mailAccounts,
 		sidebarProjects,
 		// `webHost` is created below: the prompt origins read it when a prompt is sent, never at registration.
@@ -2313,18 +2215,6 @@ app.whenReady().then(() => {
 			hostName: () => devices.deviceName(),
 		},
 		onPrefChanged: key => {
-			if (key === BOT_ENABLED_PREF) {
-				// Turned on, the bot's session is made (or kept); either way its row in the list says it.
-				sessionIndex.relist();
-				if (botEnabled(prefsStore().get(BOT_ENABLED_PREF)))
-					void botHome.ensureBotSession().catch(error =>
-						writeRuntimeLog({
-							source: "background-task",
-							message: "bot-session-failed",
-							details: { error: String(error) },
-						}),
-					);
-			}
 			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
@@ -2368,21 +2258,15 @@ app.whenReady().then(() => {
 		onUnpairedAuth: () =>
 			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
-		pushes: (tabId, kind) => botPush.current?.(tabId, kind) ?? true,
 		// Routine webhooks: `POST /hooks/<schedule id>` (web/server.ts) is answered by the schedule service.
 		hooks: () => scheduleService,
 		log: message => console.warn(`[web-push] ${message}`),
 	});
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
 	void webHost.keepUploadsSwept();
-	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts); a question
-	// the bot answers for the owner is not pushed (agent-control/bot.ts), one it cannot answer is.
-	sidecarPool.observeTabs(activity => {
-		if (activity.type === "ask" && botAnswers.current?.(activity.tabId, activity.requestId)) return;
-		webHost?.tabActivity(activity);
-	});
+	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
+	sidecarPool.observeTabs(activity => webHost?.tabActivity(activity));
 	webTabNotice.current = (tabId, notice) => webHost?.tabNotice(tabId, notice);
-	webAsk.current = activity => webHost?.tabActivity(activity);
 	webHost.devices.onRevoked(deviceId => webTabLayouts.drop(deviceId));
 	const host = webHost;
 	// Mobile web's Tailscale side (src/main/tailscale/): the switch, Tailscale's own setup and the published

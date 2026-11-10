@@ -14,7 +14,6 @@ import {
 	type AgentReviewResult,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
-import type { BotRoutine } from "../../shared/bot-desk";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
 import type { ExtensionUIRequest, RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import type {
@@ -30,12 +29,9 @@ import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { WORKTREE_COMMAND_BUDGETS_MS } from "../local/git/worktree";
 import { SchedulesCommandParams, SchedulesCreateParams } from "../remote/app-protocol";
-import { type ScheduleService, ScheduleSkip } from "../schedules";
+import type { ScheduleService } from "../schedules";
 import type { ClientWindow } from "../web/client-window";
 import { FileEditReports } from "../web/file-edit-reports";
-import { BotActivityLog } from "./bot-activity";
-import { BotDesk, type OpenDecision } from "./bot-desk";
-import { BOT_TOOL_REFERENCE } from "./bot-tools";
 import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./host";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
@@ -82,8 +78,6 @@ function setup(
 		owners?: Record<string, string>;
 		/** The front window sessions are opened in without a tab of their own (`outsideWindow`). */
 		outsideWindow?: boolean;
-		/** The bot's desk and the routines it lists. */
-		botDesk?: { desk: BotDesk; routines?: () => BotRoutine[]; activity?: BotActivityLog };
 	} = {},
 ) {
 	const win = window();
@@ -107,8 +101,6 @@ function setup(
 	const commands: { tabId: string; command: RpcCommand; win: ClientWindow }[] = [];
 	const openers = vi.fn();
 	const spawned: IpcSpawnTabPayload[] = [];
-	/** The decisions the owner was told of, with the tab that was asked. */
-	const noticed: { tabId: string; decision: OpenDecision }[] = [];
 	const activity: ((event: { type: string; tabId: string }) => void)[] = [];
 	const sidecars = new Map<string, { cwd: string; device?: string }>([["main0001", { cwd: "/repo" }]]);
 	const deps: AgentControlHostDeps = {
@@ -176,18 +168,6 @@ function setup(
 		deleteSession: vi.fn(async () => undefined),
 		text: (key, params) => `${key}|${JSON.stringify(params)}`,
 		schedules: options.schedules,
-		...(options.botDesk
-			? {
-					botDesk: {
-						desk: options.botDesk.desk,
-						routines: options.botDesk.routines ?? (() => []),
-						activity: options.botDesk.activity ?? new BotActivityLog({ file: null }),
-						avatarFromFile: async (file: string) =>
-							`data:image/png;base64,${Buffer.from(file).toString("base64")}`,
-					},
-				}
-			: {}),
-		botDecisionNotice: (tabId, decision) => void noticed.push({ tabId, decision }),
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
 		mailOutboxFile: options.mailOutboxFile,
@@ -215,7 +195,6 @@ function setup(
 		deps,
 		commands,
 		spawned,
-		noticed,
 		tabs,
 		otherTabs,
 		webTabs,
@@ -1226,7 +1205,7 @@ describe("AgentControlRuntime", () => {
 		const { runtime, deps } = setup();
 		const record = (path: string, device?: string) => ({
 			path,
-			openedBySession: "/s/bot.jsonl",
+			openedBySession: "/s/parent.jsonl",
 			title: path,
 			cwd: "/repo",
 			closedAt: 1,
@@ -1265,7 +1244,7 @@ describe("AgentControlRuntime", () => {
 				[
 					{
 						path: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl",
-						openedBySession: "/s/bot.jsonl",
+						openedBySession: "/s/parent.jsonl",
 						title: "kid",
 						cwd: "/repo",
 						closedAt: 1,
@@ -1878,7 +1857,7 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 	});
 });
 
-describe("the bot's role and a session's own wake-up", () => {
+describe("a session's own wake-up", () => {
 	const wakeable = (file: string, overrides: Partial<Schedule> = {}): Schedule => ({
 		id: "sched-1",
 		createdAt: "2026-10-31T09:00:00.000Z",
@@ -2007,599 +1986,5 @@ describe("the bot's role and a session's own wake-up", () => {
 		await expect(rig.runtime.wakeSession(wakeable(file), "run-7")).rejects.toThrow("The window is closing");
 		const kept = await fs.readFile(outbox, "utf8").catch(() => "");
 		expect(kept).not.toContain("wake-run-7");
-	});
-
-	it("tells the bot's omp the owner's rules before the first mail it takes, and again when they change", async () => {
-		const file = await sessionFile();
-		const { runtime, commands, prefs } = setup({
-			prefs: {
-				bot: file,
-				botEnabled: true,
-				botRules: [{ id: "deploy", action: "Deploy or release", behavior: "ask" }],
-			},
-			tabs: [{ tabId: "main0001", sessionPath: file }],
-			owners: { [file]: "main0001" },
-		});
-		await runtime.wakeSession(wakeable(file), "run-8");
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		expect(commands.map(entry => entry.command.type)).toEqual(["agent_control_bot", "agent_control_mail"]);
-		expect(commands[0]?.command).toEqual({
-			type: "agent_control_bot",
-			rules: "- Deploy or release: ask the owner before taking it.",
-			duties: "",
-			memory: "",
-			identity: "",
-			tools: BOT_TOOL_REFERENCE,
-		});
-		// The same rules are not told again with the next mail.
-		await runtime.wakeSession(wakeable(file), "run-9");
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
-		expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(1);
-		// The owner edits them: the bot's omp hears at once, without waiting for a mail.
-		prefs.botRules = [{ id: "deploy", action: "Deploy or release", behavior: "handoff" }];
-		runtime.botRulesChanged();
-		await vi.waitFor(() =>
-			expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(2),
-		);
-		expect(commands.at(-1)?.command).toEqual({
-			type: "agent_control_bot",
-			rules: "- Deploy or release: do not take it; hand the step to the owner.",
-			duties: "",
-			memory: "",
-			identity: "",
-			tools: BOT_TOOL_REFERENCE,
-		});
-	});
-
-	it("tells nobody's omp the bot's rules when no session is the bot", async () => {
-		const file = await sessionFile();
-		const { runtime, commands } = setup({
-			tabs: [{ tabId: "main0001", sessionPath: file }],
-			owners: { [file]: "main0001" },
-		});
-		await runtime.wakeSession(wakeable(file), "run-10");
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		expect(commands.some(entry => entry.command.type === "agent_control_bot")).toBe(false);
-		runtime.botRulesChanged();
-		expect(commands.some(entry => entry.command.type === "agent_control_bot")).toBe(false);
-	});
-});
-
-describe("the bot's desk", () => {
-	const mails = (commands: { tabId: string; command: RpcCommand }[]) =>
-		commands.filter(entry => entry.command.type === "agent_control_mail");
-
-	async function botRig(options: { owned?: boolean; status?: "ready" | "asleep"; outsideWindow?: boolean } = {}) {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-desk-"));
-		const file = path.join(dir, "bot.jsonl");
-		await fs.writeFile(file, "{}\n");
-		const activity = new BotActivityLog({ file: null });
-		const desk = new BotDesk({
-			file: path.join(dir, "bot-desk.json"),
-			activity: draft => void activity.append(draft),
-		});
-		const rig = setup({
-			prefs: { bot: file, botEnabled: true },
-			tabs: [
-				{ tabId: "main0001", sessionPath: file, ...(options.status ? { status: options.status } : {}) },
-				{ tabId: "other0002", sessionPath: path.join(dir, "own.jsonl") },
-			],
-			...(options.owned === false
-				? {}
-				: { owners: { [file]: "main0001", [path.join(dir, "own.jsonl")]: "other0002" } }),
-			...(options.outsideWindow ? { outsideWindow: true } : {}),
-			botDesk: {
-				desk,
-				routines: () => [
-					{
-						id: "w1",
-						name: "build",
-						prompt: "check the build",
-						frequency: { kind: "interval" as const, minutes: 30 },
-						enabled: true,
-						next: "2026-10-31T10:00:00.000Z",
-						runs: [],
-					},
-				],
-				activity,
-			},
-		});
-		return { ...rig, desk, file, log: activity };
-	}
-
-	it("refuses every caller that is not the bot's own session, and every caller while the bot is off", async () => {
-		const { runtime, win, desk, prefs } = await botRig();
-		const refused = await runtime.run(win, "other0002", T.bot, { action: "decide", question: "Ship it?" });
-		expect(refused.isError).toBe(true);
-		expect(refused.text).toContain("ompdesk_bot is the owner's bot's tool");
-		expect(desk.state().decisions).toEqual([]);
-		expect((await runtime.run(win, "other0002", T.bot, { action: "duty_add", text: "Take over" })).isError).toBe(
-			true,
-		);
-		expect(desk.state().duties).toEqual([]);
-		prefs.botEnabled = false;
-		const off = await runtime.run(win, "main0001", T.bot, { action: "desk" });
-		expect(off.isError).toBe(true);
-		expect(off.text).toContain("ompdesk_bot is the owner's bot's tool");
-	});
-
-	it("posts a decision, answers at once, and tells the owner on the bot's tab", async () => {
-		const { runtime, win, desk, noticed } = await botRig();
-		const posted = await runtime.run(win, "main0001", T.bot, {
-			action: "decide",
-			question: "Ship the release?",
-			options: ["Yes", "No"],
-			context: "All checks pass.",
-			operation: "gh release create v1.2.0 --target main",
-			inputs: { version: "v1.2.0" },
-		});
-		expect(posted.isError).toBe(false);
-		const [decision] = desk.state().decisions;
-		expect(decision).toMatchObject({
-			state: "open",
-			question: "Ship the release?",
-			options: ["Yes", "No"],
-			context: "All checks pass.",
-			operation: "gh release create v1.2.0 --target main",
-			inputs: { version: "v1.2.0" },
-		});
-		expect(posted.text).toBe(
-			`Decision ${decision?.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision?.id}.`,
-		);
-		expect(noticed).toEqual([{ tabId: "main0001", decision }]);
-	});
-
-	it("reads the desk, adds a duty once, and removes it by id", async () => {
-		const { runtime, win, desk } = await botRig();
-		expect((await runtime.run(win, "main0001", T.bot, { action: "desk" })).text).toBe(
-			[
-				"Standing duties: none.",
-				"Memories: none.",
-				"Open decisions: none.",
-				"Your routines (1):",
-				"- w1 “build” every 30 min; next 2026-10-31T10:00:00.000Z: check the build",
-			].join("\n"),
-		);
-		const added = await runtime.run(win, "main0001", T.bot, { action: "duty_add", text: "Check the nightly build" });
-		const [duty] = desk.state().duties;
-		expect(added.text).toBe(
-			`Duty ${duty?.id} recorded: “Check the nightly build”. It stays in your prompt every turn, also after a new conversation or a compaction (1 of 20 duties).`,
-		);
-		expect(
-			(await runtime.run(win, "main0001", T.bot, { action: "duty_add", text: "Check the nightly build" })).text,
-		).toBe(`Duty ${duty?.id} is already on your desk: “Check the nightly build”.`);
-		await runtime.run(win, "main0001", T.bot, { action: "decide", question: "Which branch?" });
-		const text = (await runtime.run(win, "main0001", T.bot, { action: "desk" })).text;
-		expect(text).toContain(`Standing duties (1):\n- Check the nightly build (id ${duty?.id})`);
-		expect(text).toContain("Open decisions (1), waiting for the owner:\n- ");
-		const removed = await runtime.run(win, "main0001", T.bot, { action: "duty_remove", id: duty?.id });
-		expect(removed.text).toBe(`Duty ${duty?.id} removed: “Check the nightly build”.`);
-		const gone = await runtime.run(win, "main0001", T.bot, { action: "duty_remove", id: duty?.id });
-		expect(gone).toEqual({
-			text: `No duty "${duty?.id}" is on your desk. ompdesk_bot {"action":"desk"} lists them.`,
-			isError: true,
-		});
-	});
-
-	it("keeps memories, sets its identity, and reads what it visited and did, from its side chats too", async () => {
-		const { runtime, win, desk, file } = await botRig();
-		const side = path.join(path.dirname(file), "own.jsonl");
-		// A session that is not the bot's is refused until the desk names it a side chat.
-		expect((await runtime.run(win, "other0002", T.bot, { action: "remember", text: "x" })).isError).toBe(true);
-		desk.addChannel("Release notes", side, "owner");
-		const kept = await runtime.run(win, "other0002", T.bot, { action: "remember", text: "Deploys on Fridays only" });
-		const [memory] = desk.state().memories;
-		// The bot gets the memory's id back: it is what it forgets the memory by when the owner says it is wrong.
-		expect(kept.isError).toBe(false);
-		expect(kept.text).toContain(memory?.id ?? "missing");
-		expect(memory).toMatchObject({ by: "bot" });
-		const identity = await runtime.run(win, "main0001", T.bot, {
-			action: "identity",
-			tagline: "Night shift",
-			avatar_file: "/tmp/avatar.png",
-		});
-		expect(identity.isError).toBe(false);
-		expect(desk.state().identity).toMatchObject({
-			tagline: "Night shift",
-			avatar: {
-				kind: "image",
-				dataUrl: `data:image/png;base64,${Buffer.from("/tmp/avatar.png").toString("base64")}`,
-			},
-		});
-		expect((await runtime.run(win, "main0001", T.bot, { action: "identity" })).isError).toBe(true);
-		const forgot = await runtime.run(win, "main0001", T.bot, { action: "forget", id: memory?.id });
-		expect(forgot.text).toContain("forgotten");
-		expect(desk.state().memories).toEqual([]);
-		const activity = (await runtime.run(win, "main0001", T.bot, { action: "activity" })).text;
-		expect(activity).toMatch(/\[owner\] channel_add: Release notes/);
-		expect(activity).toMatch(/\[bot\] memory_add: Deploys on Fridays only/);
-		expect(activity).toMatch(/\[bot\] memory_forget: Deploys on Fridays only/);
-		expect((await runtime.run(win, "main0001", T.bot, { action: "visited" })).text).toBe(
-			"You read no file or page that the activity log still holds.",
-		);
-	});
-
-	it("delivers the owner's answer to the bot's session as a mail that starts a turn", async () => {
-		const { runtime, commands, desk } = await botRig();
-		const open = desk.postDecision({ question: "Ship the release?", options: ["Yes", "No"] });
-		await runtime.botDecisionAnswered(desk.answer(open.id, "Yes, after lunch"));
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		const [{ tabId, command }] = mails(commands) as [(typeof commands)[number]];
-		expect(tabId).toBe("main0001");
-		expect(command).toMatchObject({
-			type: "agent_control_mail",
-			triggerTurn: true,
-			deliverAs: "aside",
-			details: { id: `bot-decision-${open.id}`, from: "ompdesk", kind: "note", fromTitle: "Decision answered" },
-		});
-		expect((command as { content: string }).content).toBe(
-			[
-				'<ompdesk-mail from="ompdesk" title="Decision answered" kind="note">',
-				`The owner answered your decision ${open.id}.`,
-				"Question: Ship the release?",
-				"Answer: Yes, after lunch",
-				"</ompdesk-mail>",
-				"Continue from this answer: pick up the work the decision held back. Do not ask the owner again.",
-			].join("\n"),
-		);
-	});
-
-	it("answers a side chat's decision in that side chat, and the bot's own in its main conversation", async () => {
-		const { runtime, win, commands, desk, file } = await botRig();
-		desk.addChannel("Release notes", path.join(path.dirname(file), "own.jsonl"), "owner");
-		await runtime.run(win, "other0002", T.bot, { action: "decide", question: "Publish the notes?" });
-		const [fromSide] = desk.state().decisions;
-		expect(fromSide).toMatchObject({ channel: desk.state().channels[0]?.id });
-		await runtime.botDecisionAnswered(desk.answer(fromSide?.id ?? "", "Yes"));
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		expect(mails(commands)[0]?.tabId).toBe("other0002");
-		const own = desk.postDecision({ question: "Ship?" });
-		await runtime.botDecisionAnswered(desk.answer(own.id, "No"));
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
-		expect(mails(commands)[1]?.tabId).toBe("main0001");
-	});
-
-	it("logs a question the bot's tab put to the owner and the choice the owner made on it", async () => {
-		const { activity, log } = await botRig();
-		for (const observer of activity) {
-			observer({ type: "ask", tabId: "main0001", requestId: "r1", text: "Allow tool: bash" } as never);
-			observer({
-				type: "askClosed",
-				tabId: "main0001",
-				requestId: "r1",
-				answered: { title: "Allow tool: bash", choice: "Always bash" },
-			} as never);
-			// Another session's card is not the bot's to log.
-			observer({
-				type: "askClosed",
-				tabId: "other0002",
-				requestId: "r2",
-				answered: { title: "Deploy?", choice: "yes" },
-			} as never);
-		}
-		expect(log.entries().map(entry => [entry.action, entry.by, entry.text])).toEqual([
-			["approval_asked", "bot", "Allow tool: bash"],
-			["approval_answered", "owner", "Allow tool: bash → Always bash"],
-		]);
-	});
-
-	it("tells the bot the operation it asked about and the draft as the owner edited it", async () => {
-		const { runtime, commands, desk } = await botRig();
-		const open = desk.postDecision({
-			question: "Send this reply?",
-			operation: "gmail send to kim@example.com",
-			draft: "Yes.",
-		});
-		await runtime.botDecisionAnswered(desk.answer(open.id, "Send", "Yes, see you at 3."));
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		const [{ command }] = mails(commands) as [(typeof commands)[number]];
-		expect((command as { content: string }).content).toContain(
-			[
-				"Question: Send this reply?",
-				"Operation: gmail send to kim@example.com",
-				"Answer: Send",
-				"Draft as the owner approved it:",
-				"Yes, see you at 3.",
-			].join("\n"),
-		);
-	});
-
-	it("opens a closed bot in the background and starts an asleep one to hear the answer", async () => {
-		const closed = await botRig({ owned: false, outsideWindow: true });
-		const first = closed.desk.postDecision({ question: "Ship?" });
-		await closed.runtime.botDecisionAnswered(closed.desk.answer(first.id, "Yes"));
-		expect(closed.spawned).toEqual([{ sessionPath: closed.file }]);
-		expect(mails(closed.commands)).toEqual([]);
-
-		const asleep = await botRig({ status: "asleep" });
-		const second = asleep.desk.postDecision({ question: "Ship?" });
-		await asleep.runtime.botDecisionAnswered(asleep.desk.answer(second.id, "Yes"));
-		expect(asleep.deps.pool.startTab).toHaveBeenCalledWith("main0001");
-		expect(asleep.spawned).toEqual([]);
-	});
-
-	it("tells nothing while the bot is off", async () => {
-		const { runtime, commands, spawned, desk, prefs } = await botRig({ outsideWindow: true });
-		const open = desk.postDecision({ question: "Ship?" });
-		prefs.botEnabled = false;
-		await runtime.botDecisionAnswered(desk.answer(open.id, "Yes"));
-		expect(mails(commands)).toEqual([]);
-		expect(spawned).toEqual([]);
-	});
-
-	describe("while the owner has paused it", () => {
-		/** Lets every promise a send chains settle; what must not happen is checked after it. */
-		const settle = async () => {
-			for (let turn = 0; turn < 20; turn++) await Promise.resolve();
-		};
-		const bodyOf = (entry: { command: RpcCommand }) =>
-			"content" in entry.command ? String(entry.command.content) : "";
-
-		it("stops its running turn and keeps every mail for its session in the outbox, then sends them once, in order, on resume", async () => {
-			const { runtime, commands, desk } = await botRig();
-			desk.setPaused(true);
-			runtime.botPausedChanged(true);
-			await settle();
-			const aborts = commands.filter(entry => entry.command.type === "abort");
-			expect(aborts).toHaveLength(1);
-			expect(aborts[0]).toMatchObject({ tabId: "main0001", command: { origin: { agentControl: "bot-pause" } } });
-
-			const first = desk.postDecision({ question: "First?" });
-			const second = desk.postDecision({ question: "Second?" });
-			await runtime.botDecisionAnswered(desk.answer(first.id, "Yes"));
-			await runtime.botDecisionAnswered(desk.answer(second.id, "No"));
-			await settle();
-			expect(mails(commands)).toEqual([]);
-
-			desk.setPaused(false);
-			runtime.botPausedChanged(false);
-			await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
-			await settle();
-			expect(mails(commands).map(bodyOf)).toEqual([
-				expect.stringContaining("Question: First?"),
-				expect.stringContaining("Question: Second?"),
-			]);
-			expect(commands.filter(entry => entry.command.type === "abort")).toHaveLength(1);
-		});
-
-		it("skips the bot's own routine runs while paused (nothing waits for the resume), and leaves every other session's alone", async () => {
-			const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-pause-"));
-			const botFile = path.join(dir, "bot.jsonl");
-			const otherFile = path.join(dir, "other.jsonl");
-			await fs.writeFile(botFile, "{}\n");
-			await fs.writeFile(otherFile, "{}\n");
-			const desk = new BotDesk({ file: null });
-			const { runtime, commands } = setup({
-				prefs: { bot: botFile, botEnabled: true },
-				tabs: [
-					{ tabId: "main0001", sessionPath: botFile },
-					{ tabId: "other0002", sessionPath: otherFile },
-				],
-				owners: { [botFile]: "main0001", [otherFile]: "other0002" },
-				botDesk: { desk },
-			});
-			const wake = (file: string, runId: string) =>
-				runtime.wakeSession(
-					{
-						id: runId,
-						createdAt: "2026-10-31T09:00:00.000Z",
-						name: "[agent] check",
-						prompt: "Look again",
-						cwd: "/repo",
-						frequency: { kind: "interval", minutes: 30 },
-						model: null,
-						autoApprove: false,
-						enabled: true,
-						wakeSession: file,
-					},
-					runId,
-				);
-			desk.setPaused(true);
-			runtime.botPausedChanged(true);
-			await expect(wake(botFile, "bot-run")).rejects.toBeInstanceOf(ScheduleSkip);
-			await expect(wake(botFile, "bot-run")).rejects.toThrow("The bot is paused");
-			await wake(otherFile, "other-run");
-			await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-			await settle();
-			expect(mails(commands).map(entry => entry.tabId)).toEqual(["other0002"]);
-			desk.setPaused(false);
-			runtime.botPausedChanged(false);
-			await settle();
-			// The resume sends nothing to the bot (the other session's mail may go again: its outbox pass dedups by id).
-			expect(mails(commands).map(entry => entry.tabId)).not.toContain("main0001");
-		});
-
-		it("sends no stop for a bot with no running omp, and nothing when it is off", async () => {
-			const asleep = await botRig({ status: "asleep" });
-			asleep.desk.setPaused(true);
-			asleep.runtime.botPausedChanged(true);
-			const closed = await botRig({ owned: false });
-			closed.desk.setPaused(true);
-			closed.runtime.botPausedChanged(true);
-			const off = await botRig();
-			off.prefs.botEnabled = false;
-			off.desk.setPaused(true);
-			off.runtime.botPausedChanged(true);
-			await settle();
-			for (const rig of [asleep, closed, off])
-				expect(rig.commands.filter(entry => entry.command.type === "abort")).toEqual([]);
-		});
-	});
-
-	it("hands the bot a demonstration record as a mail that starts a turn, and refuses it while the bot is off", async () => {
-		const { runtime, commands, prefs } = await botRig();
-		await runtime.botTaught({ id: "bot-teach-1", text: "Demonstration record: …", instruction: "Write a skill." });
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		const [{ tabId, command }] = mails(commands) as [(typeof commands)[number]];
-		expect(tabId).toBe("main0001");
-		expect(command).toMatchObject({
-			type: "agent_control_mail",
-			triggerTurn: true,
-			deliverAs: "aside",
-			details: { id: "bot-teach-1", from: "ompdesk", kind: "note", fromTitle: "Demonstration" },
-		});
-		expect((command as { content: string }).content).toBe(
-			[
-				'<ompdesk-mail from="ompdesk" title="Demonstration" kind="note">',
-				"Demonstration record: …",
-				"</ompdesk-mail>",
-				"Write a skill.",
-			].join("\n"),
-		);
-		prefs.botEnabled = false;
-		await expect(
-			runtime.botTaught({ id: "bot-teach-2", text: "Demonstration record: …", instruction: "Write a skill." }),
-		).rejects.toThrow("The bot is off.");
-		expect(mails(commands)).toHaveLength(1);
-	});
-
-	it("tells the bot's omp its duties as soon as they change", async () => {
-		const { runtime, commands, desk } = await botRig();
-		runtime.botRulesChanged();
-		await vi.waitFor(() =>
-			expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(1),
-		);
-		const duty = desk.addDuty("Check the nightly build").duty;
-		await vi.waitFor(() =>
-			expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(2),
-		);
-		expect(commands.at(-1)?.command).toMatchObject({
-			type: "agent_control_bot",
-			duties: `- Check the nightly build (id ${duty.id})`,
-		});
-		// A decision changes no duty: nothing is told again.
-		desk.postDecision({ question: "Ship?" });
-		await runtime.botDecisionAnswered(desk.answer(desk.state().decisions[0]?.id ?? "", "Yes"));
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		expect(commands.filter(entry => entry.command.type === "agent_control_bot")).toHaveLength(2);
-	});
-});
-
-describe("the bot's conversation renews", () => {
-	const OLD = "/s/2026-11-02T09-00-00-000Z_old.jsonl";
-	const NEW = "/s/2026-11-03T04-05-00-000Z_new.jsonl";
-	const mails = (commands: { tabId: string; command: RpcCommand }[]) =>
-		commands.filter(entry => entry.command.type === "agent_control_mail");
-
-	function renewed() {
-		const owners: Record<string, string> = { [OLD]: "main0001" };
-		const desk = new BotDesk({ file: null });
-		const rig = setup({
-			prefs: {
-				bot: OLD,
-				botEnabled: true,
-				botConversations: {
-					current: {},
-					past: [{ path: OLD, slot: "bot", startedAt: 0, endedAt: 1 }],
-				},
-			},
-			tabs: [
-				{ tabId: "main0001", sessionPath: OLD, kind: "chat" },
-				// A child the old conversation opened before a relaunch: only its opener's file is known.
-				{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: OLD },
-			],
-			owners,
-			botDesk: { desk },
-		});
-		rig.sidecars.set("kid00002", { cwd: "/repo" });
-		return { ...rig, owners, desk };
-	}
-
-	it("moves the bot's tab onto the new conversation and seeds the handoff note there, with no turn", async () => {
-		const { runtime, commands, prefs, owners } = renewed();
-		prefs.bot = NEW;
-		owners[NEW] = "main0001";
-		await runtime.botMoveTab(OLD, NEW);
-		runtime.botAdopted({ from: OLD, to: NEW, note: "Waiting on the release run (kid00002)." });
-		expect(commands.find(entry => entry.command.type === "switch_session")).toMatchObject({
-			tabId: "main0001",
-			command: { type: "switch_session", sessionPath: NEW },
-		});
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
-		const [seed] = mails(commands);
-		expect(seed?.tabId).toBe("main0001");
-		expect(seed?.command).toMatchObject({ triggerTurn: false, details: { id: "bot-handoff-old" } });
-		const seeded = String((seed?.command as { content?: string } | undefined)?.content);
-		expect(seeded).toContain("Waiting on the release run (kid00002).");
-		// The bot told the owner it could not see its previous conversation (6 Nov 2026): the note names it and how to
-		// read it, by the saved id ompdesk_session_read resolves for a session no tab holds.
-		expect(seeded).toContain('ompdesk_session_read {"session":"old"}');
-		expect(seeded).toContain('ompdesk_sessions {"scope":"stored"}');
-	});
-
-	it("never switches or closes a tab under a turn, and changes nothing when stock keeps the old file", async () => {
-		const busy = setup({
-			prefs: { bot: OLD, botEnabled: true },
-			tabs: [{ tabId: "busy0002", sessionPath: OLD, kind: "chat" }],
-			owners: { [OLD]: "busy0002" },
-		});
-		const closed: string[] = [];
-		busy.deps.pool.closeSessionTab = async sessionPath => {
-			closed.push(sessionPath);
-			return true;
-		};
-		await expect(busy.runtime.botMoveTab(OLD, NEW)).rejects.toThrow(/busy/);
-		expect(busy.commands.filter(entry => entry.command.type === "switch_session")).toEqual([]);
-		expect(closed).toEqual([]);
-
-		const { runtime, deps, spawned, commands } = renewed();
-		deps.pool.closeSessionTab = async sessionPath => {
-			closed.push(sessionPath);
-			return true;
-		};
-		const inner = deps.dispatch;
-		deps.dispatch = async (target, sidecar, tabId, command, timeoutMs) =>
-			command.type === "switch_session"
-				? ok({ cancelled: true })
-				: inner(target, sidecar, tabId, command, timeoutMs);
-		await expect(runtime.botMoveTab(OLD, NEW)).rejects.toThrow(/stayed on its conversation/);
-		expect(closed).toEqual([]);
-		expect(spawned).toEqual([]);
-		expect(commands.filter(entry => entry.command.type === "agent_control_mail")).toEqual([]);
-	});
-
-	it("brings a decision answer and a report of a child the old conversation opened to the new one", async () => {
-		const { runtime, commands, win, prefs, owners, desk } = renewed();
-		prefs.bot = NEW;
-		delete owners[OLD];
-		owners[NEW] = "main0001";
-		const open = desk.postDecision({ question: "Ship?" });
-		await runtime.botDecisionAnswered(desk.answer(open.id, "Yes"));
-		const reported = await runtime.run(win, "kid00002", T.report, { kind: "done", text: "Release run is green" });
-		expect(reported.isError, reported.text).toBe(false);
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(2));
-		expect(mails(commands).map(entry => entry.tabId)).toEqual(["main0001", "main0001"]);
-		expect(String((mails(commands)[1]?.command as { content?: string } | undefined)?.content)).toContain(
-			"Release run is green",
-		);
-	});
-
-	it("waits for a quiet moment: not while a turn runs or a question is open", () => {
-		const busy = setup({
-			prefs: { bot: OLD, botEnabled: true },
-			tabs: [{ tabId: "busy0002", sessionPath: OLD }],
-			owners: { [OLD]: "busy0002" },
-		});
-		expect(busy.runtime.botQuiet(OLD)).toBe(false);
-		const asking = setup({
-			prefs: { bot: OLD, botEnabled: true },
-			tabs: [{ tabId: "main0001", sessionPath: OLD }],
-			owners: { [OLD]: "main0001" },
-			requests: [
-				{
-					tabId: "main0001",
-					request: { type: "extension_ui_request", id: "r1", method: "confirm", title: "Go?", message: "" },
-				},
-			],
-		});
-		expect(asking.runtime.botQuiet(OLD)).toBe(false);
-		const idle = setup({
-			prefs: { bot: OLD, botEnabled: true },
-			tabs: [{ tabId: "main0001", sessionPath: OLD }],
-			owners: { [OLD]: "main0001" },
-		});
-		expect(idle.runtime.botQuiet(OLD)).toBe(true);
-		// No tab holds it: nothing to interrupt.
-		expect(idle.runtime.botQuiet("/s/elsewhere.jsonl")).toBe(true);
 	});
 });

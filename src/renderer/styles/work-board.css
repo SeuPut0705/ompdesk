@@ -234,19 +234,6 @@ button.omp-work-board-row:focus-visible {
 	color: var(--sc-text-muted);
 }
 
-/* An empty section's words in its head, after the title: quiet, and wrapped rather than clipped (they are the
-   section's whole content). */
-.omp-work-board-empty {
-	min-width: 0;
-	flex: 1 1 auto;
-	padding-block: 2px;
-	text-align: start;
-	font-weight: 400;
-	line-height: 16px;
-	overflow-wrap: anywhere;
-	color: var(--sc-text-subtle);
-}
-
 .omp-work-board-list {
 	display: flex;
 	flex-direction: column;
@@ -283,40 +270,6 @@ button.omp-work-board-row {
 button.omp-work-board-row:hover {
 	background: var(--sc-hover);
 	color: var(--sc-text);
-}
-
-/* A row that opens what it names and has buttons of its own (the bot's tasks): its own part is the button. */
-.omp-work-board-row--split {
-	align-items: center;
-	padding-block: 0;
-	padding-inline-end: 0;
-}
-
-.omp-work-board-row-main {
-	display: flex;
-	min-width: 0;
-	flex: 1;
-	align-items: flex-start;
-	gap: var(--sc-space-2);
-	padding-block: 2px;
-	border-radius: var(--sc-radius-sm);
-	text-align: start;
-	color: inherit;
-	cursor: pointer;
-}
-
-.omp-work-board-row--split:hover {
-	background: var(--sc-hover);
-	color: var(--sc-text);
-}
-
-/* A task the owner has not looked at since it finished (its tab's unread mark), or one that needs their answer. */
-.omp-work-board-row[data-task-unread] {
-	background: color-mix(in oklab, var(--sc-accent-soft) 60%, transparent);
-}
-
-.omp-work-board-row[data-task-state="needs"] {
-	background: var(--sc-warning-soft);
 }
 
 .omp-work-board-lead {
@@ -446,12 +399,6 @@ button.omp-work-board-more {
 button.omp-work-board-more:hover {
 	background: var(--sc-hover);
 	color: var(--sc-text);
-}
-
-/* Record a workflow keeps the 13 px its button had: a row's look, never smaller text. */
-button.omp-work-board-more[data-bot-teach-record] {
-	font-size: var(--sc-font-sm);
-	line-height: 20px;
 }
 
 /* State dots. */

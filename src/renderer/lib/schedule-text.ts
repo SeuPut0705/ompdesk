@@ -1,7 +1,6 @@
 /**
- * What a schedule's trigger says, in the UI language: one summary for every place that lists schedules (Settings ›
- * Schedules, the bot's routines on its work board), so the same trigger reads the same everywhere. English text for
- * agents and logs is `describeFrequency` in `shared/schedules.ts`.
+ * What a schedule's trigger says, in the UI language: one summary for every place that lists schedules, so the same
+ * trigger reads the same everywhere. English text for agents and logs is `describeFrequency` in `shared/schedules.ts`.
  */
 import type { GithubEventKind, ScheduleFrequency, ScheduleRunStatus, SessionEventKind } from "../../shared/schedules";
 import type { BadgeVariant } from "../components/common";
@@ -98,24 +97,5 @@ export function frequencySummary(frequency: ScheduleFrequency): string {
 					].join("");
 			}
 		}
-	}
-}
-
-/**
- * The full place an event trigger watches (the whole path or repository folder the summary shortens); null when the
- * summary says all there is.
- */
-export function frequencyPlace(frequency: ScheduleFrequency): string | null {
-	if (frequency.kind !== "event") return null;
-	const event = frequency.event;
-	switch (event.source) {
-		case "files":
-			return event.path;
-		case "git":
-			return event.repo;
-		case "session":
-			return event.folder ?? null;
-		default:
-			return null;
 	}
 }

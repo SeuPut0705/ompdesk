@@ -39,8 +39,6 @@ export const MODEL_COMMAND_TYPES = [
 	// Speech to text, text to speech and the realtime session go through a model provider.
 	"transcribe_audio",
 	"synthesize_speech",
-	"stt_stream_start",
-	"tts_stream_start",
 	"live_start",
 	// Main-side local handlers that run a model through stock `omp` (PR text, `omp commit --dry-run`).
 	"pr_draft",
@@ -87,7 +85,6 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"agent_control_note",
 	"agent_control_worker",
 	"agent_control_turn",
-	"agent_control_bot",
 	// Which messages a session's journal holds (main's durable sends): a journal read, no model.
 	"agent_control_sent",
 	"autopilot_bridge",
@@ -314,16 +311,9 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	"share_session",
 	"ssh_manage",
 	"ssh_test",
-	// The streams a paired device starts (`stt_stream_start`, `tts_stream_start`: MODEL_COMMAND_TYPES) are one request;
-	// their pushes, polls, stops and cancels run on that stream and would otherwise spend a device's day per chunk.
 	// `stt_prepare` only checks or downloads the speech model's weights, polled while they download.
 	"stt_prepare",
-	"stt_stream_cancel",
-	"stt_stream_push",
-	"stt_stream_stop",
 	"switch_session",
-	"tts_stream_cancel",
-	"tts_stream_next",
 	"typed_prompt",
 	"worktree_create",
 	"worktree_lifecycle_settings",

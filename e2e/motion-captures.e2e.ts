@@ -123,7 +123,7 @@ interface Step {
 interface Flow {
 	id: string;
 	title: string;
-	/** Extra harness query (`&bot=1`). */
+	/** Extra harness query (`&board=busy`). */
 	query?: string;
 	/** Viewports without the surface, with why. */
 	skip?: Partial<Record<Viewport, string>>;
@@ -226,28 +226,6 @@ async function setSummaries(page: Page, change: Record<string, Partial<SummaryFa
 		if (!summaries) throw new Error("no harness summaries");
 		for (const [tabId, facts] of Object.entries(change)) summaries.tab(tabId, facts);
 	}, change);
-}
-
-async function addTab(page: Page, tab: Record<string, unknown>): Promise<void> {
-	await page.evaluate(tab => {
-		const tabs = window.__stores?.tabs as unknown as {
-			getState(): { tabs: unknown[] };
-			setState(partial: unknown): void;
-		};
-		tabs.setState({
-			tabs: [
-				...tabs.getState().tabs,
-				{
-					cwd: "/Users/dev/projects/ompdesk",
-					status: "ready",
-					compacting: false,
-					kind: "agent",
-					unreadDone: false,
-					...tab,
-				},
-			],
-		});
-	}, tab);
 }
 
 /**
@@ -410,35 +388,6 @@ const toastPush = (page: Page): Promise<number> =>
 			durationMs: Number.POSITIVE_INFINITY,
 		});
 	});
-
-/** The bot's desk as the fixture holds it, with `change` applied, pushed as main pushes a changed desk. */
-async function pushDesk(page: Page, change: string): Promise<void> {
-	await page.evaluate(async change => {
-		const desk = await window.omp.sessions.botDesk.get();
-		const [decision] = desk.decisions;
-		if (!decision || !window.__harness) throw new Error("no decision in the bot's desk");
-		const next =
-			change === "none"
-				? { ...desk, decisions: [] }
-				: change === "open"
-					? desk
-					: {
-							...desk,
-							decisions: [
-								{ ...decision, state: "answered", answer: "Ship it", answeredAt: new Date().toISOString() },
-							],
-						};
-		window.__harness.emit("bot-desk:changed", next);
-	}, change);
-}
-
-const BOT_CHILD = {
-	id: "tab-child",
-	title: "Triage the flaky nightly",
-	sessionPath: "-Users-dev-projects-ompdesk/sess-child.jsonl",
-	sessionId: "sess-child",
-	openedBy: "tab-1",
-};
 
 const FLOWS: readonly Flow[] = [
 	{
@@ -924,90 +873,6 @@ const FLOWS: readonly Flow[] = [
 				id: "strip-collapse",
 				what: "Work strip closing its panel",
 				trigger: ({ page }) => page.locator("[data-work-chip]").first().click(),
-			},
-		],
-	},
-	{
-		id: "bot-decision",
-		title: "a bot decision arrives and is answered",
-		query: "&bot=1",
-		prepare: async ({ page }) => {
-			await page.getByRole("button", { name: "Ship it" }).waitFor({ state: "visible", timeout: 20_000 });
-			await pushDesk(page, "none");
-			await page.getByRole("button", { name: "Ship it" }).waitFor({ state: "hidden" });
-		},
-		steps: [
-			{
-				id: "bot-decision-arrive",
-				what: "Decisions needed card appearing above the composer",
-				region: conversation,
-				trigger: ({ page }) => pushDesk(page, "open"),
-			},
-			{
-				id: "bot-decision-answer",
-				what: "Decision answered and the card leaving",
-				region: conversation,
-				trigger: async ({ page }) => {
-					await page.getByRole("button", { name: "Ship it" }).click();
-					await pushDesk(page, "answered");
-				},
-			},
-		],
-	},
-	{
-		id: "bot-task",
-		title: "a bot task finishes and is marked done",
-		query: "&bot=1",
-		prepare: async ({ page }) => {
-			// The work board lists the sessions a tab opened from its tabs; the sidebar's row reads the summaries.
-			await addTab(page, { ...BOT_CHILD, status: "running", runningSince: Date.now() - 30_000 });
-			await setSummaries(page, {
-				[BOT_CHILD.id]: {
-					status: "running",
-					cwd: "/Users/dev/projects/ompdesk",
-					sessionPath: BOT_CHILD.sessionPath,
-					sessionId: BOT_CHILD.sessionId,
-					title: BOT_CHILD.title,
-					since: Date.now() - 30_000,
-				},
-			});
-			await page.getByText("Triage the flaky nightly").first().waitFor({ state: "visible", timeout: 20_000 });
-		},
-		steps: [
-			{
-				id: "bot-task-finish",
-				what: "Task row going from Running to Done?",
-				trigger: async ({ page }) => {
-					await setSummaries(page, { [BOT_CHILD.id]: { status: "ready", since: undefined } });
-					await patchTabs(page, {
-						"tab-child": {
-							status: "ready",
-							runningSince: undefined,
-							lastRun: { at: Date.now(), stopReason: "stop", durationMs: 30_000 },
-						},
-					});
-				},
-			},
-			{
-				id: "bot-task-done",
-				what: "Task marked done and moving to Completed",
-				// A phone shows the bot's tasks in the strip's panel, as one summary line until tapped open.
-				prepare: async ({ page, viewport }) => {
-					if (viewport !== "phone") return;
-					await page.locator("[data-work-chip]").first().click();
-					await page
-						.locator("[data-work-strip-panel] button")
-						.filter({ hasText: /^Tasks/ })
-						.first()
-						.click();
-				},
-				trigger: async ({ page }) => {
-					await page.getByRole("button", { name: /^Mark .* done$/ }).click();
-					await page.evaluate(async sessionPath => {
-						const desk = await window.omp.sessions.botDesk.get();
-						window.__harness?.emit("bot-desk:changed", { ...desk, tasksDone: [sessionPath] });
-					}, BOT_CHILD.sessionPath);
-				},
 			},
 		],
 	},

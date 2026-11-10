@@ -2,11 +2,9 @@ import { parseHTML } from "linkedom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
-import { I18nProvider, translate } from "../../../lib/i18n";
+import { I18nProvider } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { useAutopilotStore } from "../../../stores/autopilot";
-import { useBotDeskStore } from "../../../stores/bot-desk";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelWaitTogetherStore } from "../../../stores/model-wait-together";
@@ -16,7 +14,6 @@ import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useTodoStore } from "../../../stores/todo";
 import { useToolsStore } from "../../../stores/tools";
-import { BotTabContext } from "../../bot/bot-tab";
 
 // The back gesture itself is lib/back-layer's (its own test); here only what a layer's close does to the strip.
 const backLayer = vi.hoisted(() => ({ close: null as (() => void) | null }));
@@ -91,29 +88,6 @@ describe("WorkBoardChip, the phone's work strip", () => {
 		await act(async () => useTodoStore.setState({ turnActive: false }));
 		expect(container.querySelector("[data-work-chip]")).toBeNull();
 		expect(container.hasAttribute("data-work-board-strip")).toBe(false);
-	});
-
-	it("stays on the bot's pane with nothing running, naming its tasks and routines, and only there", async () => {
-		useBotDeskStore.getState().apply({
-			...EMPTY_BOT_DESK,
-			routines: [],
-			decisions: [],
-		});
-		await act(async () =>
-			root.render(
-				<I18nProvider>
-					<BotTabContext.Provider value={{ tabId: "t1" }}>
-						<WorkBoardChip>{null}</WorkBoardChip>
-					</BotTabContext.Provider>
-				</I18nProvider>,
-			),
-		);
-		expect(container.querySelector("[data-work-chip] [role=status]")?.textContent).toBe(
-			translate("botHome.strip", { tasks: 0, routines: 0 }),
-		);
-		await mount();
-		expect(container.querySelector("[data-work-chip]")).toBeNull();
-		useBotDeskStore.getState().reset();
 	});
 
 	it("says a request the model has not answered for a while instead of Working…", async () => {

@@ -42,14 +42,6 @@ export function registerTerminalIpc(
 	ipc: IpcRegistry,
 	pool: SidecarPool,
 	remoteDevices: Pick<RemoteDevices, "request">,
-	/** What the owner types in a Terminal panel session of a tab this computer runs (never a paired host's tab). */
-	onWrite?: (tabId: string, terminalId: string, data: string) => void,
-	/**
-	 * What this computer's PTYs of a tab printed, as the worker answered one viewer's request (never a paired host's
-	 * tab). Several viewers poll the same terminal, so the same stretch of output reaches this more than once: tell
-	 * them apart by `offset`. A snapshot with no `output` (an answer to a write, close or resize) only names the end.
-	 */
-	onOutput?: (tabId: string, snapshots: readonly TerminalSnapshot[]) => void,
 ): void {
 	const released = pool.onTabReleased;
 	pool.onTabReleased = (tabId, exited) => {
@@ -106,7 +98,6 @@ export function registerTerminalIpc(
 			lease.claim(session(operation.id), viewer);
 		} else if (operation.action === "write") {
 			lease.typed(session(operation.id), viewer);
-			onWrite?.(tabId, operation.id, operation.data);
 		} else if (operation.action === "close") {
 			lease.forget(session(operation.id));
 		}
@@ -117,7 +108,6 @@ export function registerTerminalIpc(
 			forwarded,
 			controlEnvFor(isWebWindow(target.winId)),
 		);
-		onOutput?.(tabId, result);
 		// A tab can close while the lazy Bun worker is starting.
 		if (!owners.has(owner)) {
 			disposeTerminals(owner);

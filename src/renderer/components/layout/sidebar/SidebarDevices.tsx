@@ -25,7 +25,7 @@ import {
 	Plus,
 	Settings2,
 } from "lucide-react";
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { reviewUnmerged } from "../../../../shared/agent-control";
 import { ipcErrorCode } from "../../../../shared/ipc-error-codes";
@@ -49,7 +49,6 @@ import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project-order";
 import {
-	botDisplayName,
 	combinedTitle,
 	sessionDisplayLabel,
 	sessionDisplayParts,
@@ -61,7 +60,6 @@ import { deviceGroupKey, LOCAL_DEVICE } from "../../../lib/sidebar-memory";
 import { tabSignalPresentation } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { useAgentReviewStore } from "../../../stores/agent-review";
-import { ensureBotDesk, releaseBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { summariesOf, useHostedSessionsStore, useSummaryMap } from "../../../stores/hosted-sessions";
 import { pickRemoteDirectory } from "../../../stores/remote";
 import type { SessionStore } from "../../../stores/session";
@@ -75,9 +73,6 @@ import { type SessionTab, tabChipLabel, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
 import { webPwa } from "../../../web/pwa";
-import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
-import { botState, tabBotFacts } from "../../bot/bot-status";
-import { RowBotAvatar } from "../../bot/RowBotAvatar";
 import { Button, IconButton, InlineNotice, ListRow, Spinner } from "../../common";
 import { Collapse } from "../../common/Collapse";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
@@ -467,25 +462,6 @@ function DeviceSessions({
 		[archivedSessions, prefix],
 	);
 	const deviceTabs = useMemo(() => allTabs.filter(tab => tab.device === host.deviceId), [allTabs, host.deviceId]);
-	// The host's bot, marked in its list on or off: while on, one fixed row first, as on the host; on or off, never one
-	// of the lists' rows, nor is a tab here holding it (it would come back as a plain chat once the host's bot is off).
-	const hostBot = useMemo(() => sessions.find(session => session.bot === "on"), [sessions]);
-	const botFiles = useMemo(
-		() => new Set(sessions.flatMap(session => (session.bot === undefined ? [] : [session.path]))),
-		[sessions],
-	);
-	const listed = useMemo(() => sessions.filter(session => !botFiles.has(session.path)), [sessions, botFiles]);
-	// The host's desk gives its bot's row the count of decisions waiting; read once its link is up and its bot is on, and
-	// again after each link loss, as a push sent meanwhile was missed.
-	const hostBotOn = hostBot !== undefined;
-	const hostDesk = useBotDesk(host.deviceId).desk;
-	const hostDecisions = useOpenBotDecisions(host.deviceId).length;
-	useEffect(() => {
-		if (!read || !hostBotOn) return;
-		ensureBotDesk(host.deviceId);
-		return () => releaseBotDesk(host.deviceId);
-	}, [read, hostBotOn, host.deviceId]);
-
 	// The host's own rule (Sidebar.tsx): a session in its no-project workspace (`~/.omp/work`, where a session opened
 	// there without a folder starts) is one of its chats, so it is here too.
 	const hostWorkspace = useHostWorkspace(host.deviceId, read);
@@ -496,9 +472,8 @@ function DeviceSessions({
 	const remoteTabs = useMemo(() => (host.remoteOpened ?? []).map(remoteOpenedTab), [host.remoteOpened]);
 	// The host's rows by the host's own rule (`familyRows`, as its own sidebar draws them): what the host says beside
 	// each row (`openedBySession`, `heldOnHost`), what it works on now, its project list and what its git said of each
-	// folder (`worktrees`, `worktreeKinds`, `autopilotRuns`, `gone`), and this computer's tabs on it. Its bot's family
-	// (what it and the conversations it ended opened, its side chats) nests under its row, and a tab its windows hold
-	// on a paired device that a session of it opened (`host.remoteOpened`, a stand-in here) nests under its opener.
+	// folder (`worktrees`, `worktreeKinds`, `autopilotRuns`, `gone`), and this computer's tabs on it. A tab its windows
+	// hold on a paired device that a session of it opened (`host.remoteOpened`, a stand-in here) nests under its opener.
 	// A device cannot ask the host's git or records. A row made from a tab before the host lists its session keeps the
 	// time this section first saw the tab, as on the host.
 	const liveSince = useRef(new Map<string, string>());
@@ -517,8 +492,8 @@ function DeviceSessions({
 		});
 		return familyRows(
 			{
-				sessions: listed,
-				tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
+				sessions,
+				tabs: rowTabs,
 				usedThere: new Set(hostSummaries.keys()),
 				// The host names an opener beside a row its windows' tabs hold (then `heldOnHost`) or that its records say
 				// it closed: a row no tab holds that names one is a closed child.
@@ -558,22 +533,10 @@ function DeviceSessions({
 				query,
 				nameOf: cwd => basename(cwd) || cwd,
 			},
-			hostBot
-				? {
-						bot: hostBot.path,
-						ended: new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
-						channels: new Set(hostDesk.channels.map(channel => channel.sessionPath)),
-						tabs: rowTabs,
-					}
-				: null,
 			remoteTabs,
 		);
 	}, [
 		sessions,
-		listed,
-		botFiles,
-		hostBot,
-		hostDesk.channels,
 		deviceTabs,
 		remoteTabs,
 		hostSummaries,
@@ -988,13 +951,11 @@ function DeviceSessions({
 	};
 
 	/**
-	 * The sessions a row's agent opened, as family rows: the host's own (its bot's family on the bot's row), then the
-	 * tabs the host's windows hold on paired devices that it opened.
+	 * The sessions a row's agent opened, as family rows: the host's own, then the tabs the host's windows hold on paired
+	 * devices that it opened.
 	 */
 	const openedOf = (session: DeviceSession): FamilyOpened[] => [
-		...((session.path === hostBot?.path ? tree.bot?.sessions : familyChildrenOf.get(session.path)) ?? []).map(
-			familyChildFor,
-		),
+		...(familyChildrenOf.get(session.path) ?? []).map(familyChildFor),
 		...(remoteChildrenOf.get(session.path) ?? []).map(childForTab),
 	];
 
@@ -1004,7 +965,7 @@ function DeviceSessions({
 		...openedOf(session).map(childFoldSignal),
 	];
 
-	const renderRow = (session: DeviceSession, bot = false) => {
+	const renderRow = (session: DeviceSession) => {
 		// It left while the person points at the list: its place stays, empty, until the pointer leaves.
 		if (session.departed)
 			return (
@@ -1027,17 +988,15 @@ function DeviceSessions({
 		const { current, inSplit: inVisibleSplit, selected: active } = selectionOf(tab?.id);
 		const indexed = session.liveTabId === undefined;
 		const folderMissing = missingFolders.has(session.path);
-		const titleParts: TitleParts = bot
-			? { title: botDisplayName(session, t("sidebar.botBadge")) }
-			: sessionDisplayParts(
-					// The name the host's running omp reports (its summary) outranks the host's indexed row.
-					{
-						...session,
-						...(summary?.title ? { title: summary.title } : {}),
-						autoTitle: summary ? summary.autoTitle : session.autoTitle,
-					},
-					indexed ? t("sidebar.untitled") : t("sidebar.newSession"),
-				);
+		const titleParts: TitleParts = sessionDisplayParts(
+			// The name the host's running omp reports (its summary) outranks the host's indexed row.
+			{
+				...session,
+				...(summary?.title ? { title: summary.title } : {}),
+				autoTitle: summary ? summary.autoTitle : session.autoTitle,
+			},
+			indexed ? t("sidebar.untitled") : t("sidebar.newSession"),
+		);
 		const title = combinedTitle(titleParts);
 		if (renamingPath === session.path) {
 			const rovingKey = `device-session:${host.deviceId}:${session.path}`;
@@ -1075,41 +1034,23 @@ function DeviceSessions({
 		// glyph sits at the end before the age, and a tab open elsewhere is said in words only.
 		const openElsewhere = tab !== undefined && !current && !inVisibleSplit;
 		const chat = session.kind === "chat" ? <MessageCircle aria-hidden className="size-(--sc-icon-sm)" /> : null;
-		// This host's open decisions, on its bot's row only (the local row's rule, Sidebar.tsx): the host's own prompt
-		// takes the slot first.
-		const botDecisions = bot ? hostDecisions : 0;
 		// Its family, as a local row's (Sidebar.tsx): the tab's subagents and the sessions its agent opened. The ones
 		// running light the row as on the host, though no tab here holds it.
 		const opened = openedOf(session);
 		const runningOpened = opened.filter(child => child.status === "running").length;
-		const age =
-			botDecisions > 0 && !waiting ? (
-				<BotDecisionsBadge count={botDecisions} />
-			) : (
-				<SessionLiveAge
-					agents={workingAgentCount(summary?.agents ?? [])}
-					iso={indexed ? session.modified : null}
-					opened={runningOpened}
-					running={running}
-					settling={settling}
-					waiting={waiting}
-				/>
-			);
+		const age = (
+			<SessionLiveAge
+				agents={workingAgentCount(summary?.agents ?? [])}
+				iso={indexed ? session.modified : null}
+				opened={runningOpened}
+				running={running}
+				settling={settling}
+				waiting={waiting}
+			/>
+		);
 		const list = listOf(session);
 		const pinned = hostPins.includes(session.path);
-		const marker = bot ? (
-			<RowBotAvatar
-				avatar={hostDesk.identity.avatar}
-				data-sidebar-bot
-				device={host.deviceId}
-				label={t("sidebar.botBadge")}
-				size="inline"
-				state={botState(tabBotFacts(summary ? { status: summary.status, awaitingInput: summary.ask } : undefined))}
-				tabId={tab?.id}
-			/>
-		) : (
-			(chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null))
-		);
+		const marker = chat ?? (pinned ? <Pin aria-label={t("sidebar.pinned")} className="size-(--sc-icon-sm)" /> : null);
 		const family = tab !== undefined || opened.length > 0 || (summary?.agents.length ?? 0) > 0;
 		// Its own key: two hosts may keep a session at the same path, and this computer's prune never sees host rows.
 		const familyKey = `device:${host.deviceId}:${session.path}`;
@@ -1117,21 +1058,18 @@ function DeviceSessions({
 			<Fragment key={session.path}>
 				<ListRow
 					// One ⋯ on every input, so the title keeps its width; at rest under touch, on hover or focus elsewhere.
-					// The bot's fixed row has none: no rename, move or delete, as on the host.
 					actions={
-						bot ? undefined : (
-							<IconButton
-								data-sidebar-row-menu
-								icon={<MoreHorizontal />}
-								label={t("sidebar.sessionMenu")}
-								onClick={event => {
-									const rect = event.currentTarget.getBoundingClientRect();
-									setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuFor(session), label: title });
-								}}
-								size="sm"
-								tabIndex={-1}
-							/>
-						)
+						<IconButton
+							data-sidebar-row-menu
+							icon={<MoreHorizontal />}
+							label={t("sidebar.sessionMenu")}
+							onClick={event => {
+								const rect = event.currentTarget.getBoundingClientRect();
+								setRowMenu({ x: rect.left, y: rect.bottom + 4, items: menuFor(session), label: title });
+							}}
+							size="sm"
+							tabIndex={-1}
+						/>
 					}
 					actionCount={1}
 					actionsAtRest={touchInput}
@@ -1140,7 +1078,6 @@ function DeviceSessions({
 						tabIndex: -1,
 						"data-roving-item": `device-session:${host.deviceId}:${session.path}`,
 						onKeyDown: event => {
-							if (bot) return;
 							// Alt+↑/↓ moves the row in its list, as on this computer's own rows.
 							if (
 								event.altKey &&
@@ -1165,22 +1102,15 @@ function DeviceSessions({
 							</span>
 						) : undefined
 					}
-					onClick={() => {
-						// The count says a decision waits: its card above the composer opens and flashes.
-						if (botDecisions > 0) useUiStore.getState().focusDockCard("decisions");
-						openSession(session);
-					}}
+					onClick={() => openSession(session)}
 					rowProps={{
 						// Dragged onto a session pane, the open tab joins the split there (SplitWorkspace takes `omp:tab-drag`);
 						// dropped on a row of its own list it moves there.
-						...(bot ? {} : reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined)),
+						...reorder.rowDrag(session.path, list, tab ? { id: tab.id, shown: current } : undefined),
 						"data-device-session": session.path,
 						"data-flip-key": `session:${session.path}`,
-						"data-sidebar-bot-row": bot || undefined,
-						"data-bot-decisions": botDecisions > 0 || undefined,
-						onContextMenu: bot
-							? undefined
-							: event => setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
+						onContextMenu: event =>
+							setRowMenu({ ...anchorFromEvent(event), items: menuFor(session), label: title }),
 						"data-active": active,
 						"data-current": current || undefined,
 						"data-pane-focus": (current && selectionOf(tab?.id).splitShown) || undefined,
@@ -1205,7 +1135,6 @@ function DeviceSessions({
 					}
 					titleText={[
 						title,
-						botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : null,
 						openElsewhere && !working ? t("sidebar.row.open") : null,
 						folderMissing ? t("sidebar.folderMissingTip", { folder: session.cwd }) : null,
 						reason ?? null,
@@ -1237,12 +1166,7 @@ function DeviceSessions({
 		);
 	};
 
-	// The host's bot row, when it shows: a host whose only session is its bot is not empty.
-	const botShown =
-		hostBot !== undefined &&
-		(!query ||
-			botDisplayName(hostBot, t("sidebar.botBadge")).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-	if (error && tree.rows.sessions.length === 0 && !botShown) {
+	if (error && tree.rows.sessions.length === 0) {
 		return (
 			<InlineNotice
 				action={
@@ -1258,14 +1182,14 @@ function DeviceSessions({
 			/>
 		);
 	}
-	if (isLoading && tree.rows.sessions.length === 0 && !botShown) {
+	if (isLoading && tree.rows.sessions.length === 0) {
 		return (
 			<div aria-label={t("sidebar.loading")} className="flex justify-center py-2" role="status">
 				<Spinner size="sm" />
 			</div>
 		);
 	}
-	if (!botShown && chats.length === 0 && groups.length === 0 && archivedRows.length === 0) {
+	if (chats.length === 0 && groups.length === 0 && archivedRows.length === 0) {
 		return (
 			<p className="px-2.5 py-1.5 text-sc-xs text-(--sc-text-muted)" data-device-empty>
 				{query ? t("sidebar.noMatch") : t("remote.sidebar.empty")}
@@ -1354,7 +1278,6 @@ function DeviceSessions({
 		<div className="space-y-px" ref={motionRef}>
 			{reorder.status}
 			{dialog}
-			{botShown && hostBot && renderRow(hostBot, true)}
 			<DndContext collisionDetection={closestCenter} onDragEnd={onGroupDragEnd} sensors={groupSensors}>
 				<SortableContext items={groups.map(group => group.cwd)} strategy={verticalListSortingStrategy}>
 					{groups.map(group => {

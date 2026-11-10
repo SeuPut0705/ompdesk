@@ -18,8 +18,6 @@ import { useSidebarPrefs } from "../../stores/sidebar-prefs";
 import { ensureTabRuntime } from "../../stores/tab-runtime";
 import { type SessionTab, type SplitAxis, type SplitPlacement, tabDisplayParts, useTabsStore } from "../../stores/tabs";
 import { type PanelSubagent, useUiStore } from "../../stores/ui";
-import { BotPane } from "../bot/BotPane";
-import { EndedConversationSlot, useEndedBotConversation } from "../bot/ended-conversation";
 import { ChatStream } from "../chat/ChatStream";
 import { WorkspaceDock } from "../chat/dock/WorkspaceDock";
 import { IconButton, SessionTitle, Spinner } from "../common";
@@ -238,8 +236,6 @@ function SessionPane({ tabId, split, parts }: { tabId: string; split: boolean; p
 	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === tabId));
 	const active = useTabsStore(state => state.activeTabId === tabId);
 	const switchTab = useTabsStore(state => state.switchTab);
-	// A conversation the bot ended is read, never continued: a note takes the composer's place.
-	const ended = useEndedBotConversation(tab);
 	if (!tab) return null;
 
 	return (
@@ -260,17 +256,15 @@ function SessionPane({ tabId, split, parts }: { tabId: string; split: boolean; p
 				{tab.device !== undefined && <RemoteTabBanner deviceId={tab.device} />}
 				<SidecarBanner />
 				<div className="relative flex min-h-0 flex-1 flex-col">
-					<BotPane tab={tab}>
-						<ChatStream />
-						<WorkBoardHost />
-					</BotPane>
+					<ChatStream />
+					<WorkBoardHost />
 					<div className="omp-composer-region relative shrink-0 bg-transparent pt-2">
 						<div className="omp-composer-shell relative w-full">
 							<WorkspaceDock />
 						</div>
 					</div>
 				</div>
-				{ended ? <EndedConversationSlot device={tab.device} /> : <InputArea />}
+				<InputArea />
 			</section>
 		</SessionRuntimeProvider>
 	);

@@ -80,7 +80,7 @@ export async function listSessionsReadOnly(dir: string): Promise<unknown[]> {
 					messageCount: messages.length,
 					size: stamp.size,
 					firstMessage,
-					// Stock: a session with no message at all (the bot's, made with a title only) is `unknown`, never `pending`.
+					// Stock: a session with no message at all (made with a title only) is `unknown`, never `pending`.
 					status:
 						messages.length === 0
 							? "unknown"

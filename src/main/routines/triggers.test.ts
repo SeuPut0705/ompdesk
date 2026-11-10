@@ -73,7 +73,6 @@ beforeEach(async () => {
 			return () => observers.delete(observer);
 		},
 		tabs: () => [],
-		botPath: () => null,
 	};
 	service = new ScheduleService({
 		file: join(dir, "schedules.json"),
@@ -141,7 +140,7 @@ describe("RoutineTriggers", () => {
 		await service.create(draft({ source: "github", repo: "o/r", events: ["pull_request"] }));
 		await service.create(draft({ source: "git", repo: dir, branch: "main" }));
 		await service.create(draft({ source: "session", events: ["done"] }));
-		await service.create(draft({ source: "email", account: "Work", to: "owner+bot@" }));
+		await service.create(draft({ source: "email", account: "Work", to: "owner+ci@" }));
 		await service.create(draft({ source: "webhook", key: "" }));
 		await service.create({ ...filesDraft(), frequency: { kind: "interval", minutes: 30 } });
 		await service.create({ ...filesDraft("/off"), enabled: false });
@@ -216,7 +215,7 @@ describe("RoutineTriggers", () => {
 			scan: watch.scan,
 			marks,
 			git,
-			sessions: { observeTabs: () => () => undefined, tabs: () => [], botPath: () => null },
+			sessions: { observeTabs: () => () => undefined, tabs: () => [] },
 			mail: NO_MAIL,
 			quietMs: QUIET_MS,
 		});
@@ -253,7 +252,7 @@ describe("RoutineTriggers", () => {
 			scan: watch.scan,
 			marks,
 			git,
-			sessions: { observeTabs: () => () => undefined, tabs: () => [], botPath: () => null },
+			sessions: { observeTabs: () => () => undefined, tabs: () => [] },
 			mail: NO_MAIL,
 			quietMs: QUIET_MS,
 			...(ready === undefined ? {} : { ready }),

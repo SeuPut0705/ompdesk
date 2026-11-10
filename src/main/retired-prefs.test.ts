@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { migrateRetiredPrefs, RETIRED_PREFS } from "./retired-prefs";
 
@@ -40,6 +43,44 @@ describe("migrateRetiredPrefs", () => {
 		migrateRetiredPrefs(store);
 		expect(store.has(key)).toBe(false);
 		expect(store.get("language")).toBe("en");
+	});
+
+	it("turns off wakes of the former bot's current conversations once, keeping every schedule and other session's wakes", () => {
+		const dir = mkdtempSync(join(tmpdir(), "retired-prefs-"));
+		try {
+			const file = join(dir, "schedules.json");
+			const store = memoryStore({
+				bot: "/s/main.jsonl",
+				botEnabled: false,
+				botConversations: {
+					current: { side: { path: "/s/side.jsonl" }, main: { path: "/s/current.jsonl" } },
+					past: [{ path: "/s/past.jsonl" }],
+				},
+				botRules: [],
+			});
+			const schedules = [
+				{ id: "main", wakeSession: "/s/main.jsonl", enabled: true },
+				{ id: "side", wakeSession: "/s/side.jsonl", enabled: true },
+				{ id: "current", wakeSession: "/s/current.jsonl", enabled: true },
+				{ id: "past", wakeSession: "/s/past.jsonl", enabled: true },
+				{ id: "self", wakeSession: "/s/ordinary.jsonl", enabled: true },
+				{ id: "fresh", enabled: true },
+			];
+			writeFileSync(file, JSON.stringify({ version: 1, schedules, runs: [] }));
+			migrateRetiredPrefs(store, file);
+			const migrated = JSON.parse(readFileSync(file, "utf8"));
+			expect(migrated.schedules).toEqual(
+				schedules.map((schedule, index) => (index < 3 ? { ...schedule, enabled: false } : schedule)),
+			);
+			expect(migrated.runs).toEqual([]);
+			expect(store.data).toEqual({});
+			migrated.schedules[0].enabled = true;
+			writeFileSync(file, JSON.stringify(migrated));
+			migrateRetiredPrefs(store, file);
+			expect(JSON.parse(readFileSync(file, "utf8"))).toEqual(migrated);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("retires the stored memory and learning switches of an older version: a stored off no longer matters", () => {

@@ -3,7 +3,6 @@
  * Type-safe contract for the contextBridge API.
  */
 
-import type { BotAvatarAnswer } from "../../resources/gui-bridge/bot-avatar-contracts";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import type { AgentAppEvent, AgentControlViewEvent, AgentReviewEvent } from "./agent-control";
 import type {
@@ -24,11 +23,6 @@ import type {
 	AiMemorySweep,
 	AiMemoryWriteInput,
 } from "./ai-memory";
-import type { BotActivityPage } from "./bot-activity";
-import type { BotDeskAnswer, BotDeskState } from "./bot-desk";
-import type { BotDeskEdit } from "./bot-desk-edit";
-import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
-import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
@@ -105,12 +99,6 @@ export interface IpcHostSchedules {
 	state: SchedulesState;
 }
 
-/** A paired host's `BotDeskState`, pushed by the host whenever its bot's desk changes (`host.botDesk.changed`). */
-export interface IpcHostBotDesk {
-	device: string;
-	state: BotDeskState;
-}
-
 export const IPC_EVENTS = {
 	/** Batched agent session events (16ms cadence) */
 	EVENTS_BATCH: "rpc:events",
@@ -153,10 +141,6 @@ export const IPC_EVENTS = {
 	MODELS_CONFIG_CHANGED: "models-config:changed",
 	/** Session list changed */
 	SESSIONS_CHANGED: "sessions:changed",
-	/** The bot's desk changed (`BotDeskState`) */
-	BOT_DESK_CHANGED: "bot-desk:changed",
-	/** A paired host's bot desk changed (pushed by the host over the link); payload is an IpcHostBotDesk. */
-	HOST_BOT_DESK_STATE: "host-bot-desk:state",
 	/**
 	 * One computer's session summaries changed (`SummariesChanged`): this computer's (no `device`) or a paired host's.
 	 * Every row reads its run state, prompt and subagents from them (`shared/session-summary.ts`).
@@ -279,24 +263,6 @@ export const IPC_COMMANDS = {
 	SESSIONS_MOVE: "sessions:move",
 	/** Save one open session's diagnostic bundle: stock's `/dump all|anon` zip plus OMPdesk's diagnostics text (`DiagnosticBundleRequest` → `DiagnosticBundleResult`) */
 	SESSIONS_DUMP_BUNDLE: "sessions:dump-bundle",
-	/** The bot's session file (`string`), made first when it is missing: the sidebar's bot row opens it (`agent-control/bot-home.ts`) */
-	SESSIONS_ENSURE_BOT: "sessions:ensure-bot",
-	/** The bot's desk (`BotDeskState`, `shared/bot-desk.ts`): its duties, decisions and own wakes */
-	BOT_DESK_GET: "bot-desk:get",
-	/** The owner answers one open decision (`BotDeskAnswer`); main tells the bot */
-	BOT_DESK_ANSWER: "bot-desk:answer",
-	/** One edit of the bot's desk by the owner (`BotDeskEdit`: identity, routing, voice, side chats, pause, task marks, pins) */
-	BOT_DESK_EDIT: "bot-desk:edit",
-	/** The bot's activity log, newest page (`BotActivityPage`) */
-	BOT_ACTIVITY_GET: "bot-activity:get",
-	/** The owner records a workflow for the bot to turn into a skill: start, stop or cancel (`BotTeachRequest` → `BotTeachResult`, `shared/bot-teach.ts`) */
-	BOT_TEACH: "bot-desk:teach",
-	/** Whether the image model role can draw the bot's avatar (`BotAvatarAnswer`), asked through a live session's bridge */
-	BOT_AVATAR_STATUS: "bot-avatar:status",
-	/** Draw the bot's avatar on the image model role from the owner's words and set it (`BotDeskEdit` identity, logged with Undo) */
-	BOT_AVATAR_GENERATE: "bot-avatar:generate",
-	/** The owner takes over a session the bot opened, or hands it back (`BotTakeoverRequest` → `BotTakeoverResult`, `shared/bot-takeover.ts`) */
-	BOT_TAKEOVER: "bot-desk:takeover",
 	/** Fetch stats endpoint */
 	STATS_FETCH: "stats:fetch",
 	/** Run/cancel an isolated bundled `omp bench --json` process. */
@@ -592,11 +558,6 @@ export type RuntimeErrorSource =
 	 * `details.summary` the line its notification shows (cycles, commits, landed or pushed, why it stopped).
 	 */
 	| "autopilot"
-	/**
-	 * A report the bot got (src/main/agent-control/bot.ts): `message` is its kind (question, done, blocked,
-	 * note) or open-failed; `details.id`, `from` and `wake` (whether it started a turn).
-	 */
-	| "bot"
 	/**
 	 * An app update's decisions (src/main/updater.ts, `AutoInstallScheduler`; info level, `details.level: "info"`):
 	 * `message` is check, download, scheduler or swap and `details.event` the step (never a token or a URL).
@@ -1917,12 +1878,6 @@ export interface SessionInfo {
 	status: "complete" | "interrupted" | "aborted" | "error" | "pending" | "unknown";
 	/** Session kind read from the file header; absent = agent (legacy sessions). */
 	kind?: "chat";
-	/**
-	 * The computer's bot session (`botRowOf`), set by the computer that lists it: `on` while its owner has the bot on
-	 * (the fixed row, here and on a paired device), `off` while not (no row; no list shows it), `past` for a conversation
-	 * the bot ended (listed read-only under its row, `BotConversations`). Absent from a host that predates it.
-	 */
-	bot?: "on" | "off" | "past";
 	firstMessage: string;
 	/** Stock's `parentSessionPath`: the session this one was forked from (its file path, or its id). */
 	parentSessionPath?: string;
@@ -2429,31 +2384,6 @@ export interface OmpApi {
 		remoteOpened(): Promise<RemoteOpenedTab[]>;
 		/** The session files this computer's windows' tabs hold, idle or not (`SESSIONS_HELD`): the rows another window keeps. */
 		held(): Promise<string[]>;
-		/** The bot's session file on this computer, made first when it is missing (`SESSIONS_ENSURE_BOT`). */
-		ensureBot(): Promise<string>;
-		/** The bot's desk (`shared/bot-desk.ts`), kept by main. */
-		botDesk: {
-			/** `device` = a paired host's id: that computer's desk, read over the link. */
-			get(device?: string): Promise<BotDeskState>;
-			answer(payload: BotDeskAnswer, device?: string): Promise<void>;
-			/** One edit by the owner (`BotDeskEdit`); answers once main kept it. */
-			edit(payload: BotDeskEdit, device?: string): Promise<void>;
-			/** The newest page of the bot's activity log (`shared/bot-activity.ts`). */
-			activity(device?: string): Promise<BotActivityPage>;
-			/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel (`BOT_TEACH`). */
-			teach(payload: BotTeachRequest, device?: string): Promise<BotTeachResult>;
-			/** Whether the image model role can draw an avatar, without drawing one (`BOT_AVATAR_STATUS`). */
-			avatarStatus(): Promise<BotAvatarAnswer>;
-			/**
-			 * Draws the avatar on this computer's image model role and sets it on this computer's bot, or with `device`
-			 * on that paired host's; the desk's push carries it (`BOT_AVATAR_GENERATE`).
-			 */
-			generateAvatar(prompt: string, device?: string): Promise<void>;
-			/** Take over a session the bot opened (its turn stops) or hand it back with a note (`BOT_TAKEOVER`). */
-			takeover(payload: BotTakeoverRequest, device?: string): Promise<BotTakeoverResult>;
-			/** This computer's desk (no `device`) and every paired host's, as each pushes it. */
-			onChanged(callback: (state: BotDeskState, device?: string) => void): () => void;
-		};
 	};
 	tabs: {
 		/** The calling window's tabs in acquisition order (boot reconciliation). */

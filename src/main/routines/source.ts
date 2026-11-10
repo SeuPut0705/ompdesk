@@ -15,8 +15,8 @@ export interface SourceContext {
 	/** Its own run is going, or ended less than `ROUTINE_QUIET_MS` ago: what changes now are its own work. */
 	quiet(): boolean;
 	/**
-	 * The source cannot watch what it names: one line to the runtime log and a failed run in the routine's history (and
-	 * the bot's activity log). Sources call it through `failureReporter`, so a repeating failure is told once.
+	 * The source cannot watch what it names: one line to the runtime log and a failed run in the routine's history.
+	 * Sources call it through `failureReporter`, so a repeating failure is told once.
 	 */
 	warn(message: string): void;
 	/** Where this trigger stood when OMPdesk last ran (marks.ts; JSON the source parses), or undefined: take a baseline. */

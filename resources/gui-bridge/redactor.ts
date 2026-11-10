@@ -84,7 +84,7 @@ function isInertValue(raw: string): boolean {
 /**
  * Only the credentials group of `redactDiagnosticsText` (rule group 1 below): what must never leave this computer
  * whoever reads it, with emails, addresses and home folders left as they are. Pure; for text that is about a
- * person's own machine and work (the bot's demonstration record), where `<email>` and `~` would only blur it.
+ * person's own machine and work, where `<email>` and `~` would only blur it.
  */
 export function redactSecretText(text: string): string {
 	return text

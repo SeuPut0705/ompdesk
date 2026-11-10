@@ -33,7 +33,7 @@ Both plans ship the same fixes; they differ in **when** the Windows installer is
 
 | Plan | Owner | Windows signing | macOS notarization | Risk | Rollback | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| A — batch | Release bot | After smoke tests on the self-hosted runner | Same job, pinned certificate | Low | Revert the tag, keep the DMG | Needs \`release.yml\` edits in two places |
+| A — batch | Release automation | After smoke tests on the self-hosted runner | Same job, pinned certificate | Low | Revert the tag, keep the DMG | Needs \`release.yml\` edits in two places |
 | B — staged | Maintainer | Before smoke tests | Separate job | Medium | Pull both assets | One manual approval per release |
 
 Inline path: \`src/renderer/components/chat/very/deeply/nested/folder/structure/TranscriptRowWithAnExtremelyLongName.tsx\`.

@@ -3,10 +3,8 @@ import type { TabActivity } from "../sidecar-pool";
 import { createSessionSource, type SessionPorts, type SessionTab } from "./sessions";
 import { fakeContext } from "./test-context";
 
-const BOT = "/s/bot.jsonl";
-
 /** A pool whose tabs the test lists; `emit` is the tab activity the pool announces. */
-function fakePool(tabs: SessionTab[], botPath: string | null = BOT) {
+function fakePool(tabs: SessionTab[]) {
 	const observers = new Set<(activity: TabActivity) => void>();
 	const ports: SessionPorts = {
 		observeTabs: observer => {
@@ -14,7 +12,6 @@ function fakePool(tabs: SessionTab[], botPath: string | null = BOT) {
 			return () => observers.delete(observer);
 		},
 		tabs: () => tabs,
-		botPath: () => botPath,
 	};
 	const emit = (activity: TabActivity) => {
 		for (const observer of observers) observer(activity);
@@ -73,42 +70,31 @@ describe("session source", () => {
 		expect(fired).toEqual([]);
 	});
 
-	it("never fires for the bot, a session the bot opened (by tab or by file), what those opened, or a paired host's tab", () => {
+	it("never fires for the session a wake-up routine delivers into, what it opened (by tab or by file), what those opened, or a paired host's tab", () => {
+		const WAKE = "/s/wake.jsonl";
 		const pool = fakePool([
-			tab("bot", { sessionFile: BOT }),
-			tab("kid", { openedBy: "bot" }),
+			tab("wake", { sessionFile: WAKE }),
+			tab("kid", { openedBy: "wake" }),
 			tab("grandkid", { openedBy: "kid" }),
-			tab("relaunched", { openedBy: "stale-tab-id", openedBySession: BOT }),
+			tab("relaunched", { openedBy: "stale-tab-id", openedBySession: WAKE }),
 			tab("remote", { device: "dev-1" }),
 			tab("own"),
 		]);
 		const { context, fired } = fakeContext();
-		createSessionSource({ events: ["done"], sessions: pool.ports, context });
-		for (const id of ["bot", "kid", "grandkid", "relaunched", "remote"]) pool.emit(idle(id));
+		createSessionSource({ events: ["done"], wakeSession: WAKE, sessions: pool.ports, context });
+		for (const id of ["wake", "kid", "grandkid", "relaunched", "remote"]) pool.emit(idle(id));
 		expect(fired).toEqual([]);
 		pool.emit(idle("own"));
 		expect(fired).toHaveLength(1);
 	});
 
-	it("follows the bot's family only while the bot is on, and never the session a wake-up routine delivers into", () => {
-		const off = fakePool([tab("bot", { sessionFile: BOT }), tab("kid", { openedBy: "bot" })], null);
-		const a = fakeContext();
-		createSessionSource({ events: ["done"], sessions: off.ports, context: a.context });
-		off.emit(idle("bot"));
-		off.emit(idle("kid"));
-		expect(a.fired).toHaveLength(2);
-
-		const pool = fakePool(
-			[tab("wake", { sessionFile: "/s/wake.jsonl" }), tab("wakeKid", { openedBy: "wake" }), tab("other")],
-			null,
-		);
-		const b = fakeContext();
-		createSessionSource({ events: ["done"], wakeSession: "/s/wake.jsonl", sessions: pool.ports, context: b.context });
+	it("follows every session when the routine wakes none", () => {
+		const pool = fakePool([tab("wake", { sessionFile: "/s/wake.jsonl" }), tab("wakeKid", { openedBy: "wake" })]);
+		const { context, fired } = fakeContext();
+		createSessionSource({ events: ["done"], sessions: pool.ports, context });
 		pool.emit(idle("wake"));
 		pool.emit(idle("wakeKid"));
-		expect(b.fired).toEqual([]);
-		pool.emit(idle("other"));
-		expect(b.fired).toHaveLength(1);
+		expect(fired).toHaveLength(2);
 	});
 
 	it("filters by folder at path segments", () => {

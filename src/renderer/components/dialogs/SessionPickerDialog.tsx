@@ -40,10 +40,6 @@ import {
 
 type SessionScope = "local" | "global";
 
-/** A conversation the picker lists: one with content, never the bot's while it is off nor one the bot ended. */
-const pickable = (session: SessionInfo): boolean =>
-	sessionHasContent(session) && (session.bot === undefined || session.bot === "on");
-
 /** Delay before the main-process content grep is consulted for the current query. */
 const CONTENT_SEARCH_DEBOUNCE_MS = 200;
 /** Minimum query length for content augmentation (single characters match everything). */
@@ -89,7 +85,7 @@ export function SessionPickerDialog() {
 		setSortMode("recent");
 		setShowPath(null);
 		// The sidebar's list (or the last run's snapshot of it) fills the dialog at once; the read below replaces it.
-		const known = sessionListFeed("global").store.getState().sessions.filter(pickable);
+		const known = sessionListFeed("global").store.getState().sessions.filter(sessionHasContent);
 		setSessions(known);
 		setLoading(known.length === 0);
 		setError(null);
@@ -105,7 +101,7 @@ export function SessionPickerDialog() {
 			try {
 				// A header-only file (stock `new_session` writes one at once) is not a conversation: stock's
 				// own picker drops it too (`filterSessionsForPicker`), and so does the sidebar.
-				const global = (await window.omp.sessions.list("global")).filter(pickable);
+				const global = (await window.omp.sessions.list("global")).filter(sessionHasContent);
 				if (cancelled) return;
 				listsRef.current.global = global;
 				setSessions(global);
@@ -127,7 +123,7 @@ export function SessionPickerDialog() {
 		setError(null);
 		setActiveIndex(0);
 		try {
-			const list = listsRef.current[target] ?? (await window.omp.sessions.list(target)).filter(pickable);
+			const list = listsRef.current[target] ?? (await window.omp.sessions.list(target)).filter(sessionHasContent);
 			listsRef.current[target] = list;
 			setSessions(list);
 			setScope(target);

@@ -52,21 +52,6 @@
  * - The host's sidebar project list (sidebar-projects.ts): `host.projects.command {request: SidebarProjectsRequest}`
  *   → SidebarProjectsState (get, add a folder the person opened there, remove one from the sidebar); the host pushes
  *   every change as the `host.projects.changed` event
- * - The host's bot desk (agent-control/bot-desk.ts; the bot's home on a device): `host.botDesk.get {}` →
- *   BotDeskState (an empty desk while the host's bot is off), `host.botDesk.answer {id, answer}` → null (refused
- *   `bot_off` while the bot is off there; an answer reaches the host's bot exactly as one given at the host, and counts
- *   as one model request of the device),
- *   `host.botDesk.edit BotDeskEdit` → null (identity, routing, voice, side chats, pause, task marks, pins; refused
- *   `bot_off` the same way) and `host.botDesk.activity {}` → BotActivityPage (empty while off); the host pushes every
- *   desk change as the `host.botDesk.changed` event (the activity log is read, never pushed)
- * - Showing the host's bot a workflow (agent-control/bot-teach.ts): `host.botDesk.teach {action: "start" | "stop" |
- *   "cancel"}` → `{delivered}` (refused `bot_off` while the bot is off there; it records what the owner does in the
- *   host's own windows, and `BotDeskState.teaching` says since when; Stop hands the host's bot the record and counts
- *   as one model request of the device, refunded when nothing was recorded)
- * - Taking over a session the host's bot opened (agent-control/bot-takeover.ts): `host.botDesk.takeover {action: "take"
- *   | "handBack", sessionPath}` → `{lines?}` (refused `bot_off` while the bot is off there, `session_not_open` when no
- *   tab there holds it); `BotDeskState.takeovers` lists the sessions taken over; the device's own terminal requests
- *   to that tab are captured on the host, and a hand-back starts the session's turn: one model request of the device
  * - Agent control on a session the host runs (agent-control/branches.ts and local/git/worktree.ts on the host's
  *   own checkout; `worktree` = `{path, branch, baseCwd}` of the tab's binding): `host.git.facts {worktree}` →
  *   BranchFacts, `host.git.evidence {worktree, diffChars}` → BranchEvidence (the child's diff cut to `diffChars`
@@ -108,7 +93,7 @@
  *   hold are deleted); each delete is pushed as the `host.sessionsDeleted` event. An older host answers `unsupported`.
  *
  * Events (B → A): `tab.event` (TabEventMessage), `sessions.changed` (no data), `host.ompUpdate.changed`,
- * `host.schedules.changed`, `host.projects.changed`, `host.botDesk.changed`, `host.models.changed`, `host.previewRelay`, `host.summaries`,
+ * `host.schedules.changed`, `host.projects.changed`, `host.models.changed`, `host.previewRelay`, `host.summaries`,
  * `host.sessionsDeleted` and `host.remoteOpened`.
  * Both sides parse what crosses the link with the schemas below.
  */
@@ -207,8 +192,6 @@ export const OMP_UPDATE_EVENT = "host.ompUpdate.changed";
 export const MODEL_WAIT_EVENT = "host.modelWait.changed";
 /** The host's scheduled runs changed (data: SchedulesState); sent to every connected device. */
 export const SCHEDULES_EVENT = "host.schedules.changed";
-/** The host's bot desk changed (data: BotDeskState); sent to every connected device. */
-export const BOT_DESK_EVENT = "host.botDesk.changed";
 /**
  * The host's models.yml was changed by the host itself (a local inference engine came or went; no data); sent to every
  * connected device, whose open provider list and model picker of that host read again. An older device drops it.

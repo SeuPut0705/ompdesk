@@ -92,7 +92,7 @@ describe("the email trigger", () => {
 				2,
 				[
 					"From: Ann <ann@example.com>",
-					"To: owner+bot@example.com",
+					"To: owner+ci@example.com",
 					"Subject: Nightly failed",
 					"Date: Sun, 1 Nov 2026 09:00:00 +0900",
 				],
@@ -102,7 +102,7 @@ describe("the email trigger", () => {
 		);
 		await polls(polled() + 2);
 		expect(fired).toEqual([
-			'New mail in Work from Ann <ann@example.com> to owner+bot@example.com: "Nightly failed" (Sun, 1 Nov 2026 09:00:00 +0900). It begins: The nightly build failed on main.',
+			'New mail in Work from Ann <ann@example.com> to owner+ci@example.com: "Nightly failed" (Sun, 1 Nov 2026 09:00:00 +0900). It begins: The nightly build failed on main.',
 			'New mail in Work from bob@example.com to owner@example.com: "lunch". It begins: noodles?',
 		]);
 		await polls(polled() + 2);
@@ -110,13 +110,13 @@ describe("the email trigger", () => {
 	});
 
 	it("fires only mail matching its filters: a plus-address, a sender, words in the subject", async () => {
-		const { imap, fired, polls, polled } = await rig({ to: "owner+bot@", from: "ann@", subject: "deploy" });
+		const { imap, fired, polls, polled } = await rig({ to: "owner+ci@", from: "ann@", subject: "deploy" });
 		await polls(2);
 		imap.mail.push(
 			mail(1, ["From: ann@example.com", "To: owner@example.com", "Subject: deploy please"]),
-			mail(2, ["From: carl@example.com", "To: owner+bot@example.com", "Subject: deploy please"]),
-			mail(3, ["From: ann@example.com", "To: owner+bot@example.com", "Subject: lunch"]),
-			mail(4, ["From: Ann <ANN@example.com>", "Cc: Owner+Bot@example.com", "Subject: Deploy v2 please"]),
+			mail(2, ["From: carl@example.com", "To: owner+ci@example.com", "Subject: deploy please"]),
+			mail(3, ["From: ann@example.com", "To: owner+ci@example.com", "Subject: lunch"]),
+			mail(4, ["From: Ann <ANN@example.com>", "Cc: Owner+Ci@example.com", "Subject: Deploy v2 please"]),
 		);
 		await polls(polled() + 2);
 		expect(fired).toEqual([expect.stringContaining('"Deploy v2 please"')]);
@@ -133,10 +133,10 @@ describe("the email trigger", () => {
 				"Subject: Re: build",
 			]),
 			mail(2, ["From: notifications@example.com", "Auto-Submitted: auto-replied", "Subject: Out of office"]),
-			mail(3, ["From: owner@example.com", "To: owner+bot@example.com", "Subject: a note to my bot"]),
+			mail(3, ["From: owner@example.com", "To: owner+ci@example.com", "Subject: a note to myself"]),
 		);
 		await polls(polled() + 2);
-		expect(fired).toEqual([expect.stringContaining('"a note to my bot"')]);
+		expect(fired).toEqual([expect.stringContaining('"a note to myself"')]);
 	});
 
 	it("tells a missing account or a refused login once, keeps polling, and starts from a baseline when it can read", async () => {

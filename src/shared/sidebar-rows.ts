@@ -84,11 +84,6 @@ export interface SidebarFacts {
 	archived: ReadonlySet<string>;
 	/** Session files and tab ids another section shows (a child nested under its opener elsewhere): no row here. */
 	nested: ReadonlySet<string>;
-	/**
-	 * Sessions nested under a row outside this computer's projects (the bot's fixed row): children with an opener, so
-	 * never a loose child, and rows of their own project like any session.
-	 */
-	openedElsewhere?: ReadonlySet<string>;
 	order: RowOrder;
 	query: string;
 	nameOf: (group: string) => string;
@@ -297,92 +292,19 @@ export function openerOfSessions(
 	return roots;
 }
 
-/** What the bot's family rule reads: its session, the conversations it ended, its side chats, and the computer's rows. */
-export interface BotFamilyFacts {
-	bot: string;
-	/** The bot's ended conversations (`bot: "past"`): they stand for it, so what they opened is its family too. */
-	ended: ReadonlySet<string>;
-	/** Its side chats: the bot's own conversations, not plain chats. */
-	channels: ReadonlySet<string>;
-	tabs: readonly FamilyTab[];
-	/** Every row before families take theirs (`SidebarRows.sessions` with nothing nested). */
-	sessions: readonly RowSession[];
-	recordedOpeners: ReadonlyMap<string, string>;
-	/** The computer's no-project workspace: a session there is a chat. */
-	workspace: string | null;
-}
-
-export interface BotFamily {
-	bot: string;
-	/** The rows that nest under the bot's fixed row, oldest first. */
-	sessions: RowSession[];
-	/**
-	 * What the lists leave out (`SidebarFacts.nested`): the files, ids and tabs of its side chats and of the chats it
-	 * opened, which no project holds.
-	 */
-	keys: ReadonlySet<string>;
-	/** The other sessions of its family: rows of their own project too (`SidebarFacts.openedElsewhere`). */
-	placed: ReadonlySet<string>;
-	/**
-	 * Whether a session of this computer is the bot's: its own file, a conversation it ended, or one of its family. What
-	 * such a session opened, here or on a paired device, nests under the bot's row.
-	 */
-	owns: (session: string) => boolean;
-}
-
-/**
- * What the bot opened, and what those opened, nests under its fixed row like any opener's family: the opener rule runs
- * over the rows with the bot's session and its ended conversations as candidates, which no list holds. Its side chats
- * and the chats it opened leave the lists; the bot's row is in no project, so every other one stays a row of its own.
- */
-export function botFamily(facts: BotFamilyFacts): BotFamily {
-	const { bot, ended, channels } = facts;
-	const family = openerOfSessions(
-		facts.tabs,
-		[
-			{ path: bot, id: bot },
-			...[...ended].map(path => ({ path, id: path })),
-			...facts.sessions.map(session => ({
-				path: session.path,
-				id: session.id,
-				created: session.created,
-				...(session.liveTabId === undefined ? {} : { liveTabId: session.liveTabId }),
-			})),
-		],
-		facts.recordedOpeners,
-	);
-	const owns = (session: string) => {
-		const root = family.get(session) ?? session;
-		return root === bot || ended.has(root) || channels.has(session);
-	};
-	const sessions = facts.sessions
-		.filter(session => owns(session.path))
-		.toSorted((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : a.path < b.path ? -1 : 1));
-	const left = sessions.filter(kid => channels.has(kid.path) || isChatSession(kid, facts.workspace));
-	const keys = new Set(left.flatMap(kid => [kid.path, kid.id, ...(kid.liveTabId ? [kid.liveTabId] : [])]));
-	for (const tab of facts.tabs)
-		if ((tab.sessionPath && keys.has(tab.sessionPath)) || (tab.sessionId && keys.has(tab.sessionId)))
-			keys.add(tab.id);
-	const placed = new Set(sessions.flatMap(kid => (left.includes(kid) ? [] : [kid.path])));
-	return { bot, sessions, keys, placed, owns };
-}
-
 /**
  * Tabs on a paired device that a session of this computer opened (`ompdesk_session_open {device}`): child tab id → the
- * row it nests under, the one a local session that opener opened would nest under: the bot's for anything the bot's
- * family opened (`bot`, its ended conversations included), else the session that started the opener's chain
- * (`rows.rootOf`). The opener is found by tab id while it is open here, else by the session file a relaunch kept when
- * that file is one of this computer's. Such a child leaves its device's own list. A tab a session on a paired device
- * opened stays the device's.
+ * row it nests under, the one a local session that opener opened would nest under: the session that started the
+ * opener's chain (`rows.rootOf`). The opener is found by tab id while it is open here, else by the session file a
+ * relaunch kept when that file is one of this computer's. Such a child leaves its device's own list. A tab a session
+ * on a paired device opened stays the device's.
  */
 export function remoteOpenedChildren(
 	tabs: readonly (FamilyTab & { device?: string })[],
 	rows: Pick<SidebarRows, "sessions" | "rootOf">,
-	bot: Pick<BotFamily, "bot" | "owns"> | null,
 ): Map<string, string> {
 	const local = new Set(rows.sessions.map(session => session.path));
-	const rootOf = (path: string): string | undefined =>
-		bot?.owns(path) ? bot.bot : local.has(path) ? (rows.rootOf.get(path) ?? path) : undefined;
+	const rootOf = (path: string): string | undefined => (local.has(path) ? (rows.rootOf.get(path) ?? path) : undefined);
 	const children = new Map<string, string>();
 	for (const tab of tabs) {
 		if (tab.device === undefined) continue;
@@ -399,38 +321,15 @@ export function remoteOpenedChildren(
 
 /**
  * The rows every view of one computer's sessions draws (its windows, its phone pages, a paired device's section of it):
- * `sidebarRows`, with the bot's family (`botFamily`, its tabs `bot.tabs`) under the bot's fixed row (its side chats and
- * chats out of the lists, the rest rows of their own project too), and where each tab a session of that computer opened
- * on a paired device nests (`remoteOpenedChildren`): a tab the view holds, or a stand-in for one another view of the
- * computer holds. The openers the bot's rule reads are the ones the rows record (`openedBySession`).
+ * `sidebarRows`, and where each tab a session of that computer opened on a paired device nests
+ * (`remoteOpenedChildren`): a tab the view holds, or a stand-in for one another view of the computer holds.
  */
 export function familyRows(
 	facts: SidebarFacts,
-	bot: Pick<BotFamilyFacts, "bot" | "ended" | "channels" | "tabs"> | null,
 	remoteTabs: readonly (FamilyTab & { device?: string })[],
-): { rows: SidebarRows; bot: BotFamily | null; remote: Map<string, string> } {
-	const base = sidebarRows(facts);
-	const family =
-		bot &&
-		botFamily({
-			...bot,
-			sessions: base.sessions,
-			recordedOpeners: new Map(
-				facts.sessions.flatMap(session =>
-					typeof session.openedBySession === "string" ? [[session.path, session.openedBySession] as const] : [],
-				),
-			),
-			workspace: facts.workspace,
-		});
-	const rows =
-		family && family.sessions.length > 0
-			? sidebarRows({
-					...facts,
-					nested: new Set([...facts.nested, ...family.keys]),
-					openedElsewhere: family.placed,
-				})
-			: base;
-	return { rows, bot: family, remote: remoteOpenedChildren(remoteTabs, rows, family) };
+): { rows: SidebarRows; remote: Map<string, string> } {
+	const rows = sidebarRows(facts);
+	return { rows, remote: remoteOpenedChildren(remoteTabs, rows) };
 }
 
 /** Stock's own `created` (the session header's timestamp): fixed for a session's life, unlike `modified`. */
@@ -568,13 +467,7 @@ export function sidebarRows(facts: SidebarFacts): SidebarRows {
 	for (const session of code) {
 		// Finished or nested under an opener: never a loose child. A finished worktree's session is no row anywhere unless
 		// a tab the person uses holds it, whatever a record says of the checkout its work went to.
-		if (
-			rootOf.has(session.path) ||
-			facts.openedElsewhere?.has(session.path) ||
-			runParent.has(session.path) ||
-			finished(session)
-		)
-			continue;
+		if (rootOf.has(session.path) || runParent.has(session.path) || finished(session)) continue;
 		const folder = facts.folder(session.cwd);
 		if (
 			facts.closed.has(session.path) ||

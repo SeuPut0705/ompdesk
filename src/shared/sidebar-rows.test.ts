@@ -10,9 +10,7 @@ import { describe, expect, it } from "vitest";
 import { wrapAgentMessage } from "./agent-control";
 import type { SessionInfo } from "./ipc-types";
 import {
-	botFamily,
 	CHATS_ORDER_KEY,
-	familyRows,
 	holdRows,
 	type RowSession,
 	type RowTab,
@@ -350,9 +348,6 @@ describe("sidebarRows over every combination of folder, holder and opener", () =
 });
 
 describe("remoteOpenedChildren: a session opened on a paired device nests where a local one would", () => {
-	const BOT = "/s/bot.jsonl";
-	const PAST = "/s/bot-before.jsonl";
-	const KID = "/s/kid.jsonl";
 	const CHILD = "/s/child.jsonl";
 	const listed = (path: string, minute: number, openedBySession: string | null): SessionInfo => ({
 		path,
@@ -379,66 +374,13 @@ describe("remoteOpenedChildren: a session opened on a paired device nests where 
 		device: "dev-win",
 		...opener,
 	});
-	/**
-	 * This computer's rows as its sidebar builds them: the bot's files are no list's rows (its ended conversation
-	 * included), its family is nested out, and what each session opened is recorded. KID was opened by the bot's ended
-	 * conversation, CHILD by the plain session BOSS.
-	 */
+	/** This computer's rows as its sidebar builds them, with what each session opened recorded: BOSS opened CHILD. */
 	function computer(tabs: RowTab[]) {
 		const base = world([]);
-		const sessions = [...base.sessions, listed(KID, 1, PAST), listed(CHILD, 2, BOSS)];
-		const facts: SidebarFacts = { ...base, sessions, tabs };
-		const recordedOpeners = new Map([
-			[KID, PAST],
-			[CHILD, BOSS],
-		]);
-		const bot = botFamily({
-			bot: BOT,
-			ended: new Set([PAST]),
-			channels: new Set(),
-			tabs,
-			sessions: sidebarRows(facts).sessions,
-			recordedOpeners,
-			workspace: base.workspace,
-		});
-		const rows = sidebarRows({ ...facts, nested: bot.keys, openedElsewhere: bot.placed });
-		return { rows, bot, nest: (id: string) => remoteOpenedChildren(tabs, rows, bot).get(id) };
+		const facts: SidebarFacts = { ...base, sessions: [...base.sessions, listed(CHILD, 2, BOSS)], tabs };
+		const rows = sidebarRows(facts);
+		return { rows, nest: (id: string) => remoteOpenedChildren(tabs, rows).get(id) };
 	}
-
-	it("puts what the bot's ended conversation opened under the bot once that conversation's tab is gone", () => {
-		const { nest } = computer([remote("r1", { openedBySession: PAST })]);
-		expect(nest("r1")).toBe(BOT);
-	});
-
-	it("puts what a session of the bot's family opened under the bot, its tab open or not", () => {
-		const kidTab: RowTab = {
-			id: "t-kid",
-			sessionPath: KID,
-			sessionId: KID,
-			cwd: APP,
-			kind: "agent",
-			title: null,
-			status: "ready",
-			seenAt: "2026-10-02T00:00:00Z",
-		};
-		expect(computer([remote("r1", { openedBySession: KID })]).nest("r1")).toBe(BOT);
-		expect(computer([kidTab, remote("r1", { openedBy: "t-kid", openedBySession: KID })]).nest("r1")).toBe(BOT);
-	});
-
-	it("puts what the bot's current conversation opened under the bot", () => {
-		const botTab: RowTab = {
-			id: "t-bot",
-			sessionPath: BOT,
-			sessionId: BOT,
-			cwd: "/u/.omp/work",
-			kind: "chat",
-			title: null,
-			status: "ready",
-			seenAt: "2026-10-02T00:00:00Z",
-		};
-		expect(computer([botTab, remote("r1", { openedBy: "t-bot" })]).nest("r1")).toBe(BOT);
-		expect(computer([remote("r1", { openedBySession: BOT })]).nest("r1")).toBe(BOT);
-	});
 
 	it("puts what an opened session opened under the session that started its chain, as a local child", () => {
 		const { rows, nest } = computer([remote("r1", { openedBySession: CHILD })]);
@@ -505,28 +447,6 @@ describe("a session opened in another project is a row of its own project too", 
 	it("keeps one in its opener's project, a worktree of it included, only under the opener", () => {
 		for (const cwd of [APP, FOLDERS.wtl, FOLDERS.wta])
 			for (const tab of [true, false]) expect(placements(sidebarRows(opened(cwd, tab))).get(KID)).toEqual(["child"]);
-	});
-
-	it("lists what the bot opened in its own project as a plain row, its side chats nowhere", () => {
-		const BOT = "/s/bot.jsonl";
-		const SIDE = "/s/side.jsonl";
-		const base = opened(OTHER, false);
-		const side: SessionInfo = { ...(base.sessions.at(-1) as SessionInfo), path: SIDE, id: SIDE, cwd: FOLDERS.chat };
-		const facts: SidebarFacts = {
-			...base,
-			sessions: [
-				...base.sessions.map(session =>
-					session.path === KID
-						? { ...session, openedBySession: BOT, firstMessage: wrapAgentMessage("Go", "Bot") }
-						: session,
-				),
-				side,
-			],
-		};
-		const { rows, bot } = familyRows(facts, { bot: BOT, ended: new Set(), channels: new Set([SIDE]), tabs: [] }, []);
-		expect(bot?.sessions.map(session => session.path).sort()).toEqual([KID, SIDE]);
-		expect(placements(rows).get(KID)).toEqual([`group:${OTHER}`]);
-		expect(placements(rows).get(SIDE)).toBeUndefined();
 	});
 });
 

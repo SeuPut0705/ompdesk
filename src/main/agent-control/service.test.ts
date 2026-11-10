@@ -757,7 +757,7 @@ describe("ompdesk_session_open", () => {
 
 	it("marks a just-started session a worker however long its omp takes to answer: no time limit fails a live start", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
-		// Past every bound this command once had (8 s, then 60 s): three of the bot's opens failed on the last one.
+		// Past every bound this command once had (8 s, then 60 s): three opens failed on the last one.
 		host.workerAnswersAfterMs = 10 * 60_000;
 		const result = await control(host).run("main0001", T.open, { message: "go", worktree: { base: "default" } });
 		expect(result.isError, result.text).toBe(false);
@@ -1009,17 +1009,15 @@ describe("ompdesk_session_send", () => {
 		expect(prompts(host, "work0002")).toEqual([wrapAgentMessage("please review", "Boss")]);
 	});
 
-	it("says nothing was delivered when the target's omp refuses the message (an ended bot conversation)", async () => {
-		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Old bot" });
+	it("says nothing was delivered when the target's omp refuses the message", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
 		const command = host.command;
 		host.command = async (tabId, request, timeoutMs) => {
 			if (tabId === "work0002" && request.type === "prompt") {
 				host.sent.push({ tabId, command: request });
 				return {
-					...bad(
-						"This is an earlier conversation of the bot, kept to read. Write to the bot in its current conversation.",
-					),
-					code: "bot_conversation_ended",
+					...bad("Sidecar not ready"),
+					code: "sidecar_not_ready",
 				} as RpcResponse;
 			}
 			return command.call(host, tabId, request, timeoutMs);
@@ -1027,7 +1025,7 @@ describe("ompdesk_session_send", () => {
 		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain("Not delivered");
-		expect(result.text).toContain("earlier conversation of the bot, kept to read");
+		expect(result.text).toContain("Sidecar not ready");
 		expect(result.text).not.toContain("accepted");
 		expect((host.tabsById.get("work0002") as FakeTab).busy).toBeFalsy();
 	});
@@ -1700,9 +1698,7 @@ describe("ompdesk_tab_focus and ompdesk_notify", () => {
 		expect(host.views).toEqual([{ tabId: "work0002", how: "split-right" }]);
 		expect((await service.run("main0001", T.focus, { session: "work0003" })).isError).toBe(true);
 		await service.run("main0001", T.notify, { title: "Done", body: "all three" });
-		expect(host.notify).toHaveBeenCalledWith("main0001", "Done", "all three", "done");
-		await service.run("main0001", T.notify, { title: "Halfway", kind: "progress" });
-		expect(host.notify).toHaveBeenLastCalledWith("main0001", "Halfway", "", "progress");
+		expect(host.notify).toHaveBeenCalledWith("main0001", "Done", "all three");
 	});
 });
 
@@ -2542,7 +2538,7 @@ describe("ompdesk_schedule", () => {
 	});
 
 	it("with target self wakes the caller's own session: its file is the draft's wakeSession, in its own folder, after the card", async () => {
-		const host = new FakeHost({ tabId: "main0001", title: "Bot", cwd: "/work", sessionPath: "/s/bot.jsonl" });
+		const host = new FakeHost({ tabId: "main0001", title: "Boss", cwd: "/work", sessionPath: "/s/self.jsonl" });
 		const service = control(host);
 		const made = await service.run("main0001", T.schedule, {
 			action: "create",
@@ -2563,7 +2559,7 @@ describe("ompdesk_schedule", () => {
 			model: null,
 			autoApprove: false,
 			enabled: true,
-			wakeSession: "/s/bot.jsonl",
+			wakeSession: "/s/self.jsonl",
 		});
 		// A plain create has no wake target.
 		await service.run("main0001", T.schedule, { action: "create", name: "n", prompt: "p", every_minutes: 60 });
@@ -2579,7 +2575,7 @@ describe("ompdesk_schedule", () => {
 
 	it("with target self refuses a folder, a model or a device, a session with no file, and a session on a paired device", async () => {
 		const host = new FakeHost(
-			{ tabId: "main0001", cwd: "/work", sessionPath: "/s/bot.jsonl" },
+			{ tabId: "main0001", cwd: "/work", sessionPath: "/s/self.jsonl" },
 			{ tabId: "bare0002", cwd: "/work" },
 			{ tabId: "remo0003", device: "studio-id", deviceName: "Studio", cwd: "/srv", sessionPath: "/s/remote.jsonl" },
 		);
@@ -3782,51 +3778,6 @@ describe("ompdesk_sessions scopes", () => {
 		const off = await onFakeClock(() => service.run("main0001", T.list, { scope: "stored", device: "Laptop" }));
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
-	});
-
-	it("names the bot's live conversation by its name, and lists an ended one's tab as an earlier conversation", async () => {
-		// A paired device's window still holds a tab of the host's ended bot conversation; the live one is the host's.
-		const host = new FakeHost(
-			{ tabId: "main0001", title: "Boss" },
-			{
-				tabId: "past0002",
-				title: "봇봇이",
-				device: desktop.id,
-				deviceName: desktop.name,
-				sessionPath: "C:/s/bot-old.jsonl",
-				bot: "past",
-				last: "the old conversation",
-			},
-		);
-		host.deviceList = [desktop];
-		host.storedRows = [
-			storedRow({
-				id: "aaaa1111-old",
-				path: "C:/s/bot-old.jsonl",
-				title: "봇봇이",
-				device: desktop.id,
-				bot: "past",
-			}),
-			storedRow({
-				id: "bbbb2222-now",
-				path: "C:/s/bot-now.jsonl",
-				title: "봇봇이",
-				device: desktop.id,
-				bot: "on",
-				elsewhere: {},
-			}),
-		];
-		host.storedTranscripts.set("C:/s/bot-now.jsonl", [
-			{ role: "assistant", content: "the live conversation" },
-		] as AgentMessage[]);
-		const service = control(host);
-		const listed = (await service.run("main0001", T.list, {})).text;
-		expect(listed).toMatch(/past0002 "봇봇이" \[[^\]]*earlier conversation of the bot, read-only/);
-		const result = (await service.run("main0001", T.result, { session: "봇봇이" })).text;
-		expect(result).toContain("the live conversation");
-		expect(result).not.toContain("the old conversation");
-		// Its own id still reaches the ended conversation, to read it.
-		expect((await service.run("main0001", T.result, { session: "past0002" })).text).toContain("the old conversation");
 	});
 });
 
@@ -5777,7 +5728,7 @@ describe("messages that outlive the omp they were handed to", () => {
 });
 
 describe("an id keeps naming its session after its tab is gone, and says when the session was deleted", () => {
-	// 3 to 10 Nov 2026, the bot's journals: `No session "<id>"` 14 times on ids ompdesk_session_open had returned.
+	// 3 to 10 Nov 2026, one session's journals: `No session "<id>"` 14 times on ids ompdesk_session_open had returned.
 	let dir: string;
 	beforeEach(() => {
 		dir = mkdtempSync(join(tmpdir(), "agent-session-fates-"));
@@ -5951,7 +5902,7 @@ describe("a message to a closed child whose folder is gone", () => {
 });
 
 describe("a cleanup refused while the person was in the session", () => {
-	// 3 to 10 Nov 2026: 6 stops of sessions the bot had opened were refused, and nothing reminded it of them.
+	// 3 to 10 Nov 2026: 6 stops of opened sessions were refused, and nothing reminded their opener of them.
 	const seen: Partial<FakeTab> = { tabId: "seen0002", title: "Seen", looked: true, sessionPath: "/s/a.jsonl" };
 	const setup = () => {
 		const host = new FakeHost(
@@ -6008,21 +5959,17 @@ describe("a cleanup refused while the person was in the session", () => {
 		expect(toBoss(host).filter(mail => mail.content.includes("pending cleanups"))).toEqual([]);
 	});
 
-	it("survives a relaunch, and follows the bot into its next conversation", async () => {
+	it("survives a relaunch and another tab id for the same session", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "agent-pending-cleanups-"));
 		try {
 			const file = join(dir, "agent-pending-cleanups.json");
 			const before = setup();
 			before.host.cleanups = new PendingCleanups(file);
-			Object.assign(before.boss, { bot: "on" });
 			const first = control(before.host);
 			await first.run("boss0001", T.stop, { session: "seen0002", close: true });
 
-			// After the relaunch the bot's conversation has renewed: another tab id, another session file.
-			const after = new FakeHost(
-				{ tabId: "boss0009", title: "Boss", bot: "on", sessionPath: "/s/boss-2.jsonl" },
-				seen,
-			);
+			// A relaunch gives the same session another tab id.
+			const after = new FakeHost({ tabId: "boss0009", title: "Boss", sessionPath: "/s/boss.jsonl" }, seen);
 			after.cleanups = new PendingCleanups(file);
 			control(after).personTyped("boss0009");
 			const told = after.mails.filter(mail => mail.to === "boss0009");

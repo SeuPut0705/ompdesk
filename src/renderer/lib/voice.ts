@@ -11,25 +11,20 @@
  *   tool-result text, "yield" speaks only the last assistant message of a
  *   run. Synthesis runs on the sidecar's local TTS (`synthesize_speech` RPC);
  *   playback is a plain Audio element.
- * - The voice call (`voice-call.ts`) streams both ways over the bridge's `stt_stream_*` / `tts_stream_*` commands
- *   ({@link SttStream}, {@link createPcmTap}, {@link playSpeechStream}) and falls back to the whole-clip paths above.
  *
  * Playback policy: one utterance at a time — a speak request arriving while
  * another is still synthesizing or playing is DROPPED (documented choice;
  * the TUI vocalizer chains utterances, the GUI keeps the transport simple).
  */
 import type { SynthesizeSpeechResult, TranscribeAudioResult } from "../../shared/rpc-types";
-import { useBotStore } from "../stores/bot";
-import { useBotDeskStore } from "../stores/bot-desk";
 import { useMessagesStore } from "../stores/messages";
 import { useSessionStore } from "../stores/session";
 import { useSettingsStore } from "../stores/settings";
-import { useTabsStore } from "../stores/tabs";
 import { toastError } from "../stores/toast";
 import { translate } from "./i18n";
 import { messageText } from "./messages";
 
-export const STT_SAMPLE_RATE = 16_000;
+const STT_SAMPLE_RATE = 16_000;
 const WAV_HEADER_BYTES = 44;
 
 // ---------------------------------------------------------------------------
@@ -67,7 +62,7 @@ function encodeWavPcm16(samples: Float32Array, sampleRate: number): Uint8Array {
 	return new Uint8Array(buffer);
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
+function bytesToBase64(bytes: Uint8Array): string {
 	let binary = "";
 	const chunkSize = 0x8000;
 	for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -76,7 +71,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
 	return btoa(binary);
 }
 
-export function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
 	const binary = atob(base64);
 	// A fresh ArrayBuffer keeps the type BlobPart-compatible
 	// (Uint8Array<ArrayBufferLike> is rejected under TS's generic ArrayBuffer).
@@ -140,9 +135,9 @@ const METER_INTERVAL_MS = 60;
 
 /**
  * The spectrum as {@link METER_BARS} bands of the speech range (≈ 0–4 kHz of an AnalyserNode's byte spectrum), each in
- * 0–1. Shared by the dictation meter and the voice call's.
+ * 0–1.
  */
-export function speechBandLevels(bins: Uint8Array, sampleRate: number): number[] {
+function speechBandLevels(bins: Uint8Array, sampleRate: number): number[] {
 	const speechBins = Math.max(METER_BARS, Math.round((4000 / (sampleRate / 2)) * bins.length));
 	const perBar = Math.floor(speechBins / METER_BARS);
 	const levels: number[] = [];
@@ -257,13 +252,12 @@ export async function recordAndTranscribe(listener: DictationListener = {}): Pro
 	listener.onTranscribing?.();
 	const onPreparing = listener.onPreparing;
 	if (!onPreparing) return transcribeBlob(new Blob(state.chunks, { type: recorder.mimeType || "audio/webm" }));
-	// `transcribe_audio` waits for the language's model to download; meanwhile the bar says how far it got. The call's
-	// prepare loop loads with its module, off the phone's first screen.
+	// `transcribe_audio` waits for the language's model to download; meanwhile the bar says how far it got. The prepare
+	// loop loads on the first wait, off the phone's first screen.
 	let transcribed = false;
-	void import("./voice-stream")
-		.then(({ ompVoiceStreams, prepareRecognition }) =>
+	void import("./stt-prepare")
+		.then(({ prepareRecognition }) =>
 			prepareRecognition(
-				ompVoiceStreams(),
 				(language, percent) => {
 					if (!transcribed) onPreparing({ language, percent });
 				},
@@ -284,9 +278,9 @@ export async function recordAndTranscribe(listener: DictationListener = {}): Pro
 
 /**
  * One recorded take (whatever the browser's recorder produced) to text: decoded, resampled to the STT pipeline's 16 kHz
- * mono PCM, shipped to the sidecar as a WAV and transcribed. Dictation and the voice call share it.
+ * mono PCM, shipped to the sidecar as a WAV and transcribed.
  */
-export async function transcribeBlob(blob: Blob): Promise<DictationResult> {
+async function transcribeBlob(blob: Blob): Promise<DictationResult> {
 	try {
 		const encoded = await blob.arrayBuffer();
 		const context = new AudioContext();
@@ -361,86 +355,6 @@ export function evaluateSttSubmitTrigger(
 // ---------------------------------------------------------------------------
 
 let speaking = false;
-let voiceCallActive = false;
-
-/** The voice call (`voice-call.ts`) sets this while it is on: it speaks the bot's replies itself, so auto-speak stays silent. */
-export function setVoiceCallActive(active: boolean): void {
-	voiceCallActive = active;
-}
-
-export function isVoiceCallActive(): boolean {
-	return voiceCallActive;
-}
-
-/** How one {@link playSpeech} ended: played out, stopped by the caller, or failed (`error` is the RPC reply or the cause). */
-export type SpeechEnd = { status: "ended" | "stopped" } | { status: "failed"; error: unknown };
-
-export interface SpeechPlayback {
-	/** Stop at once, also while the text is still being synthesized (then nothing plays). Resolves {@link finished} as stopped. */
-	stop(): void;
-	readonly finished: Promise<SpeechEnd>;
-}
-
-/** Where a clip's audio element plays: through `output` on `context` (the call's level meter) instead of the page's own output. */
-export interface SpeechRoute {
-	context: AudioContext;
-	output: AudioNode;
-}
-
-/**
- * Synthesize `text` on the sidecar's local TTS and play it, stoppable at any moment. Nothing here is streamed: the
- * bridge answers with the whole clip, so the first sound waits for the full synthesis. With a `route` the clip's audio
- * element plays through that node, so the caller can meter it; without one it plays as it always did.
- */
-export function playSpeech(text: string, route?: SpeechRoute): SpeechPlayback {
-	let stopped = false;
-	let audio: HTMLAudioElement | null = null;
-	let release = (): void => {};
-	const finished = (async (): Promise<SpeechEnd> => {
-		try {
-			const response = await window.omp.rpc.synthesizeSpeech(text);
-			if (stopped) return { status: "stopped" };
-			if (!response.success) return { status: "failed", error: response };
-			const data = response.data as SynthesizeSpeechResult | undefined;
-			if (!data?.audioBase64) return { status: "ended" };
-			const url = URL.createObjectURL(
-				new Blob([base64ToBytes(data.audioBase64)], { type: data.mimeType || "audio/wav" }),
-			);
-			const playback = Promise.withResolvers<void>();
-			release = (): void => {
-				URL.revokeObjectURL(url);
-				playback.resolve();
-			};
-			audio = new Audio(url);
-			if (route) {
-				const routed = route.context.createMediaElementSource(audio);
-				routed.connect(route.output);
-				const unrouted = release;
-				release = (): void => {
-					routed.disconnect();
-					unrouted();
-				};
-			}
-			audio.onended = release;
-			audio.onerror = release;
-			// Autoplay-policy rejections are not user-facing failures.
-			audio.play().catch(release);
-			await playback.promise;
-			return { status: stopped ? "stopped" : "ended" };
-		} catch (cause) {
-			return stopped ? { status: "stopped" } : { status: "failed", error: cause };
-		}
-	})();
-	return {
-		finished,
-		stop() {
-			if (stopped) return;
-			stopped = true;
-			audio?.pause();
-			release();
-		},
-	};
-}
 
 /**
  * Speak one utterance through the sidecar's local TTS. Dropped silently when
@@ -451,30 +365,41 @@ export function speakText(text: string): void {
 	const trimmed = text.trim();
 	if (!trimmed || speaking) return;
 	speaking = true;
-	void playSpeech(trimmed).finished.then(end => {
-		speaking = false;
-		if (end.status === "failed") toastError({ title: translate("voice.speak.failed"), error: end.error });
-	});
+	void (async () => {
+		try {
+			const response = await window.omp.rpc.synthesizeSpeech(trimmed);
+			if (!response.success) {
+				toastError({ title: translate("voice.speak.failed"), error: response });
+				return;
+			}
+			const data = response.data as SynthesizeSpeechResult | undefined;
+			if (!data?.audioBase64) return;
+			const url = URL.createObjectURL(
+				new Blob([base64ToBytes(data.audioBase64)], { type: data.mimeType || "audio/wav" }),
+			);
+			const audio = new Audio(url);
+			const playback = Promise.withResolvers<void>();
+			const finish = (): void => {
+				URL.revokeObjectURL(url);
+				playback.resolve();
+			};
+			audio.onended = finish;
+			audio.onerror = finish;
+			// Autoplay-policy rejections are not user-facing failures.
+			audio.play().catch(finish);
+			await playback.promise;
+		} catch (cause) {
+			toastError({ title: translate("voice.speak.failed"), error: cause });
+		} finally {
+			speaking = false;
+		}
+	})();
 }
 
 // ---------------------------------------------------------------------------
 // Auto-speak watcher: finalized store messages → speakText, gated on
 // `speech.enabled` (synced store) and `speech.mode` (read at decision time).
 // ---------------------------------------------------------------------------
-
-/** True when this window's active tab is the bot (or a side chat of it) and its desk wants replies read aloud. */
-function activeTabIsSpokenBot(): boolean {
-	if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
-	const { tabs, activeTabId } = useTabsStore.getState();
-	const tab = tabs.find(candidate => candidate.id === activeTabId);
-	if (!tab?.sessionPath) return false;
-	const entry = useBotDeskStore.getState().desks[tab.device ?? "local"];
-	if (!entry?.desk.voice.speakReplies) return false;
-	if (entry.desk.channels.some(channel => channel.sessionPath === tab.sessionPath)) return true;
-	if (tab.device !== undefined) return false;
-	const bot = useBotStore.getState();
-	return bot.enabled && bot.path === tab.sessionPath;
-}
 
 /**
  * Subscribe to the messages store and speak new finalized output while
@@ -509,7 +434,7 @@ export function startVoiceAutoSpeak(): () => void {
 			if (!useSettingsStore.getState().speechEnabled) return;
 			const modeValue = await readSetting("speech.mode");
 			// Yield messages are spoken by the run-end watcher below.
-			if (modeValue === "yield" || isVoiceCallActive()) return;
+			if (modeValue === "yield") return;
 			const all = modeValue === "all";
 			for (const message of appended) {
 				if (message.stopReason === "aborted") continue;
@@ -526,14 +451,9 @@ export function startVoiceAutoSpeak(): () => void {
 		if (!previous.isStreaming || state.isStreaming) return;
 		const pending = lastRunAssistantText;
 		lastRunAssistantText = null;
-		if (!pending || isVoiceCallActive()) return;
-		if (!useSettingsStore.getState().speechEnabled) {
-			// speech.enabled is off: the bot's own tab still reads its reply when the desk asks for it.
-			if (activeTabIsSpokenBot()) speakText(pending);
-			return;
-		}
+		if (!pending || !useSettingsStore.getState().speechEnabled) return;
 		void (async () => {
-			if ((await readSetting("speech.mode")) !== "yield" || isVoiceCallActive()) return;
+			if ((await readSetting("speech.mode")) !== "yield") return;
 			speakText(pending);
 		})();
 	});

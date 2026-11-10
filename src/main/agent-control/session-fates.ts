@@ -2,11 +2,11 @@
  * What became of the sessions an id was handed out for: its tab closed (by whom, when), or it was deleted (by whom,
  * when). The one record every control tool resolves a gone tab's id from, across relaunches.
  *
- * Why (measured over the bot's journals, 3 to 10 Nov 2026: `No session "<id>"` 14 times on ids `ompdesk_session_open`
- * had returned): an id used to keep naming its session only when the control tools themselves had closed the tab, and
- * only until the next relaunch (the automatic close alone was kept longer). A tab the person closed, a window that
- * went away, a close before an update's relaunch, and every deleted session (a throwaway's, the sidebar's) answered
- * the same "No session", so the agent could not tell a typo from a session that was gone for good.
+ * Why (measured over an orchestrating session's journals, 3 to 10 Nov 2026: `No session "<id>"` 14 times on ids
+ * `ompdesk_session_open` had returned): an id used to keep naming its session only when the control tools themselves
+ * had closed the tab, and only until the next relaunch (the automatic close alone was kept longer). A tab the person
+ * closed, a window that went away, a close before an update's relaunch, and every deleted session (a throwaway's, the
+ * sidebar's) answered the same "No session", so the agent could not tell a typo from a session that was gone for good.
  *
  * A session has one entry, by the computer it is saved on and its file (an entry with no file, a tab deleted before
  * stock wrote one, is kept by its ids alone). Closing it again, or deleting it, replaces the entry and keeps every id

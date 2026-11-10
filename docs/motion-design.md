@@ -128,8 +128,7 @@ Inventory of `main` at 4d8e3398, from reading the styles and components (notes k
 | Split workspace | Drop preview eased `inset` | Layout per frame |
 | Work board | Head pulse (the one loop); rows faded in on every mount and left after 180 ms | Fade replayed on every remount |
 | Phone work strip | `max-height` keyframes and a 160 ms timer | Layout per frame; timer off its CSS |
-| Bars and meters | ProgressBar, usage gauges, todo bars, update card, context breakdown eased `width`; Switch knob eased `width`/`height`; dictation and call meters eased `height` every frame | Layout per frame, and meters smoothed twice |
-| Bot screen | Decisions, tasks and the call meter changed at once | Rows jumped; the meter vanished at the call's end |
+| Bars and meters | ProgressBar, usage gauges, todo bars, update card, context breakdown eased `width`; Switch knob eased `width`/`height`; the dictation meter eased `height` every frame | Layout per frame, and meters smoothed twice |
 | Phone page | Host sheets (install, confirm, editor, paths, save image, models, folder browser) unmounted at once; sheet drag snapped back | No exits; no spring-back |
 | Tailwind leftovers | `transition-all` (JumpToLatest), `ease-out`, `duration-300`, `animate-pulse` (Preview agent dot) | Outside the scale and the software-GPU rule |
 
@@ -148,7 +147,7 @@ Inventory of `main` at 4d8e3398, from reading the styles and components (notes k
 | `--sc-ease-exit` | cubic-bezier(.4,0,1,1) | leaving, accelerating |
 | `--sc-ease-emphasized` | cubic-bezier(.32,.72,0,1) | a large surface crossing the window (Vaul, Claude's snap) |
 | `--sc-ease-spring` | `linear()` of M3 Expressive's default spatial spring (k 380, ζ .8; 1.5 % overshoot) | moves and resizes the eye follows: reflow, the press release, chevrons, the done mark; never opacity or colour |
-| `--sc-ease-loop` | cubic-bezier(.37,0,.63,1) | a loop's there-and-back (breathing, a pulse, the bot avatar's moods); a loop's period stays its own clock, never a duration token |
+| `--sc-ease-loop` | cubic-bezier(.37,0,.63,1) | a loop's there-and-back (breathing, a pulse); a loop's period stays its own clock, never a duration token |
 | `--sc-motion-rise` | 6 px | how far an arriving surface rises |
 | `--sc-motion-pop-scale` | .96 | where menus, popovers and dialogs grow from |
 | `--sc-motion-press-scale` | .97 | how far a pressed control gives |
@@ -229,7 +228,7 @@ Unchanged on purpose: page and Settings cross-fades, the working cue, the strip'
 
 ### The same in three places
 
-`bun run parity -- session-idle bot-bar sidebar` (e2e/parity.e2e.ts: one host's session in its own window, from a paired computer's section, and on its phone page at 390) shows the same rows, folds, bot bar and decision dock in all three views before and after. The motion itself runs through the same components and tokens in each: the capture flows film this computer's list and a paired host's section side by side (row added, row moved, menu, fold, press), and the phone at 390 for every flow above.
+`bun run parity -- session-idle sidebar` (e2e/parity.e2e.ts: one host's session in its own window, from a paired computer's section, and on its phone page at 390) shows the same rows and folds in all three views before and after. The motion itself runs through the same components and tokens in each: the capture flows film this computer's list and a paired host's section side by side (row added, row moved, menu, fold, press), and the phone at 390 for every flow above.
 
 ### Cost
 

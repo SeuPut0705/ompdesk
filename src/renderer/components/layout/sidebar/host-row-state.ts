@@ -1,7 +1,7 @@
 /**
  * What a session row shows of a session's run, from the summary of the computer that runs it
  * (`shared/session-summary.ts`) by the one rule every surface reads (`lib/session-run.ts`), plus what a folded header
- * counts of it. This computer's rows, a paired host's rows, a family row, the bot's row and every folded header read
+ * counts of it. This computer's rows, a paired host's rows, a family row and every folded header read
  * it, on a desktop window, a paired computer's view and a phone page alike. Pure.
  */
 import type { RemoteOpenedTab } from "../../../../shared/ipc-types";

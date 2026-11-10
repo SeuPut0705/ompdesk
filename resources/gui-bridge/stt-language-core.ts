@@ -6,15 +6,13 @@
  * The owner's rule (3 Nov 2026): speech in a language the selected dictation model cannot transcribe goes to
  * {@link LANGUAGE_FALLBACK_STT_MODEL} instead; a language the model has keeps the model (English stays on Parakeet).
  */
-import type { SttModelState } from "./stt-language-contracts";
+import type { SttModelState, SttPrepareResult } from "./stt-language-contracts";
 
 /** The part of stock's `SttModelSpec` (stt/models.ts) the rules read. */
 export interface SttModelFacts {
 	key: string;
 	/** Stock's own flag: an English-only checkpoint. */
 	englishOnly: boolean;
-	/** Stock's runtime for the model: transformers.js (the Whisper tiers) or sherpa-onnx (Parakeet, Nemotron). */
-	engine: "transformers" | "sherpa";
 }
 
 /** Stock's catalog entry that covers the most languages: Whisper large-v3-turbo, 99 languages (~600 MB). */
@@ -74,18 +72,6 @@ export function sttModelForLanguage(selected: SttModelFacts, language: string | 
 	return sttModelSupports(selected, language) ? selected.key : LANGUAGE_FALLBACK_STT_MODEL;
 }
 
-/**
- * Whether a live stream on `model` previews the words while they are spoken. Stock's stream previews the segment under
- * way by decoding all of it again (`pumpSession`, stt/asr-worker.ts). Whisper on transformers.js is an offline model:
- * each preview is a whole pass, about 6 s for large-v3-turbo on an M-series Mac's CPU, stock drops previews only after
- * two slow ones, and the final pass queued behind them (a Korean call's text came 15.4 s after the speech, 3 Nov 2026).
- * The owner's decision: such a model transcribes the utterance once, after the speech ended. sherpa-onnx decodes a
- * Parakeet preview in milliseconds, and Nemotron streams natively.
- */
-export function sttPreviewsSpeech(model: SttModelFacts): boolean {
-	return model.engine !== "transformers";
-}
-
 const ENGLISH_NAMES = new Intl.DisplayNames(["en"], { type: "language", fallback: "none" });
 let codesByName: Map<string, string> | undefined;
 
@@ -140,7 +126,7 @@ interface Download {
 	done: Promise<void>;
 }
 
-/** One download per model at a time, whoever asks: a call preparing it, a stream or a dictation waiting for it. */
+/** One download per model at a time, whoever asks: a call preparing it or a dictation waiting for it. */
 export class SttModels {
 	readonly #store: SttModelStore;
 	readonly #downloads = new Map<string, Download>();
@@ -199,5 +185,54 @@ export class SttModels {
 		if (remember) download.done.catch(() => {});
 		this.#downloads.set(key, download);
 		return download;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Dictation: the language heard, the model it needs, and that model's weights
+// ---------------------------------------------------------------------------
+
+/** What the stock side resolves from the live session on each request. */
+export interface SttSetup {
+	/** The dictation role's model, as stock's catalog describes it. */
+	selected: SttModelFacts;
+	/** The language speech is in when a request names none: the conversation language, else the `stt.language` setting. */
+	language: string | undefined;
+}
+
+/** `stt_prepare` and `transcribe_audio`'s model choice over one {@link SttModels}. */
+export class SttDictation<Ctx> {
+	readonly #setup: (ctx: Ctx) => SttSetup;
+	readonly #models: SttModels;
+
+	constructor(setup: (ctx: Ctx) => SttSetup, store: SttModelStore) {
+		this.#setup = setup;
+		this.#models = new SttModels(store);
+	}
+
+	/** The speech's language (a `language` the request names wins) and the model the rule picks for it. */
+	#route(params: unknown, ctx: Ctx): { language: string | undefined; wanted: string } {
+		const requested = params && typeof params === "object" && "language" in params ? params.language : undefined;
+		const setup = this.#setup(ctx);
+		const language = sttLanguageCode((typeof requested === "string" && requested) || setup.language);
+		return { language, wanted: sttModelForLanguage(setup.selected, language) };
+	}
+
+	/** The model a whole clip is transcribed on, once its weights are here. */
+	async sttModel(params: unknown, ctx: Ctx): Promise<{ modelKey: string; language?: string }> {
+		const { language, wanted } = this.#route(params, ctx);
+		try {
+			await this.#models.ensure(wanted);
+		} catch (cause) {
+			const message = cause instanceof Error ? cause.message : String(cause);
+			throw new Error(`Could not download ${wanted} for ${language} speech: ${message}`);
+		}
+		return { modelKey: wanted, language };
+	}
+
+	/** Start getting the model the speech's language needs, without waiting; the caller asks again until it is ready. */
+	async sttPrepare(params: unknown, ctx: Ctx): Promise<SttPrepareResult> {
+		const { language, wanted } = this.#route(params, ctx);
+		return { language: language ?? null, modelKey: wanted, ...(await this.#models.prepare(wanted)) };
 	}
 }

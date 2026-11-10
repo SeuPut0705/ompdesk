@@ -8,7 +8,6 @@
  * `window.__harness.emit(channel, payload)` plays a main→renderer push (a tab status, a streaming batch, an ask).
  */
 
-import type { BotActivityPage } from "../../shared/bot-activity";
 import { EMPTY_GITHUB_AUTH_STATE } from "../../shared/github-auth";
 import {
 	IPC_COMMANDS,
@@ -70,7 +69,6 @@ import {
 	boardUsage,
 	familyEdits,
 } from "./fixture-board";
-import { BOT_DESK } from "./fixture-bot";
 import { JOB_TREE_SUBAGENTS, jobTreeRows } from "./fixture-jobs";
 import { MCP_SERVERS } from "./fixture-mcp";
 import { memoryAnswer } from "./fixture-memory";
@@ -534,11 +532,6 @@ export function createHarnessTransport(prefs: Record<string, unknown>): { transp
 		switch (channel) {
 			case IPC_COMMANDS.GET_TABS:
 				return tabsFixture();
-			// The sidebars read the bot's desk on every computer; main always answers one, the empty one unless `?bot=1`.
-			case IPC_COMMANDS.BOT_DESK_GET:
-				return BOT_DESK;
-			case IPC_COMMANDS.BOT_ACTIVITY_GET:
-				return { entries: [], revision: 0 } satisfies BotActivityPage;
 			case IPC_COMMANDS.SET_ACTIVE_TAB:
 				activeTabId = (payload as TabPayload).tabId;
 				return true;

@@ -174,7 +174,7 @@ describe("recordAndTranscribe", () => {
 		await flush();
 		expect(sttPrepare).not.toHaveBeenCalled();
 		stopVoiceRecording();
-		// The prepare loop loads with the call's module, on the take's first wait.
+		// The prepare loop loads on the take's first wait.
 		await vi.waitFor(() => expect(onPreparing.mock.calls).toEqual([[{ language: "ko", percent: 10 }]]));
 		await vi.advanceTimersByTimeAsync(500);
 		expect(onPreparing.mock.calls).toEqual([[{ language: "ko", percent: 10 }], [{ language: "ko", percent: 55 }]]);

@@ -223,7 +223,7 @@ export function cardTurnMessages(base: number, variant: CardVariant): Record<str
 						content: [
 							{
 								type: "text",
-								text: "remote: Permission to ompdesk/ompdesk.git denied to bot.\nfatal: unable to access 'https://github.com/ompdesk/ompdesk.git/': The requested URL returned error: 403\nCommand exited with code 128",
+								text: "remote: Permission to ompdesk/ompdesk.git denied to automation.\nfatal: unable to access 'https://github.com/ompdesk/ompdesk.git/': The requested URL returned error: 403\nCommand exited with code 128",
 							},
 						],
 						details: { exitCode: 128 },

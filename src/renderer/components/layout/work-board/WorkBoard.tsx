@@ -35,7 +35,6 @@ import { costKinds, costWords } from "../../../lib/spend";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
 import { isAutopilotTab, isLiveAutopilot, useAutopilotStore } from "../../../stores/autopilot";
-import { useOpenBotDecisions } from "../../../stores/bot-desk";
 import { isUserBlockingRequest, useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { usePlanApprovalStore } from "../../../stores/plan-approval";
@@ -47,7 +46,6 @@ import { selectTodoCardVisible, useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
-import { useBotDeskModule, useBotTab } from "../../bot/bot-tab";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { resumedAgents } from "../../chat/work/work-run";
@@ -303,14 +301,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// An Autopilot tab's board is the run's home: its head names the run, its first sections are the run's.
 	const autopilotTab = useAutopilotStore(isAutopilotTab);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
-	// The bot's board is its desk (components/bot): its Tasks follow Now, its routines, library, completed work,
-	// activity, duties and side chats follow the plan, in place of Current work; no account gauges.
-	const bot = useBotTab();
-	const botDesk = useBotDeskModule(bot !== null);
-	// The bot's decisions dock above its composer, not in Needs you; its head still says they wait instead of "Idle".
-	const openDecisions = useOpenBotDecisions(bot?.device);
-	const decisionsWaiting = bot ? openDecisions.length : 0;
-
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
 	const blocking = useMemo(
@@ -341,7 +331,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const present =
 		turnActive ||
 		autopilotTab ||
-		bot !== null ||
 		asks.length > 0 ||
 		running > 0 ||
 		presentedAgents.length + presentedJobs.length > 0 ||
@@ -381,18 +370,16 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	// work alone is "Working…", never "Idle"), else what the last turn left.
 	const clause = counts.attention
 		? { tone: "warning", text: needsText }
-		: decisionsWaiting > 0
-			? { tone: "warning", text: t("sidebar.botDecisions", { count: decisionsWaiting }) }
-			: counts.running > 0
-				? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
-				: counts.working > 0
-					? { tone: undefined, text: t("workBoard.step.working") }
-					: {
-							tone: undefined,
-							text:
-								[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
-								t("workBoard.head.idle"),
-						};
+		: counts.running > 0
+			? { tone: undefined, text: t("workBoard.head.running", { count: counts.running }) }
+			: counts.working > 0
+				? { tone: undefined, text: t("workBoard.step.working") }
+				: {
+						tone: undefined,
+						text:
+							[showsLast ? t("workBoard.head.done") : null, outcome].filter(Boolean).join(" · ") ||
+							t("workBoard.head.idle"),
+					};
 
 	const turnState = retryInfo
 		? t("chat.retry.inflight", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })
@@ -414,15 +401,13 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 		...(planProposal ? [{ id: "plan", label: t("workBoard.planReview"), review: true }] : []),
 		...blocking.map(request => ({ id: request.id, label: requestLabel(request, t), review: false })),
 	];
-	// The bot's sessions are its Tasks (components/bot), waiting ones highlighted there: listed once, not again here.
-	const waitingChildren = bot ? [] : opened.rows.filter(row => row.status === "waiting");
-	const nowChildren = bot ? [] : opened.rows.filter(row => row.status !== "waiting");
+	const waitingChildren = opened.rows.filter(row => row.status === "waiting");
+	const nowChildren = opened.rows.filter(row => row.status !== "waiting");
 	// The presented lists, not the live ones: the last row of a finished agent or job fades out inside its section.
-	const runsNow =
-		turnActive || presentedAgents.length + presentedJobs.length > 0 || (!bot && opened.counts.running > 0);
+	const runsNow = turnActive || presentedAgents.length + presentedJobs.length > 0 || opened.counts.running > 0;
 	const showsNow = runsNow || nowChildren.length > 0;
 	// What the sessions this one opened lead to (the Work tree sheet) sits in the head of the section that lists them.
-	const workTree = bot || opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
+	const workTree = opened.rows.length === 0 ? null : showsNow ? "now" : "needs";
 	const showsGoal = goal !== null && !autopilotTab;
 	const lastStep = steps.at(-1);
 	const nowLead = turnActive
@@ -495,9 +480,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					</span>
 				) : null}
 				<div className="omp-work-board-meters">
-					{/* The account's windows are every session's, not the bot's work: its board leaves them to the
-					   sidebar and keeps only what the bot's own session spent on a metered provider. */}
-					{bot ? null : <AccountLimit />}
+					<AccountLimit />
 					{hasCharge(spend) ? (
 						<Suspense fallback={null}>
 							<SessionSpendLine spend={spend} />
@@ -506,11 +489,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</div>
 			</header>
 
-			{(bot ? askItems.length > 0 : counts.needs > 0) && (
+			{counts.needs > 0 && (
 				<BoardSection
 					action={workTree === "needs" ? <WorkTreeButton /> : null}
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
-					count={bot ? askItems.length : counts.needs}
+					count={counts.needs}
 					live={needsText}
 					id="needs"
 					title={t("workBoard.needs")}
@@ -633,8 +616,6 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				</BoardSection>
 			)}
 
-			{bot && botDesk && <botDesk.BotBoardTasks device={bot.device} tabId={bot.tabId} />}
-
 			{(plan || showsGoal) && (
 				<BoardSection
 					id="plan"
@@ -738,17 +719,13 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					)}
 				</BoardSection>
 			)}
-			{bot ? (
-				botDesk && <botDesk.BotBoardSections device={bot.device} tabId={bot.tabId} />
-			) : (
-				<Suspense fallback={null}>
-					<SessionSlot
-						aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
-						onOutcome={setOutcome}
-						turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
-					/>
-				</Suspense>
-			)}
+			<Suspense fallback={null}>
+				<SessionSlot
+					aside={showsLast && lastTurn ? formatDuration(lastTurn.end - lastTurn.start) : undefined}
+					onOutcome={setOutcome}
+					turn={turnActive && startedAt !== null ? { start: startedAt, end: null } : lastTurn}
+				/>
+			</Suspense>
 		</aside>
 	);
 }

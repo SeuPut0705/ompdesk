@@ -3,11 +3,9 @@
  * waits for the person's answer (`waiting`), told by the tab pool's activity (`SidecarPool.observeTabs`). With a
  * `folder`, only sessions whose own folder contains it (at path segments: `/x/y` matches `/x/y` and `/x/y/app`).
  *
- * Whose sessions never fire it, because they would loop or are not the person's to follow: the bot's own session
- * (pref `bot`, while the bot is on), every session the bot opened (the sidebar's family rule, `openerOfSessions`:
- * what the bot's children opened included), the session a wake-up routine delivers into (`Schedule.wakeSession`)
- * and what it opened, any tab without a session yet, and a tab that runs on a paired host. A turn the person
- * stopped (stop reason `aborted`) is neither done nor failed.
+ * Whose sessions never fire it, because they would loop: the session a wake-up routine delivers into
+ * (`Schedule.wakeSession`) and what it opened, any tab without a session yet, and a tab that runs on a paired host. A
+ * turn the person stopped (stop reason `aborted`) is neither done nor failed.
  */
 import type { SessionEventKind } from "../../shared/schedules";
 import { type FamilySession, type FamilyTab, openerOfSessions } from "../../shared/sidebar-rows";
@@ -31,8 +29,6 @@ export interface SessionTab {
 export interface SessionPorts {
 	observeTabs(observer: (activity: TabActivity) => void): () => void;
 	tabs(): SessionTab[];
-	/** The bot's session file while the bot is on, else null. */
-	botPath(): string | null;
 }
 
 export interface SessionSourceOptions {
@@ -100,13 +96,12 @@ function folderHolds(cwd: string, folder: string): boolean {
 	return needle !== "" && `/${segments(cwd)}/`.includes(`/${needle}/`);
 }
 
-/** The bot, the sessions it opened and the wake-up's own session (with what it opened) never fire a routine. */
+/** The wake-up's own session (with what it opened) never fires a routine. */
 function isExcluded(tab: SessionTab, sessions: SessionPorts, wakeSession: string | undefined): boolean {
 	const file = tab.sessionFile;
 	if (!file) return true;
-	const roots = [sessions.botPath(), wakeSession ?? null].filter((path): path is string => path !== null);
-	if (roots.length === 0) return false;
-	if (roots.includes(file)) return true;
+	if (wakeSession === undefined) return false;
+	if (file === wakeSession) return true;
 	const live = sessions.tabs().filter(item => item.sessionFile !== undefined && item.device === undefined);
 	const tabs: FamilyTab[] = live.map(item => ({
 		id: item.tabId,
@@ -119,8 +114,6 @@ function isExcluded(tab: SessionTab, sessions: SessionPorts, wakeSession: string
 		id: item.sessionFile ?? "",
 		liveTabId: item.tabId,
 	}));
-	for (const root of roots) if (!known.some(session => session.path === root)) known.push({ path: root, id: root });
-	const families = openerOfSessions(tabs, known);
-	const root = families.get(file);
-	return root !== undefined && roots.includes(root);
+	if (!known.some(session => session.path === wakeSession)) known.push({ path: wakeSession, id: wakeSession });
+	return openerOfSessions(tabs, known).get(file) === wakeSession;
 }

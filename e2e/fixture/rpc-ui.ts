@@ -1517,27 +1517,19 @@ export function runRpcUi(): void {
 	};
 	/**
 	 * gui-bridge voice.ts. `stt_prepare` always answers (the dictation model is ready, as on a machine with it cached);
-	 * with `OMP_GUI_TEST_VOICE_FILE` the streams answer too, scripted by that JSON file, read on every call so a spec can
-	 * change it between calls: `{prepare?: {language, percent}}` keeps the language's model downloading at that percent
-	 * (and `transcribe_audio`, which waits for that download as the real bridge does, unanswered while it is set),
-	 * `language` names the call's language, `transcript` is what every utterance was (a prompt of exactly it is answered
-	 * with `reply`, streamed as a real turn is), `replySeconds` how long each spoken reply's audio (silence) lasts.
-	 * `partials: false` is Whisper large-v3-turbo, an offline model: `stt_stream_push` answers no running words, only
-	 * `stt_stream_stop` carries the text; `holdStop: true` leaves `stt_stream_stop` unanswered while it is set (the
-	 * call's "Transcribing…" state). A held reply is answered once the script no longer holds it (a spec that writes
-	 * another script ends the wait; `stt_stream_cancel` answers its stream's at once), so nothing leaks past a surface.
-	 * `transcribe_audio` (composer dictation) answers `{text: transcript ?? ""}`; `holdTranscribe: true` leaves it unanswered
-	 * while it is set, with the model here (the take being transcribed).
+	 * with `OMP_GUI_TEST_VOICE_FILE` composer dictation's `transcribe_audio` answers too, scripted by that JSON file, read
+	 * on every call so a spec can change it between calls: `{prepare?: {language, percent}}` keeps the language's model
+	 * downloading at that percent (and `transcribe_audio`, which waits for that download as the real bridge does,
+	 * unanswered while it is set), `language` names the take's language, `transcript` is what the take was;
+	 * `holdTranscribe: true` leaves `transcribe_audio` unanswered while it is set, with the model here (the take being
+	 * transcribed). A held reply is answered with no text once the script no longer holds it (a spec that writes another
+	 * script ends the wait), so nothing leaks past a surface.
 	 */
 	const voiceFile = process.env.OMP_GUI_TEST_VOICE_FILE;
 	interface VoiceScript {
 		prepare?: { language: string; percent: number };
 		language?: string;
 		transcript?: string;
-		reply?: string;
-		replySeconds?: number;
-		partials?: boolean;
-		holdStop?: boolean;
 		holdTranscribe?: boolean;
 	}
 	const voiceScript = (): VoiceScript => {
@@ -1547,9 +1539,8 @@ export function runRpcUi(): void {
 			return {};
 		}
 	};
-	/** A reply a voice script holds back; it is answered, with no text, once `held(script)` is false or its stream is cancelled. */
+	/** A reply a voice script holds back; it is answered, with no text, once `held(script)` is false. */
 	interface HeldVoiceReply {
-		streamId?: string;
 		held: (script: VoiceScript) => boolean;
 		reply: Reply;
 	}
@@ -1574,9 +1565,6 @@ export function runRpcUi(): void {
 			}
 		}, 200);
 	};
-	const speechLeft = new Map<string, number>();
-	/** One second of silence at 24 kHz, base64 PCM16. */
-	const silentSecond = Buffer.alloc(24_000 * 2).toString("base64");
 	const voiceMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
 		stt_prepare: () => {
 			const script = voiceScript();
@@ -1586,48 +1574,12 @@ export function runRpcUi(): void {
 		},
 		...(voiceFile
 			? {
-					stt_stream_start: () => ({
-						streamId: `fixture-stt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-					}),
-					// Whisper large-v3-turbo has no running words (`partials: false`); the others answer the transcript.
-					stt_stream_push: () => ({
-						text: voiceScript().partials === false ? "" : (voiceScript().transcript ?? ""),
-					}),
-					stt_stream_stop: (params, reply) => {
-						if (!voiceScript().holdStop) return { text: voiceScript().transcript ?? "" };
-						holdVoice({ streamId: String(params.streamId), held: script => script.holdStop === true, reply });
-						return undefined;
-					},
-					stt_stream_cancel: params => {
-						for (const entry of [...heldVoice])
-							if (entry.streamId === String(params.streamId)) answerEmpty(entry);
-						return {};
-					},
-					// Composer dictation: the whole take at once. The real bridge waits inside it for the language's model.
+					// The whole take at once. The real bridge waits inside it for the language's model.
 					transcribe_audio: (_params, reply) => {
 						const holds = (script: VoiceScript) => script.prepare !== undefined || script.holdTranscribe === true;
 						if (!holds(voiceScript())) return { text: voiceScript().transcript ?? "" };
 						holdVoice({ held: holds, reply });
 						return undefined;
-					},
-					tts_stream_start: () => {
-						const streamId = `fixture-tts-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-						speechLeft.set(streamId, voiceScript().replySeconds ?? 2);
-						return { streamId, sampleRate: 24_000 };
-					},
-					tts_stream_next: params => {
-						const streamId = String(params.streamId);
-						const left = speechLeft.get(streamId) ?? 0;
-						if (left <= 0) {
-							speechLeft.delete(streamId);
-							return { chunks: [], done: true };
-						}
-						speechLeft.set(streamId, left - 1);
-						return { chunks: [silentSecond], done: false };
-					},
-					tts_stream_cancel: params => {
-						speechLeft.delete(String(params.streamId));
-						return {};
 					},
 				}
 			: {}),
@@ -1657,7 +1609,6 @@ export function runRpcUi(): void {
 			instance: `${process.pid}-${Math.round(performance.timeOrigin)}`,
 			journaled: journaledMarks(entries, Array.isArray(params.marks) ? params.marks.map(String) : []),
 		}),
-		"agent_control.bot": () => ({ changed: true }),
 		// gui-bridge agent-control.ts `agent_control.mail` → stock `sendMessage`: the report becomes a displayed custom
 		// message in the journal; with `triggerTurn` an idle session takes a turn on it (the parent reacts by itself),
 		// a running one reads it at its next step (stock's `aside`), whatever its kind. The woken turn's reply names the
@@ -5463,29 +5414,6 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				},
 				Number(process.env.OMP_GUI_TEST_LATER_MS ?? 3000),
 			);
-		} else if (voiceFile && message === voiceScript().transcript) {
-			// A voice call's words (`voiceScript`): the reply streams for a moment and then ends, as a real turn does, so
-			// the call has its text when the turn ends and speaks it.
-			const text = voiceScript().reply ?? "하늘은 맑은 날 파란색이에요.";
-			const answer: AgentMessage = {
-				role: "assistant",
-				content: [{ type: "text", text }],
-				timestamp: Date.now(),
-				provider: model.provider,
-				model: model.id,
-			};
-			write({ type: "message_start", message: answer });
-			write({
-				type: "message_update",
-				message: answer,
-				assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text, partial: answer },
-			});
-			setTimeout(() => {
-				const done: AgentMessage = { ...answer, stopReason: "stop" };
-				appendMessage(done);
-				write({ type: "message_end", message: done });
-				endTurn([user, done]);
-			}, 300);
 		} else if (message !== "fixture running") {
 			if (message === "fixture reply actions") {
 				// Stock auto thinking names the effort it classified for this turn.

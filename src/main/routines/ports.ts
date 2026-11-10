@@ -91,11 +91,8 @@ export const gitPort: GitPort = {
 	},
 };
 
-/** The pool's tabs as session routines read them; `botPath` is the bot's session file while the bot is on. */
-export function sessionPorts(
-	pool: Pick<SidecarPool, "observeTabs" | "resumeFacts" | "tabFacts">,
-	botPath: () => string | null,
-): SessionPorts {
+/** The pool's tabs as session routines read them. */
+export function sessionPorts(pool: Pick<SidecarPool, "observeTabs" | "resumeFacts" | "tabFacts">): SessionPorts {
 	return {
 		observeTabs: observer => pool.observeTabs(observer),
 		tabs: () =>
@@ -108,6 +105,5 @@ export function sessionPorts(
 				...(fact.openedBy === undefined ? {} : { openedBy: fact.openedBy }),
 				...(fact.openedBySession === undefined ? {} : { openedBySession: fact.openedBySession }),
 			})),
-		botPath,
 	};
 }

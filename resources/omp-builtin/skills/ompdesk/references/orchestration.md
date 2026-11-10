@@ -8,6 +8,14 @@ Before you open: say which parts you will run. Write each first message with the
 
 Keep the brief light, and say so in it: `bun run check:changed` (or the project's one check) once at the end, never after every edit; one release per piece of work; the parity e2e on a paired device and the phone only when the UI changed; a reproduction once before the fix and once after; independent items as parallel sessions rather than one long one; a narrow, mechanical implementation opened with `model` set to the role name `task` (`model` takes a role name, `task`, `smol`, … resolved to the model it runs on at open time, as well as `provider/id`; never write a model id down). A child's done report ends with `Pace: wall 22 min · model+between-calls 20 min (156 calls, median 4.0 s) · tools 2 min · errors 6`, and `· waste: read src/x.ts ×14` or `· waste: 2.1 model calls per tool call` when the session re-read one file ten times or more, or made 1.5 or more model calls per tool call over ten or more tool calls. Name that waste in the next brief to that child or its successor, with what to do instead (keep what it read, act instead of thinking twice). `ompdesk_sessions` and `ompdesk_session_result` carry the short form (`pace 22 min, 156 calls, median 4.0 s`).
 
+Never poll (sleep-then-check, `gh run list/view`, `proc://` reads). Background the job and wait, or schedule a check.
+
+Every brief forbids installing compilers, toolchains, SDKs, drivers, or system or global packages without the user's approval. Tools OMPdesk manages are fine. A child lacking a tool skips that step and reports it; move the step to a computer with that tool or ask the user.
+
+Every brief tells the child to close every app, window, document, dev server and process it opened for testing before reporting done, and list what it closed. Only what it opened. What was open before stays. A document it made closes without saving, so an editor's autosave does not bring it back.
+
+Every brief that changes code says who owns it. In a repository the user left you and your sessions to build, write "This codebase is yours: how it's built is your call, and you'll keep building on it." When the user wants the smallest change, say that instead. Read the child's diff, not only its report.
+
 Open as few sessions at once as the work needs; each runs checks, tests and builds that can take gigabytes.
 
 Track what you dispatched in `todo`: one item per session you open, named by its title, marked done when its `done` report arrives (dropped when you stop it), so the list on the user's work board is the work in flight, not an earlier task's steps.
@@ -43,7 +51,11 @@ With sessions you did not open: look first (`ompdesk_sessions`, then `ompdesk_se
 
 ## Finish
 
-Synthesize per session: what it found or changed, conflicts and overlaps, what is left. Close the sessions you opened when done (`ompdesk_session_stop` with `close`); one you collected that ended well, that nobody is using and whose work landed has closed itself already, and its saved session stays readable (skill://ompdesk/references/worktrees-review.md). Children finishing reach the user through OMPdesk's batched notifications; use `ompdesk_notify` (`title`, `body`) only for what those do not say.
+Synthesize per session: what it found or changed, conflicts and overlaps, what is left. A child that ended well, nobody uses and whose work landed closes itself, keeping its saved session readable (skill://ompdesk/references/worktrees-review.md). Use `throwaway: true` for a one-off lookup or check: once its `Result: ok` reaches you OMPdesk deletes its saved session too, so take what you need from the report. Other sessions you opened can be deleted with `ompdesk_session_stop` `delete: true` once their result is in and nothing needs them. Delete a code-changing session only after checking that its branch tip is an ancestor of the target (or the same commits landed there) and telling the user. Never claim work landed without checking. Report the sessions you kept and why.
+
+Never stop, close or delete a session the user or another agent opened unless the user asked. A session the user typed into, or one you did not open that they look at, allows cleanup only in a turn the user's own message started. Otherwise OMPdesk keeps the refused call as a pending cleanup and lists it when their next message starts your turn. Make the ones still wanted then. A session you opened that the user only looks at is not held back.
+
+Children finishing reach the user through OMPdesk's batched notifications. Use `ompdesk_notify` (`title`, `body`) only for what those do not say.
 
 ## Another folder, model and mode, shown beside
 

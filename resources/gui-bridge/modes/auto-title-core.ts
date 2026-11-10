@@ -114,7 +114,7 @@ export interface GateRules {
 
 /**
  * Every finished turn whose work moved, every third quiet turn, and inside a long turn every five minutes of
- * work. Measured on the owner's bot session of 3 Nov 2026 (three unrelated tasks over six hours, four turns, two
+ * work. Measured on one of the owner's sessions on 3 Nov 2026 (three unrelated tasks over six hours, four turns, two
  * of them an hour long, one omp restart between): the earlier rules (two turns since the last look, six quiet
  * ones) asked once and the title named the first task to the end.
  */

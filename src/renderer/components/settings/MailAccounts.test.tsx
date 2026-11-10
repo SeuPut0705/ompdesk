@@ -159,7 +159,7 @@ describe("MailAccounts", () => {
 		expect(row("a1")?.textContent).toContain("owner@example.com @ imap.example.com · INBOX");
 		expect(row("a2")?.textContent).toContain("me @ imap.home.test · Bots");
 		expect(document.body.querySelector("[data-mail-note]")?.textContent).toBe(
-			"The password is stored encrypted on this computer and never shown to the bot. The bot names an account by its label when it sets an email routine.",
+			"Passwords are stored encrypted on this computer. Use account labels when referring to email accounts.",
 		);
 		expect(document.body.querySelector("[data-mail-elsewhere]")).toBeNull();
 	});

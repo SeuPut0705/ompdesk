@@ -15,7 +15,6 @@ export const SETTINGS_SECTION_IDS = [
 	"memory",
 	"tools",
 	"permissions",
-	"bot",
 	"workspace",
 	"schedules",
 	"connections",
@@ -32,7 +31,7 @@ export interface SettingsNavGroup {
 /** Left sub-nav: flat, always fully visible, grouped by who the setting is for. */
 export const SETTINGS_NAV: readonly SettingsNavGroup[] = [
 	{ id: "app", items: ["general", "appearance", "keyboard"] },
-	{ id: "agent", items: ["models", "agent", "memory", "tools", "permissions", "bot", "workspace", "schedules"] },
+	{ id: "agent", items: ["models", "agent", "memory", "tools", "permissions", "workspace", "schedules"] },
 	{ id: "system", items: ["connections", "updates", "advanced"] },
 ];
 
@@ -47,8 +46,6 @@ export const SECTION_SCOPE: Record<SettingsSectionId, "app" | "host" | "mixed"> 
 	keyboard: "app",
 	models: "host",
 	permissions: "host",
-	// The bot runs on this computer and its rules are this computer's pref: a paired host's tab never moves them.
-	bot: "app",
 	agent: "host",
 	tools: "host",
 	workspace: "host",

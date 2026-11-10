@@ -30,7 +30,7 @@ export function elapsedLabel(ms: number): string {
  * The board stays a glance in every environment: a waiting question, the running work and a failure stay above the
  * fold even beside a long plan. The plan folds its own rest (todoBoard), so it has no entry here.
  */
-export const SECTION_CAP = { asks: 3, running: 4, children: 3, followups: 3, routines: 5 } as const;
+export const SECTION_CAP = { asks: 3, running: 4, children: 3, followups: 3 } as const;
 
 /**
  * The first `cap` of `items`, then one row naming how many more there are; a tap on it lists the rest. `total` counts
@@ -157,7 +157,6 @@ export function BoardSection({
 	action,
 	tone,
 	live,
-	empty,
 	summary,
 	children,
 }: {
@@ -177,11 +176,6 @@ export function BoardSection({
 	 * opens it in place.
 	 */
 	summary?: { lead: string; count?: ReactNode };
-	/**
-	 * What an empty section says, in its head after the title (the bot's Tasks: "Nothing in progress"), instead of a
-	 * row of its own under it: the section stays, one line shorter. It wraps rather than clips.
-	 */
-	empty?: string;
 	children: ReactNode;
 }) {
 	const t = useT();
@@ -239,16 +233,8 @@ export function BoardSection({
 						className="omp-disclosure-chevron omp-work-board-chevron"
 						data-open={!folded || undefined}
 					/>
-					<span className={mid || line || empty ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
-					{line ? (
-						<span className="omp-work-board-summary">{line.lead}</span>
-					) : empty ? (
-						<span className="omp-work-board-empty" data-board-empty={id}>
-							{empty}
-						</span>
-					) : (
-						mid
-					)}
+					<span className={mid || line ? "omp-work-board-zone-title" : "truncate"}>{title}</span>
+					{line ? <span className="omp-work-board-summary">{line.lead}</span> : mid}
 					{line ? (
 						line.count !== undefined && <span className="omp-work-board-count">{line.count}</span>
 					) : count !== undefined ? (
@@ -293,14 +279,12 @@ export function WorkTreeButton() {
 /** What a row of Needs you is, in a word of fixed width before its label. */
 export interface RowTag {
 	word: string;
-	/** Colour only for a state that needs the person; absent is the muted word (the bot's task states). */
-	tone?: "warning" | "danger";
+	tone: "warning" | "danger";
 }
 
 /**
- * One row: a lead mark, a label that truncates, a muted figure and an optional second line. A row may end in its own
- * buttons (`action`: a backlog item's ✕, a follow-up's pin, a pull request's link, a task's Stop); with `onClick` too,
- * the rest of the row is one button and the actions sit beside it.
+ * One row: a lead mark, a label that truncates, a muted figure and an optional second line. A row that is not itself a
+ * button may end in its own button (`action`: a backlog item's ✕, a follow-up's pin, a pull request's link).
  */
 export function BoardRow({
 	lead,
@@ -326,9 +310,7 @@ export function BoardRow({
 	flipKey?: string;
 	/** Needs you's rows say what kind of thing they are, in a word of fixed width before the label ("Ask", "Check"). */
 	tag?: RowTag;
-	onClick?: () => void;
-	action?: ReactNode;
-}) {
+} & ({ onClick?: () => void; action?: never } | { onClick?: never; action?: ReactNode })) {
 	const body = (
 		<>
 			<span className="omp-work-board-lead">{lead}</span>
@@ -354,15 +336,7 @@ export function BoardRow({
 			data-exiting={exiting || undefined}
 			data-flip-key={flipKey}
 		>
-			{onClick && action ? (
-				<div className="omp-work-board-row omp-work-board-row--split" {...data}>
-					{/* controls-ok: the omp-work-board-row-main class draws the row's own part */}
-					<button className="omp-work-board-row-main" onClick={onClick} title={title} type="button">
-						{body}
-					</button>
-					{action}
-				</div>
-			) : onClick ? (
+			{onClick ? (
 				// controls-ok: the omp-work-board-row class draws the whole row
 				<button className="omp-work-board-row" onClick={onClick} title={title} type="button" {...data}>
 					{body}

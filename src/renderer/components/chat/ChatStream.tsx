@@ -1060,7 +1060,7 @@ function SessionTranscript() {
 					!switchPending &&
 					!(pageError && knownSession) &&
 					!firstRunActive && (
-						// `safe`: taller than the pane (a phone with the bot's bar, strip and decisions), plain centring spilled
+						// `safe`: taller than a short pane, plain centring spilled
 						// the top over the scroller's edge, out of reach, and left a sliver of the logo under the strip.
 						<div className="omp-empty-canvas flex min-h-full flex-col justify-center-safe pb-20">
 							<BrandMark size={36} className="omp-empty-logo mb-5 text-(--sc-text)" />

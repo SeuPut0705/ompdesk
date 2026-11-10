@@ -5,7 +5,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
-import { BOT_ENABLED_PREF, BOT_PREF, botRowOf } from "../shared/agent-control";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
@@ -16,7 +15,7 @@ const tempDirs: string[] = [];
 const indexes: SessionIndex[] = [];
 const previousAgent = process.env.PI_CODING_AGENT_DIR;
 
-async function makeIndex(prefs?: Map<string, unknown>): Promise<{ index: SessionIndex; dir: string }> {
+async function makeIndex(): Promise<{ index: SessionIndex; dir: string }> {
 	const agent = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-session-index-"));
 	tempDirs.push(agent);
 	await fs.chmod(agent, 0o700);
@@ -33,9 +32,7 @@ async function makeIndex(prefs?: Map<string, unknown>): Promise<{ index: Session
 	}
 	process.env.PI_CODING_AGENT_DIR = agent;
 	const dir = path.join(agent, "sessions");
-	const index = new SessionIndex(dir, dir, undefined, undefined, sessionPath =>
-		prefs ? botRowOf(sessionPath, key => prefs.get(key)) : null,
-	);
+	const index = new SessionIndex(dir, dir);
 	indexes.push(index);
 	return { index, dir };
 }
@@ -76,25 +73,6 @@ describe.skipIf(!stockRoot)("SessionIndex using real stock storage", () => {
 		expect(infos.find(info => info.id === "agent-one")?.kind).toBeUndefined();
 		expect(await index.kindFor(chat)).toBe("chat");
 		expect(await index.kindFor(path.join(dir, "missing.jsonl"))).toBe("agent");
-	});
-
-	it("marks the bot's session on or off by the owner's switch, and no other", async () => {
-		const prefs = new Map<string, unknown>();
-		const { index, dir } = await makeIndex(prefs);
-		const bot = await writeSession(dir, "bot-one", "chat");
-		await writeSession(dir, "chat-one", "chat");
-		prefs.set(BOT_PREF, bot);
-		const marks = async () => (await index.list("global")).map(info => [info.id, info.bot]).sort();
-		expect(await marks()).toEqual([
-			["bot-one", "off"],
-			["chat-one", undefined],
-		]);
-		prefs.set(BOT_ENABLED_PREF, true);
-		index.relist();
-		expect(await marks()).toEqual([
-			["bot-one", "on"],
-			["chat-one", undefined],
-		]);
 	});
 
 	it("reads each listed session's header once for the legacy chat flag, again only for another session there", async () => {

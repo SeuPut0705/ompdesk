@@ -7,8 +7,8 @@
  * does the first read after the mailbox was recreated or the routine names another account. Then each new mail that
  * passes the routine's filters fires once, oldest first, with its sender, recipients, subject and the start of its
  * text. Loop guards, besides the service's own (`ROUTINE_CHAIN_LIMIT`): mail a program sent (`Auto-Submitted` other
- * than `no`) and a reply sent from this mailbox itself (its own address with `In-Reply-To`, as the bot's answer to a
- * mail would be) never fire.
+ * than `no`) and a reply sent from this mailbox itself (its own address with `In-Reply-To`, as an agent's answer
+ * to a mail would be) never fire.
  *
  * A failure (no such account, a refused login, the network) is told once per distinct message (the runtime log and a failed run in the routine's history),
  * never with the password, and polling goes on. The cursor (account, UIDVALIDITY, last UID) is kept across a relaunch

@@ -46,18 +46,9 @@ import {
 	MAX_CLOSED_TAB_IDS,
 	parseAgentMessage,
 	parseWorkerResult,
-	type SessionBotState,
 	AGENT_CONTROL_TOOLS as T,
 	wrapAgentMessage,
 } from "../../shared/agent-control";
-import { BOT_ACTIVITY_DEFAULT_LIMIT, type BotActivity, botVisited } from "../../shared/bot-activity";
-import {
-	BOT_DUTIES_MAX,
-	BOT_MEMORIES_MAX,
-	type BotDeskState,
-	type BotDuty,
-	type BotMemory,
-} from "../../shared/bot-desk";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
 import { timeoutForCommand } from "../../shared/rpc-client";
@@ -102,7 +93,6 @@ import { type Pace, paceLine, paceShort } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
 import { AppControl, type AppPorts, AppRefusal } from "./app-control";
 import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
-import { BotDeskError, botDeskText, type DecisionDraft, type OpenDecision } from "./bot-desk";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -134,7 +124,6 @@ import {
 	type AnswerArgs,
 	ARGS,
 	type AutopilotArgs,
-	type BotArgs,
 	type ListArgs,
 	looseArgs,
 	MESSAGE_MAX_CHARS,
@@ -188,11 +177,6 @@ export interface ControlTab {
 	worktree?: IpcTabWorktree;
 	/** The session file; absent until the session has one. */
 	sessionPath?: string;
-	/**
-	 * What the session is to the bot of the computer it runs on (`botRowOf` there): `past` for a conversation the bot
-	 * ended, kept to read; such a tab is never the bot, and the bot's name never resolves to it.
-	 */
-	bot?: SessionBotState;
 	/** What an agent opened the session for (`agentTaskTitle`) until it has a title. */
 	task?: string;
 	/** How its last finished turn ended; absent while one runs or before the first. */
@@ -248,8 +232,6 @@ export interface StoredSession {
 	elsewhere?: OpenElsewhere;
 	/** Text around a search hit. */
 	snippet?: string;
-	/** What the session is to the bot of the computer it is saved on (`SessionInfo.bot`). */
-	bot?: SessionBotState;
 }
 
 /** Where a saved session no tab of this app holds is open (`StoredSession.elsewhere`). */
@@ -357,25 +339,6 @@ export interface ScheduleSource {
 	runs(id: string): Promise<ScheduleRun[]>;
 }
 
-/** The bot's desk as `ompdesk_bot` uses it (`host.ts`, over `bot-desk.ts` and the Schedules service). */
-export interface BotDeskPort {
-	/** The bot's session file while the owner has the bot on; null while it is off. */
-	sessionPath(): string | null;
-	/** The desk and the bot's routines. */
-	state(): BotDeskState;
-	/** Posts a decision for the owner and tells them (a banner on the bot's tab, a push to paired phones). */
-	decide(callerTabId: string, draft: DecisionDraft): OpenDecision;
-	addDuty(text: string): { duty: BotDuty; added: boolean };
-	removeDuty(id: string): BotDuty | undefined;
-	remember(text: string): { memory: BotMemory; added: boolean };
-	forget(id: string): BotMemory | undefined;
-	/** Sets the bot's own tagline, persona or avatar (a picture file read and cut to the avatar's size). */
-	identity(change: { tagline?: string; persona?: string; avatarFile?: string }): Promise<void>;
-	/** The activity log, oldest first. */
-	activity(): readonly BotActivity[];
-	/** Asks for a new conversation of the caller's slot (the bot's, or a side chat's); false when none is known. */
-	newConversation(sessionPath: string): boolean;
-}
 export type ShipLevel = "commit" | "push" | "release";
 
 /** `ompdesk_autopilot`'s ship levels as the start sheet's presets. */
@@ -458,7 +421,7 @@ export interface AgentControlHost {
 	release(callerTabId: string, tabId: string): Promise<boolean>;
 	/** Resolves once the omp of a tab the window closed has exited (at once when none is exiting, and for a paired device's tab). */
 	exited(tabId: string): Promise<void>;
-	notify(callerTabId: string, title: string, body: string, kind: "progress" | "done"): void;
+	notify(callerTabId: string, title: string, body: string): void;
 	/** A confirmation card on the calling tab; resolves false on refusal, dismissal or failure. */
 	confirm(callerTabId: string, title: string, message: string): Promise<boolean>;
 	/** Deliver the answer to the request the tab raised (the pool's side channel). */
@@ -505,8 +468,6 @@ export interface AgentControlHost {
 	cleanups?: PendingCleanups;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
 	schedules(device?: string): ScheduleSource | null;
-	/** The bot's desk (`ompdesk_bot`); absent where there is none. */
-	botDesk?: BotDeskPort;
 	/**
 	 * The control-tool calls that change something, by their identity (`call-journal.ts`): a call a paired host re-sends
 	 * after this computer relaunched runs at most once. Absent: calls are not recorded.
@@ -834,13 +795,6 @@ function callIntent(tool: AgentControlToolName, args: unknown, caller: ControlTa
 	return undefined;
 }
 
-/** How a list names a session that is the bot or a conversation it ended (`SessionBotState`); null for any other. */
-function botMark(bot: SessionBotState | undefined): string | null {
-	if (bot === "past")
-		return "earlier conversation of the bot, read-only; the bot's name reaches its current conversation";
-	return bot === "on" ? "the bot" : null;
-}
-
 function label(tab: ControlTab): string {
 	if (tab.hidden) return `${tab.tabId} (hidden from agents)`;
 	const folder = tab.cwd.split(/[\\/]/).filter(Boolean).pop() ?? tab.cwd;
@@ -852,9 +806,8 @@ function byCaller(caller: ControlTab): string {
 	return `${caller.title ? `the session "${oneLine(caller.title, 60)}"` : "an agent's session"} (ompdesk_session_stop)`;
 }
 
-/** Who a refused cleanup is kept for: the caller's session file; the bot by its computer, since its conversation renews. */
+/** Who a refused cleanup is kept for: the caller's session file and computer, else its tab id. */
 function cleanupCaller(caller: ControlTab): string {
-	if (caller.bot === "on") return `bot\n${caller.device ?? ""}`;
 	return caller.sessionPath ? `${caller.device ?? ""}\n${caller.sessionPath}` : caller.tabId;
 }
 
@@ -1701,7 +1654,7 @@ export class AgentControl {
 			}
 			case T.notify: {
 				const args = ARGS[T.notify].parse(raw);
-				this.#host.notify(caller.tabId, args.title, args.body ?? "", args.kind ?? "done");
+				this.#host.notify(caller.tabId, args.title, args.body ?? "");
 				return "Notification shown.";
 			}
 			case T.stop: {
@@ -1732,8 +1685,6 @@ export class AgentControl {
 				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
 			case T.autopilot:
 				return this.#autopilot(caller, tabs, ARGS[T.autopilot].parse(raw));
-			case T.bot:
-				return this.#bot(caller, ARGS[T.bot].parse(raw));
 			case T.appList:
 				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
 			case T.app: {
@@ -2062,7 +2013,6 @@ export class AgentControl {
 					tab.tabId === caller.tabId ? "this session" : null,
 					opened.has(tab.tabId) ? "opened by you" : null,
 					tab.here ? null : "another window",
-					botMark(tab.bot),
 				].filter(Boolean);
 				if (tab.hidden && tab.tabId !== caller.tabId)
 					return {
@@ -2194,8 +2144,7 @@ export class AgentControl {
 				const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
 				// Before `changed`: the row ends with when it changed and where it is open, as every reader of it expects.
 				const pace = paces[index] ? `; ${paceShort(paces[index])}` : "";
-				const mark = botMark(row.bot);
-				return `- ${row.id} "${oneLine(title, 80)}"${mark ? ` [${mark}]` : ""}\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
+				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
 			}),
 		);
 		const where = device ? `saved on ${device.name}` : "saved on this computer";
@@ -2724,7 +2673,7 @@ export class AgentControl {
 		}
 		if (!held && response && !response.success) {
 			if (entry) kept?.outbox.settle(entry);
-			// A refusal (an ended bot conversation, an omp that is not ready) runs nothing there: never a success receipt.
+			// An omp that is not ready runs nothing there: never a success receipt.
 			fail(
 				`Not delivered to ${label(target)}: its omp refused the message (${response.error ?? "no reason given"}). Nothing runs there; nothing was sent.`,
 			);
@@ -3176,8 +3125,7 @@ export class AgentControl {
 			return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
 		}
 		const wanted = name.toLowerCase();
-		// A conversation the bot ended carries its name too: the name is the bot's current conversation, never one of them.
-		const titled = tabs.filter(entry => !entry.hidden && entry.bot !== "past");
+		const titled = tabs.filter(entry => !entry.hidden);
 		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
 		const byTitle =
 			only(titled.filter(entry => titleOf(entry) === wanted)) ??
@@ -3256,11 +3204,7 @@ export class AgentControl {
 				(session.length >= SESSION_PREFIX_MIN
 					? several(rows.filter(row => row.id.startsWith(session)))
 					: undefined) ??
-				several(
-					rows.filter(
-						row => !row.hidden && row.bot !== "past" && storedTitle(row).trim().toLowerCase() === wanted,
-					),
-				)
+				several(rows.filter(row => !row.hidden && storedTitle(row).trim().toLowerCase() === wanted))
 			);
 		};
 		const known = find();
@@ -3735,8 +3679,7 @@ export class AgentControl {
 	/**
 	 * `ompdesk_app`'s route to another computer (`AppPorts.rpcOn`): `command` to an omp on the computer `wanted` names.
 	 * The caller's own session when it runs there, else another session of this app that runs there and is up, else a
-	 * session opened there in the background (`#utilityTab`): no message, no model call (the bot used to open a
-	 * throwaway session per computer and have its agent run `omp config set`).
+	 * session opened there in the background (`#utilityTab`): no message, no model call.
 	 */
 	async #rpcOn(callerTabId: string, wanted: string, command: RpcCommand): Promise<RpcResponse> {
 		const tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
@@ -4868,7 +4811,7 @@ export class AgentControl {
 		const start = (word: string) =>
 			row.frequency.kind === "event" ? "it waits for its event" : `next ${word} ${row.nextRun ?? "—"}`;
 		if (wakeSession !== undefined)
-			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it among your routines with its runs. ${frequency.kind === "once" ? "It is deleted once its run succeeds (a failed one stays a day)." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
+			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it in Settings › Schedules with its runs. ${frequency.kind === "once" ? "It is deleted once its run succeeds (a failed one stays a day)." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
 		return `Scheduled “${row.name}” ${when} in ${cwd} ${where}; id ${row.id}; ${start("run")}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.${webhookLine(row)}`;
 	}
 
@@ -4918,98 +4861,6 @@ export class AgentControl {
 				break;
 		}
 		return { kind: "event", event };
-	}
-
-	/** `ompdesk_bot`: the bot's own desk. Only the owner's bot session and its side chats may use it. */
-	async #bot(caller: ControlTab, args: BotArgs): Promise<string> {
-		const desk = this.#host.botDesk;
-		const botPath = desk?.sessionPath();
-		const ownSession =
-			!!desk &&
-			!!botPath &&
-			!caller.device &&
-			(caller.sessionPath === botPath ||
-				desk.state().channels.some(channel => channel.sessionPath === caller.sessionPath));
-		if (!desk || !ownSession)
-			fail(
-				"ompdesk_bot is the owner's bot's tool: only the bot's own session and its side chats (Settings › Bot) may use it. To reach the owner from another session use ompdesk_notify, and to reach the session that opened you use ompdesk_report.",
-			);
-		try {
-			switch (args.action) {
-				case "desk":
-					return botDeskText(desk.state());
-				case "decide": {
-					// A side chat's decision is answered in that side chat, where its conversation is.
-					const channel = desk.state().channels.find(entry => entry.sessionPath === caller.sessionPath);
-					const decision = desk.decide(caller.tabId, {
-						question: args.question,
-						...(args.options === undefined ? {} : { options: args.options }),
-						...(args.context === undefined ? {} : { context: args.context }),
-						...(args.operation === undefined ? {} : { operation: args.operation }),
-						...(args.inputs === undefined ? {} : { inputs: args.inputs }),
-						...(args.draft === undefined ? {} : { draft: args.draft }),
-						...(args.expires_in_minutes === undefined ? {} : { expiresInMinutes: args.expires_in_minutes }),
-						...(channel ? { channel: channel.id } : {}),
-					});
-					return `Decision ${decision.id} is posted for the owner and waits on your desk. Keep working: do not wait for it and do not ask again. The answer arrives later as a message that starts your turn and names ${decision.id}.`;
-				}
-				case "duty_add": {
-					const { duty, added } = desk.addDuty(args.text);
-					if (!added) return `Duty ${duty.id} is already on your desk: “${duty.text}”.`;
-					return `Duty ${duty.id} recorded: “${duty.text}”. It stays in your prompt every turn, also after a new conversation or a compaction (${desk.state().duties.length} of ${BOT_DUTIES_MAX} duties).`;
-				}
-				case "duty_remove": {
-					const duty = desk.removeDuty(args.id);
-					if (!duty) fail(`No duty "${args.id}" is on your desk. ompdesk_bot {"action":"desk"} lists them.`);
-					return `Duty ${duty.id} removed: “${duty.text}”.`;
-				}
-				case "remember": {
-					const { memory, added } = desk.remember(args.text);
-					if (!added) return `Memory ${memory.id} already says this: “${memory.text}”.`;
-					return `Memory ${memory.id} kept: “${memory.text}”. It stays in your prompt every turn, in every chat of yours (${desk.state().memories.length} of ${BOT_MEMORIES_MAX}); the owner sees it in your activity log, and when they say it is wrong you forget or replace it.`;
-				}
-				case "forget": {
-					const memory = desk.forget(args.id);
-					if (!memory) fail(`No memory "${args.id}" is kept. ompdesk_bot {"action":"desk"} lists them.`);
-					return `Memory ${memory.id} forgotten: “${memory.text}”. The owner sees it in your activity log; remember it again if they ask for it back.`;
-				}
-				case "identity": {
-					if (args.tagline === undefined && args.persona === undefined && args.avatar_file === undefined)
-						fail("identity needs tagline, persona or avatar_file.");
-					await desk.identity({
-						...(args.tagline === undefined ? {} : { tagline: args.tagline }),
-						...(args.persona === undefined ? {} : { persona: args.persona }),
-						...(args.avatar_file === undefined ? {} : { avatarFile: args.avatar_file }),
-					});
-					return `Identity updated (${[args.tagline !== undefined && "tagline", args.persona !== undefined && "persona", args.avatar_file !== undefined && "avatar"].filter(Boolean).join(", ")}). The owner sees it beside your name and can change it in Settings › Bot.`;
-				}
-				case "visited": {
-					const visited = botVisited(desk.activity()).slice(0, args.limit ?? BOT_ACTIVITY_DEFAULT_LIMIT);
-					if (visited.length === 0) return "You read no file or page that the activity log still holds.";
-					return `Files and pages you read, newest first (${visited.length}):\n${visited
-						.map(entry => `- ${entry.at} ${entry.target?.type}: ${entry.target?.value}`)
-						.join("\n")}`;
-				}
-				case "activity": {
-					const entries = desk.activity().slice(-(args.limit ?? BOT_ACTIVITY_DEFAULT_LIMIT));
-					if (entries.length === 0) return "The activity log is empty.";
-					return `Your activity, oldest first (${entries.length}):\n${entries
-						.map(
-							entry =>
-								`- ${entry.at} [${entry.by}${entry.channel ? `, side chat ${entry.channel}` : ""}] ${entry.action === "tool" ? entry.text : `${entry.action}: ${entry.text}`}`,
-						)
-						.join("\n")}`;
-				}
-				case "new_conversation": {
-					if (!caller.sessionPath || !desk.newConversation(caller.sessionPath))
-						fail("This conversation has no saved file yet; there is nothing to renew.");
-					return "A fresh conversation starts once this turn is over and nothing waits on you: you will be asked for a handoff note (what you do, what you wait for, next steps, the sessions you opened), and your desk, duties, memories and routines carry over. Finish what you are doing now.";
-				}
-			}
-		} catch (error) {
-			if (error instanceof BotDeskError) fail(error.message);
-			throw error;
-		}
 	}
 
 	/** `ompdesk_autopilot`: start, read or stop an Autopilot run through the coordinator the Autopilot screen uses. */

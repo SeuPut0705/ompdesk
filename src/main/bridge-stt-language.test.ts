@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	LANGUAGE_FALLBACK_STT_MODEL,
+	SttDictation,
 	type SttModelStore,
 	SttModels,
 	speechLanguageOfName,
@@ -10,9 +11,9 @@ import {
 } from "../../resources/gui-bridge/stt-language-core";
 
 // Stock's catalog entries (stt/models.ts), as the rule reads them.
-const PARAKEET = { key: "parakeet-tdt-0.6b-v3", englishOnly: false, engine: "sherpa" } as const;
-const NEMOTRON = { key: "nemotron-streaming-en-0.6b", englishOnly: true, engine: "sherpa" } as const;
-const WHISPER_SMALL = { key: "whisper-small", englishOnly: false, engine: "transformers" } as const;
+const PARAKEET = { key: "parakeet-tdt-0.6b-v3", englishOnly: false } as const;
+const NEMOTRON = { key: "nemotron-streaming-en-0.6b", englishOnly: true } as const;
+const WHISPER_SMALL = { key: "whisper-small", englishOnly: false } as const;
 
 describe("which dictation model hears a language", () => {
 	it("keeps Parakeet v3 for its languages and sends Korean, Japanese and Chinese to Whisper large-v3-turbo", () => {
@@ -155,5 +156,58 @@ describe("getting a model's weights", () => {
 		await waiting;
 		await models.ensure("whisper-large-v3-turbo");
 		expect(store.downloads).toEqual(["whisper-large-v3-turbo"]);
+	});
+});
+
+/** Stock's speech-model cache: what is here, and every download asked for (each lands at once). */
+class FakeModels {
+	cached = new Set(["parakeet-tdt-0.6b-v3"]);
+	downloads: string[] = [];
+	isCached = async (key: string) => this.cached.has(key);
+	download = async (key: string, onProgress: (loaded: number, total: number) => void) => {
+		this.downloads.push(key);
+		onProgress(1, 1);
+		this.cached.add(key);
+	};
+}
+
+describe("dictation's model", () => {
+	let models: FakeModels;
+	let dictation: SttDictation<null>;
+	beforeEach(() => {
+		models = new FakeModels();
+		dictation = new SttDictation<null>(() => ({ selected: PARAKEET, language: "ko" }), models);
+	});
+
+	it("prepares the language's model: Korean downloads Whisper large-v3-turbo, English is ready on Parakeet", async () => {
+		expect(await dictation.sttPrepare({ language: "en" }, null)).toEqual({
+			language: "en",
+			modelKey: "parakeet-tdt-0.6b-v3",
+			state: "ready",
+		});
+		expect(await dictation.sttPrepare({}, null)).toMatchObject({
+			language: "ko",
+			modelKey: "whisper-large-v3-turbo",
+			state: "downloading",
+		});
+		expect(models.downloads).toEqual(["whisper-large-v3-turbo"]);
+		expect(await dictation.sttPrepare({}, null)).toEqual({
+			language: "ko",
+			modelKey: "whisper-large-v3-turbo",
+			state: "ready",
+		});
+	});
+
+	it("a whole clip waits for the language's model, and says so when it cannot be had", async () => {
+		expect(await dictation.sttModel({}, null)).toMatchObject({
+			modelKey: "whisper-large-v3-turbo",
+			language: "ko",
+		});
+		expect(models.downloads).toEqual(["whisper-large-v3-turbo"]);
+		models.cached.delete("whisper-large-v3-turbo");
+		models.download = async () => {
+			throw new Error("Failed to download speech model (onnx-community/whisper-large-v3-turbo): offline");
+		};
+		await expect(dictation.sttModel({}, null)).rejects.toThrow(/whisper-large-v3-turbo for ko speech: .*offline/);
 	});
 });

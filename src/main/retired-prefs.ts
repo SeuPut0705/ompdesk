@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
 import { TOOLS_AUTO_UPDATE_PREF } from "../shared/desktop-prefs";
+import { writeFileAtomicSync } from "./atomic-file";
 
 /** The prefs store as electron-store offers it: a dotted key names a nested value. */
 interface PrefsLike {
@@ -100,6 +102,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		key: "agentDeletedIds",
 		why: "Ids of sessions the control tools deleted; `agent-session-fates.json` (src/main/agent-control/session-fates.ts) records what became of every session an id named, with who and when (10 Nov 2026).",
 	},
+	...["bot", "botEnabled", "botConversations", "botRules"].map(key => ({
+		key,
+		why: "Sessions are ordinary sessions; their identity, rules and wake-up ownership no longer use these prefs.",
+	})),
 ];
 
 /**
@@ -125,7 +131,36 @@ function retirePanelViews(store: PrefsLike): void {
  * prefs.json (atomic, fsync) on every `set` and `delete`, present key or not: deleting all 14 retired keys took
  * ~74 ms on the user's 324 KB prefs.json, 6 ms when only present ones are deleted.
  */
-export function migrateRetiredPrefs(store: PrefsLike): void {
+export function migrateRetiredPrefs(store: PrefsLike, schedulesFile?: string): void {
+	if (schedulesFile && (store.has("bot") || store.has("botConversations"))) {
+		const paths = new Set<string>();
+		const path = store.get("bot");
+		if (typeof path === "string" && path) paths.add(path);
+		const conversations = store.get("botConversations");
+		if (conversations && typeof conversations === "object" && "current" in conversations) {
+			const current = conversations.current;
+			if (current && typeof current === "object")
+				for (const entry of Object.values(current))
+					if (entry && typeof entry === "object" && typeof entry.path === "string") paths.add(entry.path);
+		}
+		if (paths.size > 0 && existsSync(schedulesFile)) {
+			let stored: unknown;
+			try {
+				stored = JSON.parse(readFileSync(schedulesFile, "utf8"));
+			} catch {
+				stored = undefined;
+			}
+			if (stored && typeof stored === "object" && "schedules" in stored && Array.isArray(stored.schedules)) {
+				let changed = false;
+				for (const schedule of stored.schedules)
+					if (schedule && paths.has(schedule.wakeSession) && schedule.enabled !== false) {
+						schedule.enabled = false;
+						changed = true;
+					}
+				if (changed) writeFileAtomicSync(schedulesFile, JSON.stringify(stored, null, 2));
+			}
+		}
+	}
 	for (const merge of MERGES) {
 		if (store.has(merge.into) && !merge.from.includes(merge.into)) continue;
 		const value = merge.value(merge.from.map(key => store.get(key)));

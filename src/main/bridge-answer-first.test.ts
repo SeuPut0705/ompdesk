@@ -150,7 +150,7 @@ describe("answer-first gate", () => {
 		const { typed, run, respond } = hook(() => true);
 		typed.note("성능저하 기능저하 없이 제대로 작동하는것이 중요함", true);
 		run("성능저하 기능저하 없이 제대로 작동하는것이 중요함");
-		// The bot's response 987 in 01a1a7f1 (claude-opus-5-5, 5 Nov 2026): its reasoning, then its answer to the person
+		// A session's response 987 in 01a1a7f1 (claude-opus-5-5, 5 Nov 2026): its reasoning, then its answer to the person
 		// as a narration block (Anthropic's signature kind; pi-ai `presentNarrationAsAnswer` renders it as text), then
 		// the call. The gate refused it.
 		const reasoning = {

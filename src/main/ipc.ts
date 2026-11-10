@@ -9,7 +9,7 @@
  * (`remote_path_native`): this machine cannot see that disk.
  */
 
-import { existsSync, promises as fsp, statSync } from "node:fs";
+import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
@@ -31,30 +31,12 @@ import {
 	AGENT_CONTROL_PREF,
 	AGENT_HIDDEN_PREFS_KEY,
 	type AgentReviewResult,
-	activeBotPath,
 	agentControlEnabled,
 	agentHiddenPaths,
-	BOT_ENABLED_PREF,
-	BOT_MAIN_SLOT,
-	botEnabled,
-	botRowOf,
 	isAgentControlTool,
 	privacyPaneUrl,
 	reviewFromDevice,
 } from "../shared/agent-control";
-import { BotActivityPageSchema } from "../shared/bot-activity";
-import {
-	type BotDeskAnswer,
-	BotDeskAnswerSchema,
-	type BotDeskState,
-	BotDeskStateSchema,
-	type BotRoutine,
-} from "../shared/bot-desk";
-import { type BotDeskEdit, BotDeskEditSchema } from "../shared/bot-desk-edit";
-import { BOT_PRUNE_EVERY_MS } from "../shared/bot-retention";
-import { BOT_RULES_PREF } from "../shared/bot-rules";
-import { BotTakeoverRequestSchema, BotTakeoverResultSchema } from "../shared/bot-takeover";
-import { BotTeachRequestSchema, BotTeachResultSchema } from "../shared/bot-teach";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { COMPUTER_USE_PREF, isComputerUseEngine } from "../shared/computer-use";
 import {
@@ -125,7 +107,6 @@ import {
 	type HostUpdateAction,
 	IPC_COMMANDS,
 	IPC_EVENTS,
-	type IpcHostBotDesk,
 	type IpcInstallBrowserRelayPayload,
 	type IpcInstallBrowserRelayResult,
 	type IpcSessionsChanged,
@@ -157,24 +138,7 @@ import {
 	openExtensionsPage,
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
-import type { BotActivityLog } from "./agent-control/bot-activity";
-import { avatarFromBuffer, avatarFromFile } from "./agent-control/bot-avatar";
-import {
-	type AvatarDrawDeps,
-	avatarBridge,
-	avatarStatus,
-	BotAvatarPromptSchema,
-	generateAvatar,
-} from "./agent-control/bot-avatar-draw";
-import { type BotDesk, botRoutines } from "./agent-control/bot-desk";
-import { editBotDesk } from "./agent-control/bot-desk-edit";
-import type { BotHome } from "./agent-control/bot-home";
-import { BotNoticeRouter } from "./agent-control/bot-notify";
-import { BOT_HANDOFF_TIMEOUT_MS, BOT_ROTATION_TICK_MS, BotRotation } from "./agent-control/bot-rotation";
-import { BotTakeovers, takeoverAction } from "./agent-control/bot-takeover";
-import { BotTeach, gitCommits, teachAction } from "./agent-control/bot-teach";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
-import { TURN_COMMANDS, type TurnGate } from "./agent-control/turn-gate";
 import { appNotification } from "./app-icon";
 import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
@@ -237,7 +201,7 @@ import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
-import type { SidecarPool, TabActivity } from "./sidecar-pool";
+import type { SidecarPool } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
@@ -309,7 +273,6 @@ export interface IpcDeps {
 		| "sidecarOf"
 		| "attachAutopilot"
 		| "attachAgentReview"
-		| "attachBotDesk"
 		| "agentReviewChanged"
 		| "chargeRun"
 		| "runEvents"
@@ -343,9 +306,7 @@ export interface IpcDeps {
 	/** A preference was written through PREFS_SET (main-side effects such as keep-awake). */
 	onPrefChanged?: (key: string) => void;
 	/** The Schedules service, created later than the handlers: read per use. */
-	schedules?: () => Pick<ScheduleService, "command" | "create" | "state" | "moveWakes" | "prune"> | null;
-	/** While the bot's conversation renews, what would start a turn in it waits here (agent-control/turn-gate.ts). */
-	botTurns: TurnGate;
+	schedules?: () => Pick<ScheduleService, "command" | "create" | "state" | "prune"> | null;
 	/** The owner's mail accounts for email routines, created with the Schedules service: read per use. */
 	mailAccounts?: () => Pick<MailAccounts, "state" | "save" | "remove" | "test"> | null;
 	/** This computer's sidebar project list: it looks for new folders when the session index changes. */
@@ -360,30 +321,10 @@ export interface IpcDeps {
 	autopilotRef: { current: Autopilot | null };
 	/** Web Push's share of a tab's notice (an Autopilot run's, an agent's `ompdesk_notify`), set once the web host exists. */
 	webTabNotice: { current: ((tabId: string, notice: AutopilotNotice) => void) | null };
-	/**
-	 * Whether the bot answers a tab's question now (agent-control/bot.ts; `requestId`: the question, when
-	 * known), set once the control tools exist.
-	 */
-	botAnswers: { current: ((tabId: string, requestId?: string) => boolean) | null };
 	/** Set once the control tools exist: delivers a session's own scheduled wake-up and follows its turn (`ScheduleService`'s `wake`). */
 	sessionWake: { current: ((schedule: Schedule, runId: string) => Promise<RunProcess>) | null };
-	/** The bot's session (agent-control/bot-home.ts): the sidebar's bot row asks it to be made when missing. */
-	botHome: BotHome;
-	/** The bot's desk (agent-control/bot-desk.ts): its duties and the decisions it posted for the owner. */
-	botDesk: BotDesk;
-	/** The bot's activity log (agent-control/bot-activity.ts), which the desk and the bot's tabs append to. */
-	botActivity: BotActivityLog;
-	/**
-	 * Set here: tells every window and paired web page the desk as it stands now. The Schedules service (the bot's
-	 * wakes) and the bot's session pref change elsewhere and call it.
-	 */
-	botDeskPush: { current: (() => void) | null };
-	/** Set here: whether a tab's turn end or question may push to paired phones (the bot's routing; others always). */
-	botPush: { current: ((tabId: string, kind: "completion" | "ask") => boolean) | null };
 	/** The paired web pages' windows: `broadcast` reaches the desktop's own only. */
 	webPages?: () => readonly ClientWindow[];
-	/** Web Push's share of a tab's question told late (one the bot left open), set once the web host exists. */
-	webAsk: { current: ((activity: Extract<TabActivity, { type: "ask" }>) => void) | null };
 	/** The desktop slot's host, built in `registerIpcHandlers` (it needs the pool) and published here for the sidecar factory. */
 	desktopSlotRef: { current: DesktopSlotHost | null };
 	/** The shared-checkout pass, published here for the sidecar factory: a bridge reporting a new changed file (`checkout_files`) runs one. */
@@ -551,24 +492,7 @@ const progressStates = new Map<number, RunProgressState>();
 
 export function registerIpcHandlers(deps: IpcDeps): void {
 	const { ipc } = deps;
-	registerTerminalIpc(
-		ipc,
-		deps.sidecarPool,
-		deps.remoteDevices,
-		(tabId, terminalId, data) => {
-			botTeach.terminalWrite(tabId, terminalId, data);
-			const sessionPath = takenSessionOfTab(tabId);
-			if (sessionPath) botTakeovers.terminalWrite(sessionPath, `${tabId}|${terminalId}`, data);
-		},
-		(tabId, snapshots) => {
-			const sessionPath = takenSessionOfTab(tabId);
-			for (const snapshot of snapshots) {
-				botTeach.terminalOutput(tabId, snapshot.id, snapshot.offset, snapshot.output);
-				if (sessionPath)
-					botTakeovers.terminalOutput(sessionPath, `${tabId}|${snapshot.id}`, snapshot.offset, snapshot.output);
-			}
-		},
-	);
+	registerTerminalIpc(ipc, deps.sidecarPool, deps.remoteDevices);
 	registerSshToolsIpc(ipc);
 	const visuals = new VisualStore(path.join(app.getPath("userData"), "visuals"));
 	let dialogPreload: string | null = null;
@@ -601,7 +525,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	/** The same for a window's model setup research. */
 	const remoteModelSetups = new Map<number, string>();
 	const { sidecarPool, sessionIndex, logWatcher, windowManager, remoteDevices } = deps;
-	const { botTurns } = deps;
 	const prefsStore = new Store<PrefsSchema>({ name: "prefs" });
 	const remoteMachine = { request: remoteDevices.request.bind(remoteDevices), statsText: mainT };
 	/**
@@ -618,9 +541,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				async () => {
 					if (!device) {
 						await sessionIndex.deleteSession(sessionPath);
-						// A side chat deleted from the sidebar leaves the bot's desk with it.
-						const channel = deps.botDesk.channelOf(sessionPath);
-						if (channel) deps.botDesk.removeChannel(channel.id, "owner");
 						return;
 					}
 					await remoteDevices.request(device, "sessions.delete", { sessionPath });
@@ -876,30 +796,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { ...page, messages: localizePromptOrigins(page.messages, ownId, hostName) };
 	};
 
-	/**
-	 * A turn start waits while the bot's conversation in this tab renews, then goes to whatever the tab holds by then
-	 * (agent-control/turn-gate.ts); it counts as in flight until answered, so the renewal never switches under it.
-	 */
 	const dispatchRpcCommand = async (
-		win: ClientWindow,
-		sidecar: SidecarLike | null,
-		issuerTabId: string | null,
-		payload: IpcRpcCommandPayload,
-		/** The IPC channel the command came in on; main's own callers leave it out. */
-		channel?: string,
-	): Promise<RpcResponse> => {
-		const passed =
-			issuerTabId && sidecar && !sidecar.device && TURN_COMMANDS.has(payload.command.type)
-				? await botTurns.pass(() => sidecarPool.sessionFileOf(issuerTabId))
-				: undefined;
-		try {
-			return await dispatchAdmitted(win, sidecar, issuerTabId, payload, channel);
-		} finally {
-			passed?.();
-		}
-	};
-
-	const dispatchAdmitted = async (
 		win: ClientWindow,
 		sidecar: SidecarLike | null,
 		issuerTabId: string | null,
@@ -973,9 +870,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		// host keeps the ledger.
 		if (payload.command.type === "prompt" && payload.command.deliveryId && !sidecar.device) {
 			const { deliveryId, ...command } = payload.command;
-			// Already through the turn gate: the repeat must not wait on it again (its own pass counts it in flight).
 			const response = await deliverOnce(deliveryId, () =>
-				dispatchAdmitted(win, sidecar, issuerTabId, { ...payload, command }, channel),
+				dispatchRpcCommand(win, sidecar, issuerTabId, { ...payload, command }, channel),
 			);
 			return { ...response, id: payload.command.id };
 		}
@@ -985,7 +881,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (issuerTabId && personsPrompt(cmd)) {
 			agentControl.noteUserPrompt(issuerTabId);
 			sidecarPool.notePrompted(issuerTabId);
-			if ("message" in cmd && typeof cmd.message === "string") botTeach.prompt(issuerTabId, cmd.message);
 		}
 		// A tab viewing a paired host's window session: the sessions its agent opened are that host's tabs, which only
 		// the host's control tools know. It answers (host-services `attachAgentReview`), and each item opens there.
@@ -1120,21 +1015,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				};
 			}
 		}
-		// A conversation the bot ended is kept to read, never continued (agent-control/bot-rotation.ts).
-		if (
-			issuerTabId &&
-			!sidecar.device &&
-			TURN_COMMANDS.has(cmd.type) &&
-			botRowOf(sidecarPool.sessionFileOf(issuerTabId) ?? "", key => prefsStore.get(key)) === "past"
-		)
-			return {
-				id: _id,
-				type: "response",
-				command: cmd.type,
-				success: false,
-				error: "This is an earlier conversation of the bot, kept to read. Write to the bot in its current conversation.",
-				code: "bot_conversation_ended",
-			};
 		// A Stop is the user's word that this turn is over: a relaunch must not resume it, even if the
 		// process dies before the run's end event arrives (turn-resume.ts).
 		if (issuerTabId && STOP_COMMANDS[cmd.type]) {
@@ -1256,7 +1136,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 
 	/**
-	 * A notice no turn event of `tabId` carries (an Autopilot run's end, a question the bot left open) as this
+	 * A notice no turn event of `tabId` carries (an Autopilot run's end) as this
 	 * computer's OS banner on the window that holds the tab, batched like any tab notification; nothing while General ›
 	 * Notifications is off.
 	 */
@@ -1452,138 +1332,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	const fileEditReports = deps.fileEditReports;
 	// OMPdesk control tools (src/main/agent-control): the same pool, dispatcher, spawn path and notifications the GUI uses.
-	// The bot's desk (agent-control/bot-desk.ts): its routines are the schedules delivering into its session file.
-	const botRoutinesNow = (): BotRoutine[] =>
-		botRoutines(
-			deps.schedules?.()?.state() ?? { paused: false, schedules: [], runs: [], nextRuns: {} },
-			activeBotPath(key => prefsStore.get(key)),
-		);
-	// Showing the bot a workflow (agent-control/bot-teach.ts): records the owner's prompts and terminal lines while on.
-	const botTeach = new BotTeach({
-		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
-		botPath: () => activeBotPath(key => prefsStore.get(key)),
-		tab: tabId => {
-			const win = sidecarPool.windowOfTab(tabId);
-			const info = win ? sidecarPool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-			if (!info) return null;
-			return {
-				title: info.title || info.task || "",
-				cwd: info.cwd,
-				...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
-				...(info.sessionId ? { sessionId: info.sessionId } : {}),
-				...(info.device
-					? {
-							device: info.device,
-							deviceName:
-								remoteDevices.state().hosts.find(host => host.deviceId === info.device)?.name ?? info.device,
-						}
-					: {}),
-			};
-		},
-		commits: gitCommits,
-		deliver: mail => agentControl.botTaught(mail),
-		changed: () => pushBotDesk(),
-		now: Date.now,
-		log: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
-		setTimer: (fn, ms) => setTimeout(fn, ms).unref(),
-		clearTimer: handle => clearTimeout(handle as NodeJS.Timeout),
-	});
-	// Taking over a session the bot opened (agent-control/bot-takeover.ts): its turn stops, the owner works in its
-	// terminal, and handing back tells it what they ran.
-	const tabInfo = (tabId: string) => {
-		const win = sidecarPool.windowOfTab(tabId);
-		return win ? sidecarPool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-	};
-	const botTakeovers = new BotTakeovers({
-		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
-		session: sessionPath => {
-			const owner = sidecarPool.sessionOwner(sessionPath);
-			const info = owner ? tabInfo(owner.tabId) : undefined;
-			if (info) return { title: info.title || info.task || "", cwd: info.cwd };
-			// A tab this computer runs for a paired device (the device opened the session itself).
-			const hosted = hostedSessions().find(session => session.sessionPath === sessionPath);
-			return hosted ? { title: hosted.title ?? "", cwd: hosted.cwd } : null;
-		},
-		stop: sessionPath => agentControl.sessionTakenOver(sessionPath),
-		deliver: (sessionPath, note) => agentControl.sessionHandedBack(sessionPath, note),
-		activity: entry =>
-			void deps.botActivity.append({
-				kind: "sessions",
-				action: entry.action,
-				by: "owner",
-				text: entry.text,
-				target: { type: "session", value: entry.sessionPath },
-				...(entry.detail ? { detail: entry.detail } : {}),
-			}),
-		changed: () => pushBotDesk(),
-		now: Date.now,
-	});
-	/** The session a local tab holds while the owner has it taken over; terminals of a paired host's tab run there. */
-	const takenSessionOfTab = (tabId: string): string | undefined => {
-		const info = tabInfo(tabId);
-		return info && !info.device ? (info.sessionPath ?? undefined) : undefined;
-	};
-	const botDeskState = (): BotDeskState => {
-		const takeovers = botTakeovers.state();
-		return {
-			...deps.botDesk.state(),
-			routines: botRoutinesNow(),
-			teaching: botTeach.state(),
-			...(takeovers.length > 0 ? { takeovers } : {}),
-		};
-	};
-	const pushBotDesk = (): void => {
-		const state = botDeskState();
-		broadcast(windowManager, IPC_EVENTS.BOT_DESK_CHANGED, state);
-		for (const win of deps.webPages?.() ?? [])
-			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.BOT_DESK_CHANGED, state);
-		// Devices showing this computer's bot follow too, whatever moved the desk (the bot, an answer, a wake, the switch).
-		remoteDevices.hostBotDeskChanged(state);
-	};
-	deps.botDesk.onChange(pushBotDesk);
-	// The desktop windows hear a host's desk from `devices.ts`; a paired web page's window is reached only from here.
-	remoteDevices.onHostBotDesk((device, state) => {
-		const update: IpcHostBotDesk = { device, state };
-		for (const win of deps.webPages?.() ?? [])
-			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.HOST_BOT_DESK_STATE, update);
-	});
-	deps.botDeskPush.current = pushBotDesk;
-	// The bot's notices go where the owner routed each kind (Settings › Bot › Notifications; agent-control/bot-notify.ts).
-	const botNotices = new BotNoticeRouter({
-		notify: () => deps.botDesk.state().notify,
-		log: draft => void deps.botActivity.append(draft),
-	});
-	/** The bot's conversations now, by slot: its own and each side chat's; none while the bot is off. */
-	const botSlots = (): { slot: string; path: string }[] => {
-		const bot = activeBotPath(key => prefsStore.get(key));
-		if (!bot) return [];
-		return [
-			{ slot: BOT_MAIN_SLOT, path: bot },
-			...deps.botDesk.state().channels.map(channel => ({ slot: channel.id, path: channel.sessionPath })),
-		];
-	};
-	const botSlotOf = (sessionPath: string): string | undefined =>
-		botSlots().find(entry => entry.path === sessionPath)?.slot;
-	let botRotation: BotRotation | null = null;
 	const agentControl: AgentControlRuntime = new AgentControlRuntime({
-		botDesk: {
-			desk: deps.botDesk,
-			routines: botRoutinesNow,
-			activity: deps.botActivity,
-			avatarFromFile,
-			newConversation: sessionPath => {
-				const slot = botSlotOf(sessionPath);
-				return slot !== undefined && (botRotation?.request(slot, "bot") ?? false);
-			},
-		},
-		// A decision the bot posted: the owner's "needs you" banner on its tab and the paired phones, as for a late question.
-		botDecisionNotice: (tabId, decision) => {
-			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
-			const title = mainT("notify.botDecision", undefined, { title: session });
-			const route = botNotices.route("decisions", decision.question);
-			if (route.banner) notifyTab(tabId, { kind: "ask", title, body: decision.question });
-			if (route.push) deps.webTabNotice.current?.(tabId, { kind: "completion", title, body: decision.question });
-		},
 		fileEdits: fileEditReports,
 		releaseTab: async (win, tabId, stillReleasable) => {
 			const released = await closeWindowTab(tabRelease, win, tabId, win.webContents.id, stillReleasable);
@@ -1649,26 +1398,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		remote: {
 			hosts: () => remoteDevices.state().hosts,
 			request: (device, method, params, timeoutMs) => remoteDevices.request(device, method, params, timeoutMs),
-			botOf: (device, sessionPath) => remoteDevices.hostBotOf(device, sessionPath),
 		},
 		summaries: device => (device ? remoteDevices.summaries(device) : deps.summaries.current()),
-		botLog: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
-		// A question the bot left open too long: the owner's own "needs you" notice, late, here and on phones.
-		botRemind: (tabId, requestId, title) => {
-			const session = sidecarPool.tabFacts(tabId)?.title || "OMPdesk";
-			notifyTab(tabId, {
-				kind: "ask",
-				title: mainT("notify.needsInput", undefined, { title: session }),
-				body: title,
-			});
-			deps.webAsk.current?.({ type: "ask", tabId, requestId, text: title });
-		},
-		// The desktop banner, and paired phones (Web Push), as an Autopilot run's notice reaches them; the bot's and its
-		// side chats' as the owner routed their kind.
-		notify: (win, tabId, title, body, kind) => {
-			const route = agentControl.isBotTab(tabId) ? botNotices.route(kind, title) : { banner: true, push: true };
-			if (route.banner) showNotification(win.webContents.id, { title, body, tabId });
-			if (route.push) deps.webTabNotice.current?.(tabId, { kind: "completion", title, body });
+		// The desktop banner and paired phones (Web Push), as an Autopilot run's notice reaches them.
+		notify: (win, tabId, title, body) => {
+			showNotification(win.webContents.id, { title, body, tabId });
+			deps.webTabNotice.current?.(tabId, { kind: "completion", title, body });
 		},
 		deleteSession: deleteStoredSession,
 		checkoutPeers: tabId => checkoutPeers.peersOf(tabId),
@@ -1709,97 +1444,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
-	// The bot's conversation renews (agent-control/bot-rotation.ts): daily, after two compactions or 2 MB, or when asked.
-	botRotation = new BotRotation({
-		prefs: { get: key => prefsStore.get(key), set: (key, value) => prefsStore.set(key, value) },
-		changed: () => {
-			sessionIndex.relist();
-			pushBotDesk();
-		},
-		now: Date.now,
-		slots: botSlots,
-		bornAt: sessionPath => {
-			try {
-				const stats = statSync(sessionPath);
-				return stats.birthtimeMs > 0 ? stats.birthtimeMs : stats.mtimeMs;
-			} catch {
-				return undefined;
-			}
-		},
-		bytes: sessionPath => {
-			try {
-				return statSync(sessionPath).size;
-			} catch {
-				return undefined;
-			}
-		},
-		quiet: sessionPath =>
-			agentControl.botQuiet(sessionPath) &&
-			botTakeovers.state().length === 0 &&
-			botTeach.state() === null &&
-			!hostedSessions().some(
-				hosted => hosted.sessionPath === sessionPath && (hosted.status === "running" || hosted.ask !== undefined),
-			),
-		sideAnswer: (sessionPath, question) => agentControl.botSideAnswer(sessionPath, question, BOT_HANDOFF_TIMEOUT_MS),
-		deskNote: slot => agentControl.botDeskNote(botSlots().find(entry => entry.slot === slot)?.path ?? ""),
-		title: async sessionPath =>
-			(await sessionIndex.list("global")).find(row => row.path === sessionPath)?.title ?? mainT("bot.title"),
-		create: title => deps.botHome.createConversation(title),
-		discard: sessionPath => sessionIndex.deleteSession(sessionPath),
-		gate: botTurns,
-		adopt: async ({ slot, from, to, note, reason }) => {
-			// A paired device's own tab on the old conversation here closes (refused, so the renewal stops, while it
-			// runs). The device is told no delete (the conversation stays to read): its copy of this computer's list
-			// shows the conversation ended and closes its tabs on it (`onHostBotEnded`). Then the commit: the bot's tab
-			// moves (refused under a turn).
-			await deps.hostedTabs.closeSessionTabs(from);
-			await agentControl.botMoveTab(from, to);
-			if (slot === BOT_MAIN_SLOT) deps.botHome.moveBot(to);
-			else deps.botDesk.moveChannel(slot, to);
-			deps.schedules?.()?.moveWakes(from, to);
-			agentControl.botAdopted({ from, to, note });
-			deps.botActivity.append({
-				kind: "desk",
-				action: "conversation_new",
-				by: reason === "owner" ? "owner" : "bot",
-				...(slot === BOT_MAIN_SLOT ? {} : { channel: slot }),
-				text: reason,
-			});
-		},
-		remove: async sessionPath => {
-			try {
-				await deleteStoredSession(sessionPath, undefined);
-				return true;
-			} catch {
-				return !existsSync(sessionPath);
-			}
-		},
-		log: entry => writeRuntimeLog({ source: "bot", message: String(entry.event), details: entry }),
-	});
-	sidecarPool.observeTabs(activity => {
-		if (activity.type === "compacted") {
-			const sessionPath = sidecarPool.sessionFileOf(activity.tabId);
-			if (sessionPath) botRotation?.compacted(sessionPath);
-		}
-		if (activity.type === "idle" || activity.type === "askClosed") void botRotation?.tick();
-	});
-	// Age-based retention of every bot record (shared/bot-retention.ts), at launch and hourly.
-	const pruneBotRecords = (): void => {
-		const now = Date.now();
-		deps.botActivity.prune(now);
-		const gone = deps.botDesk.prune(now, sessionPath => sidecarPool.sessionOwner(sessionPath) !== null);
-		agentControl.pruneBotRecords(now, gone);
-		deps.schedules?.()?.prune(now);
-	};
-	pruneBotRecords();
-	setInterval(pruneBotRecords, BOT_PRUNE_EVERY_MS).unref();
-	// The renewal's own pass, never at the launch itself: the restored tabs are not in the pool yet, and a bot tab
-	// restored on a file renewed meanwhile would come back as an ended conversation.
-	setInterval(() => void botRotation?.tick(), BOT_ROTATION_TICK_MS).unref();
-	deps.botAnswers.current = (tabId, requestId) => agentControl.botAnswers(tabId, requestId);
-	deps.botPush.current = (tabId, kind) =>
-		!agentControl.isBotTab(tabId) ||
-		botNotices.route(kind === "ask" ? "decisions" : "done", sidecarPool.tabFacts(tabId)?.title ?? "", "push").push;
+	deps.schedules?.()?.prune(Date.now());
+	setInterval(() => deps.schedules?.()?.prune(Date.now()), 60 * 60_000).unref();
 	deps.sessionWake.current = (schedule, runId) => agentControl.wakeSession(schedule, runId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
@@ -1877,115 +1523,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		if (!device) return sessionIndex.list(scope, cwd);
 		return remoteDevices.listHostSessions(device, scope, cwd);
 	});
-
-	// One answer path for the owner's own and a paired device's (`host.botDesk.answer`): recorded first, so the bot is
-	// told once, and an answer for a decision that is gone or answered is refused here.
-	const answerBotDecision = ({ id, answer, draft }: BotDeskAnswer): void =>
-		void agentControl.botDecisionAnswered(deps.botDesk.answer(id, answer, draft));
-	// The owner paused or resumed the bot, by its edit, an Undo of one, or a paired device's: its mail waits or goes.
-	let botPaused = deps.botDesk.state().paused === true;
-	deps.botDesk.onChange(() => {
-		const paused = deps.botDesk.state().paused === true;
-		if (paused === botPaused) return;
-		botPaused = paused;
-		agentControl.botPausedChanged(paused);
-	});
-	// The owner's edits (and a paired device's, `host.botDesk.edit`): one path, `bot-desk-edit.ts`.
-	const editDesk = (edit: BotDeskEdit): Promise<void> => {
-		if ((edit.op === "channel_add" || edit.op === "channel_remove") && !botEnabled(prefsStore.get(BOT_ENABLED_PREF)))
-			return Promise.reject(new Error("The bot is off (Settings › Bot)"));
-		return editBotDesk(
-			{
-				desk: deps.botDesk,
-				createSideChat: topic => deps.botHome.createSideChat(topic),
-				deleteSession: sessionPath => deleteStoredSession(sessionPath, undefined),
-				newConversation: slot => botRotation?.request(slot, "owner") ?? false,
-			},
-			edit,
-			"owner",
-		);
-	};
-	// A paired device's home for this computer's bot: only while the bot is on, as its row is gone otherwise.
-	deps.hostedTabs.attachBotDesk({
-		enabled: () => botEnabled(prefsStore.get(BOT_ENABLED_PREF)),
-		state: botDeskState,
-		answer: answerBotDecision,
-		edit: editDesk,
-		activity: () => deps.botActivity.page(),
-		teach: request => teachAction(botTeach, request),
-		takeover: request => takeoverAction(botTakeovers, request),
-		terminalSeen: (sessionPath, terminal, operation, snapshots) => {
-			if (operation.action === "write")
-				botTakeovers.terminalWrite(sessionPath, `${terminal}|${operation.id}`, operation.data);
-			for (const snapshot of snapshots)
-				botTakeovers.terminalOutput(sessionPath, `${terminal}|${snapshot.id}`, snapshot.offset, snapshot.output);
-		},
-	});
-	// With `device`, a paired host's own desk over the link: its answer reaches that host's bot, never this one's.
-	ipc.handle(IPC_COMMANDS.BOT_DESK_GET, async (_caller, device?: unknown) => {
-		const host = deviceOf(device);
-		return host
-			? BotDeskStateSchema.parse(await remoteDevices.request(host, "host.botDesk.get", {}))
-			: botDeskState();
-	});
-	ipc.handle(IPC_COMMANDS.BOT_DESK_ANSWER, async (_caller, payload: unknown, device?: unknown) => {
-		const answer = BotDeskAnswerSchema.parse(payload);
-		const host = deviceOf(device);
-		if (host) await remoteDevices.request(host, "host.botDesk.answer", answer);
-		else answerBotDecision(answer);
-	});
-	ipc.handle(IPC_COMMANDS.BOT_DESK_EDIT, async (_caller, payload: unknown, device?: unknown) => {
-		const edit = BotDeskEditSchema.parse(payload);
-		const host = deviceOf(device);
-		if (host) await remoteDevices.request(host, "host.botDesk.edit", edit);
-		else await editDesk(edit);
-	});
-	ipc.handle(IPC_COMMANDS.BOT_ACTIVITY_GET, async (_caller, device?: unknown) => {
-		const host = deviceOf(device);
-		return host
-			? BotActivityPageSchema.parse(await remoteDevices.request(host, "host.botDesk.activity", {}))
-			: deps.botActivity.page();
-	});
-	// The owner shows the bot a workflow: with `device`, that host's own bot records and is handed the record.
-	ipc.handle(IPC_COMMANDS.BOT_TEACH, async (_caller, payload: unknown, device?: unknown) => {
-		const request = BotTeachRequestSchema.parse(payload);
-		const host = deviceOf(device);
-		return host
-			? BotTeachResultSchema.parse(await remoteDevices.request(host, "host.botDesk.teach", request))
-			: teachAction(botTeach, request);
-	});
-	// Settings › Bot › Generate: the image model role draws the avatar in a live local omp (the bot's own tab, else the
-	// asking window's active one), and the owner's identity change keeps it with Undo (agent-control/bot-avatar-draw.ts).
-	const avatarBridgeFor = (caller: IpcCaller) =>
-		avatarBridge(
-			sidecarPool,
-			activeBotPath(key => prefsStore.get(key)),
-			sidecarFor(deps, caller),
-		);
-	ipc.handle(IPC_COMMANDS.BOT_AVATAR_STATUS, caller => avatarStatus(avatarBridgeFor(caller)));
-	// With `device`, this computer's image role draws a paired host's avatar and the host's desk keeps it.
-	ipc.handle(IPC_COMMANDS.BOT_AVATAR_GENERATE, async (caller, prompt: unknown, device?: unknown) => {
-		const host = deviceOf(device);
-		const desk: AvatarDrawDeps["desk"] = host
-			? { change: edit => remoteDevices.request(host, "host.botDesk.edit", edit) }
-			: deps.botDesk;
-		await generateAvatar({ desk, avatarFromBuffer }, avatarBridgeFor(caller), BotAvatarPromptSchema.parse(prompt));
-	});
-	// The owner takes over a session the bot opened, or hands it back: with `device`, on that host.
-	ipc.handle(IPC_COMMANDS.BOT_TAKEOVER, async (_caller, payload: unknown, device?: unknown) => {
-		const request = BotTakeoverRequestSchema.parse(payload);
-		const host = deviceOf(device);
-		return host
-			? BotTakeoverResultSchema.parse(await remoteDevices.request(host, "host.botDesk.takeover", request))
-			: takeoverAction(botTakeovers, request);
-	});
-	// The bot's session (agent-control/bot-home.ts): the sidebar's bot row opens what this answers, made first when
-	// the file is missing (a launch is its first seconds; a deleted one). Never while the owner has the bot off.
-	ipc.handle(IPC_COMMANDS.SESSIONS_ENSURE_BOT, () =>
-		botEnabled(prefsStore.get(BOT_ENABLED_PREF))
-			? deps.botHome.ensureBotSession()
-			: Promise.reject(new Error("The bot is off (Settings › Bot)")),
-	);
 
 	// "Stop and delete" (a delete refused while a turn runs on the session): stop every turn on the file, in any window
 	// or tab this computer runs for a paired device (or, with `device`, on that host), and answer once they ended.
@@ -2441,15 +1978,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					notificationBatcher.dropWindow(winId);
 				});
 			}
-			// The bot answers this tab's question for the owner (agent-control/bot.ts): its notice would repeat
-			// it. A banner names no request, so a tab holding any question the bot cannot answer still notifies.
-			if (notice.kind === "ask" && notice.tabId && agentControl.botAnswers(notice.tabId)) return;
-			// The bot's and its side chats' banners go where the owner routed them: a finished turn is `done`, its
-			// own question `decisions`.
-			if (notice.tabId && notice.kind !== "error" && agentControl.isBotTab(notice.tabId)) {
-				const kind = notice.kind === "ask" ? "decisions" : "done";
-				if (!botNotices.route(kind, notice.body || notice.title, "banner").banner) return;
-			}
 			// Bursts fold into one summary (notification-batch.ts).
 			notificationBatcher.notify(winId, {
 				title: notice.title,
@@ -2478,7 +2006,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 		}
 	};
-	// A deleted session leaves the closed-children record (its opener's family, the bot's tasks) with its file, also
+	// A deleted session leaves the closed-children record (its opener's family) with its file, also
 	// when a paired device asked the delete; a delete before this rule left its record, which goes now.
 	setSessionDeletedListener(() => agentControl.forgetDeleted());
 	agentControl.forgetDeleted();
@@ -2580,16 +2108,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
-		if (payload.key === BOT_RULES_PREF || payload.key === BOT_ENABLED_PREF) agentControl.botRulesChanged();
-		// Off, the bot has no routines to show; on, its own come back.
-		if (payload.key === BOT_ENABLED_PREF) {
-			// A recording belongs to the bot that was on.
-			if (!botEnabled(prefsStore.get(BOT_ENABLED_PREF))) {
-				botTeach.cancel();
-				botTakeovers.clear();
-			}
-			pushBotDesk();
-		}
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});

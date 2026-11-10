@@ -153,61 +153,15 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // applies what each change carries (`stores/session-list.ts`, `shared/session-list-delta.ts`, `sessions.listShared`)
 // instead of reading the whole list after every change: measured 3,218,041, 1,278 bytes over its parent 51f0e312f
 // (3,216,763).
-// The bot (31 Oct 2026): the session menu's Set as bot item, the row's bot mark and the sidebar prefs
-// field that names it (`bot`): measured 3,219,374 on eb8409752 with it in the tree, 1,333 bytes over the measure
-// above.
 // A click then a modifier pressed alone shows no focus style (`lib/focus-modality.ts`, loaded after the first screen by
 // one dynamic import in main.tsx; 31 Oct 2026): 1,548 bytes (its 1,346-byte chunk and the 202-byte import), measured
 // 3,220,084 with the other changes of 31 Oct in the tree.
 // A retry saga rides the tab status (`retrySaga`; 31 Oct 2026): the tabs store and session hydration, both on the first
 // screen, put stock's open retry on a tab shown after it started, so its failed attempt shows no failure card: measured
 // 3,220,084 with it and the other changes of 31 Oct in the tree.
-// The bot is always in the sidebar (31 Oct 2026): the fixed bot row and its store (`stores/bot.ts`, the row's stand-in
-// and click) replace the session menu's Set as bot item and the sidebar prefs field: measured 3,220,755 on a922320b3
-// with it in the tree, 121 bytes over the measure above.
-// The bot's family (31 Oct 2026): what the bot opened nests under its fixed row (`botKids` in `Sidebar.tsx`: one pass of
-// the opener rule over the rows with the bot as a candidate, then the rows again without that family): measured
-// 3,221,805 with it and the Bot rules screen's settings in the tree, 905 bytes over the measure above.
-// The bot is off until the owner turns it on, and a paired host's bot is a fixed row in its section (31 Oct 2026): the
-// store's enable pref and `SidebarDevices.tsx`'s bot row: measured 3,222,863, 1,058 bytes over the measure above.
-// The bot's desk (31 Oct 2026): its home is loaded on demand (`preloadBotHome`, 18.8 kB kept off the first screen),
-// while the pane's Home/Chat switch, the desk store, the row's decision count and their strings stay: measured
-// 3,231,571, 7,571 bytes over the measure above.
-// A paired host's bot desk (31 Oct 2026): the desk store keyed per host and the shared decision-count badge on the host's
-// bot row (`BotDecisionsBadge`), both drawn by the first screen's sidebar: measured 3,234,021, 2,021 bytes over the
-// measure above.
-// The bot's one screen (31 Oct 2026): the Home/Chat switch goes, the pane's context and bar frame and the strip's bot
-// label come; the bar, decisions and board sections stay one lazy chunk (`preloadBotDesk`): measured 3,234,028, 7 bytes
-// over the measure above.
-// The bot's identity, memory, notice routing, voice and side chats (1 Nov 2026): the desk's new fields and their
-// defaults (`shared/bot-desk.ts`; the edit schema and Memory.md helpers live apart in `bot-desk-edit.ts`, off this
-// screen), the store's `edit` and the API's two calls: measured 3,237,180, 3,152 bytes over the measure above.
-// The bot's parity surfaces (1 Nov 2026): the decision fields (operation, inputs, draft, expiry) and the desk's paused,
-// tasks-done and pin fields in the desk schema the store reads, the bot tab's context in the work board and its strip,
-// and the board row's open-and-act form; Tasks, Library and the cards stay in the bot's lazy chunk: measured
-// 3,239,068, 1,888 bytes over the measure above.
-// The bot's routines (1 Nov 2026): the desk's routines with their schedule and run shapes (`shared/schedules-schema.ts`,
-// read by the desk store the first screen's sidebar uses) and the routines, run history and teaching strings; the
-// routines section itself stays in the lazy desk chunk: measured 3,242,506, 3,438 bytes over the measure above.
-// The bot's identity on its rows, side chats as bot panes, its spoken replies and the board's three new section ids
-// (1 Nov 2026): the avatar's marks on both sidebars' bot rows (`BotAvatar`, twelve lucide shapes), the side-chat test in
-// `BotPane`, the `speakReplies` watcher in `lib/voice.ts`, `AssistantMarkdown`'s lazy hand-off and the new strings;
-// Memory, Side chats, Activity, Sources and Settings' identity stay in lazy chunks: measured 3,250,666 with the
-// routines in the tree, 8,160 bytes over the measure above.
 // The email trigger (1 Nov 2026): the `email` event in the schedule schema the desk store reads, its summary line and
 // the Email accounts strings; the accounts block itself stays in the lazy Settings chunk: measured 3,252,153, 1,487
 // bytes over the measure above.
-// A decision leaving the dock and the bot rows' counts at its deadline (1 Nov 2026): `useDecisionClock` and
-// `useOpenBotDecisions` in the desk store both sidebars read: measured 3,252,878, 725 bytes over the measure above.
-// A deadline weeks away waits in timer-sized steps (1 Nov 2026): measured 3,253,002, 124 bytes over the measure above.
-// The bot's voice chat and its avatar generation (1 Nov 2026): the call store `BotPane` reads to mount the call bar,
-// the API's two avatar calls and the new strings; the call loop, its bar and the avatar dialog stay in lazy chunks:
-// measured 3,254,545, 1,543 bytes over the measure above.
-// Streaming voice (2 Nov 2026): the RPC client's seven stt_stream_*/tts_stream_* methods; the stream capture and
-// playback stay in voice-stream.ts, loaded only by the call: measured 3,255,196, 651 bytes over the measure above.
-// Taking a task over from the bot (1 Nov 2026): the takeover bar's test in `BotPane` (every tab's pane), the desk's
-// `takeovers` schema and the take-over strings; the bar and the row actions stay in the lazy desk chunk, with agent
-// browsing for remote tabs in the tree: measured 3,256,294, 1,098 bytes over the measure above.
 // A failed pipeline named after its last stage (1 Nov 2026): `pipelineProgram`, the `pipefail` test and
 // `firstStageProgram` in command-verdict-core.ts, which the work card reads: measured 3,257,009, 579 bytes over the
 // tree before it (3,256,430).
@@ -242,20 +196,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The restart-cut mark keyed to the run it cut (the subagents store's `run` count and `deliveredBy`) and the automatic
 // install's waiting notice (the sidebar card's waiting row, `waitingWhat`, the phone sheet's line naming the work and the
 // new strings) (2 Nov 2026): measured 3,278,050 on the tree before the outbox, 2,912 bytes over its own base.
-// A session opened on a paired device is its opener's child in every view (3 Nov 2026): the stand-ins for tabs another
-// view holds (`sessions.remoteOpened`, the hosted-sessions store, `remoteOpenedTab`), `familyRows` and the host's bot
-// family and remote children in a device's section: measured 3,294,200, about 2,500 bytes over the tree before it
-// (which a byte trim had held at 3,291,700).
-// One motion system (3 Nov 2026, docs/motion-design.md): the token reader and presence timers (`lib/motion.ts`, 1.6 KB,
-// in the toast chunk the stores share), `Collapse` (0.8 KB), the list hooks (`useListMotion`, the sidebar's), the
-// done mark, and in each of about sixty components the exit state, `Collapse` body and `data-flip-key` wiring
-// (0.1 to 0.6 KB apiece: Popover, Tooltip, ContextMenu, Toast, Sheet, the composer's overlays, the sidebar's and a paired
-// host's rows and folds, the bot's dock). They render on the first screen, so they cannot defer; what only runs once
-// a person acts (FLIP, height animation, the leaving overlay's clone: `lib/motion-play.ts`, 2.3 KB) loads right after
-// it: measured 3,309,215 on 3dbeeff4's 3,294,067, 15,148 bytes over its base, added to the budget above.
 // Composer dictation shows the download of its language's speech model (3 Nov 2026): the dictation bar's preparing
-// line and its `ProgressBar`, the take's `onPreparing` and the strings; the prepare loop itself loads with the call's
-// `voice-stream` module on the take's first wait: measured 3,310,945, 1,597 bytes over the budget above. The take's
+// line and its `ProgressBar`, the take's `onPreparing` and the strings; the prepare loop itself loads with the
+// `stt-prepare` module on the take's first wait: measured 3,310,945, 1,597 bytes over the budget above. The take's
 // `onPreparing(null)` once the model is here, so the bar says "Transcribing…" again (3 Nov 2026): measured 3,310,970.
 // Local names shortened in the renderer (3 Nov 2026): its esbuild minify pass went from `minifyIdentifiers: false` to
 // `keepNames: true` (electron.vite.config.ts), so locals and parameters read short while every function and class keeps
@@ -320,9 +263,6 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A session whose folder is gone wears "Folder missing" on its row and opens read-only (8 Nov 2026,
 // `SidebarRows.folderMissing`, `SidebarFolderMissingMark`, the `missingFolder` request and its lazy sheet's host),
 // and a child opened in another folder is a row of its own project too (`openedElsewhere`): 2,170,453.
-// A conversation the bot ended reads as an earlier one in a tab's name and the title bar (8 Nov 2026,
-// lib/session-title.ts `withEndedBotMark`, the listed row's `bot` and `created`; the title bar is the first screen):
-// 2,170,873.
 // Every model list beside a provider's mark reads its compact name, a suffix only where two would read alike (8 Nov
 // 2026, provider-marks.ts `compactModelLabels`; the composer's model picker is on the first screen): 2,171,893.
 // The model "Find more evidence" researches with is picked beside it and kept on the machine it runs on (8 Nov 2026,
@@ -346,9 +286,6 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 2,175,035.
 // A session row holds its family chip's slot only while the chip draws (9 Nov 2026, sidebar-family.ts
 // `familyChipCounts`/`hasFamilyChip`, read with the family hide state by both session lists): 2,175,243.
-// An agent's question shows its form's paragraph and pictures above the choices, and a bot decision's pictures unfolded
-// (9 Nov 2026, ExtensionDialog.tsx `AskDialog` drawing `context`, BotDecisions.tsx `PICTURE`; the ask card is the
-// first screen), and a picture named by a Windows drive path read as a path (markdown.tsx `WINDOWS_DRIVES`): 2,175,491.
 // The usage row under a reply stays one line, dropping its least useful segments as it narrows (9 Nov 2026,
 // UsageRow.tsx `DROP`, every value named in its tooltip; the transcript is the first screen): 2,176,219.
 // The answer to a steer reads right under it, above the card of its calls, streaming as finalized (10 Nov 2026,

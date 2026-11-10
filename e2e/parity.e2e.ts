@@ -141,7 +141,7 @@ if (dir) {
 		test.setTimeout(300_000 + surfaces.length * 90_000);
 		await fs.mkdir(out, { recursive: true });
 		const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-parity-")));
-		// The voice surfaces (calls and composer dictation) script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
+		// The composer dictation surfaces script the fake omp's speech through this file (e2e/fixture/rpc-ui.ts `voiceScript`).
 		process.env.OMP_GUI_TEST_VOICE_FILE = path.join(parent, "voice.json");
 		// `session-slow-start` holds the fake omp's `get_state` through this file (e2e/fixture/rpc-ui.ts `startFile`).
 		process.env.OMP_GUI_TEST_START_FILE = path.join(parent, "start.json");
@@ -155,7 +155,7 @@ if (dir) {
 				language: "en",
 				theme: "light",
 				// The usage row under a reply (`reply-usage`): on here, on the paired computer and through to the phone.
-				prefs: { botEnabled: true, displayPreferences: { showTokenUsage: true } },
+				prefs: { displayPreferences: { showTokenUsage: true } },
 				// Only the host's omp starts under the hold: its slow-start bound is short, so the banner shows within seconds.
 				env: { OMP_GUI_START_SLOW_MS: "1500" },
 			});
@@ -199,69 +199,6 @@ if (dir) {
 					{ timeout: 30_000 },
 				)
 				.not.toBe("");
-
-			// B's bot, awake, with a duty and an open decision, so its bar and decision dock draw.
-			/** The bot's conversation now: renewing it (`new_conversation`) moves the bot to a new file. */
-			const botConversation = async () => {
-				const value = await b.evaluate(() => window.omp.prefs.get("bot"));
-				return typeof value === "string" ? value : "";
-			};
-			/** The newest conversation the bot ended; the bot renews first when it has ended none yet. */
-			const endedBotConversation = async () => {
-				const newestEnded = () =>
-					b.evaluate(
-						async () =>
-							(await window.omp.sessions.list("global"))
-								.filter(row => row.bot === "past")
-								.sort((x, y) => y.created.localeCompare(x.created))[0]?.path ?? "",
-					);
-				if (!(await newestEnded())) {
-					const before = await botConversation();
-					await b.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
-					await expect.poll(botConversation, { timeout: 60_000 }).not.toBe(before);
-				}
-				let ended = "";
-				await expect.poll(async () => (ended = await newestEnded()), { timeout: 30_000 }).not.toBe("");
-				return ended;
-			};
-			let botPath = "";
-			await expect.poll(async () => (botPath = await botConversation()), { timeout: 30_000 }).not.toBe("");
-			await b.locator("[data-sidebar-bot-row]").first().click();
-			let botTab = "";
-			let botCwd = "";
-			await expect
-				.poll(
-					async () => {
-						const tab = (await b.evaluate(() => window.omp.tabs.list())).find(
-							entry => entry.sessionPath === botPath,
-						);
-						botTab = tab?.tabId ?? "";
-						botCwd = tab?.cwd ?? "";
-						return tab?.status;
-					},
-					{ timeout: 60_000 },
-				)
-				.toBe("ready");
-			const callBot = await controlToolCaller(b, hostProfile.record, botTab);
-			expect((await callBot("ompdesk_bot", { action: "duty_add", text: "Check the nightly build" })).isError).toBe(
-				false,
-			);
-			const decision = await callBot("ompdesk_bot", {
-				action: "decide",
-				question: "Ship the release today?",
-				options: ["Ship it", "Wait"],
-			});
-			expect(decision.isError, decision.text).toBe(false);
-			// B's board started reading its activity log when the bot row opened, before these entries, and reads it
-			// again only every BOT_ACTIVITY_POLL_MS (5 s); a view opened later reads it at once. Wait for B's own read,
-			// so each view shows the same log, however long the setup below takes.
-			const newest = await b.evaluate(
-				async () =>
-					(await window.omp.sessions.botDesk.activity()).entries.findLast(entry => entry.kind !== "read")?.id ??
-					"",
-			);
-			expect(newest, "the bot's seeding logged activity").not.toBe("");
-			await expect(b.locator(`[data-bot-activity="${newest}"]`)).toHaveCount(1, { timeout: 15_000 });
 
 			// B's phone page.
 			await b.evaluate(() => window.omp.mobileWeb.command({ action: "enable" }));
@@ -379,61 +316,22 @@ if (dir) {
 			// A session of its own: one more turn in the reply session put its first turns past what a phone's view
 			// reaches in time (10 Nov 2026).
 			const steerSession = () => answeredSession("Parity steer", [["fixture steered", "Steered run finished."]]);
-			/**
-			 * B's `session` as it is when a view shows it, read from B each time and never kept from the setup: a step
-			 * between surfaces may move it (`leaveRemoteChild` renews the bot's conversation), and a view of the file it
-			 * left shows no bot.
-			 */
+			/** B's `session` as it is when a view shows it. */
 			const hostSession = async (session: ParitySession): Promise<HostSession> =>
-				session === "work"
-					? work
-					: session === "reply"
-						? replySession()
-						: session === "steer"
-							? steerSession()
-							: session === "bot-ended"
-								? { path: await endedBotConversation(), cwd: botCwd }
-								: { path: await botConversation(), cwd: botCwd };
-			/**
-			 * Open the bot's ended conversation `sessionPath` on `page` as its owner does: the bot's row (`botRow`, on the
-			 * bot's current conversation), then that conversation in the bot's earlier conversations.
-			 */
-			const openEnded = async (page: Page, botRow: Locator, sessionPath: string) => {
-				await openRow(page, botRow, await botConversation());
-				await page
-					.locator(`[data-bot-past-open=${cssString(sessionPath)}]`)
-					.first()
-					.click({ timeout: 30_000 });
-				await expect
-					.poll(
-						async () => (await page.evaluate(() => window.omp.tabs.list())).find(tab => tab.active)?.sessionPath,
-						{ timeout: 30_000 },
-					)
-					.toBe(sessionPath);
-			};
+				session === "work" ? work : session === "reply" ? replySession() : steerSession();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
 				local: async session => {
 					const { path: sessionPath } = await hostSession(session);
-					if (session === "bot-ended") {
-						await openEnded(b, b.locator("[data-sidebar-bot-row]").first(), sessionPath);
-						return;
-					}
 					await openRow(
 						b,
-						session === "bot"
-							? b.locator("[data-sidebar-bot-row]")
-							: b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`),
+						b.locator(`.omp-sidebar-session-row[data-session-path=${cssString(sessionPath)}]`),
 						sessionPath,
 					);
 				},
 				remote: async session => {
 					const { path: sessionPath } = await hostSession(session);
 					const section = a.locator(`[data-sidebar-device="${deviceId}"]`);
-					if (session === "bot-ended") {
-						await openEnded(a, section.locator("[data-sidebar-bot-row]").first(), sessionPath);
-						return;
-					}
 					await openRow(a, section.locator(`[data-device-session=${cssString(sessionPath)}]`), sessionPath);
 				},
 				phone: async session => {
@@ -441,19 +339,12 @@ if (dir) {
 					await phone.goto(`${phoneUrl}/`, { timeout: 60_000 });
 					await phonePaired(phone);
 					const { path: sessionPath, cwd } = await hostSession(session);
-					// The phone's tab on that file, read from the phone each time and never kept from a surface before: a tab
-					// moves with its session (the bot's follows a renewed conversation), and one kept for the file the bot
-					// left showed the current conversation's composer where `bot-ended` expects the ended one's note.
+					// The phone's tab on that file, read from the phone each time and never kept from a surface before.
 					let tabId = (await phone.evaluate(() => window.omp.tabs.list())).find(
 						tab => tab.sessionPath === sessionPath,
 					)?.tabId;
 					if (!tabId) {
-						const viewed = await phone.evaluate(
-							spawn => window.omp.tabs.spawn(spawn),
-							session === "bot" || session === "bot-ended"
-								? { cwd, kind: "chat" as const, sessionPath }
-								: { cwd, sessionPath },
-						);
+						const viewed = await phone.evaluate(spawn => window.omp.tabs.spawn(spawn), { cwd, sessionPath });
 						tabId = viewed?.tabId ?? undefined;
 						if (!tabId) throw new Error(`the phone could not view ${session}: ${JSON.stringify(viewed)}`);
 					}
@@ -461,12 +352,7 @@ if (dir) {
 				},
 			};
 
-			/**
-			 * What a `remoteChild` surface shows, set up once before the first: B pairs with A too, B's bot opens a session
-			 * on A and leaves a turn running there, then starts a new conversation and its tab closes, so only the ended
-			 * conversation's file names the child's opener (as after a relaunch). A runs a session of its own, so B's
-			 * section of A folds to a count.
-			 */
+			/** B's work session opens a child on A; A also runs a session of its own, so its folded section has a count. */
 			let remoteChildLeft = false;
 			const leaveRemoteChild = async () => {
 				remoteChildLeft = true;
@@ -479,41 +365,51 @@ if (dir) {
 						{ timeout: 30_000 },
 					)
 					.toBe("online");
-				const open = await callBot("ompdesk_session_open", {
+				const callWork = await controlToolCaller(b, hostProfile.record, start);
+				const open = await callWork("ompdesk_session_open", {
 					device: "PC-A",
-					message: "Title: Run the Windows suites\nRun them on the other computer",
+					folder: clientProfile.project,
+					message: "Title: Parity remote child\nRun the Windows suites on the other computer",
 					show: "background",
 				});
 				expect(open.isError, open.text).toBe(false);
 				const [child] = openedSessions(open.text);
-				if (!child) throw new Error(`the bot opened nothing on PC-A: ${open.text}`);
+				if (!child) throw new Error(`the work session opened nothing on PC-A: ${open.text}`);
 				await untilAnswered(b, child);
-				// The fake holds "fixture running" open until `fixture:finish`.
+				await b.evaluate(
+					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity remote child" }),
+					child,
+				);
 				await b.evaluate(
 					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
 					child,
 				);
-				// Its tab closes first, so the tab layout keeps the ended conversation's file as the child's opener (a tab
-				// still open would move it to the new conversation's), then the conversation renews.
-				expect(await b.evaluate(id => window.omp.tabs.close(id), botTab)).toBe(true);
-				await b.evaluate(() => window.omp.sessions.botDesk.edit({ op: "new_conversation" }));
-				await expect.poll(botConversation, { timeout: 60_000 }).not.toBe(botPath);
-				// A's own session (its start tab may be gone: it showed B's sessions), whose turn B's section of A counts.
+				await expect
+					.poll(
+						async () => (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === child)?.status,
+						{ timeout: 30_000 },
+					)
+					.toBe("running");
 				const own =
 					(await a.evaluate(project => window.omp.tabs.spawn({ cwd: project }), clientProfile.project))?.tabId ??
 					"";
+				if (!own) throw new Error("PC-A opened no session of its own");
 				await expect
 					.poll(
 						async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === own)?.status,
-						{
-							timeout: 60_000,
-						},
+						{ timeout: 60_000 },
 					)
 					.toBe("ready");
 				await a.evaluate(
 					id => window.omp.rpc.commandForTab(id, { type: "prompt", message: "fixture running" }),
 					own,
 				);
+				await expect
+					.poll(
+						async () => (await a.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === own)?.status,
+						{ timeout: 30_000 },
+					)
+					.toBe("running");
 			};
 
 			/**
@@ -643,13 +539,7 @@ if (dir) {
 						const page = pages[view];
 						try {
 							await show[view](surface.parity.session);
-							// An ended conversation has no composer: its note stands in its place.
-							await page
-								.locator(
-									surface.parity.session === "bot-ended" ? "[data-bot-ended-note]" : "[data-composer-input]",
-								)
-								.first()
-								.waitFor({ state: "visible", timeout: 60_000 });
+							await page.locator("[data-composer-input]").first().waitFor({ state: "visible", timeout: 60_000 });
 							await surface.open(page, VIEW_LOOK[view]);
 							if (surface.ready)
 								await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 15_000 });

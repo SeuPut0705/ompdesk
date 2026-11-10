@@ -65,13 +65,11 @@ import { autoCloseHeld } from "../lib/agent-auto-close";
 import { basename } from "../lib/format";
 import { translate } from "../lib/i18n";
 import {
-	type BotRowFacts,
 	sessionDisplayParts,
 	sessionDisplayTitle,
 	sessionTitleParts,
 	shownSessionName,
 	type TitleParts,
-	withEndedBotMark,
 } from "../lib/session-title";
 import { beginTabRoute, openingTab, reconcileTabRoute, resetTabRoute, settleTabRoute } from "../lib/tab-routing";
 import { isSessionHeld } from "../lib/tab-signal";
@@ -508,8 +506,8 @@ export function tabAutoTitle(tab: SessionTab, listed?: Pick<SessionInfo, "title"
 	return listed && shown && shownSessionName(listed.title ?? "") === shown ? listed.autoTitle : undefined;
 }
 
-/** The listed row fields a tab's name reads: the automatic title, and whether the bot ended the conversation. */
-type TabRow = Pick<SessionInfo, "title" | "autoTitle"> & BotRowFacts;
+/** The listed row fields a tab's name reads: the automatic title. */
+type TabRow = Pick<SessionInfo, "title" | "autoTitle">;
 
 /**
  * `tabChipLabel` as parts: the tab's own title with its automatic title beside it. Untitled and task names stand
@@ -517,10 +515,7 @@ type TabRow = Pick<SessionInfo, "title" | "autoTitle"> & BotRowFacts;
  */
 export function tabChipParts(tab: SessionTab, tabs: readonly SessionTab[], listed?: TabRow): TitleParts {
 	const label = tabChipLabel(tab, tabs);
-	return withEndedBotMark(
-		shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label },
-		listed,
-	);
+	return shownSessionName(tab.title ?? "") ? sessionTitleParts(label, tabAutoTitle(tab, listed)) : { title: label };
 }
 
 /**
@@ -531,20 +526,17 @@ export function tabChipParts(tab: SessionTab, tabs: readonly SessionTab[], liste
 export function tabDisplayParts(
 	tab: SessionTab,
 	tabs: readonly SessionTab[],
-	indexedSession: (Pick<SessionInfo, "title" | "firstMessage" | "autoTitle"> & BotRowFacts) | undefined,
+	indexedSession: Pick<SessionInfo, "title" | "firstMessage" | "autoTitle"> | undefined,
 	untitled: string,
 	listed?: TabRow,
 ): TitleParts {
 	return indexedSession
-		? withEndedBotMark(
-				sessionDisplayParts(
-					{
-						...indexedSession,
-						autoTitle: tab.autoTitle === undefined ? indexedSession.autoTitle : (tab.autoTitle ?? undefined),
-					},
-					untitled,
-				),
-				listed ?? indexedSession,
+		? sessionDisplayParts(
+				{
+					...indexedSession,
+					autoTitle: tab.autoTitle === undefined ? indexedSession.autoTitle : (tab.autoTitle ?? undefined),
+				},
+				untitled,
 			)
 		: tabChipParts(tab, tabs, listed);
 }

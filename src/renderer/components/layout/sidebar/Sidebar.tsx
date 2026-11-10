@@ -80,7 +80,6 @@ import { useProjectNames, useWorktreeKindLabels } from "../../../lib/project-ori
 import { sessionForkOrigin } from "../../../lib/session-fork";
 import type { RunFacts } from "../../../lib/session-run";
 import {
-	botDisplayName,
 	combinedTitle,
 	sessionDisplayLabel,
 	sessionDisplayParts,
@@ -97,8 +96,6 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { isTabFailed } from "../../../lib/tab-signal";
 import { pickWorkspaceDirectory } from "../../../lib/workspace-dirs";
 import { ensureAgentReviewSubscription, useAgentReviewStore } from "../../../stores/agent-review";
-import { ensureBotPath, useBotStore } from "../../../stores/bot";
-import { ensureBotDesk, useBotDesk, useOpenBotDecisions } from "../../../stores/bot-desk";
 import { ensureClosedChildren, useClosedChildrenStore } from "../../../stores/closed-children";
 import { useComposerStore } from "../../../stores/composer";
 import { LOCAL_SUMMARIES, summariesOf, useHostedSessionsStore, useSummaryMap } from "../../../stores/hosted-sessions";
@@ -115,9 +112,6 @@ import { type SessionTab, tabAutoTitle, useTabsStore } from "../../../stores/tab
 import { toast, toastError } from "../../../stores/toast";
 import { type PageDestination, type PanelTab, useUiStore } from "../../../stores/ui";
 import { startInstall, useInstallOffered } from "../../../web/install-ui";
-import { BotDecisionsBadge } from "../../bot/BotDecisionsBadge";
-import { botState, botStateKey, nextWake, tabBotFacts } from "../../bot/bot-status";
-import { RowBotAvatar } from "../../bot/RowBotAvatar";
 import {
 	Badge,
 	BrandMark,
@@ -182,28 +176,6 @@ interface WorkspaceGroup extends RowGroup {
 	name: string;
 	/** The full path: the group header's tooltip. */
 	tooltip: string;
-}
-
-/** The bot row's file and tab while main has not made the session (or no list row holds it yet). */
-const BOT_PENDING = "bot:pending";
-
-/** A row for the bot's session before the index lists it: a chat in the Work workspace. */
-function botStandIn(path: string, cwd: string, liveTabId?: string): SidebarSession {
-	const never = new Date(0).toISOString();
-	return {
-		path,
-		id: path,
-		title: null,
-		cwd,
-		created: never,
-		modified: never,
-		messageCount: 0,
-		size: 0,
-		status: "unknown",
-		kind: "chat",
-		firstMessage: "",
-		...(liveTabId === undefined ? {} : { liveTabId }),
-	};
 }
 
 /** A delete the row or context menu queued, awaiting the confirmation dialog. */
@@ -575,11 +547,6 @@ export function Sidebar() {
 	const sessionOrder = useSidebarPrefs(s => s.sessionOrder);
 	const pinnedSessions = useSidebarPrefs(s => s.pinnedSessions);
 	const agentHidden = useSidebarPrefs(s => s.agentHidden);
-	const botOn = useBotStore(s => s.enabled);
-	const botPath = useBotStore(s => s.path);
-	const botDesk = useBotDesk().desk;
-	// The row's count drops a decision at its expiry, with no other change to re-render it.
-	const openDecisions = useOpenBotDecisions();
 	const groupAliases = useSidebarPrefs(s => s.groupAliases);
 	const archivedSessions = useSidebarPrefs(s => s.archivedSessions);
 	// The projects this computer lists apart from its sessions: an empty one keeps its group (src/main/sidebar-projects.ts).
@@ -668,8 +635,6 @@ export function Sidebar() {
 	useEffect(() => {
 		ensureClosedChildren();
 		ensureAgentReviewSubscription();
-		ensureBotPath();
-		ensureBotDesk();
 	}, []);
 	// A tab this window views (another window or device holds it) learns its children's states only from main's
 	// pushes, which come when a child starts or ends: ask once for each, so a page that just opened sees them now.
@@ -750,29 +715,16 @@ export function Sidebar() {
 		return heldByWindows.filter(file => !own.has(file));
 	}, [heldByWindows, rowTabs]);
 	const archivedIds = useMemo(() => new Set(archivedSessions), [archivedSessions]);
-	// The bot's session, on or off (the list marks it either way; before it lists it, the store's path): never one of
-	// the lists' rows, nor is a tab holding it, which would otherwise come back as a plain chat once the bot is off.
-	const botFiles = useMemo(
-		() =>
-			new Set([
-				...sessions.flatMap(session => (session.bot === undefined ? [] : [session.path])),
-				...(botPath ? [botPath] : []),
-			]),
-		[sessions, botPath],
-	);
 	// Session folders main found missing on disk: git's origin only marks a gone OMPdesk worktree.
 	const goneFolders = useMemo(() => new Set(projectList.gone ?? []), [projectList.gone]);
 	const rowFacts = useMemo<SidebarFacts>(
 		() => ({
 			// What main recorded of who opened each, as a host says it of its rows to a device.
-			// The bot has its own fixed row above the lists (`renderSessionRow` "bot") while it is on, none while off.
-			sessions: sessions
-				.filter(session => !botFiles.has(session.path))
-				.map(session => ({
-					...session,
-					openedBySession: recordedOpeners.get(session.path) ?? null,
-				})),
-			tabs: rowTabs.filter(tab => !tab.sessionPath || !botFiles.has(tab.sessionPath)),
+			sessions: sessions.map(session => ({
+				...session,
+				openedBySession: recordedOpeners.get(session.path) ?? null,
+			})),
+			tabs: rowTabs,
 			// A session this computer runs (a paired device's tab here, another window's tab) is in use, whatever its
 			// state: its summary says so though this window holds no tab of it.
 			usedThere: new Set([...hostedByKey.keys(), ...summaryByPath.keys(), ...heldByOtherWindows]),
@@ -827,7 +779,6 @@ export function Sidebar() {
 		}),
 		[
 			sessions,
-			botFiles,
 			recordedOpeners,
 			rowTabs,
 			hostedByKey,
@@ -848,32 +799,10 @@ export function Sidebar() {
 			groupAliases,
 		],
 	);
-	// What the bot opened, and what those opened, nests under its fixed row (`renderSessionRow` "bot") like any opener's
-	// family, and a session an agent here opened on a paired device is that opener's child too (one family, whatever the
-	// computer): its tab, or a stand-in for one another window holds, nests where a local child of that opener would,
-	// named by its device. Each stays a row of its own project too (`familyRows`, every view's one rule).
-	const endedBotFiles = useMemo(
-		() => new Set(sessions.flatMap(session => (session.bot === "past" ? [session.path] : []))),
-		[sessions],
-	);
-	const family = useMemo(
-		() =>
-			familyRows(
-				rowFacts,
-				botPath
-					? {
-							bot: botPath,
-							ended: endedBotFiles,
-							// Its side chats nest there too: they are the bot's own conversations, not plain chats.
-							channels: new Set(botDesk.channels.map(channel => channel.sessionPath)),
-							tabs: rowTabs,
-						}
-					: null,
-				familyTabs,
-			),
-		[rowFacts, botPath, endedBotFiles, botDesk.channels, rowTabs, familyTabs],
-	);
-	const { bot: botKids, remote: remoteChildTabs } = family;
+	// A session an agent here opened on a paired device is that opener's child too: its tab, or a stand-in for one
+	// another window holds, nests where a local child of that opener would, named by its device.
+	const family = useMemo(() => familyRows(rowFacts, familyTabs), [rowFacts, familyTabs]);
+	const { remote: remoteChildTabs } = family;
 	// While the pointer is on the list its rows keep their places (`sidebar-hold.ts`); the person's own changes apply.
 	const pointing = usePointingAt(listRef);
 	const ownOrder = useMemo(
@@ -1095,31 +1024,6 @@ export function Sidebar() {
 			return;
 		}
 		void openTab({ cwd: reopened.cwd, sessionPath: reopened.path, kind: reopened.kind ?? "agent" });
-	};
-	// The bot's row is always there, the first seconds of a launch included: its listed session once the index has
-	// it, else a stand-in (a tab holding the file gives it a live state), which a click fills in through main.
-	const botInfo = botPath ? sessions.find(session => session.path === botPath) : undefined;
-	const botSession =
-		botInfo ??
-		botStandIn(
-			botPath ?? BOT_PENDING,
-			defaultWorkspace ?? "",
-			localTabs.find(tab => botPath !== null && tab.sessionPath === botPath)?.id ?? BOT_PENDING,
-		);
-	const openBot = () => {
-		if (botInfo) {
-			openSession(botInfo);
-			return;
-		}
-		// Not listed yet: main makes the session when it is missing (`ensureBotSession`) and answers its file.
-		void (async () => {
-			try {
-				const file = await window.omp.sessions.ensureBot();
-				openSession(botStandIn(file, defaultWorkspace ?? (await window.omp.sidecar.defaultWorkspace())));
-			} catch (error) {
-				toastError({ title: t("sidebar.openFailed"), error });
-			}
-		})();
 	};
 	/** Start in `target`: re-root the untouched tab, else open a new one. */
 	const goToProject = async (target: string) => {
@@ -1697,14 +1601,11 @@ export function Sidebar() {
 
 	/**
 	 * What a folded section says of a session (`fold-summary.ts`): its row's own token, then each session its agent
-	 * opened, this computer's and a paired device's, by its family row's (`opened`: the bot's are its own list).
+	 * opened, this computer's and a paired device's, by its family row's.
 	 */
-	const sessionFoldSignals = (
-		session: SidebarSession,
-		opened: readonly SidebarSession[] = familyChildrenOf.get(session.path) ?? [],
-	): (FoldSignal | null)[] => [
+	const sessionFoldSignals = (session: SidebarSession): (FoldSignal | null)[] => [
 		sessionFoldSignal(sessionRowState(session)),
-		...opened.map(child => childFoldSignal(familyChildFor(child))),
+		...(familyChildrenOf.get(session.path) ?? []).map(child => childFoldSignal(familyChildFor(child))),
 		...(remoteChildrenOf.get(session.path) ?? []).map(tab => childFoldSignal(remoteFamilyChildFor(tab))),
 	];
 	/** A project's sessions and the opened ones no opener row holds (`loose`, its own rows). */
@@ -1717,22 +1618,21 @@ export function Sidebar() {
 	/** A group's loose children that show: the ones that need a look, and any a tab holds, in the place they have. */
 	const looseOf = (group: RowGroup) =>
 		group.folded.map(child => ({ ...familyChildFor(child), held: rows.held.has(child.path) })).filter(isShownOpened);
-	/** This device's whole list, while its section is folded: the bot's row, every project, the chats, the archive. A
+	/** This device's whole list, while its section is folded: every project, the chats, the archive. A
 	 * filter shows every match under it: its rows say it. */
 	const localFoldSummary = () =>
 		foldSummary(
 			query
 				? []
 				: [
-						...(botOn ? sessionFoldSignals(botSession, botKids?.sessions ?? []) : []),
 						...groups.flatMap(group => groupFoldSignals(group, looseOf(group))),
 						...chatSessions.flatMap(session => sessionFoldSignals(session)),
 						...archivedFoldSignals(),
 					],
 		);
 
-	/** `archived`: a row of the Archived section. `bot`: the bot's fixed row above the lists: no menu, rename or delete. */
-	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived" | "bot") => {
+	/** `archived`: a row of the Archived section. */
+	const renderSessionRow = (session: SidebarSession, nested = false, variant?: "archived") => {
 		const key = `session:${session.path}`;
 		// It left while the person points at the list: its place stays, empty, until the pointer leaves.
 		if (session.departed)
@@ -1755,16 +1655,12 @@ export function Sidebar() {
 		doneNow.current.set(session.path, done);
 		// An Autopilot child sits under its run's row inside the run's group (`runParentOf`).
 		const runChild = nested && variant === undefined && runParentOf.has(session.path);
-		const bot = variant === "bot";
-		// The sessions this one's agent opened nest under it, one indent level in, like its subagents. The bot's fixed row
-		// holds the ones it opened (`botKids`), which no list holds.
+		// The sessions this one's agent opened nest under it, one indent level in, like its subagents.
 		const opened =
 			variant === "archived"
 				? []
 				: [
-						...(bot ? (botKids?.sessions ?? []) : (familyChildrenOf.get(session.path) ?? [])).map(child =>
-							familyChildFor(child),
-						),
+						...(familyChildrenOf.get(session.path) ?? []).map(child => familyChildFor(child)),
 						...(remoteChildrenOf.get(session.path) ?? []).map(child => remoteFamilyChildFor(child)),
 					];
 		// The name the running omp reports (its summary) outranks the index's, which follows the journal later.
@@ -1780,12 +1676,10 @@ export function Sidebar() {
 			},
 			"",
 		);
-		// The bot's row is its own name alone; a row with no name reads as its task, else a placeholder.
-		const titleParts: TitleParts = bot
-			? { title: botDisplayName(session, t("sidebar.botBadge")) }
-			: shownParts.title
-				? shownParts
-				: { title: tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession")) };
+		// A row with no name reads as its task, else a placeholder.
+		const titleParts: TitleParts = shownParts.title
+			? shownParts
+			: { title: tab?.task || (indexed ? t("sidebar.untitled") : t("sidebar.newSession")) };
 		const title = combinedTitle(titleParts);
 		const fork = sessionForkOrigin(session, sessionsByPathOrId);
 		const pinned = pinnedSessions.includes(session.path);
@@ -1818,27 +1712,12 @@ export function Sidebar() {
 		// The state is the row's own title sweeping (`SessionLiveTitle`) or its left-edge bar (sidebar.css `data-signal`), its words the
 		// tooltip and screen-reader text. Nothing leads the row: its title starts at the group's content edge. One small
 		// mark sits at the end, before the age: an unseen finish (no light or bar says it) as a ✓, a shape, not a colour
-		// alone; else the bot, a chat, a pin, a worktree's kind or a fork.
+		// alone; else a chat, a pin, a worktree's kind or a fork.
 		// Anything that needs the person is the warning signal; a failed run is the danger one.
 		const signal = waiting ? "waiting" : running ? "running" : failed ? "error" : undefined;
 		const WorktreeMark = worktree?.kind === "autopilot" ? Rocket : GitBranch;
-		// The bot's state in the words of its row's tooltip and screen-reader text (the home says them too), and as the
-		// motion of its avatar.
-		const rowFacts = rowFactsOf(session);
-		const botCondition = bot
-			? botState(tabBotFacts(rowFacts ? { status: rowFacts.status, awaitingInput: rowFacts.ask } : undefined))
-			: null;
 		const marker: ReactNode = done ? (
 			<SidebarDoneMark fresh={doneBefore.current.get(session.path) === false} />
-		) : botCondition ? (
-			<RowBotAvatar
-				avatar={botDesk.identity.avatar}
-				data-sidebar-bot
-				label={t("sidebar.botBadge")}
-				size="inline"
-				state={botCondition}
-				tabId={tab?.id}
-			/>
 		) : session.kind === "chat" ? (
 			<MessageCircle aria-hidden className="size-(--sc-icon-sm)" data-sidebar-session-icon />
 		) : pinned ? (
@@ -1848,15 +1727,6 @@ export function Sidebar() {
 		) : fork ? (
 			<GitFork aria-hidden className="size-(--sc-icon-sm)" data-sidebar-fork />
 		) : null;
-		// The decisions waiting on the owner take the age slot unless the row's own prompt does.
-		const botWake = bot ? nextWake(botDesk.routines) : null;
-		const botLine = botCondition
-			? [t(botStateKey(botCondition)), botWake ? t("botHome.nextWake", { time: formatClock(botWake) }) : null]
-					.filter(Boolean)
-					.join(" · ")
-			: null;
-		const botDecisions = bot ? openDecisions.length : 0;
-		const botDecisionsTip = botDecisions > 0 ? t("sidebar.botDecisionsTip", { count: botDecisions }) : undefined;
 		const openTabId = tab?.id;
 		const folderMissing = missingFolders.has(session.path);
 		// The age slot: the waiting token, else the working arc while the session or anything it started works, else
@@ -1871,8 +1741,6 @@ export function Sidebar() {
 					{waitingLabel}
 				</span>
 			</Badge>
-		) : botDecisions > 0 ? (
-			<BotDecisionsBadge count={botDecisions} />
 		) : (
 			<SessionLiveAge
 				agents={workingAgents}
@@ -1890,7 +1758,7 @@ export function Sidebar() {
 					actionsOnHover={!touchInput}
 					actionCount={1}
 					actions={
-						indexed && !bot ? (
+						indexed ? (
 							<IconButton
 								data-sidebar-row-menu
 								icon={<MoreHorizontal />}
@@ -1906,16 +1774,16 @@ export function Sidebar() {
 						"data-roving-item": key,
 						onFocus: () => setFocusKey(key),
 						onKeyDown: event => {
-							if (!bot && opensMenu(event)) {
+							if (opensMenu(event)) {
 								event.preventDefault();
 								setSessionMenu({ anchor: anchorBelow(event.currentTarget), session });
-							} else if (!bot && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+							} else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
 								// Alt+↑/↓ moves the row in its list, as a project header and a device section do.
 								if (moveSession(session, event.key === "ArrowUp" ? -1 : 1)) event.preventDefault();
-							} else if (!bot && event.key === "F2" && indexed) {
+							} else if (event.key === "F2" && indexed) {
 								event.preventDefault();
 								startRename(session);
-							} else if (!bot && event.key === "Delete" && deletable) {
+							} else if (event.key === "Delete" && deletable) {
 								event.preventDefault();
 								setPendingDelete({ kind: "session", session });
 							} else if (
@@ -1944,11 +1812,7 @@ export function Sidebar() {
 					onClick={() => {
 						// Clicking the session already in view folds/unfolds its family rows.
 						if (active && (summary?.agents.length ?? 0) + opened.length > 0) toggleSidebarSubagents(session.path);
-						if (bot) {
-							// The count says a decision waits: its card above the composer opens and flashes.
-							if (botDecisions > 0) useUiStore.getState().focusDockCard("decisions");
-							openBot();
-						} else openSession(session);
+						openSession(session);
 					}}
 					rowProps={{
 						...reorder.rowDrag(
@@ -1956,9 +1820,7 @@ export function Sidebar() {
 							variant === undefined ? sessionListOf(session) : null,
 							openTabId ? { id: openTabId, shown: isCurrent } : undefined,
 						),
-						onContextMenu: bot ? undefined : event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
-						"data-sidebar-bot-row": bot || undefined,
-						"data-bot-decisions": botDecisions > 0 || undefined,
+						onContextMenu: event => setSessionMenu({ anchor: anchorFromEvent(event), session }),
 						"data-active": active,
 						"data-current": isCurrent || undefined,
 						"data-pane-focus": (isCurrent && selectionOf(openTabId).splitShown) || undefined,
@@ -1988,18 +1850,15 @@ export function Sidebar() {
 							{fork && <span className="sr-only">, {fork.label}</span>}
 							{worktree?.label && <span className="sr-only">, {worktree.label}</span>}
 							{statusLabel && <span className="sr-only">, {statusLabel}</span>}
-							{botLine && <span className="sr-only">, {botLine}</span>}
 						</>
 					}
 					// The age slot reads "3w"; the exact time is here, since hovering puts the ⋯ in the age's place.
 					titleText={[
 						title,
-						botLine,
 						worktree?.label,
 						fork?.tooltip,
 						statusLabel,
 						folderMissing ? t("sidebar.folderMissingTip", { folder: session.cwd }) : null,
-						botDecisionsTip,
 						indexed ? formatClock(session.modified) : null,
 					]
 						.filter(Boolean)
@@ -2173,10 +2032,6 @@ export function Sidebar() {
 		<>
 			{reorder.status}
 			<Collapse open={!localFolded}>
-				{/* While the owner has the bot on (Settings › Bot), it sits first, above the projects and chats (agent-control/bot-home.ts keeps its session); a filter keeps it only when it names it. */}
-				{botOn &&
-					(!query || botDisplayName(botSession, t("sidebar.botBadge")).toLocaleLowerCase().includes(query)) &&
-					renderSessionRow(botSession, false, "bot")}
 				{listError &&
 					(allSessions.length > 0 ? (
 						<div

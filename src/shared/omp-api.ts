@@ -4,7 +4,6 @@
  * only `fs.pathForFile` (a dropped file's local path) stays with the preload, because only Electron knows it.
  */
 
-import type { BotAvatarAnswer } from "../../resources/gui-bridge/bot-avatar-contracts";
 import type { AccountRotationMode, AccountRotationState } from "./account-rotation";
 import {
 	AGENT_CONTROL_APP,
@@ -32,11 +31,6 @@ import type {
 	AiMemorySweep,
 	AiMemoryWriteInput,
 } from "./ai-memory";
-import type { BotActivityPage } from "./bot-activity";
-import type { BotDeskAnswer, BotDeskState } from "./bot-desk";
-import type { BotDeskEdit } from "./bot-desk-edit";
-import type { BotTakeoverRequest, BotTakeoverResult } from "./bot-takeover";
-import type { BotTeachRequest, BotTeachResult } from "./bot-teach";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
@@ -65,7 +59,6 @@ import type {
 	IpcFsSaveCopyPayload,
 	IpcFsSaveCopyResult,
 	IpcFsUploadToHostResult,
-	IpcHostBotDesk,
 	IpcHostOmpUpdate,
 	IpcHostSchedules,
 	IpcInstallBrowserRelayPayload,
@@ -582,36 +575,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.SESSION_SUMMARIES, device) as Promise<VersionedSummaries | null>,
 			remoteOpened: () => transport.invoke(IPC_COMMANDS.REMOTE_OPENED_TABS) as Promise<RemoteOpenedTab[]>,
 			held: () => transport.invoke(IPC_COMMANDS.SESSIONS_HELD) as Promise<string[]>,
-			ensureBot: () => transport.invoke(IPC_COMMANDS.SESSIONS_ENSURE_BOT) as Promise<string>,
-			/** The bot's desk (`shared/bot-desk.ts`): main keeps it, the bot's home reads and edits it. */
-			botDesk: {
-				get: (device?: string) => transport.invoke(IPC_COMMANDS.BOT_DESK_GET, device) as Promise<BotDeskState>,
-				answer: (payload: BotDeskAnswer, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_DESK_ANSWER, payload, device) as Promise<void>,
-				edit: (payload: BotDeskEdit, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_DESK_EDIT, payload, device) as Promise<void>,
-				activity: (device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_ACTIVITY_GET, device) as Promise<BotActivityPage>,
-				/** Show the bot a workflow: start recording, stop (hands the bot the record) or cancel. */
-				teach: (payload: BotTeachRequest, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_TEACH, payload, device) as Promise<BotTeachResult>,
-				avatarStatus: () => transport.invoke(IPC_COMMANDS.BOT_AVATAR_STATUS) as Promise<BotAvatarAnswer>,
-				generateAvatar: (prompt: string, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_AVATAR_GENERATE, prompt, device) as Promise<void>,
-				/** Take over a session the bot opened, or hand it back. */
-				takeover: (payload: BotTakeoverRequest, device?: string) =>
-					transport.invoke(IPC_COMMANDS.BOT_TAKEOVER, payload, device) as Promise<BotTakeoverResult>,
-				onChanged: (callback: (state: BotDeskState, device?: string) => void) => {
-					const offLocal = subscribe<BotDeskState>(IPC_EVENTS.BOT_DESK_CHANGED, state => callback(state));
-					const offHost = subscribe<IpcHostBotDesk>(IPC_EVENTS.HOST_BOT_DESK_STATE, update =>
-						callback(update.state, update.device),
-					);
-					return () => {
-						offLocal();
-						offHost();
-					};
-				},
-			},
 		},
 
 		tabs: {

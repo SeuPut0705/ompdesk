@@ -1,7 +1,7 @@
 /**
  * Create or edit one scheduled run (Settings › Schedules): name, prompt,
  * project folder, repeat (an interval or a time of day on chosen weekdays),
- * model, --yolo, and whether it starts on. A one-time or event-triggered schedule (made by an agent or the bot) keeps its
+ * model, --yolo, and whether it starts on. A one-time or event-triggered schedule (made by an agent) keeps its
  * trigger: the dialog shows it in words and saving sends it back unchanged. Validation is the shared
  * `scheduleDraftProblem`, the same check main applies before saving.
  */

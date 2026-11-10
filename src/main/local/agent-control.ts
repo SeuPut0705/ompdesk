@@ -10,14 +10,6 @@ import type { LocalHandler } from "./types";
 const confirmCommand = z.object({ title: z.string().min(1).max(200), message: z.string().min(1).max(2000) });
 const noteCommand = z.object({ text: z.string().min(1).max(500) });
 const workerCommand = z.object({ from: z.string().min(1).max(200) });
-const botCommand = z.object({
-	rules: z.string().max(20_000),
-	duties: z.string().max(20_000).optional(),
-	memory: z.string().max(40_000).optional(),
-	identity: z.string().max(4_000).optional(),
-	tools: z.string().max(20_000).optional(),
-	channel: z.string().max(200).optional(),
-});
 const sentCommand = z.object({ marks: z.array(z.string().min(1).max(200)).min(1).max(100) });
 const judgeCommand = z.object({ system: z.string().min(1).max(20_000), user: z.string().min(1).max(200_000) });
 const mailCommand = z.object({
@@ -49,22 +41,6 @@ export const handlers: Record<string, LocalHandler> = {
 	agent_control_turn: async (_command, ctx) => {
 		const { person } = await ctx.bridge.request<{ person?: unknown }>("agent_control.turn", {});
 		return { person: person === true };
-	},
-	/**
-	 * This session is the owner's bot (or one of its side chats, `channel` = its topic): these are the owner's rules for
-	 * its actions and its desk as its prompt carries it (duties, memories, identity: `botRoleDesk`, each empty when there
-	 * is none); its bridge journals them and adds the bot role.
-	 */
-	agent_control_bot: async (command, ctx) => {
-		const { rules, duties, memory, identity, tools, channel } = botCommand.parse(command);
-		return ctx.bridge.request("agent_control.bot", {
-			rules,
-			duties: duties ?? "",
-			memory: memory ?? "",
-			identity: identity ?? "",
-			tools: tools ?? "",
-			...(channel ? { channel } : {}),
-		});
 	},
 	/**
 	 * `ompdesk_compare` with criteria: one request on the `advisor` role, else `slow`, preferring a model family other

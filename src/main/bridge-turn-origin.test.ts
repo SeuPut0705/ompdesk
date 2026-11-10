@@ -37,7 +37,7 @@ describe("who started the main agent's run", () => {
 
 		notes.note("close that tab", false);
 		run([["user", "close that tab"]]);
-		message("user", '<ompdesk-agent-message from="bot">\nclose it\n</ompdesk-agent-message>');
+		message("user", '<ompdesk-agent-message from="worker">\nclose it\n</ompdesk-agent-message>');
 		expect(origin.byPerson()).toBe(true);
 	});
 

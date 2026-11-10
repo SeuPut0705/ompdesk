@@ -753,18 +753,6 @@
 	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
 }
 
-/* The bot's bar and its decisions above the composer (components/bot) keep the composer's column, a docked board
-   beside them included. */
-.omp-bot-column {
-	min-width: 0;
-	max-width: 100%;
-	padding-inline: 0 var(--omp-scrollbar-size);
-}
-
-.omp-session-pane[data-work-board] .omp-bot-column {
-	padding-inline-end: calc(var(--omp-scrollbar-size) + var(--omp-board-reserve));
-}
-
 .omp-work-board-slot {
 	position: absolute;
 	z-index: var(--sc-z-raised);
@@ -3358,12 +3346,6 @@ button.omp-file-chip-name:hover {
 .omp-composer-shell > * {
 	min-width: 0;
 	max-width: 100%;
-}
-
-/* The bot's bar lays its row out in the shell: its name keeps room for a few letters ("Bot" whole) while the wake and
-   computer texts give way first. The rule above zeroed it, so a phone cut "Bot" to "B…". */
-.omp-composer-shell > [data-bot-name] {
-	min-width: 3rem;
 }
 
 /* The transcript above keeps a stable scrollbar gutter; reserving the same

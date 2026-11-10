@@ -88,7 +88,7 @@ export interface AnswerFirstHost {
  * Whether an assistant message says anything to the person (a lone "." or blank text is not an answer). A narration
  * block counts: Anthropic streams prose addressed to the person as a thinking block whose signature names it
  * narration (pi-ai `ThinkingContent.narration`), and stock shows it as answer text (pi-ai `presentNarrationAsAnswer`).
- * The bot's claude-opus-5-5 answered a steer that way and the gate refused its call twice (01a1a7f1, 5 Nov 2026).
+ * A claude-opus-5-5 session answered a steer that way and the gate refused its call twice (01a1a7f1, 5 Nov 2026).
  */
 function saysSomething(message: AssistantEvent["message"]): boolean {
 	if (message.role !== "assistant" || !Array.isArray(message.content)) return false;

@@ -17,7 +17,6 @@ import {
 	SCHEDULE_TICK_MS,
 	ScheduleService,
 	type ScheduleServiceOptions,
-	ScheduleSkip,
 } from "./schedules";
 import { SUPERVISOR_STOPPED_CODE } from "./setup/supervisor";
 import { RM_TEMP, writeFakeOmp } from "./test-fake-omp";
@@ -304,7 +303,7 @@ describe("ScheduleService", () => {
 });
 
 describe("a session's own wake-up (wakeSession)", () => {
-	const SESSION = "/sessions/bot.jsonl";
+	const SESSION = "/sessions/self.jsonl";
 
 	/** `turns`: how the woken turn ends, in order (default: it succeeds at once). */
 	function wakeHarness(
@@ -364,7 +363,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 	it("fails the run with the reason when the session cannot be woken, and keeps the schedule", async () => {
 		const dir = await tempDir();
 		const { service, wake } = wakeHarness(dir);
-		wake.mockRejectedValueOnce(new Error("The session to wake is gone (/sessions/bot.jsonl)"));
+		wake.mockRejectedValueOnce(new Error("The session to wake is gone (/sessions/self.jsonl)"));
 		await service.start();
 		const saved = await service.command({ action: "save", draft: draft(dir, { wakeSession: SESSION }) });
 		await service.command({ action: "runNow", id: saved.schedules[0]?.id ?? "" });
@@ -372,7 +371,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 		expect(service.state().runs[0]).toMatchObject({
 			status: "failed",
 			trigger: "manual",
-			error: "The session to wake is gone (/sessions/bot.jsonl)",
+			error: "The session to wake is gone (/sessions/self.jsonl)",
 		});
 		expect(service.state().schedules).toHaveLength(1);
 		service.dispose();
@@ -407,7 +406,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 			"only this computer's own sessions",
 		);
 		await expect(
-			service.command({ action: "save", draft: draft(dir, { wakeSession: "bot.jsonl" }) }),
+			service.command({ action: "save", draft: draft(dir, { wakeSession: "self.jsonl" }) }),
 		).rejects.toThrow("Invalid schedule: session");
 		service.dispose();
 	});
@@ -427,7 +426,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 });
 
 describe("routines: event triggers, once, run history", () => {
-	const SESSION = "/sessions/bot.jsonl";
+	const SESSION = "/sessions/self.jsonl";
 	const event = (source: "files" | "webhook" = "files"): ScheduleDraft["frequency"] =>
 		source === "files"
 			? { kind: "event", event: { source: "files", path: "/watched" } }
@@ -717,57 +716,14 @@ describe("routines: event triggers, once, run history", () => {
 		service.dispose();
 	});
 
-	it("records a run the wake declines (the bot is paused) as skipped with the reason", async () => {
-		const dir = await tempDir();
-		const { service, wake } = routineHarness(dir);
-		wake.mockRejectedValueOnce(new ScheduleSkip("The bot is paused"));
-		await service.start();
-		const id = await routine(service, dir);
-		service.fire(id, "x");
-		await ended(service, 1);
-		expect(service.state().runs[0]).toMatchObject({ status: "skipped", error: "The bot is paused" });
-		service.dispose();
-	});
-
-	it("tells runEnded each run once as it ended, a skipped one included, never a running one", async () => {
+	it("records a trigger's failure as a failed run that runs nothing; none for a routine that is off", async () => {
 		const dir = await tempDir();
 		const { launch } = fakeLauncher();
-		const ends: [string, string, string | null][] = [];
-		const wake = vi
-			.fn<(schedule: Schedule) => Promise<RunProcess>>()
-			.mockResolvedValueOnce({ stop: () => {}, done: Promise.resolve({ code: null, error: "rate limited" }) })
-			.mockRejectedValueOnce(new ScheduleSkip("The bot is paused"));
-		const service = new ScheduleService({
-			file: join(dir, "schedules.json"),
-			logDir: join(dir, "runs"),
-			launch,
-			onState: stateChanged,
-			wake,
-			runEnded: (schedule, run) => ends.push([schedule.name, run.status, run.error]),
-		});
-		await service.start();
-		const id = await routine(service, dir, { name: "[agent] CI watch" });
-		service.fire(id, "CI failed");
-		await ended(service, 1);
-		service.fire(id, "CI failed again");
-		await ended(service, 2);
-		expect(ends).toEqual([
-			["[agent] CI watch", "failed", "rate limited"],
-			["[agent] CI watch", "skipped", "The bot is paused"],
-		]);
-		service.dispose();
-	});
-
-	it("records a trigger's failure as a failed run that runs nothing, told to runEnded; none for a routine that is off", async () => {
-		const dir = await tempDir();
-		const { launch } = fakeLauncher();
-		const ends: [string, string, string | null][] = [];
 		const service = new ScheduleService({
 			file: join(dir, "schedules.json"),
 			logDir: join(dir, "runs"),
 			launch,
 			onState: () => {},
-			runEnded: (schedule, run) => ends.push([schedule.name, run.status, run.error]),
 		});
 		await service.start();
 		const id = await routine(service, dir, { name: "[agent] CI watch" });
@@ -775,7 +731,6 @@ describe("routines: event triggers, once, run history", () => {
 		expect(service.state().runs).toMatchObject([
 			{ scheduleId: id, trigger: "event", status: "failed", error: "Its trigger failed: github o/r: gh: HTTP 401" },
 		]);
-		expect(ends).toEqual([["[agent] CI watch", "failed", "Its trigger failed: github o/r: gh: HTTP 401"]]);
 
 		await service.command({ action: "setEnabled", id, enabled: false });
 		expect(service.triggerFailed(id, "again")).toBe(false);

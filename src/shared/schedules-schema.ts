@@ -1,7 +1,6 @@
 /**
- * The schedules' shapes as a link or a desk carries them (zod), one copy for the paired-host protocol
- * (`main/remote/app-protocol.ts`) and the bot's desk (`shared/bot-desk.ts`, its routines). The rules a draft must
- * keep are `scheduleDraftProblem`'s, checked by the service that saves it.
+ * The schedules' shapes as the paired-host protocol carries them (zod, `main/remote/app-protocol.ts`). The rules a
+ * draft must keep are `scheduleDraftProblem`'s, checked by the service that saves it.
  */
 import { z } from "zod";
 import {

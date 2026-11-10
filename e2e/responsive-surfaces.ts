@@ -25,18 +25,14 @@ export interface Surface {
 	when?: (look: Look) => boolean;
 	/**
 	 * The parity sheet (`bun run parity`, e2e/parity.e2e.ts) can capture this surface: every view first shows this
-	 * session of the host (`work`: a session with one answered turn, `bot`: the bot's, `bot-ended`: a conversation the
-	 * bot ended, renewed first when it has none, `reply`: a session whose turns
+	 * session of the host (`work`: a session with one answered turn, `reply`: a session whose turns
 	 * show what an agent presents in a reply, e2e/fixture/rpc-ui.ts `replyImages` and `REPLY_SHOWCASE`), then `open` runs. Only for a
 	 * surface whose `open` and `ready` work on a real window (a click on a real control or nothing), never through
 	 * `window.__stores`, which only the dev harness has.
 	 */
 	parity?: {
 		session: ParitySession;
-		/**
-		 * Before it is captured, the host's bot leaves a session running on the paired computer, opened by a conversation
-		 * it has since ended and whose tab is closed, and that computer runs a session of its own (e2e/parity.e2e.ts).
-		 */
+		/** B's work session leaves a child running on A, which also runs a session of its own (e2e/parity.e2e.ts). */
 		remoteChild?: boolean;
 		/**
 		 * Before it is captured, B runs a second session, "Parity roster", that every view opened once and then left for
@@ -69,27 +65,24 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "bot" | "bot-ended" | "reply" | "steer";
+export type ParitySession = "work" | "reply" | "steer";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
 	const file = process.env.OMP_GUI_TEST_VOICE_FILE;
-	if (!file) throw new Error("the voice call surfaces need OMP_GUI_TEST_VOICE_FILE (e2e/parity.e2e.ts sets it)");
+	if (!file) throw new Error("the dictation surfaces need OMP_GUI_TEST_VOICE_FILE (e2e/parity.e2e.ts sets it)");
 	await fs.writeFile(file, JSON.stringify(script));
 }
 
-/** A fake microphone's tone: silent for `silentMs` (the call measures its noise floor), then sounding for `toneMs`. */
+/** A fake microphone's tone: silent for `silentMs`, then sounding for `toneMs`. */
 interface Tone {
 	silentMs: number;
 	toneMs: number;
 }
 
-/** The one utterance of the call surfaces that end speech: 1.2 s of floor, then 1.5 s of sound. */
-const SHORT_UTTERANCE: Tone = { silentMs: 1200, toneMs: 1500 };
-
 /**
  * The page's microphone is an oscillator through a gain that follows `tone` from the moment the page asks for it
- * (`getUserMedia`: a call's start, a dictation take's start), so the app hears it as a person speaking.
+ * (`getUserMedia`: a dictation take's start), so the app hears it as a person speaking.
  */
 async function fakeMicrophone(page: Page, tone: Tone): Promise<void> {
 	await page.evaluate(tone => {
@@ -113,25 +106,6 @@ async function fakeMicrophone(page: Page, tone: Tone): Promise<void> {
 			value: Object.assign(navigator.mediaDevices ?? {}, { getUserMedia }),
 		});
 	}, tone);
-}
-
-/** Start a voice call on the bot's pane. `tone`: the page's microphone. */
-async function startBotCall(page: Page, tone?: Tone): Promise<void> {
-	if (tone) await fakeMicrophone(page, tone);
-	await page.locator("[data-bot-call-start]").first().click();
-}
-
-/**
- * Ends a call surface on its view: a call stays on until its person ends it, and one left running shows its bar over
- * every surface after it. A dropped script answers a reply it held with no text.
- */
-async function endBotCall(page: Page): Promise<void> {
-	const bar = page.locator("[data-bot-call-bar]");
-	if ((await bar.count()) > 0) {
-		await bar.locator("[data-bot-call-end]").click();
-		await bar.waitFor({ state: "detached", timeout: 10_000 });
-	}
-	await scriptVoice({});
 }
 
 /** The fake omp's start script (`startFile`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
@@ -264,8 +238,7 @@ async function openPanelView(page: Page, name: string): Promise<void> {
 
 /**
  * Closes the side panel a surface opened, by the panel's own close button. The open panel takes the place the work
- * board docks in, so the board of the surface after it folds into its strip: `bot-ended` could not reach the bot's
- * earlier conversations after `panel-diff` (10 Nov 2026, the window and the paired view; the phone loads afresh).
+ * board docks in, so the board of the surface after it folds into its strip.
  */
 async function closePanelView(page: Page): Promise<void> {
 	const close = page.getByRole("button", { name: "Close side panel", exact: true }).first();
@@ -343,18 +316,20 @@ async function closeOverlay(page: Page): Promise<void> {
 	await page.keyboard.press("Escape");
 }
 
-/**
- * The bot's row with its family opened by its chip (folded by default), and every device section but the one holding
- * that row folded, so its header's marks say what it hides.
- */
-async function openBotFamily(page: Page, look: Look): Promise<void> {
+/** The work session's family open, with every other computer's section folded to its count. */
+async function openRemoteFamily(page: Page, look: Look): Promise<void> {
 	await openDrawer(page, look);
-	const bot = page.locator("[data-sidebar-bot-row]").first();
-	await bot.waitFor({ state: "visible", timeout: 30_000 });
-	const chip = page.locator("[data-sidebar-bot-row] [data-sidebar-subagents-toggle][aria-expanded='false']").first();
+	const selector = ':is(.omp-sidebar-session-row, [data-device-session]):has-text("Parity work")';
+	const row = page.locator(selector).first();
+	await row.waitFor({ state: "visible", timeout: 30_000 });
+	const chip = row.locator("[data-sidebar-subagents-toggle][aria-expanded='false']");
 	if ((await chip.count()) > 0) await chip.click();
-	const botSection = page.locator("[data-sidebar-device]:has([data-sidebar-bot-row])").first();
-	const kept = (await botSection.count()) > 0 ? await botSection.getAttribute("data-sidebar-device") : "local";
+	await page
+		.locator('[data-sidebar-family] [data-sidebar-opened-session]:has-text("Parity remote child")')
+		.first()
+		.waitFor({ state: "visible", timeout: 30_000 });
+	const section = page.locator(`[data-sidebar-device]:has(${selector})`).first();
+	const kept = (await section.count()) > 0 ? await section.getAttribute("data-sidebar-device") : "local";
 	const toggles = page.locator("[data-sidebar-device-toggle][aria-expanded='true']");
 	const open = await toggles.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-sidebar-device-toggle")));
 	for (const id of open)
@@ -527,7 +502,6 @@ export const SETTINGS_SECTIONS = [
 	"memory",
 	"tools",
 	"permissions",
-	"bot",
 	"workspace",
 	"schedules",
 	"connections",
@@ -864,77 +838,6 @@ export const SURFACES: readonly Surface[] = [
 		parity: { session: "reply", inView: ".omp-usage-row" },
 	},
 	{
-		id: "bot-bar",
-		area: "A",
-		title: "The bot's session (?bot=1): its bar over the conversation and an open decision docked above the composer",
-		query: "&bot=1",
-		open: async () => {},
-		ready: "[data-bot-bar] [data-bot-state]",
-		parity: { session: "bot" },
-	},
-	{
-		id: "bot-ended",
-		area: "A",
-		title: "An earlier conversation of the bot, opened to read: its name says it is an earlier one, and a note with the way to the current conversation stands where the composer was",
-		open: async () => {},
-		ready: "[data-bot-ended-note]",
-		// The ended conversation exists only in the parity sheet's apps (it renews the bot); the harness page has none.
-		when: () => false,
-		parity: { session: "bot-ended" },
-	},
-	{
-		id: "bot-call-preparing",
-		area: "A",
-		title: "A voice call with the bot getting Korean recognition ready: the language's speech model downloading, its progress in the call bar",
-		open: async page => {
-			await scriptVoice({ prepare: { language: "ko", percent: 42 } });
-			await startBotCall(page);
-		},
-		ready: '[data-bot-call-phase="preparing"] [data-bot-call-progress]',
-		// The fake omp's voice script exists only in the parity sheet's two apps; the audits' harness page has no call.
-		when: () => false,
-		parity: { session: "bot", after: endBotCall },
-	},
-	{
-		id: "bot-call-speaking",
-		area: "A",
-		title: "A voice call in Korean: what the person said heard, and the bot's reply being spoken",
-		open: async page => {
-			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", replySeconds: 60 });
-			await startBotCall(page, SHORT_UTTERANCE);
-		},
-		ready: '[data-bot-call-phase="speaking"]',
-		when: () => false,
-		parity: { session: "bot", after: endBotCall },
-	},
-	{
-		id: "bot-call-hearing",
-		area: "A",
-		title: "A voice call in Korean on Whisper: the person talking, heard without running words",
-		open: async page => {
-			// Whisper large-v3-turbo is offline: no running words while the person speaks. The tone sounds for a minute, so
-			// the call stays on the one utterance.
-			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", partials: false, holdStop: true });
-			await startBotCall(page, { silentMs: 1200, toneMs: 60_000 });
-		},
-		ready: '[data-bot-call-phase="hearing"]',
-		when: () => false,
-		parity: { session: "bot", after: endBotCall },
-	},
-	{
-		id: "bot-call-transcribing",
-		area: "A",
-		title: "A voice call in Korean on Whisper: the speech ended, its words being transcribed once",
-		open: async page => {
-			// The fake omp holds `stt_stream_stop` unanswered: the call waits for the one transcription.
-			await scriptVoice({ language: "ko", transcript: "하늘은 무슨 색인가요?", partials: false, holdStop: true });
-			await startBotCall(page, SHORT_UTTERANCE);
-		},
-		ready: "[data-bot-call-bar][data-bot-call-transcribing]",
-		when: () => false,
-		parity: { session: "bot", after: endBotCall },
-	},
-	{
 		id: "composer-dictation-preparing",
 		area: "A",
 		title: "Composer dictation in Korean, its first take waiting for the Korean speech model's download, with its progress",
@@ -1022,10 +925,9 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "sidebar-family",
 		area: "A",
-		title: "Session list with the bot's family open (a session its ended conversation left running on the paired computer) and the other computer's section folded to its count",
-		open: openBotFamily,
-		ready: "[data-sidebar-bot-row]",
-		// Two paired apps only: the parity sheet sets it up (`remoteChild`); the audits' harness page has no paired computer.
+		title: "Session list with the work session's child running on the paired computer and the other computer's section folded to its count",
+		open: openRemoteFamily,
+		ready: '[data-sidebar-family] [data-sidebar-opened-session]:has-text("Parity remote child")',
 		when: () => false,
 		parity: { session: "work", remoteChild: true },
 	},

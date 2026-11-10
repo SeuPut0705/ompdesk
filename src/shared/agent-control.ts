@@ -26,118 +26,6 @@ export function agentHiddenPaths(sidebarBlob: unknown): Set<string> {
 }
 
 /**
- * Prefs key of the bot's session file (main alone writes it: `agent-control/bot-home.ts`). Never inside the `sidebar`
- * blob, which the renderer rewrites whole on every change.
- */
-export const BOT_PREF = "bot";
-
-export function botPathOf(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-/**
- * Prefs key, default OFF (the owner's decision, 31 Oct 2026): the bot is off on a fresh install and turned on in
- * Settings › Bot. Off, no bot session is made, no row shows and nothing is handed to it.
- */
-export const BOT_ENABLED_PREF = "botEnabled";
-
-export function botEnabled(value: unknown): boolean {
-	return value === true;
-}
-
-/** The bot's session file while the owner has the bot on; null while it is off or no session is named yet. */
-export function activeBotPath(get: (key: string) => unknown): string | null {
-	return botEnabled(get(BOT_ENABLED_PREF)) ? botPathOf(get(BOT_PREF)) : null;
-}
-
-/**
- * What a session list says of the computer's bot: `on` (its fixed row), `off` (no row at all), or `past`, a
- * conversation the bot ended (`BotConversations.past`): listed read-only under the bot, never in the lists.
- */
-export type SessionBotState = "on" | "off" | "past";
-
-/**
- * Prefs key main alone writes (`agent-control/bot-rotation.ts`): the bot is a role, not one session. Its conversation
- * (and each side chat's) is renewed: `current` by slot (`BOT_MAIN_SLOT` for the bot, a side chat's id), when it began
- * and how often it auto-compacted; `past` the conversations it ended, deleted with their files 7 days on.
- */
-export const BOT_CONVERSATIONS_PREF = "botConversations";
-export const BOT_MAIN_SLOT = "bot";
-
-export interface BotConversation {
-	path: string;
-	/** When it began (ms). */
-	startedAt: number;
-	/** Auto-compactions that produced a result in it. */
-	compactions: number;
-	/** A new conversation was asked for (the owner's button, the bot's tool): it starts at the next quiet moment. */
-	requested?: "owner" | "bot";
-}
-
-export interface BotPastConversation {
-	path: string;
-	slot: string;
-	startedAt: number;
-	endedAt: number;
-}
-
-export interface BotConversations {
-	current: Record<string, BotConversation>;
-	past: BotPastConversation[];
-}
-
-export function botConversationsOf(value: unknown): BotConversations {
-	const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-	const current: Record<string, BotConversation> = {};
-	const rawCurrent = record.current && typeof record.current === "object" ? record.current : {};
-	for (const [slot, entry] of Object.entries(rawCurrent as Record<string, unknown>)) {
-		const e = entry as Partial<BotConversation> | null;
-		if (!e || typeof e.path !== "string" || typeof e.startedAt !== "number") continue;
-		current[slot] = {
-			path: e.path,
-			startedAt: e.startedAt,
-			compactions: typeof e.compactions === "number" ? e.compactions : 0,
-			...(e.requested === "owner" || e.requested === "bot" ? { requested: e.requested } : {}),
-		};
-	}
-	const past = (Array.isArray(record.past) ? record.past : []).flatMap((entry): BotPastConversation[] => {
-		const e = entry as Partial<BotPastConversation> | null;
-		return e &&
-			typeof e.path === "string" &&
-			typeof e.slot === "string" &&
-			typeof e.startedAt === "number" &&
-			typeof e.endedAt === "number"
-			? [{ path: e.path, slot: e.slot, startedAt: e.startedAt, endedAt: e.endedAt }]
-			: [];
-	});
-	return { current, past };
-}
-
-/**
- * What a session is to a session list as the bot: null for any other session. Every state marks it, so every
- * sidebar (here, the phone page, a paired device) keeps it and any tab holding it out of its lists, and draws the
- * fixed row only for `on`.
- */
-export function botRowOf(sessionPath: string, get: (key: string) => unknown): SessionBotState | null {
-	if (botPathOf(get(BOT_PREF)) === sessionPath) return botEnabled(get(BOT_ENABLED_PREF)) ? "on" : "off";
-	return botConversationsOf(get(BOT_CONVERSATIONS_PREF)).past.some(entry => entry.path === sessionPath)
-		? "past"
-		: null;
-}
-
-/**
- * The conversation `sessionPath` stands for: an ended one is its slot's current one (the bot's: pref `bot`), so what
- * names an older bot conversation (a child's opener, a mail, an id) reaches the bot as it is now. Any other is itself.
- */
-export function currentBotConversation(sessionPath: string, get: (key: string) => unknown): string {
-	const conversations = botConversationsOf(get(BOT_CONVERSATIONS_PREF));
-	const past = conversations.past.find(entry => entry.path === sessionPath);
-	if (!past) return sessionPath;
-	const now = past.slot === BOT_MAIN_SLOT ? botPathOf(get(BOT_PREF)) : conversations.current[past.slot]?.path;
-	return now ?? sessionPath;
-}
-
-/**
  * Prefs key, default ON (unset counts as on; only a stored `false` is off; the user's decision, 29 Oct 2026: agents
  * have every power by default): an orchestrating agent may approve another session's pending tool approval.
  */
@@ -200,7 +88,6 @@ export const AGENT_CONTROL_TOOLS = {
 	appList: "ompdesk_app_list",
 	app: "ompdesk_app",
 	report: "ompdesk_report",
-	bot: "ompdesk_bot",
 } as const;
 
 /** main → window (`AGENT_CONTROL_APP`): what `ompdesk_app` changed, for the window to show or apply. */

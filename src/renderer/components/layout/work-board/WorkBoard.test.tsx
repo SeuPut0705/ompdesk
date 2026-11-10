@@ -2,12 +2,10 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EMPTY_BOT_DESK } from "../../../../shared/bot-desk";
 import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
-import { useBotDeskStore } from "../../../stores/bot-desk";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -20,7 +18,6 @@ import { useTodoStore } from "../../../stores/todo";
 import { type ToolEntry, useToolsStore } from "../../../stores/tools";
 import { useUiStore } from "../../../stores/ui";
 import { useWorkBoardStore } from "../../../stores/work-board";
-import { BotTabContext, preloadBotDesk } from "../../bot/bot-tab";
 import { bareEmail, shortAccountLabel } from "../AccountLimit";
 
 const { document, window, Element, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -104,7 +101,7 @@ function agent(id: string, status: string, index: number, patch: Partial<Subagen
 	return { id, index, agent: "task", status, lastUpdate: Date.now(), ...patch };
 }
 
-async function mount(width = 1600, bot = false): Promise<void> {
+async function mount(width = 1600): Promise<void> {
 	useTabsStore.setState({
 		tabs: [{ id: "t1", cwd: "/w", status: "ready", kind: "agent", unreadDone: false }],
 		activeTabId: "t1",
@@ -119,9 +116,7 @@ async function mount(width = 1600, bot = false): Promise<void> {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<BotTabContext.Provider value={bot ? { tabId: "t1" } : null}>
-					<WorkBoardHost />
-				</BotTabContext.Provider>
+				<WorkBoardHost />
 			</I18nProvider>,
 		);
 	});
@@ -1138,50 +1133,6 @@ describe("WorkBoard account limit", () => {
 		withAgent();
 		await mount();
 		expect(pane.querySelector("[data-board-spend]")).toBeNull();
-	});
-
-	it("leaves the account to the sidebar on the bot's board and lists the bot's sections in the owner's order", async () => {
-		usageReports = [report()];
-		withAgent();
-		useBotDeskStore.getState().apply({
-			...EMPTY_BOT_DESK,
-			duties: [{ id: "a", text: "Check the nightly build", at: "2026-10-30T08:00:00.000Z" }],
-		});
-		// The bot's lazy chunk, here before the board mounts, as the bot's idle preload has it in the app.
-		await preloadBotDesk();
-		try {
-			await mount(1600, true);
-			// What it does now, what it works on, the plan; then scheduled, delivered, done and recent, what it is
-			// responsible for, its side chats. No Current work, and no memory section: the bot keeps that itself.
-			expect(
-				[...pane.querySelectorAll("[data-board-section]")].map(node => node.getAttribute("data-board-section")),
-			).toEqual(["now", "tasks", "routines", "activity", "duties", "channels"]);
-			expect(pane.querySelector("[data-board-account]")).toBeNull();
-			// The duties are the bot's: the owner reads them and has no field to change them.
-			expect(section("duties")?.querySelector("input")).toBeNull();
-		} finally {
-			useBotDeskStore.getState().reset();
-		}
-	});
-
-	it("says in its head that the bot's decisions wait, and never on another session's board", async () => {
-		const open = { id: "d1", state: "open" as const, question: "Ship?", options: [], at: "2026-11-01T09:00:00.000Z" };
-		useBotDeskStore.getState().apply({ ...EMPTY_BOT_DESK, decisions: [open] });
-		await preloadBotDesk();
-		try {
-			await mount(1600, true);
-			expect(pane.querySelector("[data-board-status]")?.textContent).toBe(
-				translate("sidebar.botDecisions", { count: 1 }),
-			);
-			await act(async () => root.unmount());
-			container.remove();
-			await mount(1600, false);
-			expect(pane.querySelector("[data-board-status]")?.textContent).not.toBe(
-				translate("sidebar.botDecisions", { count: 1 }),
-			);
-		} finally {
-			useBotDeskStore.getState().reset();
-		}
 	});
 });
 

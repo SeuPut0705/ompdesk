@@ -7,16 +7,6 @@
 import { z } from "zod";
 import { AUTOPILOT_AREAS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import { AGENT_SCHEDULE_PREFIX, type AgentControlToolName, AGENT_CONTROL_TOOLS as T } from "../../shared/agent-control";
-import { BOT_ACTIVITY_DEFAULT_LIMIT, BOT_ACTIVITY_PAGE } from "../../shared/bot-activity";
-import {
-	BOT_DECISION_DRAFT_MAX,
-	BOT_DECISION_INPUTS_MAX,
-	BOT_DECISION_OPTIONS_MAX,
-	BOT_DUTY_TEXT_MAX,
-	BOT_MEMORY_TEXT_MAX,
-	BOT_PERSONA_MAX,
-	BOT_TAGLINE_MAX,
-} from "../../shared/bot-desk";
 import type { HostToolDefinition } from "../../shared/rpc-types";
 import { GITHUB_EVENT_KINDS, GITHUB_REPO, SESSION_EVENT_KINDS } from "../../shared/schedules";
 import { MAIL_KINDS } from "./mail";
@@ -317,12 +307,6 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 			properties: {
 				title: { type: "string" },
 				body: { type: "string" },
-				kind: {
-					type: "string",
-					enum: ["progress", "done"],
-					description:
-						"progress for a step along the way, done (default) for finished work; the owner's bot settings route each kind.",
-				},
 			},
 			required: ["title"],
 			additionalProperties: false,
@@ -450,7 +434,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 				on: {
 					type: "object",
 					description:
-						'create, update: start on an event instead of a clock. {"source":"webhook"} (POST to this computer\'s OMPdesk web server, the answer gives the URL path and key; Mobile web must be on); {"source":"github","repo":"owner/name","events":["pull_request"|"issue"|"ci_failure"|"release"|"push"]} (asked with the user\'s gh every 5 min); {"source":"files","path":"/abs/path"} (a file or folder changed); {"source":"git","repo":"/abs/repo","branch":"main"} (new local commits); {"source":"session","events":["done"|"failed"|"waiting"],"folder":"text"} (another session on this computer finished, failed or waits for the user; never the bot\'s own or ones it opened); {"source":"email","account":"label","from":"text","subject":"text","to":"owner+bot@"} (new mail in a mailbox the user added in Settings › Schedules › Email accounts, by its label, checked every 2 min; from, subject and to are optional text the mail must contain; a reply sent from that mailbox or an automatic mail never starts it; this computer only). Events during a run start one more run after it.',
+						'create, update: start on an event instead of a clock. {"source":"webhook"} (POST to this computer\'s OMPdesk web server, the answer gives the URL path and key; Mobile web must be on); {"source":"github","repo":"owner/name","events":["pull_request"|"issue"|"ci_failure"|"release"|"push"]} (asked with the user\'s gh every 5 min); {"source":"files","path":"/abs/path"} (a file or folder changed); {"source":"git","repo":"/abs/repo","branch":"main"} (new local commits); {"source":"session","events":["done"|"failed"|"waiting"],"folder":"text"} (another session on this computer finished, failed or waits for the user; never the session a "self" one wakes or ones it opened); {"source":"email","account":"label","from":"text","subject":"text","to":"owner+ci@"} (new mail in a mailbox the user added in Settings › Schedules › Email accounts, by its label, checked every 2 min; from, subject and to are optional text the mail must contain; a reply sent from that mailbox or an automatic mail never starts it; this computer only). Events during a run start one more run after it.',
 					properties: {
 						source: { type: "string", enum: ["webhook", "github", "files", "git", "session", "email"] },
 						repo: { type: "string" },
@@ -619,91 +603,6 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					type: "object",
 					description: "The action's arguments as its schema says.",
 					additionalProperties: true,
-				},
-			},
-			required: ["action"],
-			additionalProperties: false,
-		},
-	},
-	{
-		name: T.bot,
-		label: "OMPdesk bot desk",
-		description:
-			"The owner's bot: read its desk, post decisions, keep duties and memory.\n" +
-			"The desk of the owner's bot, usable only from the bot's own session and its side chats (Settings › Bot); any other session is refused. desk reads your standing duties, memories, the decisions still waiting for the owner and the wakes you scheduled. decide posts what only the owner can decide and returns at once: keep working, the owner's answer arrives later as a message that starts your turn. duty_add records a standing responsibility the owner gave you; it stays in your prompt through a new conversation and a compaction. duty_remove drops one by id. remember keeps one fact about the owner or their work in your memory (in your prompt every turn; the owner sees changes in the Activity log and has no screen to edit it, so you fix it when they say it is wrong); forget drops one by id. identity sets your tagline, persona or avatar (avatar_file: a PNG, JPEG or WebP you made, e.g. with generate_image). visited lists the files and pages you read; activity lists what you did, newest last. new_conversation ends this conversation once your turn is over and starts a fresh one from a handoff note (OMPdesk renews it daily on its own); your desk carries over. See skill://ompdesk.",
-		parameters: {
-			type: "object",
-			properties: {
-				action: {
-					type: "string",
-					enum: [
-						"desk",
-						"decide",
-						"duty_add",
-						"duty_remove",
-						"remember",
-						"forget",
-						"identity",
-						"visited",
-						"activity",
-						"new_conversation",
-					],
-				},
-				question: { type: "string", description: "decide: what the owner is asked, one clear sentence." },
-				options: {
-					type: "array",
-					items: { type: "string" },
-					description: `decide: the choices you offer (at most ${BOT_DECISION_OPTIONS_MAX}); omit for a free answer.`,
-				},
-				context: {
-					type: "string",
-					description:
-						"decide: what the owner needs to know to decide, as Markdown; a choice between pictures shows each picture as a `![A: …](/absolute/path.png)` line.",
-				},
-				operation: {
-					type: "string",
-					description:
-						"decide, when the answer approves an action: the exact operation as it would run (the command, the tool call, the release step), shown to the owner verbatim.",
-				},
-				inputs: {
-					type: "object",
-					additionalProperties: { type: "string" },
-					description: `decide: that operation's inputs by name (a target branch, a version, an amount); at most ${BOT_DECISION_INPUTS_MAX}.`,
-				},
-				draft: {
-					type: "string",
-					description:
-						"decide: the text you would send or write once approved (an email, a message, notes); the owner may edit it before answering, and the answer carries their version.",
-				},
-				expires_in_minutes: {
-					type: "integer",
-					minimum: 1,
-					maximum: 10080,
-					description:
-						"decide: when the answer stops counting (a hold or a deadline that lapses); after it the owner can no longer answer, and you ask again if you still need it.",
-				},
-				text: {
-					type: "string",
-					maxLength: Math.max(BOT_DUTY_TEXT_MAX, BOT_MEMORY_TEXT_MAX),
-					description: `duty_add, remember: one sentence. At most ${BOT_DUTY_TEXT_MAX} characters for a duty, ${BOT_MEMORY_TEXT_MAX} for a fact.`,
-				},
-				id: { type: "string", description: "duty_remove, forget: the id desk shows." },
-				tagline: {
-					type: "string",
-					maxLength: BOT_TAGLINE_MAX,
-					description: `identity: one line under your name, at most ${BOT_TAGLINE_MAX} characters.`,
-				},
-				persona: {
-					type: "string",
-					maxLength: BOT_PERSONA_MAX,
-					description: `identity: your personality, tone and boundaries, at most ${BOT_PERSONA_MAX} characters.`,
-				},
-				avatar_file: { type: "string", description: "identity: an absolute path to your new avatar picture." },
-				limit: {
-					type: "integer",
-					minimum: 1,
-					maximum: BOT_ACTIVITY_PAGE,
-					description: `visited, activity: entries at most, 1 to ${BOT_ACTIVITY_PAGE} (default ${BOT_ACTIVITY_DEFAULT_LIMIT}).`,
 				},
 			},
 			required: ["action"],
@@ -897,7 +796,6 @@ export const ARGS = {
 		.object({
 			title: z.string().trim().min(1).max(200),
 			body: z.string().max(2000).optional(),
-			kind: z.enum(["progress", "done"]).optional(),
 		})
 		.strict(),
 	[T.stop]: z
@@ -1014,43 +912,6 @@ export const ARGS = {
 		.object({ area: z.string().trim().max(60).optional(), query: z.string().trim().max(200).optional() })
 		.strict(),
 	[T.app]: z.object({ action: z.string().trim().min(1).max(100), args: z.record(z.unknown()).optional() }).strict(),
-	[T.bot]: z.discriminatedUnion("action", [
-		z.object({ action: z.literal("desk") }).strict(),
-		z
-			.object({
-				action: z.literal("decide"),
-				question: z.string().trim().min(1).max(2000),
-				options: z.array(z.string().trim().min(1).max(200)).max(BOT_DECISION_OPTIONS_MAX).optional(),
-				context: z.string().max(4000).optional(),
-				operation: z.string().trim().min(1).max(2000).optional(),
-				inputs: z
-					.record(z.string().trim().min(1).max(80), z.string().max(2000))
-					.refine(inputs => Object.keys(inputs).length <= BOT_DECISION_INPUTS_MAX)
-					.optional(),
-				draft: z.string().max(BOT_DECISION_DRAFT_MAX).optional(),
-				expires_in_minutes: z.number().int().min(1).max(10_080).optional(),
-			})
-			.strict(),
-		z.object({ action: z.literal("duty_add"), text: z.string().trim().min(1).max(BOT_DUTY_TEXT_MAX) }).strict(),
-		z.object({ action: z.literal("duty_remove"), id: z.string().trim().min(1).max(64) }).strict(),
-		z.object({ action: z.literal("remember"), text: z.string().trim().min(1).max(BOT_MEMORY_TEXT_MAX) }).strict(),
-		z.object({ action: z.literal("forget"), id: z.string().trim().min(1).max(64) }).strict(),
-		z
-			.object({
-				action: z.literal("identity"),
-				tagline: z.string().trim().max(BOT_TAGLINE_MAX).optional(),
-				persona: z.string().trim().max(BOT_PERSONA_MAX).optional(),
-				avatar_file: z.string().trim().min(1).max(4096).optional(),
-			})
-			.strict(),
-		z
-			.object({ action: z.literal("visited"), limit: z.number().int().min(1).max(BOT_ACTIVITY_PAGE).optional() })
-			.strict(),
-		z
-			.object({ action: z.literal("activity"), limit: z.number().int().min(1).max(BOT_ACTIVITY_PAGE).optional() })
-			.strict(),
-		z.object({ action: z.literal("new_conversation") }).strict(),
-	]),
 } as const;
 
 /** The slice of a tool's JSON schema `looseArgs` reads. */
@@ -1098,7 +959,7 @@ function loosen(schema: LooseSchema | undefined, value: unknown): unknown {
 
 /**
  * The arguments as the tool's schema types them, where a model wrote a boolean, a number, an object or an array as its
- * JSON text (`"true"`, `"{\"base\":\"main\"}"`; measured 10 Nov 2026: 4 of the bot's 15 failed opens in a week): a field
+ * JSON text (`"true"`, `"{\"base\":\"main\"}"`; measured 10 Nov 2026: 4 of one session's 15 failed opens in a week): a field
  * whose schema takes no string reads that text as the value it spells. Everything else passes as it came, so the strict
  * parser (`ARGS`) still refuses what the schema does not take. One rule for every control tool and every nesting.
  */
@@ -1112,7 +973,5 @@ export type ListArgs = z.infer<(typeof ARGS)[typeof T.list]>;
 export type AnswerArgs = z.infer<(typeof ARGS)[typeof T.answer]>;
 
 export type ScheduleArgs = z.infer<(typeof ARGS)[typeof T.schedule]>;
-
-export type BotArgs = z.infer<(typeof ARGS)[typeof T.bot]>;
 
 export type AutopilotArgs = z.infer<typeof autopilotArgs>;

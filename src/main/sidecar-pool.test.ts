@@ -1598,27 +1598,6 @@ describe("SidecarPool session ownership (F-OWN)", () => {
 		initDeletedSessions(null);
 	});
 
-	it("closes the tabs of a paired host's ended bot conversations without recording a delete: they stay to read", () => {
-		const { pool } = fakePool();
-		const fw = fakeWindow(1);
-		initDeletedSessions(null);
-		const open = (tabId: string, sessionPath: string, device: string | undefined) =>
-			pool.acquire("/w", fw.win, tabId, sessionPath, "chat", undefined, false, false, true, "봇봇이", device);
-		open("old-1", "/s/bot-1.jsonl", "host-b");
-		open("old-2", "/s/bot-2.jsonl", "host-b");
-		open("live", "/s/bot-3.jsonl", "host-b");
-		open("other-host", "/s/bot-1.jsonl", "host-c");
-		expect(pool.closeHostEndedSessions("host-b", ["/s/bot-1.jsonl", "/s/bot-2.jsonl"]).sort()).toEqual([
-			"old-1",
-			"old-2",
-		]);
-		expect(pool.tabsForWindow(fw.win).map(tab => tab.tabId)).toEqual(["live", "other-host"]);
-		expect(deletedSessions().has("/s/bot-1.jsonl", "host-b")).toBe(false);
-		// Opened again to read it, it opens.
-		expect(open("reading", "/s/bot-1.jsonl", "host-b")).not.toBeNull();
-		initDeletedSessions(null);
-	});
-
 	it("passes a paired host's review list of the session a tab views to its windows, each item opening on that host", () => {
 		const { pool, sidecars } = fakePool();
 		const fw = fakeWindow(1);

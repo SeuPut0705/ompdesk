@@ -12,7 +12,7 @@
  * handler. A start that falls due while the previous run of the same schedule
  * still goes is recorded as skipped instead of piling up.
  *
- * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`; the bot's routines)
+ * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`)
  * starts no omp: its start hands the prompt to `wake`, which delivers it into that session as a mail that starts a turn
  * and follows that turn. The run ends with the turn: succeeded, failed with the turn's error, or stopped.
  *
@@ -29,7 +29,6 @@ import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { finished } from "node:stream/promises";
 import { AGENT_SCHEDULE_PREFIX } from "../shared/agent-control";
-import { BOT_RETENTION_MS, olderThan } from "../shared/bot-retention";
 import { codedError } from "../shared/ipc-error-codes";
 import {
 	nextRunAt,
@@ -90,8 +89,6 @@ export interface ScheduleServiceOptions {
 	 * is charged at every start, timed or not; absent = no device is ever charged (tests, no remote host).
 	 */
 	reserve?: (device: string) => ScheduleCharge;
-	/** A run ended (or was skipped), as recorded; the bot's routines go to its activity log (index.ts). */
-	runEnded?: (schedule: Schedule, run: ScheduleRun) => void;
 }
 
 interface StoredSchedules {
@@ -109,9 +106,6 @@ interface ActiveRun {
 
 /** What a webhook call came to (`ScheduleService.webhook`): started or kept for after the running one, or why not. */
 export type WebhookOutcome = "fired" | "unknown" | "denied" | "off";
-
-/** Thrown by `launch`/`wake` when a run should not happen now (the bot is paused): the run is recorded as skipped. */
-export class ScheduleSkip extends Error {}
 
 /** Event lines kept for the run after the running one (the newest). */
 const PENDING_DETAILS_MAX = 20;
@@ -176,8 +170,7 @@ export class ScheduleService {
 	 */
 	fire(id: string, detail: string): boolean {
 		const schedule = this.#schedules.find(item => item.id === id);
-		if (!schedule || schedule.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed)
-			return false;
+		if (schedule?.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed) return false;
 		const line = detail.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX) || "The trigger fired";
 		if (this.#active.has(id)) {
 			this.#pending.set(id, [...(this.#pending.get(id) ?? []), line].slice(-PENDING_DETAILS_MAX));
@@ -207,12 +200,11 @@ export class ScheduleService {
 	/**
 	 * A routine's trigger cannot watch what it names (GitHub refused, a folder is gone, git or the mailbox failed;
 	 * src/main/routines tells each distinct failure once): recorded as a failed run with the reason, so the routine's
-	 * history and the bot's activity log show it, and nothing runs. False when the routine is gone, off or paused.
+	 * history shows it, and nothing runs. False when the routine is gone, off or paused.
 	 */
 	triggerFailed(id: string, reason: string): boolean {
 		const schedule = this.#schedules.find(item => item.id === id);
-		if (!schedule || schedule.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed)
-			return false;
+		if (schedule?.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed) return false;
 		const at = new Date().toISOString();
 		const run: ScheduleRun = {
 			id: randomUUID(),
@@ -225,7 +217,6 @@ export class ScheduleService {
 			error: `Its trigger failed: ${reason.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX)}`,
 		};
 		this.#record(run);
-		this.#options.runEnded?.({ ...schedule }, run);
 		this.#changed();
 		return true;
 	}
@@ -426,7 +417,6 @@ export class ScheduleService {
 			...(detail === undefined ? {} : { detail }),
 		};
 		this.#record(run);
-		this.#options.runEnded?.({ ...schedule }, run);
 	}
 
 	#runDue(): void {
@@ -530,7 +520,7 @@ export class ScheduleService {
 			detail === undefined
 				? schedule.prompt
 				: `${schedule.prompt}\n\n${trigger === "manual" ? "Test run" : "What fired this run"}:\n${detail}`;
-		let result: { code: number | null; error?: string; skipped?: true };
+		let result: { code: number | null; error?: string };
 		let launched: RunProcess | null = null;
 		try {
 			await mkdir(this.#options.logDir, { recursive: true });
@@ -551,7 +541,6 @@ export class ScheduleService {
 			result = {
 				code: null,
 				error: error instanceof Error ? error.message : String(error),
-				...(error instanceof ScheduleSkip ? { skipped: true as const } : {}),
 			};
 		}
 		// A run that never started spent nothing of the device's day.
@@ -561,7 +550,7 @@ export class ScheduleService {
 		if (this.#disposed) return;
 		const stopped = active.stopRequested || result.code === SUPERVISOR_STOPPED_CODE;
 		this.#finish(run.id, {
-			status: stopped ? "stopped" : result.skipped ? "skipped" : result.code === 0 ? "succeeded" : "failed",
+			status: stopped ? "stopped" : result.code === 0 ? "succeeded" : "failed",
 			exitCode: result.code,
 			error: stopped ? null : (result.error ?? (result.code === 0 ? null : `omp exited with code ${result.code}`)),
 		});
@@ -574,7 +563,6 @@ export class ScheduleService {
 		this.#changed();
 		const run = this.#runs.find(entry => entry.id === runId);
 		const schedule = run && this.#schedules.find(entry => entry.id === run.scheduleId);
-		if (run && schedule) this.#options.runEnded?.({ ...schedule }, { ...run });
 		// An agent's one-time wake that did its work is spent and gone: nothing is left to read but a success.
 		if (run && schedule && run.trigger === "schedule" && run.status === "succeeded" && spentAgentOnce(schedule)) {
 			this.#delete(schedule.id);
@@ -583,9 +571,9 @@ export class ScheduleService {
 	}
 
 	/**
-	 * Ages out what agents left (`BOT_RETENTION_MS`; launch and hourly): an agent schedule's finished runs past
-	 * `routineRuns`, and a spent one-time agent schedule, at once when its run did not fail (or it never ran: an older
-	 * build kept them), or `failedOnce` after a failed run ended. The owner's own schedules keep their history.
+	 * Ages out what agents left (launch and hourly): an agent schedule's finished runs past seven days, and a spent
+	 * one-time agent schedule, at once when its run did not fail (or it never ran: an older build kept them), or a day
+	 * after a failed run ended. The owner's own schedules keep their history.
 	 */
 	prune(now: number): void {
 		let changed = false;
@@ -593,7 +581,7 @@ export class ScheduleService {
 			if (!spentAgentOnce(schedule) || this.#active.has(schedule.id)) continue;
 			const last = this.#runs.find(run => run.scheduleId === schedule.id);
 			const failed = last !== undefined && last.status !== "succeeded";
-			if (failed && !olderThan(last.endedAt ?? last.startedAt, BOT_RETENTION_MS.failedOnce, now)) continue;
+			if (failed && !(Date.parse(last.endedAt ?? last.startedAt) < now - 24 * 60 * 60_000)) continue;
 			this.#delete(schedule.id);
 			changed = true;
 		}
@@ -606,7 +594,7 @@ export class ScheduleService {
 			run =>
 				run.status !== "running" &&
 				agent.has(run.scheduleId) &&
-				olderThan(run.endedAt ?? run.startedAt, BOT_RETENTION_MS.routineRuns, now),
+				Date.parse(run.endedAt ?? run.startedAt) < now - 7 * 24 * 60 * 60_000,
 		);
 		if (old.length > 0) {
 			this.#runs = this.#runs.filter(run => !old.includes(run));
@@ -614,17 +602,6 @@ export class ScheduleService {
 			changed = true;
 		}
 		if (changed) this.#changed();
-	}
-
-	/** Every schedule that wakes `from` wakes `to` from now on (the bot's conversation was renewed). */
-	moveWakes(from: string, to: string): void {
-		let moved = false;
-		for (const schedule of this.#schedules)
-			if (schedule.wakeSession === from) {
-				schedule.wakeSession = to;
-				moved = true;
-			}
-		if (moved) this.#changed();
 	}
 
 	#stopSchedule(scheduleId: string): void {

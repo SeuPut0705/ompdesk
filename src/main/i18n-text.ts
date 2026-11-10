@@ -7,7 +7,6 @@ import type { UiLanguage } from "../shared/ui-language";
 
 export const MAIN_TEXT = {
 	"dialog.openProject": { en: "Open project", ko: "프로젝트 열기" },
-	"bot.title": { en: "Bot", ko: "봇" },
 	"web.unknownDevice.title": { en: "An unknown device tried to connect", ko: "알 수 없는 기기가 접속을 시도했어요" },
 	"web.unknownDevice.body": {
 		en: "Mobile web refused it (no paired device). Nothing to do unless it was you.",
@@ -312,8 +311,6 @@ export const MAIN_TEXT = {
 	// A finished turn whose last reply waits for the person (notify-triage.ts), in the renderer's `attention.question`
 	// word; {title} is the tab's title.
 	"notify.needsInput": { en: "Needs input · {title}", ko: "답변 필요 · {title}" },
-	// A decision the bot posted for the owner (agent-control/bot-desk.ts); {title} is the bot's name.
-	"notify.botDecision": { en: "Decision needed · {title}", ko: "결정 필요 · {title}" },
 	// Web Push to a paired phone (web/web-push-notifier.ts). The body reads like the desktop banner's; a device that
 	// hides content gets only the title, and the batch summary above.
 	"push.complete": { en: "Complete", ko: "완료" },

@@ -21,7 +21,6 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
 import { toolEntryKey } from "../../stores/tools";
-import { AssistantMarkdown } from "../bot/AssistantMarkdown";
 import { Badge, Button, CopyButton, DisclosureButton, IconButton, MenuButton } from "../common";
 import { Collapse } from "../common/Collapse";
 import type { GalleryImage } from "../common/ZoomableImage";
@@ -546,19 +545,11 @@ export const MessageBubble = memo(function MessageBubble({
 	const blocks: ReactNode[] = [];
 	const replyGallery = messageGallery(content, t("chat.attachedImage"));
 	let sawNonToolBlock = false;
-	// The reply's last text block: in the bot's pane the one that shows where the turn's facts came from.
-	const lastText = content.findLastIndex(block => block.type === "text" && isRenderableMessageText(block.text));
-	for (const [index, block] of content.entries()) {
+	for (const block of content) {
 		switch (block.type) {
 			case "text": {
 				if (isRenderableMessageText(block.text)) {
-					blocks.push(
-						<AssistantMarkdown
-							key={blocks.length}
-							{...(index === lastText ? { message } : {})}
-							text={block.text}
-						/>,
-					);
+					blocks.push(<MarkdownRenderer key={blocks.length} content={block.text} />);
 					sawNonToolBlock = true;
 				}
 				break;

@@ -49,7 +49,6 @@ export const FEATURES = {
 	security: "Security scans",
 	ssh: "SSH hosts",
 	voice: "Voice input & speech",
-	voiceStream: "Streaming voice input & speech",
 	debug: "Debug console",
 	sessionTree: "Session tree, labels & pins",
 	sessionImport: "Claude/Codex session import",
@@ -91,7 +90,6 @@ export const FEATURES = {
 		"A bash service start whose ready.log cannot match is refused; a polling call or a refused edit is told once what to do instead; a wait returns only with news",
 	quitJournal: "A quit while a tool runs journals the tool's aborted result before the process ends",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
-	botAvatar: "Bot avatar drawn on the image model role (Settings › Bot › Generate)",
 	askForm: "An ask form's paragraphs, tables and pictures on its question card",
 } as const;
 
@@ -380,8 +378,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			"model",
 			"modelRegistry.getApiKey()",
 			"modelRegistry.resolver()",
-			// The bot's prompt section names it by its session's title.
-			"sessionManager.getSessionName()",
 		],
 		modules: {
 			"@oh-my-pi/pi-ai": ["completeSimple()"],
@@ -1037,26 +1033,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/tts/wav`]: ["encodeWav()"],
 		},
 	},
-	// The streaming methods (voice.ts) are a feature of their own: an omp without these APIs keeps batch dictation and read-aloud.
-	voiceStream: {
-		session: ["settings", "modelRegistry"],
-		modules: {
-			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
-			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
-			[`${AGENT}/config/registry`]: ["lookup()"],
-			[`${AGENT}/stt/asr-client`]: [
-				"sttClient.startStream()",
-				"sttClient.transcribe()",
-				"sttClient.downloadModel()",
-			],
-			[`${AGENT}/stt/downloader`]: ["downloadSttModel()", "isSttModelCached()"],
-			[`${AGENT}/stt/models`]: ["resolveSttModelSpec()"],
-			[`${AGENT}/tts/models`]: ["DEFAULT_TTS_VOICE", "TTS_LOCAL_MODELS"],
-			[`${AGENT}/tts/speakable`]: ["SpeakableStream.prototype.push()", "SpeakableStream.prototype.flush()"],
-			[`${AGENT}/tts/tts-client`]: ["ttsClient.synthesizeStream()"],
-			[`${AGENT}/tools/tts`]: ["resolveSpeechCandidates()"],
-		},
-	},
 	debug: {
 		session: ["settings", "sessionManager.getCwd()"],
 		modules: {
@@ -1423,33 +1399,6 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		},
 	},
 	/**
-	 * bot-avatar.ts: Settings › Bot's "Generate…". The status resolves stock's image role chain (`roleCandidatePool`,
-	 * `resolveRoleChain`, `isImageGenerationApi`, the session's credentials) without drawing; the picture is one run of
-	 * stock's own `generate_image` tool (`imageGenTool.execute`) over the session's registry and settings, because its
-	 * candidate order and hosted carriers (`defaultImageCandidates`, `resolveHostedImageCarrier`) are not exported.
-	 */
-	botAvatar: {
-		session: [
-			"settings",
-			"modelRegistry",
-			"model",
-			"sessionId",
-			"sessionManager",
-			"modelRegistry.getApiKey()",
-			"modelRegistry.getAvailable()",
-			"modelRegistry.resolver()",
-			"modelRegistry.resolveModelHeaders()",
-			"sessionManager.getSessionId()",
-		],
-		modules: {
-			"@oh-my-pi/pi-ai": ["isImageGenerationApi()"],
-			[`${AGENT}/config/model-registry`]: ["isAuthenticated()"],
-			[`${AGENT}/config/model-resolver`]: ["resolveRoleChain()"],
-			[`${AGENT}/config/model-roles`]: ["roleCandidatePool()"],
-			[`${AGENT}/tools/image-gen`]: ["imageGenTool.execute()"],
-		},
-	},
-	/**
 	 * ask-form.ts: `formDialog` defined on the session's RPC UI context (`extensionRunner.getUIContext()`), asking a form
 	 * through the context's own `askDialog`; the form's parse, questions, values and checks are stock's html-form helpers,
 	 * and duplicate option labels are told apart as stock's field-by-field walk does.
@@ -1521,8 +1470,6 @@ export const COPY_SAFE: Readonly<Record<string, string>> = {
 	[`${AGENT}/tiny/message-preproc`]: "text cleanup: pure",
 	[`${AGENT}/tiny/text`]: "title text helpers: pure",
 	[`${AGENT}/tts/models`]: "the local voice and model tables: data",
-	[`${AGENT}/tts/speakable`]:
-		"the markdown-to-speech segmenter: a pure string transform that imports nothing, so it is neither a settings reader nor a transpile cost (not in HEAVY_COPIES)",
 	[`${AGENT}/tts/tts-client`]:
 		"NOT harmless, kept for want of a route: omp's bundle has no `tts/*` at all and only stock's `tts` tool reaches its client, falling through to cloud voices the speech role lists (read-aloud stays local). The copy runs its own worker and, uninitialised, takes the tiny-model device and dtype from the environment instead of `providers.tinyModel*` (needs `tts/*` in omp's bundle upstream)",
 	[`${AGENT}/tts/wav`]: "the WAV encoder: pure",

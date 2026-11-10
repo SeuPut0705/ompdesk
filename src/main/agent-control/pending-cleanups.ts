@@ -15,7 +15,7 @@ export const PENDING_CLEANUPS_MAX = 200;
 export type CleanupAction = "stop" | "close" | "delete";
 
 export interface PendingCleanup {
-	/** Who asked: the caller's session file (`bot` + its computer for the bot, whose conversation renews), else its tab id. */
+	/** Who asked: the caller's session file (with its computer), else its tab id. */
 	caller: string;
 	/** The session it asked for: its file on the computer it runs on when it has one, and the tab id it was named by. */
 	path?: string;

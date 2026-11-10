@@ -60,8 +60,6 @@ export class SessionIndex {
 	#cwd: string;
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
-	/** What the computer's bot session is to the list (`botRowOf`): its row carries it, on or off. */
-	#botRow: (sessionPath: string) => "on" | "off" | "past" | null;
 	#store: StockSessionStore;
 	/**
 	 * Each listed session file's legacy chat flag, with the session id its header named: a header never changes, so a
@@ -89,12 +87,10 @@ export class SessionIndex {
 		cwd: string,
 		isChat: (sessionId: string) => boolean = () => false,
 		bridgeDir = resolve("resources/gui-bridge"),
-		botRow: (sessionPath: string) => "on" | "off" | "past" | null = () => null,
 	) {
 		this.#sessionsDir = sessionsDir ?? join(agentDir(), "sessions");
 		this.#cwd = resolve(cwd);
 		this.#isChat = isChat;
-		this.#botRow = botRow;
 		this.#store = new StockSessionStore(this.#sessionsDir, bridgeDir);
 		this.#share.onChange = delta => this.onListChange?.(delta);
 	}
@@ -201,15 +197,13 @@ export class SessionIndex {
 		this.#share.changed();
 	}
 
-	/** Every session file once (deleted ones never), chat- and bot-labelled, newest first, one row per session id. */
+	/** Every session file once (deleted ones never), chat-labelled, newest first, one row per session id. */
 	async #readAll(): Promise<SessionInfo[]> {
 		const deleted = deletedSessions();
 		const infos = (await this.#store.list()).filter(info => !deleted.has(info.path));
 		await Promise.all(
 			infos.map(async info => {
 				if (this.#isChat(info.id) || (await this.#listedLegacyChat(info))) info.kind = "chat";
-				const bot = this.#botRow(info.path);
-				if (bot) info.bot = bot;
 			}),
 		);
 		infos.sort(compareSessionRows);
@@ -304,13 +298,6 @@ export class SessionIndex {
 		this.#textCache.delete(moved);
 		this.#notifyChange();
 		return moved;
-	}
-
-	/** A new titled session in `cwd`, listed at once (the bot's own session, `agent-control/bot-home.ts`). */
-	async createNamed(cwd: string, title: string): Promise<{ sessionPath: string; sessionId: string }> {
-		const created = await this.#store.createNamed(cwd, title);
-		this.#notifyChange();
-		return created;
 	}
 
 	/**

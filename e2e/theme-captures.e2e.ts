@@ -59,7 +59,7 @@ async function shoot(page: Page, name: string): Promise<void> {
 	await page.screenshot({ path: path.join(captures, `${prefix}-${name}.png`), animations: "disabled" });
 }
 
-async function open(theme: string, phone: boolean, query = ""): Promise<Page> {
+async function open(theme: string, phone: boolean): Promise<Page> {
 	const context = await browser.newContext({
 		viewport: phone ? { width: 390, height: 844 } : { width: 1440, height: 900 },
 		isMobile: phone,
@@ -67,7 +67,7 @@ async function open(theme: string, phone: boolean, query = ""): Promise<Page> {
 		deviceScaleFactor: 2,
 	});
 	const page = await context.newPage();
-	await page.goto(`${origin}/harness.html?theme=${theme}&lang=en&stress=1&rail=all${query}`);
+	await page.goto(`${origin}/harness.html?theme=${theme}&lang=en&stress=1&rail=all`);
 	await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 45_000 });
 	await page.waitForFunction(() => window.__stores?.ui !== undefined, undefined, { timeout: 45_000 });
 	await expect(page.locator("html")).toHaveAttribute("data-theme-name", theme);
@@ -131,16 +131,4 @@ for (const theme of themes) {
 		await shoot(page, `${theme}-phone-settings`);
 		await page.context().close();
 	});
-
-	for (const phone of [false, true]) {
-		test(`theme captures ${theme} bot ${phone ? "phone" : "wide"}`, async () => {
-			test.skip(!captures, "OMPDESK_THEME_SHOTS unset");
-			test.setTimeout(120_000);
-			const page = await open(theme, phone, "&bot=1");
-			await expect(page.locator("[data-bot-bar]").first()).toBeVisible({ timeout: 30_000 });
-			await page.waitForTimeout(800);
-			await shoot(page, `${theme}-${phone ? "phone-" : ""}bot`);
-			await page.context().close();
-		});
-	}
 }

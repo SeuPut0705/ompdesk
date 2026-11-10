@@ -25,7 +25,7 @@ describe("readMailbox (IMAP over a fake server)", () => {
 		imap.mail.push(
 			{
 				uid: 4,
-				headers: "From: Ann <ann@example.com>\r\nTo: owner+bot@example.com\r\nSubject: =?UTF-8?B?7ZWc6riA?= build",
+				headers: "From: Ann <ann@example.com>\r\nTo: owner+ci@example.com\r\nSubject: =?UTF-8?B?7ZWc6riA?= build",
 				body: "Please rerun the nightly.",
 			},
 			{ uid: 5, headers: "From: bob@example.com\r\nSubject: second", body: "two" },
@@ -36,7 +36,7 @@ describe("readMailbox (IMAP over a fake server)", () => {
 			[4, "한글 build", "Please rerun the nightly."],
 			[5, "second", "two"],
 		]);
-		expect(second.messages[0]?.headers.to).toBe("owner+bot@example.com");
+		expect(second.messages[0]?.headers.to).toBe("owner+ci@example.com");
 		// Read-only and nothing marked seen.
 		expect(imap.commands.some(line => / EXAMINE "INBOX"$/.test(line))).toBe(true);
 		expect(imap.commands.filter(line => / UID FETCH /.test(line)).every(line => line.includes("BODY.PEEK"))).toBe(

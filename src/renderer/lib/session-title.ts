@@ -24,11 +24,6 @@ export function shownSessionName(name: string): string {
 	return stripTitlePrefix(name.trim()).replace(RUN_PREFIX, "").trim();
 }
 
-/** The bot's name as its fixed row and Settings show it: its session's own title, else `fallback` (the label "Bot"). */
-export function botDisplayName(session: Pick<SessionInfo, "title"> | undefined, fallback: string): string {
-	return shownSessionName(session?.title ?? "") || fallback;
-}
-
 /**
  * One display-title contract shared by the sidebar and top tab strip. The bridge's `NO_TEXT_PROMPT` sentinel (a
  * session whose first message is an image or file) reads as its localized label.
@@ -63,24 +58,6 @@ export function sessionTitleParts(title: string, autoTitle: string | null | unde
 /** The parts as one string, for tooltips, aria-labels, switchers, the document title and search haystacks. */
 export function combinedTitle(parts: TitleParts): string {
 	return parts.auto ? `${parts.title} · ${parts.auto}` : parts.title;
-}
-
-/** What a listed row says of a conversation the bot ended (absent from an older host's rows). */
-export type BotRowFacts = Partial<Pick<SessionInfo, "bot" | "created">>;
-
-/**
- * A conversation the bot ended (`SessionInfo.bot` past, as the computer the bot runs on lists it) reads as an earlier
- * one, with the day it began, wherever it shows as a tab or the window's title: "봇봇이 · 지난 대화 11-02". It
- * carries the bot's name, so the live bot and its earlier conversations would otherwise read alike.
- */
-export function withEndedBotMark(parts: TitleParts, row: BotRowFacts | undefined): TitleParts {
-	if (row?.bot !== "past") return parts;
-	const began = row.created ? new Date(row.created) : null;
-	const day =
-		began && !Number.isNaN(began.getTime())
-			? `${String(began.getMonth() + 1).padStart(2, "0")}-${String(began.getDate()).padStart(2, "0")}`
-			: "";
-	return { ...parts, title: `${parts.title} · ${translate("tabs.endedBotConversation", { day }).trim()}` };
 }
 
 /**

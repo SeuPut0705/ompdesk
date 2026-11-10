@@ -51,11 +51,6 @@ export interface WebPushNotifierDeps {
 	language: () => UiLanguage;
 	setTimer: (fn: () => void, ms: number) => unknown;
 	clearTimer: (handle: unknown) => void;
-	/**
-	 * Whether a turn's end or a question of the tab may push at all: the bot's tabs push where the owner routed their
-	 * kind (`agent-control/bot-notify.ts`); every other tab always may.
-	 */
-	pushes?: (tabId: string, kind: "completion" | "ask") => boolean;
 }
 
 interface OpenAsk {
@@ -185,7 +180,6 @@ export class WebPushNotifier {
 			return;
 		}
 		const summary = outcome.reply ? notificationSummary(outcome.reply) : "";
-		if (this.#deps.pushes?.(tabId, "completion") === false) return;
 		this.#feed("completion", tabId, facts.title, summary || text("push.complete", language));
 	}
 
@@ -193,7 +187,6 @@ export class WebPushNotifier {
 		if (this.#asks.has(requestId)) return;
 		const ask: OpenAsk = { tabId, pushedTo: new Set(), fedTo: new Set() };
 		this.#asks.set(requestId, ask);
-		if (this.#deps.pushes?.(tabId, "ask") === false) return;
 		const facts = this.#deps.tabFacts(tabId);
 		this.#feed("ask", tabId, facts?.title ?? "", question || text("push.ask", this.#deps.language()), ask);
 	}

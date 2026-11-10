@@ -1,8 +1,8 @@
 /**
  * A message one session sends another (`ompdesk_session_send`) is a stock `prompt`; a receiver that is busy queues it
  * as a follow-up (or a steer) in its omp's memory and journals it only when its loop takes it. An omp that ends first
- * (OMPdesk relaunching for an update, a crash) loses it, and the sender was told "accepted; queued" (2 Nov 2026: the
- * bot's d2 to a worker never arrived after an update relaunch).
+ * (OMPdesk relaunching for an update, a crash) loses it, and the sender was told "accepted; queued" (2 Nov 2026: an
+ * orchestrating session's d2 to a worker never arrived after an update relaunch).
  *
  * So main keeps each message, per receiver session file (and paired device), until the receiver's journal holds its
  * marker (`[ompdesk dispatch d2:`, `[ompdesk request <id>]`). It remembers which omp process it handed the message to
@@ -128,23 +128,6 @@ export class SendOutbox {
 	pending(): OutboxSend[] {
 		this.#trim();
 		return [...this.#entries.values()];
-	}
-
-	/**
-	 * What is still owed to `from` (this computer's) is owed to `to` instead: the bot's conversation was renewed. Its
-	 * omp never held it there, so it is handed over again.
-	 */
-	move(from: string, to: string): void {
-		const moved = [...this.#entries.values()].filter(
-			entry => entry.device === undefined && entry.sessionPath === from,
-		);
-		if (moved.length === 0) return;
-		for (const entry of moved) {
-			this.#entries.delete(entryKey(entry));
-			const { instance: _instance, ...rest } = entry;
-			this.#entries.set(entryKey({ ...rest, sessionPath: to }), { ...rest, sessionPath: to });
-		}
-		this.#save();
 	}
 
 	/** The messages still owed to one receiver session, oldest first. */

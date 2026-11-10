@@ -52,12 +52,12 @@ export type ScheduleEvent =
 	| { source: "files"; path: string }
 	/** New commits on a local branch of the repository at `repo` (absolute). */
 	| { source: "git"; repo: string; branch: string }
-	/** A session on this computer (`folder`: only those whose folder contains it). Never the bot's own sessions. */
+	/** A session on this computer (`folder`: only those whose folder contains it). Never the session it wakes. */
 	| { source: "session"; events: SessionEventKind[]; folder?: string }
 	/**
 	 * New mail in a mailbox the owner added in Settings › Schedules › Email accounts (`account`: its id or label), asked
 	 * over IMAP every `EMAIL_POLL_MINUTES`. Each filter is optional text the mail must contain (case aside): `from` in
-	 * its sender, `subject` in its subject, `to` in a recipient address (a plus-address such as `owner+bot@…`).
+	 * its sender, `subject` in its subject, `to` in a recipient address (a plus-address such as `owner+ci@…`).
 	 */
 	| { source: "email"; account: string; from?: string; subject?: string; to?: string };
 

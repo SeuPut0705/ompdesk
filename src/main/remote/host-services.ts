@@ -43,11 +43,6 @@ import { z } from "zod";
 import { PROMPT_ORIGIN_HOST_ID, type PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
 import { ACCOUNT_ROTATION_MODES } from "../../shared/account-rotation";
 import { type AgentReviewResult, reviewUnmerged } from "../../shared/agent-control";
-import type { BotActivityPage } from "../../shared/bot-activity";
-import { type BotDeskAnswer, BotDeskAnswerSchema, type BotDeskState, EMPTY_BOT_DESK } from "../../shared/bot-desk";
-import { type BotDeskEdit, BotDeskEditSchema } from "../../shared/bot-desk-edit";
-import { type BotTakeoverRequest, BotTakeoverRequestSchema, type BotTakeoverResult } from "../../shared/bot-takeover";
-import { type BotTeachRequest, BotTeachRequestSchema, type BotTeachResult } from "../../shared/bot-teach";
 import { codedError } from "../../shared/ipc-error-codes";
 import {
 	HOST_UPDATE_ACTIONS,
@@ -73,10 +68,9 @@ import {
 import type { SchedulesState } from "../../shared/schedules";
 import { failureOf, type SummaryAsk, type SummaryDelta, unsavedSessionKey } from "../../shared/session-summary";
 import type { SidebarProjectsState } from "../../shared/sidebar-projects";
-import type { TerminalOperation, TerminalSnapshot } from "../../shared/terminal-types";
+import type { TerminalOperation } from "../../shared/terminal-types";
 import { isApprovalSelect } from "../../shared/tool-approval";
 import { branchEvidence, branchFacts, landingFacts, mergeBranch, removeSafeWorktree } from "../agent-control/branches";
-import { TURN_COMMANDS, type TurnGate } from "../agent-control/turn-gate";
 import type { BackgroundWorkMember } from "../background-work";
 import type { BridgeConnectResult } from "../bridge-health";
 import { canonicalCwd } from "../canonical-cwd";
@@ -150,7 +144,6 @@ import {
 	AUTOPILOT_NOTICE_EVENT,
 	type AutopilotNoticeEvent,
 	BenchmarkOptionsSchema,
-	BOT_DESK_EVENT,
 	CustomProviderInputSchema,
 	encodeBinaryRead,
 	GIT_METHODS,
@@ -267,10 +260,6 @@ export interface HostServicesDeps {
 		Partial<Pick<SessionIndex, "pace">>;
 	/** Session files this computer's user hid from agents (Sidebar › Hide from other agents); a device's agent never reads them. */
 	agentHidden?: () => ReadonlySet<string>;
-	/** A conversation this computer's bot ended (`botRowOf` `past`): kept to read, never continued from a device. */
-	botEnded?: (sessionPath: string) => boolean;
-	/** What would start a turn waits here while the bot's conversation in the tab renews (`TurnGate`). */
-	turnGate?: Pick<TurnGate, "pass">;
 	/** Stored-file rename for a session no live tab holds (`omp` on this machine). */
 	renameStoredSession: (sessionPath: string, name: string) => Promise<void>;
 	/** The GUI-owned Work workspace, created on demand. */
@@ -449,34 +438,6 @@ export type HostedAgentReview = (
 	command: { type: "agent_control_review" | "agent_control_family_edits" } & Record<string, unknown>,
 ) => Promise<RpcResponse>;
 
-/**
- * This computer's bot desk as a paired device sees it (`attachBotDesk`, built with the IPC handlers). `answer` is the
- * path the owner's own answer takes, so the bot is told once whoever answered.
- */
-export interface HostedBotDesk {
-	/** The owner has the bot on: only then is the desk read or answered over the link. */
-	enabled(): boolean;
-	state(): BotDeskState;
-	answer(payload: BotDeskAnswer): void;
-	/** The path the owner's own edit takes (`bot-desk-edit.ts`). */
-	edit(payload: BotDeskEdit): Promise<void>;
-	activity(): BotActivityPage;
-	/** Start, stop or cancel showing the bot a workflow (`agent-control/bot-teach.ts`); Stop answers whether it handed the bot a record. */
-	teach(request: BotTeachRequest): Promise<BotTeachResult>;
-	/** Take over a session the bot opened, or hand it back (`agent-control/bot-takeover.ts`). */
-	takeover(request: BotTakeoverRequest): Promise<BotTakeoverResult>;
-	/**
-	 * A device's request to a terminal of a tab here and its answer: a session the owner took over captures what is
-	 * typed in it there too. `terminal` is unique to the PTY.
-	 */
-	terminalSeen(
-		sessionPath: string,
-		terminal: string,
-		operation: TerminalOperation,
-		snapshots: readonly TerminalSnapshot[],
-	): void;
-}
-
 const Rtab = z.string().min(1).max(128);
 const AbsolutePath = z.string().min(1).refine(isAbsolute, "absolute path required");
 const SessionPath = z.string().endsWith(".jsonl");
@@ -654,7 +615,6 @@ export class LocalHostServices implements HostServices {
 	#resume: Pick<TurnResume, "sync" | "cancelWait" | "relaunchContinuation"> | null = null;
 	#autopilot: HostedAutopilot | null = null;
 	#agentReview: HostedAgentReview | null = null;
-	#botDesk: HostedBotDesk | null = null;
 	/** Autopilot runs a device started here (worktree root → deviceId), read once from `runChargesFile`. */
 	#runCharges: Map<string, RunCharge> | null = null;
 	/** The run (worktree root) a window tab holding a session belongs to: the run itself or one of its children. */
@@ -715,11 +675,6 @@ export class LocalHostServices implements HostServices {
 	/** This computer's control tools for a device viewing a window's session (see {@link HostedAgentReview}). */
 	attachAgentReview(review: HostedAgentReview): void {
 		this.#agentReview = review;
-	}
-
-	/** This computer's bot desk (built after this service, with the IPC handlers). */
-	attachBotDesk(desk: HostedBotDesk): void {
-		this.#botDesk = desk;
 	}
 
 	/**
@@ -1243,8 +1198,6 @@ export class LocalHostServices implements HostServices {
 					operation as TerminalOperation,
 					controlEnvFor(true),
 				);
-				if (tab.sessionFile && this.#botDesk?.enabled())
-					this.#botDesk.terminalSeen(tab.sessionFile, owner, operation as TerminalOperation, snapshots);
 				return snapshots;
 			}
 			// The device's Preview page is driven by this tab's agent through the relay on this computer's loopback: the
@@ -1410,60 +1363,6 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.scheduleLog(parse(SchedulesLogParams, method, params).runId);
 			case "host.schedules.create":
 				return this.#deps.machine.createSchedule(parse(SchedulesCreateParams, method, params).draft, peer.deviceId);
-			// The device's view of this computer's bot: the desk its own windows show. An answer goes through the one
-			// path the owner's own does (`HostedBotDesk.answer`), so the bot is told exactly once, as at this computer.
-			case "host.botDesk.get": {
-				const desk = this.#hostedBotDesk();
-				return desk.enabled() ? desk.state() : EMPTY_BOT_DESK;
-			}
-			case "host.botDesk.answer": {
-				const payload = parse(BotDeskAnswerSchema, method, params);
-				const desk = this.#botDeskOn();
-				// The answer wakes the bot on this computer's models: one request of the device's day.
-				await this.#metered(
-					peer.deviceId,
-					1,
-					async () => desk.answer(payload),
-					() => true,
-				);
-				return null;
-			}
-			case "host.botDesk.edit": {
-				await this.#botDeskOn().edit(parse(BotDeskEditSchema, method, params));
-				return null;
-			}
-			case "host.botDesk.activity": {
-				const desk = this.#hostedBotDesk();
-				return desk.enabled() ? desk.activity() : { entries: [], revision: 0 };
-			}
-			// A device starts, stops or cancels a recording on this computer's bot (it captures what the owner does in this
-			// computer's own windows). Stop wakes the bot on this computer's models: a delivered record is one request of
-			// the device's day, an empty one is refunded.
-			case "host.botDesk.teach": {
-				const request = parse(BotTeachRequestSchema, method, params);
-				const desk = this.#botDeskOn();
-				if (request.action !== "stop") return desk.teach(request);
-				return this.#metered(
-					peer.deviceId,
-					1,
-					() => desk.teach(request),
-					result => result.delivered,
-				);
-			}
-			// The owner takes over a session the bot opened here, or hands it back. A hand-back starts that session's
-			// turn on this computer's models: one request of the device's day.
-			case "host.botDesk.takeover": {
-				const request = parse(BotTakeoverRequestSchema, method, params);
-				const desk = this.#botDeskOn();
-				if (request.action !== "handBack") return desk.takeover(request);
-				return this.#metered(
-					peer.deviceId,
-					1,
-					() => desk.takeover(request),
-					result => result.lines !== undefined,
-				);
-			}
-			// The device's sidebar section for this computer: this computer's own project list, the one its windows show.
 			case "host.projects.command":
 				return this.#deps.machine.sidebarProjects(parse(ProjectsCommandParams, method, params).request);
 			// Agent control of a session this computer runs for the device: the git it would run on its own checkout.
@@ -1610,26 +1509,9 @@ export class LocalHostServices implements HostServices {
 		for (const conn of this.#conns) emitSafely(conn, SCHEDULES_EVENT, state);
 	}
 
-	/** This computer's bot desk changed: every connected device showing it follows. */
-	botDeskChanged(state: BotDeskState): void {
-		for (const conn of this.#conns) emitSafely(conn, BOT_DESK_EVENT, state);
-	}
-
 	/** This computer's models.yml changed by itself (a local engine came or went): every connected device reads that host's list again. */
 	modelsChanged(): void {
 		for (const conn of this.#conns) emitSafely(conn, MODELS_CHANGED_EVENT, {});
-	}
-
-	#hostedBotDesk(): HostedBotDesk {
-		if (!this.#botDesk) throw codedError("unsupported", "This computer has no bot desk to share");
-		return this.#botDesk;
-	}
-
-	/** The desk for a change: refused while the owner has the bot off, as the bot's row is gone there. */
-	#botDeskOn(): HostedBotDesk {
-		const desk = this.#hostedBotDesk();
-		if (!desk.enabled()) throw codedError("bot_off", "The bot is off on this computer");
-		return desk;
 	}
 
 	/** This machine's sidebar project list changed: every connected device's section for it follows. */
@@ -2347,32 +2229,6 @@ export class LocalHostServices implements HostServices {
 			session: tab.sessionFile ?? tab.resumeSessionPath,
 			peer: peer.deviceId,
 		});
-		// While the bot's conversation in this tab renews a turn start waits, then goes to whatever the tab holds then;
-		// it counts as in flight until answered, so the renewal never switches under it.
-		const turn = TURN_COMMANDS.has(command.type);
-		const passed = turn ? await this.#deps.turnGate?.pass(() => tab.sessionFile ?? tab.resumeSessionPath) : undefined;
-		try {
-			return await this.#runCommand(peer, params, tab, command, turn);
-		} finally {
-			passed?.();
-		}
-	}
-
-	async #runCommand(
-		peer: PeerInfo,
-		params: z.infer<typeof CommandParams>,
-		tab: HostTab,
-		command: RpcCommand,
-		turn: boolean,
-	): Promise<RpcResponse> {
-		const client = tab.sidecar.rpcClient;
-		if (!client) throw codedError("sidecar_not_connected", "Sidecar not connected");
-		const file = tab.sessionFile ?? tab.resumeSessionPath;
-		if (turn && file && this.#deps.botEnded?.(file))
-			throw codedError(
-				"bot_conversation_ended",
-				"This is an earlier conversation of the bot, kept to read. Write to the bot in its current conversation.",
-			);
 		// The user's Stop: nothing continues this turn after a crash (ipc.ts does the same for a local tab).
 		if (STOP_COMMANDS[command.type]) this.noteStopped(tab.resumeId);
 		// A view's moves and prompts are the tab's it shows: a window's (the pool counts them, ipc.ts as for a window's
