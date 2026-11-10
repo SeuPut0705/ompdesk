@@ -681,8 +681,11 @@ function IrcCard({ message }: { message: AgentMessage }) {
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
 				{/* Inside a work note the note's own line already carries the time. */}
 				{age && !embedded && (
-					<Tooltip content={formatClock(message.timestamp)} describe={false}>
-						<time className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]">
+					<Tooltip content={formatClock(message.timestamp)}>
+						<time
+							className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]"
+							tabIndex={0}
+						>
 							{age}
 						</time>
 					</Tooltip>

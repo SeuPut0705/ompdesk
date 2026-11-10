@@ -121,17 +121,21 @@ export function SavedWorktrees() {
 										{line}
 									</span>
 								))}
-								describe={false}
 							>
-								<span className="flex min-w-0 flex-1 flex-col @min-[32rem]:flex-row @min-[32rem]:items-center @min-[32rem]:gap-1.5">
+								<span
+									className="flex min-w-0 flex-1 flex-col @min-[32rem]:flex-row @min-[32rem]:items-center @min-[32rem]:gap-1.5"
+									tabIndex={0}
+								>
 									<span className="min-w-0 truncate font-mono text-sc-xs @min-[32rem]:shrink-0">{name}</span>
 									<span className="min-w-0 truncate font-mono text-sc-xs text-(--sc-text-muted) @min-[32rem]:flex-1">
 										{branch}
 									</span>
 								</span>
 							</Tooltip>
-							<Tooltip content={formatClock(worktree.removedAt)} describe={false}>
-								<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+							<Tooltip content={formatClock(worktree.removedAt)}>
+								<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums" tabIndex={0}>
+									{age}
+								</span>
 							</Tooltip>
 							<Button
 								aria-label={t("workTree.saved.restoreLabel", { name })}

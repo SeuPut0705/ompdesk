@@ -486,17 +486,20 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 		}
 	};
 	const activeId = selected ?? sessions[0]?.id ?? "";
-	// A closed tab that was chosen gives its place to the session after it (the one before it when it was the last),
-	// which takes focus, and New terminal takes it when none is left; focus never falls to the page.
+	// A closed tab that was chosen gives its place to the session after it (the one before it when it was the last).
+	// Closed from the keyboard (Delete on a tab), focus stays on the strip: the tab that took its place, or New terminal
+	// when none is left. Closed by the pointer, the surviving terminal takes focus, as a click on a tab gives it.
 	const close = async (index: number) => {
 		const id = sessions[index]?.id;
 		if (!id) return;
+		const focused = document.activeElement;
+		const fromKeys = focused?.getAttribute("role") === "tab" && tabsRef.current?.contains(focused) === true;
 		const result = await request({ action: "close", id });
 		if (!result || id !== activeId) return;
 		const survivor = result[Math.min(index, result.length - 1)]?.id ?? null;
-		keyboardSwitch.current = true;
+		keyboardSwitch.current = fromKeys;
 		setSelected(survivor);
-		focusAfterClose.current = survivor ?? "new";
+		if (fromKeys) focusAfterClose.current = survivor ?? "new";
 	};
 	const copy = async () => {
 		try {

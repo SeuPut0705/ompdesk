@@ -112,13 +112,13 @@ function stepHeader(entry: ToolEntry, t: (key: string, params?: Record<string, s
 	};
 }
 
-/** A todo's state as the plan's bar paints and names its share. */
-const TODO_SEGMENT: Record<TodoTask["status"], { tone: StatusTone; label: string }> = {
+/** A todo's state as the plan's bar paints and names its share; a step not done (no tone) is empty track. */
+const TODO_SEGMENT: Record<TodoTask["status"], { tone?: StatusTone; label: string }> = {
 	completed: { tone: "success", label: "todoPanel.status.completed" },
 	in_progress: { tone: "info", label: "todoPanel.status.inProgress" },
 	blocked: { tone: "warning", label: "todoPanel.status.blocked" },
-	pending: { tone: "neutral", label: "todoPanel.status.pending" },
-	abandoned: { tone: "neutral", label: "todoPanel.status.abandoned" },
+	pending: { label: "todoPanel.status.pending" },
+	abandoned: { label: "todoPanel.status.abandoned" },
 };
 
 /** Focus the question or approval card docked above this pane's composer. */
@@ -667,11 +667,10 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 									ariaLabel={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
 									className="min-w-6 flex-1"
 									height={4}
-									segments={plan.segments.map(status => ({
-										value: 1,
-										tone: TODO_SEGMENT[status].tone,
-										label: t(TODO_SEGMENT[status].label),
-									}))}
+									segments={plan.segments.map(status => {
+										const { tone, label } = TODO_SEGMENT[status];
+										return tone ? { value: 1, label: t(label), tone } : { value: 1, label: t(label) };
+									})}
 									value={plan.total > 0 ? plan.done / plan.total : 0}
 								/>
 								<span aria-hidden>

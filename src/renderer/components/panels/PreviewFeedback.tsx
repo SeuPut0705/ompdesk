@@ -229,7 +229,9 @@ export function PreviewFeedbackBar({
 				{visual && (
 					<div className="flex min-w-0 flex-1 items-center gap-2" data-preview-visual={visual.id}>
 						<Tooltip content={visual.label} describe={false}>
-							<span className="truncate text-sc-xs font-medium text-(--sc-text)">{visual.label}</span>
+							<span className="truncate text-sc-xs font-medium text-(--sc-text)" tabIndex={0}>
+								{visual.label}
+							</span>
 						</Tooltip>
 						{visual.versions.length > 1 && (
 							<Select
@@ -312,8 +314,11 @@ export function PreviewFeedbackBar({
 										<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-(--sc-accent) text-sc-2xs font-semibold text-(--sc-accent-fg)">
 											{note.n}
 										</span>
-										<Tooltip content={first?.selector ?? ""} describe={false} hidden={!first}>
-											<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)">
+										<Tooltip content={first?.selector ?? ""} hidden={!first}>
+											<span
+												className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)"
+												tabIndex={first ? 0 : undefined}
+											>
 												{note.kind === "element"
 													? elementLabel(first)
 													: t("panel.preview.feedback.regionTitle", { count: note.elements.length })}
@@ -412,7 +417,7 @@ export function PreviewFeedbackBar({
 								{variables.map(variable => (
 									<label key={variable.name} className="contents">
 										<Tooltip content={variable.name} describe={false}>
-											<span className="truncate font-mono text-sc-xs text-(--sc-text-muted)">
+											<span className="truncate font-mono text-sc-xs text-(--sc-text-muted)" tabIndex={0}>
 												{variable.name}
 											</span>
 										</Tooltip>
@@ -492,7 +497,7 @@ export function AllVisualsDialog({
 							<div className="min-w-0 flex-1">
 								<div className="truncate text-sc-sm font-medium text-(--sc-text)">{record.label}</div>
 								<Tooltip content={record.target || record.cwd} describe={false}>
-									<div className="truncate text-sc-xs text-(--sc-text-muted)">
+									<div className="truncate text-sc-xs text-(--sc-text-muted)" tabIndex={0}>
 										{t(`panel.preview.visual.kind.${record.kind}`)}
 										{" · "}
 										{record.target || record.cwd}

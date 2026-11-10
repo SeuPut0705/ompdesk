@@ -59,7 +59,9 @@ export function UpdateBanner() {
 					}
 					describe={Boolean(status.detail)}
 				>
-					<span className="line-clamp-2">{status.message}</span>
+					<span className="line-clamp-2" tabIndex={0}>
+						{status.message}
+					</span>
 				</Tooltip>
 			</Banner>
 		</div>

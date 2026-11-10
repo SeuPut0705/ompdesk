@@ -497,6 +497,7 @@ export function CommandPalette() {
 			<OptionRow
 				active={isActive}
 				aria-disabled={disabled}
+				pointerMoves
 				data-active={isActive ? "true" : undefined}
 				data-palette-index={index}
 				data-command-name={item.name}

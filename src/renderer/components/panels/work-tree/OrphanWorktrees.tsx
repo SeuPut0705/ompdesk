@@ -163,8 +163,10 @@ export function OrphanWorktrees() {
 								key={worktree.path}
 							>
 								<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-								<Tooltip content={worktree.path} describe={false}>
-									<span className="min-w-0 flex-1 truncate font-mono text-sc-xs">{name}</span>
+								<Tooltip content={worktree.path}>
+									<span className="min-w-0 flex-1 truncate font-mono text-sc-xs" tabIndex={0}>
+										{name}
+									</span>
 								</Tooltip>
 								<span
 									className={cx(
@@ -174,8 +176,10 @@ export function OrphanWorktrees() {
 								>
 									{state}
 								</span>
-								<Tooltip content={formatClock(worktree.modifiedAt)} describe={false}>
-									<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+								<Tooltip content={formatClock(worktree.modifiedAt)}>
+									<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums" tabIndex={0}>
+										{age}
+									</span>
 								</Tooltip>
 								{REMOVABLE[worktree.state] ? (
 									<IconButton

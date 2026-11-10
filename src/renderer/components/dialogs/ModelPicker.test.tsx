@@ -41,7 +41,7 @@ const { createRoot } = await import("react-dom/client");
 const { ModelPicker } = await import("./ModelPicker");
 
 const MODELS = [
-	{ provider: "anthropic", id: "claude", name: "Claude" },
+	{ provider: "anthropic", id: "claude", name: "Claude", description: "Careful writer" },
 	{ provider: "openai", id: "gpt-5", name: "GPT-5" },
 	{ provider: "openai", id: "gpt-mini", name: "GPT mini" },
 ] as ModelInfo[];
@@ -117,7 +117,7 @@ describe("ModelPicker Recent group", () => {
 });
 
 describe("ModelPicker compact layout", () => {
-	it("renders one-line rows: provider mark and name, secondary info only in the tooltip", async () => {
+	it("renders one-line rows: provider mark and name, secondary info off the row", async () => {
 		await mount();
 		const option = document.querySelector('[data-model-group="openai"] [role="option"]') as unknown as HTMLElement;
 		expect(option.querySelector("[data-provider-mark]")).not.toBeNull();
@@ -144,6 +144,25 @@ describe("ModelPicker compact layout", () => {
 			fresh.onKeyDown({ key: "Enter", preventDefault() {}, nativeEvent: { isComposing: false, keyCode: 13 } }),
 		);
 		expect(setModel).toHaveBeenCalledWith("openai", "gpt-mini");
+	});
+});
+
+describe("ModelPicker highlighted row's details", () => {
+	it("says the highlighted model's facts as the field's description, following the arrow keys", async () => {
+		await mount();
+		const input = document.querySelector("input") as unknown as HTMLInputElement;
+		const detail = () => {
+			const id = input.getAttribute("aria-describedby");
+			return id ? document.getElementById(id)?.textContent : undefined;
+		};
+		expect(detail()).toContain("GPT-5");
+		const record = input as unknown as Record<string, unknown>;
+		const propsKey = Object.getOwnPropertyNames(record).find(key => key.startsWith("__reactProps$"));
+		const props = record[propsKey ?? ""] as { onKeyDown(event: object): void };
+		await act(async () =>
+			props.onKeyDown({ key: "ArrowDown", preventDefault() {}, nativeEvent: { isComposing: false, keyCode: 40 } }),
+		);
+		expect(detail()).toContain("Careful writer");
 	});
 });
 

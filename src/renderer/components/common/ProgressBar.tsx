@@ -16,8 +16,11 @@
  *
  * `segments` draws several shares of one whole side by side (a context window by category, findings by severity, a
  * plan's steps by state): each a `value` in any unit, painted with a status `tone` (StatusDot's) or, for data shares
- * that are not states, an explicit `color`, and named by its `label` (its hover title, and the bar's accessible
- * name lists every share). The shares fill the bar unless `total` says what the full bar stands for (a context
+ * that are not states, an explicit `color`; a share with neither is an empty stretch of the track (a step not done
+ * yet), counted and named like the rest. Each is named by its `label` (the bar's accessible name lists every share).
+ * Shares grow from nothing and have no minimum width, so any number of them ends inside the track; the 1 px line
+ * between two is drawn inside the later share and thins away where a share is under 2 px wide. The shares fill the
+ * bar unless `total` says what the full bar stands for (a context
  * window with room left). Such a bar is an image to assistive tech: it shows how a whole divides. Give it a `value`
  * as well (0..1, how full the whole is) and it is a progressbar of that value instead, its shares drawn for the eye
  * (the context window's fill, by category); `ariaValueText` names its value. The words beside it (a legend, a count)
@@ -35,10 +38,14 @@ import { STATUS_TONE_FILL, type StatusTone } from "./StatusDot";
 
 export type ProgressBarTone = "meter" | "progress";
 
-/** One share of a segmented bar: a status `tone`, or a `color` for a data share that is no state. */
+/**
+ * One share of a segmented bar: a status `tone`, a `color` for a data share that is no state, or neither for an
+ * empty stretch of the track (a step not done yet).
+ */
 export type ProgressSegment = { value: number; label: string } & (
 	| { tone: StatusTone; color?: never }
 	| { color: string; tone?: never }
+	| { tone?: never; color?: never }
 );
 
 interface ProgressBarFrame {
@@ -163,6 +170,7 @@ function SegmentedBar({
 }: ProgressBarFrame & { segments: readonly ProgressSegment[]; total?: number; value?: number }) {
 	const shares = segments.filter(segment => Number.isFinite(segment.value) && segment.value > 0);
 	const sum = shares.reduce((acc, segment) => acc + segment.value, 0);
+	const whole = Math.max(sum, total ?? sum);
 	const room = Math.max(0, (total ?? sum) - sum);
 	const name = shares.map(segment => `${segment.label} ${segment.value}`).join(", ");
 	const aria =
@@ -175,13 +183,28 @@ function SegmentedBar({
 				);
 	return (
 		<Frame className={className} label={label} labelCase={labelCase} labelClassName={labelClassName} text={valueText}>
-			<div {...aria} className={cx(TRACK, "flex gap-px")} data-progress-segments="" style={{ height }}>
+			<div
+				{...aria}
+				className={cx(TRACK, "flex")}
+				data-progress-segments=""
+				// The track is the query container its shares measure their width (`cqw`) against.
+				style={{ height, containerType: "inline-size" }}
+			>
 				{shares.map((segment, index) => (
 					<span
-						className={cx("h-full min-w-0.5", segment.tone && STATUS_TONE_FILL[segment.tone])}
+						className={cx("h-full min-w-0", segment.tone && STATUS_TONE_FILL[segment.tone])}
+						data-progress-segment=""
 						key={`${segment.label}-${index}`}
-						// Shares grow from a zero basis, so the 1 px gaps never push the total past the track.
-						style={{ flex: `${segment.value} 1 0`, backgroundColor: segment.color }}
+						style={{
+							// From a zero basis with no minimum, the shares divide the track whatever their number.
+							flex: `${segment.value} 1 0`,
+							backgroundColor: segment.color,
+							// The line before a share is the track's colour inside it: 1 px, thinning to none under 2 px.
+							boxShadow:
+								index > 0
+									? `inset clamp(0px, calc(${segment.value / whole} * 100cqw - 1px), 1px) 0 0 var(--sc-surface-3)`
+									: undefined,
+						}}
 						title={segment.label}
 					/>
 				))}

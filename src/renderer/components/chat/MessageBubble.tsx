@@ -377,6 +377,56 @@ function MessageActions({
 }
 
 /**
+ * Whether a message's own row draws its action row, and so its clock: a prompt, a reply with something besides tool
+ * calls (or its failure), a generic extension message. A card, a note, a tool-only reply and a message that renders
+ * nothing draw none. MessageBubble decides its chrome by it; the transcript compares clocks only among rows that draw one.
+ */
+export function drawsMessageActions(message: AgentMessage): boolean {
+	switch (message.role) {
+		case "bashExecution":
+		case "pythonExecution":
+		case "branchSummary":
+		case "compactionSummary":
+		case "fileMention":
+		case "toolResult":
+		case "developer":
+			return false;
+		case "custom":
+		case "hookMessage":
+			return !(
+				message.display === false ||
+				isRestartNote(message.customType) ||
+				message.customType === "recap" ||
+				message.customType === MAIL_CUSTOM_TYPE ||
+				message.customType === MEMORY_RECALL_MESSAGE_TYPE ||
+				message.customType === COMPUTER_USE_NOTICE_TYPE ||
+				isCustomMessageCardType(message.customType) ||
+				parseTodoReminder(message) !== null
+			);
+	}
+	if (parseTodoReminder(message)) return false;
+	if (message.role === "user") return true;
+	const isAssistant = message.role === "assistant";
+	const silentAbort = isAssistant && isSilentAbort(message);
+	const failure =
+		(Boolean(message.errorMessage) && !silentAbort) ||
+		(isAssistant && !silentAbort && message.stopReason === "aborted");
+	const content: MessageContent[] = Array.isArray(message.content)
+		? message.content
+		: typeof message.content === "string"
+			? [{ type: "text", text: message.content }]
+			: [];
+	const drawsMore = content.some(block =>
+		block.type === "text"
+			? isRenderableMessageText(block.text)
+			: block.type === "thinking"
+				? isRenderableMessageText(block.thinking)
+				: block.type === "image",
+	);
+	return drawsMore || failure || Boolean(message.steering);
+}
+
+/**
  * One finalized message. User messages are a compact soft bubble on the
  * right; assistant messages are content-first (no bubble) and render text,
  * thinking, images, and tool rows. Standalone toolResult messages are folded
@@ -563,20 +613,17 @@ export const MessageBubble = memo(function MessageBubble({
 	// Assistant / system: render block by block.
 	const blocks: ReactNode[] = [];
 	const replyGallery = messageGallery(content, t("chat.attachedImage"));
-	let sawNonToolBlock = false;
 	for (const block of content) {
 		switch (block.type) {
 			case "text": {
 				if (isRenderableMessageText(block.text)) {
 					blocks.push(<MarkdownRenderer key={blocks.length} content={block.text} />);
-					sawNonToolBlock = true;
 				}
 				break;
 			}
 			case "thinking": {
 				if (isRenderableMessageText(block.thinking)) {
 					blocks.push(<ThinkingBlock key={blocks.length} text={block.thinking} />);
-					sawNonToolBlock = true;
 				}
 				break;
 			}
@@ -588,7 +635,6 @@ export const MessageBubble = memo(function MessageBubble({
 			}
 			case "image": {
 				blocks.push(<InlineImage key={blocks.length} gallery={replyGallery} image={block} />);
-				sawNonToolBlock = true;
 				break;
 			}
 		}
@@ -609,7 +655,7 @@ export const MessageBubble = memo(function MessageBubble({
 	// Tool-only messages and messages nested inside an expanded Process group
 	// carry no message actions: tool-only copy would be empty, and the Process
 	// disclosure owns the grouped chrome and branch point.
-	const compactChrome = compact || (!sawNonToolBlock && !failure && !customLabel && !isSteering);
+	const compactChrome = compact || !drawsMessageActions(message);
 
 	return (
 		<div

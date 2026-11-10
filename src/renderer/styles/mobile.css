@@ -261,14 +261,6 @@ html .omp-action-sheet [data-menu-item] {
 	--hit-gap-y: 0px;
 }
 
-/* Insights › Stats' section pills (stats/AllSessionsStats.tsx) wrap in rows 4 px apart: on touch they sit 10 px apart,
-   so each 28 px pill reaches 36 and no pill's reach covers the row under it. */
-html[data-input="touch"] [data-stats-nav] > ul {
-	gap: 10px;
-	--hit-gap-x: 10px;
-	--hit-gap-y: 10px;
-}
-
 /* Autopilot's focus areas (autopilot/FocusChips.tsx): 24 px chips 12 px apart on touch, each reaching half way to the
    next, so every chip is a 36 px target and none covers its neighbour or the row under it. */
 html[data-input="touch"] [data-focus-chips] {
@@ -282,6 +274,19 @@ html[data-input="touch"] [data-preview-elements] {
 	gap: 12px;
 	--hit-gap-x: 12px;
 	--hit-gap-y: 12px;
+}
+
+/* The actions inside a composer chip (an outbox message's Retry, Edit and Don't send, a paused message's ✕, a folded
+   paste's As text and ✕): 16 px glyphs 20 px apart on touch, each reaching 36 and stopping half way to the next, so
+   Don't send is never a finger's slip from Edit. The rows space their chips 12 px apart for the same reason. */
+html[data-input="touch"] :is([data-composer-outbox], .omp-restored-queue) > ul {
+	column-gap: 12px;
+}
+
+html[data-input="touch"] :is([data-outbox-item], [data-restored-item], .omp-attach-row > [data-strip-item]) {
+	column-gap: 20px;
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
 }
 
 /* ── Drawer (sidebar on a phone and a portrait tablet) ─────────────────────────────────────────────────── */
@@ -1442,11 +1447,12 @@ html[data-input="touch"] .omp-attach-strip[data-touch]::-webkit-scrollbar {
 	display: none;
 }
 
-/* The folded-paste and file chips (24 px) sit 6 px apart in a row and 20 px apart between rows on touch, so each
-   reaches 44 px high and its reach stops at the neighbours. */
+/* The folded-paste and file chips (24 px) sit 12 px apart in a row and 20 px apart between rows on touch, so each
+   reaches 36 px across and 44 px high and its reach stops at the neighbours. */
 html[data-input="touch"] .omp-attach-row {
+	column-gap: 12px;
 	row-gap: 20px;
-	--hit-gap-x: 6px;
+	--hit-gap-x: 12px;
 	--hit-gap-y: 20px;
 }
 
@@ -1629,6 +1635,12 @@ html[data-input="touch"] [role="tablist"] {
 }
 
 html[data-input="touch"] [role="tablist"] > [role="tab"] {
+	min-height: var(--sc-row-touch);
+}
+
+/* A closable tab (Tabs `onClose`: the Files, Preview and terminal strips) sits with its ✕ in a presentation box; the
+   tab fills that box's height, so the box is the one that takes the touch row's height. */
+html[data-input="touch"] [role="tablist"] > [role="presentation"] {
 	min-height: var(--sc-row-touch);
 }
 

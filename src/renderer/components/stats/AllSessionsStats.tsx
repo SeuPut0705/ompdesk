@@ -129,7 +129,8 @@ export function AllSessionsStats() {
 				<Tabs
 					activeId={route}
 					ariaLabel={t("stats.sectionsAria")}
-					className="max-lg:flex-row max-lg:items-center max-lg:gap-1 max-lg:overflow-x-auto lg:sticky lg:top-0"
+					// Under lg the ten sections wrap, so a mouse reaches each; a phone keeps one row that swipes sideways.
+					className="max-lg:flex-row max-lg:flex-wrap max-lg:items-center max-lg:gap-1 lg:sticky lg:top-0 [html[data-shell=phone]_&]:flex-nowrap"
 					data-stats-nav
 					onChange={id => setRoute(id as RouteId)}
 					orientation="vertical"

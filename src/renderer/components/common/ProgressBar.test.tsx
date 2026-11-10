@@ -89,6 +89,27 @@ describe("ProgressBar", () => {
 		);
 	});
 
+	it("divides the track among any number of shares with no gap of its own, the empty ones counted", async () => {
+		const plan = Array.from({ length: 30 }, (_, index) =>
+			index < 12
+				? { value: 1, label: `Step ${index + 1}`, tone: "success" as const }
+				: { value: 1, label: `Step ${index + 1}` },
+		);
+		await mounted(<ProgressBar ariaLabel="Plan" segments={plan} />, document => {
+			const bar = document.querySelector('[role="img"]');
+			const shares = [...(bar?.children ?? [])] as HTMLElement[];
+			// Every child is a share: nothing between them takes width, and each grows from a zero basis.
+			expect(shares).toHaveLength(30);
+			expect(shares.every(share => share.hasAttribute("data-progress-segment"))).toBe(true);
+			expect(shares.every(share => share.style.flex === "1 1 0")).toBe(true);
+			// The line between two shares is drawn inside the later one.
+			expect(shares[0]?.style.boxShadow).toBe("");
+			expect(shares.slice(1).every(share => share.style.boxShadow.startsWith("inset"))).toBe(true);
+			expect(bar?.getAttribute("aria-label")).toContain("Step 30 1");
+			expect(shares[29]?.style.backgroundColor).toBe("");
+		});
+	});
+
 	it("claims no value while indeterminate", async () => {
 		await mounted(<ProgressBar ariaLabel="Updating omp" tone="progress" />, document => {
 			const bar = document.querySelector('[role="progressbar"]');

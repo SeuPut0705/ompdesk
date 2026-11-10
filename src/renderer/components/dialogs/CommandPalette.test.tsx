@@ -268,6 +268,20 @@ describe("panel keyboard handling", () => {
 		expect(announced()).toBe(rows()[selectedIndex()]);
 		expect(rows().filter(row => row.getAttribute("aria-selected") === "true")).toHaveLength(1);
 	});
+
+	it("moves the highlight on a real pointer move, never on a row appearing under a resting pointer", async () => {
+		sidecarCommands = [DEPLOY, HELLO];
+		seedTab("agent");
+		await mount();
+		const start = selectedIndex();
+		const other = rows().findIndex((_, index) => index !== start);
+		const target = rows()[other];
+		await dispatch(target, new Event("mouseover", { bubbles: true }));
+		await dispatch(target, new Event("mouseenter"));
+		expect(selectedIndex()).toBe(start);
+		await dispatch(target, new Event("mousemove", { bubbles: true }));
+		expect(selectedIndex()).toBe(other);
+	});
 });
 
 describe("row execution", () => {

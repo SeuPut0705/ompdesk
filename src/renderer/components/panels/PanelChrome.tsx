@@ -41,16 +41,19 @@ const CHANGE_STATUS: Record<ChangeStatusName, { letter: string; color: string }>
 	conflicted: { letter: "C", color: "text-(--sc-danger)" },
 };
 
-/** The state's letter at a file row's end, its word in the tooltip; the row's own name says the word too. */
+/** The state's letter at a file row's end, its word in the tooltip (hover, focus, a tap); the row's own name says it too. */
 export function ChangeStatus({ status }: { status: ChangeStatusName }) {
 	const t = useT();
 	const mark = CHANGE_STATUS[status];
+	const word = t(`diffPanel.status.${status}`);
 	return (
-		<Tooltip content={t(`diffPanel.status.${status}`)} describe={false}>
+		<Tooltip content={word} describe={false}>
 			<span
-				aria-hidden
-				className={`w-3 shrink-0 text-center font-mono text-sc-xs ${mark.color}`}
+				aria-label={word}
+				className={`w-3 shrink-0 rounded-(--sc-radius-sm) text-center font-mono text-sc-xs ${mark.color}`}
 				data-change-status={status}
+				role="img"
+				tabIndex={0}
 			>
 				{mark.letter}
 			</span>

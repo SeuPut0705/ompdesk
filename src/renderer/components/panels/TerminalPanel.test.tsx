@@ -301,6 +301,7 @@ describe("TerminalPanel on a phone", () => {
 		vi.spyOn(window.HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
 			focused = this;
 		});
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused });
 		await mount(<TerminalPanel />);
 		await settle();
 		const list = container.querySelector("[role=tablist]") as HTMLElement;
@@ -321,6 +322,7 @@ describe("TerminalPanel on a phone", () => {
 				target.dispatchEvent(event);
 			});
 		await key(tabs()[0] as HTMLElement, "ArrowRight");
+		tabs()[1]?.focus();
 		await key(tabs()[1] as HTMLElement, "Delete");
 		await settle();
 		expect(operations(request, "close").map(operation => operation.id)).toEqual(["second"]);
@@ -337,6 +339,26 @@ describe("TerminalPanel on a phone", () => {
 		await settle();
 		expect(tabs()).toEqual([]);
 		expect(focused).toBe(container.querySelector("[data-terminal-new]"));
+	});
+
+	it("gives the surviving terminal focus after a pointer close, and keeps it off the strip", async () => {
+		let open = ["first", "second"];
+		phone(operation => {
+			if (operation.action === "list" && operation.waitMs) return new Promise(() => {});
+			if (operation.action === "close") open = open.filter(id => id !== operation.id);
+			return open.map(id => snapshot({ id }));
+		});
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => document.body });
+		await mount(<TerminalPanel />);
+		await settle();
+		const pointerClose = container.querySelector('[role=presentation] button[aria-label="Close Terminal 1"]');
+		const before = terminals.length;
+		await act(async () => pointerClose?.dispatchEvent(new window.Event("click", { bubbles: true })));
+		await settle();
+		expect(container.querySelectorAll("[role=tab]")).toHaveLength(1);
+		// The shell that took the closed one's place mounted and took focus, so typing reaches it.
+		expect(terminals.length).toBeGreaterThan(before);
+		expect(terminals.at(-1)?.focus).toHaveBeenCalled();
 	});
 
 	it("reads with a long poll that carries the offset, one request at a time", async () => {

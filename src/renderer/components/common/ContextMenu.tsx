@@ -17,7 +17,8 @@
  *
  * An item's `tooltip` (or, while it is `disabled`, its `disabledReason`) is the kit Tooltip beside the item on hover
  * and on keyboard focus; in the touch action sheet, where nothing hovers, it is the item's muted last line. A disabled
- * item stays in the DOM as `aria-disabled` so the pointer still reaches its reason; it never fires and the arrows skip it.
+ * item stays in the DOM as `aria-disabled` and never fires (Enter and Space do nothing); the arrows land on it when it
+ * has a `disabledReason`, so the keyboard reaches the reason too, and skip it when it has none.
  */
 
 import { Check, type LucideIcon } from "lucide-react";
@@ -306,11 +307,13 @@ export function ContextMenu({
 		menuRef.current?.querySelectorAll<HTMLButtonElement>("[data-menu-item]")[activeIndex]?.focus();
 	}, [activeIndex, keepFocus]);
 
+	// The arrows land on every enabled item, and on a disabled one that says why (its reason shows on focus).
 	const step = (delta: number) => {
 		setActiveIndex(current => {
 			for (let i = 1; i <= items.length; i++) {
 				const next = (current + delta * i + items.length) % items.length;
-				if (!items[next]?.disabled) return next;
+				const item = items[next];
+				if (item && (!item.disabled || item.disabledReason)) return next;
 			}
 			return current;
 		});

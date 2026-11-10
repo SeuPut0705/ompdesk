@@ -77,7 +77,7 @@ import { type ContentAnchor, contentAnchor } from "./content-anchor";
 import { TODO_STATUS_LABEL_KEY, TodoStatusIcon } from "./dock/TodoStatusIcon";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { createStageCall, StageCallContext, useStageCall, WorkCardPending } from "./LiveStepPeek";
-import { MessageBubble } from "./MessageBubble";
+import { drawsMessageActions, MessageBubble } from "./MessageBubble";
 import { installPaneKeys } from "./pane-keys";
 import { StreamingText } from "./StreamingText";
 import { installSelectionDrag, selectionRowSpan } from "./selection-drag";
@@ -229,18 +229,7 @@ function SessionTranscript() {
 		workTurnsRef.current = workTurns(historyRows, isStreaming, workTurnsRef.current);
 		return workTurnsRef.current;
 	}, [historyRows, isStreaming]);
-	// A user's prompt or a reply whose clock reads the same as the one before it keeps it in its action row.
-	const repeatedClocks = useMemo(() => {
-		const repeated = new Set<HistoryRow>();
-		let previous = "";
-		for (const row of historyRows) {
-			if (row.kind !== "message" || (row.message.role !== "user" && row.message.role !== "assistant")) continue;
-			const clock = formatClock(row.message.timestamp);
-			if (clock && clock === previous) repeated.add(row);
-			previous = clock;
-		}
-		return repeated;
-	}, [historyRows]);
+	const repeatedClocks = useMemo(() => repeatedClockRows(historyRows), [historyRows]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -1690,6 +1679,24 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 			) : null}
 		</div>
 	);
+}
+
+/**
+ * The message rows whose clock reads the same as the last clock drawn above them: they keep it in their action row.
+ * A row that draws no clock (a tool-only reply, a card) is skipped, so the clock a reader last saw is the one compared.
+ * The clock text carries the date off today, so the same minute on another day still shows.
+ */
+export function repeatedClockRows(rows: readonly HistoryRow[]): ReadonlySet<HistoryRow> {
+	const repeated = new Set<HistoryRow>();
+	let previous = "";
+	for (const row of rows) {
+		if (row.kind !== "message" || !drawsMessageActions(row.message)) continue;
+		const clock = formatClock(row.message.timestamp);
+		if (!clock) continue;
+		if (clock === previous) repeated.add(row);
+		previous = clock;
+	}
+	return repeated;
 }
 
 /**

@@ -425,3 +425,26 @@ describe("the phone composer", () => {
 		expect(read("../components/layout/composer/ContextUsagePopover.tsx")).toContain("min-h-(--sc-row-action)");
 	});
 });
+
+describe("chip rows and closable tabs on touch", () => {
+	it("spaces a composer chip's actions 20 px apart, each reaching 36, and the chips 12 px apart", () => {
+		const actions = rule(
+			'html[data-input="touch"] :is([data-outbox-item], [data-restored-item], .omp-attach-row > [data-strip-item])',
+		);
+		expect(actions).toMatch(/column-gap:\s*20px;[^}]*--hit-gap-x:\s*20px;[^}]*--hit-gap-y:\s*20px/);
+		expect(rule('html[data-input="touch"] :is([data-composer-outbox], .omp-restored-queue) > ul')).toMatch(
+			/column-gap:\s*12px/,
+		);
+		expect(rule('html[data-input="touch"] .omp-attach-row')).toMatch(/column-gap:\s*12px;[^}]*--hit-gap-x:\s*12px/);
+		expect(read("../components/layout/composer/ComposerOutbox.tsx")).toContain("data-outbox-item");
+		expect(read("../components/layout/composer/ComposerRestoredQueue.tsx")).toContain("data-restored-item");
+		expect(read("../components/layout/composer/ComposerAttachments.tsx")).toContain('data-strip-item=""');
+	});
+
+	it("gives a closable tab's box the touch row's height, since the tab fills it", () => {
+		expect(rule('html[data-input="touch"] [role="tablist"] > [role="presentation"]')).toMatch(
+			/min-height:\s*var\(--sc-row-touch\)/,
+		);
+		expect(read("../components/common/Tabs.tsx")).toContain('role="presentation"');
+	});
+});

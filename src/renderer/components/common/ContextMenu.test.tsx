@@ -329,6 +329,33 @@ describe("ContextMenu", () => {
 		expect(onB).toHaveBeenCalledTimes(1);
 		expect(onA).not.toHaveBeenCalled();
 	});
+
+	it("lands the arrows on a disabled item that says why and skips one that does not; Enter there does nothing", async () => {
+		const onSelect = vi.fn();
+		const focused: string[] = [];
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			focused.push(this.textContent ?? "");
+		});
+		await mount(
+			<ContextMenu
+				items={[
+					{ id: "a", label: "Open", onSelect },
+					{ id: "b", label: "Hidden", disabled: true, onSelect },
+					{ id: "c", label: "Delete", disabled: true, disabledReason: "Running", onSelect },
+				]}
+				onClose={() => {}}
+				x={10}
+				y={10}
+			/>,
+		);
+		await menuKeyDown("ArrowDown");
+		expect(focused.at(-1)).toBe("Delete");
+		await menuKeyDown("Enter");
+		expect(onSelect).not.toHaveBeenCalled();
+		await menuKeyDown("ArrowDown");
+		expect(focused.at(-1)).toBe("Open");
+		vi.restoreAllMocks();
+	});
 });
 
 describe("ContextMenu placement", () => {

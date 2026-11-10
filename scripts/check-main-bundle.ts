@@ -302,9 +302,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // `Chip` (composer attachments, outbox and queue), the kit `ChoiceList` (prompt cards), `KeyHints` (the model picker),
 // `Tabs` with closable tabs and a kit tooltip, menu items' tooltip and reason, `Button`/`IconButton` `disabledReason`,
 // `ListRow` tooltip and small size, `Card as`, a todo's state as a shape (`TodoStatusIcon`), a repeated minute's
-// clock shown on hover, the run section's in-view rule (`runSectionShown`), a table cell's text length and a file
-// card's `data-file-path`, all on surfaces the first screen holds: 2,196,625, 11,397 bytes more (0.5 %).
-const WEB_FIRST_SCREEN_JS_BYTES = 2_196_625;
+// clock shown on hover (`repeatedClockRows`), the run section's in-view rule (`runSectionShown`), a table cell's text
+// length, a file card's `data-file-path`, the model picker's line for the highlighted model, a menu's reason reachable
+// by the arrows and segments that shrink to fit their track, all on surfaces the first screen holds: 2,197,597,
+// 12,369 bytes more (0.6 %).
+const WEB_FIRST_SCREEN_JS_BYTES = 2_197_597;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
