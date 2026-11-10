@@ -5,6 +5,11 @@
  * shim calling bun — the cmd.exe path npm's Windows install takes. The shim
  * sits in a directory with a space so the quoting of both the shim path and
  * its argv is exercised, as under `C:\Users\First Last\...`.
+ *
+ * The script itself only arms `DIES_WITH_TEST` and then imports the test's source from `body.ts` beside it. In one
+ * file the guard would run only after every static import of the source had evaluated, and the e2e fixture's entry
+ * imports modules whose top-level await never settles (`stats` waits on its child, `-p` on a hanging print), so such
+ * a fake never armed it.
  */
 import { execFile } from "node:child_process";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
@@ -26,13 +31,15 @@ export const DIES_WITH_TEST = `import(${JSON.stringify(new URL("../../scripts/vi
 export async function writeFakeOmp(dir: string, source: string): Promise<string> {
 	const binDir = join(dir, "fake omp");
 	await mkdir(binDir, { recursive: true });
+	await writeFile(join(binDir, "body.ts"), source);
+	const entry = `await ${DIES_WITH_TEST}\nawait import("./body.ts");\n`;
 	const script = join(binDir, "omp.ts");
 	if (process.platform !== "win32") {
-		await writeFile(script, `#!/usr/bin/env bun\n${DIES_WITH_TEST}\n${source}`);
+		await writeFile(script, `#!/usr/bin/env bun\n${entry}`);
 		await chmod(script, 0o755);
 		return script;
 	}
-	await writeFile(script, `${DIES_WITH_TEST}\n${source}`);
+	await writeFile(script, entry);
 	const shim = join(binDir, "omp.cmd");
 	await writeFile(shim, `@bun "${script}" %*\r\n`);
 	return shim;
