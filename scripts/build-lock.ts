@@ -16,11 +16,10 @@
  * hold per shard, so a long job lets waiters in between its chunks. A non-gate hold past 15 minutes
  * logs a warning that says so, and `bun run lock-stats` flags it.
  *
- * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>` (plus `heavy`): a nested locked command of a kind already
- * held runs without waiting on its parent and logs nothing; a nested command of another kind (the `bun run build`
- * inside a Playwright command) takes that kind's slot but never the heavy one its ancestor holds, so nesting never
- * deadlocks. Interrupting this process stops the command's whole process group (Electron and its helpers included)
- * and releases its slots.
+ * Every child gets `OMPDESK_BUILD_LOCK_HELD=<kinds held>` (plus `heavy`): a nested locked command runs inside its
+ * ancestor's hold without waiting or logging, whatever its kind, except a build, which still takes the build slot
+ * (but never another heavy one), so nesting never deadlocks (`acquireLock`). Interrupting this process stops the
+ * command's whole process group (Electron and its helpers included) and releases its slots.
  *
  * Each release appends the holder, command, slot, wait and hold times and exit code to
  * `scripts/lock-log.ts`'s log; `bun run lock-stats` summarizes it.
