@@ -421,7 +421,7 @@ function stressMessages(base: number): Record<string, unknown>[] {
 			model: MODEL.id,
 			timestamp: base + 10_000,
 		},
-		{ role: "user", content: "Show every way a reply presents something.", timestamp: base + 20_000 },
+		{ role: "user", content: "fixture reply components", timestamp: base + 20_000 },
 		{
 			role: "assistant",
 			content: [{ type: "text", text: REPLY_SHOWCASE }],
