@@ -206,7 +206,7 @@ describe("compact transcript rows", () => {
 		expect(answer).toEqual(answerRow);
 	});
 
-	it("answers a steer in the chat: the steer, the card of the answering reply's calls, then its narration", () => {
+	it("answers a steer in the chat: the steer, the answering reply's narration, then the card of its calls", () => {
 		const rows = buildHistoryRows(
 			[
 				assistant([{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } }]),
@@ -218,10 +218,14 @@ describe("compact transcript rows", () => {
 			],
 			"compact",
 		);
-		expect(rows.map(row => row.kind)).toEqual(["process", "message", "process", "message", "message"]);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "message", "process", "message"]);
 		expect(rows[1]).toEqual({ kind: "message", message: steer, inRun: true });
-		expect(rows[2]?.kind === "process" && rows[2].toolCallIds).toEqual(["call-split"]);
-		expect(rows[3]).toEqual(answerRow);
+		expect(rows[2]).toEqual(answerRow);
+		const card = rows[3];
+		if (card?.kind !== "process") throw new Error("card missing");
+		// The plain reasoning and the call start the card under the answer.
+		expect(card.toolCallIds).toEqual(["call-split"]);
+		expect(card.stepCount).toBe(2);
 	});
 
 	it("reads a reply of plain reasoning and narration thinking alone as the reply that ends the work", () => {

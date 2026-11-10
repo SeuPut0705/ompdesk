@@ -125,6 +125,81 @@ describe("steer inside a running turn", () => {
 		expect(processes(rows)[0]?.notes).toEqual([note]);
 	});
 
+	it("puts the text answering a steer right under it and that reply's thinking and calls in a card under the text", () => {
+		const delivered = [prompt, call("bash", "bash", 200), result("bash", "bash", 250), steer];
+		const said = (content: AgentMessage["content"]): AgentMessage => ({ role: "assistant", content, timestamp: 400 });
+		const taskCall = { type: "toolCall", id: "task", name: "task", arguments: { agent: "debugger" } } as const;
+		const plain = { type: "thinking", thinking: "Which job is slow?" } as const;
+		const answering = said([plain, { type: "text", text: "Splitting CI timing next." }, taskCall]);
+		const rows = buildHistoryRows([...delivered, answering, result("task", "task", 500)], "compact");
+		expect(rows.map(row => row.kind)).toEqual(["message", "process", "message", "message", "process"]);
+		expect(rows[3]).toEqual({
+			kind: "message",
+			message: { ...answering, content: [{ type: "text", text: "Splitting CI timing next." }] },
+			inRun: true,
+		});
+		const after = processes(rows)[1];
+		expect(after?.toolCallIds).toEqual(["task"]);
+		expect(after?.messages[0]?.content).toEqual([plain, taskCall]);
+		// Live, the card under the answer runs the reply's calls.
+		expect(liveWorkTail(rows, true, false)).toEqual({ liveTail: true, lastWorkRow: 4 });
+
+		// Several steers, then one answer: the bubbles, the answer, the card.
+		const second: AgentMessage = { ...steer, content: [{ type: "text", text: "And the cache" }], timestamp: 320 };
+		const reply = said([{ type: "text", text: "On it." }, taskCall]);
+		const stacked = buildHistoryRows([...delivered, second, reply], "compact");
+		expect(stacked.slice(2).map(row => (row.kind === "message" ? row.message.timestamp : row.kind))).toEqual([
+			300,
+			320,
+			400,
+			"process",
+		]);
+	});
+
+	it("keeps a reply's text under the card its calls join when that card is open", () => {
+		const first: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "On it." },
+				{ type: "toolCall", id: "task", name: "task", arguments: {} },
+			],
+			timestamp: 400,
+		};
+		const next: AgentMessage = {
+			role: "assistant",
+			content: [
+				{ type: "text", text: "Now the cache." },
+				{ type: "toolCall", id: "grep", name: "grep", arguments: {} },
+			],
+			timestamp: 600,
+		};
+		const rows = buildHistoryRows(
+			[
+				prompt,
+				call("bash", "bash", 200),
+				result("bash", "bash", 250),
+				steer,
+				first,
+				result("task", "task", 500),
+				call("ls", "bash", 550),
+				next,
+			],
+			"compact",
+		);
+		// Steer, its answer, the card of that reply's calls (and the next call that joined it), then the text of the
+		// reply whose calls joined the open card, under it.
+		expect(rows.slice(2).map(row => (row.kind === "message" ? row.message.timestamp : row.kind))).toEqual([
+			300,
+			400,
+			"process",
+			600,
+		]);
+		expect(processes(rows)[1]?.toolCallIds).toEqual(["task", "ls", "grep"]);
+		// At the turn's start nothing changes either: the card, then the text.
+		const fresh = buildHistoryRows([prompt, first], "compact");
+		expect(fresh.map(row => row.kind)).toEqual(["message", "process", "message"]);
+	});
+
 	it("still starts a new card for a message after the run ended, steered or not", () => {
 		for (const next of [
 			{ ...steer, timestamp: 700 },

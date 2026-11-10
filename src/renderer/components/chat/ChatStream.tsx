@@ -52,6 +52,7 @@ import {
 	compensateRowsAbove,
 	conversationReadingRowIndex,
 	createRowEntranceState,
+	endsOnSteer,
 	findConversationAnchorIndex,
 	type GestureTowardTail,
 	type HistoryRow,
@@ -260,6 +261,7 @@ function SessionTranscript() {
 	// reply text streams as its own row. History process rows exist in compact
 	// detail only; full detail keeps per-message rows.
 	const { liveTail, lastWorkRow } = liveWorkTail(historyRows, isStreaming, streamingMessage !== null);
+	const answerFirst = useMemo(() => endsOnSteer(historyRows), [historyRows]);
 	const tailRowIndex = liveTail ? (hiddenCount > 0 ? 1 : 0) + lastWorkRow : -1;
 	const showStreamingRow = hasStreamedContent && (!liveTail || hasStreamingText);
 	// Streaming deltas rerender this component for the live row, but they do not
@@ -1146,6 +1148,7 @@ function SessionTranscript() {
 											// frame, under the same row key, as the process row it finalizes into:
 											// the card keeps its React identity across message_end.
 											<ProcessGroup
+												answerFirst={answerFirst}
 												expanded={expandedProcessKeys.has(rowKey)}
 												live
 												onExpandedChange={updateProcessExpanded}
@@ -1263,6 +1266,7 @@ function StreamingReply() {
  * reply finalizes into this row.
  */
 export const ProcessGroup = memo(function ProcessGroup({
+	answerFirst = false,
 	expanded,
 	live = false,
 	onExpandedChange,
@@ -1274,6 +1278,8 @@ export const ProcessGroup = memo(function ProcessGroup({
 	turn,
 	endsTurn = true,
 }: {
+	/** The in-flight reply answers a steer (`endsOnSteer`): its text streams above its card, where it finalizes. */
+	answerFirst?: boolean;
 	expanded: boolean;
 	/**
 	 * The running turn's latest work row: it keeps the spinner between steps
@@ -1285,7 +1291,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 	row: Extract<HistoryRow, { kind: "process" }>;
 	rowKey: string;
 	superseded?: boolean;
-	/** The in-flight reply's own row: its streamed text follows the card as the answer turn. */
+	/** The in-flight reply's own row: its streamed text follows the card as the answer turn (leads it: `answerFirst`). */
 	streaming?: boolean;
 	/** A step asked for from outside the transcript (the work board): the card opens and shows it. */
 	reveal?: StepReveal | null;
@@ -1310,6 +1316,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 	const hasWork = row.messages.length > 0 || liveCards.length > 0 || hasThinking;
 	return (
 		<>
+			{streaming && answerFirst && hasText ? <StreamingReply /> : null}
 			{hasWork ? (
 				<div className={WORK_TURN_CLASS}>
 					<StageCallContext.Provider value={stageCall}>
@@ -1344,7 +1351,7 @@ export const ProcessGroup = memo(function ProcessGroup({
 					</StageCallContext.Provider>
 				</div>
 			) : null}
-			{streaming && hasText ? <StreamingReply /> : null}
+			{streaming && !answerFirst && hasText ? <StreamingReply /> : null}
 		</>
 	);
 });

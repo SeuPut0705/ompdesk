@@ -689,9 +689,26 @@ export function buildHistoryRows(
 			// What a reply writes beside its calls is said to the person: it stays in the chat, right under the card that
 			// holds this message's calls (where it streamed), and the run's next calls start a card under it. Folded into
 			// the card, it showed while streaming and vanished once the calls started (the owner's report, 6 Nov 2026).
+			// Under a steer no card is open (`endsOnSteer`; notes and reminders fold into cards afterwards): the answer reads
+			// right under the person's message, where it streamed, and this message's calls start the card under the answer
+			// (the order the model wrote them in).
 			const text = message.content.filter(block => block.type === "text");
 			if (text.some(block => isRenderableMessageText(block.text))) {
-				processMessages.push({ ...message, content: message.content.filter(block => block.type !== "text") });
+				const work = { ...message, content: message.content.filter(block => block.type !== "text") };
+				if (
+					processMessages.length === 0 &&
+					inRun &&
+					endsOnSteer(
+						rows,
+						row => row.kind === "message" && (reminders.has(row.message) || duringRunNotes.has(row.message)),
+					)
+				) {
+					rows.push({ kind: "message", message: { ...message, content: text }, inRun: true });
+					processMessages.push(work);
+					inRun = false;
+					continue;
+				}
+				processMessages.push(work);
 				flushProcess();
 				rows.push({ kind: "message", message: { ...message, content: text }, inRun: true });
 				inRun = true;
@@ -744,6 +761,17 @@ export function buildHistoryRows(
 			messages,
 		),
 		messages,
+	);
+}
+
+/**
+ * The last chat row is a steer that closed the card above it, so the reply answering it reads above the card of its own
+ * calls, live (ChatStream's streaming row) as finalized (`buildHistoryRows`). `skip`: rows that fold into a card later.
+ */
+export function endsOnSteer(rows: readonly HistoryRow[], skip?: (row: HistoryRow) => boolean): boolean {
+	const last = rows.findLast(row => row.kind !== "todoSnapshot" && !skip?.(row));
+	return (
+		last?.kind === "message" && last.inRun === true && last.message.role === "user" && last.message.steering === true
 	);
 }
 

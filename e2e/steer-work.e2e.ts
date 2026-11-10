@@ -9,11 +9,11 @@ const STEER = "Also split the CI timing";
 
 /**
  * A mid-run steer is the person's bubble in the chat between the turn's two cards, and the reply that answers it in a
- * narration thinking block shows that answer in the chat under its own card: live, finished and after a reload.
- * Returns the steer's transcript row (index and key), which must be the same live and finished: nothing above it is
- * regrouped when the turn ends.
+ * narration thinking block shows that answer in the chat right under the steer, above the card of its own calls: live,
+ * finished and after a reload. Returns the steer's transcript row (index and key), which must be the same live and
+ * finished (nothing above it is regrouped when the turn ends), and the answer's offset under the steer.
  */
-async function expectSteerInChat(page: Page): Promise<string> {
+async function expectSteerInChat(page: Page): Promise<{ row: string; offset: number }> {
 	const cards = page.locator(".omp-execution-group");
 	await expect(cards).toHaveCount(2);
 	await expect(cards.first().locator(".omp-work-card-button").filter({ hasText: "LaneRace" })).toHaveCount(1);
@@ -24,7 +24,7 @@ async function expectSteerInChat(page: Page): Promise<string> {
 	await expect(answer).toHaveCount(1);
 	await expect(cards.getByText(STEER)).toHaveCount(0);
 	await expect(cards.getByText(STEER_ANSWER)).toHaveCount(0);
-	// Read in one frame: card, steer, card, answer, top to bottom.
+	// Read in one frame: card, steer, answer, card, top to bottom.
 	const { tops, row } = await page.evaluate(
 		([steerText, answerText]) => {
 			const groups = [...document.querySelectorAll(".omp-execution-group")];
@@ -32,7 +32,7 @@ async function expectSteerInChat(page: Page): Promise<string> {
 				el.textContent?.includes(steerText),
 			);
 			const said = [...document.querySelectorAll(".omp-transcript-row p")].find(el => el.textContent === answerText);
-			const tops = [groups[0], bubble, groups[1], said].map(
+			const tops = [groups[0], bubble, said, groups[1]].map(
 				element => element?.getBoundingClientRect().top ?? Number.NaN,
 			);
 			const wrapper = bubble?.closest<HTMLElement>("[data-index]");
@@ -41,10 +41,25 @@ async function expectSteerInChat(page: Page): Promise<string> {
 		[STEER, STEER_ANSWER] as const,
 	);
 	expect(tops).toEqual([...tops].sort((a, b) => a - b));
-	return row;
+	return { row, offset: await answerOffset(page) };
 }
 
-test("a steer sent mid-run is the person's message in the chat between the turn's cards, and its answer under them", async () => {
+/** How far under the steer bubble's top the answer's paragraph starts, streaming or finished. */
+function answerOffset(page: Page): Promise<number> {
+	return page.evaluate(
+		([steerText, answerText]) => {
+			const bubble = [...document.querySelectorAll(".omp-user-bubble")].find(el =>
+				el.textContent?.includes(steerText),
+			);
+			const said = [...document.querySelectorAll(".omp-transcript-row p")].find(el => el.textContent === answerText);
+			if (!bubble || !said) return Number.NaN;
+			return said.getBoundingClientRect().top - bubble.getBoundingClientRect().top;
+		},
+		[STEER, STEER_ANSWER] as const,
+	);
+}
+
+test("a steer sent mid-run is the person's message in the chat between the turn's cards, its answer right under it", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-steer-work-"));
 	const project = path.join(profile, "project");
@@ -123,15 +138,19 @@ test("a steer sent mid-run is the person's message in the chat between the turn'
 		const [steerBox, answerBox] = await Promise.all([steerBubble.boundingBox(), streamed.boundingBox()]);
 		expect(steerBox && answerBox && steerBox.y < answerBox.y).toBe(true);
 		await capture("streaming");
+		// The answer streams where it will stay: when its message ends and its call starts the card under it, and when
+		// the turn ends, it neither moves under the steer nor changes row.
+		const streamedOffset = await answerOffset(page);
 		await fixture("fixture:steer-answer");
-		const liveRow = await expectSteerInChat(page);
+		const live = await expectSteerInChat(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]:not([data-nested="true"])')).toHaveCount(1);
 		await capture("live");
 
 		await fixture("fixture:steer-finish");
 		await expect(page.locator('.omp-live-step[data-outcome="true"]').last()).toBeVisible();
 		// The steer keeps its row when the turn ends: nothing above it is regrouped.
-		expect(await expectSteerInChat(page)).toBe(liveRow);
+		const finished = await expectSteerInChat(page);
+		expect(finished.row).toBe(live.row);
 		await expect(page.locator('.omp-live-step[data-state="running"]')).toHaveCount(0);
 		// Each card's head, its time left out: the fake omp stamps the first card's calls within one millisecond, which
 		// the live tool clock reads as 1ms and the transcript's stamps as nothing.
@@ -152,7 +171,11 @@ test("a steer sent mid-run is the person's message in the chat between the turn'
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
-		await expectSteerInChat(page);
+		const reloaded = await expectSteerInChat(page);
+		console.log(
+			`[steer-answer offset] streaming ${streamedOffset} live ${live.offset} finished ${finished.offset} reloaded ${reloaded.offset}`,
+		);
+		expect([live.offset, finished.offset, reloaded.offset]).toEqual([streamedOffset, streamedOffset, streamedOffset]);
 		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative").last()).toHaveText(
 			"Work complete",
 		);
