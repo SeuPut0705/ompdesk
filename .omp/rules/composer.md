@@ -115,10 +115,10 @@ Code: `lib/messages.ts` (`abortActiveTurn`, `stopFromEscape`, `restoreAbortedQue
 - A landscape phone (844x390) holds neither the card nor the floor: a known limit. Pinned by `ask-dock.test.ts` (the room), `ask-dock.slot.test.tsx` (the wiring) and `e2e/work-board.e2e.ts` "after a session switch in the same tab…" (the room follows the strip as the side panel opens and closes, the transcript ≥ 240 px with an 8-option card; the fake omp's `fixture:select <n>` raises the card).
 
 ### Run sheet (one line per row)
-- The Mode section's Plan mode (`PlanModeConfig`, ListChecks) and Auto mode (`AutoModeSwitch`, Sparkles) are whole-row `SwitchTile`s like every other switch of the sheet: leading icon, name, (i), control.
-- The context breakdown (`ContextUsagePopover`) states the used tokens once, in its header; what is left is that figure's tooltip and the bar's value text.
 
 User's rule. The desktop/tablet popover is the same content at `w-96`.
+- The Mode section's Plan mode (`PlanModeConfig`, ListChecks) and Auto mode (`AutoModeSwitch`, Sparkles) are whole-row `SwitchTile`s like every other switch of the sheet: leading icon, name, (i), control.
+- The context breakdown (`ContextUsagePopover`) states the used tokens once, in its header; what is left is that figure's tooltip and the bar's value text.
 
 - Every row of the sheet, the Mode section and Advanced is a lead glyph and its control on ONE line; every explanation sits behind an (i) glyph (`SettingInfo`, text kept in the DOM): no `data-setting-desc`, no `<p>`, no footer line.
 - Switches are **tiles** (`common/Switch.tsx` `SwitchTile`: lucide glyph, a short label that truncates, (i), the switch; the whole tile toggles), two to a row in a `data-switch-grid` (`grid-cols-2`): Fast | Slow, Ultrafast (`SpeedFields`), then in Advanced (`AdvancedAndRoles`, opens by itself while a value is not the default) Auto-compact | Extended, Auto-retry | Prewalk, Batch steers | Interrupt. Glyphs: Zap, Turtle, Gauge, Shrink, Maximize2, RotateCw, Rocket, Layers, OctagonX. Fast's "not on this model" is a dimmed glyph plus a sentence in the (i) text. Tile labels ("Auto-compact", "자동 압축") are short forms; the full sentences are the (i) texts (`input.more.*Desc`).
