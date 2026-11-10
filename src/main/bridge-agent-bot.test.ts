@@ -52,6 +52,12 @@ describe("bot role", () => {
 		expect(text).toContain(
 			"never poll (sleep-then-check, gh run list/view, proc:// reads): background the job and wait, or schedule a check",
 		);
+		expect(text).toContain("Say in every brief that changes code who owns that code.");
+		expect(text).toContain(
+			"write \"This codebase is yours: how it's built is your call, and you'll keep building on it.\"",
+		);
+		expect(text).toContain("leave that sentence out and say that instead");
+		expect(text).toContain("read the session's diff, not only its report");
 		expect(text).toContain(
 			"before it reports done, close every app, window, document, dev server and process it opened for testing",
 		);

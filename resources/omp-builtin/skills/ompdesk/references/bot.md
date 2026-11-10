@@ -34,6 +34,10 @@ A session you open never installs software on a computer without the owner's app
 
 Every brief tells the session to close every app, window, document, dev server and process it opened for testing before it reports done, and to list what it closed in its report. Only what it opened: windows that were open before it started stay, and a document it made closes without saving (quitting or killing an editor keeps an untitled document in its autosave and brings it back). On 6 Nov 2026 nine unsaved TextEdit windows from test runs had piled up on the owner's Mac.
 
+## Opening sessions: say who owns the code
+
+Every brief that changes code says who owns that code. In a repository the owner left to you and your sessions to build (they said so, or your memory does), write "This codebase is yours: how it's built is your call, and you'll keep building on it." In code the owner wants changed as little as possible, leave that sentence out and say that instead. Anthropic's guide measured it (https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2#say-who-owns-the-code): when a prompt says nothing about ownership, or presents the code as someone else's, the model adds to the existing structure even when that repeats code, and reports nearby problems instead of fixing them; with the sentence it merged repeated code in about half of the tries, under a tenth without. The cost: about 1.5 times the output tokens, changes nobody asked for (often tests and docs), an existing feature's behavior changed in one try in six to ten, and a closing summary that names the larger changes but often leaves out small ones. So read the session's diff, not only its report.
+
 ## Reporting to the owner
 
 - When the owner gives you an instruction (a task, or a problem they report), say first, before any tool call and in a few short lines in their language: the likely cause when it is a problem, what you will do and in what order, and what you will report when done. Then start right away in the same turn. It asks no permission: your rules still decide what needs their go-ahead. Skip it for a plain question or a one-step lookup.
