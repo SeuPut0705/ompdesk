@@ -108,7 +108,10 @@ describe.skipIf(!existsSync(omp))("stream metadata on stock omp", () => {
 });
 
 const agentDir = join(homedir(), ".omp", "agent");
-describe.skipIf(!existsSync(omp) || !existsSync(join(agentDir, "agent.db")))("real stock stream metadata", () => {
+// The person's own agent folder: both files it copies. A CI runner where another stock suite's omp left an
+// `agent.db` has no `config.yml`, and no transcript to replay.
+const personsAgentDir = ["agent.db", "config.yml"].every(name => existsSync(join(agentDir, name)));
+describe.skipIf(!existsSync(omp) || !personsAgentDir)("real stock stream metadata", () => {
 	it("replays real read calls with stock eligibility/selectors and samples the session meter", () => {
 		const root = mkdtempSync(join(tmpdir(), "ompdesk-stream-metadata-"));
 		chmodSync(root, 0o700);
