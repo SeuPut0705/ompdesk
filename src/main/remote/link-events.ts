@@ -1040,6 +1040,14 @@ function advance(blocks: Rebuilt["blocks"], increment: WireIncrement): void {
 				thinking: (current?.type === "thinking" ? current.thinking : "") + (increment.delta ?? ""),
 			};
 			break;
+		case "thinking_end": {
+			// The local slimmer keeps a block that closed as narration (message-update-slim.ts): the device's rebuilt
+			// message says so too, so its renderer moves the block to the reply as this computer's does.
+			const closed = increment.partial?.content?.[index];
+			if (current?.type === "thinking" && closed?.type === "thinking" && closed.narration)
+				blocks[index] = { ...current, narration: true };
+			break;
+		}
 		case "toolcall_delta": {
 			const block = increment.partial?.content?.[index];
 			if (block?.type === "toolCall") blocks[index] = block;

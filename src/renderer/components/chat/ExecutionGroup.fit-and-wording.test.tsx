@@ -151,17 +151,23 @@ describe("work card in a short 2×2 pane (#23)", () => {
 		expect(item).toContain("flex: 1 1 0");
 		expect(item).toContain("min-width: 0");
 		expect(rule(stylesheet, ".omp-work-notes-preview")).toContain("text-overflow: ellipsis");
-		expect(rule(short, ".omp-work-steer-text")).toContain("-webkit-line-clamp: 1");
 	});
 });
 
 describe("note times (#31)", () => {
-	it("reads every note kind, steer included, as a relative past time with the clock on hover", async () => {
+	it("reads every note kind as a relative past time with the clock on hover", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date(2026, 9, 13, 10, 0, 0));
 		setLanguage("ko");
 		const at = new Date(2026, 9, 13, 9, 57, 0).getTime();
-		const steer: AgentMessage = { role: "user", content: "Also count the files", timestamp: at };
+		const irc: AgentMessage = {
+			role: "custom",
+			customType: "irc",
+			content: "Done",
+			display: true,
+			details: { from: "LaneRace", message: "Done" },
+			timestamp: at,
+		};
 		const advisor: AgentMessage = {
 			role: "custom",
 			customType: "advisor",
@@ -170,7 +176,7 @@ describe("note times (#31)", () => {
 			details: { notes: [{ note: "Check access", severity: "concern" }] },
 			timestamp: at,
 		};
-		await mount(<WorkNotes messages={[steer, advisor]} />);
+		await mount(<WorkNotes messages={[irc, advisor]} />);
 		const times = [...container.querySelectorAll(".omp-work-notes-age")];
 		expect(times.map(time => time.textContent)).toEqual(["3분 전", "3분 전"]);
 		expect(times.map(time => time.tagName.toLowerCase())).toEqual(["time", "time"]);

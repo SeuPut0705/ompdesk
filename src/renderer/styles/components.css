@@ -4207,43 +4207,6 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 .omp-todo-reminder-phase {
 	color: var(--sc-text-muted);
 }
-/* The user's own steer: their bubble's tone, full text, never folded behind "more". */
-.omp-work-steer {
-	display: flex;
-	align-items: baseline;
-	gap: var(--sc-space-2);
-	min-width: 0;
-	margin-block: var(--sc-space-1);
-	padding: var(--sc-space-1-5) var(--sc-space-2);
-	border-radius: var(--sc-radius-sm);
-	background: var(--sc-surface-2);
-	color: var(--sc-text);
-	font-size: var(--sc-font-sm);
-}
-.omp-work-steer-icon {
-	flex-shrink: 0;
-	align-self: center;
-	color: var(--sc-text-secondary);
-}
-.omp-work-steer-label {
-	flex-shrink: 0;
-	color: var(--sc-text-secondary);
-	font-weight: 500;
-}
-.omp-work-steer-text {
-	flex: 1;
-	min-width: 0;
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 3;
-	overflow: hidden;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-.omp-work-steer > .omp-work-notes-age {
-	flex-shrink: 0;
-	font-variant-numeric: tabular-nums;
-}
 .omp-work-notes-item--arriving {
 	animation: omp-work-notes-fade var(--sc-duration-fast) var(--sc-ease-standard);
 }
@@ -4272,14 +4235,6 @@ html[data-gpu="software"] :is(.omp-context-ring, .omp-context-ring > circle) {
 	.omp-work-notes:not(:has([aria-expanded="true"])) .omp-work-notes-item {
 		flex: 1 1 0;
 		min-width: 0;
-	}
-	.omp-work-steer {
-		margin-block: 0;
-		padding-block: 0;
-		font-size: var(--sc-font-xs);
-	}
-	.omp-work-steer-text {
-		-webkit-line-clamp: 1;
 	}
 }
 

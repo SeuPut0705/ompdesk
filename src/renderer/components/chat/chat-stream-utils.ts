@@ -16,7 +16,7 @@ import type { TranscriptDetail } from "../../stores/ui";
 import { isCustomMessageCardType } from "./CustomMessageCard";
 import { completionFailureCount, deliveredJobCalls, isCompletionMessage, isRestartNotice } from "./completion-events";
 import { parseTodoReminder } from "./todo-reminder";
-import { isSilentAbort, isWorkReply, messageTimestampMs } from "./work/work-turn";
+import { isSilentAbort, isWorkReply, messageTimestampMs, presentNarrationAsAnswer } from "./work/work-turn";
 import { skillPromptName } from "./work/work-view";
 
 interface ProcessMeta {
@@ -296,10 +296,11 @@ export type HistoryRow =
 			message: AgentMessage;
 			reaction?: string;
 			/**
-			 * Text a reply wrote beside its tool calls, cut from the message whose calls the work card above it holds.
-			 * The run goes on after it: the card above stays the live one, and steers and notes still join the run.
+			 * A chat row inside a running turn: text a reply wrote beside its tool calls (cut from the message whose calls
+			 * the work card above it holds), or a steer the person sent while the run worked. The run goes on after it: the
+			 * card above stays the live one until the next reply streams, notes still join the run, and the turn stays one.
 			 */
-			narration?: true;
+			inRun?: true;
 	  }
 	| { kind: "readGroup"; entries: ReadGroupEntry[]; usage?: ReadGroupUsage[] }
 	| ({ kind: "process"; messages: AgentMessage[] } & ProcessMeta)
@@ -585,19 +586,19 @@ export function buildHistoryRows(
 	preservedProcessStarts?: ReadonlySet<string>,
 ): HistoryRow[] {
 	const rows: HistoryRow[] = [];
-	// During-run notes and the run time each one is owned at (the shared run interval decides).
+	// Agent notices delivered during a run and the run time each one is owned at (the shared run interval decides).
 	const duringRunNotes = new Map<AgentMessage, number>();
 	// Stock's persisted todo reminders, folded into the run they continued once rows exist.
 	const reminders = new Set<AgentMessage>();
 	let processMessages: AgentMessage[] = [];
-	// The last visible row is a reply's narration and its run goes on (steers and notes still join it).
-	let narrated = false;
+	// The last visible row is a chat row inside the run (a reply's narration, a steer) and the run goes on.
+	let inRun = false;
 	let reactionTargetIndex: number | undefined;
 	let turnStartedAt: number | undefined;
 	// Skill prompts seen since the last run or user prompt: the next work row's leading skills.
 	let leadingSkills: string[] = [];
 	const flushProcess = () => {
-		narrated = false;
+		inRun = false;
 		if (processMessages.length === 0) return;
 		rows.push({
 			kind: "process",
@@ -619,7 +620,7 @@ export function buildHistoryRows(
 			detail === "compact" &&
 			incoming.role === "user" &&
 			incoming.steering === true &&
-			(processMessages.length > 0 || narrated);
+			(processMessages.length > 0 || inRun);
 		if (incoming.role === "user" && !steersRun) {
 			flushProcess();
 			turnStartedAt = messageTimestampMs(incoming);
@@ -629,6 +630,8 @@ export function buildHistoryRows(
 		if (preservedProcessStarts?.has(`message-${messageKey(incoming)}`)) flushProcess();
 		let message = incoming;
 		if (message.role === "assistant") {
+			// What the reply says to the person as narration thinking is its text, as stock shows it.
+			message = presentNarrationAsAnswer(message);
 			if (reactionTargetIndex !== undefined) {
 				const split = splitMessageReaction(message);
 				const target = rows[reactionTargetIndex];
@@ -642,15 +645,12 @@ export function buildHistoryRows(
 		// toolResult/display:false/empty-filler messages must not split a process
 		// run — they are invisible transport records, not transcript boundaries.
 		if (!isVisibleTranscriptMessage(message)) continue;
-		// Dedicated extension notices and mid-run steers belong to work, not a new
-		// execution phase. Keep their transcript position until the shared run
-		// interval assigns ownership.
+		// A steer is the person's message in the chat, where the model received it: the card above ends there and the
+		// run's next calls start a card under it. The turn goes on (no new `turnStartedAt`).
 		if (steersRun) {
-			rows.push({ kind: "message", message });
-			// A steer typed before the step it follows began streaming is still
-			// delivered after that step: own it from its delivery position.
-			const delivered = Math.max(...processMessages.map(entry => messageTimestampMs(entry)));
-			duringRunNotes.set(message, Math.max(messageTimestampMs(message), delivered));
+			flushProcess();
+			rows.push({ kind: "message", message, inRun: true });
+			inRun = true;
 			continue;
 		}
 		// A todo reminder is not a phase boundary: the run it restarted continues the same card.
@@ -662,7 +662,7 @@ export function buildHistoryRows(
 		if (
 			detail === "compact" &&
 			isCustomMessageCardType(message.customType) &&
-			(narrated || processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall")))
+			(inRun || processMessages.some(entry => messageContent(entry).some(block => block.type === "toolCall")))
 		) {
 			rows.push({ kind: "message", message });
 			duringRunNotes.set(message, messageTimestampMs(message));
@@ -693,8 +693,8 @@ export function buildHistoryRows(
 			if (text.some(block => isRenderableMessageText(block.text))) {
 				processMessages.push({ ...message, content: message.content.filter(block => block.type !== "text") });
 				flushProcess();
-				rows.push({ kind: "message", message: { ...message, content: text }, narration: true });
-				narrated = true;
+				rows.push({ kind: "message", message: { ...message, content: text }, inRun: true });
+				inRun = true;
 				continue;
 			}
 			processMessages.push(message);
@@ -815,12 +815,12 @@ interface ProcessRun {
 	end: number;
 	reply?: number;
 }
-function processRuns(rows: readonly HistoryRow[], notes?: ReadonlyMap<AgentMessage, number>) {
+function processRuns(rows: readonly HistoryRow[]) {
 	const runs: ProcessRun[] = [];
 	let turn = Number.NEGATIVE_INFINITY;
 	for (const [index, row] of rows.entries()) {
-		// A folded steer is part of its run, never a turn boundary.
-		if (row.kind === "message" && row.message.role === "user" && !notes?.has(row.message)) {
+		// A steer is part of its run, never a turn boundary.
+		if (row.kind === "message" && row.message.role === "user" && !row.inRun) {
 			turn = messageTimestampMs(row.message);
 			const previous = runs.at(-1);
 			if (previous) previous.end = Math.min(previous.end, turn);
@@ -836,7 +836,7 @@ function processRuns(rows: readonly HistoryRow[], notes?: ReadonlyMap<AgentMessa
 			const previous = runs.at(-1);
 			if (previous) previous.end = Math.min(previous.end, previous.turn === boundary ? start : boundary);
 			runs.push({ index, start: Math.max(start, boundary), turn: boundary, end: Number.POSITIVE_INFINITY });
-		} else if (row.kind === "message" && !row.narration && isWorkReply(row.message)) {
+		} else if (row.kind === "message" && !row.inRun && isWorkReply(row.message)) {
 			const run = runs.at(-1);
 			if (run) run.reply ??= messageTimestampMs(row.message);
 		}
@@ -870,7 +870,7 @@ function ownsRun(
 }
 
 function foldWorkNotes(rows: readonly HistoryRow[], duringRunNotes: ReadonlyMap<AgentMessage, number>): HistoryRow[] {
-	const runs = processRuns(rows, duringRunNotes);
+	const runs = processRuns(rows);
 	const folded = rows.slice();
 	const removed = new Set<number>();
 	for (const [index, row] of rows.entries()) {
@@ -1042,9 +1042,9 @@ export function mergeTodoSnapshots(rows: readonly HistoryRow[], snapshots: reado
 }
 
 /**
- * Which finalized process row absorbs the running turn's live steps. A reply's narration after it keeps it live while
- * that reply's calls run; once the next reply streams (`streamingStarted`), that reply's work starts its own card under
- * the narration, as it will finalize.
+ * Which finalized process row absorbs the running turn's live steps. A chat row inside the run after it (a reply's
+ * narration, a steer) keeps it live while that reply's calls run; once the next reply streams (`streamingStarted`),
+ * that reply's work starts its own card under the row, as it will finalize.
  */
 export function liveWorkTail(
 	rows: readonly HistoryRow[],
@@ -1052,13 +1052,13 @@ export function liveWorkTail(
 	streamingStarted: boolean,
 ): { liveTail: boolean; lastWorkRow: number } {
 	let lastWorkRow = rows.length - 1;
-	let narrated = false;
+	let inRun = false;
 	for (; lastWorkRow >= 0; lastWorkRow--) {
 		const row = rows[lastWorkRow];
-		if (row?.kind === "message" && row.narration) narrated = true;
+		if (row?.kind === "message" && row.inRun) inRun = true;
 		else if (row?.kind !== "todoSnapshot") break;
 	}
-	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process" && !(narrated && streamingStarted);
+	const liveTail = isStreaming && rows[lastWorkRow]?.kind === "process" && !(inRun && streamingStarted);
 	return { liveTail, lastWorkRow };
 }
 

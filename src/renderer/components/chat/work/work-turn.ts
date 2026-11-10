@@ -28,12 +28,29 @@ export function isSilentAbort(message: Pick<AgentMessage, "errorId" | "errorMess
 	return ((message.errorId ?? 0) & SILENT_ABORT_FLAG) !== 0 || message.errorMessage === SILENT_ABORT_MARKER;
 }
 
+/**
+ * The message as the person reads it: every narration thinking block (prose the model addressed to the person, pi-ai
+ * `ThinkingContent.narration`) becomes a text block. Kept: the renderer cannot import stock's `presentNarrationAsAnswer`
+ * (pi-ai utils/narration.ts); narration-stock.test.ts pins it. The same object comes back when nothing changes.
+ */
+export function presentNarrationAsAnswer(message: AgentMessage): AgentMessage {
+	if (!Array.isArray(message.content) || !message.content.some(block => block.type === "thinking" && block.narration))
+		return message;
+	return {
+		...message,
+		content: message.content.map(block =>
+			block.type === "thinking" && block.narration ? { type: "text", text: block.thinking } : block,
+		),
+	};
+}
+
 /** The final reply that closes compact work, including an automatic follow-up boundary. */
 export function isWorkReply(message: AgentMessage) {
 	if (message.role !== "assistant") return false;
 	if (message.errorMessage || message.steering) return true;
 	if (typeof message.content === "string") return isRenderableMessageText(message.content);
-	const content = message.content ?? [];
+	const content = presentNarrationAsAnswer(message).content ?? [];
+	if (!Array.isArray(content)) return false;
 	if (content.some(block => block.type === "image")) return true;
 	return (
 		!content.some(block => block.type === "toolCall") &&

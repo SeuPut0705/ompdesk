@@ -317,34 +317,25 @@ if (dir) {
 					)
 					.toBe(sessionPath);
 			};
-			/** B's `reply` session, made the first time a surface shows it: its one turn is the fake's `replyImages` answer. */
-			let reply: HostSession | undefined;
-			const replySession = async (): Promise<HostSession> => {
-				if (reply) return reply;
+			/** B's sessions of answered turns, each made the first time a surface shows it, by title. */
+			const answered = new Map<string, HostSession>();
+			const answeredSession = async (title: string, turns: ReadonlyArray<readonly [string, string]>) => {
+				const made = answered.get(title);
+				if (made) return made;
 				const tabId = (await b.evaluate(cwd => window.omp.tabs.spawn({ cwd }), work.cwd))?.tabId ?? "";
-				if (!tabId) throw new Error("B opened no tab for the reply session");
+				if (!tabId) throw new Error(`B opened no tab for ${title}`);
 				await expect
 					.poll(
 						async () => (await b.evaluate(() => window.omp.tabs.list())).find(tab => tab.tabId === tabId)?.status,
 						{ timeout: 60_000 },
 					)
 					.toBe("ready");
-				await b.evaluate(
-					id => window.omp.rpc.commandForTab(id, { type: "bash", command: "fixture:title:Parity reply" }),
+				await b.evaluate(([id, line]) => window.omp.rpc.commandForTab(id, { type: "bash", command: line }), [
 					tabId,
-				);
+					`fixture:title:${title}`,
+				] as const);
 				let sessionPath = "";
-				// The pictures' turn, the media turn, every other way a reply presents something
-				// (src/renderer/dev-harness/reply-showcase.ts), then a run whose reply speaks beside its tool call.
-				for (const [message, answer] of [
-					["fixture reply images", "Here is the changed look."],
-					["fixture reply media", "The numbers:"],
-					["fixture reply components", "Footnotes link both ways."],
-					["fixture narrated", "Narrated run finished."],
-					["fixture turn recovered", "The tests pass now."],
-					["fixture turn unfixed", "One test still fails."],
-					["fixture agent-desktop", "agent-desktop run finished."],
-				] as const) {
+				for (const [message, answer] of turns) {
 					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, { type: "prompt", message: sent }), [
 						tabId,
 						message,
@@ -369,9 +360,25 @@ if (dir) {
 						)
 						.not.toBe("");
 				}
-				reply = { path: sessionPath, cwd: work.cwd };
-				return reply;
+				const session = { path: sessionPath, cwd: work.cwd };
+				answered.set(title, session);
+				return session;
 			};
+			// The pictures' turn, the media turn, every other way a reply presents something
+			// (src/renderer/dev-harness/reply-showcase.ts), then a run whose reply speaks beside its tool call.
+			const replySession = () =>
+				answeredSession("Parity reply", [
+					["fixture reply images", "Here is the changed look."],
+					["fixture reply media", "The numbers:"],
+					["fixture reply components", "Footnotes link both ways."],
+					["fixture narrated", "Narrated run finished."],
+					["fixture turn recovered", "The tests pass now."],
+					["fixture turn unfixed", "One test still fails."],
+					["fixture agent-desktop", "agent-desktop run finished."],
+				]);
+			// A session of its own: one more turn in the reply session put its first turns past what a phone's view
+			// reaches in time (10 Nov 2026).
+			const steerSession = () => answeredSession("Parity steer", [["fixture steered", "Steered run finished."]]);
 			/**
 			 * B's `session` as it is when a view shows it, read from B each time and never kept from the setup: a step
 			 * between surfaces may move it (`leaveRemoteChild` renews the bot's conversation), and a view of the file it
@@ -382,9 +389,11 @@ if (dir) {
 					? work
 					: session === "reply"
 						? replySession()
-						: session === "bot-ended"
-							? { path: await endedBotConversation(), cwd: botCwd }
-							: { path: await botConversation(), cwd: botCwd };
+						: session === "steer"
+							? steerSession()
+							: session === "bot-ended"
+								? { path: await endedBotConversation(), cwd: botCwd }
+								: { path: await botConversation(), cwd: botCwd };
 			/**
 			 * Open the bot's ended conversation `sessionPath` on `page` as its owner does: the bot's row (`botRow`, on the
 			 * bot's current conversation), then that conversation in the bot's earlier conversations.

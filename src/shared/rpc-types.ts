@@ -2245,6 +2245,8 @@ export interface TextContent {
 export interface ThinkingContent {
 	type: "thinking";
 	thinking: string;
+	/** Prose the model addressed to the person, streamed as a thinking block (pi-ai `ThinkingContent.narration`). */
+	narration?: boolean;
 }
 
 export interface ToolCallContent {
@@ -2901,11 +2903,13 @@ export type AgentSessionEvent =
  * Streaming increment of a `message_update`. omp sends `partial` (the whole
  * message so far) on every delta; main's message-update slimmer
  * (src/main/message-update-slim.ts) drops it after the first update of each
- * message, keeping only the toolCall block a `toolcall_delta` streams into.
+ * message, keeping only the toolCall block a `toolcall_delta` streams into and
+ * the narration block a `thinking_end` closes.
  */
 export type AssistantMessageEvent =
 	| { type: "text_delta"; contentIndex: number; delta: string; partial?: AgentMessage }
 	| { type: "thinking_delta"; contentIndex: number; delta: string; partial?: AgentMessage }
+	| { type: "thinking_end"; contentIndex: number; partial?: AgentMessage }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial?: AgentMessage };
 
 // ============================================================================

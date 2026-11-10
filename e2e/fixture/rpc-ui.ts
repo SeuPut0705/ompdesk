@@ -53,6 +53,7 @@ import { REPLY_SHOWCASE } from "../../src/renderer/dev-harness/reply-showcase";
 import type {
 	AgentMessage,
 	ImageContent,
+	MessageContent,
 	RpcSecurityDashboardResult,
 	SubagentSnapshot,
 } from "../../src/shared/rpc-types";
@@ -60,7 +61,7 @@ import { recordHistory } from "../history-store-fixture";
 import { tinyPdf } from "../tiny-pdf";
 import { createAutopilotFake } from "./autopilot";
 import { createCheckoutFake } from "./checkout-peers";
-import { NARRATION_TEXT } from "./narration";
+import { NARRATION_TEXT, STEER_ANSWER, STEER_REASONING, STEER_TEXT } from "./narration";
 import { FIXTURE_MIN_OMP_VERSION, FIXTURE_OMP_VERSION } from "./version";
 
 /** `e2e/`: the recordings, media and `../resources` the fixture reads sit beside the specs, not in `fixture/`. */
@@ -3911,21 +3912,44 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			},
 		};
 	};
+	/**
+	 * Streams a reply's plain reasoning and its answer to the person as Anthropic does: two thinking blocks, the second
+	 * flagged `narration` only when it closes (stock's `thinking_end`). Returns the blocks for the finished message.
+	 */
+	const streamNarration = (shell: AgentMessage, said: string): MessageContent[] => {
+		const reasoning: MessageContent = { type: "thinking", thinking: STEER_REASONING };
+		const update = (content: MessageContent[], event: Record<string, unknown>) =>
+			write({
+				type: "message_update",
+				message: shell,
+				assistantMessageEvent: { ...event, partial: { ...shell, content } },
+			});
+		update([reasoning], { type: "thinking_delta", contentIndex: 0, delta: STEER_REASONING });
+		let sofar = "";
+		for (const delta of said.match(/.{1,24}/g) ?? []) {
+			sofar += delta;
+			update([reasoning, { type: "thinking", thinking: sofar }], { type: "thinking_delta", contentIndex: 1, delta });
+		}
+		const closed: MessageContent[] = [reasoning, { type: "thinking", thinking: said, narration: true }];
+		update(closed, { type: "thinking_end", contentIndex: 1, content: said });
+		return closed;
+	};
 	/** `fixture steer work`: one turn that takes a steer mid-run, driven by `fixture:steer-*` bash lines. */
 	let steerWork: { deliver: () => void; finish: () => void } | undefined;
 	const startSteerWork = (user: AgentMessage) => {
 		const turn: AgentMessage[] = [user];
 		subagentRoster = [];
-		const startCall = (id: string, name: string, args: Record<string, unknown>) => {
+		const startCall = (id: string, name: string, args: Record<string, unknown>, said = "") => {
 			const call: AgentMessage = {
 				role: "assistant",
-				content: [{ type: "toolCall", id, name, arguments: args }],
+				content: [],
 				timestamp: Date.now(),
 				provider: model.provider,
 				model: model.id,
 				stopReason: "toolUse",
 			};
 			write({ type: "message_start", message: call });
+			call.content = [...(said ? streamNarration(call, said) : []), { type: "toolCall", id, name, arguments: args }];
 			appendMessage(call);
 			write({ type: "message_end", message: call });
 			turn.push(call);
@@ -4025,7 +4049,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					write({ type: "message_end", message });
 					turn.push(message);
 				}
-				startCall("steer-task-2", "task", { tasks: [{ name: "CiSpeed", task: "Split CI timing" }] });
+				startCall("steer-task-2", "task", { tasks: [{ name: "CiSpeed", task: "Split CI timing" }] }, STEER_ANSWER);
 				startAgent("CiSpeed", "steer-task-2", "Split CI timing");
 			},
 			finish: () => {
@@ -4733,20 +4757,31 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (
 			message === "fixture narrated" ||
 			message === "fixture narrated live" ||
-			message === "fixture narrated then work"
+			message === "fixture narrated then work" ||
+			message === "fixture steered"
 		) {
 			// A call, then a reply that says a few lines to the person and calls a tool in the same message (stock's
 			// text_delta stream, then message_end carrying both), then the final answer. `live` leaves the second call
 			// running and the turn open: the moment the text used to fold into the work card. `then work` holds that reply
 			// after its text until `fixture:narrated:resume`, then ends it, follows it with a reply that only calls a tool,
 			// and leaves the turn open in the next model call, silent: the owner saw the text twice there after coming back
-			// to the tab (6 Nov 2026).
+			// to the tab (6 Nov 2026). `steered`: the loop takes the person's steer in between the two calls (stock's
+			// `steering` user message) and the second reply answers it only in a narration thinking block (10 Nov 2026).
 			const turn: AgentMessage[] = [user];
 			const live = message === "fixture narrated live";
 			const thenWork = message === "fixture narrated then work";
-			const call = (id: string, text: string, args: Record<string, unknown>, done: boolean, hold = false) => {
+			const steered = message === "fixture steered";
+			const call = (
+				id: string,
+				text: string,
+				args: Record<string, unknown>,
+				done: boolean,
+				hold = false,
+				said = "",
+			) => {
 				const shell: AgentMessage = { role: "assistant", content: [], timestamp: Date.now() };
 				write({ type: "message_start", message: shell });
+				const thought = said ? streamNarration(shell, said) : [];
 				for (const delta of text.match(/.{1,24}/g) ?? [])
 					write({
 						type: "message_update",
@@ -4757,6 +4792,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					const reply: AgentMessage = {
 						role: "assistant",
 						content: [
+							...thought,
 							...(text ? [{ type: "text" as const, text }] : []),
 							{ type: "toolCall", id, name: "bash", arguments: args },
 						],
@@ -4811,12 +4847,31 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					};
 					return;
 				}
-				call(`narrated-test-${stamp}`, NARRATION_TEXT, args, !live);
+				if (steered) {
+					const steer: AgentMessage = {
+						role: "user",
+						content: [{ type: "text", text: STEER_TEXT }],
+						steering: true,
+						timestamp: Date.now(),
+					};
+					appendMessage(steer);
+					write({ type: "message_start", message: steer });
+					write({ type: "message_end", message: steer });
+					turn.push(steer);
+				}
+				call(
+					`narrated-test-${stamp}`,
+					steered ? "" : NARRATION_TEXT,
+					args,
+					!live,
+					false,
+					steered ? STEER_ANSWER : "",
+				);
 				if (live) return;
 				setTimeout(() => {
 					const answer: AgentMessage = {
 						role: "assistant",
-						content: [{ type: "text", text: "Narrated run finished." }],
+						content: [{ type: "text", text: steered ? "Steered run finished." : "Narrated run finished." }],
 						timestamp: Date.now(),
 						provider: model.provider,
 						model: model.id,

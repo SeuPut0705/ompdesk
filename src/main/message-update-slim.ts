@@ -48,13 +48,17 @@ export function slimMessageUpdate(event: MessageUpdate): MessageUpdate {
 		...increment
 	}: AssistantMessageEvent & WireSnapshotFields = event.assistantMessageEvent;
 	let assistantMessageEvent: AssistantMessageEvent = increment;
-	if (increment.type === "toolcall_delta" && partial && Array.isArray(partial.content)) {
+	if (partial && Array.isArray(partial.content)) {
 		const block = partial.content[increment.contentIndex];
-		if (block?.type === "toolCall") {
-			// Sparse on purpose: consumers index by contentIndex, and structured
-			// clone keeps the hole instead of the blocks that were there.
-			const content: MessageContent[] = [];
+		// Sparse on purpose: consumers index by contentIndex, and structured
+		// clone keeps the hole instead of the blocks that were there.
+		const content: MessageContent[] = [];
+		if (increment.type === "toolcall_delta" && block?.type === "toolCall") {
 			content[increment.contentIndex] = { type: "toolCall", id: block.id, name: block.name, arguments: {} };
+			assistantMessageEvent = { ...increment, partial: { role: partial.role, content } };
+		} else if (increment.type === "thinking_end" && block?.type === "thinking" && block.narration) {
+			// Only now does stock know the block is narration (its signature closes it): the renderer moves it to the reply.
+			content[increment.contentIndex] = { type: "thinking", thinking: block.thinking, narration: true };
 			assistantMessageEvent = { ...increment, partial: { role: partial.role, content } };
 		}
 	}

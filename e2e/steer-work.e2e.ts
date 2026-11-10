@@ -2,23 +2,49 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { STEER_ANSWER } from "./fixture/narration";
 import { exitApp, launchApp } from "./harness";
 
 const STEER = "Also split the CI timing";
 
-/** One turn is one work card: a mid-run steer joins it, live and after a reload. */
-async function expectOneCard(page: Page) {
-	await expect(page.locator(".omp-execution-group")).toHaveCount(1);
-	const card = page.locator(".omp-execution-group");
-	await expect(card.locator("[data-steer]")).toContainText(STEER);
-	await expect(card.locator(".omp-work-card-button")).toHaveCount(2);
-	await expect(card.locator(".omp-work-card-button").filter({ hasText: "LaneRace" })).toHaveCount(1);
-	await expect(card.locator(".omp-work-card-button").filter({ hasText: "CiSpeed" })).toHaveCount(1);
-	// The steer lives in the card, never as a separate bubble splitting the turn.
-	await expect(page.locator(".omp-user-bubble").filter({ hasText: STEER })).toHaveCount(0);
+/**
+ * A mid-run steer is the person's bubble in the chat between the turn's two cards, and the reply that answers it in a
+ * narration thinking block shows that answer in the chat under its own card: live, finished and after a reload.
+ * Returns the steer's transcript row (index and key), which must be the same live and finished: nothing above it is
+ * regrouped when the turn ends.
+ */
+async function expectSteerInChat(page: Page): Promise<string> {
+	const cards = page.locator(".omp-execution-group");
+	await expect(cards).toHaveCount(2);
+	await expect(cards.first().locator(".omp-work-card-button").filter({ hasText: "LaneRace" })).toHaveCount(1);
+	await expect(cards.last().locator(".omp-work-card-button").filter({ hasText: "CiSpeed" })).toHaveCount(1);
+	const steer = page.locator(".omp-user-bubble").filter({ hasText: STEER });
+	await expect(steer).toHaveCount(1);
+	const answer = page.locator(".omp-transcript-row").getByText(STEER_ANSWER, { exact: true });
+	await expect(answer).toHaveCount(1);
+	await expect(cards.getByText(STEER)).toHaveCount(0);
+	await expect(cards.getByText(STEER_ANSWER)).toHaveCount(0);
+	// Read in one frame: card, steer, card, answer, top to bottom.
+	const { tops, row } = await page.evaluate(
+		([steerText, answerText]) => {
+			const groups = [...document.querySelectorAll(".omp-execution-group")];
+			const bubble = [...document.querySelectorAll(".omp-user-bubble")].find(el =>
+				el.textContent?.includes(steerText),
+			);
+			const said = [...document.querySelectorAll(".omp-transcript-row p")].find(el => el.textContent === answerText);
+			const tops = [groups[0], bubble, groups[1], said].map(
+				element => element?.getBoundingClientRect().top ?? Number.NaN,
+			);
+			const wrapper = bubble?.closest<HTMLElement>("[data-index]");
+			return { tops, row: `${wrapper?.dataset.index}:${wrapper?.dataset.rowKey}` };
+		},
+		[STEER, STEER_ANSWER] as const,
+	);
+	expect(tops).toEqual([...tops].sort((a, b) => a - b));
+	return row;
 }
 
-test("a steer sent mid-run stays inside the turn's one work card with every agent's lane", async () => {
+test("a steer sent mid-run is the person's message in the chat between the turn's cards, and its answer under them", async () => {
 	test.setTimeout(180_000);
 	const profile = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-steer-work-"));
 	const project = path.join(profile, "project");
@@ -85,16 +111,22 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		await expect(page.locator("[data-queue-popover]")).toContainText(STEER);
 		await fixture("fixture:steer-next");
 		await expect(page.locator("[data-queue-pill]")).toHaveCount(0);
-		await expectOneCard(page);
+		const liveRow = await expectSteerInChat(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]:not([data-nested="true"])')).toHaveCount(1);
 		await capture("live");
 
 		await fixture("fixture:steer-finish");
-		await expect(page.locator('.omp-live-step[data-outcome="true"]')).toBeVisible();
-		await expectOneCard(page);
+		await expect(page.locator('.omp-live-step[data-outcome="true"]').last()).toBeVisible();
+		// The steer keeps its row when the turn ends: nothing above it is regrouped.
+		expect(await expectSteerInChat(page)).toBe(liveRow);
 		await expect(page.locator('.omp-live-step[data-state="running"]')).toHaveCount(0);
-		const summary = page.locator(".omp-execution-group-header");
-		const finishedSummary = await summary.getAttribute("aria-label");
+		// Each card's head, its time left out: the fake omp stamps the first card's calls within one millisecond, which
+		// the live tool clock reads as 1ms and the transcript's stamps as nothing.
+		const summaries = () =>
+			page
+				.locator(".omp-execution-group-header")
+				.evaluateAll(heads => heads.map(head => head.getAttribute("aria-label")?.replace(/ · [\d.]+m?s$/, "")));
+		const finishedSummaries = await summaries();
 		// Whole lane rows: name, conclusion and duration, each from stock's transcript records.
 		const lanes = page.locator(".omp-work-card-button");
 		await expect(lanes.filter({ hasText: "LaneRace" })).toContainText("The lane conclusion race is fixed.");
@@ -102,22 +134,24 @@ test("a steer sent mid-run stays inside the turn's one work card with every agen
 		const finishedLanes = await lanes.allTextContents();
 		await capture("finished");
 
-		// A reloaded window hydrates the same single card from the transcript, with the same head.
+		// A reloaded window hydrates the same rows from the transcript, with the same heads.
 		await page.reload();
 		await expect
 			.poll(async () => (await page.evaluate(() => window.omp.sidecar.getStatus())).status, { timeout: 60_000 })
 			.toBe("ready");
-		await expectOneCard(page);
-		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText("Work complete");
-		await expect(summary).toHaveAttribute("aria-label", finishedSummary ?? "");
+		await expectSteerInChat(page);
+		await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative").last()).toHaveText(
+			"Work complete",
+		);
+		expect(await summaries()).toEqual(finishedSummaries);
 		await expect(lanes).toHaveText(finishedLanes);
 		await capture("hydrated");
 		const directory = process.env.OMP_GUI_WORK_SCREENSHOTS;
 		if (directory) {
 			await page.evaluate(() => window.omp.prefs.set("language", "ko"));
 			await page.reload();
-			await expectOneCard(page);
-			await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative")).toHaveText(
+			await expectSteerInChat(page);
+			await expect(page.locator(".omp-work-head [data-incoming] > .omp-work-narrative").last()).toHaveText(
 				"작업을 완료했어요",
 			);
 			await page.screenshot({

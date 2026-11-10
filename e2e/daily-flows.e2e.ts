@@ -807,7 +807,7 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 		});
 
 		const field = phone.locator("[data-composer-input]").first();
-		// The transcript's message rows; the working card's own steer note (`[data-steer]`) is another element.
+		// The transcript's message rows: the steer is the person's own bubble in the chat once the loop takes it.
 		const steerRows = phone.locator(".markdown-body p").filter({ hasText: /^steer from the phone$/ });
 		const send = phone.getByRole("button", { name: /^(Send|보내기)$/ });
 		await test.step("a turn runs on that tab and a steer sent from the phone arrives once", async () => {
@@ -833,8 +833,8 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 			expect(await steerRows.count()).toBeLessThanOrEqual(1);
 			// A web page's composer leaves the choice to the host: stock's steer is a prompt with `streamingBehavior: "steer"`.
 			expect((await dFrames(record)).filter(dSent)).toMatchObject([{ type: "prompt", streamingBehavior: "steer" }]);
-			// The running loop takes the steer in as its own user message: it stays on the page (its row, or the work
-			// card's steer note once the card folds it) and the record still holds the one frame.
+			// The running loop takes the steer in as its own user message: it stays on the page as the person's bubble
+			// and the record still holds the one frame.
 			expect(await dBash(phone, tabA, "fixture:steer-next")).toMatchObject({ success: true });
 			await expect
 				.poll(() => phone.getByText("steer from the phone", { exact: true }).count(), { timeout: 30_000 })
@@ -853,9 +853,9 @@ test("daily flow d: a notification click opens its tab on the phone, a steer arr
 			await expect(field).toBeVisible({ timeout: 60_000 });
 			await expect(field).toHaveValue("a draft not sent yet", { timeout: 30_000 });
 			expect(await dActiveTab(phone)).toBe(tabA);
-			// The finished turn folds the steer into its work card's note; it is on screen once, nothing else repeats it.
+			// The finished turn shows the steer as the person's bubble between its cards, once; nothing else repeats it.
 			await expect(phone.getByText("steer from the phone", { exact: true })).toHaveCount(1, { timeout: 30_000 });
-			await expect(phone.locator("[data-steer]").filter({ hasText: "steer from the phone" })).toHaveCount(1);
+			await expect(phone.locator(".omp-user-bubble").filter({ hasText: "steer from the phone" })).toHaveCount(1);
 			await expect(phone.getByText("Background run finished")).toHaveCount(1);
 			await expect(phone.locator(".omp-skeleton, .boot-shell")).toHaveCount(0, { timeout: 30_000 });
 			expect(await phone.evaluate(async () => (await window.omp.tabs.list()).length)).toBe(2);

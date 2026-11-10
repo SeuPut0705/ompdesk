@@ -117,12 +117,6 @@ describe("compact transcript rows", () => {
 	});
 
 	it("keeps what a reply writes beside its calls in the chat, under the card holding those calls", () => {
-		const steer: AgentMessage = {
-			role: "user",
-			content: [{ type: "text", text: "언제 끝나" }],
-			steering: true,
-			timestamp: "2026-08-05T04:00:01.000Z",
-		};
 		const rows = buildHistoryRows(
 			[
 				assistant([
@@ -134,7 +128,6 @@ describe("compact transcript rows", () => {
 					{ type: "text", text: "Checks pass. Next I build and launch the audit; about five minutes." },
 					{ type: "toolCall", id: "call-build", name: "bash", arguments: { command: "bun run build" } },
 				]),
-				steer,
 				{
 					role: "custom",
 					customType: "async-result",
@@ -162,14 +155,93 @@ describe("compact transcript rows", () => {
 		expect(narration.message.content).toEqual([
 			{ type: "text", text: "Checks pass. Next I build and launch the audit; about five minutes." },
 		]);
-		// A steer and a job note arriving after the text still join the run they interrupted.
-		expect(before.notes).toEqual([steer, expect.objectContaining({ customType: "async-result" })]);
+		// A job note arriving after the text still joins the run it interrupted.
+		expect(before.notes).toEqual([expect.objectContaining({ customType: "async-result" })]);
 		expect(after.toolCallIds).toEqual(["call-launch"]);
 		expect(answer?.kind === "message" && answer.message.content).toEqual([{ type: "text", text: "Launched." }]);
 		// While the text's calls run the card above it stays live; the next reply's work starts under the text.
 		const running = rows.slice(0, 2);
 		expect(liveWorkTail(running, true, false)).toEqual({ liveTail: true, lastWorkRow: 0 });
 		expect(liveWorkTail(running, true, true).liveTail).toBe(false);
+	});
+
+	// What omp 18.18.6 recorded when the owner's steers went unanswered on screen (10 Nov 2026): the reply to the person
+	// as a narration thinking block (pi-ai `ThinkingContent.narration`) beside plain reasoning and the calls, no text.
+	const narrated = (id: string, timestamp: string): AgentMessage => ({
+		...assistant([
+			{ type: "thinking", thinking: "The person wants CI timing too; split it." },
+			{ type: "thinking", thinking: "CI 시간도 같이 볼게요. 먼저 작업을 나눠요.", narration: true },
+			{ type: "toolCall", id, name: "bash", arguments: { command: "bun run ci:split" } },
+		]),
+		timestamp,
+	});
+	const steer: AgentMessage = {
+		role: "user",
+		content: [{ type: "text", text: "CI 시간도 봐줘" }],
+		steering: true,
+		timestamp: "2026-08-05T04:00:01.000Z",
+	};
+	const answerRow = {
+		kind: "message",
+		inRun: true,
+		message: expect.objectContaining({
+			content: [{ type: "text", text: "CI 시간도 같이 볼게요. 먼저 작업을 나눠요." }],
+		}),
+	};
+
+	it("shows a reply's narration thinking in the chat under its calls' card, never as a step of that card", () => {
+		const rows = buildHistoryRows(
+			[narrated("call-split", "2026-08-05T04:00:02.000Z"), toolResult("call-split")],
+			"compact",
+		);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
+		const [card, answer] = rows;
+		if (card?.kind !== "process") throw new Error("card missing");
+		// The plain reasoning and the call stay in the card; the narration is not a third step.
+		expect(card.stepCount).toBe(2);
+		expect(card.messages.flatMap(message => (Array.isArray(message.content) ? message.content : []))).toEqual([
+			{ type: "thinking", thinking: "The person wants CI timing too; split it." },
+			expect.objectContaining({ type: "toolCall", id: "call-split" }),
+		]);
+		expect(answer).toEqual(answerRow);
+	});
+
+	it("answers a steer in the chat: the steer, the card of the answering reply's calls, then its narration", () => {
+		const rows = buildHistoryRows(
+			[
+				assistant([{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } }]),
+				toolResult("call-check"),
+				steer,
+				narrated("call-split", "2026-08-05T04:00:02.000Z"),
+				toolResult("call-split"),
+				{ ...assistant([{ type: "text", text: "Split." }]), timestamp: "2026-08-05T04:00:04.000Z" },
+			],
+			"compact",
+		);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message", "process", "message", "message"]);
+		expect(rows[1]).toEqual({ kind: "message", message: steer, inRun: true });
+		expect(rows[2]?.kind === "process" && rows[2].toolCallIds).toEqual(["call-split"]);
+		expect(rows[3]).toEqual(answerRow);
+	});
+
+	it("reads a reply of plain reasoning and narration thinking alone as the reply that ends the work", () => {
+		const rows = buildHistoryRows(
+			[
+				assistant([{ type: "toolCall", id: "call-check", name: "bash", arguments: { command: "bun check" } }]),
+				toolResult("call-check"),
+				assistant([
+					{ type: "thinking", thinking: "Checks pass." },
+					{ type: "thinking", thinking: "다 통과했어요.", narration: true },
+				]),
+			],
+			"compact",
+		);
+		expect(rows.map(row => row.kind)).toEqual(["process", "message"]);
+		expect(rows[0]?.kind === "process" && rows[0].stepCount).toBe(2);
+		expect(rows[1]).toEqual({
+			kind: "message",
+			message: expect.objectContaining({ content: [{ type: "text", text: "다 통과했어요." }] }),
+		});
 	});
 });
 

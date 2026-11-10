@@ -219,7 +219,7 @@ function mergeableUpdate(event: AgentSessionEvent): event is MessageUpdate {
 function joinUpdates(earlier: MessageUpdate, later: MessageUpdate): MessageUpdate | null {
 	const a = earlier.assistantMessageEvent;
 	const b = later.assistantMessageEvent;
-	if (a.type !== b.type || a.contentIndex !== b.contentIndex) return null;
+	if (a.type !== b.type || a.contentIndex !== b.contentIndex || !("delta" in a) || !("delta" in b)) return null;
 	if (earlier.messageId !== later.messageId || earlier.message.timestamp !== later.message.timestamp) return null;
 	return { ...later, assistantMessageEvent: { ...b, delta: a.delta + b.delta } };
 }

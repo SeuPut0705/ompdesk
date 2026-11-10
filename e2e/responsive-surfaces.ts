@@ -69,7 +69,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "bot" | "bot-ended" | "reply";
+export type ParitySession = "work" | "bot" | "bot-ended" | "reply" | "steer";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -757,6 +757,19 @@ export const SURFACES: readonly Surface[] = [
 		settle: 900,
 		when: () => false,
 		parity: { session: "reply" },
+	},
+	{
+		id: "reply-steer",
+		area: "A",
+		title: "A steer the person sent while the run worked: their message in the chat between the run's two cards",
+		open: async page => {
+			await showTurn(page, "fixture steered");
+			await page.getByText("Steered run finished.", { exact: true }).last().waitFor({ timeout: 15_000 });
+		},
+		ready: "[data-transcript-kind='process']",
+		settle: 900,
+		when: () => false,
+		parity: { session: "steer" },
 	},
 	...(
 		[

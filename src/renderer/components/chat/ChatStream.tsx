@@ -503,8 +503,8 @@ function SessionTranscript() {
 	// against the stale offset it mounted the new page's first screenful and dropped
 	// the reader's rows, to mount them again once the offset caught up. It holds the
 	// first row on screen that kept its key: the older page can fold the reader's top
-	// rows into an earlier one (a steer joins the work row of the turn it
-	// interrupted). Holding none would leave the view at the page's top, where a
+	// rows into an earlier one (an agent's note joins the work row of the run it
+	// arrived in). Holding none would leave the view at the page's top, where a
 	// wheel scrolls nothing and so never asks for the next page. The element itself
 	// is moved by the anchor effect below.
 	const pendingAnchor = prependAnchorRef.current;

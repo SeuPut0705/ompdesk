@@ -1,7 +1,7 @@
 /**
- * One turn is one work card, steering included: a steer delivered mid-run stays in the run's
- * card as a user-owned note; only the newest card may run; the strip is one row; crossfade
- * layers never outlive their fade; the edit DSL never reaches the surface.
+ * A steer delivered mid-run is the person's message in the chat, where the model took it: the card above ends there,
+ * the run's next calls start a card under it, and the turn stays one. Only the newest card may run; the strip is one
+ * row; crossfade layers never outlive their fade; the edit DSL never reaches the surface.
  */
 import { readFileSync } from "node:fs";
 import { parseHTML } from "linkedom";
@@ -12,7 +12,7 @@ import type { AgentMessage } from "../../../shared/rpc-types";
 import { I18nProvider } from "../../lib/i18n";
 import { type SubagentNode, useSubagentsStore } from "../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../stores/tools";
-import { buildHistoryRows, type HistoryRow, liveWorkTail } from "./chat-stream-utils";
+import { buildHistoryRows, type HistoryRow, liveWorkTail, workTurns } from "./chat-stream-utils";
 import { resolveWorkGroup } from "./work/WorkStatus";
 import { workTurnStartedAt } from "./work/work-turn";
 
@@ -29,7 +29,6 @@ const { createRoot } = await import("react-dom/client");
 const { ExecutionGroup } = await import("./ExecutionGroup");
 const { LiveStepPeek } = await import("./LiveStepPeek");
 const { WorkCrossfade } = await import("./work/WorkCrossfade");
-const { WorkNotes } = await import("./work/WorkNotes");
 const { EditRenderer } = await import("../tools/renderers/EditRenderer");
 
 const stylesheet = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
@@ -57,37 +56,73 @@ const steer: AgentMessage = {
 	timestamp: 300,
 };
 const answer: AgentMessage = { role: "assistant", content: [{ type: "text", text: "Done." }], timestamp: 600 };
-const processes = (rows: HistoryRow[]) => rows.filter(row => row.kind === "process");
+const processes = (rows: HistoryRow[]) =>
+	rows.filter((row): row is Extract<HistoryRow, { kind: "process" }> => row.kind === "process");
 
 describe("steer inside a running turn", () => {
-	it("keeps one process row with the steer in its notes, live and hydrated", () => {
+	it("is a chat row where the model took it: the card ends there and the run's next calls start one under it", () => {
 		const delivered = [prompt, call("bash", "bash", 200), result("bash", "bash", 250), steer];
 		const live = buildHistoryRows(delivered, "compact");
-		expect(live.map(row => row.kind)).toEqual(["message", "process"]);
-		expect(liveWorkTail(live, true, false).liveTail).toBe(true);
-		const continued = buildHistoryRows([...delivered, call("task", "task", 400)], "compact");
-		expect(continued.map(row => row.kind)).toEqual(["message", "process"]);
-		const [work] = processes(continued);
-		expect(work?.kind === "process" && work.toolCallIds).toEqual(["bash", "task"]);
-		expect(work?.kind === "process" && work.notes).toEqual([steer]);
+		expect(live.map(row => row.kind)).toEqual(["message", "process", "message"]);
+		expect(live[2]).toEqual({ kind: "message", message: steer, inRun: true });
+		// Until the next reply streams, the card above the steer is the live one; that reply's work is born under it.
+		expect(liveWorkTail(live, true, false)).toEqual({ liveTail: true, lastWorkRow: 1 });
+		expect(liveWorkTail(live, true, true).liveTail).toBe(false);
 
-		const hydrated = buildHistoryRows(
+		const finished = buildHistoryRows(
 			[...delivered, call("task", "task", 400), result("task", "task", 500), answer],
 			"compact",
 		);
-		expect(hydrated.map(row => row.kind)).toEqual(["message", "process", "message"]);
-		const [card] = processes(hydrated);
-		expect(card?.kind === "process" && card.toolCallIds).toEqual(["bash", "task"]);
-		expect(card?.kind === "process" && card.notes).toEqual([steer]);
-		expect(card?.kind === "process" && card.turnStartedAt).toBe(100);
+		expect(finished.map(row => row.kind)).toEqual(["message", "process", "message", "process", "message"]);
+		// Nothing above the steer moves when the turn ends.
+		expect(finished.slice(0, 3)).toEqual(live);
+		const [before, after] = processes(finished);
+		expect(before?.toolCallIds).toEqual(["bash"]);
+		expect(after?.toolCallIds).toEqual(["task"]);
+		expect(before?.notes).toBeUndefined();
 	});
 
-	it("owns a steer typed before its step started streaming by where stock delivered it", () => {
-		const early = { ...steer, timestamp: 150 };
-		const rows = buildHistoryRows([prompt, call("bash", "bash", 200), result("bash", "bash", 250), early], "compact");
-		expect(rows.map(row => row.kind)).toEqual(["message", "process"]);
-		const [work] = processes(rows);
-		expect(work?.kind === "process" && work.notes).toEqual([early]);
+	it("keeps the turn one: both cards share its start, its calls and its verdict scope", () => {
+		const rows = buildHistoryRows(
+			[prompt, call("bash", "bash", 200), result("bash", "bash", 250), steer, call("task", "task", 400)],
+			"compact",
+		);
+		const [before, after] = processes(rows);
+		if (!before || !after) throw new Error("cards missing");
+		expect([before.turnStartedAt, after.turnStartedAt]).toEqual([100, 100]);
+		const turns = workTurns(rows, true);
+		expect(turns.get(before)?.turn).toBe(turns.get(after)?.turn);
+		expect(turns.get(after)?.turn).toMatchObject({ ids: ["bash", "task"], running: true });
+		expect([turns.get(before)?.last, turns.get(after)?.last]).toEqual([false, true]);
+	});
+
+	it("shows several steers in a row as consecutive bubbles, and an agent's note still joins the card above", () => {
+		const second: AgentMessage = { ...steer, content: [{ type: "text", text: "And the cache" }], timestamp: 320 };
+		const note: AgentMessage = {
+			role: "custom",
+			customType: "advisor",
+			content: "Advisor",
+			details: { notes: [{ note: "Check access", severity: "concern" }] },
+			timestamp: 260,
+		};
+		const rows = buildHistoryRows(
+			[
+				prompt,
+				call("bash", "bash", 200),
+				result("bash", "bash", 250),
+				note,
+				steer,
+				second,
+				call("task", "task", 400),
+			],
+			"compact",
+		);
+		expect(rows.map(row => row.kind)).toEqual(["message", "process", "message", "message", "process"]);
+		expect(rows.slice(2, 4)).toEqual([
+			{ kind: "message", message: steer, inRun: true },
+			{ kind: "message", message: second, inRun: true },
+		]);
+		expect(processes(rows)[0]?.notes).toEqual([note]);
 	});
 
 	it("still starts a new card for a message after the run ended, steered or not", () => {
@@ -194,28 +229,6 @@ describe("one live card per session", () => {
 		await render(group(true));
 		expect(container.querySelector(".omp-execution-group")?.getAttribute("data-state")).toBe("complete");
 		expect(container.querySelector('.omp-live-step[data-state="running"]')).toBeNull();
-	});
-});
-
-describe("steer line", () => {
-	it("shows the user's steer with its time and never folds it behind older notes", async () => {
-		const notes: AgentMessage[] = [1, 2, 3].map(index => ({
-			role: "custom",
-			customType: "advisor",
-			id: `advisor-${index}`,
-			content: "Advisor",
-			details: { notes: [{ note: `Note ${index}`, severity: "concern" }] },
-			timestamp: 200 + index,
-		}));
-		await render(<WorkNotes messages={[steer, ...notes]} />);
-		const line = container.querySelector("[data-steer]");
-		expect(line?.textContent).toContain("Steer");
-		expect(line?.textContent).toContain("Also check CI speed");
-		expect(line?.querySelector("time")).not.toBeNull();
-		// One older advisor note folds; the steer stays.
-		expect(container.querySelector(".omp-work-notes-more")?.textContent).toContain("1");
-		expect(container.querySelectorAll(".omp-work-notes-item")).toHaveLength(3);
-		expect(rule(".omp-work-steer")).toContain("background: var(--sc-surface-2)");
 	});
 });
 

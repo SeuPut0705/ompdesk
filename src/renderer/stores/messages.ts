@@ -307,10 +307,16 @@ export const createMessagesStore = () =>
 							let thinking = "";
 							for (const block of partial.content) {
 								if (block.type === "text") text += block.text;
+								else if (block.type === "thinking" && block.narration) text += block.thinking;
 								else if (block.type === "thinking") thinking += block.thinking;
 							}
 							const other = streamingMessage === null || streamingMessage.timestamp !== partial.timestamp;
-							if (other || text.length + thinking.length > streamingText.length + streamingThinking.length) {
+							// A thinking block that closed as narration is the reply from then on: the snapshot moves it.
+							if (
+								other ||
+								update.type === "thinking_end" ||
+								text.length + thinking.length > streamingText.length + streamingThinking.length
+							) {
 								streamingMessage = { ...partial, content: [] };
 								streamingText = text;
 								streamingThinking = thinking;
@@ -320,6 +326,19 @@ export const createMessagesStore = () =>
 						}
 						if (update.type === "text_delta") streamingText += update.delta;
 						else if (update.type === "thinking_delta") streamingThinking += update.delta;
+						else if (update.type === "thinking_end") {
+							// Stock knows a block is narration only when it closes (pi-ai `ThinkingContent.narration`); the
+							// slimmer keeps that block: what streamed as thinking is said to the person, and shows as the reply.
+							const closed = update.partial?.content;
+							const block = Array.isArray(closed) ? closed[update.contentIndex] : undefined;
+							if (block?.type === "thinking" && block.narration && streamingThinking.endsWith(block.thinking)) {
+								streamingThinking = streamingThinking.slice(
+									0,
+									streamingThinking.length - block.thinking.length,
+								);
+								streamingText += block.thinking;
+							}
+						}
 						break;
 					}
 					case "message_end":

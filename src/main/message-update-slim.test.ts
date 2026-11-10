@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createMessagesStore } from "../renderer/stores/messages";
 import { createToolsStore, selectToolEntry } from "../renderer/stores/tools";
-import type { AgentMessage, AgentSessionEvent, AssistantMessageEvent } from "../shared/rpc-types";
+import type { AgentMessage, AgentSessionEvent, AssistantMessageEvent, MessageContent } from "../shared/rpc-types";
 import { createMessageUpdateSlimmer, slimMessageUpdate } from "./message-update-slim";
+import { createLinkEventDecoder, createLinkEventEncoder } from "./remote/link-events";
 
 type MessageUpdate = Extract<AgentSessionEvent, { type: "message_update" }>;
 
@@ -205,5 +206,47 @@ describe("renderer stores on slimmed updates", () => {
 		const entry = selectToolEntry(slimTools.getState(), "call-9");
 		expect(entry).toMatchObject({ toolName: "write", status: "pending", streamingArgs: '{"path":"a"}' });
 		expect({ ...entry, startTime: 0 }).toEqual({ ...selectToolEntry(fullTools.getState(), "call-9"), startTime: 0 });
+	});
+});
+
+describe("a narration block streaming", () => {
+	// Anthropic streams prose to the person as a thinking block; stock flags it `narration` only when the block closes.
+	const reasoning = "Split the CI timing first.";
+	const said = "CI 시간도 같이 볼게요.";
+	function stream(timestamp: number): AgentSessionEvent[] {
+		const at = (content: MessageContent[]): AgentMessage => ({ role: "assistant", timestamp, content });
+		const events: AgentSessionEvent[] = [{ type: "message_start", message: at([]) }];
+		const push = (content: MessageContent[], event: AssistantMessageEvent) =>
+			events.push({
+				type: "message_update",
+				messageId: "m",
+				message: at(content),
+				assistantMessageEvent: { ...event, partial: at(content) },
+			});
+		const thought: MessageContent = { type: "thinking", thinking: reasoning };
+		push([thought], { type: "thinking_delta", contentIndex: 0, delta: reasoning });
+		push([thought, { type: "thinking", thinking: said }], { type: "thinking_delta", contentIndex: 1, delta: said });
+		const closed: MessageContent[] = [thought, { type: "thinking", thinking: said, narration: true }];
+		push(closed, { type: "thinking_end", contentIndex: 1, content: said } as AssistantMessageEvent);
+		push([...closed, { type: "toolCall", id: "c1", name: "bash", arguments: {} }], {
+			type: "toolcall_delta",
+			contentIndex: 2,
+			delta: "{",
+		});
+		return events;
+	}
+
+	it("becomes the streaming reply once stock closes it, in this computer's window and on a paired device", () => {
+		const raw = stream(11);
+		const encoder = createLinkEventEncoder();
+		const decoder = createLinkEventDecoder();
+		const paired = raw.flatMap(event => decoder.events(JSON.parse(JSON.stringify(encoder.events([event])))));
+		for (const delivered of [createMessageUpdateSlimmer()(raw), paired]) {
+			const store = createMessagesStore();
+			store.getState().applyEvents(delivered.slice(0, 3));
+			expect(store.getState()).toMatchObject({ streamingText: "", streamingThinking: reasoning + said });
+			store.getState().applyEvents(delivered.slice(3));
+			expect(store.getState()).toMatchObject({ streamingText: said, streamingThinking: reasoning });
+		}
 	});
 });
