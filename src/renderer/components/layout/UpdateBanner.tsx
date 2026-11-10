@@ -12,7 +12,7 @@ import { AlertCircle, RefreshCw } from "lucide-react";
 import { useShellMode } from "../../hooks/use-shell-mode";
 import { useT } from "../../lib/i18n";
 import { checkForUpdatesInPlace, useUpdaterStore } from "../../stores/updater";
-import { Banner, Button, IconButton } from "../common";
+import { Banner, Button, IconButton, Tooltip } from "../common";
 
 export function UpdateBanner() {
 	const t = useT();
@@ -25,7 +25,6 @@ export function UpdateBanner() {
 	// A dismissed failure stays hidden until a check actually succeeds again, so
 	// the four-hourly poll can't resurrect a banner the user already closed.
 	if (manualCheck || status.state !== "error" || status.showInBanner === false || dismissed.error) return null;
-	const tooltip = status.detail ? `${status.message}\n${status.detail}` : status.message;
 	return (
 		<div className="shrink-0 px-(--omp-column-pad) pt-1 pb-0.5" data-update-notice>
 			<Banner
@@ -51,9 +50,17 @@ export function UpdateBanner() {
 				role="status"
 				variant="neutral"
 			>
-				<span className="line-clamp-2" title={tooltip}>
-					{status.message}
-				</span>
+				<Tooltip
+					content={
+						<>
+							<span className="block">{status.message}</span>
+							{status.detail && <span className="block">{status.detail}</span>}
+						</>
+					}
+					describe={Boolean(status.detail)}
+				>
+					<span className="line-clamp-2">{status.message}</span>
+				</Tooltip>
 			</Banner>
 		</div>
 	);

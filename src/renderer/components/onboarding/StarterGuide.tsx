@@ -82,6 +82,7 @@ export function StarterGuide({ promptSent, projectOpened }: { promptSent: boolea
 			className="shrink-0 border-t border-(--sc-divider) px-2 pt-2"
 			data-starter-guide
 		>
+			{/* controls-ok: the guide's fold keeps its down chevron that flips open and its step count beside the title; DisclosureButton's right-pointing chevron changed that look and it was reverted */}
 			<button
 				aria-controls={listId}
 				aria-expanded={open}

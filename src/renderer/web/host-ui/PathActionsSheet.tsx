@@ -2,6 +2,7 @@ import { Download, Eye, FolderSearch, Monitor } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import type { IpcOpenPathResult } from "../../../shared/ipc-types";
 import { Button, Sheet } from "../../components/common";
+import { useShellMode } from "../../hooks/use-shell-mode";
 import { basename } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
@@ -12,7 +13,8 @@ import type { HostPrompt } from "./host-ui-store";
 type PathHostPrompt = Extract<HostPrompt, { kind: "openPath" | "revealPath" }>;
 
 /**
- * The one sheet a file the agent named opens (design §2.4): "View on phone" (the Files viewer), "Open on
+ * The one sheet a file the agent named opens (design §2.4): "View on phone" ("on this device" where the page is not
+ * a phone's: the Files viewer), "Open on
  * computer" (the host's own opener; launcher types are only revealed there) and "Download" for an open;
  * "Show in Files" and "Show on computer" for a reveal. A device without computer control gets the host's
  * refusal as a sentence under the buttons.
@@ -31,6 +33,7 @@ export function PathActionsSheet({
 	const [error, setError] = useState<string | null>(null);
 	const reveal = prompt.kind === "revealPath";
 	const name = basename(prompt.path) || prompt.path;
+	const phone = useShellMode() === "phone";
 
 	const finish = (result: IpcOpenPathResult) => {
 		prompt.resolve(result);
@@ -88,7 +91,13 @@ export function PathActionsSheet({
 				{button(
 					"phone",
 					reveal ? <FolderSearch /> : <Eye />,
-					t(reveal ? "hostUi.revealPath.inFiles" : "hostUi.openPath.viewOnPhone"),
+					t(
+						reveal
+							? "hostUi.revealPath.inFiles"
+							: phone
+								? "hostUi.openPath.viewOnPhone"
+								: "hostUi.openPath.viewOnDevice",
+					),
 					view,
 				)}
 				{button(

@@ -6,8 +6,9 @@
 
 import { formatPercent, formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { SectionLabel } from "../common";
 import { advisorSeverityBreakdown, hasAdvisorActivity, useAdvisorUsage } from "../layout/composer/AdvisorUsageRow";
-import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
+import { MetricCard, MetricGrid } from "../stats/shared";
 
 export function AdvisorInsights({ sessionCost, refreshKey }: { sessionCost: number; refreshKey: string | number }) {
 	const t = useT();
@@ -23,11 +24,10 @@ export function AdvisorInsights({ sessionCost, refreshKey }: { sessionCost: numb
 		.join(" · ");
 
 	return (
-		// SectionTitle drops its top margin as a first child, so the section carries it.
 		<section aria-labelledby="insights-advisor" className="mt-8" data-advisor-insights>
-			<SectionTitle>
+			<SectionLabel className="mb-3" size="title">
 				<span id="insights-advisor">{t("insights.advisor.title")}</span>
-			</SectionTitle>
+			</SectionLabel>
 			<MetricGrid>
 				<MetricCard label={t("usage.cost")} sub={costSub} value={formatUsd(usage.cost)} />
 				<MetricCard

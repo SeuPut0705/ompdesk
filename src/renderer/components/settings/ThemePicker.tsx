@@ -4,8 +4,8 @@
  * (the light one for a light OS, the dark one for a dark OS). Every choice applies at once.
  */
 
-import { Check, Moon, Sun } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 import {
 	DARK_THEME_NAMES,
 	type DarkThemeName,
@@ -13,7 +13,6 @@ import {
 	type LightThemeName,
 	type ThemeName,
 } from "../../../shared/theme-names";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import {
 	applyThemeByName,
@@ -26,11 +25,8 @@ import {
 	type ThemeSelection,
 } from "../../lib/themes";
 import { useUiStore } from "../../stores/ui";
-import { Select } from "../common";
+import { type ChoiceCard, ChoiceCards, Select } from "../common";
 import { SettingsRow } from "./SettingsLayout";
-
-/** Roving-focus order of the cards: System, then the light group, then the dark group. */
-const THEME_SELECTIONS: readonly ThemeSelection[] = ["system", ...LIGHT_THEME_NAMES, ...DARK_THEME_NAMES];
 
 /**
  * A theme drawn in its own colors: sidebar strip, a text line and the accent, and a line of
@@ -77,50 +73,6 @@ export function ThemePreview({ theme }: { theme: ThemeDefinition }) {
 				</span>
 			</span>
 		</span>
-	);
-}
-
-interface ThemeCardProps {
-	selection: ThemeSelection;
-	selected: boolean;
-	label: string;
-	title: string;
-	preview: ReactNode;
-	onChoose: (selection: ThemeSelection) => void;
-}
-
-function ThemeCard({ selection, selected, label, title, preview, onChoose }: ThemeCardProps) {
-	return (
-		<button
-			aria-checked={selected}
-			className="group/theme flex min-w-0 flex-col gap-1.5 rounded-(--sc-radius-lg) p-1 text-left"
-			data-theme-option={selection}
-			onClick={() => onChoose(selection)}
-			role="radio"
-			tabIndex={selected ? 0 : -1}
-			title={title}
-			type="button"
-		>
-			<span
-				className={cx(
-					"relative flex h-20 overflow-hidden rounded-(--sc-radius-md) border",
-					selected
-						? "border-(--sc-accent) ring-2 ring-(--sc-accent-soft)"
-						: "border-(--sc-border-subtle) group-hover/theme:border-(--sc-border)",
-				)}
-			>
-				{preview}
-				{selected && (
-					<span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-(--sc-radius-full) bg-(--sc-accent) text-(--sc-accent-fg)">
-						<Check aria-hidden className="size-3" strokeWidth={3} />
-					</span>
-				)}
-			</span>
-			{/* A name wraps to a second line rather than cutting off: "High Contrast Light" outgrew a tablet's card. */}
-			<span className="flex items-start gap-1 px-0.5 text-sc-sm leading-snug text-(--sc-text-secondary)">
-				<span className="line-clamp-2 min-w-0 break-words">{label}</span>
-			</span>
-		</button>
 	);
 }
 
@@ -188,7 +140,6 @@ export function ThemePicker() {
 	const t = useT();
 	const [current, setCurrent] = useState<ThemeSelection | null>(null);
 	const [pair, setPair] = useState(getSystemThemePair);
-	const groupRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -206,75 +157,60 @@ export function ThemePicker() {
 		setCurrent(selection);
 	};
 
-	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		const delta = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-		if (delta === undefined) return;
-		event.preventDefault();
-		const index = THEME_SELECTIONS.indexOf(current ?? "system");
-		const next = THEME_SELECTIONS[
-			(index + delta + THEME_SELECTIONS.length) % THEME_SELECTIONS.length
-		] as ThemeSelection;
-		choose(next);
-		groupRef.current?.querySelector<HTMLElement>(`[data-theme-option="${next}"]`)?.focus();
-	};
-
 	// Until the stored choice is read, the store's scheme says whether it is System (no row flashes in or out).
 	const uiTheme = useUiStore(state => state.theme);
 	const selected = current ?? (uiTheme === "system" ? "system" : null);
-	const card = (name: ThemeName) => (
-		<ThemeCard
-			key={name}
-			label={t(`themePicker.theme.${name}.label`)}
-			onChoose={choose}
-			preview={<ThemePreview theme={THEMES[name]} />}
-			selected={selected === name}
-			selection={name}
-			title={t(`themePicker.theme.${name}.description`)}
-		/>
-	);
+	const card = (name: ThemeName): ChoiceCard<ThemeSelection> => ({
+		value: name,
+		title: t(`themePicker.theme.${name}.label`),
+		preview: <ThemePreview theme={THEMES[name]} />,
+		tooltip: t(`themePicker.theme.${name}.description`),
+	});
 
 	return (
 		<>
 			<div className="scroll-mt-4 py-2" data-setting-row="true" id="setting-gui-theme">
-				<div
+				<ChoiceCards
 					aria-label={t("settings.gui.theme")}
-					className="flex flex-col gap-3"
-					onKeyDown={onKeyDown}
-					ref={groupRef}
-					role="radiogroup"
-				>
-					<div className="settings-theme-grid">
-						<ThemeCard
-							label={t("themePicker.system")}
-							onChoose={choose}
-							preview={
-								<>
-									<span className="w-1/2 overflow-hidden">
-										<ThemePreview theme={THEMES[pair.light]} />
-									</span>
-									<span className="w-1/2 overflow-hidden">
-										<ThemePreview theme={THEMES[pair.dark]} />
-									</span>
-								</>
-							}
-							selected={selected === "system"}
-							selection="system"
-							title={t("themePicker.systemDesc")}
-						/>
-					</div>
-					<section data-theme-group="light">
-						<h3 className="px-1 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
-							{t("themePicker.group.light")}
-						</h3>
-						<div className="settings-theme-grid">{LIGHT_THEME_NAMES.map(card)}</div>
-					</section>
-					<section data-theme-group="dark">
-						<h3 className="px-1 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
-							{t("themePicker.group.dark")}
-						</h3>
-						<div className="settings-theme-grid">{DARK_THEME_NAMES.map(card)}</div>
-					</section>
-				</div>
+					gridClassName="settings-theme-grid"
+					groups={[
+						{
+							key: "system",
+							options: [
+								{
+									value: "system",
+									title: t("themePicker.system"),
+									preview: (
+										<>
+											<span className="w-1/2 overflow-hidden">
+												<ThemePreview theme={THEMES[pair.light]} />
+											</span>
+											<span className="w-1/2 overflow-hidden">
+												<ThemePreview theme={THEMES[pair.dark]} />
+											</span>
+										</>
+									),
+									tooltip: t("themePicker.systemDesc"),
+								},
+							],
+						},
+						{
+							key: "light",
+							label: t("themePicker.group.light"),
+							options: LIGHT_THEME_NAMES.map(card),
+							attrs: { "data-theme-group": "light" },
+						},
+						{
+							key: "dark",
+							label: t("themePicker.group.dark"),
+							options: DARK_THEME_NAMES.map(card),
+							attrs: { "data-theme-group": "dark" },
+						},
+					]}
+					onChange={choose}
+					optionAttr="data-theme-option"
+					value={selected}
+				/>
 			</div>
 			{selected === "system" && <SystemThemeRows onChange={() => setPair(getSystemThemePair())} pair={pair} />}
 		</>

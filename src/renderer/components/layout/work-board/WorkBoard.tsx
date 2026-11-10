@@ -15,9 +15,9 @@
  */
 
 import { Bot, Check, Rocket, SquareTerminal, Target } from "lucide-react";
-import { type CSSProperties, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SessionSpend } from "../../../../../resources/gui-bridge/model-setup-contracts";
-import type { RpcGoalState, SubagentSnapshot } from "../../../../shared/rpc-types";
+import type { RpcGoalState, SubagentSnapshot, TodoTask } from "../../../../shared/rpc-types";
 import { useBackgroundJobs } from "../../../hooks/use-background-jobs";
 import { useOpenedChildren } from "../../../hooks/use-opened-children";
 import { usePresence } from "../../../hooks/use-presence";
@@ -49,21 +49,12 @@ import { useWorkBoardStore } from "../../../stores/work-board";
 import { formatTokenRate } from "../../chat/TurnOutputMeter";
 import { useRunStores } from "../../chat/work/use-work-run";
 import { resumedAgents } from "../../chat/work/work-run";
-import { Kbd } from "../../common";
+import { Kbd, ProgressBar, StatusDot, type StatusTone } from "../../common";
 import { statusMeta, subagentElapsedMs, subagentPrimaryLabel } from "../../panels/subagent-graph";
 import { getToolHeader } from "../../tools/index";
 import { AccountLimit } from "../AccountLimit";
 import { childUsageText } from "../sidebar/sidebar-family";
-import {
-	BoardRow,
-	BoardSection,
-	CappedRows,
-	Dot,
-	elapsedLabel,
-	KindMark,
-	SECTION_CAP,
-	WorkTreeButton,
-} from "./board-parts";
+import { BoardRow, BoardSection, CappedRows, elapsedLabel, KindMark, SECTION_CAP, WorkTreeButton } from "./board-parts";
 import { WorkBoardChip } from "./WorkBoardChip";
 import {
 	boardCounts,
@@ -71,7 +62,6 @@ import {
 	isWaitingSubagent,
 	liveSubagents,
 	requestLabel,
-	type TodoBoard,
 	todoBoard,
 	workBoardDocks,
 	workBoardForm,
@@ -109,6 +99,11 @@ const TURN_CLOCK_SLACK_MS = 500;
 /** How much of the run's section must be in the docked board's view for the composer's "show the run" to give way. */
 const RUN_SHOWN_PX = 48;
 
+/** The run counts as shown once 48 px of its section are in the board's view, or the whole of a shorter section. */
+export function runSectionShown(visiblePx: number, sectionHeight: number): boolean {
+	return visiblePx > 0 && visiblePx >= Math.min(sectionHeight, RUN_SHOWN_PX);
+}
+
 function stepHeader(entry: ToolEntry, t: (key: string, params?: Record<string, string | number>) => string) {
 	const header = getToolHeader(entry.toolName, entry.args);
 	return {
@@ -117,20 +112,14 @@ function stepHeader(entry: ToolEntry, t: (key: string, params?: Record<string, s
 	};
 }
 
-function SegmentBar({ segments, label }: { segments: TodoBoard["segments"]; label: string }) {
-	return (
-		<span
-			aria-label={label}
-			className="omp-work-board-segments"
-			role="img"
-			style={{ "--segments": segments.length } as CSSProperties}
-		>
-			{segments.map((status, index) => (
-				<span data-status={status} key={index} />
-			))}
-		</span>
-	);
-}
+/** A todo's state as the plan's bar paints and names its share. */
+const TODO_SEGMENT: Record<TodoTask["status"], { tone: StatusTone; label: string }> = {
+	completed: { tone: "success", label: "todoPanel.status.completed" },
+	in_progress: { tone: "info", label: "todoPanel.status.inProgress" },
+	blocked: { tone: "warning", label: "todoPanel.status.blocked" },
+	pending: { tone: "neutral", label: "todoPanel.status.pending" },
+	abandoned: { tone: "neutral", label: "todoPanel.status.abandoned" },
+};
 
 /** Focus the question or approval card docked above this pane's composer. */
 function focusPrompt(pane: HTMLElement): void {
@@ -360,39 +349,39 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const runFolded = useWorkBoardStore(state => state.collapsed.autopilot === true);
 	// The composer's "show the run" chip gives way while the run's section is open and in the board's view
 	// (components.css): folded, or scrolled out of a long board, the run is not on screen and the chip brings it back.
-	useEffect(() => {
+	// Measured before paint, so a docked board that mounts with the run in view never lets the chip draw for a frame;
+	// then again on the board's scroll, a resize, and any change of its sections' sizes (they move the run).
+	useLayoutEffect(() => {
 		const board = boardRef.current;
-		if (!present || !board || inline || !autopilotTab || runFolded || typeof IntersectionObserver === "undefined")
-			return;
+		if (!present || !board || inline || !autopilotTab || runFolded) return;
 		const mark = (shown: boolean) => pane.toggleAttribute("data-work-board-run-shown", shown);
-		let watched: Element | null = null;
-		// Shown once a row's worth of it is in view, or the whole of a section shorter than that.
-		const seen = new IntersectionObserver(
-			entries => {
-				const entry = entries.at(-1);
-				if (entry)
-					mark(
-						entry.isIntersecting &&
-							entry.intersectionRect.height >= Math.min(entry.boundingClientRect.height, RUN_SHOWN_PX),
-					);
-			},
-			{ root: board, threshold: [0, 0.25, 0.5, 0.75, 1] },
-		);
+		let section: Element | null = null;
+		const measure = () => {
+			if (!section) return mark(false);
+			const view = board.getBoundingClientRect();
+			const box = section.getBoundingClientRect();
+			const visible = Math.max(0, Math.min(box.bottom, view.bottom) - Math.max(box.top, view.top));
+			mark(runSectionShown(visible, box.height));
+		};
+		const sizes = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
 		// The run's sections come from a lazy chunk and remount as the run changes: follow whichever is there.
 		const watch = () => {
-			const section = board.querySelector(':scope > [data-board-section="autopilot"]');
-			if (section === watched) return;
-			if (watched) seen.unobserve(watched);
-			watched = section;
-			if (section) seen.observe(section);
-			else mark(false);
+			section = board.querySelector(':scope > [data-board-section="autopilot"]');
+			sizes?.disconnect();
+			sizes?.observe(board);
+			for (const child of Array.from(board.children)) sizes?.observe(child);
+			measure();
 		};
 		watch();
-		const children = new MutationObserver(watch);
-		children.observe(board, { childList: true });
+		const children = typeof MutationObserver === "undefined" ? null : new MutationObserver(watch);
+		children?.observe(board, { childList: true });
+		board.addEventListener("scroll", measure, { passive: true });
+		window.addEventListener("resize", measure);
 		return () => {
-			children.disconnect();
-			seen.disconnect();
+			children?.disconnect();
+			sizes?.disconnect();
+			board.removeEventListener("scroll", measure);
+			window.removeEventListener("resize", measure);
 			mark(false);
 		};
 	}, [pane, present, inline, autopilotTab, runFolded]);
@@ -557,7 +546,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								flipKey={`ask:${item.id}`}
 								key={item.id}
 								label={item.label}
-								lead={<Dot tone="warning" />}
+								lead={<StatusDot decorative tone="warning" />}
 								onClick={() => focusPrompt(pane)}
 								tag={{ word: t(`workBoard.kind.${item.kind}`), tone: "warning" }}
 								title={item.label}
@@ -595,7 +584,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								data={{ "data-board-turn": "" }}
 								flipKey="turn"
 								label={turnState}
-								lead={<Dot tone="info" />}
+								lead={<StatusDot decorative tone="info" />}
 								title={turnState}
 							/>
 						) : (
@@ -673,13 +662,17 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 					summary={{ lead: planLead, count: planFigure }}
 					mid={
 						plan ? (
-							<span
-								className="omp-work-board-progress"
-								title={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-							>
-								<SegmentBar
-									label={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
-									segments={plan.segments}
+							<span className="omp-work-board-progress">
+								<ProgressBar
+									ariaLabel={t("workBoard.planProgress", { done: plan.done, total: plan.total })}
+									className="min-w-6 flex-1"
+									height={4}
+									segments={plan.segments.map(status => ({
+										value: 1,
+										tone: TODO_SEGMENT[status].tone,
+										label: t(TODO_SEGMENT[status].label),
+									}))}
+									value={plan.total > 0 ? plan.done / plan.total : 0}
 								/>
 								<span aria-hidden>
 									{plan.done}/{plan.total}
@@ -754,11 +747,11 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 								row.status === "completed" ? (
 									<Check aria-hidden className="size-3 text-(--sc-success)" />
 								) : row.status === "in_progress" ? (
-									<Dot tone="info" />
+									<StatusDot decorative tone="info" />
 								) : row.status === "blocked" ? (
-									<Dot tone="warning" />
+									<StatusDot decorative tone="warning" />
 								) : (
-									<Dot ring tone="muted" />
+									<StatusDot decorative ring tone="neutral" />
 								)
 							}
 							onClick={() => showTodoCard(pane)}

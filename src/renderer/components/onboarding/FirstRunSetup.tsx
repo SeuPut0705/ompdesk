@@ -28,6 +28,7 @@ import {
 	Banner,
 	BrandMark,
 	Button,
+	Card,
 	EmptyState,
 	ErrorDetail,
 	ListRow,
@@ -257,7 +258,7 @@ function ConnectStep() {
 					/>
 				</div>
 			)}
-			<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3">
+			<Card className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2" padding="row" radius="lg">
 				<div className="flex min-w-0 flex-1 basis-48 items-center gap-1.5">
 					<span className="min-w-0 text-sc-md font-medium break-keep text-(--sc-text)">
 						{t("setup.custom.title")}
@@ -267,7 +268,7 @@ function ConnectStep() {
 				<Button icon={<Plus />} onClick={() => setCustomForm(true)} variant="secondary">
 					{t("providerList.addCustom")}
 				</Button>
-			</div>
+			</Card>
 			<div className="mt-4 flex justify-end border-t border-(--sc-divider) pt-4">
 				<Button onClick={() => setPhase("idle")} variant="secondary">
 					{t("setup.later")}
@@ -425,9 +426,11 @@ function ModelStep() {
 					/>
 				)
 			) : (
-				<div
+				<Card
 					aria-label={t("setup.model.title")}
-					className="flex max-h-96 flex-col overflow-y-auto rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-1"
+					className="flex max-h-96 flex-col overflow-y-auto p-1"
+					padding="none"
+					radius="lg"
 					ref={list}
 					role="radiogroup"
 				>
@@ -468,7 +471,7 @@ function ModelStep() {
 							/>
 						);
 					})}
-				</div>
+				</Card>
 			)}
 
 			{test.kind === "ok" && (

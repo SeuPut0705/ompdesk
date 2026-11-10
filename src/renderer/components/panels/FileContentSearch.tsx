@@ -10,7 +10,7 @@ import type { IpcFsSearchResult } from "../../../shared/ipc-types";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
-import { EmptyState, IconButton, InlineNotice, SearchField, SkeletonRows } from "../common";
+import { EmptyState, IconButton, InlineNotice, PathText, SearchField, SkeletonRows } from "../common";
 
 /** Pause after the last keystroke before a search runs. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -163,16 +163,14 @@ export function FileContentSearch({ tabId, focusSeq }: { tabId: string | undefin
 					<ul className="pt-1">
 						{groups.map(group => (
 							<li key={group.path} className="pb-1">
-								<div
-									className="truncate px-2 py-1 text-sc-sm font-medium text-(--sc-text)"
-									title={group.path}
-									data-content-search-file={group.path}
-								>
-									{group.path}
+								<div className="px-2 py-1 text-sc-sm font-medium" data-content-search-file={group.path}>
+									<PathText className="font-sans text-(--sc-text)" path={group.path} />
 								</div>
 								<ul>
 									{group.lines.map(hit => (
 										<li key={hit.line}>
+											{/* ListRow's 28 px would show a third fewer hits in the panel, and density matters more here. */}
+											{/* controls-ok: a search hit's line is a dense 20 px row (line number, text) */}
 											<button
 												type="button"
 												className="flex w-full min-w-0 items-baseline gap-2 rounded-(--sc-radius-sm) px-2 py-0.5 text-left text-sc-xs hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"

@@ -103,6 +103,7 @@ export function FamilyRow({
 				>
 					<Icon className="size-(--sc-icon-md)" />
 				</span>
+				{/* controls-ok: the omp-family-row class draws the sidebar row whole; this button is its click target */}
 				<button
 					{...buttonProps}
 					aria-current={selected ? "true" : undefined}

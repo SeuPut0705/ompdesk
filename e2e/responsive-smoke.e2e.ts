@@ -384,8 +384,9 @@ test("responsive smoke 390: a tap on the drawer's edge strip reaches the control
 	await show(page, look, "agents-prs");
 	const strip = await page.locator("[data-edge-zone]").boundingBox();
 	if (!strip) throw new Error("no edge strip");
-	// The PR list's rows start 8 px from the screen's edge, so the strip lies over their first 2 px.
-	const row = page.locator("nav > ul > li > button").first();
+	// The PR list's rows start 8 px from the screen's edge, so the strip lies over their first 2 px. The row is the
+	// control: its button stretches over the whole row.
+	const row = page.locator("nav > ul > li").first();
 	const box = await row.boundingBox();
 	if (!box) throw new Error("no PR row");
 	expect(box.x).toBeLessThan(strip.x + strip.width);

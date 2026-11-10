@@ -1,4 +1,5 @@
 import { useLayoutEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
 
@@ -24,9 +25,12 @@ export function useBoardDocked(): boolean {
 			setDocked(false);
 			return;
 		}
-		const read = () => setDocked(pane.hasAttribute("data-work-board"));
-		read();
-		const observer = new MutationObserver(read);
+		setDocked(pane.hasAttribute("data-work-board"));
+		// The board marks the pane in its own layout effect, which may run after this one in the same commit (both
+		// mount with the tab), or later when it docks mid-turn. The observer's microtask runs before the frame is
+		// painted and a render scheduled from it may not: flushed here, the lines never show for a frame beside the
+		// board that lists them.
+		const observer = new MutationObserver(() => flushSync(() => setDocked(pane.hasAttribute("data-work-board"))));
 		observer.observe(pane, { attributes: true, attributeFilter: ["data-work-board"] });
 		return () => observer.disconnect();
 	}, [tabId]);

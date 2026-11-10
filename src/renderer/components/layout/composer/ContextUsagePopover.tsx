@@ -278,6 +278,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 			onMouseLeave={sheet ? undefined : scheduleClose}
 		>
 			<Tooltip content={label} describe={false} hidden={open}>
+				{/* controls-ok: the popover's trigger is the context ring itself; IconButton would redraw the ring at icon size */}
 				<button
 					{...(sheet ? keepFocus : {})}
 					aria-controls={mounted ? "omp-context-usage-popover" : undefined}
@@ -372,6 +373,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 						{capacityKnown && (
 							<ProgressBar
 								ariaLabel={t("contextUsage.progress", { percent: Math.round(percent) })}
+								ariaValueText={t("contextUsage.left", { tokens: formatTokens(remainingTokens) })}
 								className="mt-3"
 								segments={
 									categories.length > 0
@@ -383,6 +385,7 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 										: [{ value: usedTokens, label: t("contextUsage.used"), color: "var(--sc-accent)" }]
 								}
 								total={contextWindow}
+								value={percent / 100}
 							/>
 						)}
 

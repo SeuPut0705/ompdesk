@@ -225,7 +225,7 @@ describe("ProviderPicker while omp starts", () => {
 		const login = fakeLogin();
 		await mountLive("error", login);
 		expect(claudeCard()?.disabled).toBe(true);
-		expect(claudeCard()?.getAttribute("title")).toBe(translate("providers.notConnected"));
+		expect(document.body.textContent).toContain(translate("providers.notConnected"));
 		await act(async () => claudeCard()?.click());
 		expect(login.start).not.toHaveBeenCalled();
 	});

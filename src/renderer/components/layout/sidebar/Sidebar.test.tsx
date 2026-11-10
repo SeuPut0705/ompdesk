@@ -1251,7 +1251,7 @@ describe("Sidebar menus and pinned ordering", () => {
 				.filter(path => path?.startsWith("/work/alpha/"));
 		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
 		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
-		expect(menuItem("Move down").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Move down").getAttribute("aria-disabled") === "true").toBe(true);
 		await fire(menuItem("Move up"), "onClick");
 		expect(alpha()).toEqual(["/work/alpha/two.jsonl", "/work/alpha/one.jsonl"]);
 		expect(useSidebarPrefs.getState().sessionOrder["/work/alpha"]).toEqual([
@@ -1267,7 +1267,7 @@ describe("Sidebar menus and pinned ordering", () => {
 		await act(async () => useSidebarPrefs.setState({ pinnedSessions: ["/work/alpha/one.jsonl"] }));
 		expect(alpha()).toEqual(["/work/alpha/one.jsonl", "/work/alpha/two.jsonl"]);
 		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
-		expect(menuItem("Move up").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Move up").getAttribute("aria-disabled") === "true").toBe(true);
 	});
 
 	it("dragging a session row onto another row of its list moves it there, and the order is kept", async () => {
@@ -1558,11 +1558,11 @@ describe("Sidebar menus and pinned ordering", () => {
 		expect(runningRow.querySelector('[aria-label="Rename session"]')).toBeNull();
 		expect(runningRow.querySelector('[aria-label="Delete session"]')).toBeNull();
 		await openRowMenu(runningRow);
-		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
-		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Rename").getAttribute("aria-disabled") === "true").toBe(false);
+		expect(menuItem("Delete").getAttribute("aria-disabled") === "true").toBe(true);
 		await fire(runningRow, "onContextMenu");
-		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
-		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Rename").getAttribute("aria-disabled") === "true").toBe(false);
+		expect(menuItem("Delete").getAttribute("aria-disabled") === "true").toBe(true);
 		await fire(menuItem("Rename"), "onClick");
 		await commitRenameInput("Session /work/alpha/mine.jsonl", "Renamed running task");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/mine.jsonl", "Renamed running task");
@@ -1585,8 +1585,8 @@ describe("Sidebar menus and pinned ordering", () => {
 
 		// An idle sibling remains editable and deletable despite the active run.
 		await fire(rowFor("Session /work/alpha/one"), "onContextMenu");
-		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
-		expect(menuItem("Delete").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Rename").getAttribute("aria-disabled") === "true").toBe(false);
+		expect(menuItem("Delete").getAttribute("aria-disabled") === "true").toBe(false);
 		await fire(menuItem("Rename"), "onClick");
 		await commitRenameInput("Session /work/alpha/one.jsonl", "Renamed idle task");
 		expect(omp.sessions.rename).toHaveBeenCalledWith("/work/alpha/one.jsonl", "Renamed idle task");
@@ -1791,8 +1791,8 @@ describe("Sidebar menus and pinned ordering", () => {
 		await mount(<Sidebar />);
 
 		await fire(rowFor("Session /work/alpha/mine"), "onContextMenu");
-		expect(menuItem("Rename").hasAttribute("disabled")).toBe(false);
-		expect(menuItem("Delete").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Rename").getAttribute("aria-disabled") === "true").toBe(false);
+		expect(menuItem("Delete").getAttribute("aria-disabled") === "true").toBe(true);
 	});
 
 	it("workspace rows expose a hover action that creates an agent tab in that workspace", async () => {
@@ -3370,7 +3370,7 @@ describe("Sidebar families: the sessions an agent opened", () => {
 			expect(boss().textContent).toContain(translate("attention.childWaiting"));
 			// Its own turn is idle: a waiting child does not make it busy.
 			await openRowMenu(boss());
-			expect(menuItem("Delete").hasAttribute("disabled")).toBe(false);
+			expect(menuItem("Delete").getAttribute("aria-disabled") === "true").toBe(false);
 		} finally {
 			setFocusedSessionRuntime(null);
 		}
@@ -4078,7 +4078,7 @@ describe("Sidebar device sections", () => {
 		});
 
 		await fire(section()?.querySelector('[data-device-group="/code/web"] > div') ?? null, "onContextMenu");
-		expect(menuItem("Move down").hasAttribute("disabled")).toBe(true);
+		expect(menuItem("Move down").getAttribute("aria-disabled") === "true").toBe(true);
 		await fire(menuItem("Move up"), "onClick");
 		expect(groups()).toEqual(["/code/web", "/code/app"]);
 		expect(useSidebarPrefs.getState().groupOrder).toEqual(["dev-studio\n/code/web", "dev-studio\n/code/app"]);
@@ -4167,7 +4167,7 @@ describe("Sidebar device sections", () => {
 			expect(menuItemLabels()).toContain("Unpin");
 			// Pins stay on top: the row below the pinned edge cannot trade places across it.
 			await fire(hostRow("/s/app/one.jsonl"), "onContextMenu");
-			expect(menuItem("Move up").hasAttribute("disabled")).toBe(true);
+			expect(menuItem("Move up").getAttribute("aria-disabled") === "true").toBe(true);
 		});
 
 		it("archives into the host's own Archived section and restores from it, kept under the host's id", async () => {
@@ -5829,7 +5829,7 @@ describe("Sidebar device sections", () => {
 		const row = () => container.querySelector(`[data-device-session="${remotePath}"]`);
 		expect(row()?.querySelectorAll("button[aria-label]:not([data-sidebar-row-menu])")).toHaveLength(0);
 		await openRowMenu(row());
-		expect(menuItem("Close session").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Close session").getAttribute("aria-disabled") === "true").toBe(false);
 		await fire(menuItem("Delete"), "onClick");
 		const dialog = document.body.querySelector('[role="dialog"]');
 		expect(dialog?.textContent).toContain("Remote fix on studio");
@@ -5932,9 +5932,9 @@ describe("Sidebar archive and move", () => {
 		const archivedRow = archivedSection()?.querySelector('[data-session-path="/work/alpha/one.jsonl"]');
 		expect(archivedRow?.getAttribute("data-active")).toBe("true");
 		await fire(rowFor("Session /work/alpha/two"), "onContextMenu");
-		expect(menuItem("Archive").hasAttribute("disabled")).toBe(true);
-		expect(menuItem("Move to project…").hasAttribute("disabled")).toBe(true);
-		expect(menuItem("Save diagnostic bundle").hasAttribute("disabled")).toBe(false);
+		expect(menuItem("Archive").getAttribute("aria-disabled") === "true").toBe(true);
+		expect(menuItem("Move to project…").getAttribute("aria-disabled") === "true").toBe(true);
+		expect(menuItem("Save diagnostic bundle").getAttribute("aria-disabled") === "true").toBe(false);
 	});
 
 	it("Archive all on a project archives every session no tab holds", async () => {

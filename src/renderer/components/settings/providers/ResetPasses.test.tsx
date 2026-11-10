@@ -161,19 +161,34 @@ describe("reset pass badge", () => {
 	});
 });
 
+/** What the kit Tooltip says once keyboard focus reaches the control. */
+async function tooltipOf(target: Element | null | undefined): Promise<string | null | undefined> {
+	if (!target) return undefined;
+	// linkedom knows no `:focus-visible`; this focus came from the keyboard.
+	const matches = target.matches.bind(target);
+	const spy = vi
+		.spyOn(target, "matches")
+		.mockImplementation(selector => selector === ":focus-visible" || matches(selector));
+	await act(async () => target.dispatchEvent(new Event("focusin", { bubbles: true })));
+	const text = document.querySelector("[role=tooltip]")?.textContent;
+	await act(async () => target.dispatchEvent(new Event("focusout", { bubbles: true })));
+	spy.mockRestore();
+	return text;
+}
+
 describe("reset passes on provider accounts", () => {
 	it("shows each account's passes as a ticket with the count, and holds the action while stock says it is unavailable", async () => {
 		await mountAccounts([healthy, limited]);
 		const pass = (account: string) => button(translate("resetPasses.useFor", { account }));
 		// The row carries the count alone; how many are usable and the expiry are the button's tooltip.
 		expect(pass("home@example.com")?.textContent).toBe("2");
-		expect(pass("home@example.com")?.getAttribute("title")).toBe(resetPassSummary(usable, translate));
+		expect(await tooltipOf(pass("home@example.com"))).toBe(resetPassSummary(usable, translate));
 		expect(pass("home@example.com")?.disabled).toBe(false);
 		expect(pass("work@example.com")?.textContent).toBe("1");
-		expect(pass("work@example.com")?.getAttribute("title")).toContain(
+		expect(await tooltipOf(pass("work@example.com"))).toContain(
 			translate("resetPasses.unavailable", { reason: translate("resetPasses.unavailableUnknown") }),
 		);
-		expect(pass("work@example.com")?.disabled).toBe(true);
+		expect(pass("work@example.com")?.getAttribute("aria-disabled")).toBe("true");
 		expect(text()).not.toContain(translate("resetPasses.use"));
 	});
 
@@ -264,7 +279,7 @@ describe("reset passes on the Usage page", () => {
 		useSessionStore.setState({ status: "ready" });
 		await mount(<UsageQuotas />);
 		const pass = button(translate("resetPasses.useFor", { account: "home@example.com" }));
-		expect(pass?.getAttribute("title")).toBe(resetPassSummary(usable, translate));
+		expect(await tooltipOf(pass)).toBe(resetPassSummary(usable, translate));
 		expect(pass?.disabled).toBe(false);
 	});
 });

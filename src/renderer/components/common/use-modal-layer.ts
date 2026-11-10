@@ -16,15 +16,16 @@ const FIELD =
 
 /** A control that Enter, Space or an arrow key changes the value of: a dialog never opens on one. */
 const STATEFUL =
-	'select, input[type="checkbox"], input[type="radio"], input[type="range"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"]';
+	'select, input[type="checkbox"], input[type="radio"], input[type="range"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [aria-pressed]';
 
 /** Never a first focus: the header's ✕, and whatever a dialog opts out (`data-dialog-nofocus` on it or around it). */
 const NEVER_FIRST = "[data-dialog-close], [data-dialog-nofocus]";
 
 /**
  * Where a dialog that focused nothing itself starts: the element it marks (`data-dialog-autofocus`), else its first
- * text field, else the first control of its body that changes nothing when pressed (a switch, a checkbox, a radio or a
- * select would flip or change its value at the first Enter, Space or arrow), else the panel. Never the header's close
+ * text field, else the first control of its body that changes nothing when pressed (a switch, a checkbox, a radio, a
+ * toggle button such as a `Chip` toggle, or a select would flip or change its value at the first Enter, Space or
+ * arrow), else the panel. Never the header's close
  * button: a ✕ opening wrapped in the focus ring is the loudest thing on screen, and typing would go nowhere. Escape
  * closes, and Tab still reaches every one of them.
  */

@@ -18,7 +18,6 @@ import {
 	Square,
 	SquareDashed,
 	Tablet,
-	X,
 	XCircle,
 	ZoomIn,
 	ZoomOut,
@@ -60,6 +59,8 @@ import {
 	MenuButton,
 	Popover,
 	Spinner,
+	StatusDot,
+	Tabs,
 } from "../common";
 import { PreviewCheckNotice } from "./PreviewCheckNotice";
 import { AllVisualsDialog, PreviewFeedbackBar, usePreviewFeedback } from "./PreviewFeedback";
@@ -372,7 +373,9 @@ export function PreviewPanel() {
 					)}
 					<IconButton
 						label={t(agentHere ? "panel.preview.agent.takeOver" : "panel.preview.agent.allow")}
-						title={state.session === "visual" && !agentHere ? t("panel.preview.agent.webOnly") : undefined}
+						disabledReason={
+							state.session === "visual" && !agentHere ? t("panel.preview.agent.webOnly") : undefined
+						}
 						icon={<Bot />}
 						size="sm"
 						pressed={agentHere}
@@ -456,43 +459,33 @@ export function PreviewPanel() {
 				</ol>
 			</Popover>
 			{state.tabs.length > 1 && (
-				<nav
-					aria-label={t("panel.preview.tabs")}
-					className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-(--sc-divider) px-2 py-1"
-					data-preview-tabs
-				>
-					{state.tabs.map(tab => {
-						const active = tab.id === state.activeTab;
-						const title = tab.title || tab.url || t("panel.preview.newTab");
-						return (
-							<div
-								key={tab.id}
-								className={`flex max-w-48 min-w-24 shrink-0 items-center rounded-(--sc-radius-sm) border ${active ? "border-(--sc-border) bg-(--sc-selected)" : "border-transparent hover:bg-(--sc-hover)"}`}
-								data-preview-tab={tab.id}
-							>
-								<button
-									type="button"
-									aria-current={active ? "page" : undefined}
-									className={`flex h-(--sc-control-sm) min-w-0 flex-1 items-center gap-1.5 truncate rounded-(--sc-radius-sm) px-2 text-left text-sc-xs focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) ${active ? "text-(--sc-text)" : "text-(--sc-text-muted) hover:text-(--sc-text)"}`}
-									title={tab.url || title}
-									onClick={() => command({ action: "selectTab", id: tab.id })}
-								>
-									{tab.loading ? (
-										<Spinner size="sm" />
-									) : (
-										<Globe aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-									)}
-									<span className="truncate">{title}</span>
-								</button>
-								<IconButton
-									label={t("panel.preview.closeTab", { title })}
-									icon={<X />}
-									size="sm"
-									onClick={() => command({ action: "closeTab", id: tab.id })}
-								/>
-							</div>
-						);
-					})}
+				<div className="flex min-w-0 shrink-0 items-center gap-1 border-b border-(--sc-divider) px-2 py-1">
+					<Tabs
+						activeId={state.activeTab ?? ""}
+						ariaLabel={t("panel.preview.tabs")}
+						className="min-w-0 flex-1"
+						compact
+						data-preview-tabs
+						onChange={id => command({ action: "selectTab", id })}
+						tabs={state.tabs.map(tab => {
+							const title = tab.title || tab.url || t("panel.preview.newTab");
+							return {
+								id: tab.id,
+								label: title,
+								leading: tab.loading ? (
+									<Spinner size="sm" />
+								) : (
+									<Globe aria-hidden className="size-(--sc-icon-sm) shrink-0" />
+								),
+								tooltip: tab.url || title,
+								attrs: { "data-preview-tab": tab.id },
+								className: "max-w-48 min-w-24",
+								onClose: () => command({ action: "closeTab", id: tab.id }),
+								closeLabel: t("panel.preview.closeTab", { title }),
+							};
+						})}
+						variant="pills"
+					/>
 					<IconButton
 						label={t("panel.preview.newTab")}
 						icon={<Plus />}
@@ -500,7 +493,7 @@ export function PreviewPanel() {
 						disabled={state.tabs.length >= PREVIEW_TAB_LIMIT}
 						onClick={() => command({ action: "newTab" })}
 					/>
-				</nav>
+				</div>
 			)}
 			{state.agent && (
 				<div
@@ -508,9 +501,12 @@ export function PreviewPanel() {
 					data-preview-agent={state.agent.attached ? "attached" : "waiting"}
 					role="status"
 				>
-					<span
-						aria-hidden
-						className={`size-2 shrink-0 rounded-full bg-(--sc-accent) ${state.agent.attached ? "omp-pulse-dot" : "opacity-50"}`}
+					<StatusDot
+						decorative
+						ring={!state.agent.attached}
+						size="md"
+						tone="working"
+						pulse={state.agent.attached}
 					/>
 					<span className="min-w-0 flex-1 break-words">
 						{t(state.agent.attached ? "panel.preview.agent.driving" : "panel.preview.agent.waiting")}

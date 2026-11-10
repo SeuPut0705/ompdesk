@@ -332,11 +332,6 @@ describe("ExtensionDialog ask", () => {
 					?.textContent?.match(/Target/g) ?? []
 			).length,
 		).toBe(1);
-		// A chip cuts a long label: hovering it names the label and the question that step asks.
-		expect(card().querySelector('[data-ask-step="0"]')?.getAttribute("title")).toBe(
-			"Target · Where should this deploy?",
-		);
-		expect(card().querySelector('[data-ask-step="1"]')?.getAttribute("title")).toBe("Run the tests first?");
 
 		// The current step is the one tab stop of the step chips; the arrows move between questions.
 		const chips = () => Array.from(card().querySelectorAll("[data-ask-step]"));

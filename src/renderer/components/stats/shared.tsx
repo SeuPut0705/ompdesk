@@ -9,7 +9,7 @@ import { inlineFailure } from "../../lib/error-detail";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { isImeKeyEvent } from "../../lib/ime";
-import { AsyncSection, Card } from "../common";
+import { AsyncSection, Card, SettingInfo } from "../common";
 
 export const STATS_RANGES = ["1h", "24h", "7d", "30d", "90d", "all"] as const;
 export type StatsRange = (typeof STATS_RANGES)[number];
@@ -133,6 +133,8 @@ export interface StatColumn<T> {
 	key: string;
 	label: string;
 	align?: "left" | "right";
+	/** What the column's figure means (a formula), behind an (i) glyph beside its header. */
+	info?: string;
 	render: (row: T) => ReactNode;
 }
 
@@ -162,7 +164,14 @@ export function StatTable<T>({
 								key={column.key}
 								scope="col"
 							>
-								{column.label}
+								{column.info ? (
+									<span className="inline-flex items-center gap-1">
+										{column.label}
+										<SettingInfo text={column.info} />
+									</span>
+								) : (
+									column.label
+								)}
 							</th>
 						))}
 					</tr>
@@ -218,8 +227,4 @@ export function ChartBox({ height = 260, children }: { height?: number; children
 			</div>
 		</Card>
 	);
-}
-
-export function SectionTitle({ children }: { children: ReactNode }) {
-	return <h3 className="mt-8 mb-3 text-sc-md font-semibold text-(--sc-text) first:mt-0">{children}</h3>;
 }

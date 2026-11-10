@@ -398,10 +398,20 @@
 	color: var(--omp-text-secondary);
 }
 /* On a phone's column a wide table scrolls sideways instead of squeezing each cell to a word per line (a seven-column
-   table's notes ran 12 lines tall at 390 px). */
+   table's notes ran 12 lines tall at 390 px). A cell of a sentence or more (markdown.tsx `TableCell`) keeps room for
+   a few lines: at the 7 em every cell gets, a 50-character note scrolled out of view stood five lines tall and made
+   every visible row as tall. */
 @container omp-workspace (max-width: 600px) {
 	.markdown-body td {
 		min-width: 7em;
+	}
+
+	.markdown-body td[data-cell-text="long"] {
+		min-width: 14em;
+	}
+
+	.markdown-body td[data-cell-text="prose"] {
+		min-width: 20em;
 	}
 }
 /* A key a reply names (<kbd>): a keycap, shown on a phone too (mobile.css hides only the app's shortcut chips). */
@@ -1098,16 +1108,18 @@
 	);
 }
 
-.omp-transcript-editorial .omp-message-actions > :not(time) {
+/* The buttons, and a clock that repeats the message before it (MessageBubble `clockRepeats`), show on hover, on focus
+   and, under a finger, on a tap (sticky :hover); a new minute's clock always shows. */
+.omp-transcript-editorial .omp-message-actions > :not(time:not([data-clock-repeats])) {
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity var(--sc-duration-fast) var(--sc-ease-standard);
 }
 
-.omp-transcript-editorial .group:hover > .omp-message-actions > :not(time),
-.omp-transcript-editorial .group:hover > * > .omp-message-actions > :not(time),
-.omp-transcript-editorial .group:focus-within > .omp-message-actions > :not(time),
-.omp-transcript-editorial .group:focus-within > * > .omp-message-actions > :not(time) {
+.omp-transcript-editorial .group:hover > .omp-message-actions > :not(time:not([data-clock-repeats])),
+.omp-transcript-editorial .group:hover > * > .omp-message-actions > :not(time:not([data-clock-repeats])),
+.omp-transcript-editorial .group:focus-within > .omp-message-actions > :not(time:not([data-clock-repeats])),
+.omp-transcript-editorial .group:focus-within > * > .omp-message-actions > :not(time:not([data-clock-repeats])) {
 	opacity: 1;
 	pointer-events: auto;
 }
@@ -2504,10 +2516,9 @@ html[data-input="touch"] [data-update-notice] {
 	white-space: nowrap;
 }
 
-button.omp-file-chip-name:hover {
-	color: var(--sc-accent);
-	text-decoration: underline;
-	text-underline-offset: 2px;
+.omp-file-chip-note {
+	flex: none;
+	color: var(--sc-text-subtle);
 }
 
 /* A local audio or video file in the transcript: native player, then its name and the Files viewer. */
@@ -2809,30 +2820,15 @@ button.omp-file-chip-name:hover {
 	flex: 1 1 auto;
 	flex-direction: column;
 	min-width: 0;
+	color: var(--sc-text);
 }
 
 .omp-file-card-name {
 	overflow: hidden;
-	color: var(--sc-text);
 	font-size: var(--sc-font-sm);
 	font-weight: 500;
-	text-align: start;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	cursor: pointer;
-}
-
-.omp-file-card-name:hover:not(:disabled) {
-	color: var(--sc-accent);
-}
-
-.omp-file-card-name:disabled {
-	cursor: default;
-}
-
-.omp-file-card-name:focus-visible {
-	border-radius: var(--sc-radius-sm);
-	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 }
 
 .omp-file-card-meta {
@@ -3487,20 +3483,6 @@ button.omp-file-chip-name:hover {
 	max-height: calc(var(--sc-space-3) + 2 * 3.5rem + var(--sc-space-3) + var(--sc-space-2));
 	overflow-y: auto;
 	overscroll-behavior: contain;
-}
-
-/* A remove button inside a chip (a folded paste, a file): a 24px disc in the chip's 28px height, 36px reach. */
-.omp-attachment-chip-remove {
-	width: 24px;
-	height: 24px;
-	margin-right: 1px;
-	border-radius: var(--sc-radius-full);
-}
-
-.omp-attachment-chip-remove::after {
-	content: "";
-	position: absolute;
-	inset: -6px;
 }
 
 /* Narrow main area: the breadcrumb truncates the project before the session

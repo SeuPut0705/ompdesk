@@ -55,6 +55,8 @@ export interface MessageBubbleProps {
 	runningIndicator?: RunningIndicator;
 	/** Opening assistant emoji projected onto this user turn. */
 	reaction?: string;
+	/** The clock reads the same as the message before it: it waits in the action row (hover, focus, a tap) instead. */
+	clockRepeats?: boolean;
 }
 
 const COMPACTION_METHOD_KEYS: Record<string, string> = {
@@ -306,9 +308,10 @@ function ContextBubble({ message }: { message: AgentMessage }) {
 }
 
 /**
- * Message actions (time, copy, branch). The time always shows; the buttons are hover/focus-revealed (opacity +
- * :focus-within, never display:none). Placed by CSS (`.omp-message-actions`): beside a user's bubble or in the
- * action row a turn reserves in its own bottom padding, so they never cover text and revealing them moves nothing.
+ * Message actions (time, copy, branch). The time shows unless it repeats the message before it; the buttons, and a
+ * repeated time, are hover/focus-revealed (opacity + :focus-within, never display:none). Placed by CSS
+ * (`.omp-message-actions`): beside a user's bubble or in the action row a turn reserves in its own bottom padding, so
+ * they never cover text and revealing them moves nothing.
  */
 function MessageActions({
 	className,
@@ -316,6 +319,7 @@ function MessageActions({
 	onBranch,
 	branchDisabled,
 	timestamp,
+	clockRepeats,
 }: {
 	className: string;
 	/** The message's text, built when the user copies it. */
@@ -323,6 +327,7 @@ function MessageActions({
 	onBranch?: () => void;
 	branchDisabled: boolean;
 	timestamp: string;
+	clockRepeats: boolean;
 }) {
 	const t = useT();
 	// On touch a tap reveals this row (sticky :hover / :focus-within), and the next scroll-stop tap can land in
@@ -331,7 +336,14 @@ function MessageActions({
 	return (
 		// select-none: a selection through the turn copies the message, never its clock.
 		<div className={cx("omp-message-actions flex select-none items-center gap-0.5", className)}>
-			{timestamp && <time className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)">{timestamp}</time>}
+			{timestamp && (
+				<time
+					className="px-1 text-sc-xs tabular-nums text-(--sc-text-subtle)"
+					data-clock-repeats={clockRepeats || undefined}
+				>
+					{timestamp}
+				</time>
+			)}
 			<CopyButton label={t("chat.copyMessage")} text={copyText} />
 			{onBranch &&
 				(touch ? (
@@ -374,6 +386,7 @@ export const MessageBubble = memo(function MessageBubble({
 	message,
 	compact = false,
 	reaction,
+	clockRepeats = false,
 	runningIndicator = "spinner",
 }: MessageBubbleProps) {
 	const t = useT();
@@ -537,6 +550,7 @@ export const MessageBubble = memo(function MessageBubble({
 				</div>
 				<MessageActions
 					branchDisabled={branching || switchPending}
+					clockRepeats={clockRepeats}
 					className="omp-user-actions"
 					copyText={messageText}
 					onBranch={() => void handleBranch()}
@@ -627,6 +641,7 @@ export const MessageBubble = memo(function MessageBubble({
 			{!compactChrome && (
 				<MessageActions
 					branchDisabled={branching || switchPending}
+					clockRepeats={clockRepeats}
 					className="omp-assistant-actions"
 					copyText={messageText}
 					onBranch={isAssistant ? () => void handleBranch() : undefined}

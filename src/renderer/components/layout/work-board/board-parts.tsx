@@ -78,19 +78,9 @@ export function CappedRows<T>({
 	);
 }
 
-export function Dot({
-	tone,
-	ring = false,
-}: {
-	tone: "info" | "success" | "warning" | "danger" | "muted";
-	ring?: boolean;
-}) {
-	return <span aria-hidden className="omp-work-board-dot" data-ring={ring || undefined} data-tone={tone} />;
-}
-
 /**
  * A row's lead mark when the kind of thing (subagent, job, file, branch…) is the information: an icon tinted by its
- * state. A dot (`Dot`) is for rows whose state is all there is to say.
+ * state. A `StatusDot decorative` is for rows whose state is all there is to say.
  */
 export function KindMark({
 	icon: Icon,

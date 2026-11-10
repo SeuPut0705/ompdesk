@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import type { SshPrompt } from "../../../shared/ssh-tools";
 import { useT } from "../../lib/i18n";
-import { Button, Input, Modal } from "../common";
+import { Button, Card, Input, Modal } from "../common";
 
 /** Ticks once a second while `active`, for countdowns. */
 export function useNow(active: boolean): number {
@@ -71,9 +71,13 @@ export function SshPromptDialog() {
 							{t("ssh.prompt.hostKeyBody", { host: prompt.host ?? prompt.server })}
 						</p>
 						{prompt.fingerprint && (
-							<code className="block rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1.5 font-mono text-sc-xs break-all text-(--sc-text)">
+							<Card
+								as="pre"
+								className="font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text)"
+								padding="sm"
+							>
 								{prompt.fingerprint}
-							</code>
+							</Card>
 						)}
 						<p className="text-sc-xs text-(--sc-text-muted)">{t("ssh.prompt.hostKeyHint")}</p>
 					</>

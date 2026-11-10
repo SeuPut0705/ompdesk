@@ -19,7 +19,7 @@ import {
 	releasePaste,
 } from "../../../lib/paste-blobs";
 import type { ComposerImage } from "../../../stores/composer";
-import { Button, IconButton, Spinner } from "../../common";
+import { Button, Chip, IconButton, Spinner, Tooltip } from "../../common";
 import { ComposerThumbnail, imageSummary } from "./ComposerThumbnail";
 import { MAX_COMPOSER_IMAGES } from "./composer-files";
 import { DraftFileCards } from "./DraftFileCards";
@@ -207,20 +207,25 @@ const ImageStrip = memo(function ImageStrip({
 					onRemoveButton={removeFromButton}
 				/>
 			))}
-			<li
-				className={cx(
-					"flex min-h-7 shrink-0 items-center gap-1 text-sc-xs tabular-nums",
-					over ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
-				)}
-				data-attachment-count={over ? "over" : "ok"}
-				// The count is read with the strip's name; only the warning interrupts.
-				role={over ? "status" : undefined}
-				title={over ? t("input.attachments.over", { count: images.length, max: MAX_COMPOSER_IMAGES }) : undefined}
+			<Tooltip
+				content={over ? t("input.attachments.over", { count: images.length, max: MAX_COMPOSER_IMAGES }) : ""}
+				describe={false}
+				hidden={!over}
 			>
-				{over && <AlertTriangle aria-hidden className="size-(--sc-icon-sm)" />}
-				<span>{t("input.attachments.count", { count: images.length, max: MAX_COMPOSER_IMAGES })}</span>
-				{over && <span>{t("input.attachments.overShort")}</span>}
-			</li>
+				<li
+					className={cx(
+						"flex min-h-7 shrink-0 items-center gap-1 text-sc-xs tabular-nums",
+						over ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+					)}
+					data-attachment-count={over ? "over" : "ok"}
+					// The count is read with the strip's name; only the warning interrupts.
+					role={over ? "status" : undefined}
+				>
+					{over && <AlertTriangle aria-hidden className="size-(--sc-icon-sm)" />}
+					<span>{t("input.attachments.count", { count: images.length, max: MAX_COMPOSER_IMAGES })}</span>
+					{over && <span>{t("input.attachments.overShort")}</span>}
+				</li>
+			</Tooltip>
 			{images.length > 1 && (
 				<li className="shrink-0">
 					<Button data-strip-stop="" onClick={removeAll} size="sm" variant="ghost">
@@ -284,14 +289,9 @@ const UploadChips = memo(function UploadChips({ files }: { files: readonly Sendi
 	return (
 		<ul aria-label={t("input.files.sendingList")} className="flex flex-wrap gap-1.5 px-3 pt-3">
 			{files.map(entry => (
-				<li
-					key={entry.id}
-					className="flex h-7 max-w-full items-center gap-1.5 rounded-(--sc-radius-full) border border-(--sc-border-subtle) px-2.5 text-sc-xs text-(--sc-text-secondary)"
-					data-upload-chip=""
-				>
-					<Spinner size="sm" />
-					<span className="truncate">{t("input.files.sending", { name: entry.name })}</span>
-				</li>
+				<Chip as="li" data-upload-chip="" icon={<Spinner size="sm" />} key={entry.id}>
+					{t("input.files.sending", { name: entry.name })}
+				</Chip>
 			))}
 		</ul>
 	);
@@ -330,43 +330,32 @@ const PasteChips = memo(
 				ref={roving.ref}
 			>
 				{chips.map(({ id, lines, chars }) => (
-					<li
-						key={id}
-						className="flex h-7 items-center rounded-(--sc-radius-full) border border-(--sc-border-subtle) text-sc-xs text-(--sc-text-secondary)"
+					<Chip
+						as="li"
 						data-strip-item=""
+						icon={<ClipboardPaste aria-hidden className="text-(--sc-text-muted)" />}
+						key={id}
+						labelAttrs={{ "data-paste-chip": id, "data-strip-stop": "" }}
+						onClick={() => onEdit(id)}
+						onRemove={() => onRemove([id])}
+						removeAttrs={{ "data-strip-remove": "", tabIndex: -1 }}
+						removeLabel={t("input.paste.remove", { id })}
+						tooltip={t("input.paste.edit")}
+						trailing={
+							<IconButton
+								icon={<TextCursorInput />}
+								label={t("input.paste.asText", { id })}
+								onClick={() => onAsText(id)}
+								size="inline"
+								tabIndex={-1}
+							/>
+						}
 					>
-						<button
-							className="flex h-full items-center gap-1.5 rounded-(--sc-radius-full) pr-1 pl-2.5 hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
-							data-paste-chip={id}
-							data-strip-stop=""
-							onClick={() => onEdit(id)}
-							title={t("input.paste.edit")}
-							type="button"
-						>
-							<ClipboardPaste aria-hidden className="size-(--sc-icon-sm) text-(--sc-text-muted)" />
-							{/* The marker's own unit: lines past ten, else characters. */}
-							<span className="tabular-nums">
-								{lines > 10 ? t("input.paste.chip", { id, lines }) : t("input.paste.chipChars", { id, chars })}
-							</span>
-						</button>
-						<IconButton
-							className="omp-attachment-chip-remove shrink-0"
-							icon={<TextCursorInput />}
-							label={t("input.paste.asText", { id })}
-							onClick={() => onAsText(id)}
-							size="sm"
-							tabIndex={-1}
-						/>
-						<IconButton
-							className="omp-attachment-chip-remove shrink-0"
-							data-strip-remove=""
-							icon={<X />}
-							label={t("input.paste.remove", { id })}
-							onClick={() => onRemove([id])}
-							size="sm"
-							tabIndex={-1}
-						/>
-					</li>
+						{/* The marker's own unit: lines past ten, else characters. */}
+						<span className="tabular-nums">
+							{lines > 10 ? t("input.paste.chip", { id, lines }) : t("input.paste.chipChars", { id, chars })}
+						</span>
+					</Chip>
 				))}
 				{chips.length > 1 && (
 					<li className="shrink-0">

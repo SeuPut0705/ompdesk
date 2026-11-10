@@ -231,7 +231,7 @@ for (const [language, theme] of variants([
 
 			// C95: a new repository only after a visibility is chosen.
 			await center.getByRole("tab", { name: "Repositories", exact: true }).click();
-			await expect(center.getByRole("button", { name: /The project/ })).toBeVisible();
+			await expect(center.getByText("The project", { exact: true })).toBeVisible();
 			await center.getByRole("button", { name: "New repository", exact: true }).click();
 			const create = page.getByRole("dialog", { name: "New repository" });
 			await create.getByLabel("Name", { exact: true }).fill("fresh");

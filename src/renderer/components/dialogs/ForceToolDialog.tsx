@@ -162,7 +162,7 @@ export function ForceToolDialog() {
 								icon={<X />}
 								onClick={() => void clear()}
 								size="sm"
-								title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+								disabledReason={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 								variant="ghost"
 							>
 								{t("forceTool.clear")}
@@ -176,7 +176,7 @@ export function ForceToolDialog() {
 						disabled={!selected || busy || !sidecarReady}
 						loading={busy}
 						onClick={() => void apply()}
-						title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+						disabledReason={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 						variant="primary"
 					>
 						{t("forceTool.apply")}

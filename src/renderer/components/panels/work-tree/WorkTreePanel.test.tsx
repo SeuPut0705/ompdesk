@@ -277,7 +277,7 @@ describe("WorkTreePanel", () => {
 		await mount();
 		expect(rowKeys()).toEqual(["tab:boss", "agent:boss:a", "tab:kid", "tab:far"]);
 		const title = (key: string) =>
-			container.querySelector(`[data-work-tree-row="${key}"]`)?.getAttribute("title") ?? "";
+			container.querySelector(`[data-work-tree-row="${key}"]`)?.getAttribute("aria-label") ?? "";
 		const cost = (key: string) =>
 			container.querySelector(`[data-work-tree-row="${key}"] [data-work-tree-cost]`)?.textContent;
 		// A subscription's spend is an estimate at API prices, never shown as a charge; a metered provider's is one.
@@ -345,7 +345,6 @@ describe("WorkTreePanel", () => {
 		expect(rows.map(row => row.getAttribute("data-saved-worktree"))).toEqual(["s1", "s2"]);
 		expect(rows[0]?.textContent).toContain("gui-s1");
 		expect(rows[0]?.textContent).toContain("omp/agent/s1");
-		expect(rows[0]?.getAttribute("title")).toContain("3 archived files");
 		expect(rows[1]?.textContent).toContain("omp/saved/s2");
 		await act(async () => container.querySelector('[data-saved-restore="s1"]')?.click());
 		await settle();

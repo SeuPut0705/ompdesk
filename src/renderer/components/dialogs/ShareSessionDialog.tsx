@@ -107,7 +107,7 @@ export function ShareSessionDialog() {
 							variant="secondary"
 							disabled={uploading || !sidecarReady}
 							onClick={() => void prepare()}
-							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+							disabledReason={!sidecarReady ? t("sidecar.notResponding") : undefined}
 						>
 							{t("shareDialog.refreshPreview")}
 						</Button>
@@ -116,7 +116,7 @@ export function ShareSessionDialog() {
 								loading={uploading}
 								disabled={uploading || !sidecarReady}
 								onClick={() => void upload()}
-								title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+								disabledReason={!sidecarReady ? t("sidecar.notResponding") : undefined}
 								variant="primary"
 							>
 								{t("shareDialog.upload")}
@@ -195,7 +195,7 @@ export function ShareSessionDialog() {
 							disabled={uploading || !sidecarReady}
 							onClick={() => void prepare()}
 							size="sm"
-							title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+							disabledReason={!sidecarReady ? t("sidecar.notResponding") : undefined}
 						>
 							{t("shareDialog.refreshPreview")}
 						</Button>

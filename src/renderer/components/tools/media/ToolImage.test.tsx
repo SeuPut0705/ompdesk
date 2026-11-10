@@ -5,7 +5,7 @@
 import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
 import { ReadRenderer } from "../renderers/ReadRenderer";
 import { ToolImage } from "./ToolImage";
@@ -40,6 +40,20 @@ afterEach(async () => {
 	container?.remove();
 });
 
+/** Hover past the kit Tooltip's delay and return the bubble's text. */
+async function tooltipOf(element: Element | null | undefined): Promise<string> {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => {
+			element?.dispatchEvent(new Event("pointerover", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(520);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
+}
+
 /** Stock's read of a PNG, image data as the journal holds it. */
 function readResult(data: string) {
 	return {
@@ -71,7 +85,7 @@ describe("read tool images", () => {
 			expect(container.querySelector("img")).toBeNull();
 			const chip = container.querySelector("[data-image-unavailable]");
 			expect(chip?.textContent).toContain("ko-group-1.png");
-			expect(chip?.querySelector("button")?.getAttribute("title")).toBe(PATH);
+			expect(await tooltipOf(chip?.querySelector("button") as unknown as Element)).toBe(PATH);
 			// The model-facing note is not dumped as file text.
 			expect(container.querySelector("pre")).toBeNull();
 			await act(async () => root.unmount());

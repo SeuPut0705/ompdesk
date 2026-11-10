@@ -115,7 +115,10 @@ test("a computer keeps what it sends to a paired host's tab during a long outage
 		await expect(rows).toHaveCount(3);
 		for (const [index, text] of texts.entries()) await expect(rows.nth(index)).toContainText(text);
 		await a.screenshot({ path: "test-results/remote-offline-tray.png", scale: "css", animations: "disabled" });
-		await rows.nth(2).locator("[data-outbox-cancel]").click();
+		await rows
+			.nth(2)
+			.getByRole("button", { name: /^Don't send / })
+			.click();
 		await expect(rows).toHaveCount(2);
 
 		// A's own tab is not behind the link: a message there goes at once, with no tray.

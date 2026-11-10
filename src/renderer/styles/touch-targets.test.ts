@@ -99,7 +99,7 @@ describe("the prompt card on touch", () => {
 		expect(
 			rule('html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data-ask-note])'),
 		).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
-		expect(read("../components/dialogs/PromptCard.tsx")).toContain("data-choice-list");
+		expect(read("../components/common/ChoiceList.tsx")).toContain("data-choice-list");
 		const ask = read("../components/dialogs/ExtensionDialog.tsx");
 		expect(ask).toContain('"data-ask-step": index');
 		expect(ask).toContain("data-ask-note");
@@ -111,7 +111,6 @@ describe("rows and bars on touch", () => {
 		expect(rule('html[data-shell="phone"] .omp-topbar')).toMatch(/height:\s*36px/);
 		for (const row of [
 			'\\[role="menuitem"\\]',
-			"\\.omp-session-sidebar \\[data-session-row\\]",
 			"\\.omp-session-sidebar \\[data-workspace-group\\]",
 			"\\.omp-session-sidebar \\[data-destination\\]",
 			"\\.omp-list-row",
@@ -320,7 +319,7 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-autopilot-controls]')).toMatch(
 			/column-gap:\s*14px;[^}]*row-gap:\s*14px;[^}]*--hit-gap-x:\s*14px;[^}]*--hit-gap-y:\s*14px/,
 		);
-		expect(rule('html[data-input="touch"] :is(.omp-work-board-row, [data-board-row-actions]) > button')).toMatch(
+		expect(rule('html[data-input="touch"] .omp-work-board-row > button')).toMatch(
 			/--hit-gap-x:\s*12px;[^}]*--hit-gap-y:\s*10px/,
 		);
 		expect(rule('html[data-input="touch"] .omp-work-board-title > .omp-work-board-aside')).toMatch(

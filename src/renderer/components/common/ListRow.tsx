@@ -19,6 +19,9 @@
  * secondary line; `accessibleName="row"` names it by every text of the row in
  * order, for a list whose rows are found by any of their words.
  * Rows are colorless at rest; hover and selection are neutral washes.
+ * `tooltip` says more about the row in the kit Tooltip: on the row's button it shows on hover, keyboard focus and a
+ * long press; a row with no `onClick` then becomes one tab stop whose press (a tap) opens the tooltip and does nothing
+ * else. `titleText` is a native title only, unreachable by touch and keyboard.
  * `rowProps` / `buttonProps` pass extra attributes to the row and its
  * button — e.g. onContextMenu and a roving `tabIndex` for long lists (one
  * tab stop + arrow keys), a `style` for an outline's indent.
@@ -26,6 +29,7 @@
 
 import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, useId } from "react";
 import { cx } from "../../lib/format";
+import { Tooltip } from "./Tooltip";
 
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
 
@@ -66,6 +70,8 @@ export interface ListRowProps {
 	selected?: boolean;
 	disabled?: boolean;
 	onClick?: () => void;
+	/** More about the row (a whole path, a status), in the kit Tooltip on hover, keyboard focus and a tap. */
+	tooltip?: ReactNode;
 	/** Native tooltip for truncated titles. */
 	titleText?: string;
 	className?: string;
@@ -121,6 +127,7 @@ export function ListRow({
 	selected,
 	disabled,
 	onClick,
+	tooltip,
 	titleText,
 	className,
 	rowProps,
@@ -174,6 +181,28 @@ export function ListRow({
 			{actions}
 		</span>
 	);
+	// The row's one button: its action, or with only a `tooltip` a press that opens the tooltip and does nothing else.
+	const rowButton =
+		onClick || tooltip ? (
+			<button
+				{...buttonProps}
+				aria-current={selected ? "true" : undefined}
+				aria-describedby={describedBy || undefined}
+				aria-labelledby={labelledBy}
+				className={cx(
+					"block w-full text-left after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed",
+					small ? "after:rounded-(--sc-radius-sm)" : "after:rounded-(--sc-radius-md)",
+					!onClick && "cursor-default",
+					titleClass,
+				)}
+				disabled={onClick ? disabled : undefined}
+				onClick={onClick}
+				title={titleText}
+				type="button"
+			>
+				<span id={titleId}>{title}</span>
+			</button>
+		) : null;
 	return (
 		<div
 			{...rowProps}
@@ -211,24 +240,12 @@ export function ListRow({
 					actions != null && !actionsAtRest && cx(room.var, "[@media(hover:none)]:pr-(--row-room)"),
 				)}
 			>
-				{onClick ? (
-					<button
-						{...buttonProps}
-						aria-current={selected ? "true" : undefined}
-						aria-describedby={describedBy || undefined}
-						aria-labelledby={labelledBy}
-						className={cx(
-							"block w-full text-left after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed",
-							small ? "after:rounded-(--sc-radius-sm)" : "after:rounded-(--sc-radius-md)",
-							titleClass,
-						)}
-						disabled={disabled}
-						onClick={onClick}
-						title={titleText}
-						type="button"
-					>
-						<span id={titleId}>{title}</span>
-					</button>
+				{rowButton ? (
+					tooltip ? (
+						<Tooltip content={tooltip}>{rowButton}</Tooltip>
+					) : (
+						rowButton
+					)
 				) : (
 					<span className={cx("block", titleClass)} id={titleId} title={titleText}>
 						{title}

@@ -20,7 +20,7 @@
  * read defensively below and degrade to "—" when unavailable.
  */
 
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Gauge, RefreshCw, SearchX } from "lucide-react";
+import { Check, Gauge, RefreshCw, SearchX } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type {
 	ModelInfo,
@@ -52,6 +52,8 @@ import {
 	SearchField,
 	Select,
 	SkeletonRows,
+	type SortDirection,
+	SortHeader,
 	Switch,
 } from "../common";
 import { modelRoleName } from "./schema-i18n";
@@ -166,42 +168,6 @@ const CELL = "border-b border-(--sc-divider) px-3 py-2";
 // ============================================================================
 // Presentational pieces
 // ============================================================================
-
-function SortHeader({
-	label,
-	sortKey,
-	sort,
-	onSort,
-	align = "left",
-}: {
-	label: string;
-	sortKey: SortKey;
-	sort: { key: SortKey; dir: 1 | -1 };
-	onSort: (key: SortKey) => void;
-	align?: "left" | "right";
-}) {
-	const active = sort.key === sortKey;
-	const Icon = active ? (sort.dir === 1 ? ArrowUp : ArrowDown) : ArrowUpDown;
-	return (
-		<th
-			aria-sort={active ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
-			className={cx(CELL, "font-medium whitespace-nowrap", align === "right" && "text-right")}
-			scope="col"
-		>
-			<button
-				className={cx(
-					"inline-flex items-center gap-1 rounded-(--sc-radius-xs) text-sc-xs transition-colors duration-(--sc-duration-instant)",
-					active ? "text-(--sc-text)" : "text-(--sc-text-muted) hover:text-(--sc-text)",
-				)}
-				onClick={() => onSort(sortKey)}
-				type="button"
-			>
-				{label}
-				<Icon aria-hidden className={cx("size-3 shrink-0", !active && "opacity-50")} />
-			</button>
-		</th>
-	);
-}
 
 function AuthBadge({ row, t }: { row: Row; t: TFn }) {
 	if (!row.authKnown) return <Badge variant="muted">?</Badge>;
@@ -358,6 +324,8 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 		[current],
 	);
 
+	const sortDirection = (key: SortKey): SortDirection | null =>
+		sort.key === key ? (sort.dir === 1 ? "ascending" : "descending") : null;
 	const handleSort = useCallback((key: SortKey) => {
 		setSort(prev => (prev.key === key ? { key, dir: prev.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
 	}, []);
@@ -467,27 +435,37 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 					<thead className="sticky top-0 z-(--sc-z-raised) bg-(--sc-surface-1)">
 						<tr>
 							<SortHeader
+								className={CELL}
+								direction={sortDirection("provider")}
 								label={t("modelCompare.col.provider")}
-								onSort={handleSort}
-								sort={sort}
-								sortKey="provider"
+								onSort={() => handleSort("provider")}
 							/>
-							<SortHeader label={t("modelCompare.col.model")} onSort={handleSort} sort={sort} sortKey="model" />
 							<SortHeader
-								align="right"
+								className={CELL}
+								direction={sortDirection("model")}
+								label={t("modelCompare.col.model")}
+								onSort={() => handleSort("model")}
+							/>
+							<SortHeader
+								align="end"
+								className={CELL}
+								direction={sortDirection("context")}
 								label={t("modelCompare.col.context")}
-								onSort={handleSort}
-								sort={sort}
-								sortKey="context"
+								onSort={() => handleSort("context")}
 							/>
 							<SortHeader
-								align="right"
+								align="end"
+								className={CELL}
+								direction={sortDirection("cost")}
 								label={t("modelCompare.col.cost")}
-								onSort={handleSort}
-								sort={sort}
-								sortKey="cost"
+								onSort={() => handleSort("cost")}
 							/>
-							<SortHeader label={t("modelCompare.col.roles")} onSort={handleSort} sort={sort} sortKey="roles" />
+							<SortHeader
+								className={CELL}
+								direction={sortDirection("roles")}
+								label={t("modelCompare.col.roles")}
+								onSort={() => handleSort("roles")}
+							/>
 							<th
 								className={cx(
 									CELL,
@@ -635,7 +613,7 @@ export function ModelCompareSection({ onOpenBenchmark }: { onOpenBenchmark: () =
 													loading={busy}
 													onClick={() => void assignSession(row)}
 													size="sm"
-													title={!sidecarReady ? t("modelCompare.notConnected") : undefined}
+													disabledReason={!sidecarReady ? t("modelCompare.notConnected") : undefined}
 													variant="ghost"
 												>
 													{t("modelCompare.use")}

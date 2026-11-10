@@ -29,14 +29,13 @@ import {
 	Folder,
 	type LucideIcon,
 	Presentation,
-	X,
 } from "lucide-react";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
-import { basename, cx, formatBytes, uiLocale } from "../../../lib/format";
+import { basename, formatBytes, uiLocale } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useLinkMenu } from "../../../lib/link-menu";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { IconButton } from "../../common";
+import { Chip, LinkButton, Tooltip } from "../../common";
 import { fileExtension, fileIconKind, viewerKind } from "../../panels/viewers/file-kind";
 import { parseDelimited } from "../../panels/viewers/parse";
 import { FileActions, previewFile } from "./file-actions";
@@ -392,7 +391,7 @@ export interface FileCardProps {
 	path: string;
 	/** Hide the card while the path does not exist (a draft's `@word` that names no file). */
 	hideMissing?: boolean;
-	/** A one-line chip with the file's name and no preview (a draft's mention: the composer's strip stays small). */
+	/** With `onRemove`: a one-line chip with the file's name and no preview (a draft's mention). */
 	compact?: boolean;
 	/** Draw it as a row whatever it holds (a prompt's attachments stay small inside the bubble). */
 	row?: boolean;
@@ -478,45 +477,31 @@ export function FileCard({
 		linkMenu.onContextMenu(event, { kind: "path", path, dir });
 	};
 
-	if (compact) {
+	if (compact && onRemove) {
 		const Icon = KINDS[kind].icon;
-		// A draft's mention: one 28px chip with the file's name (the type, size and path are its tooltip). The
-		// strip's keyboard route (strip-roving.ts) reaches its button; Delete on it removes the mention.
+		// A draft's mention: one chip with the file's name (the path, type and size are its tooltip). The strip's
+		// keyboard route (strip-roving.ts) reaches its label; Delete on it removes the mention.
 		return (
-			<div
-				className={cx(
-					"relative flex h-7 max-w-64 shrink-0 items-center rounded-(--sc-radius-full) border border-(--sc-border-subtle) text-sc-xs text-(--sc-text-secondary)",
-					missing && "text-(--sc-warning)",
-				)}
+			<Chip
+				actionLabel={t("fileCard.open", { name })}
+				className="max-w-64"
 				data-file-card={kind}
+				data-file-path={path}
 				data-state={state.status}
 				data-strip-item=""
+				icon={<Icon aria-hidden className="text-(--sc-text-muted)" />}
+				labelAttrs={{ "data-strip-stop": "" }}
+				labelDisabled={missing}
+				onClick={open}
+				onRemove={onRemove}
 				ref={ref}
-				title={`${path}\n${meta}`}
+				removeAttrs={{ "data-strip-remove": "", tabIndex: -1 }}
+				removeLabel={t("fileCard.remove", { name })}
+				tone={missing ? "warning" : "default"}
+				tooltip={`${path} · ${meta}`}
 			>
-				<button
-					aria-label={t("fileCard.open", { name })}
-					className="flex h-full min-w-0 items-center gap-1.5 rounded-(--sc-radius-full) pr-1 pl-2.5 hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent) disabled:cursor-default"
-					data-strip-stop=""
-					disabled={missing}
-					onClick={open}
-					type="button"
-				>
-					<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-					<span className="truncate font-mono">{name}</span>
-				</button>
-				{onRemove && (
-					<IconButton
-						className="omp-attachment-chip-remove shrink-0"
-						data-strip-remove=""
-						icon={<X />}
-						label={t("fileCard.remove", { name })}
-						onClick={onRemove}
-						size="sm"
-						tabIndex={-1}
-					/>
-				)}
-			</div>
+				<span className="font-mono">{name}</span>
+			</Chip>
 		);
 	}
 
@@ -534,16 +519,17 @@ export function FileCard({
 	const actions = <FileActions dir={dir} disabled={missing} name={name} path={path} />;
 	const caption = (
 		<span className="omp-file-card-caption">
-			{/* controls-ok: the omp-file-card-name class draws the name as the card's open control */}
-			<button
-				aria-label={t(dir ? "fileCard.openFolder" : "fileCard.previewName", { name })}
-				className="omp-file-card-name"
-				disabled={missing}
-				onClick={open}
-				type="button"
-			>
-				{name}
-			</button>
+			<Tooltip content={path}>
+				<LinkButton
+					aria-label={t(dir ? "fileCard.openFolder" : "fileCard.previewName", { name })}
+					className="omp-file-card-name"
+					disabled={missing}
+					onClick={open}
+					tone="inherit"
+				>
+					{name}
+				</LinkButton>
+			</Tooltip>
 			<span className="omp-file-card-meta" data-file-card-meta>
 				{meta}
 			</span>
@@ -554,12 +540,12 @@ export function FileCard({
 			aria-label={name}
 			className="omp-file-card"
 			data-file-card={kind}
+			data-file-path={path}
 			data-shape={shape}
 			data-state={state.status}
 			onContextMenu={onContextMenu}
 			ref={ref}
 			role="group"
-			title={path}
 		>
 			{shape === "card" ? (
 				<span className="omp-file-card-view" data-preview={canPreview ? previewSource : undefined}>

@@ -158,6 +158,7 @@ export function StarterTour() {
 					}}
 				/>
 			)}
+			{/* controls-ok: a non-modal tour card beside a spotlight hole that lets clicks through to the app; Modal and Sheet trap focus and block the page */}
 			<div
 				aria-describedby={bodyId}
 				aria-labelledby={titleId}

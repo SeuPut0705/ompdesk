@@ -119,7 +119,13 @@ export const SETTINGS: readonly Setting[] = [
 	),
 	pref("panelSide", "panelSide", "general", "Side panel edge", "사이드 패널 위치", options("left", "right")),
 	pref("closeToTray", CLOSE_TO_TRAY_PREF, "general", "Close to tray", "창 닫으면 트레이로"),
-	pref("keepAwakeWorking", KEEP_AWAKE_WORKING_PREF, "general", "Keep awake while working", "작업 중 잠자기 방지"),
+	pref(
+		"keepAwakeWorking",
+		KEEP_AWAKE_WORKING_PREF,
+		"general",
+		"Keep this computer awake while it is used",
+		"쓰는 동안 잠자기 막기",
+	),
 	pref("resumeInterrupted", RESUME_INTERRUPTED_PREF, "general", "Resume interrupted work", "중단된 작업 이어서 하기"),
 	pref(
 		"autoPreviewDevServer",

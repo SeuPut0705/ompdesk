@@ -410,7 +410,7 @@ for (const engine of ENGINES)
 				await expect(field).toHaveValue("", { timeout: 30_000 });
 				// The sent bubble shows the file as a card the phone can save back to itself (it is on the computer).
 				const card = phone.locator("[data-prompt-files] [data-file-card]").last();
-				await expect(card).toHaveAttribute("title", hostPath ?? "", { timeout: 30_000 });
+				await expect(card).toHaveAttribute("data-file-path", hostPath ?? "", { timeout: 30_000 });
 				await expect(card.locator("[data-file-card-action='save']")).toHaveAttribute(
 					"aria-label",
 					/^(Save to this device|이 기기에 저장)$/,

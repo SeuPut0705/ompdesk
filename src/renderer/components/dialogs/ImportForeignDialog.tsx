@@ -297,7 +297,7 @@ export function ImportForeignDialog() {
 						onClick={() => void doImport()}
 						size="sm"
 						variant="primary"
-						title={!sidecarReady ? t("import.notConnected") : undefined}
+						disabledReason={!sidecarReady ? t("import.notConnected") : undefined}
 					>
 						{selected.size > 0 ? t("import.importN", { count: selected.size }) : t("import.import")}
 					</Button>

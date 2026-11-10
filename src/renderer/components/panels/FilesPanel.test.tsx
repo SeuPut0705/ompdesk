@@ -173,18 +173,18 @@ it("opens a clicked file as the preview tab and keeps it on a double-click, Keep
 		{ path: "a.ts", preview: false },
 		{ path: "b.ts", preview: true },
 	]);
-	const strip = container.querySelector("nav[data-file-tabs]");
+	const strip = container.querySelector("[role=tablist][data-file-tabs]");
 	expect(strip?.getAttribute("aria-label")).toBe("Open files");
-	expect(strip?.querySelector('[data-file-tab="b.ts"] button[aria-current="page"]')?.className).toContain("italic");
+	expect(strip?.querySelector('[data-file-tab="b.ts"]')?.getAttribute("aria-selected")).toBe("true");
 
 	await press(button(container, "Keep open"), "click");
 	expect(useUiStore.getState().fileTabs.every(tab => !tab.preview)).toBe(true);
 
-	await press(container.querySelector('[data-file-tab="a.ts"] button'), "click");
+	await press(container.querySelector('[data-file-tab="a.ts"]'), "click");
 	expect(useUiStore.getState().filePreviewPath).toBe("a.ts");
 	await press(button(container, "Close b.ts"), "click");
 	expect(useUiStore.getState().fileTabs).toEqual([{ path: "a.ts", preview: false }]);
-	expect(container.querySelector("nav[data-file-tabs]")).toBeNull();
+	expect(container.querySelector("[data-file-tabs]")).toBeNull();
 
 	await act(async () => useUiStore.getState().openFilePreview("c.ts"));
 	await press(button(container, "Edit"), "click");

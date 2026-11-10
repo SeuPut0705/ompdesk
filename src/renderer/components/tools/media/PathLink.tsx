@@ -6,10 +6,12 @@ import { useLinkMenu } from "../../../lib/link-menu";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
+import { LinkButton, Tooltip } from "../../common";
 
 /**
  * A file path rendered as an editor-open link. Reads as plain monospace text
- * inside tool-card headers; hover reveals the affordance. Opening goes through
+ * inside tool-card headers; hover reveals the affordance, and the whole path is
+ * its tooltip (hover, keyboard focus, a long press). Opening goes through
  * the main process (`system:open-path`) for the tab the link belongs to:
  * relative paths resolve against that tab's workspace, failures fall back to
  * revealing the file, only hard failures toast. A remote tab's file lives on
@@ -45,24 +47,22 @@ export function PathLink({ path, children, className }: { path: string; children
 
 	return (
 		<>
-			<button
-				type="button"
-				title={path}
-				onClick={event => {
-					event.stopPropagation();
-					void open();
-				}}
-				onContextMenu={event => {
-					event.stopPropagation();
-					linkMenu.onContextMenu(event, { kind: "path", path, dir: false });
-				}}
-				className={cx(
-					"min-w-0 cursor-pointer rounded-sm text-left transition-colors hover:text-[var(--omp-accent)] hover:underline hover:decoration-[var(--omp-accent)]/50 hover:underline-offset-2",
-					className,
-				)}
-			>
-				{children ?? path}
-			</button>
+			<Tooltip content={path} describe={children !== undefined}>
+				<LinkButton
+					className={cx("inline-block max-w-full min-w-0 align-bottom", className)}
+					onClick={event => {
+						event.stopPropagation();
+						void open();
+					}}
+					onContextMenu={event => {
+						event.stopPropagation();
+						linkMenu.onContextMenu(event, { kind: "path", path, dir: false });
+					}}
+					tone="inherit"
+				>
+					{children ?? path}
+				</LinkButton>
+			</Tooltip>
 			{linkMenu.menu}
 		</>
 	);

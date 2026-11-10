@@ -378,7 +378,7 @@ function RunRow({
 					)}
 				</span>
 				<Tooltip content={formatClock(run.startedAt)}>
-					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
+					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)" tabIndex={0}>
 						{formatTimeAgo(run.startedAt)}
 						{duration ? ` · ${duration}` : ""}
 					</span>

@@ -27,7 +27,7 @@ import { onSessionRuntimesChange, sessionRuntimeStore } from "../../../stores/se
 import type { SubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
-import { CostAmount, DisclosureButton, EmptyState, hasCost, SettingInfo } from "../../common";
+import { CostAmount, DisclosureButton, EmptyState, hasCost, SettingInfo, Tooltip } from "../../common";
 import { FamilyStatus } from "../../layout/sidebar/SidebarFamilyRow";
 import { childUsageText } from "../../layout/sidebar/sidebar-family";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
@@ -154,7 +154,7 @@ const TreeRow = memo(function TreeRow({
 					.join(" · ")
 			: "";
 	const kinds = costKinds(node.usage, billing);
-	const tooltip = [
+	const details = [
 		title,
 		stateLabel,
 		gone ? t("sessionFolder.goneTip") : "",
@@ -162,51 +162,58 @@ const TreeRow = memo(function TreeRow({
 		usage,
 		costWords(t, kinds),
 		branchNote,
-	]
-		.filter(Boolean)
-		.join("\n");
+	].filter(Boolean);
 	return (
 		<li>
-			<button
-				aria-label={[title, stateLabel, node.device].filter(Boolean).join(", ")}
-				className={cx(
-					PANEL_ROW_SURFACE,
-					"omp-work-tree-row flex h-(--sc-control-sm) w-full items-center gap-1.5 rounded-none py-0",
-					node.target === null && "cursor-default hover:bg-transparent",
-				)}
-				data-work-tree-row={node.key}
-				data-work-tree-kind={node.kind}
-				data-work-tree-depth={node.depth}
-				data-state={node.state ?? undefined}
-				disabled={node.target === null}
-				onClick={() => open(node)}
-				style={{ paddingLeft: INSET_PX + node.depth * STEP_PX }}
-				title={tooltip}
-				type="button"
+			<Tooltip
+				content={details.map(line => (
+					<span className="block" key={line}>
+						{line}
+					</span>
+				))}
+				describe={false}
 			>
-				<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-				<span className={cx("min-w-0 flex-1 truncate", node.kind === "branch" && "font-mono text-sc-xs")}>
-					{title}
-				</span>
-				{gone ? (
-					<span className="shrink-0 text-sc-xs text-(--sc-warning)" data-session-folder-gone>
-						{t("sessionFolder.gone")}
+				{/* controls-ok: the omp-work-tree-row class draws the indented tree row (touch heights in mobile.css) */}
+				<button
+					aria-label={details.join(", ")}
+					className={cx(
+						PANEL_ROW_SURFACE,
+						"omp-work-tree-row flex h-(--sc-control-sm) w-full items-center gap-1.5 rounded-none py-0",
+						node.target === null && "cursor-default hover:bg-transparent",
+					)}
+					data-work-tree-row={node.key}
+					data-work-tree-kind={node.kind}
+					data-work-tree-depth={node.depth}
+					data-state={node.state ?? undefined}
+					disabled={node.target === null}
+					onClick={() => open(node)}
+					style={{ paddingLeft: INSET_PX + node.depth * STEP_PX }}
+					type="button"
+				>
+					<Icon aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+					<span className={cx("min-w-0 flex-1 truncate", node.kind === "branch" && "font-mono text-sc-xs")}>
+						{title}
 					</span>
-				) : null}
-				{node.device ? (
-					<span className="max-w-24 shrink-0 truncate text-sc-xs text-(--sc-text-subtle)" data-work-tree-device>
-						{node.device}
-					</span>
-				) : null}
-				{hasCost(kinds) ? (
-					<CostAmount
-						className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums"
-						data={{ "data-work-tree-cost": true }}
-						kinds={kinds}
-					/>
-				) : null}
-				{node.state ? <FamilyStatus state={node.state} /> : null}
-			</button>
+					{gone ? (
+						<span className="shrink-0 text-sc-xs text-(--sc-warning)" data-session-folder-gone>
+							{t("sessionFolder.gone")}
+						</span>
+					) : null}
+					{node.device ? (
+						<span className="max-w-24 shrink-0 truncate text-sc-xs text-(--sc-text-subtle)" data-work-tree-device>
+							{node.device}
+						</span>
+					) : null}
+					{hasCost(kinds) ? (
+						<CostAmount
+							className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums"
+							data={{ "data-work-tree-cost": true }}
+							kinds={kinds}
+						/>
+					) : null}
+					{node.state ? <FamilyStatus state={node.state} /> : null}
+				</button>
+			</Tooltip>
 		</li>
 	);
 });

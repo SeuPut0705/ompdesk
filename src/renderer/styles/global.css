@@ -342,6 +342,19 @@ html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-to
 	padding-right: var(--sc-caption-buttons);
 }
 
+/* The band exists to keep the caption buttons clear; the title the pressed view icon names for the eye elsewhere is
+   shown in it, so the band is not an empty strip. */
+html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar [data-panel-title] > .sr-only {
+	position: static;
+	width: auto;
+	height: auto;
+	margin: 0;
+	overflow: visible;
+	clip-path: none;
+	clip: auto;
+	white-space: nowrap;
+}
+
 html[data-platform="win32"] .omp-inspector:not([data-side="left"]) .omp-panel-topbar :is([data-panel-views], [data-panel-title] + [data-panel-close]) {
 	margin-inline-start: auto;
 }

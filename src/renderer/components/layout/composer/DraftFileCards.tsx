@@ -1,7 +1,7 @@
 /**
  * Chips for the `@path` mentions in the composer draft (A22's picker, drop and
  * paste insert them; the user may type them too): stock reads each one at
- * send time, so the chip names what will go along (FileCard `compact`: a 28px
+ * send time, so the chip names what will go along (FileCard `compact`: a 24px
  * chip with the file's name, its type and size in the tooltip). A mention that
  * names no file gets no chip (stock skips it too). Removing a chip removes its
  * mentions from the draft. The draft is read 300 ms after the last keystroke,

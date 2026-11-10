@@ -275,12 +275,4 @@ describe("memory recall line, audit fixes", () => {
 		await mountMessage(message);
 		expect(rows()[0].querySelector("[data-memory-recall-rate]")).not.toBeNull();
 	});
-
-	it("wraps a long title instead of cutting it, keeping the full title as the tooltip", async () => {
-		await mountMessage(message);
-		const title = rows()[0].querySelector("[data-memory-recall-title]");
-		expect(title?.getAttribute("title")).toBe("Jev 1.14 pinned");
-		expect(title?.getAttribute("class")).toContain("break-words");
-		expect(title?.getAttribute("class")).not.toContain("truncate");
-	});
 });

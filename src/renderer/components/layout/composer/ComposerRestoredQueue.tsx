@@ -10,7 +10,7 @@
  * Discard stay put at the end. `onSettled`: a control left with its row; the composer takes focus back.
  */
 
-import { CornerDownRight, ListPlus, Pause, Play, X } from "lucide-react";
+import { CornerDownRight, ListPlus, Pause, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useT } from "../../../lib/i18n";
 import { resumeRestoredQueue } from "../../../lib/messages";
@@ -19,7 +19,7 @@ import { useTabRpc } from "../../../lib/tab-rpc";
 import { type RestoredQueueItem, useComposerStore } from "../../../stores/composer";
 import { useSessionStore } from "../../../stores/session";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
-import { Button, IconButton, LinkButton, Tooltip } from "../../common";
+import { Button, Chip, Tooltip } from "../../common";
 import { QueueImageTiles, queueRowName } from "./queue-lane";
 
 function HeldChip({ item, onSettled }: { item: RestoredQueueItem; onSettled: () => void }) {
@@ -30,42 +30,38 @@ function HeldChip({ item, onSettled }: { item: RestoredQueueItem; onSettled: () 
 	const laneName = t(`composerQueue.lane.${item.lane}`);
 	const name = queueRowName(item.text, item.images.length);
 	return (
-		<li
-			className="inline-flex h-7 max-w-56 shrink-0 items-center gap-1.5 rounded-full border border-(--sc-border-subtle) bg-(--sc-surface-2) pr-0.5 pl-2.5 text-sc-xs text-(--sc-text-secondary)"
+		<Chip
+			actionLabel={t("composerQueue.pausedEdit", { text: name })}
+			as="li"
+			className="max-w-56"
 			data-restored-item
+			icon={
+				<Tooltip content={laneName} describe={false}>
+					<span className="inline-flex shrink-0 text-(--sc-text-muted)">
+						<LaneIcon aria-hidden className="size-(--sc-icon-sm)" />
+						<span className="sr-only">{laneName}</span>
+					</span>
+				</Tooltip>
+			}
+			onClick={() => {
+				restoreHeldToDraft(item.id);
+				onSettled();
+			}}
+			onRemove={() => {
+				dropRestored(item.id);
+				onSettled();
+			}}
+			removeLabel={t("composerQueue.pausedRemove", { text: name })}
+			tooltip={queueChipLabel(item.text, item.images.length)}
+			trailing={
+				item.images.length > 0 &&
+				item.text !== "" && (
+					<QueueImageTiles count={item.images.length} images={item.images.map(image => image.content)} />
+				)
+			}
 		>
-			<Tooltip content={laneName} describe={false}>
-				<span className="inline-flex shrink-0 text-(--sc-text-muted)">
-					<LaneIcon aria-hidden className="size-(--sc-icon-sm)" />
-					<span className="sr-only">{laneName}</span>
-				</span>
-			</Tooltip>
-			<LinkButton
-				aria-label={t("composerQueue.pausedEdit", { text: name })}
-				className="min-w-0 truncate"
-				onClick={() => {
-					restoreHeldToDraft(item.id);
-					onSettled();
-				}}
-				title={queueChipLabel(item.text, item.images.length)}
-				tone="muted"
-			>
-				{queueChipLabel(item.text, item.images.length)}
-			</LinkButton>
-			{item.images.length > 0 && item.text !== "" && (
-				<QueueImageTiles count={item.images.length} images={item.images.map(image => image.content)} />
-			)}
-			<IconButton
-				className="size-6 rounded-full"
-				icon={<X />}
-				label={t("composerQueue.pausedRemove", { text: name })}
-				onClick={() => {
-					dropRestored(item.id);
-					onSettled();
-				}}
-				size="sm"
-			/>
-		</li>
+			{queueChipLabel(item.text, item.images.length)}
+		</Chip>
 	);
 }
 
@@ -111,19 +107,31 @@ export function ComposerRestoredQueue({ onSettled }: { onSettled: () => void }) 
 					<HeldChip item={item} key={item.id} onSettled={onSettled} />
 				))}
 			</ul>
-			<Tooltip content={t("composerQueue.resumeTip")} describe={false}>
+			{ready ? (
+				<Tooltip content={t("composerQueue.resumeTip")} describe={false}>
+					<Button
+						data-restored-resume
+						disabled={resuming}
+						icon={<Play aria-hidden />}
+						onClick={resume}
+						size="sm"
+						variant="secondary"
+					>
+						{t("composerQueue.resume")}
+					</Button>
+				</Tooltip>
+			) : (
 				<Button
 					data-restored-resume
-					disabled={!ready || resuming}
+					disabled
+					disabledReason={t("common.notConnected")}
 					icon={<Play aria-hidden />}
-					onClick={resume}
 					size="sm"
-					title={ready ? undefined : t("common.notConnected")}
 					variant="secondary"
 				>
 					{t("composerQueue.resume")}
 				</Button>
-			</Tooltip>
+			)}
 			<Button
 				aria-label={t("composerQueue.pausedDiscardAll")}
 				data-restored-discard

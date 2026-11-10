@@ -17,7 +17,6 @@ import {
 	type AutopilotShipPreset,
 	type AutopilotStatus,
 } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
@@ -29,7 +28,7 @@ import { FocusChips } from "../autopilot/FocusChips";
 import { useAutopilotActions } from "../autopilot/use-autopilot-actions";
 import { useAutopilotStateText } from "../autopilot/use-autopilot-state-text";
 import { useBoardDocked } from "../chat/work/use-board-docked";
-import { Button, InlineNotice, SettingInfo, Tabs, Tooltip } from "../common";
+import { Button, IconButton, InlineNotice, SettingInfo, Tabs, Tooltip } from "../common";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
 /** The sheet's shipping choice: a preset, or `auto` (main decides from the repository; nothing is sent). */
@@ -98,19 +97,13 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 function ProcedureGlyph({ text, tone }: { text: string; tone: "ok" | "warning" }) {
 	const Glyph = tone === "ok" ? CircleCheck : TriangleAlert;
 	return (
-		<Tooltip content={text} describe={false}>
-			<button
-				aria-label={text}
-				className={cx(
-					"inline-flex size-(--sc-icon-md) shrink-0 items-center justify-center rounded-(--sc-radius-sm) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)",
-					tone === "ok" ? "text-(--sc-success)" : "text-(--sc-warning)",
-				)}
-				{...(tone === "ok" ? { "data-autopilot-procedure": true } : { "data-autopilot-no-procedure": true })}
-				type="button"
-			>
-				<Glyph aria-hidden className="size-(--sc-icon-sm)" />
-			</button>
-		</Tooltip>
+		<IconButton
+			icon={<Glyph />}
+			label={text}
+			size="inline"
+			tone={tone === "ok" ? "success" : "warning"}
+			{...(tone === "ok" ? { "data-autopilot-procedure": true } : { "data-autopilot-no-procedure": true })}
+		/>
 	);
 }
 

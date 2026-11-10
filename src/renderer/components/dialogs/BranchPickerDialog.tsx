@@ -175,7 +175,7 @@ export function BranchPickerDialog() {
 									disabled={!sidecarReady}
 									onClick={() => setAttempt(count => count + 1)}
 									size="sm"
-									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
+									disabledReason={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 									variant="secondary"
 								>
 									{t("common.retry")}
@@ -195,26 +195,30 @@ export function BranchPickerDialog() {
 							title={entries.length === 0 ? t("branchPicker.empty") : t("branchPicker.noMatch", { query })}
 						/>
 					) : (
-						filtered.map((entry, index) => {
-							const isActive = index === activeIndex;
-							return (
-								<OptionRow
-									active={isActive}
-									selected={false}
-									data-option-index={index}
-									disabled={branching !== null || !sidecarReady}
-									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
-									id={`${listboxId}-option-${index}`}
-									key={entry.entryId}
-									onClick={() => void select(entry)}
-									onMouseEnter={() => setActiveIndex(index)}
-								>
-									<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-									<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{entry.text}</span>
-									{branching === entry.entryId && <Spinner size="sm" spin />}
-								</OptionRow>
-							);
-						})
+						<>
+							{!sidecarReady && (
+								<InlineNotice className="px-2" title={t("modelPicker.notConnected")} tone="warning" />
+							)}
+							{filtered.map((entry, index) => {
+								const isActive = index === activeIndex;
+								return (
+									<OptionRow
+										active={isActive}
+										selected={false}
+										data-option-index={index}
+										disabled={branching !== null || !sidecarReady}
+										id={`${listboxId}-option-${index}`}
+										key={entry.entryId}
+										onClick={() => void select(entry)}
+										onMouseEnter={() => setActiveIndex(index)}
+									>
+										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+										<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{entry.text}</span>
+										{branching === entry.entryId && <Spinner size="sm" spin />}
+									</OptionRow>
+								);
+							})}
+						</>
 					)}
 				</div>
 			</div>

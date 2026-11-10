@@ -1,4 +1,4 @@
-import { ChevronRight, ListChecks } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import { memo, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessage, ReadGroupTarget } from "../../../../shared/rpc-types";
 import { useDisplayPreference } from "../../../lib/display-preferences";
@@ -7,7 +7,7 @@ import { useT } from "../../../lib/i18n";
 import { isRenderableMessageText } from "../../../lib/messages";
 import { useMessagesStore } from "../../../stores/messages";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
-import { Collapse } from "../../common";
+import { Collapse, DisclosureButton } from "../../common";
 import { ReadGroupCard } from "../../tools/renderers/ReadGroupCard";
 import { type StepThoughts, ThoughtCount, TOOL_ROW_CLASS, ToolCard, ToolStatusIcon } from "../../tools/ToolCard";
 import { useStageCall } from "../LiveStepPeek";
@@ -181,12 +181,13 @@ const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group:
 	const thoughts = useStepThoughts(group.thoughts);
 	return (
 		<div className="omp-step-group" data-step-group="" data-open={open} data-state={state}>
-			{/* controls-ok: the omp-step-group-header class draws the whole control */}
-			<button
-				aria-expanded={open}
+			<DisclosureButton
+				chevron="end"
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
 				className={cx("omp-step-group-header", TOOL_ROW_CLASS)}
-				onClick={() => setOpen(value => !value)}
-				type="button"
+				inline
+				onToggle={() => setOpen(value => !value)}
+				open={open}
 			>
 				<ToolStatusIcon kindIcon={<ListChecks />} runningIndicator="dot" state={state} />
 				<span
@@ -211,14 +212,7 @@ const IntentGroup = memo(function IntentGroup({ group, hidden = null }: { group:
 					<span className="sr-only">{t("tools.status.done")}</span>
 				)}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						open && "rotate-90",
-					)}
-				/>
-			</button>
+			</DisclosureButton>
 			<Collapse className="flow-root" open={open}>
 				<div className="omp-step-group-body">
 					{thoughts ? <StepFrame>{thoughts.body}</StepFrame> : null}

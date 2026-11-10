@@ -129,6 +129,20 @@ function accessibleName(node: Element): string {
 		.join(" ");
 }
 
+/** Hover past the kit Tooltip's delay and return the bubble's text. */
+async function tooltipOf(element: Element | null | undefined): Promise<string> {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => {
+			element?.dispatchEvent(new Event("pointerover", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(520);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
+}
+
 async function renderRow(
 	messages: AgentMessage[],
 	name: string,
@@ -358,7 +372,7 @@ describe("ToolCard opened bodies", () => {
 			const link = card.querySelector(".omp-tool-body .omp-tool-open-file");
 			expect(visible(link)).toBe("Open file");
 			expect(words(link?.textContent ?? "")).toBe("Open file main.ts");
-			expect(link?.getAttribute("title")).toBe("src/app/main.ts");
+			expect(await tooltipOf(link)).toBe("src/app/main.ts");
 			await act(async () => root.unmount());
 		},
 	);

@@ -14,11 +14,12 @@ import {
 	ConfirmDialog,
 	IconButton,
 	Input,
+	ListRow,
 	MasterDetail,
 	Modal,
 	Select,
 } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, useGithubMutation } from "./shared";
+import { type GithubSectionProps, GithubToolbar, useGithubMutation } from "./shared";
 
 const VISIBILITIES: GithubVisibility[] = ["private", "public", "internal"];
 
@@ -329,29 +330,33 @@ export function GithubRepos({
 					>
 						<ul className="flex flex-col gap-0.5">
 							{rows.map(item => (
-								<ListButton
-									active={item.nameWithOwner === selected}
-									key={item.nameWithOwner}
-									onSelect={() => setSelected(item.nameWithOwner)}
-								>
-									<span className="flex w-full items-center gap-2">
-										{item.isFork && (
-											<GitFork aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-										)}
-										<span className="min-w-0 flex-1 truncate font-mono text-sc-md text-(--sc-text)">
-											{item.nameWithOwner}
-										</span>
-										<Badge variant="muted">{item.visibility}</Badge>
-									</span>
-									<span className="flex w-full items-center gap-2 text-sc-xs text-(--sc-text-muted)">
-										<span className="min-w-0 flex-1 truncate">{item.description}</span>
-										<span className="flex shrink-0 items-center gap-0.5 tabular-nums">
-											<Star aria-hidden className="size-3" />
-											{item.stars}
-										</span>
-										<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
-									</span>
-								</ListButton>
+								<li key={item.nameWithOwner}>
+									<ListRow
+										description={item.description || undefined}
+										leading={
+											item.isFork ? (
+												<GitFork
+													aria-hidden
+													className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
+												/>
+											) : undefined
+										}
+										meta={<Badge variant="muted">{item.visibility}</Badge>}
+										onClick={() => setSelected(item.nameWithOwner)}
+										secondary={
+											<>
+												<span className="flex shrink-0 items-center gap-0.5 tabular-nums">
+													<Star aria-hidden className="size-3" />
+													{item.stars}
+												</span>
+												<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
+											</>
+										}
+										selected={item.nameWithOwner === selected}
+										size="sm"
+										title={<span className="font-mono">{item.nameWithOwner}</span>}
+									/>
+								</li>
 							))}
 						</ul>
 					</AsyncSection>

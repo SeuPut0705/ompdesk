@@ -63,7 +63,18 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionGroup, OptionRow, SearchField, Spinner } from "../common";
+import {
+	Button,
+	EmptyState,
+	InlineNotice,
+	Kbd,
+	KeyHints,
+	Modal,
+	OptionGroup,
+	OptionRow,
+	SearchField,
+	Spinner,
+} from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -495,9 +506,10 @@ export function CommandPalette() {
 				id={`${listboxId}-option-${index}`}
 				key={item.name}
 				onClick={() => execute(item)}
-				onMouseEnter={() => {
+				// A real pointer move, never a row that renders under a resting pointer: that would take Enter away
+				// from the top hit of what was just typed. Hover moves the highlight but is not an explicit pick.
+				onMouseMove={() => {
 					if (index === activeIndex) return;
-					// Hover moves the highlight but is not an explicit pick for Enter.
 					setActiveIndex(index);
 					setExplicitSelection(false);
 					setArmed(null);
@@ -645,27 +657,14 @@ export function CommandPalette() {
 						)
 					)}
 				</div>
-				<div className="omp-palette-hints flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-(--sc-divider) px-4 py-3 text-sc-xs text-(--sc-text-muted)">
-					<span className="flex items-center gap-1.5">
-						<Kbd shortcut="↑" />
-						<Kbd shortcut="↓" />
-						{t("palette.hintMove")}
-					</span>
-					<span className="flex items-center gap-1.5">
-						<Kbd shortcut="↵" />
-						{t("palette.hintRun")}
-					</span>
-					{submenu && (
-						<span className="flex items-center gap-1.5">
-							<Kbd shortcut="←" />
-							{t("palette.hintBack")}
-						</span>
-					)}
-					<span className="ml-auto flex items-center gap-1.5">
-						<Kbd shortcut="⎋" />
-						{t("palette.hintClose")}
-					</span>
-				</div>
+				<KeyHints
+					hints={[
+						{ keys: ["↑", "↓"], label: t("palette.hintMove") },
+						{ keys: ["↵"], label: t("palette.hintRun") },
+						...(submenu ? [{ keys: ["←"], label: t("palette.hintBack") }] : []),
+						{ keys: ["⎋"], label: t("palette.hintClose") },
+					]}
+				/>
 				<div aria-live="polite" className="sr-only" role="status">
 					{armedMessage}
 				</div>

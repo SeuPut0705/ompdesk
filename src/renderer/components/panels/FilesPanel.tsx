@@ -21,7 +21,6 @@ import {
 	RefreshCw,
 	TextSearch,
 	Trash2,
-	X,
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ipcErrorCode } from "../../../shared/ipc-error-codes";
@@ -51,6 +50,7 @@ import {
 	IconButton,
 	SearchField,
 	SkeletonRows,
+	Tabs,
 	Tooltip,
 	type TreeNode,
 	TreeView,
@@ -352,44 +352,33 @@ function FilePreview({
 			}}
 		>
 			{fileTabs.length > 1 && (
-				<nav
-					aria-label={t("filesPanel.tabs")}
-					className="flex min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-(--sc-divider) px-2 py-1"
-					data-file-tabs
-				>
-					{fileTabs.map(tab => {
-						const active = tab.path === path;
-						const name = tab.path.split("/").pop() ?? tab.path;
-						return (
-							<div
-								key={tab.path}
-								className={`flex max-w-48 min-w-24 shrink-0 items-center rounded-(--sc-radius-sm) border ${active ? "border-(--sc-border) bg-(--sc-selected)" : "border-transparent hover:bg-(--sc-hover)"}`}
-								data-file-tab={tab.path}
-								data-preview-file-tab={tab.preview ? "" : undefined}
-							>
-								<button
-									type="button"
-									aria-current={active ? "page" : undefined}
-									className={`flex h-(--sc-control-sm) min-w-0 flex-1 items-center gap-1.5 truncate rounded-(--sc-radius-sm) px-2 text-left text-sc-xs focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring) ${tab.preview ? "italic" : ""} ${active ? "text-(--sc-text)" : "text-(--sc-text-muted) hover:text-(--sc-text)"}`}
-									title={tab.preview ? `${tab.path} — ${t("filesPanel.previewTab")}` : tab.path}
-									onClick={() => {
-										if (!active) openFilePreview(tab.path);
-									}}
-									onDoubleClick={() => keepFileOpen(tab.path)}
-								>
-									<FileIcon className="size-(--sc-icon-sm) shrink-0" path={tab.path} />
-									<span className="truncate">{name}</span>
-								</button>
-								<IconButton
-									label={t("filesPanel.closeTab", { name })}
-									icon={<X />}
-									size="sm"
-									onClick={() => closeFileTab(tab.path)}
-								/>
-							</div>
-						);
-					})}
-				</nav>
+				<div className="flex min-w-0 shrink-0 items-center border-b border-(--sc-divider) px-2 py-1">
+					<Tabs
+						activeId={path}
+						ariaLabel={t("filesPanel.tabs")}
+						className="min-w-0 flex-1"
+						compact
+						data-file-tabs
+						onChange={id => {
+							if (id !== path) openFilePreview(id);
+						}}
+						tabs={fileTabs.map(tab => {
+							const name = tab.path.split("/").pop() ?? tab.path;
+							return {
+								id: tab.path,
+								label: name,
+								leading: <FileIcon className="size-(--sc-icon-sm) shrink-0" path={tab.path} />,
+								tooltip: tab.preview ? `${tab.path} — ${t("filesPanel.previewTab")}` : tab.path,
+								attrs: { "data-file-tab": tab.path, "data-preview-file-tab": tab.preview ? "" : undefined },
+								className: tab.preview ? "max-w-48 min-w-24 italic" : "max-w-48 min-w-24",
+								onDoubleClick: () => keepFileOpen(tab.path),
+								onClose: () => closeFileTab(tab.path),
+								closeLabel: t("filesPanel.closeTab", { name }),
+							};
+						})}
+						variant="pills"
+					/>
+				</div>
 			)}
 			<div className="min-h-(--sc-space-10) shrink-0 border-b border-(--sc-divider) px-3 py-2">
 				<div className="flex min-w-0 items-center gap-2" data-file-viewer-head>
@@ -429,7 +418,7 @@ function FilePreview({
 						) : (
 							<PathLink
 								path={path}
-								className="flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+								className="inline-flex size-(--sc-control-sm) shrink-0 items-center justify-center rounded-(--sc-radius-md) text-(--sc-text-muted) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
 							>
 								<ExternalLinkIcon className="size-(--sc-icon-sm)" />
 								<span className="sr-only">{t("filesPanel.openExternal")}</span>

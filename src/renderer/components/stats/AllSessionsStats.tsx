@@ -10,7 +10,6 @@
 
 import { BarChart3, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { runStatsSync } from "../../lib/stats-sync";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -126,31 +125,20 @@ export function AllSessionsStats() {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:gap-8">
-			<nav aria-label={t("stats.sectionsAria")} className="min-w-0 shrink-0 lg:w-40" data-stats-nav>
-				{/* A phone keeps the ten views on one row that scrolls sideways (three wrapped rows sat above the data);
-				    the row's padding holds the pills' 5 px touch reach, which a scroller would clip. */}
-				<ul className="flex flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5 [html[data-shell=phone]_&]:flex-nowrap [html[data-shell=phone]_&]:overflow-x-auto [html[data-shell=phone]_&]:py-[5px] [html[data-shell=phone]_&]:[scrollbar-width:none]">
-					{ROUTES.map(item => (
-						<li className="shrink-0" key={item.id}>
-							<button
-								aria-current={route === item.id ? "page" : undefined}
-								className={cx(
-									"flex h-(--sc-control-md) w-full items-center rounded-(--sc-radius-md) px-3 text-left text-sc-md active:bg-(--sc-pressed)",
-									route === item.id
-										? "bg-(--sc-selected) font-medium text-(--sc-text)"
-										: "text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text)",
-								)}
-								onClick={() => setRoute(item.id)}
-								type="button"
-							>
-								{t(item.labelKey)}
-							</button>
-						</li>
-					))}
-				</ul>
-			</nav>
+			<div className="min-w-0 shrink-0 lg:w-40">
+				<Tabs
+					activeId={route}
+					ariaLabel={t("stats.sectionsAria")}
+					className="max-lg:flex-row max-lg:items-center max-lg:gap-1 max-lg:overflow-x-auto lg:sticky lg:top-0"
+					data-stats-nav
+					onChange={id => setRoute(id as RouteId)}
+					orientation="vertical"
+					tabs={ROUTES.map(item => ({ id: item.id, label: t(item.labelKey), className: "max-lg:w-auto" }))}
+					variant="pills"
+				/>
+			</div>
 			<section aria-label={t(active.labelKey)} className="min-w-0 flex-1">
-				{/* The selected nav item names the section on screen; the heading stays for the outline a screen reader walks. */}
+				{/* The selected tab names the section on screen; the heading stays for the outline a screen reader walks. */}
 				<h2 className="sr-only">{t(active.labelKey)}</h2>
 				<div className="mb-6 flex flex-wrap items-center justify-end gap-2">
 					<Tabs

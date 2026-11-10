@@ -232,7 +232,8 @@ describe("an Autopilot run on the work board", () => {
 		expect(tip).toContain(
 			translate("workBoard.spend.charged", { provider: "OpenRouter", cost: "$0.0006", today: "$0.0001" }),
 		);
-		expect(tip).not.toContain("12.5");
+		expect(tip).toContain(translate("workBoard.spend.chargedInfo"));
+		expect(tip).toContain(translate("workBoard.spend.estimate", { cost: "$12.50" }));
 	});
 
 	it("keeps a fresh run to one-line rows: no empty-state sentences, no cycles section before the first cycle", async () => {

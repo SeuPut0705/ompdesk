@@ -16,7 +16,6 @@ import {
 	Brain,
 	Check,
 	CheckCircle2,
-	ChevronRight,
 	CirclePause,
 	History,
 	Lightbulb,
@@ -53,7 +52,17 @@ import { asArray } from "../../lib/wire-value";
 import { useMemoryPageStore } from "../../stores/memory-page";
 import { useUiStore } from "../../stores/ui";
 import { pageMayUse } from "../../web/runtime";
-import { Badge, type BadgeVariant, Button, Collapse, DisclosureButton, LinkButton } from "../common";
+import {
+	Badge,
+	type BadgeVariant,
+	Button,
+	Card,
+	Collapse,
+	DisclosureButton,
+	LinkButton,
+	PathText,
+	Tooltip,
+} from "../common";
 import {
 	asFileDiagnostics,
 	DiagnosticsList,
@@ -218,9 +227,9 @@ function CardFrame({ children }: { children: ReactNode }) {
 	if (embedded) return <div className="omp-work-notes-body">{children}</div>;
 	return (
 		<div className="omp-custom-turn omp-fade-up ps-(--omp-editorial-inset) pe-(--omp-editorial-edge) py-3">
-			<div className="omp-transcript-content min-w-0 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-3.5 py-3">
+			<Card className="omp-transcript-content min-w-0 px-3.5 py-3" padding="none" radius="lg">
 				{children}
-			</div>
+			</Card>
 		</div>
 	);
 }
@@ -308,23 +317,18 @@ function CompletionRow({
 	if (!output) return <div className={rowClass}>{content}</div>;
 	return (
 		<div>
-			{/* controls-ok: rowClass draws the whole row, and its chevron sits at the row's end */}
-			<button
-				aria-expanded={open}
+			<DisclosureButton
+				chevron="end"
+				chevronClassName="ms-auto size-[13px] text-[var(--omp-dim)]"
 				className={cx(
 					"cursor-pointer transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) active:bg-(--sc-pressed)",
 					rowClass,
 				)}
-				onClick={() => setOpen(value => !value)}
-				type="button"
+				onToggle={() => setOpen(value => !value)}
+				open={open}
 			>
 				{content}
-				<ChevronRight
-					aria-hidden="true"
-					className={cx("omp-disclosure-chevron ml-auto shrink-0 text-[var(--omp-dim)]", open && "rotate-90")}
-					size={13}
-				/>
-			</button>
+			</DisclosureButton>
 			<Collapse open={open}>
 				<div className="pb-2 pl-6">
 					<CollapsibleText className="mt-0.5" lines={3} text={output} />
@@ -571,15 +575,6 @@ function SkillCard({ message }: { message: AgentMessage }) {
 			<span className="shrink-0">{t("chat.custom.skill")}</span>
 			{name && <span className="shrink-0 font-medium text-(--sc-text)">{name}</span>}
 			{args && <span className="min-w-0 flex-1 truncate font-mono text-sc-xs text-(--sc-text-subtle)">{args}</span>}
-			{text && (
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-disclosure-chevron ms-auto size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						open && "rotate-90",
-					)}
-				/>
-			)}
 		</>
 	);
 	const headClass = "flex w-full min-w-0 items-center gap-1.5 text-left text-sc-sm font-medium text-(--sc-text-muted)";
@@ -587,17 +582,18 @@ function SkillCard({ message }: { message: AgentMessage }) {
 	return (
 		<CardFrame>
 			{text ? (
-				<button
-					type="button"
-					aria-expanded={open}
-					onClick={() => setOpen(v => !v)}
+				<DisclosureButton
+					chevron="end"
+					chevronClassName="ms-auto size-(--sc-icon-sm) text-(--sc-text-subtle)"
 					className={cx(
 						headClass,
 						"-mx-1.5 -my-0.5 w-[calc(100%+0.75rem)] rounded-(--sc-radius-sm) px-1.5 py-0.5 transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary)",
 					)}
+					onToggle={() => setOpen(v => !v)}
+					open={open}
 				>
 					{head}
-				</button>
+				</DisclosureButton>
 			) : (
 				<div className={headClass}>{head}</div>
 			)}
@@ -685,12 +681,11 @@ function IrcCard({ message }: { message: AgentMessage }) {
 				{str(details?.replyTo) && <Badge variant="muted">{t("chat.custom.ircReply")}</Badge>}
 				{/* Inside a work note the note's own line already carries the time. */}
 				{age && !embedded && (
-					<time
-						className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]"
-						title={formatClock(message.timestamp)}
-					>
-						{age}
-					</time>
+					<Tooltip content={formatClock(message.timestamp)} describe={false}>
+						<time className="ml-auto shrink-0 font-mono text-omp-xs font-normal text-[var(--omp-dim)]">
+							{age}
+						</time>
+					</Tooltip>
 				)}
 			</div>
 			{body && <MarkdownRenderer content={body} />}
@@ -783,11 +778,7 @@ function RecallRow({
 		<li className="flex min-w-0 flex-col gap-1 py-1.5" data-memory-recall-item={item.kind}>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
 				<Badge variant="muted">{t(`chat.custom.memoryRecall.kind.${item.kind}`)}</Badge>
-				<span
-					className="min-w-0 font-medium break-words text-(--sc-text-secondary)"
-					data-memory-recall-title
-					title={item.title}
-				>
+				<span className="min-w-0 font-medium break-words text-(--sc-text-secondary)" data-memory-recall-title>
 					{item.title}
 				</span>
 				{date && <time className="shrink-0 text-sc-xs text-(--sc-text-subtle)">{date}</time>}
@@ -966,8 +957,8 @@ export function MailNote({ message }: { message: AgentMessage }) {
 							<div className="text-sc-xs text-(--sc-text-muted)">{t("chat.custom.mail.files")}</div>
 							<ul className="min-w-0 font-mono text-sc-xs">
 								{files.map(file => (
-									<li key={file} className="truncate" title={file}>
-										{file}
+									<li key={file} className="flex min-w-0">
+										<PathText className="text-inherit" path={file} />
 									</li>
 								))}
 							</ul>
@@ -988,9 +979,7 @@ export function MailNote({ message }: { message: AgentMessage }) {
 										) : (
 											<XCircle aria-hidden className="size-3 shrink-0 text-(--sc-danger)" />
 										)}
-										<span className="truncate" title={check.command}>
-											{check.command}
-										</span>
+										<span className="min-w-0 break-all">{check.command}</span>
 										<span className="sr-only">
 											{t(check.passed ? "chat.custom.mail.passed" : "chat.custom.mail.failed")}
 										</span>

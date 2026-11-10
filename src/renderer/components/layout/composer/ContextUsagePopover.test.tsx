@@ -210,9 +210,9 @@ describe("ContextUsagePopover", () => {
 		expect(dialog?.textContent).toContain("System context~1.5k");
 		expect(dialog?.textContent).toContain("Tools~6.4k");
 		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~154.0k`);
-		expect(dialog?.querySelector('[role="img"]')?.getAttribute("aria-label")).toContain(
-			translate("contextUsage.progress", { percent: 16 }),
-		);
+		const bar = dialog?.querySelector('[role="progressbar"]');
+		expect(bar?.getAttribute("aria-label")).toContain(translate("contextUsage.progress", { percent: 16 }));
+		expect(bar?.getAttribute("aria-valuenow")).not.toBeNull();
 	});
 
 	it("renders nothing until the session reports context usage", async () => {

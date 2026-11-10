@@ -82,7 +82,7 @@ export function RenameSessionDialog() {
 						variant="primary"
 						loading={saving}
 						disabled={name.trim().length === 0 || !sidecarReady}
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+						disabledReason={!sidecarReady ? t("sidecar.notResponding") : undefined}
 					>
 						{t("rename.submit")}
 					</Button>

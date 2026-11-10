@@ -11,8 +11,18 @@ import { type TabRpc, useTabRpc } from "../../lib/tab-rpc";
 import { useAutopilotStore } from "../../stores/autopilot";
 import { useSessionStore } from "../../stores/session";
 import { toastError } from "../../stores/toast";
-import { Badge, type BadgeVariant, Button, Checkbox, ConfirmDialog, IconButton, Select, SwitchField } from "../common";
-import { BoardRow, BoardSection, Dot } from "../layout/work-board/board-parts";
+import {
+	Badge,
+	type BadgeVariant,
+	Button,
+	Checkbox,
+	ConfirmDialog,
+	IconButton,
+	Select,
+	StatusDot,
+	SwitchField,
+} from "../common";
+import { BoardRow, BoardSection } from "../layout/work-board/board-parts";
 import { useAutopilotActions } from "./use-autopilot-actions";
 
 const QUEUE_BADGE: Record<ShipQueueItem["state"], BadgeVariant> = {
@@ -101,7 +111,7 @@ export function ShipLandRow() {
 					}
 					data={landing ? { "data-ship-land": "pr" } : undefined}
 					label={<span className="text-(--sc-text-muted)">{text}</span>}
-					lead={<Dot tone={landing ? "warning" : "muted"} />}
+					lead={<StatusDot decorative tone={landing ? "warning" : "neutral"} />}
 					title={landing?.reason ? `${text}\n${landing.reason}` : text}
 				/>
 			)}
@@ -109,7 +119,10 @@ export function ShipLandRow() {
 				<li className="omp-work-board-item">
 					<div className="omp-work-board-row">
 						<span className="omp-work-board-lead">
-							<Dot tone={ship.inFlight ? "warning" : ship.release?.state === "failure" ? "danger" : "muted"} />
+							<StatusDot
+								decorative
+								tone={ship.inFlight ? "warning" : ship.release?.state === "failure" ? "danger" : "neutral"}
+							/>
 						</span>
 						<ReleaseStatus />
 					</div>

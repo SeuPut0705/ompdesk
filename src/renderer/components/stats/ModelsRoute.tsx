@@ -13,6 +13,7 @@ import {
 	useChartThemeKey,
 	withAlpha,
 } from "../../lib/chart";
+import { SectionLabel } from "../common";
 import "../../lib/chart";
 import type { ModelRow, ModelsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
@@ -20,7 +21,7 @@ import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { ModelLabel } from "../settings/ModelLabel";
 import { compactModelLabels, compactModelText } from "../settings/providers/provider-marks";
-import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { ChartBox, RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 const tokenCountFormatter = new Intl.NumberFormat("en-US");
 
@@ -95,7 +96,8 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 				key: "cacheRate",
 				label: t("stats.col.cacheHitRate"),
 				align: "right",
-				render: row => <span title={t("stats.models.cacheHitFormula")}>{(row.cacheRate * 100).toFixed(2)}%</span>,
+				info: t("stats.models.cacheHitFormula"),
+				render: row => `${(row.cacheRate * 100).toFixed(2)}%`,
 			},
 			{ key: "cost", label: t("stats.col.cost"), align: "right", render: row => formatUsd(row.totalCost) },
 			{ key: "ttft", label: t("stats.col.ttft"), align: "right", render: row => formatMs(row.avgTtft) },
@@ -172,19 +174,25 @@ export function ModelsRoute({ range }: { range: StatsRange }) {
 		>
 			<div className="grid gap-3 xl:grid-cols-2">
 				<div>
-					<SectionTitle>{t("stats.models.requestsByModel")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.models.requestsByModel")}
+					</SectionLabel>
 					<ChartBox height={230}>
 						<Bar data={usageChart} options={usageOptions} />
 					</ChartBox>
 				</div>
 				<div>
-					<SectionTitle>{t("stats.models.throughput")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.models.throughput")}
+					</SectionLabel>
 					<ChartBox height={230}>
 						<Line data={perfChart} options={perfOptions} />
 					</ChartBox>
 				</div>
 			</div>
-			<SectionTitle>{t("stats.models.allModels")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.models.allModels")}
+			</SectionLabel>
 			<StatTable columns={columns} keyFor={row => `${row.provider}/${row.model}`} rows={byModel} />
 		</RouteFrame>
 	);

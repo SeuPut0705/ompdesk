@@ -12,11 +12,11 @@ import { inlineFailure } from "../../lib/error-detail";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useFocusedTabDevice } from "../../stores/remote";
-import { Badge, Button, Card, ErrorDetail, Sheet, Spinner } from "../common";
+import { Badge, Button, Card, ErrorDetail, SectionLabel, Sheet, Spinner } from "../common";
 import { ModelLabel } from "../settings/ModelLabel";
 import { compactModelLabel, compactModelLabels, compactModelText } from "../settings/providers/provider-marks";
 import { projectLabel } from "./ProjectsRoute";
-import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
+import { RouteFrame, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 const PAGE_SIZE = 25;
 /** Request detail sheet; keeps the last row mounted while the sheet animates closed. */
@@ -95,7 +95,9 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 					{row.errorMessage}
 				</div>
 			)}
-			<SectionTitle>{t("stats.requests.payload")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.requests.payload")}
+			</SectionLabel>
 			{loading ? (
 				<div className="flex items-center gap-2 py-4">
 					<Spinner size="sm" />
@@ -107,10 +109,14 @@ function RequestDetailBody({ row }: { row: RequestRow }) {
 					<ErrorDetail className="mt-0.5" error={error} />
 				</div>
 			) : (
-				<pre className="max-h-[45vh] overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-1) p-3 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-muted)">
+				<Card
+					as="pre"
+					surface="1"
+					className="max-h-[45vh] overflow-auto font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-muted)"
+				>
 					{JSON.stringify({ messages: detail?.messages, output: detail?.output }, null, 2)?.slice(0, 40_000) ??
 						t("stats.requests.emptyPayload")}
-				</pre>
+				</Card>
 			)}
 		</>
 	);
@@ -204,9 +210,9 @@ export function RequestsRoute({ range }: { range: StatsRange }) {
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
 				{t("stats.requests.sectionTitle", { count: (data?.total ?? 0).toLocaleString(uiLocale()) })}
-			</SectionTitle>
+			</SectionLabel>
 			<StatTable
 				columns={columns}
 				keyFor={row => `${row.id ?? row.entryId}-${row.timestamp}`}

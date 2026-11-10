@@ -158,7 +158,10 @@ for (const engine of ENGINES)
 			await expect(rows.nth(2)).toContainText(texts[2]);
 			await phone.screenshot({ path: `test-results/phone-offline-tray-${engine.name}.png`, animations: "disabled" });
 			// Cancel takes one back for good.
-			await rows.nth(2).locator("[data-outbox-cancel]").click();
+			await rows
+				.nth(2)
+				.getByRole("button", { name: /^Don't send / })
+				.click();
 			await expect(rows).toHaveCount(2);
 
 			// iOS kills a page left in the background: the reload still shows what waits.

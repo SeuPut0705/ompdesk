@@ -10,7 +10,18 @@ import { useState } from "react";
 import type { ProviderInfo } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
 import { isImeKeyEvent } from "../../../lib/ime";
-import { Badge, Button, EmptyState, ListRow, SearchField, SkeletonRows, Spinner } from "../../common";
+import {
+	Badge,
+	Banner,
+	Button,
+	Card,
+	EmptyState,
+	LinkButton,
+	ListRow,
+	SearchField,
+	SkeletonRows,
+	Spinner,
+} from "../../common";
 import type { ProviderCatalog } from "./ProviderList";
 import type { ProviderLogin } from "./ProviderLogin";
 import { ProviderMark } from "./ProviderMark";
@@ -70,6 +81,11 @@ export function ProviderPicker({
 				placeholder={t("providerList.searchPlaceholder")}
 				value={query}
 			/>
+			{!loginReady && providers.length > 0 && (
+				<Banner className="mt-1" compact data-provider-picker-offline variant="neutral">
+					{t("providers.notConnected")}
+				</Banner>
+			)}
 			{loading && providers.length === 0 ? (
 				<SkeletonRows className="py-2" label={t("providerList.loading")} widths={[60, 44, 70, 52]} />
 			) : available.length === 0 && featured.length === 0 ? (
@@ -137,7 +153,6 @@ export function ProviderPicker({
 											meta={busy ? <Spinner size="sm" spin /> : undefined}
 											onClick={() => void login.start(provider.id)}
 											title={provider.name}
-											titleText={loginReady ? undefined : t("providers.notConnected")}
 										/>
 									</li>
 								);
@@ -202,14 +217,11 @@ function FeaturedCard({
 	const { def, startId, apiKeyId, connected, mark } = card;
 	const subscription = def.kind === "subscription" && startId === def.id;
 	const busy = busyId(startId);
-	const frame = "flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left";
+	const frame = "flex min-h-11 w-full items-center gap-3 px-3 py-2";
 	return (
-		<li
-			className="flex flex-col rounded-(--sc-radius-lg) border border-(--sc-border-subtle) bg-(--sc-surface-1)"
-			data-featured-provider={def.id}
-		>
+		<li className="flex flex-col" data-featured-provider={def.id}>
 			{connected ? (
-				<div className={frame} data-provider-connected={def.id}>
+				<Card className={frame} data-provider-connected={def.id} padding="none" radius="lg" surface="1">
 					<ProviderMark provider={mark} />
 					<span className="line-clamp-2 min-w-0 flex-1 text-sc-md font-medium break-words text-(--sc-text)">
 						{card.label}
@@ -217,16 +229,18 @@ function FeaturedCard({
 					<Badge dot variant="success">
 						{t("providerList.connected")}
 					</Badge>
-				</div>
+				</Card>
 			) : (
-				<button
+				<Card
 					aria-label={t("providers.picker.connect", { provider: card.label })}
-					className={`${frame} rounded-(--sc-radius-lg) text-(--sc-text) hover:bg-(--sc-hover) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50`}
+					as="button"
+					className={`${frame} text-(--sc-text)`}
 					data-provider-connect={startId}
 					disabled={!loginReady || busy}
 					onClick={() => void login.start(startId)}
-					title={loginReady ? undefined : t("providers.notConnected")}
-					type="button"
+					padding="none"
+					radius="lg"
+					surface="1"
 				>
 					<ProviderMark provider={mark} />
 					<span className="flex min-w-0 flex-1 flex-col">
@@ -242,18 +256,18 @@ function FeaturedCard({
 							{subscription ? t("providers.featured.signIn") : t("providers.featured.connect")}
 						</span>
 					)}
-				</button>
+				</Card>
 			)}
 			{!connected && apiKeyId && (
-				<button
-					className="mt-auto flex min-h-11 w-full items-center rounded-b-(--sc-radius-lg) border-t border-(--sc-border-subtle) py-1 pr-3 pl-11 text-left text-sc-sm text-(--sc-text-muted) underline-offset-2 hover:bg-(--sc-hover) hover:text-(--sc-text) hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+				<LinkButton
+					className="flex min-h-11 items-center self-start pl-11 text-sc-sm"
 					data-provider-connect={apiKeyId}
 					disabled={!loginReady || busyId(apiKeyId)}
 					onClick={() => void login.start(apiKeyId)}
-					type="button"
+					tone="muted"
 				>
 					{t("providers.featured.apiKeyAction")}
-				</button>
+				</LinkButton>
 			)}
 		</li>
 	);

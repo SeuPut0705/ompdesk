@@ -37,6 +37,7 @@ interface TestElement {
 	textContent: string | null;
 	className: string;
 	disabled: boolean;
+	getAttribute: (name: string) => string | null;
 	remove: () => void;
 	appendChild: (child: TestElement) => void;
 	dispatchEvent: (event: object) => boolean;
@@ -172,7 +173,7 @@ describe("HandoffDialog", () => {
 		const submit = buttonWithText(translate("handoff.start"));
 		expect(submit).toBeDefined();
 		if (!submit) return;
-		expect(submit.disabled).toBe(true);
+		expect(submit.disabled || submit.getAttribute("aria-disabled") === "true").toBe(true);
 
 		await act(async () => {
 			click(submit);
@@ -191,7 +192,7 @@ describe("HandoffDialog", () => {
 		const submit = buttonWithText(translate("handoff.start"));
 		expect(submit).toBeDefined();
 		if (!submit) return;
-		expect(submit.disabled).toBe(true);
+		expect(submit.disabled || submit.getAttribute("aria-disabled") === "true").toBe(true);
 		expect(rpc.handoff).not.toHaveBeenCalled();
 	});
 

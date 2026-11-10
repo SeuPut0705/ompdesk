@@ -132,15 +132,15 @@ for (const language of variants(["en", "ko"] as const))
 					timeout: 15_000,
 				});
 				await expect(draftCards.locator("[data-file-card]")).toHaveCount(3);
-				// Compact chips: the type and size are the tooltip; no chip reads or draws a preview.
-				await expect(draftCards.locator('[data-file-card="pdf"]')).toHaveAttribute(
-					"title",
-					/^docs\/spec\.pdf\nPDF · /,
-				);
-				await expect(draftCards.locator('[data-file-card="spreadsheet"]')).toHaveAttribute(
-					"title",
-					/^docs\/q3\.xlsx\nExcel · /,
-				);
+				// Compact chips: the path, type and size are the tooltip; no chip reads or draws a preview.
+				for (const [kind, tip] of [
+					["pdf", /docs\/spec\.pdf · PDF · /],
+					["spreadsheet", /docs\/q3\.xlsx · Excel · /],
+				] as const) {
+					await draftCards.locator(`[data-file-card="${kind}"] button`).first().hover();
+					await expect(page.getByRole("tooltip")).toContainText(tip);
+				}
+				await page.mouse.move(0, 0);
 				await expect(draftCards.locator('[data-file-card="text"]')).toContainText("notes.txt");
 				await expect(draftCards.locator("canvas, table, pre")).toHaveCount(0);
 				await capture(page, `${language}-${theme}-composer-cards`);

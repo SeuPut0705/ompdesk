@@ -28,7 +28,7 @@ import type { ImageContent } from "../../../shared/rpc-types";
 import { formatTimeAgo } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toastError } from "../../stores/toast";
-import { AsyncSection, Button, IconButton, Input, Modal, Select } from "../common";
+import { AsyncSection, Button, Chip, IconButton, Input, Modal, Select, Tooltip } from "../common";
 
 export interface PreviewNote {
 	n: number;
@@ -228,9 +228,9 @@ export function PreviewFeedbackBar({
 			<div className="flex min-w-0 items-center gap-1 px-3 py-1">
 				{visual && (
 					<div className="flex min-w-0 flex-1 items-center gap-2" data-preview-visual={visual.id}>
-						<span className="truncate text-sc-xs font-medium text-(--sc-text)" title={visual.label}>
-							{visual.label}
-						</span>
+						<Tooltip content={visual.label} describe={false}>
+							<span className="truncate text-sc-xs font-medium text-(--sc-text)">{visual.label}</span>
+						</Tooltip>
 						{visual.versions.length > 1 && (
 							<Select
 								aria-label={t("panel.preview.visual.version")}
@@ -312,14 +312,13 @@ export function PreviewFeedbackBar({
 										<span className="inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-(--sc-accent) text-sc-2xs font-semibold text-(--sc-accent-fg)">
 											{note.n}
 										</span>
-										<span
-											className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)"
-											title={first?.selector}
-										>
-											{note.kind === "element"
-												? elementLabel(first)
-												: t("panel.preview.feedback.regionTitle", { count: note.elements.length })}
-										</span>
+										<Tooltip content={first?.selector ?? ""} describe={false} hidden={!first}>
+											<span className="min-w-0 flex-1 truncate font-mono text-(--sc-text-muted)">
+												{note.kind === "element"
+													? elementLabel(first)
+													: t("panel.preview.feedback.regionTitle", { count: note.elements.length })}
+											</span>
+										</Tooltip>
 										{note.kind === "element" && first && (
 											<>
 												<IconButton
@@ -367,18 +366,18 @@ export function PreviewFeedbackBar({
 											<ul
 												aria-label={t("panel.preview.feedback.elements")}
 												className="flex min-w-0 flex-1 flex-wrap gap-1"
+												data-preview-elements
 											>
 												{note.elements.map(element => (
-													<li key={element.selector} className="min-w-0">
-														<button
-															type="button"
-															className="max-w-48 truncate rounded-(--sc-radius-sm) border border-(--sc-border) px-1.5 font-mono text-sc-xs text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
-															title={element.selector}
-															onClick={() => highlight(element.selector)}
-														>
-															{elementLabel(element)}
-														</button>
-													</li>
+													<Chip
+														as="li"
+														className="max-w-48 font-mono"
+														key={element.selector}
+														onClick={() => highlight(element.selector)}
+														tooltip={element.selector}
+													>
+														{elementLabel(element)}
+													</Chip>
 												))}
 											</ul>
 										</div>
@@ -412,12 +411,11 @@ export function PreviewFeedbackBar({
 							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-2 gap-y-1">
 								{variables.map(variable => (
 									<label key={variable.name} className="contents">
-										<span
-											className="truncate font-mono text-sc-xs text-(--sc-text-muted)"
-											title={variable.name}
-										>
-											{variable.name}
-										</span>
+										<Tooltip content={variable.name} describe={false}>
+											<span className="truncate font-mono text-sc-xs text-(--sc-text-muted)">
+												{variable.name}
+											</span>
+										</Tooltip>
 										<Input
 											controlSize="sm"
 											mono
@@ -493,11 +491,13 @@ export function AllVisualsDialog({
 						<li key={record.id} className="flex min-w-0 items-center gap-2 border-b border-(--sc-divider) py-2">
 							<div className="min-w-0 flex-1">
 								<div className="truncate text-sc-sm font-medium text-(--sc-text)">{record.label}</div>
-								<div className="truncate text-sc-xs text-(--sc-text-muted)" title={record.target || record.cwd}>
-									{t(`panel.preview.visual.kind.${record.kind}`)}
-									{" · "}
-									{record.target || record.cwd}
-								</div>
+								<Tooltip content={record.target || record.cwd} describe={false}>
+									<div className="truncate text-sc-xs text-(--sc-text-muted)">
+										{t(`panel.preview.visual.kind.${record.kind}`)}
+										{" · "}
+										{record.target || record.cwd}
+									</div>
+								</Tooltip>
 								<div className="text-sc-xs text-(--sc-text-muted)">
 									{t("panel.preview.visual.meta", {
 										count: record.versions,

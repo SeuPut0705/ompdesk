@@ -181,7 +181,6 @@ html[data-input="touch"] :is(input:not([type="checkbox"], [type="radio"], [type=
 html[data-input="touch"] :is([role="menuitem"], [role="menuitemcheckbox"], [role="option"], [role="treeitem"]),
 html[data-input="touch"]
 	:is(
-		.omp-session-sidebar [data-session-row],
 		.omp-session-sidebar [data-workspace-group],
 		.omp-session-sidebar [data-destination],
 		.omp-session-sidebar .omp-family-row,
@@ -268,6 +267,21 @@ html[data-input="touch"] [data-stats-nav] > ul {
 	gap: 10px;
 	--hit-gap-x: 10px;
 	--hit-gap-y: 10px;
+}
+
+/* Autopilot's focus areas (autopilot/FocusChips.tsx): 24 px chips 12 px apart on touch, each reaching half way to the
+   next, so every chip is a 36 px target and none covers its neighbour or the row under it. */
+html[data-input="touch"] [data-focus-chips] {
+	gap: 12px;
+	--hit-gap-x: 12px;
+	--hit-gap-y: 12px;
+}
+
+/* The elements of a preview comment's region (panels/PreviewFeedback.tsx): the same 24 px chips, 12 px apart. */
+html[data-input="touch"] [data-preview-elements] {
+	gap: 12px;
+	--hit-gap-x: 12px;
+	--hit-gap-y: 12px;
 }
 
 /* ── Drawer (sidebar on a phone and a portrait tablet) ─────────────────────────────────────────────────── */
@@ -630,7 +644,7 @@ html[data-input="touch"] .omp-work-board-title {
 /* A row's own trailing icon button (a backlog item's ✕, a follow-up's pin and ✕, 12 px apart) reaches the row's full touch height: 10 px
    of bound around its 26 px box, where the list's 1 px bound left it a 26 px target. Sideways it reaches 6 px, the
    board's own padding, so its hit area never makes a docked board scroll sideways. */
-html[data-input="touch"] :is(.omp-work-board-row, [data-board-row-actions]) > button {
+html[data-input="touch"] .omp-work-board-row > button {
 	--hit-gap-x: 12px;
 	--hit-gap-y: 10px;
 }
@@ -1428,10 +1442,12 @@ html[data-input="touch"] .omp-attach-strip[data-touch]::-webkit-scrollbar {
 	display: none;
 }
 
-/* The folded-paste and file chips sit 6 px apart in rows of 28 px: their reach stops at the neighbours. */
+/* The folded-paste and file chips (24 px) sit 6 px apart in a row and 20 px apart between rows on touch, so each
+   reaches 44 px high and its reach stops at the neighbours. */
 html[data-input="touch"] .omp-attach-row {
+	row-gap: 20px;
 	--hit-gap-x: 6px;
-	--hit-gap-y: 12px;
+	--hit-gap-y: 20px;
 }
 
 html[data-shell] [data-dock-card] > div:first-child {
@@ -1935,10 +1951,11 @@ html[data-shell="phone"] :is(.markdown-body, .omp-streaming-tail) :is(:not(pre) 
 	font-size: max(12px, 0.88em);
 }
 
-/* Safe areas: a side or full-screen sheet (the side panel) and a docked sidebar (portrait tablet) clear the notch and
-   the home indicator; the drawer panel and the bottom sheet already do. So does the side panel docked beside the page
-   on a tablet held sideways: its title row and view icons sat under the status bar and the screen's rounded corner. */
-html[data-shell] [data-sheet-placement]:not([data-sheet-placement="bottom"]) > [data-sheet-panel] {
+/* Safe areas: a side sheet (the side panel on a tablet) and a docked sidebar (portrait tablet) clear the notch and
+   the home indicator; the drawer panel, the bottom sheet and a full sheet (Sheet.tsx pads its own surface by the top
+   inset) already do. So does the side panel docked beside the page on a tablet held sideways: its title row and view
+   icons sat under the status bar and the screen's rounded corner. */
+html[data-shell] [data-sheet-placement]:not([data-sheet-placement="bottom"], [data-sheet-placement="full"]) > [data-sheet-panel] {
 	padding-top: var(--safe-t);
 }
 
@@ -2208,11 +2225,6 @@ html[data-shell="phone"] .omp-run-name {
 	flex-basis: 8rem;
 	white-space: normal;
 	overflow-wrap: anywhere;
-}
-
-/* The palette's keyboard hint row (Move, Run, Close) means nothing without a keyboard. */
-html[data-input="touch"] .omp-palette-hints {
-	display: none;
 }
 
 /* Stats: figure cards are 8 px × 12 px with an 18 px figure, two to a row at 8 px; a page caption is one line. */

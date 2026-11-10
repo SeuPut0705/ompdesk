@@ -5,7 +5,6 @@ import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint } from "../../../shar
 import { parseDiff } from "../../lib/diff";
 import { errorDetail } from "../../lib/error-detail";
 import { useFocusedScope } from "../../lib/focused-scope";
-import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { lastRead, rememberRead } from "../../lib/last-read";
 import type { TabRpc } from "../../lib/tab-rpc";
@@ -21,10 +20,11 @@ import {
 	EmptyState,
 	IconButton,
 	InlineNotice,
+	ListRow,
 	SearchField,
 	SkeletonRows,
 } from "../common";
-import { ChangeCounts, PanelListRow, PanelToolbar } from "./PanelChrome";
+import { ChangeCounts, ChangeStatus, type ChangeStatusName, PanelToolbar } from "./PanelChrome";
 import { CommitBox } from "./scm/CommitBox";
 import { DiffLines, DiffSkeleton, VirtualRows } from "./scm/DiffLines";
 import { NameDialog, type NameRequest } from "./scm/NameDialog";
@@ -33,7 +33,7 @@ import { useScmAction } from "./scm/use-scm-action";
 import { FileIcon } from "./viewers/FileViewer";
 
 type ChangedFile = RpcGitChanges["files"][number];
-export function statusName(file: { status: string; oldPath?: string }) {
+export function statusName(file: { status: string; oldPath?: string }): ChangeStatusName {
 	if (isConflictStatus(file.status)) return "conflicted";
 	if (file.status === "??") return "untracked";
 	if (file.oldPath || file.status.includes("R")) return "renamed";
@@ -41,14 +41,6 @@ export function statusName(file: { status: string; oldPath?: string }) {
 	if (file.status.includes("A")) return "added";
 	return "modified";
 }
-export const STATUS_STYLE: Record<string, string> = {
-	added: "text-(--sc-success)",
-	untracked: "text-(--sc-success)",
-	deleted: "text-(--sc-danger)",
-	modified: "text-(--sc-warning)",
-	renamed: "text-(--sc-text-muted)",
-	conflicted: "text-(--sc-danger)",
-};
 
 /** How often the open list asks git again while the window is visible. */
 const REPOSITORY_WATCH_MS = 3000;
@@ -321,7 +313,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 				changes && (
 					<div className="omp-changes-body min-h-0 flex-1" data-open={!!selected}>
 						<div ref={setListScroller} className="omp-changes-list min-h-0 overflow-y-auto px-3 pb-3">
-							<div className="sticky top-0 z-(--sc-z-sticky) flex items-center gap-2 bg-(--sc-surface-1) pt-2 pb-1">
+							<div className="sticky top-0 z-(--sc-z-sticky) flex items-center gap-2 bg-(--sc-surface-1) pt-2 pb-1 [[data-sheet-panel]_&]:bg-(--sc-elevated)">
 								<div className="min-w-0 flex-1">
 									<SearchField
 										controlSize="sm"
@@ -373,42 +365,37 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 														onChange={() => setStaged([file.path], state !== "all")}
 													/>
 												</label>
-												<PanelListRow
-													aria-current={selected === file.path ? "true" : undefined}
+												<ListRow
 													className="min-w-0 flex-1"
+													leading={
+														<FileIcon
+															path={file.path}
+															className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
+														/>
+													}
+													meta={<ChangeCounts added={file.added} removed={file.removed} />}
 													onClick={() => setSelected(file.path)}
-													title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-												>
-													<FileIcon
-														path={file.path}
-														className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
-													/>
-													{/* Two lines, so no column depends on another's width: the name and its counts
-													    on the first, the folder (cut from its start, the end is what tells files
-													    apart) and the status on the second. Both right-hand cells end at one edge. */}
-													<span className="flex min-w-0 flex-1 flex-col">
-														<span className="flex min-w-0 items-center gap-2">
-															<span className="min-w-0 flex-1 truncate">
-																{file.path.slice(slash + 1)}
-															</span>
-															<ChangeCounts added={file.added} removed={file.removed} />
-														</span>
-														<span className="flex min-w-0 items-center gap-2 text-sc-xs">
+													secondary={
+														slash >= 0 && (
 															<span
 																className="min-w-0 flex-1 truncate text-left text-(--sc-text-subtle)"
 																dir="rtl"
 															>
-																{slash >= 0 ? `\u200E${file.path.slice(0, slash)}` : ""}
+																{`\u200E${file.path.slice(0, slash)}`}
 															</span>
-															<span
-																className={cx("shrink-0", STATUS_STYLE[status])}
-																title={t(`diffPanel.status.${status}`)}
-															>
-																{t(`diffPanel.status.${status}`)}
-															</span>
-														</span>
-													</span>
-												</PanelListRow>
+														)
+													}
+													selected={selected === file.path}
+													size="sm"
+													title={
+														<>
+															{file.path.slice(slash + 1)}
+															<span className="sr-only">, {t(`diffPanel.status.${status}`)}</span>
+														</>
+													}
+													titleText={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+													trailing={<ChangeStatus status={status} />}
+												/>
 												<IconButton
 													className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
 													disabled={scmBusy || conflicted}
@@ -437,7 +424,7 @@ export function RepositoryChanges({ sourceSelector }: { sourceSelector?: ReactNo
 						</div>
 						{selected && (
 							<div ref={setPreviewScroller} className="omp-changes-preview min-h-0 min-w-0 overflow-y-auto">
-								<div className="sticky top-0 z-(--sc-z-sticky) flex flex-wrap items-center gap-1 bg-(--sc-surface-1) px-2 py-2">
+								<div className="sticky top-0 z-(--sc-z-sticky) flex flex-wrap items-center gap-1 bg-(--sc-surface-1) px-2 py-2 [[data-sheet-panel]_&]:bg-(--sc-elevated)">
 									<IconButton
 										icon={<ArrowLeft />}
 										label={t("diffPanel.back")}

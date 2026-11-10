@@ -197,7 +197,7 @@ export function GroupedMatchList({
 			{renderedGroups.map((group, gi) => (
 				<div key={gi}>
 					{group.file && (
-						<PathLink path={group.file} className="block truncate px-2 pt-1 text-[var(--omp-status-path)]">
+						<PathLink path={group.file} className="w-full truncate px-2 pt-1 text-[var(--omp-status-path)]">
 							{group.file}
 						</PathLink>
 					)}

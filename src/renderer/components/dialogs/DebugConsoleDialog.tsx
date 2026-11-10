@@ -596,7 +596,7 @@ export function DebugConsoleDialog() {
 					<Button
 						disabled={!sidecarReady || pending > 0}
 						onClick={() => void runRaw()}
-						title={!sidecarReady ? t("common.notConnected") : undefined}
+						disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 						icon={<Bug />}
 						variant="primary"
 					>
@@ -615,7 +615,7 @@ export function DebugConsoleDialog() {
 								onClick={() => void refreshSessions()}
 								size="sm"
 								variant="ghost"
-								title={!sidecarReady ? t("common.notConnected") : undefined}
+								disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 							>
 								{t("common.refresh")}
 							</Button>
@@ -634,7 +634,7 @@ export function DebugConsoleDialog() {
 										onClick={() => void refreshSessions()}
 										size="sm"
 										variant="secondary"
-										title={!sidecarReady ? t("common.notConnected") : undefined}
+										disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 									>
 										{t("common.refresh")}
 									</Button>
@@ -705,7 +705,7 @@ export function DebugConsoleDialog() {
 								onClick={() => void runAction({ action: def.action })}
 								size="sm"
 								variant={def.danger ? "danger" : "secondary"}
-								title={!sidecarReady ? t("common.notConnected") : undefined}
+								disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 							>
 								{t(def.labelKey)}
 							</Button>
@@ -752,7 +752,7 @@ export function DebugConsoleDialog() {
 										onClick={() => void runAction(preset.params)}
 										size="sm"
 										variant="secondary"
-										title={!sidecarReady ? t("common.notConnected") : undefined}
+										disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 									>
 										{t(preset.labelKey)}
 									</Button>

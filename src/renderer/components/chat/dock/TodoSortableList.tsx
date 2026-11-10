@@ -21,7 +21,7 @@ import {
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { AlertCircle, Check, CheckCircle2, Circle, GripVertical, Pencil, X, XCircle } from "lucide-react";
+import { AlertCircle, Check, GripVertical, Pencil, X, XCircle } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 import type { TodoTask } from "../../../../shared/rpc-types";
 import { useT } from "../../../lib/i18n";
@@ -35,16 +35,8 @@ import {
 	type ContextMenuItem,
 	DisclosureButton,
 	IconButton,
-	StatusDot,
 } from "../../common";
-
-const STATUS_LABEL_KEY: Record<TodoTask["status"], string> = {
-	pending: "todoPanel.status.pending",
-	in_progress: "todoPanel.status.inProgress",
-	completed: "todoPanel.status.completed",
-	blocked: "todoPanel.status.blocked",
-	abandoned: "todoPanel.status.abandoned",
-};
+import { TODO_STATUS_LABEL_KEY, TodoStatusIcon } from "./TodoStatusIcon";
 
 /**
  * Blocked and abandoned are verdicts about a task, not steps on the way to done,
@@ -57,21 +49,6 @@ const STATUS_CYCLE: TodoTask["status"][] = ["pending", "in_progress", "completed
 function nextStatus(current: TodoTask["status"]): TodoTask["status"] {
 	return STATUS_CYCLE[(STATUS_CYCLE.indexOf(current) + 1) % STATUS_CYCLE.length] ?? "pending";
 }
-
-function TodoStatusIcon({ status }: { status: TodoTask["status"] }) {
-	const t = useT();
-	if (status === "in_progress") {
-		return <StatusDot label={t(STATUS_LABEL_KEY.in_progress)} labelHidden pulse={false} size="md" tone="working" />;
-	}
-	if (status === "completed") {
-		return <CheckCircle2 aria-hidden="true" className="text-(--sc-text-muted)" size={16} />;
-	}
-	if (status === "blocked" || status === "abandoned") {
-		return <AlertCircle aria-hidden="true" className="text-(--sc-danger)" size={16} />;
-	}
-	return <Circle aria-hidden="true" className="text-(--sc-text-subtle)" size={16} strokeDasharray="2.5 2.5" />;
-}
-
 interface SortableTaskRowProps {
 	task: UiTodoTask;
 	phaseId: string;
@@ -138,13 +115,11 @@ const SortableTaskRow = memo(function SortableTaskRow({ task, phaseId, onPatch }
 				className="rounded-(--sc-radius-full)"
 				icon={<TodoStatusIcon status={task.status} />}
 				label={t("todoPanel.statusAria", {
-					status: t(STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending"),
+					status: t(TODO_STATUS_LABEL_KEY[task.status] ?? "todoPanel.status.pending"),
 				})}
 				onClick={() => onPatch(phaseId, task.id, { status: nextStatus(task.status) })}
 				onContextMenu={event => setStatusMenu(anchorFromEvent(event))}
 				size="sm"
-				title={t("todoPanel.cycleHint")}
-				tooltip={false}
 			/>
 			{statusMenu && (
 				<ContextMenu

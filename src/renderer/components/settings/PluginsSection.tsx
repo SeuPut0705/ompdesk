@@ -3,7 +3,8 @@
  * tabs: their bodies, under Extensions' one tab bar (ExtensionsSection owns the
  * bar and the panel). The page owns the active tab and the single search
  * field (`query`, empty = no filter). Each tab lazy-loads its RPC on first
- * view and caches until refreshed.
+ * view and caches until refreshed; Extensions keeps the section mounted once
+ * opened, so switching tabs never refetches.
  *
  * The Plugins tab is interactive: rows toggle via set_plugin_enabled
  * (optimistic — revert + error toast on failure, re-fetch on success), and
@@ -51,11 +52,12 @@ import {
 import { AddMarketplaceForm, MarketplaceCard } from "../panels/inventory/MarketplacesSection";
 import { PluginDetailSheet } from "../panels/inventory/PluginDetailSheet";
 import { filterMarketplaces, filterPlugins, filterTemplates } from "../panels/inventory-utils";
-import { SettingsEmptyRow, SettingsRow } from "./SettingsLayout";
+import { SettingsRow } from "./SettingsLayout";
 import type { PluginsTab as PluginsTabId } from "./settings-catalog";
 
 export interface PluginsSectionProps {
-	tab: PluginsTabId;
+	/** The open plugin tab; `null` while another Extensions tab is open (the section stays mounted, hidden). */
+	tab: PluginsTabId | null;
 	onTabChange: (tab: PluginsTabId) => void;
 	/** Page search; empty string = no filter. */
 	query: string;
@@ -334,14 +336,15 @@ function PluginsTab({
 				{() =>
 					plugins.length === 0 ? (
 						total === 0 ? (
-							<SettingsEmptyRow
-								action={
+							<EmptyState
+								actions={
 									<Button onClick={onBrowseMarketplaces} size="sm">
 										{t("invPanel.plugins.browseMarketplaces")}
 									</Button>
 								}
 								icon={<PackageOpen />}
-								label={t("invPanel.plugins.empty")}
+								size="row"
+								title={t("invPanel.plugins.empty")}
 							/>
 						) : (
 							<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -436,10 +439,11 @@ function MarketplacesTab({
 						<AddMarketplaceForm onAdded={resource.reload} ready={resource.ready} />
 						{marketplaces.length === 0 ? (
 							total === 0 ? (
-								<SettingsEmptyRow
+								<EmptyState
 									description={t("invPanel.marketplaces.emptyHint")}
 									icon={<Store />}
-									label={t("invPanel.marketplaces.empty")}
+									size="row"
+									title={t("invPanel.marketplaces.empty")}
 								/>
 							) : (
 								<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -510,10 +514,11 @@ function TemplatesTab({
 				{() =>
 					templates.length === 0 ? (
 						total === 0 ? (
-							<SettingsEmptyRow
+							<EmptyState
 								description={t("invPanel.templates.emptyHint")}
 								icon={<FileText />}
-								label={t("invPanel.templates.empty")}
+								size="row"
+								title={t("invPanel.templates.empty")}
 							/>
 						) : (
 							<EmptyState icon={<Search />} size="sm" title={t("invPanel.noMatch")} />
@@ -543,7 +548,7 @@ export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps)
 	const templates = useRpcResource<RpcPromptTemplatesResult>(() => tabRpc.getPromptTemplates());
 
 	return (
-		<div className="flex flex-col gap-4">
+		<div className={cx("flex flex-col gap-4", tab === null && "hidden")}>
 			<PluginsTab
 				onBrowseMarketplaces={() => onTabChange("marketplaces")}
 				onOpenDetail={setDetailPlugin}

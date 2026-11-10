@@ -34,8 +34,8 @@ import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { settleTabPlanApproval } from "../../stores/tabs";
 import { toast, toastError } from "../../stores/toast";
-import { InlineNotice, Spinner, TextArea } from "../common";
-import { type Choice, ChoiceList, PromptCard } from "./PromptCard";
+import { ChoiceList, type ChoiceListOption, InlineNotice, Spinner, TextArea } from "../common";
+import { PromptCard } from "./PromptCard";
 
 type SubmitKind = PlanApprovalSubmitState["kind"];
 
@@ -175,7 +175,7 @@ export function PlanApprovalDialog() {
 	const hasFeedback = feedback.trim().length > 0;
 	const spinner = <Spinner size="sm" spin />;
 
-	const choices: Choice[] = [
+	const choices: ChoiceListOption[] = [
 		...approveOptions.map(option => ({
 			key: option,
 			label: t(APPROVE_CHOICES[option].labelKey),

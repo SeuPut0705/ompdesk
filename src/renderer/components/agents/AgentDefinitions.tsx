@@ -627,7 +627,7 @@ export function AgentDefinitions() {
 								disabled={!rpc.ready}
 								icon={<LayoutTemplate />}
 								onClick={() => setGalleryOpen(true)}
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="secondary"
 							>
 								{t("agentStudio.templates")}
@@ -636,7 +636,7 @@ export function AgentDefinitions() {
 								disabled={!rpc.ready}
 								icon={<Plus />}
 								onClick={() => openNew()}
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="primary"
 							>
 								{t("agentStudio.newAgent")}
@@ -657,7 +657,7 @@ export function AgentDefinitions() {
 								icon={<RefreshCw />}
 								onClick={rpc.refresh}
 								size="sm"
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="secondary"
 							>
 								{t("common.retry")}
@@ -677,7 +677,7 @@ export function AgentDefinitions() {
 								icon={<Plus />}
 								onClick={() => openNew()}
 								size="sm"
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="primary"
 							>
 								{t("agentStudio.newAgent")}
@@ -687,7 +687,7 @@ export function AgentDefinitions() {
 								icon={<LayoutTemplate />}
 								onClick={() => setGalleryOpen(true)}
 								size="sm"
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="secondary"
 							>
 								{t("agentStudio.templates")}

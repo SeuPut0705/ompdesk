@@ -63,7 +63,7 @@ import { McpServerWizard } from "../panels/mcp/McpServerWizard";
 import { AgentControlRow } from "./AgentControlRow";
 import { BuiltinReaRow } from "./BuiltinReaRow";
 import { PluginsSection } from "./PluginsSection";
-import { SettingsEmptyRow, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
+import { SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
 import type { ExtensionsTab, PluginsTab } from "./settings-catalog";
 
@@ -324,7 +324,7 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 			disabled={!rpc.ready}
 			onClick={() => void rpc.refresh()}
 			size="sm"
-			title={!rpc.ready ? t("extPanel.notConnected") : undefined}
+			disabledReason={!rpc.ready ? t("extPanel.notConnected") : undefined}
 		>
 			{t("common.retry")}
 		</Button>
@@ -342,7 +342,9 @@ function ListFrame({ tabId, rpc, query, visible, actions, emptyAction, children 
 			);
 		}
 	} else if (total === 0) {
-		body = <SettingsEmptyRow action={emptyAction} icon={TAB_ICON[tabId]} label={t(`extPanel.empty.${tabId}`)} />;
+		body = (
+			<EmptyState actions={emptyAction} icon={TAB_ICON[tabId]} title={t(`extPanel.empty.${tabId}`)} size="row" />
+		);
 	} else if (visible === 0) {
 		body = <EmptyState icon={<Search />} size="sm" title={t("extPanel.noMatch", { query: trimmed })} />;
 	} else {
@@ -724,7 +726,7 @@ function McpTab({ rpc, query }: { rpc: LazyRpc<RpcMcpServerInfo[]>; query: strin
 			icon={<Plus />}
 			onClick={() => setWizardOpen(true)}
 			size="sm"
-			title={!rpc.ready ? t("extPanel.notConnected") : undefined}
+			disabledReason={!rpc.ready ? t("extPanel.notConnected") : undefined}
 		>
 			{t("mcp.add")}
 		</Button>
@@ -865,6 +867,9 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 	);
 	const activeLabel = tabs.find(item => item.id === tab)?.label;
 	const pluginsTab = tab === "plugins" || tab === "marketplaces" || tab === "templates" ? tab : null;
+	// Once opened, the plugin tabs stay mounted (hidden): their reads and an open detail sheet survive a tab switch.
+	const [pluginsOpened, setPluginsOpened] = useState(pluginsTab !== null);
+	if (pluginsTab && !pluginsOpened) setPluginsOpened(true);
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -881,7 +886,7 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 				{tab === "hooks" && <HooksTab query={query} rpc={hooks} />}
 				{tab === "contextFiles" && <ContextFilesTab query={query} rpc={contextFiles} />}
 				{tab === "commands" && <CommandsTab query={query} rpc={commands} />}
-				{pluginsTab && <PluginsSection onTabChange={onTabChange} query={query} tab={pluginsTab} />}
+				{pluginsOpened && <PluginsSection onTabChange={onTabChange} query={query} tab={pluginsTab} />}
 			</div>
 		</div>
 	);

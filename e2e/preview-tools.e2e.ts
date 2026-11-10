@@ -26,7 +26,6 @@ const LABELS = {
 		close: "Close",
 		tabs: "Preview tabs",
 		newTab: "New tab",
-		closeSecond: "Close Second page",
 	},
 	ko: {
 		preview: "미리보기",
@@ -43,7 +42,6 @@ const LABELS = {
 		close: "닫기",
 		tabs: "미리보기 탭",
 		newTab: "새 탭",
-		closeSecond: "Second page 닫기",
 	},
 } as const;
 
@@ -225,15 +223,15 @@ for (const [language, theme] of variants([
 				if (!contents) throw new Error("No popup source page");
 				await contents.executeJavaScript("document.getElementById('go').click()", true);
 			}, host);
-			const strip = aside.getByRole("navigation", { name: label.tabs, exact: true });
+			const strip = aside.getByRole("tablist", { name: label.tabs, exact: true });
 			await expect(strip.locator("[data-preview-tab]")).toHaveCount(2);
 			await expect(status).toHaveText("Second page");
 			await expect(addressBar).toHaveValue(`http://${host}/second`);
 			await capture("preview-tabs");
-			await strip.getByRole("button", { name: "Popup source", exact: true }).click();
+			await strip.getByRole("tab", { name: "Popup source", exact: true }).click();
 			await expect(status).toHaveText("Popup source");
 			await expect(addressBar).toHaveValue(`http://${host}/popup`);
-			await strip.getByRole("button", { name: label.closeSecond, exact: true }).click();
+			await strip.getByRole("tab", { name: "Second page", exact: true }).press("Delete");
 			await expect(strip).toHaveCount(0);
 			await expect(status).toHaveText("Popup source");
 			// A new tab from the page options starts empty, then closing it shows the page again.
@@ -244,7 +242,7 @@ for (const [language, theme] of variants([
 			await addressBar.fill(`${host}/second`);
 			await addressBar.press("Enter");
 			await expect(status).toHaveText("Second page");
-			await strip.getByRole("button", { name: label.closeSecond, exact: true }).click();
+			await strip.getByRole("tab", { name: "Second page", exact: true }).press("Delete");
 			await expect(strip).toHaveCount(0);
 			await expect(status).toHaveText("Popup source");
 		} finally {

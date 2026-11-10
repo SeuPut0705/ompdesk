@@ -14,11 +14,12 @@ import {
 	ConfirmDialog,
 	IconButton,
 	Input,
+	ListRow,
 	MasterDetail,
 	Modal,
 	Select,
 } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, RunState, useGithubMutation } from "./shared";
+import { type GithubSectionProps, GithubToolbar, NeedsRepo, RunState, useGithubMutation } from "./shared";
 
 type RunAction = { kind: "rerun"; failedOnly: boolean } | { kind: "cancel" };
 
@@ -266,19 +267,22 @@ export function GithubActions({ target, repoName, targetKey }: GithubSectionProp
 					>
 						<ul className="flex flex-col gap-0.5">
 							{rows.map(item => (
-								<ListButton active={item.id === selected} key={item.id} onSelect={() => setSelected(item.id)}>
-									<span className="flex w-full items-center gap-2">
-										<RunState conclusion={item.conclusion} status={item.status} />
-										<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">
-											{item.title || item.workflow}
-										</span>
-									</span>
-									<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
-										<span className="min-w-0 truncate">{item.workflow}</span>
-										<span className="min-w-0 flex-1 truncate font-mono">{item.branch}</span>
-										<span className="shrink-0">{formatTimeAgo(item.createdAt)}</span>
-									</span>
-								</ListButton>
+								<li key={item.id}>
+									<ListRow
+										leading={<RunState conclusion={item.conclusion} status={item.status} />}
+										onClick={() => setSelected(item.id)}
+										secondary={
+											<>
+												<span className="min-w-0 truncate">{item.workflow}</span>
+												<span className="min-w-0 flex-1 truncate font-mono">{item.branch}</span>
+												<span className="shrink-0">{formatTimeAgo(item.createdAt)}</span>
+											</>
+										}
+										selected={item.id === selected}
+										size="sm"
+										title={item.title || item.workflow}
+									/>
+								</li>
 							))}
 						</ul>
 					</AsyncSection>

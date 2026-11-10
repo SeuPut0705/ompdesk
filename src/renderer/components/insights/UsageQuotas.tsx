@@ -22,7 +22,7 @@ import { usageLimitLabel } from "../../lib/usage-labels";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Badge, Banner, Button, EmptyState, ErrorDetail, IconButton, ProgressBar, SkeletonRows } from "../common";
+import { Badge, Banner, Button, Card, EmptyState, ErrorDetail, IconButton, ProgressBar, SkeletonRows } from "../common";
 import { ResetPassControl, resetPassSummary } from "../settings/providers/ResetPasses";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
@@ -117,7 +117,7 @@ function ProviderReportCard({
 		state => state.providers.find(provider => provider.id === report.provider)?.name ?? report.provider,
 	);
 	return (
-		<section className="flex flex-col gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4">
+		<Card as="section" className="flex flex-col gap-3" padding="lg" radius="lg">
 			<header className="flex flex-wrap items-center gap-x-3 gap-y-1">
 				<h3 className="min-w-0 text-sc-md font-semibold break-words text-(--sc-text)">{providerName}</h3>
 				{report.account && (
@@ -159,7 +159,7 @@ function ProviderReportCard({
 					))}
 				</ul>
 			)}
-		</section>
+		</Card>
 	);
 }
 

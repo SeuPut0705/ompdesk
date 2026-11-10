@@ -10,12 +10,12 @@ import { ArchiveRestore, History } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../../../shared/disk-care";
 import { useFocusedScope } from "../../../lib/focused-scope";
-import { cx, formatBytes, formatTimeAgo } from "../../../lib/format";
+import { cx, formatBytes, formatClock, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
-import { Button, SettingInfo } from "../../common";
+import { Button, SettingInfo, Tooltip } from "../../common";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
 
 interface SavedList {
@@ -94,8 +94,7 @@ export function SavedWorktrees() {
 					const name = worktree.path.split(PATH_SEPARATOR).filter(Boolean).at(-1) ?? worktree.path;
 					const branch = worktree.branch ?? worktree.savedBranch ?? "";
 					const age = formatTimeAgo(worktree.removedAt, { older: "age" });
-					const title = [
-						name,
+					const details = [
 						worktree.path,
 						worktree.savedBranch ? t("workTree.saved.tip.savedBranch", { branch: worktree.savedBranch }) : "",
 						worktree.archivedFiles > 0
@@ -104,9 +103,7 @@ export function SavedWorktrees() {
 									size: formatBytes(worktree.archivedBytes),
 								})
 							: t("workTree.saved.tip.noArchive"),
-					]
-						.filter(Boolean)
-						.join("\n");
+					].filter(Boolean);
 					return (
 						<li
 							className={cx(
@@ -115,17 +112,27 @@ export function SavedWorktrees() {
 							)}
 							data-saved-worktree={worktree.id}
 							key={worktree.id}
-							title={title}
 						>
 							<History aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 							{/* A narrow panel (a phone's sheet) stacks the branch under the folder, so neither is cut to a few letters. */}
-							<span className="flex min-w-0 flex-1 flex-col @min-[32rem]:flex-row @min-[32rem]:items-center @min-[32rem]:gap-1.5">
-								<span className="min-w-0 truncate font-mono text-sc-xs @min-[32rem]:shrink-0">{name}</span>
-								<span className="min-w-0 truncate font-mono text-sc-xs text-(--sc-text-muted) @min-[32rem]:flex-1">
-									{branch}
+							<Tooltip
+								content={details.map(line => (
+									<span className="block" key={line}>
+										{line}
+									</span>
+								))}
+								describe={false}
+							>
+								<span className="flex min-w-0 flex-1 flex-col @min-[32rem]:flex-row @min-[32rem]:items-center @min-[32rem]:gap-1.5">
+									<span className="min-w-0 truncate font-mono text-sc-xs @min-[32rem]:shrink-0">{name}</span>
+									<span className="min-w-0 truncate font-mono text-sc-xs text-(--sc-text-muted) @min-[32rem]:flex-1">
+										{branch}
+									</span>
 								</span>
-							</span>
-							<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+							</Tooltip>
+							<Tooltip content={formatClock(worktree.removedAt)} describe={false}>
+								<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+							</Tooltip>
 							<Button
 								aria-label={t("workTree.saved.restoreLabel", { name })}
 								data-saved-restore={worktree.id}

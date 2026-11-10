@@ -9,16 +9,9 @@ import type { FrustrationData, FrustrationModelRow } from "../../../shared/stats
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
+import { SectionLabel } from "../common";
 import { compactModelLabels, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
-import {
-	MetricCard,
-	MetricGrid,
-	RouteFrame,
-	SectionTitle,
-	type StatColumn,
-	type StatsRange,
-	StatTable,
-} from "./shared";
+import { MetricCard, MetricGrid, RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 function rate(part: number, whole: number): string {
 	return whole > 0 ? formatPercent((part / whole) * 100) : "—";
@@ -124,7 +117,9 @@ export function FrustrationRoute({ range }: { range: StatsRange }) {
 							messages: formatTokens(overall.messages),
 						})}
 					</p>
-					<SectionTitle>{t("stats.frustration.byModel")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.frustration.byModel")}
+					</SectionLabel>
 					<StatTable columns={columns} keyFor={row => row.key} rows={rows} />
 				</>
 			)}

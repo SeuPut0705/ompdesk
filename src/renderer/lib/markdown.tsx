@@ -30,6 +30,7 @@ import remarkMath from "remark-math";
 import { CodeBlock as SharedCodeBlock } from "../components/chat/CodeBlock";
 import { MermaidBlock } from "../components/chat/MermaidBlock";
 import { SvgBlock } from "../components/chat/SvgBlock";
+import { Checkbox } from "../components/common/Checkbox";
 import { ZoomableImage } from "../components/common/ZoomableImage";
 import { chatMediaKind, chatReferenceKind, fileUrlPath, localFilePath } from "../components/tools/media/chat-media";
 import { FileCard } from "../components/tools/media/FileCard";
@@ -457,6 +458,23 @@ function StyledTable({ children, ...props }: ComponentPropsWithoutRef<"table">) 
 	);
 }
 
+type CellNode = { type: string; value?: string; children?: CellNode[] };
+
+function cellTextLength(node: CellNode | undefined): number {
+	if (!node) return 0;
+	if (node.type === "text") return node.value?.length ?? 0;
+	return (node.children ?? []).reduce((sum, child) => sum + cellTextLength(child), 0);
+}
+
+/**
+ * A cell says how much text it holds, so a phone's narrow column keeps a cell of prose wide enough to read in a few
+ * lines (components.css) and the table scrolls sideways instead of growing each row tall.
+ */
+function TableCell({ node, ...props }: ComponentPropsWithoutRef<"td"> & { node?: CellNode }) {
+	const length = cellTextLength(node);
+	return <td {...props} data-cell-text={length >= 60 ? "prose" : length >= 24 ? "long" : undefined} />;
+}
+
 // ── codeLineNumbers pref (GUI prefs file, NOT zustand) ─────────────────────
 // Module snapshot hydrated lazily from window.omp.prefs when the first code
 // block mounts; Settings writes go through setCodeLineNumbersPref, which
@@ -686,11 +704,11 @@ function Pre({ children }: ComponentPropsWithoutRef<"pre">) {
 	);
 }
 
-function TaskCheckbox(props: ComponentPropsWithoutRef<"input">) {
+function TaskCheckbox({ type: _type, ...props }: ComponentPropsWithoutRef<"input">) {
 	// The checkbox state comes from model output — there is nowhere a click
 	// could be stored. Force the readonly form regardless of what the input
 	// carried (second layer on top of the sanitize value pin).
-	return <input {...props} type="checkbox" disabled readOnly tabIndex={-1} />;
+	return <Checkbox {...props} disabled readOnly tabIndex={-1} />;
 }
 
 // ── Markdown images ─────────────────────────────────────────────────────────
@@ -942,6 +960,7 @@ const COMPONENTS: Components = {
 	p: Paragraph,
 	a: MarkdownLink,
 	table: StyledTable,
+	td: TableCell,
 	code: CodeBlock,
 	h1: H1,
 	h2: H2,

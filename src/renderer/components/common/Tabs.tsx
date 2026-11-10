@@ -29,9 +29,10 @@
  */
 
 import { X } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
+import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
 import { cx } from "../../lib/format";
 import { IconButton } from "./IconButton";
+import { Tooltip } from "./Tooltip";
 
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
 
@@ -41,7 +42,7 @@ export type TabItem = {
 	/** Optional badge count or marker rendered after the label. */
 	badge?: string | number;
 	disabled?: boolean;
-	/** Hover text (the tab's `title`): the whole of a label the strip cuts, or what the tab stands for. */
+	/** The whole of a label the strip cuts, or what the tab stands for: the kit Tooltip on hover and keyboard focus. */
 	tooltip?: string;
 	/** A mark before the label (decorative: `aria-hidden`, its meaning said in words beside it). */
 	leading?: ReactNode;
@@ -146,7 +147,11 @@ export function Tabs({
 	const segmented = variant === "segmented";
 	const vertical = orientation === "vertical";
 
-	/** The tab Delete closed: once it has left the strip, focus goes to the tab chosen in its place. */
+	/**
+	 * The tab Delete closed: once it has left the strip, focus goes to the tab chosen in its place. A close the caller
+	 * did not carry out (it asked first and the person kept the tab) ends when focus moves out of the strip, so a later
+	 * removal of that tab never pulls focus back into it.
+	 */
 	const closedRef = useRef<string | null>(null);
 	useEffect(() => {
 		const closed = closedRef.current;
@@ -223,6 +228,12 @@ export function Tabs({
 								: "flex gap-1 border-b border-(--sc-divider)"),
 					className,
 				)}
+				onBlur={event => {
+					// A focused tab that is being removed blurs while detached; that is the close itself, not focus leaving.
+					const to = event.relatedTarget;
+					const left = !(to instanceof Node && listRef.current?.contains(to));
+					if (left && event.target.isConnected) closedRef.current = null;
+				}}
 				onKeyDown={onKeyDown}
 				ref={listRef}
 				role="tablist"
@@ -248,12 +259,10 @@ export function Tabs({
 							)}
 							data-tab-id={tab.id}
 							disabled={tab.disabled}
-							key={tab.onClose ? undefined : tab.id}
 							onClick={() => onChange(tab.id, "click")}
 							onDoubleClick={tab.onDoubleClick}
 							role="tab"
 							tabIndex={active || (tab === rovingStop && !anySelected) ? 0 : -1}
-							title={tab.tooltip}
 							type="button"
 						>
 							{tab.leading !== undefined && <span className="inline-flex shrink-0">{tab.leading}</span>}
@@ -266,10 +275,12 @@ export function Tabs({
 							{tab.trailing}
 						</button>
 					);
-					if (!tab.onClose) return button;
+					// The tooltip shows on hover and keyboard focus; a tap still selects the tab (a long press shows it).
+					const control = tab.tooltip ? <Tooltip content={tab.tooltip}>{button}</Tooltip> : button;
+					if (!tab.onClose) return <Fragment key={tab.id}>{control}</Fragment>;
 					return (
 						<div className={cx("inline-flex items-center pr-0.5", box)} key={tab.id} role="presentation">
-							{button}
+							{control}
 							<IconButton
 								aria-hidden
 								disabled={tab.disabled}

@@ -8,6 +8,8 @@ import { parseHTML } from "linkedom";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOUCH_QUERY } from "../../hooks/shell-queries";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -134,28 +136,72 @@ describe("ContextMenu", () => {
 		expect(onA).not.toHaveBeenCalled();
 	});
 
-	it("hovers an item's tooltip, else its label, and a disabled item's reason", async () => {
-		await mount(
-			<ContextMenu
-				items={[
-					{ id: "a", label: "Fork", tooltip: "Start a new session from this message", onSelect() {} },
-					{ id: "b", label: "Rename", onSelect() {} },
-					{
-						id: "c",
-						label: "Delete",
-						tooltip: "Remove it",
-						disabled: true,
-						disabledReason: "Running",
-						onSelect() {},
-					},
-				]}
-				onClose={() => {}}
-				x={10}
-				y={10}
-			/>,
-		);
-		const titles = [...document.body.querySelectorAll("[data-menu-item]")].map(item => item.getAttribute("title"));
-		expect(titles).toEqual(["Start a new session from this message", "Rename", "Running"]);
+	const TOOLTIP_ITEMS: ContextMenuItem[] = [
+		{ id: "a", label: "Fork", tooltip: "Start a new session from this message", onSelect() {} },
+		{ id: "b", label: "Rename", onSelect() {} },
+		{ id: "c", label: "Delete", tooltip: "Remove it", disabled: true, disabledReason: "Running", onSelect: vi.fn() },
+	];
+	const menuItem = (label: string) =>
+		[...document.body.querySelectorAll("[data-menu-item]")].find(item =>
+			item.textContent?.startsWith(label),
+		) as unknown as HTMLElement;
+	const bubble = () => document.body.querySelector("[role=tooltip]")?.textContent ?? null;
+
+	it("shows an item's tooltip on keyboard focus and a disabled item's reason on hover, never as a native title", async () => {
+		vi.useFakeTimers();
+		const matches = HTMLElement.prototype.matches;
+		vi.spyOn(HTMLElement.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+			return selector === ":focus-visible" || matches.call(this, selector);
+		});
+		try {
+			await act(async () => {
+				root = createRoot(document.body.appendChild(document.createElement("div")) as unknown as Element);
+				root.render(<ContextMenu items={TOOLTIP_ITEMS} onClose={() => {}} x={10} y={10} />);
+			});
+			expect(document.body.querySelector("[data-menu-item][title]")).toBeNull();
+			await act(async () => menuItem("Fork").dispatchEvent(new Event("focusin", { bubbles: true })));
+			expect(bubble()).toBe("Start a new session from this message");
+			await act(async () => menuItem("Fork").dispatchEvent(new Event("focusout", { bubbles: true })));
+			await act(async () => menuItem("Rename").dispatchEvent(new Event("focusin", { bubbles: true })));
+			expect(bubble()).toBeNull();
+			const deleteItem = menuItem("Delete");
+			expect(deleteItem.getAttribute("aria-disabled")).toBe("true");
+			await act(async () => {
+				const over = new Event("pointerover", { bubbles: true });
+				Object.assign(over, { pointerType: "mouse" });
+				deleteItem.dispatchEvent(over);
+				vi.advanceTimersByTime(500);
+			});
+			expect(bubble()).toBe("Running");
+			await act(async () => deleteItem.click());
+			expect(TOOLTIP_ITEMS[2]?.onSelect).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		}
+	});
+
+	it("writes an item's tooltip, or a disabled item's reason, as its last line in the touch sheet", async () => {
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+		});
+		resetShellModeForTests();
+		try {
+			await mount(<ContextMenu items={TOOLTIP_ITEMS} onClose={() => {}} x={10} y={10} />);
+			expect(document.body.querySelector("[data-action-sheet]")).not.toBeNull();
+			expect(menuItem("Fork").textContent).toBe("ForkStart a new session from this message");
+			expect(menuItem("Rename").textContent).toBe("Rename");
+			expect(menuItem("Delete").textContent).toBe("DeleteRunning");
+		} finally {
+			Reflect.deleteProperty(window, "matchMedia");
+			Reflect.deleteProperty(document.documentElement.dataset, "platform");
+			resetShellModeForTests();
+		}
 	});
 
 	it("arrows navigate, Enter selects the active item", async () => {

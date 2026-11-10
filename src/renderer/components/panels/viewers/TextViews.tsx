@@ -15,7 +15,7 @@ import { useUiStore } from "../../../stores/ui";
 import { CodeBlock } from "../../chat/CodeBlock";
 import { FigureModeToggle } from "../../chat/Figure";
 import { MermaidBlock } from "../../chat/MermaidBlock";
-import { IconButton, ZoomableImage } from "../../common";
+import { IconButton, ListRow, ZoomableImage } from "../../common";
 import { CodeView, useWrapToggle } from "./CodeView";
 import { fileExtension } from "./file-kind";
 import { HexView } from "./HexView";
@@ -142,19 +142,17 @@ function MarkdownBody({ content, outline }: { content: string; outline: boolean 
 						<ul className="m-0 list-none p-0">
 							{headings.map(heading => (
 								<li key={heading.id}>
-									<button
-										className="w-full truncate rounded-(--sc-radius-sm) py-0.5 pe-1.5 text-start text-sc-sm text-(--sc-text-muted) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-(--sc-focus-ring)"
+									<ListRow
 										onClick={() =>
 											Array.from(ref.current?.querySelectorAll<HTMLElement>("[id]") ?? [])
 												.find(element => element.id === heading.id)
 												?.scrollIntoView?.({ block: "start" })
 										}
-										style={{ paddingInlineStart: `${0.375 + (heading.level - 1) * 0.75}rem` }}
+										rowProps={{ style: { paddingInlineStart: `${0.5 + (heading.level - 1) * 0.75}rem` } }}
+										size="sm"
 										title={heading.text}
-										type="button"
-									>
-										{heading.text}
-									</button>
+										titleText={heading.text}
+									/>
 								</li>
 							))}
 						</ul>

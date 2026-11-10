@@ -10,12 +10,12 @@
  * longer carries these surfaces.
  */
 
-import { ArrowLeft, ChevronRight, type LucideIcon } from "lucide-react";
+import { ArrowLeft, type LucideIcon } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { type DockCardId, isDockCardCollapsed, useUiStore } from "../../../stores/ui";
-import { Button, Collapse } from "../../common";
+import { Button, Collapse, DisclosureButton } from "../../common";
 import { useWorkspaceDockFocus } from "./WorkspaceDockFocus";
 
 interface DockCardProps {
@@ -92,13 +92,14 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 			data-dock-expanded={expanded || undefined}
 		>
 			<div className="sticky top-0 z-10 flex min-h-10 items-center gap-2 bg-(--sc-elevated) px-3 py-1">
-				<button
+				<DisclosureButton
 					aria-describedby={showPeek ? peekId : undefined}
-					aria-expanded={expanded}
 					aria-label={expanded ? t("dock.collapse") : t("dock.expand")}
-					className="flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-(--sc-radius-sm) text-left focus-visible:outline-2 focus-visible:outline-(--sc-accent)"
-					onClick={toggle}
-					type="button"
+					chevron="end"
+					chevronClassName="size-3.5 text-(--sc-text-subtle)"
+					className="min-h-8 min-w-0 flex-1 rounded-(--sc-radius-sm)"
+					onToggle={toggle}
+					open={expanded}
 				>
 					<Icon aria-hidden="true" className="shrink-0 text-(--sc-text-muted)" size={16} />
 					<span className="shrink-0 text-sc-md font-medium whitespace-nowrap text-(--sc-text)">{title}</span>
@@ -118,13 +119,7 @@ export function DockCard({ id, icon: Icon, title, badge, actions, peek, children
 							<span className="min-w-1 flex-1" />
 						</>
 					)}
-					<ChevronRight
-						aria-hidden="true"
-						className="omp-disclosure-chevron shrink-0 text-(--sc-text-subtle)"
-						size={14}
-						style={{ transform: expanded ? "rotate(90deg)" : undefined }}
-					/>
-				</button>
+				</DisclosureButton>
 				{!hiddenForFocus && focused && (
 					<Button icon={<ArrowLeft />} onClick={clearFocus} size="sm" variant="ghost">
 						{t("dock.backToSummary")}

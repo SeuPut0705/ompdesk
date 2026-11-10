@@ -27,10 +27,12 @@ const MERGES: readonly { into: string; from: readonly string[]; value: (old: unk
 		value: old => (old.some(value => value === true) ? true : undefined),
 	},
 	{
-		// One keep-awake switch for work here and for devices using this computer: off only when both were off.
+		// One keep-awake switch for work here and for devices using this computer: a stored choice decides.
 		into: KEEP_AWAKE_WORKING_PREF,
 		from: [KEEP_AWAKE_WORKING_PREF, "remote.keepAwake"],
-		// Both default on, so only a stored `false` counts: the host's stored `true` turns a stored-off work switch on.
+		// Both defaulted on. A stored host `true` turns a stored-off work switch on; a work switch stored off beside
+		// a host switch never touched stays off: the old key is deleted below, so a later launch could not tell that
+		// state from the person turning the one switch off.
 		value: ([work, host]) => (work === false && host === true ? true : undefined),
 	},
 ];

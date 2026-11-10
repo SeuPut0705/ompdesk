@@ -138,8 +138,9 @@ describe("ThemePicker", () => {
 		const press = async (key: string) => {
 			const event = new Event("keydown", { bubbles: true, cancelable: true });
 			Object.assign(event, { key });
+			const held = options().find(button => button.getAttribute("aria-checked") === "true");
 			await act(async () => {
-				option("hc-light").dispatchEvent(event);
+				held?.dispatchEvent(event);
 			});
 			await settle();
 		};

@@ -208,7 +208,7 @@ test("a 30-task plan's bar stays left of its count, and the count stays in the p
 				await resize(app, width, 900);
 				await expect(board, `board docked at ${width} px, ${fontSize} px text`).toBeVisible();
 				const geometry = await board.locator('[data-board-section="plan"] .omp-work-board-title').evaluate(head => {
-					const bar = head.querySelector(".omp-work-board-segments");
+					const bar = head.querySelector("[data-progress-segments]");
 					const count = head
 						.querySelector(".omp-work-board-progress > span[aria-hidden]")
 						?.getBoundingClientRect();

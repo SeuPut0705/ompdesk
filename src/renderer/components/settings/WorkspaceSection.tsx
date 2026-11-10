@@ -110,7 +110,7 @@ export function WorkspaceSection() {
 			icon={<FolderPlus />}
 			onClick={() => void onAdd()}
 			size="sm"
-			title={blockedReason}
+			disabledReason={blockedReason}
 		>
 			{t("workspaceDirs.add")}
 		</Button>
@@ -180,7 +180,12 @@ export function WorkspaceSection() {
 			<SettingsRow
 				compactControl
 				control={
-					<Button disabled={mutationDisabled} onClick={() => void onMove()} size="sm" title={blockedReason}>
+					<Button
+						disabled={mutationDisabled}
+						onClick={() => void onMove()}
+						size="sm"
+						disabledReason={blockedReason}
+					>
 						{t("workspaceDirs.moveChoose")}
 					</Button>
 				}

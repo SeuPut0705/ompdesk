@@ -125,6 +125,7 @@ interface TestElement {
 	dispatchEvent: (event: object) => boolean;
 	getAttribute: (name: string) => string | null;
 	remove: () => void;
+	closest: (selector: string) => unknown;
 }
 
 let container: TestElement;
@@ -301,7 +302,7 @@ describe("InsightsPage", () => {
 		expect(document.body.textContent).toContain("Overview");
 		// One name per concept: the page tab is not named after the dashboard's first section.
 		expect(tab("Activity")?.getAttribute("aria-selected")).toBe("true");
-		expect(tab("Overview")).toBeUndefined();
+		expect(tab("Overview")?.closest("[data-stats-nav]")).not.toBeNull();
 	});
 
 	it("lands the Usage tab on provider quotas with a way to this session's usage", async () => {

@@ -20,7 +20,7 @@ import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
-import { Button, ConfirmDialog } from "../../common";
+import { Button, ConfirmDialog, Tooltip } from "../../common";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -161,22 +161,28 @@ export function ResetPassControl({
 		expiresDate && t("resetPasses.expires", { date: `${expiresDate.getMonth() + 1}/${expiresDate.getDate()}` });
 	const left = expiresAt === undefined ? 0 : Math.max(0, expiresAt - Date.now());
 
+	const summary = [resetPassSummary(passes, t), hint].filter(Boolean).join("\n");
+	const inert = disabled || busy || !passes.redeemable;
+	const passButton = (
+		<Button
+			aria-label={t("resetPasses.useFor", { account })}
+			disabled={inert}
+			disabledReason={summary}
+			icon={<Ticket />}
+			loading={busy}
+			onClick={() => setConfirming(true)}
+			size="sm"
+			variant="secondary"
+		>
+			<span className="tabular-nums" data-reset-pass-count>
+				{passes.count}
+			</span>
+		</Button>
+	);
+
 	return (
 		<span className="inline-flex min-w-0 flex-col items-end" data-reset-passes={credentialId}>
-			<Button
-				aria-label={t("resetPasses.useFor", { account })}
-				disabled={disabled || busy || !passes.redeemable}
-				icon={<Ticket />}
-				loading={busy}
-				onClick={() => setConfirming(true)}
-				size="sm"
-				title={[resetPassSummary(passes, t), hint].filter(Boolean).join("\n")}
-				variant="secondary"
-			>
-				<span className="tabular-nums" data-reset-pass-count>
-					{passes.count}
-				</span>
-			</Button>
+			{inert && !busy ? passButton : <Tooltip content={summary}>{passButton}</Tooltip>}
 			{expiresAt !== undefined && (
 				<span
 					aria-label={expiresText}

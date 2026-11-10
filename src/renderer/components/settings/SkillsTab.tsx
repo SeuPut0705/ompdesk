@@ -34,7 +34,6 @@ import {
 	Switch,
 	TextArea,
 } from "../common";
-import { SettingsEmptyRow } from "./SettingsLayout";
 
 type SkillFilter = "all" | "enabled" | "disabled" | "managed" | "project" | "user";
 type EditorState = {
@@ -256,7 +255,12 @@ export function SkillsTab({ query }: { query: string }) {
 			<div className="p-3">
 				<Banner
 					actions={
-						<Button disabled={!sidecarReady} onClick={() => void loadSkills()} size="sm" title={notConnected}>
+						<Button
+							disabled={!sidecarReady}
+							onClick={() => void loadSkills()}
+							size="sm"
+							disabledReason={notConnected}
+						>
 							{t("common.retry")}
 						</Button>
 					}
@@ -368,7 +372,7 @@ export function SkillsTab({ query }: { query: string }) {
 						loading={busyName !== null}
 						onClick={() => void save()}
 						size="sm"
-						title={notConnected}
+						disabledReason={notConnected}
 						variant="primary"
 					>
 						{t("common.save")}
@@ -440,7 +444,7 @@ export function SkillsTab({ query }: { query: string }) {
 									icon={<RefreshCw />}
 									onClick={() => setDetailAttempt(attempt => attempt + 1)}
 									size="sm"
-									title={notConnected}
+									disabledReason={notConnected}
 								>
 									{t("common.retry")}
 								</Button>
@@ -484,11 +488,12 @@ export function SkillsTab({ query }: { query: string }) {
 	// holding only Refresh over an empty card.
 	if (nothingInstalled)
 		return (
-			<SettingsEmptyRow
-				action={newButton}
+			<EmptyState
+				actions={newButton}
 				icon={<BookOpen />}
 				id="settings-skills-empty"
-				label={t("settings.skills.none")}
+				size="row"
+				title={t("settings.skills.none")}
 			/>
 		);
 	return (

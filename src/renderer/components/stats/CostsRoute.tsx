@@ -5,12 +5,13 @@
 import { useMemo } from "react";
 import { Line } from "react-chartjs-2";
 import { baseChartOptions, bucketLabels, chartColors, useChartThemeKey, withAlpha } from "../../lib/chart";
+import { SectionLabel } from "../common";
 import "../../lib/chart";
 import type { CostsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
+import { ChartBox, MetricCard, MetricGrid, RouteFrame, type StatsRange } from "./shared";
 
 export function CostsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -90,7 +91,9 @@ export function CostsRoute({ range }: { range: StatsRange }) {
 					value={formatUsd(series.reduce((acc, point) => acc + point.costCacheRead + point.costCacheWrite, 0))}
 				/>
 			</MetricGrid>
-			<SectionTitle>{t("stats.costs.dailyByProvider")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.costs.dailyByProvider")}
+			</SectionLabel>
 			<ChartBox height={280}>
 				<Line data={chart} options={options} />
 			</ChartBox>

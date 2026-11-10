@@ -301,7 +301,7 @@ export function ComposerQueuePill({ onSettled }: { onSettled: () => void }) {
 							disabled={!actions.ready}
 							onClick={clearAll}
 							size="sm"
-							title={actions.ready ? undefined : t("common.notConnected")}
+							disabledReason={actions.ready ? undefined : t("common.notConnected")}
 							variant="ghost"
 						>
 							{t("composerQueue.clearAll")}

@@ -11,9 +11,8 @@ import { useT } from "../../lib/i18n";
 import { modelSelector, usageByModel } from "../../lib/model-usage";
 import { useModelStore } from "../../stores/model";
 import { useSubagentsStore } from "../../stores/subagents";
-import { ProgressBar } from "../common";
+import { Card, ProgressBar, SectionLabel } from "../common";
 import { compactModelLabels, compactModelText, modelRefOf } from "../settings/providers/provider-marks";
-import { SectionTitle } from "../stats/shared";
 
 export function ModelUsage({ stats }: { stats: SessionStats }) {
 	const t = useT();
@@ -35,15 +34,11 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 	const labels = compactModelLabels(rows.map(row => modelRefOf(row.model)));
 
 	return (
-		// SectionTitle drops its top margin as a first child, so the section carries it (as AdvisorInsights does).
 		<section aria-labelledby="insights-model-usage" className="mt-8">
-			<SectionTitle>
+			<SectionLabel className="mb-3" size="title">
 				<span id="insights-model-usage">{t("modelUsage.title")}</span>
-			</SectionTitle>
-			<ul
-				className="divide-y divide-(--sc-divider) rounded-(--sc-radius-lg) border border-(--sc-border-subtle)"
-				data-model-usage
-			>
+			</SectionLabel>
+			<Card as="ul" className="divide-y divide-(--sc-divider)" data-model-usage padding="none" radius="lg">
 				{rows.map(row => {
 					// The role leads: one model often serves the main agent and its subagents, and two rows
 					// that read alike differ only in who ran on it.
@@ -70,7 +65,7 @@ export function ModelUsage({ stats }: { stats: SessionStats }) {
 						</li>
 					);
 				})}
-			</ul>
+			</Card>
 		</section>
 	);
 }

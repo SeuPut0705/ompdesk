@@ -154,7 +154,7 @@ for (const [language, theme] of variants([
 			await shot("quick-open");
 			await page.keyboard.press("Enter");
 			await expect(quickOpen).toBeHidden();
-			await expect(page.locator('[title$="gamma.ts"]').first()).toBeVisible();
+			await expect(page.locator("[data-file-preview-title]")).toHaveText("gamma.ts");
 
 			// ⇧⌘F: a word only the transcript has finds the session and shows where.
 			const picker = page.getByRole("dialog");

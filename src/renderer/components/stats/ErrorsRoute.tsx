@@ -8,10 +8,10 @@ import { useStatsList } from "../../hooks/use-stats";
 import { compact } from "../../lib/chart";
 import { uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Badge } from "../common";
+import { Badge, SectionLabel } from "../common";
 import { ModelLabel } from "../settings/ModelLabel";
 import { compactModelLabels } from "../settings/providers/provider-marks";
-import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
+import { RouteFrame, type StatColumn, type StatsRange, StatTable, stopReasonLabel } from "./shared";
 
 export function ErrorsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -90,7 +90,9 @@ export function ErrorsRoute({ range }: { range: StatsRange }) {
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<SectionTitle>{t("stats.errors.sectionTitle", { count: rows.length })}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.errors.sectionTitle", { count: rows.length })}
+			</SectionLabel>
 			<StatTable columns={columns} keyFor={row => `${row.id ?? row.entryId ?? row.timestamp}`} rows={rows} />
 		</RouteFrame>
 	);

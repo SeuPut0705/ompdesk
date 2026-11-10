@@ -265,10 +265,7 @@ test("system omp persists settings and sessions and serves every stats route", a
 			"Projects",
 			"Requests",
 		]) {
-			await stats
-				.locator('nav[aria-label="Stats sections"]')
-				.getByRole("button", { name: label, exact: true })
-				.click();
+			await stats.locator("[data-stats-nav]").getByRole("tab", { name: label, exact: true }).click();
 			await expect(stats.getByText("Loading stats…", { exact: true })).toHaveCount(0, { timeout: 30000 });
 			await expect(stats).not.toContainText("Couldn't load stats", { timeout: 15000 });
 			await page.screenshot({ path: `test-results/stats-${label}.png`, scale: "css", animations: "disabled" });

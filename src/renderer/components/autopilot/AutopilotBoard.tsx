@@ -10,8 +10,8 @@ import { tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { IconButton, Tooltip } from "../common";
-import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "../layout/work-board/board-parts";
+import { IconButton, StatusDot, Tooltip } from "../common";
+import { BoardRow, BoardSection, CappedRows, SECTION_CAP } from "../layout/work-board/board-parts";
 import { chargeText, splitSpend } from "../layout/work-board/metered-charges";
 import { AreaIcon } from "./AreaIcon";
 import { AutopilotControls } from "./AutopilotControls";
@@ -81,7 +81,7 @@ const STATE_TONE = {
 	stopping: "warning",
 	paused: "warning",
 	waiting_quota: "info",
-	ended: "muted",
+	ended: "neutral",
 } as const;
 
 /**
@@ -109,7 +109,7 @@ export function AutopilotBoardHead() {
 	const rate = ratePrediction(status.cycles ?? []);
 	const tokensPerHour = status.totals?.tokensPerHour ?? rate?.tokensPerHour;
 	const usdPerHour = status.totals?.usdPerHour ?? rate?.usdPerHour;
-	const charges = splitSpend(useSessionSpend()).charged;
+	const { charged: charges, estimated } = splitSpend(useSessionSpend());
 	const ended = state === "ended";
 	const reason =
 		status.reason && (state === "paused" || ended)
@@ -138,7 +138,11 @@ export function AutopilotBoardHead() {
 		...charges.map(row =>
 			t("workBoard.spend.charged", { provider: row.name, cost: chargeText(row.cost), today: chargeText(row.today) }),
 		),
-	].join("\n");
+		charges.length > 0 ? t("workBoard.spend.chargedInfo") : null,
+		estimated > 0 ? t("workBoard.spend.estimate", { cost: formatCost(estimated, 2) }) : null,
+	]
+		.filter(Boolean)
+		.join("\n");
 	return (
 		<div className="omp-work-board-run" data-board-autopilot-head>
 			<Tooltip content={<span className="whitespace-pre-line">{stateTip}</span>}>
@@ -148,7 +152,7 @@ export function AutopilotBoardHead() {
 					data-autopilot-state={state}
 					tabIndex={0}
 				>
-					<Dot ring={state === "running"} tone={STATE_TONE[state]} />
+					<StatusDot decorative ring={state === "running"} tone={STATE_TONE[state]} />
 					<span className="min-w-0 flex-1 truncate" data-board-autopilot-text>
 						{text}
 					</span>
@@ -177,7 +181,7 @@ export function AutopilotBoardHead() {
 	);
 }
 
-const CHILD_TONE = { running: "info", done: "success", failed: "danger", closed: "muted" } as const;
+const CHILD_TONE = { running: "info", done: "success", failed: "danger", closed: "neutral" } as const;
 
 function ChildRow({ child }: { child: AutopilotChildLive }) {
 	const t = useT();
@@ -187,7 +191,7 @@ function ChildRow({ child }: { child: AutopilotChildLive }) {
 		<BoardRow
 			data={{ "data-autopilot-child": child.tabId }}
 			label={label}
-			lead={<Dot ring={child.status === "running"} tone={CHILD_TONE[child.status]} />}
+			lead={<StatusDot decorative ring={child.status === "running"} tone={CHILD_TONE[child.status]} />}
 			meta={t(`autopilot.child.${child.status}`)}
 			onClick={tab ? () => void useTabsStore.getState().switchTab(child.tabId) : undefined}
 			title={[label, child.branch, t(`autopilot.child.${child.status}`)].filter(Boolean).join("\n")}
@@ -228,7 +232,7 @@ function AutopilotRunSection() {
 						...(now.title ? { "data-autopilot-pick": "" } : {}),
 					}}
 					label={item}
-					lead={now.area ? <AreaIcon area={now.area} /> : <Dot ring tone="info" />}
+					lead={now.area ? <AreaIcon area={now.area} /> : <StatusDot decorative ring tone="info" />}
 					meta={step ? t(`autopilot.step.${step}`) : undefined}
 					title={[
 						`${t("autopilot.cycleN", { n: now.n })} · ${item}`,
@@ -243,7 +247,7 @@ function AutopilotRunSection() {
 					<BoardRow
 						data={{ "data-autopilot-between": "" }}
 						label={state === "running" ? t("autopilot.between") : (stateText ?? t(`autopilot.state.${state}`))}
-						lead={<Dot tone="muted" />}
+						lead={<StatusDot decorative tone="neutral" />}
 					/>
 				)
 			)}
@@ -254,7 +258,7 @@ function AutopilotRunSection() {
 				<BoardRow
 					data={{ "data-autopilot-red-streak": String(redStreak) }}
 					label={<span className="text-(--sc-text-muted)">{t("autopilot.redStreak", { n: redStreak })}</span>}
-					lead={<Dot tone="warning" />}
+					lead={<StatusDot decorative tone="warning" />}
 				/>
 			)}
 			{stall !== undefined && (
@@ -265,7 +269,7 @@ function AutopilotRunSection() {
 							{t("autopilot.stalled", { step: stall.step, min: Math.max(1, Math.round(stall.ms / 60_000)) })}
 						</span>
 					}
-					lead={<Dot tone="warning" />}
+					lead={<StatusDot decorative tone="warning" />}
 				/>
 			)}
 			<ShipLandRow />
@@ -316,7 +320,7 @@ function AutopilotFollowupsSection() {
 						data={{ "data-autopilot-followup": "" }}
 						key={text}
 						label={text}
-						lead={<Dot ring tone="muted" />}
+						lead={<StatusDot decorative ring tone="neutral" />}
 						meta={leftIn.get(text) === undefined ? undefined : `#${leftIn.get(text)}`}
 						title={
 							leftIn.get(text) === undefined
@@ -344,7 +348,7 @@ function FocusRow() {
 			<BoardRow
 				data={{ "data-autopilot-focus-row": "", "data-board-expands": "", "data-open": String(open) }}
 				label={`${t("autopilot.focus.label")} · ${focusText}`}
-				lead={<Dot tone="muted" />}
+				lead={<StatusDot decorative tone="neutral" />}
 				onClick={() => setOpen(!open)}
 				title={t("autopilot.focus.next")}
 			/>

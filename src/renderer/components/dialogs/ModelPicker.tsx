@@ -21,7 +21,6 @@ import {
 } from "react";
 import type { LoginProvider, ModelInfo } from "../../../shared/rpc-types";
 import { applyModelInfo, hydrateSession } from "../../hooks/use-rpc-events";
-import { useShellInput } from "../../hooks/use-shell-mode";
 import { compactionPointValue, useCompactionPoints } from "../../lib/compaction-limits";
 import { type InlineFailure, inlineFailure } from "../../lib/error-detail";
 import { cx, formatTokens } from "../../lib/format";
@@ -40,13 +39,16 @@ import {
 	Button,
 	EmptyState,
 	InlineNotice,
-	Kbd,
+	KeyHints,
 	Modal,
 	type ModalAnchor,
 	OptionGroup,
+	OptionRow,
 	SearchField,
+	SettingInfo,
 	SkeletonRows,
 	Spinner,
+	Tooltip,
 } from "../common";
 import { ThinkingLevelField } from "../layout/composer/ThinkingControl";
 import { persistDefaultModel } from "../onboarding/default-model";
@@ -69,7 +71,6 @@ export function ModelPicker() {
 	const tabRpc = useTabRpc();
 	const tabId = useRuntimeTabId();
 	const t = useT();
-	const touch = useShellInput() === "touch";
 	const open = useUiStore(state => state.modelPickerOpen);
 	const close = useUiStore(state => state.closeModelPicker);
 	const openProviders = useUiStore(state => state.openProviders);
@@ -361,9 +362,9 @@ export function ModelPicker() {
 							action={
 								<Button
 									disabled={!sidecarReady}
+									disabledReason={t("modelPicker.notConnected")}
 									onClick={() => void load(true, t("modelPicker.stillNotResponding"))}
 									size="sm"
-									title={!sidecarReady ? t("modelPicker.notConnected") : undefined}
 								>
 									{t("common.retry")}
 								</Button>
@@ -395,146 +396,156 @@ export function ModelPicker() {
 					) : groups.length === 0 ? (
 						<EmptyState size="sm" title={t("modelPicker.noMatch", { query })} />
 					) : (
-						groups.map(({ id: groupId, provider, models }) => {
-							const auth = provider === null ? undefined : authByProvider.get(provider);
-							const groupName =
-								provider === null ? t("modelPicker.recent") : (nameByProvider.get(provider) ?? provider);
-							return (
-								<OptionGroup
-									action={
-										auth &&
-										!auth.authenticated && (
-											<>
-												<Badge variant={auth.available ? "warning" : "muted"}>
-													{auth.available
-														? t("modelPicker.auth.notSignedIn")
-														: t("modelPicker.auth.unavailable")}
-												</Badge>
-												{auth.available && (
-													<Button className="ml-auto" onClick={manageProviders} size="sm" variant="ghost">
-														{t("providerList.connect")}
-													</Button>
-												)}
-											</>
-										)
-									}
-									data-model-group={groupId}
-									key={groupId}
-									label={groupName}
-								>
-									{models.map(model => {
-										const key = `${model.provider}/${model.id}`;
-										const isCurrent = current?.provider === model.provider && current.id === model.id;
-										const optionIndex = indexByKey.get(`${groupId}:${key}`) ?? 0;
-										const isActive = optionIndex === activeIndex;
-										const over = !isCurrent && isOverContext(model);
-										const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
-										const compaction = compactionPoints?.bySelector.get(key);
-										const compactionValue = compaction ? compactionPointValue(compaction) : null;
-										const label = labels.get(key) ?? { name: modelDisplayName(model) };
-										// The full name and secondary facts live in the row's tooltip, not on extra lines.
-										const details = [
-											modelDisplayName(model),
-											model.name && model.name !== model.id ? model.id : null,
-											model.description,
-											model.int != null && Number.isFinite(model.int)
-												? t("modelPicker.intelligence", { value: Math.round(model.int) })
-												: null,
-											model.tps != null && Number.isFinite(model.tps) && model.tps > 0
-												? t("modelPicker.speed", {
-														value: model.tps >= 10 ? Math.round(model.tps) : model.tps.toFixed(1),
-													})
-												: null,
-											compaction
-												? compactionValue === null
-													? t("compactionLimits.compactsOff")
-													: t("compactionLimits.compactsAt", { value: compactionValue })
-												: null,
-											small ? t("modelPicker.smallContextHint") : null,
-										]
-											.filter(Boolean)
-											.join(" · ");
-										return (
-											<button
-												aria-selected={isCurrent}
-												className={cx(
-													"flex min-h-(--sc-control-sm) w-full items-center gap-2 rounded-(--sc-radius-md) px-2 py-0.5 text-left disabled:cursor-not-allowed disabled:opacity-50",
-													isActive ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-												)}
-												data-model-option
-												data-option-index={optionIndex}
-												disabled={switching !== null || !sidecarReady}
-												id={`${listboxId}-option-${optionIndex}`}
-												key={key}
-												onClick={() => void select(model.provider, model.id)}
-												onMouseEnter={() => setActiveIndex(optionIndex)}
-												role="option"
-												tabIndex={-1}
-												title={!sidecarReady ? t("modelPicker.notConnected") : details || undefined}
-												type="button"
-											>
-												<ProviderMark
-													className="size-4"
-													provider={{
-														id: model.provider,
-														name: nameByProvider.get(model.provider) ?? model.provider,
-													}}
-												/>
-												<span
-													className={cx(
-														"flex min-w-0 flex-1 items-baseline gap-1.5 text-sc-sm",
-														isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
-														over && "text-(--sc-text-muted)",
+						<>
+							{!sidecarReady && (
+								<InlineNotice className="px-2" title={t("modelPicker.notConnected")} tone="warning" />
+							)}
+							{groups.map(({ id: groupId, provider, models }) => {
+								const auth = provider === null ? undefined : authByProvider.get(provider);
+								const groupName =
+									provider === null ? t("modelPicker.recent") : (nameByProvider.get(provider) ?? provider);
+								return (
+									<OptionGroup
+										action={
+											auth &&
+											!auth.authenticated && (
+												<>
+													<Badge variant={auth.available ? "warning" : "muted"}>
+														{auth.available
+															? t("modelPicker.auth.notSignedIn")
+															: t("modelPicker.auth.unavailable")}
+													</Badge>
+													{auth.available && (
+														<Button
+															className="ml-auto"
+															onClick={manageProviders}
+															size="sm"
+															variant="ghost"
+														>
+															{t("providerList.connect")}
+														</Button>
 													)}
-												>
-													<span className="min-w-0 truncate">{label.name}</span>
-													{label.suffix && (
-														<span className="shrink-0 text-sc-2xs font-normal text-(--sc-text-muted) tabular-nums">
-															{label.suffix}
-														</span>
-													)}
-												</span>
-												{model.isRecommended && (
-													<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>
-												)}
-												{model.isNew && <Badge variant="info">{t("modelPicker.badge.new")}</Badge>}
-												{model.isBeta && <Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>}
-												{model.contextWindow != null && (
-													<span
-														className={cx(
-															"shrink-0 text-sc-2xs tabular-nums",
-															small ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
-														)}
-													>
-														{formatTokens(model.contextWindow, { trimZero: true })}
-													</span>
-												)}
-												{over && (
-													<span
-														aria-label={t("modelPicker.overContext")}
-														className="flex shrink-0 text-(--sc-warning)"
-														role="img"
-														title={t("modelPicker.overContextHint", {
+												</>
+											)
+										}
+										data-model-group={groupId}
+										key={groupId}
+										label={groupName}
+									>
+										{models.map(model => {
+											const key = `${model.provider}/${model.id}`;
+											const isCurrent = current?.provider === model.provider && current.id === model.id;
+											const optionIndex = indexByKey.get(`${groupId}:${key}`) ?? 0;
+											const isActive = optionIndex === activeIndex;
+											const over = !isCurrent && isOverContext(model);
+											const small = model.contextWindow != null && model.contextWindow < MIN_SERVING_CONTEXT;
+											const compaction = compactionPoints?.bySelector.get(key);
+											const compactionValue = compaction ? compactionPointValue(compaction) : null;
+											const label = labels.get(key) ?? { name: modelDisplayName(model) };
+											// The full name and secondary facts live in the row's tooltip, not on extra lines.
+											const details = [
+												modelDisplayName(model),
+												model.name && model.name !== model.id ? model.id : null,
+												model.description,
+												model.int != null && Number.isFinite(model.int)
+													? t("modelPicker.intelligence", { value: Math.round(model.int) })
+													: null,
+												model.tps != null && Number.isFinite(model.tps) && model.tps > 0
+													? t("modelPicker.speed", {
+															value: model.tps >= 10 ? Math.round(model.tps) : model.tps.toFixed(1),
+														})
+													: null,
+												compaction
+													? compactionValue === null
+														? t("compactionLimits.compactsOff")
+														: t("compactionLimits.compactsAt", { value: compactionValue })
+													: null,
+												small ? t("modelPicker.smallContextHint") : null,
+												over
+													? t("modelPicker.overContextHint", {
 															current: formatTokens(contextUsage?.tokens),
 															limit: formatTokens(model.contextWindow),
-														})}
+														})
+													: null,
+											]
+												.filter(Boolean)
+												.join(" · ");
+											return (
+												<Tooltip content={details} key={key} side="right">
+													<OptionRow
+														active={isActive}
+														data-model-option
+														data-option-index={optionIndex}
+														disabled={switching !== null || !sidecarReady}
+														id={`${listboxId}-option-${optionIndex}`}
+														onClick={() => void select(model.provider, model.id)}
+														onMouseEnter={() => setActiveIndex(optionIndex)}
+														pointerMoves
+														selected={isCurrent}
+														size="xs"
 													>
-														<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
-													</span>
-												)}
-												{switching === key && <Spinner size="sm" spin />}
-												{isCurrent && (
-													<Check
-														aria-label={t("modelPicker.current")}
-														className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
-													/>
-												)}
-											</button>
-										);
-									})}
-								</OptionGroup>
-							);
-						})
+														<ProviderMark
+															className="size-4"
+															provider={{
+																id: model.provider,
+																name: nameByProvider.get(model.provider) ?? model.provider,
+															}}
+														/>
+														<span
+															className={cx(
+																"flex min-w-0 flex-1 items-baseline gap-1.5 text-sc-sm",
+																isCurrent ? "font-medium text-(--sc-text)" : "text-(--sc-text)",
+																over && "text-(--sc-text-muted)",
+															)}
+														>
+															<span className="min-w-0 truncate">{label.name}</span>
+															{label.suffix && (
+																<span className="shrink-0 text-sc-2xs font-normal text-(--sc-text-muted) tabular-nums">
+																	{label.suffix}
+																</span>
+															)}
+														</span>
+														{model.isRecommended && (
+															<Badge variant="accent">{t("modelPicker.badge.recommended")}</Badge>
+														)}
+														{model.isNew && <Badge variant="info">{t("modelPicker.badge.new")}</Badge>}
+														{model.isBeta && (
+															<Badge variant="warning">{t("modelPicker.badge.beta")}</Badge>
+														)}
+														{model.contextWindow != null && (
+															<span
+																className={cx(
+																	"shrink-0 text-sc-2xs tabular-nums",
+																	small ? "text-(--sc-warning)" : "text-(--sc-text-muted)",
+																)}
+															>
+																{formatTokens(model.contextWindow, { trimZero: true })}
+															</span>
+														)}
+														{over && (
+															<span
+																aria-label={t("modelPicker.overContext")}
+																className="flex shrink-0 text-(--sc-warning)"
+																role="img"
+															>
+																<TriangleAlert aria-hidden className="size-(--sc-icon-sm)" />
+															</span>
+														)}
+														{switching === key && <Spinner size="sm" spin />}
+														{isCurrent && (
+															<Check
+																aria-label={t("modelPicker.current")}
+																className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-secondary)"
+															/>
+														)}
+													</OptionRow>
+												</Tooltip>
+											);
+										})}
+									</OptionGroup>
+								);
+							})}
+						</>
 					)}
 				</div>
 				{/* Model and effort in one place: the segmented thinking row for the model in use (two taps from the
@@ -544,29 +555,18 @@ export function ModelPicker() {
 						<ThinkingLevelField variant="segmented" />
 					</div>
 				)}
-				<div
-					className="flex items-center gap-3 border-t border-(--sc-divider) px-2 py-1 text-sc-2xs text-(--sc-text-muted)"
+				<KeyHints
 					data-model-picker-footer
-					title={t("modelPicker.defaultHint")}
+					hints={[
+						{ keys: ["↑", "↓"], label: t("modelPicker.keys.move") },
+						{ keys: ["↵"], label: t("modelPicker.keys.pick") },
+					]}
 				>
-					{/* Keys mean nothing on a touch screen (Kbd draws no glyph there): the row keeps Manage providers. */}
-					{!touch && (
-						<>
-							<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
-								<Kbd shortcut="↑" />
-								<Kbd shortcut="↓" />
-								{t("modelPicker.keys.move")}
-							</span>
-							<span className="flex shrink-0 items-center gap-1 max-sm:hidden">
-								<Kbd shortcut="↵" />
-								{t("modelPicker.keys.pick")}
-							</span>
-						</>
-					)}
-					<Button className="ml-auto" icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">
+					<SettingInfo text={t("modelPicker.defaultHint")} />
+					<Button icon={<Settings2 />} onClick={manageProviders} size="sm" variant="ghost">
 						{t("modelPicker.manageProviders")}
 					</Button>
-				</div>
+				</KeyHints>
 			</div>
 		</Modal>
 	);

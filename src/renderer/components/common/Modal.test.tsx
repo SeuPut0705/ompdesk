@@ -231,6 +231,9 @@ describe("Modal", () => {
 				</select>
 				<button aria-checked="false" aria-label="Plan mode" role="switch" type="button" />
 				<input aria-label="Agree" type="checkbox" />
+				<button aria-pressed="false" type="button">
+					Tests
+				</button>
 				<button type="button">Open file</button>
 			</Modal>,
 		);

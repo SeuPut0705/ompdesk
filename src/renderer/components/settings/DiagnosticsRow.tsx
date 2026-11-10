@@ -14,7 +14,7 @@ import { copyText } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, MenuButton } from "../common";
+import { Button, Card, InlineNotice, MenuButton } from "../common";
 import { SettingsRow } from "./SettingsLayout";
 
 /** How long the Copy button says "Copied". */
@@ -139,14 +139,17 @@ export function DiagnosticsRow() {
 					)}
 					{report.state === "ready" && (
 						<>
-							<pre
+							<Card
 								aria-label={t("about.diagnosticsPreviewLabel")}
-								className="max-h-72 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+								as="pre"
+								padding="none"
+								surface="code"
+								className="max-h-72 min-w-0 overflow-auto px-2 py-1.5 font-mono text-sc-xs break-words whitespace-pre-wrap text-(--sc-text-secondary) select-text"
 								data-diagnostics-text
 								tabIndex={0}
 							>
 								{report.text}
-							</pre>
+							</Card>
 							<div className="flex items-center justify-end gap-2">
 								<Button
 									data-copied={copied || undefined}

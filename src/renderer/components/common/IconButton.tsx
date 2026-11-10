@@ -14,11 +14,13 @@
  * use `primary` only for the single main action of a surface (send). `tone` (`success`, `warning`, `danger`) colours
  * the icon with a status, hover included, in place of the variant's paint; the tooltip still says the state in words.
  * A button with no `onClick` is a glyph that explains itself: a tap on a touch screen opens its tooltip.
+ * `disabledReason` (with `disabled`) says why it cannot be pressed: it stays focusable (`aria-disabled`, the press
+ * does nothing) and the Tooltip shows its label with the reason under it on hover, keyboard focus and a tap.
  */
 
 import type { ComponentProps, ReactNode } from "react";
 import { cx } from "../../lib/format";
-import { type ButtonVariant, buttonPaint } from "./Button";
+import { type ButtonVariant, buttonPaint, withoutPress } from "./Button";
 import { Spinner } from "./Spinner";
 import { Tooltip, type TooltipSide } from "./Tooltip";
 
@@ -66,6 +68,8 @@ export interface IconButtonProps extends Omit<ComponentProps<"button">, "childre
 	pressed?: boolean;
 	/** The action is running: spinner instead of the icon, aria-busy, disabled. */
 	loading?: boolean;
+	/** With `disabled`: why it cannot be pressed now, under its label in the kit Tooltip on hover, focus and a tap. */
+	disabledReason?: string;
 }
 
 export function IconButton({
@@ -80,11 +84,13 @@ export function IconButton({
 	pressed,
 	loading,
 	disabled,
+	disabledReason,
 	className,
 	type,
 	...rest
 }: IconButtonProps) {
 	const inert = Boolean(disabled || loading);
+	const explained = Boolean(disabled && !loading && disabledReason);
 	const button = (
 		<button
 			aria-busy={loading || undefined}
@@ -97,13 +103,30 @@ export function IconButton({
 				SIZE_CLASSES[size],
 				className,
 			)}
-			disabled={inert}
 			type={type ?? "button"}
-			{...rest}
+			{...(explained ? withoutPress(rest) : rest)}
+			aria-disabled={explained || rest["aria-disabled"]}
+			disabled={inert && !explained}
+			onClickCapture={explained ? event => event.preventDefault() : rest.onClickCapture}
 		>
 			{loading ? <Spinner inheritColor size="sm" /> : icon}
 		</button>
 	);
+	if (explained) {
+		return (
+			<Tooltip
+				content={
+					<>
+						{tooltip && <span className="block">{label}</span>}
+						<span className={cx("block", tooltip && "font-normal opacity-80")}>{disabledReason}</span>
+					</>
+				}
+				side={tooltipSide}
+			>
+				{button}
+			</Tooltip>
+		);
+	}
 	if (!tooltip) return button;
 	return (
 		<Tooltip content={label} describe={false} shortcut={shortcut} side={tooltipSide}>

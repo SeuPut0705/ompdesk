@@ -141,7 +141,7 @@ describe("Tabs", () => {
 		]);
 	});
 
-	it("carries a tab's tooltip, data hooks and marks, and the list's own data hooks", async () => {
+	it("carries a tab's data hooks and marks, never a native title, and the list's own data hooks", async () => {
 		await mount(
 			<Tabs
 				activeId="q0"
@@ -165,16 +165,39 @@ describe("Tabs", () => {
 		const list = document.querySelector("[role='tablist']");
 		expect(list?.hasAttribute("data-ask-steps")).toBe(true);
 		const [first, second] = tabs();
-		expect(first.getAttribute("title")).toBe("Target · Where should this deploy?");
+		expect(first.hasAttribute("title")).toBe(false);
 		expect(first.getAttribute("data-ask-step")).toBe("0");
 		expect(first.getAttribute("data-tab-id")).toBe("q0");
 		// The mark leads the label; the words that complete the name trail it.
 		expect(first.firstElementChild?.querySelector("[data-mark='done']")).not.toBeNull();
 		expect(first.lastElementChild?.textContent).toBe(", answered");
 		expect(first.textContent).toBe("Target, answered");
-		expect(second.getAttribute("title")).toBeNull();
+		expect(second.hasAttribute("title")).toBe(false);
 		expect(second.getAttribute("data-ask-step")).toBe("1");
 		expect(second.querySelector("[data-mark]")).toBeNull();
+	});
+
+	it("shows a tab's tooltip on keyboard focus, and a click still selects the tab", async () => {
+		const change = vi.fn();
+		// linkedom knows no `:focus-visible`; this focus came from the keyboard.
+		const matches = HTMLElement.prototype.matches;
+		vi.spyOn(HTMLElement.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+			return selector === ":focus-visible" || matches.call(this, selector);
+		});
+		await mount(
+			<Tabs
+				activeId="a"
+				onChange={change}
+				tabs={[
+					{ id: "a", label: "Alpha" },
+					{ id: "b", label: "Beta", tooltip: "Beta · the second step" },
+				]}
+			/>,
+		);
+		await act(async () => tabs()[1]?.dispatchEvent(new Event("focusin", { bubbles: true })));
+		expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Beta · the second step");
+		await act(async () => tabs()[1]?.click());
+		expect(change).toHaveBeenCalledWith("b", "click");
 	});
 
 	it("does not report a click on a disabled tab", async () => {
@@ -333,6 +356,42 @@ describe("Tabs", () => {
 		expect(tabs().map(tab => tab.textContent)).toEqual(["C"]);
 		expect(selectedIds()).toEqual(["c"]);
 		expect(focused.at(-1)).toBe("c");
+	});
+
+	it("forgets a Delete the caller did not carry out once focus leaves, so a later removal steals no focus", async () => {
+		let setOpen: (ids: string[]) => void = () => {};
+		function Asking() {
+			const [open, set] = useState(["a", "b"]);
+			setOpen = set;
+			return (
+				<>
+					<Tabs
+						activeId="a"
+						onChange={() => {}}
+						tabs={open.map(id => ({ id, label: id, onClose: () => {}, closeLabel: `Close ${id}` }))}
+						variant="pills"
+					/>
+					<button data-elsewhere type="button">
+						Elsewhere
+					</button>
+				</>
+			);
+		}
+		const focused: string[] = [];
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			focused.push(this.getAttribute("data-tab-id") ?? "");
+		});
+		await mount(<Asking />);
+		const event = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "key", { value: "Delete" });
+		await act(async () => tabs()[0]?.dispatchEvent(event));
+		expect(tabs()).toHaveLength(2);
+		const blur = new Event("focusout", { bubbles: true });
+		Object.defineProperty(blur, "relatedTarget", { value: document.querySelector("[data-elsewhere]") });
+		await act(async () => tabs()[0]?.dispatchEvent(blur));
+		await act(async () => setOpen(["b"]));
+		expect(tabs()).toHaveLength(1);
+		expect(focused).toEqual([]);
 	});
 
 	it("passes a tab's double click and its own keys on", async () => {

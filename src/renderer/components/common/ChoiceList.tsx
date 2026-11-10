@@ -11,9 +11,13 @@
  * Keys: ↑/↓ move focus over the enabled rows and wrap at the ends (a disabled row is skipped); Enter and Space press
  * the focused row. Number keys belong to the surface around the list, because they answer from anywhere in it but a
  * text field: `PromptCard`'s `onDigit` picks row n. Rows carry `data-choice` (their key) under `data-choice-list`.
+ * On a touch screen no key exists to press, so no number is drawn: an `action` row starts at its label, and a choosing
+ * row keeps its box, with a ✓ in it while checked, so the check is never colour alone.
  */
 
+import { Check } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
+import { useShellInput } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 
 export interface ChoiceListOption {
@@ -51,6 +55,7 @@ export function ChoiceList({ choices, onChoose, selected, mode = "action", label
 		rows[(index + (forward ? 1 : -1) + rows.length) % rows.length]?.focus();
 	};
 	const role = mode === "single" ? "radiogroup" : mode === "multi" ? "group" : undefined;
+	const touch = useShellInput() === "touch";
 	return (
 		<div aria-labelledby={labelledBy} className="space-y-1" data-choice-list role={role}>
 			{choices.map((choice, index) => {
@@ -72,17 +77,19 @@ export function ChoiceList({ choices, onChoose, selected, mode = "action", label
 						role={mode === "single" ? "radio" : mode === "multi" ? "checkbox" : undefined}
 						type="button"
 					>
-						<span
-							aria-hidden
-							className={cx(
-								"flex size-5 shrink-0 items-center justify-center rounded-(--sc-radius-sm) border text-sc-xs font-medium tabular-nums",
-								checked
-									? "border-(--sc-accent) bg-(--sc-accent) text-(--sc-accent-fg)"
-									: "border-(--sc-border) text-(--sc-text-muted)",
-							)}
-						>
-							{index < 9 ? index + 1 : "·"}
-						</span>
+						{(!touch || mode !== "action") && (
+							<span
+								aria-hidden
+								className={cx(
+									"flex size-5 shrink-0 items-center justify-center rounded-(--sc-radius-sm) border text-sc-xs font-medium tabular-nums",
+									checked
+										? "border-(--sc-accent) bg-(--sc-accent) text-(--sc-accent-fg)"
+										: "border-(--sc-border) text-(--sc-text-muted)",
+								)}
+							>
+								{touch ? checked && <Check className="size-3.5" /> : index < 9 ? index + 1 : "·"}
+							</span>
+						)}
 						<span className="min-w-0 flex-1">
 							<span
 								className={cx(

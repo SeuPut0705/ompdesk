@@ -32,7 +32,7 @@ import { useMachineSetupStore } from "../../stores/machine-setup";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
-import { Banner, Button, CopyButton, ProgressBar, Spinner } from "../common";
+import { Banner, Button, Card, CopyButton, ProgressBar, Spinner } from "../common";
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;
 
@@ -293,9 +293,12 @@ export function SetupOutput({ item, details }: { item: SetupItemState; details?:
 				<div className="mt-1 flex min-w-0 flex-col gap-2" id={id}>
 					{details}
 					{hasOutput && (
-						<pre
-							className="max-h-64 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+						<Card
+							as="pre"
+							className="max-h-64 min-w-0 overflow-auto px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+							padding="none"
 							ref={ref}
+							surface="code"
 						>
 							{!item.output ? (
 								t("machineSetup.output.empty")
@@ -304,7 +307,7 @@ export function SetupOutput({ item, details }: { item: SetupItemState; details?:
 							) : (
 								item.output
 							)}
-						</pre>
+						</Card>
 					)}
 				</div>
 			)}

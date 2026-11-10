@@ -32,9 +32,11 @@ import {
 	ListRow,
 	PathText,
 	ProgressBar,
+	SectionLabel,
 	Select,
 	SkeletonRows,
 	Spinner,
+	StatusDot,
 	type StatusTone,
 } from "../common";
 import { SettingsRow, SettingsSection } from "./SettingsLayout";
@@ -56,14 +58,6 @@ const SEVERITY_TONE: Record<Severity, StatusTone> = {
 	medium: "warning",
 	low: "success",
 	informational: "info",
-};
-
-const SEVERITY_FILL: Record<Severity, string> = {
-	critical: "bg-(--sc-danger)",
-	high: "bg-(--sc-danger)",
-	medium: "bg-(--sc-warning)",
-	low: "bg-(--sc-success)",
-	informational: "bg-(--sc-info)",
 };
 
 /** How many of the newest scans the page lists. */
@@ -342,7 +336,12 @@ export function SecuritySection() {
 			<div className="py-3">
 				<Banner
 					actions={
-						<Button disabled={!sidecarReady} onClick={() => void load()} size="sm" title={notConnectedTitle}>
+						<Button
+							disabled={!sidecarReady}
+							onClick={() => void load()}
+							size="sm"
+							disabledReason={notConnectedTitle}
+						>
 							{t("common.retry")}
 						</Button>
 					}
@@ -405,7 +404,7 @@ export function SecuritySection() {
 								loading={running}
 								onClick={requestScan}
 								size="sm"
-								title={scanDisabledReason}
+								disabledReason={scanDisabledReason}
 								variant="primary"
 							>
 								{t("security.scan.run")}
@@ -524,22 +523,14 @@ export function SecuritySection() {
 										if (group.length === 0) return null;
 										return (
 											<div className="mb-3" key={severity}>
-												<div className="mb-1 px-2.5 text-sc-xs font-semibold text-(--sc-text-secondary)">
-													{t(`security.severity.${severity}`)} ({group.length})
-												</div>
+												<SectionLabel as="div" className="mb-1 px-2.5" count={group.length}>
+													{t(`security.severity.${severity}`)}
+												</SectionLabel>
 												{group.map(finding => (
 													<ListRow
 														description={<span className="font-mono">{findingPath(finding)}</span>}
 														key={finding.id}
-														leading={
-															<span
-																aria-hidden
-																className={cx(
-																	"size-1.5 rounded-(--sc-radius-full)",
-																	SEVERITY_FILL[severity],
-																)}
-															/>
-														}
+														leading={<StatusDot decorative tone={SEVERITY_TONE[severity]} />}
 														meta={[finding.confidence, finding.validation, finding.disposition].join(
 															" · ",
 														)}
@@ -603,7 +594,7 @@ export function SecuritySection() {
 											disabled={!sidecarReady}
 											onClick={() => void cancelOperation()}
 											size="sm"
-											title={notConnectedTitle}
+											disabledReason={notConnectedTitle}
 											variant="ghost"
 										>
 											{t("security.cancel")}
@@ -621,9 +612,11 @@ export function SecuritySection() {
 				)}
 
 				{selectedFinding && (
-					<section
+					<Card
 						aria-label={selectedFinding.title}
-						className="security-finding-detail relative grid gap-4 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-3"
+						as="section"
+						className="security-finding-detail relative grid gap-4"
+						radius="lg"
 					>
 						<IconButton
 							className="absolute top-2 right-2"
@@ -675,7 +668,7 @@ export function SecuritySection() {
 									loading={validating}
 									onClick={() => void validateFinding()}
 									size="sm"
-									title={notConnectedTitle}
+									disabledReason={notConnectedTitle}
 									variant="ghost"
 								>
 									{t("security.validate")}
@@ -685,13 +678,13 @@ export function SecuritySection() {
 									loading={savingDisposition}
 									onClick={() => void saveDisposition()}
 									size="sm"
-									title={notConnectedTitle}
+									disabledReason={notConnectedTitle}
 								>
 									{t("security.saveDisposition")}
 								</Button>
 							</div>
 						</div>
-					</section>
+					</Card>
 				)}
 			</div>
 		);

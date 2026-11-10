@@ -505,6 +505,8 @@ export function PaneSwitcher({
 	return (
 		<div aria-label={t("split.switcher")} className="omp-pane-switcher" role="group">
 			{ids.map(id => (
+				// Each pane is named by SessionTitle (name and muted automatic title), where the kit Tabs' label is a string.
+				// controls-ok: .omp-pane-switcher draws the button whole around a SessionTitle
 				<button aria-current={id === activeTabId || undefined} key={id} onClick={() => onPick(id)} type="button">
 					<SessionTitle noTooltip parts={labelFor(id) ?? { title: "" }} />
 				</button>

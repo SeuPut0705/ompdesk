@@ -11,8 +11,8 @@ import type { GainData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Card, Select } from "../common";
-import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
+import { Card, SectionLabel, Select } from "../common";
+import { ChartBox, MetricCard, MetricGrid, RouteFrame, type StatsRange } from "./shared";
 
 export function GainRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -96,11 +96,17 @@ export function GainRoute({ range }: { range: StatsRange }) {
 						<MetricCard label={t("stats.gain.reduction")} value={formatPercent(overall.reductionPercent, 0)} />
 						<MetricCard label={t("stats.gain.bytesSaved")} value={compact(overall.savedBytes)} />
 					</MetricGrid>
-					<SectionTitle>{t("stats.gain.daily")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.gain.daily")}
+					</SectionLabel>
 					<ChartBox height={260}>
 						<Bar data={chart} options={barOptions} />
 					</ChartBox>
-					{sourceEntries.length > 0 && <SectionTitle>{t("stats.gain.bySource")}</SectionTitle>}
+					{sourceEntries.length > 0 && (
+						<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+							{t("stats.gain.bySource")}
+						</SectionLabel>
+					)}
 					{sourceEntries.map(([source, totals]) => (
 						<Card className="mb-1.5 flex items-center gap-3 text-sc-xs" key={source} padding="sm">
 							<span className="font-mono font-medium text-(--sc-text)">{source}</span>

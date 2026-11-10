@@ -122,6 +122,7 @@ function PanelTabBar() {
 	return (
 		<nav aria-label={t("panel.primaryViews")} className="omp-panel-tabbar" data-panel-tabbar="">
 			{VIEWS.map(view => (
+				// controls-ok: the phone's thumb bar; .omp-panel-tabbar draws each view button whole (icon over its word, 44 px)
 				<button
 					aria-current={panelTab === view.id ? "page" : undefined}
 					key={view.id}

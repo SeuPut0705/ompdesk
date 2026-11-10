@@ -166,7 +166,7 @@ export function WorktreeDialog() {
 						variant="primary"
 						loading={creating}
 						disabled={!validName || !sidecarReady}
-						title={!sidecarReady ? t("sidecar.notResponding") : undefined}
+						disabledReason={!sidecarReady ? t("sidecar.notResponding") : undefined}
 					>
 						{t(created ? "worktree.retryOpen" : "worktree.submit")}
 					</Button>

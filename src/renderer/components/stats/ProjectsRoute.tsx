@@ -8,8 +8,8 @@ import { useStatsList } from "../../hooks/use-stats";
 import { compact } from "../../lib/chart";
 import { formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { ProgressBar } from "../common";
-import { RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { ProgressBar, SectionLabel } from "../common";
+import { RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 /**
  * A stats folder made readable. Stock writes either a path (`/private-tmp/`)
@@ -95,7 +95,9 @@ export function ProjectsRoute({ range }: { range: StatsRange }) {
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<SectionTitle>{t("stats.projects.sectionTitle", { count: rows.length })}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.projects.sectionTitle", { count: rows.length })}
+			</SectionLabel>
 			<StatTable columns={columns} keyFor={row => row.folder} rows={rows} />
 		</RouteFrame>
 	);

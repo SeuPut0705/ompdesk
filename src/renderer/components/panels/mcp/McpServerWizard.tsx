@@ -387,7 +387,7 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 					loading={testing}
 					onClick={() => void handleTest()}
 					size="sm"
-					title={!sidecarReady ? t("common.notConnected") : undefined}
+					disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 					variant="secondary"
 				>
 					{t("mcp.wizard.test")}
@@ -401,7 +401,7 @@ export function McpServerWizardForm({ onCancel, onAdded, initialValues }: McpSer
 					loading={submitting}
 					onClick={() => void handleSubmit()}
 					size="sm"
-					title={!sidecarReady ? t("common.notConnected") : undefined}
+					disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 					variant="primary"
 				>
 					{t("mcp.wizard.submit")}

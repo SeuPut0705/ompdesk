@@ -8,6 +8,8 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TOUCH_QUERY } from "../../hooks/shell-queries";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { ChoiceList, type ChoiceListOption } from "./ChoiceList";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -95,6 +97,32 @@ describe("ChoiceList", () => {
 			expect(focused).toBe(rows[2]);
 		} finally {
 			focus.mockRestore();
+		}
+	});
+
+	it("draws no number keys on a touch screen, and marks a checked row with a ✓ in its box", async () => {
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, {
+			matchMedia: (query: string) => ({
+				matches: query === TOUCH_QUERY,
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			}),
+		});
+		resetShellModeForTests();
+		try {
+			let rows = await mount(<ChoiceList choices={CHOICES} onChoose={() => {}} />);
+			expect(rows.map(row => row.textContent)).toEqual(["YesRun it now", "Later", "No"]);
+			await act(async () => root?.unmount());
+			rows = await mount(
+				<ChoiceList choices={CHOICES} mode="multi" onChoose={() => {}} selected={new Set(["no"])} />,
+			);
+			expect(rows.map(row => row.textContent)).toEqual(["YesRun it now", "Later", "No"]);
+			expect(rows.map(row => row.querySelector("svg") !== null)).toEqual([false, false, true]);
+		} finally {
+			Reflect.deleteProperty(window, "matchMedia");
+			Reflect.deleteProperty(document.documentElement.dataset, "platform");
+			resetShellModeForTests();
 		}
 	});
 });

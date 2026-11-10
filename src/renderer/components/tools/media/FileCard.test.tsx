@@ -211,7 +211,7 @@ describe("DraftFileCards", () => {
 		expect([...container.querySelectorAll("[data-file-card]")]).toHaveLength(2);
 		expect(read).not.toHaveBeenCalled();
 		expect(container.querySelector("table, pre, canvas")).toBeNull();
-		expect(container.querySelector("[data-file-card]")?.getAttribute("title")).toContain("notes.md");
+		expect(container.querySelector("[data-file-card]")?.textContent).toContain("notes.md");
 		// Two chips: one tab stop each strip comes from the roving hook; Remove all takes both.
 		const removeAll = container.querySelector("button[data-strip-stop]:not([aria-label])");
 		expect(removeAll?.textContent).toBe("Remove all");

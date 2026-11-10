@@ -13,12 +13,13 @@ import {
 	ConfirmDialog,
 	IconButton,
 	Input,
+	ListRow,
 	MasterDetail,
 	Modal,
 	Switch,
 	TextArea,
 } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, useGithubMutation } from "./shared";
+import { type GithubSectionProps, GithubToolbar, NeedsRepo, useGithubMutation } from "./shared";
 
 interface ReleaseDraft {
 	tag: string;
@@ -325,25 +326,26 @@ export function GithubReleases({ target, repoName, targetKey }: GithubSectionPro
 					>
 						<ul className="flex flex-col gap-0.5">
 							{rows.map(item => (
-								<ListButton
-									active={item.tag === selected}
-									key={item.tag}
-									onSelect={() => setSelected(item.tag)}
-								>
-									<span className="flex w-full items-center gap-2">
-										<Tag aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-										<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">
-											{item.name || item.tag}
-										</span>
-									</span>
-									<span className="flex w-full flex-wrap items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
-										<span className="font-mono">{item.tag}</span>
-										<ReleaseBadges release={item} />
-										<span className="ml-auto shrink-0">
-											{formatTimeAgo(item.publishedAt || item.createdAt)}
-										</span>
-									</span>
-								</ListButton>
+								<li key={item.tag}>
+									<ListRow
+										leading={
+											<Tag aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
+										}
+										onClick={() => setSelected(item.tag)}
+										secondary={
+											<>
+												<span className="min-w-0 truncate font-mono">{item.tag}</span>
+												<ReleaseBadges release={item} />
+												<span className="ml-auto shrink-0">
+													{formatTimeAgo(item.publishedAt || item.createdAt)}
+												</span>
+											</>
+										}
+										selected={item.tag === selected}
+										size="sm"
+										title={item.name || item.tag}
+									/>
+								</li>
 							))}
 						</ul>
 					</AsyncSection>

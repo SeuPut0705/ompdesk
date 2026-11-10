@@ -200,7 +200,7 @@ describe("chat media player", () => {
 			expect(container.querySelector("video")).toBeNull();
 			const chip = container.querySelector("[data-chat-media-unavailable='video']");
 			expect(chip?.textContent).toContain(path.split("/").at(-1));
-			expect(chip?.getAttribute("title")).toContain("File unavailable");
+			expect(chip?.textContent).toContain("File unavailable");
 			await unmount();
 		}
 	});
@@ -237,7 +237,7 @@ describe("chat media player", () => {
 			["big.mp4", undefined, "remote-tab"],
 		]);
 		expect(container.querySelector("video")?.getAttribute("src")).toMatch(/^blob:test\//);
-		expect(container.querySelector("[data-chat-media-too-large='video']")?.getAttribute("title")).toContain(
+		expect(container.querySelector("[data-chat-media-too-large='video']")?.textContent).toContain(
 			"Too large to play here (11.4 MB)",
 		);
 	});
@@ -247,7 +247,7 @@ describe("chat media player", () => {
 		await mount(<ChatMedia kind="video" path="odd.mkv" />);
 		await act(async () => container.querySelector("video")?.dispatchEvent(new Event("error")));
 		expect(container.querySelector("video")).toBeNull();
-		expect(container.querySelector("[data-chat-media-unavailable='video']")?.getAttribute("title")).toContain(
+		expect(container.querySelector("[data-chat-media-unavailable='video']")?.textContent).toContain(
 			"Can't play this file here",
 		);
 	});
@@ -415,10 +415,10 @@ describe("files a reply names", () => {
 		);
 		const doc = parseHTML(`<div>${html}</div>`).document;
 		const cards = [...doc.querySelectorAll("[data-prompt-files] [data-file-card]")];
-		expect(cards.map(card => card.getAttribute("title"))).toEqual([
-			"/up/this-computer/u1/report v2.docx",
+		expect(cards.map(card => card.querySelector(".omp-file-card-name")?.textContent)).toEqual([
+			"report v2.docx",
 			"notes.md",
-			"C:\\Users\\kim\\My Docs\\plan.docx",
+			"plan.docx",
 		]);
 		const text = doc.querySelector(".omp-user-text")?.textContent ?? "";
 		expect(text).not.toContain("this-computer");
@@ -443,9 +443,8 @@ describe("files a reply names", () => {
 				]}
 			/>,
 		);
-		expect([...container.querySelectorAll("[data-file-card]")].map(card => card.getAttribute("title"))).toEqual([
-			"/tmp/summary.md",
-			"/w/dist/app.zip",
-		]);
+		expect(
+			[...container.querySelectorAll("[data-file-card] .omp-file-card-name")].map(name => name.textContent),
+		).toEqual(["summary.md", "app.zip"]);
 	});
 });

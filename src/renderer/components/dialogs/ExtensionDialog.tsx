@@ -47,10 +47,10 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { approvalHeldBack } from "../autopilot/autopilot-view";
-import { Badge, Button, Card, Input, Kbd, LinkButton, Tabs, TextArea } from "../common";
+import { Badge, Button, Card, ChoiceList, Input, Kbd, LinkButton, Tabs, TextArea } from "../common";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock, useBelowEditorDock } from "./ask-dock";
-import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
+import { PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
 
 /** Requests handled elsewhere (store/router) — never rendered as dialogs. */
 const NON_DIALOG_METHODS = new Set(["notify", "setStatus", "setWidget", "setTitle", "set_editor_text", "cancel"]);

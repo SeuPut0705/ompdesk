@@ -91,3 +91,38 @@ it("carries a label action and a remove action, each named, and refuses both whi
 	expect(remove).toHaveBeenCalledTimes(1);
 	expect((byName("Remove sending") as unknown as HTMLButtonElement).disabled).toBe(true);
 });
+
+it("lets a roving row reach its label and ✕, and refuses the label alone while the ✕ still removes", async () => {
+	const open = vi.fn();
+	const remove = vi.fn();
+	let root: HTMLElement | null = null;
+	await mount(
+		<Chip
+			data-strip-item=""
+			labelAttrs={{ "data-strip-stop": "" }}
+			labelDisabled
+			onClick={open}
+			onRemove={remove}
+			ref={node => {
+				root = node;
+			}}
+			removeAttrs={{ "data-strip-remove": "", tabIndex: -1 }}
+			removeLabel="Remove notes.md"
+			tone="warning"
+		>
+			notes.md
+		</Chip>,
+	);
+	const stop = document.querySelector("[data-strip-item] [data-strip-stop]") as unknown as HTMLButtonElement;
+	const cross = document.querySelector("[data-strip-item] [data-strip-remove]") as unknown as HTMLButtonElement;
+	expect(root).toBe(document.querySelector("[data-strip-item]"));
+	expect(stop.textContent).toBe("notes.md");
+	expect(stop.disabled).toBe(false);
+	expect(stop.getAttribute("aria-disabled")).toBe("true");
+	expect(cross.getAttribute("aria-label")).toBe("Remove notes.md");
+	expect(cross.getAttribute("tabindex")).toBe("-1");
+	await act(async () => stop.click());
+	await act(async () => cross.click());
+	expect(open).not.toHaveBeenCalled();
+	expect(remove).toHaveBeenCalledTimes(1);
+});

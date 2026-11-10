@@ -14,6 +14,7 @@ import { resetTabRoute } from "../../lib/tab-routing";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { filterMarketplaces, filterPlugins, filterTemplates, shortenSource } from "../panels/inventory-utils";
+import { ExtensionsSection } from "./ExtensionsSection";
 import { PluginsSection } from "./PluginsSection";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -189,5 +190,40 @@ describe("PluginsSection", () => {
 			browse.dispatchEvent(click);
 		});
 		expect(onTabChange).toHaveBeenCalledWith("marketplaces");
+	});
+	it("keeps the plugin list across a switch to another Extensions tab and back, without a second read", async () => {
+		const getPlugins = vi.fn(async () => ({
+			success: true as const,
+			data: { plugins: [plugin({ name: "kept-plugin" })] },
+		}));
+		const getSkills = vi.fn(async () => ({ success: true as const, data: { skills: [] } }));
+		(window as unknown as { omp: { rpc: unknown } }).omp = { rpc: { getPlugins, getSkills } };
+		useSessionStore.setState({ status: "ready", cwd: "/repo" });
+		useTabsStore.setState({
+			activeTabId: "tab-1",
+			tabs: [{ id: "tab-1", cwd: "/repo", status: "ready", kind: "agent", unreadDone: false }],
+			bundles: new Map(),
+		});
+		resetTabRoute();
+
+		container = document.createElement("div") as unknown as TestElement;
+		document.body.appendChild(container as never);
+		root = createRoot(container as unknown as Element);
+		const show = async (tab: "plugins" | "skills") => {
+			await act(async () => {
+				root?.render(
+					<I18nProvider>
+						<ExtensionsSection onTabChange={() => {}} query="" tab={tab} />
+					</I18nProvider>,
+				);
+			});
+			await flush();
+		};
+		await show("plugins");
+		expect(document.body.textContent).toContain("kept-plugin");
+		await show("skills");
+		await show("plugins");
+		expect(document.body.textContent).toContain("kept-plugin");
+		expect(getPlugins).toHaveBeenCalledTimes(1);
 	});
 });

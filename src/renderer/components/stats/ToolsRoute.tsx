@@ -11,8 +11,8 @@ import type { ToolRow, ToolsData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Badge } from "../common";
-import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { Badge, SectionLabel } from "../common";
+import { ChartBox, RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ToolsRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -119,11 +119,15 @@ export function ToolsRoute({ range }: { range: StatsRange }) {
 			loading={isLoading}
 			onRetry={refetch}
 		>
-			<SectionTitle>{t("stats.tools.callVolume")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.tools.callVolume")}
+			</SectionLabel>
 			<ChartBox height={Math.max(180, byTool.slice(0, 12).length * 26)}>
 				<Bar data={barChart} options={barOptions} />
 			</ChartBox>
-			<SectionTitle>{t("stats.tools.allTools")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.tools.allTools")}
+			</SectionLabel>
 			<StatTable columns={columns} keyFor={row => row.tool} rows={byTool} />
 		</RouteFrame>
 	);

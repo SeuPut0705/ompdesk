@@ -27,6 +27,7 @@ import {
 	MoreHorizontal,
 	Pencil,
 	Plus,
+	RotateCw,
 	Search,
 	Settings,
 	Sparkles,
@@ -537,7 +538,7 @@ export default function StyleGuide() {
 	const [step, setStep] = useState("q0");
 	const [formSheetOpen, setFormSheetOpen] = useState(false);
 	const [confirmOpen, setConfirmOpen] = useState(false);
-	const [tiles, setTiles] = useState({ fast: true, voice: false });
+	const [tiles, setTiles] = useState({ fast: true, voice: false, retry: true });
 	const [note, setNote] = useState("# Notes\n\nPlan first, then edit.");
 	const [treeOpen, setTreeOpen] = useState<Set<string>>(() => new Set(["src"]));
 	const [detailPick, setDetailPick] = useState<string | null>("model");
@@ -985,7 +986,7 @@ export default function StyleGuide() {
 					</Block>
 					<Block
 						className="grid grid-cols-3 gap-6"
-						label="SwitchTile · SettingInfo · AutoTitleButton · TextEditor"
+						label="SwitchTile (infoEnd: the (i) after the switch) · SettingInfo · AutoTitleButton · TextEditor"
 					>
 						<div className="grid grid-cols-2 gap-2" data-switch-grid>
 							<SwitchTile
@@ -1001,6 +1002,14 @@ export default function StyleGuide() {
 								icon={<Mic />}
 								label="Read aloud"
 								onCheckedChange={voice => setTiles(s => ({ ...s, voice }))}
+							/>
+							<SwitchTile
+								checked={tiles.retry}
+								description="Tries a failed request again after a short wait."
+								icon={<RotateCw />}
+								infoEnd
+								label="Auto retry"
+								onCheckedChange={retry => setTiles(s => ({ ...s, retry }))}
 							/>
 						</div>
 						<div className="space-y-3">

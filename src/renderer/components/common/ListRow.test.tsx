@@ -1,6 +1,6 @@
 /**
  * ListRow: one button per row, named by its title and described by its second lines, or named by the whole row when
- * asked; the current row says so; actions at rest follow the meta.
+ * asked; the current row says so; actions at rest follow the meta; its tooltip is reachable by keyboard and by a tap.
  */
 
 import { parseHTML } from "linkedom";
@@ -8,19 +8,49 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { TOUCH_QUERY } from "../../hooks/shell-queries";
+import { resetShellModeForTests } from "../../hooks/use-shell-mode";
 import { ListRow } from "./ListRow";
 
-async function mounted(node: ReactNode, check: (document: Document) => void): Promise<void> {
-	const { document, window } = parseHTML("<html><body></body></html>");
-	Object.assign(globalThis, { document, window, IS_REACT_ACT_ENVIRONMENT: true });
+const TOUCH_MEDIA = (query: string) => ({
+	matches: query === TOUCH_QUERY,
+	addEventListener: () => {},
+	removeEventListener: () => {},
+});
+
+async function mounted(
+	node: ReactNode,
+	check: (document: Document) => void | Promise<void>,
+	{ touch = false }: { touch?: boolean } = {},
+): Promise<void> {
+	const { document, window, Event, HTMLElement } = parseHTML("<html><body></body></html>");
+	Object.assign(globalThis, { document, window, Event, IS_REACT_ACT_ENVIRONMENT: true });
+	if (touch) {
+		document.documentElement.dataset.platform = "web";
+		Object.assign(window, { matchMedia: TOUCH_MEDIA });
+	}
+	resetShellModeForTests();
+	// linkedom knows no `:focus-visible`: every focus here comes from the keyboard.
+	const matches = HTMLElement.prototype.matches;
+	vi.spyOn(HTMLElement.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+		return selector === ":focus-visible" || matches.call(this, selector);
+	});
 	const root = createRoot(document.body as unknown as globalThis.Element);
 	try {
 		await act(async () => root.render(node));
-		check(document as unknown as Document);
+		await check(document as unknown as Document);
 	} finally {
 		await act(async () => root.unmount());
+		vi.restoreAllMocks();
+		resetShellModeForTests();
 	}
+}
+
+/** Fire `type` on the row's button and read the tooltip it leaves open. */
+async function tooltipAfter(document: Document, type: string): Promise<string | null> {
+	await act(async () => document.querySelector("button")?.dispatchEvent(new Event(type, { bubbles: true })));
+	return document.querySelector("[role=tooltip]")?.textContent ?? null;
 }
 
 /** The texts the ids in `attribute` point at, in order. */
@@ -104,5 +134,23 @@ describe("ListRow", () => {
 			expect(button?.getAttribute("aria-current")).toBe("true");
 			expect(button?.hasAttribute("disabled")).toBe(true);
 		});
+	});
+
+	it("shows its tooltip on keyboard focus, and on a tap where the row has no action of its own", async () => {
+		await mounted(<ListRow onClick={() => {}} title="app" tooltip="~/work/app" />, async document => {
+			expect(await tooltipAfter(document, "focusin")).toBe("~/work/app");
+		});
+		await mounted(<ListRow title="notes.md" tooltip="~/work/app/notes.md" />, async document => {
+			expect(document.querySelector("button")?.textContent).toBe("notes.md");
+			expect(await tooltipAfter(document, "focusin")).toBe("~/work/app/notes.md");
+		});
+		await mounted(
+			<ListRow title="notes.md" tooltip="~/work/app/notes.md" />,
+			async document => {
+				expect(await tooltipAfter(document, "click")).toBe("~/work/app/notes.md");
+			},
+			{ touch: true },
+		);
+		expect(renderToStaticMarkup(<ListRow title="notes.md" />)).not.toContain("<button");
 	});
 });

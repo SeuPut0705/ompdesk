@@ -22,8 +22,8 @@ import { formatElapsed } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import type { ApprovalSelect } from "../../stores/extension-ui";
-import { Badge, type BadgeVariant, Card } from "../common";
-import { ChoiceList, PromptCard, TimeoutFooter } from "./PromptCard";
+import { Badge, type BadgeVariant, Card, ChoiceList } from "../common";
+import { PromptCard, TimeoutFooter } from "./PromptCard";
 
 export type ApprovalResponse = { value: string } | { confirmed: boolean } | { cancelled: true };
 
@@ -62,17 +62,10 @@ function tierFor(toolName: string): { key: string; variant: BadgeVariant } {
 	return { key: "approval.tier.exec", variant: "error" };
 }
 
-/** How long the agent has waited on this approval, counted from its arrival (queued time included). */
-function WaitedFor({ since }: { since: number }) {
-	const t = useT();
-	const now = useNowTick(true);
-	const elapsed = formatElapsed(now - since);
-	if (!elapsed) return null;
-	return (
-		<span className="text-sc-xs tabular-nums text-(--sc-text-muted)" data-approval-waited>
-			{t("approval.waitedFor", { time: elapsed })}
-		</span>
-	);
+/** How long the agent has waited on this approval, counted from its arrival (queued time included); "" before a second. */
+function useWaitedFor(since: number | undefined): string {
+	const now = useNowTick(since !== undefined);
+	return since === undefined ? "" : formatElapsed(now - since);
 }
 
 /** The card's words for each remembering answer, by what it covers and for how long. */
@@ -111,6 +104,7 @@ export function ApprovalDialog({
 	}, [request.title, t]);
 
 	const tier = tierFor(toolName);
+	const waited = useWaitedFor(arrivedAt);
 	const deny = () => onRespond({ value: APPROVE_DENY });
 	const offered = approvalChoices(request);
 	const session = offered?.session;
@@ -133,13 +127,19 @@ export function ApprovalDialog({
 	return (
 		<PromptCard
 			footer={
-				<>
-					<span />
-					<span className="flex items-center gap-3">
-						{arrivedAt !== undefined && <WaitedFor since={arrivedAt} />}
-						<TimeoutFooter remaining={remaining} />
-					</span>
-				</>
+				(waited || remaining !== null) && (
+					<>
+						<span />
+						<span className="flex items-center gap-3">
+							{waited && (
+								<span className="text-sc-xs tabular-nums text-(--sc-text-muted)" data-approval-waited>
+									{t("approval.waitedFor", { time: waited })}
+								</span>
+							)}
+							<TimeoutFooter remaining={remaining} />
+						</span>
+					</>
+				)
 			}
 			headerAside={
 				<Badge dot variant={tier.variant}>

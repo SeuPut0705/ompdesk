@@ -12,8 +12,6 @@ import { closestCenter, DndContext, type DragEndEvent, PointerSensor, useSensor,
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import {
 	Archive,
-	ChevronDown,
-	ChevronRight,
 	ExternalLink,
 	Folder,
 	FolderOpen,
@@ -44,7 +42,7 @@ import { useSessionList } from "../../../hooks/use-session-list";
 import { useShellInput } from "../../../hooks/use-shell-mode";
 import { DEVICE_COLORS, type DeviceColorChoice, deviceColorOf } from "../../../lib/device-color";
 import { saveDiagnosticBundle } from "../../../lib/diagnostic-bundle";
-import { basename, cx, formatClock } from "../../../lib/format";
+import { basename, formatClock } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { hostOrderKey, moveInOrder, reorderProjects } from "../../../lib/project-order";
@@ -80,11 +78,14 @@ import {
 	ConfirmDialog,
 	ContextMenu,
 	type ContextMenuItem,
+	DisclosureButton,
 	IconButton,
 	InlineNotice,
 	ListRow,
 	MenuButton,
 	Spinner,
+	StatusDot,
+	type StatusTone,
 	TimeAgo,
 } from "../../common";
 import { workingAgentCount } from "../live-work";
@@ -121,10 +122,10 @@ interface RemoteOpenArgs {
 	kind?: SessionKind;
 }
 
-const DOT_CLASS: Record<HostView["state"], string> = {
-	online: "bg-(--sc-success)",
-	connecting: "bg-(--sc-warning) omp-pulse-dot",
-	offline: "bg-(--sc-text-subtle)",
+const DOT_TONE: Record<HostView["state"], StatusTone> = {
+	online: "success",
+	connecting: "warning",
+	offline: "neutral",
 };
 
 /** A device section's header: the toggle that folds its list (glyph, name, what follows the name, chevron) and, at
@@ -162,7 +163,6 @@ function DeviceHeader({
 }) {
 	const t = useT();
 	const handle = useDeviceHeaderHandle();
-	const Chevron = folded ? ChevronRight : ChevronDown;
 	const choice = useSidebarFolds(s => s.deviceColors[deviceId]);
 	const color = deviceColorOf(deviceId, choice, local === true);
 	const pick = (next: DeviceColorChoice | undefined) => useSidebarFolds.getState().setDeviceColor(deviceId, next);
@@ -198,17 +198,18 @@ function DeviceHeader({
 			data-device-color={color ?? undefined}
 			data-sidebar-device-header={local ? "local" : undefined}
 		>
-			<button
+			<DisclosureButton
 				{...handle}
-				aria-expanded={!folded}
-				className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-left text-sc-xs font-medium text-(--sc-text-muted) select-none [-webkit-touch-callout:none] hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+				chevron="end"
+				chevronClassName="size-(--sc-icon-sm)"
+				className="h-full min-w-0 flex-1 gap-1.5 rounded-(--sc-radius-md) pr-1 pl-2 text-sc-xs font-medium text-(--sc-text-muted) select-none [-webkit-touch-callout:none] hover:text-(--sc-text)"
 				data-roving-item={`device:${deviceId}`}
 				data-sidebar-device-toggle={deviceId}
-				onClick={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}
+				onToggle={() => useSidebarFolds.getState().setDeviceFolded(deviceId, !folded)}
+				open={!folded}
 				tabIndex={-1}
 				// The name truncates in a narrow sidebar; hovering names the device whole.
 				title={name}
-				type="button"
 			>
 				{/* The state dot rides the glyph's corner: beside the name it cost the name ~14 px and "Build server in the
 				    office closet" lost its last word at rest. */}
@@ -219,8 +220,7 @@ function DeviceHeader({
 				<span className="min-w-0 truncate">{name}</span>
 				{children}
 				{folded && <SidebarFoldSummary summary={summary()} />}
-				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-			</button>
+			</DisclosureButton>
 			{/* At rest with a mouse the gear gives the name its room; hovering or focusing the header, or the open menu,
 			    brings it back. A finger has no hover, so it stays. */}
 			<span
@@ -352,13 +352,13 @@ export function SidebarDeviceSection({
 					) : undefined
 				}
 				badge={
-					<span
-						aria-hidden
-						className={cx(
-							"absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2 ring-(--omp-sidebar-bg)",
-							pending && host.state !== "offline" ? "bg-(--sc-text-subtle)" : DOT_CLASS[host.state],
-						)}
+					<StatusDot
+						className="absolute -right-0.5 -bottom-0.5 ring-2 ring-(--omp-sidebar-bg)"
 						data-device-dot
+						decorative
+						pulse={host.state === "connecting" && !pending}
+						size="md"
+						tone={pending && host.state !== "offline" ? "neutral" : DOT_TONE[host.state]}
 					/>
 				}
 				folded={collapsed}

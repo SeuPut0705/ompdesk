@@ -38,36 +38,6 @@ const SettingsGroupContext = createContext(false);
 const SettingsTipOnlyContext = createContext(false);
 export const SettingsTipOnly = SettingsTipOnlyContext.Provider;
 
-/**
- * An empty list in Settings: one row, its glyph, a muted "nothing yet" and the action that fills it (New, Browse); a
- * hint sits behind the (i). The one empty form across Settings' lists, never a centred card.
- */
-export function SettingsEmptyRow({
-	icon,
-	label,
-	description,
-	action,
-	id,
-}: {
-	icon: ReactNode;
-	label: ReactNode;
-	description?: string;
-	action?: ReactNode;
-	id?: string;
-}) {
-	return (
-		<SettingsRow
-			compactControl
-			control={action}
-			description={description}
-			icon={icon}
-			id={id}
-			label={<span className="text-(--sc-text-muted)">{label}</span>}
-			tipOnly
-		/>
-	);
-}
-
 export interface SettingsSectionProps {
 	id?: string;
 	/** Omit when the page header already names this content (the section's only group). */

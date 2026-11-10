@@ -16,7 +16,8 @@ export function InstallSheet({
 	const t = useT();
 	return (
 		<Sheet
-			description={t("web.install.sheetDesc")}
+			closeButton={false}
+			description={t(prompt.guidance === "ios-share" ? "web.install.sheetDescIos" : "web.install.sheetDesc")}
 			footer={
 				<Button data-install-sheet-close="" onClick={onSettled} variant="primary">
 					{t("web.install.done")}

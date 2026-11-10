@@ -12,14 +12,13 @@ import { revealSidebarSubagents } from "../../../stores/sidebar-subagents";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { useTabsStore } from "../../../stores/tabs";
 import { useUiStore } from "../../../stores/ui";
-import { StatusDot } from "../../common";
+import { Badge, Button, StatusDot, Tooltip } from "../../common";
 
 /** Subagent statuses that are doing work; `idle`/`parked` agents wait for a follow-up. */
 const WORKING_STATUSES: Record<string, true> = { started: true, running: true, pending: true };
 const WAITING_STATUSES: Record<string, true> = { idle: true, parked: true };
 
-const SEGMENT =
-	"flex h-7 min-w-0 items-center gap-1.5 rounded-(--sc-radius-full) px-2.5 text-sc-sm text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:outline-(--sc-accent)";
+const SEGMENT_ICON = "text-(--sc-text-muted)";
 
 /**
  * One row above the composer collecting the session's work that outlives a
@@ -79,69 +78,74 @@ export function WorkspaceIsland() {
 			inert={closing}
 		>
 			{agents > 0 && (
-				<button
-					className={SEGMENT}
-					data-island-segment="agents"
-					onClick={() => tabId && revealSidebarSubagents(tabId)}
-					title={t("dock.island.agentsOpen")}
-					type="button"
-				>
-					<Bot aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
-					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.agents")}</span>
-					{working > 0 && (
-						<StatusDot
-							className="shrink-0 tabular-nums"
-							label={t("dock.island.working", { count: working })}
-							pulse
-							tone="info"
-						/>
-					)}
-					{waiting > 0 && (
-						<span className="shrink-0 tabular-nums text-(--sc-text-muted)">
-							{t("dock.island.waiting", { count: waiting })}
-						</span>
-					)}
-				</button>
+				<Tooltip content={t("dock.island.agentsOpen")}>
+					<Button
+						className="min-w-0"
+						data-island-segment="agents"
+						icon={<Bot aria-hidden className={SEGMENT_ICON} />}
+						onClick={() => tabId && revealSidebarSubagents(tabId)}
+						size="sm"
+						variant="ghost"
+					>
+						<span className="shrink-0 text-(--sc-text)">{t("dock.island.agents")}</span>
+						{working > 0 && (
+							<StatusDot
+								className="shrink-0 tabular-nums"
+								label={t("dock.island.working", { count: working })}
+								pulse
+								tone="info"
+							/>
+						)}
+						{waiting > 0 && (
+							<span className="shrink-0 font-normal tabular-nums text-(--sc-text-muted)">
+								{t("dock.island.waiting", { count: waiting })}
+							</span>
+						)}
+					</Button>
+				</Tooltip>
 			)}
 			{sessions > 0 && (
-				<button
-					className={SEGMENT}
-					data-island-segment="sessions"
-					onClick={() => tabId && revealSidebarSubagents(tabId)}
-					title={t("dock.island.sessionsOpen")}
-					type="button"
-				>
-					<GitBranch aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
-					<span className="shrink-0 font-medium text-(--sc-text)">{t("dock.island.sessions")}</span>
-					{running > 0 && (
-						<StatusDot
-							className="shrink-0 tabular-nums"
-							label={t("dock.island.working", { count: running })}
-							pulse
-							tone="info"
-						/>
-					)}
-					{needYou > 0 && (
-						<span
-							className="shrink-0 rounded-(--sc-radius-full) bg-(--sc-warning-soft) px-1.5 tabular-nums text-(--sc-warning-on-soft)"
-							data-island-sessions-need-you
-						>
-							{t(ATTENTION_LABEL_KEY.childWaiting)} {needYou}
-						</span>
-					)}
-				</button>
+				<Tooltip content={t("dock.island.sessionsOpen")}>
+					<Button
+						className="min-w-0"
+						data-island-segment="sessions"
+						icon={<GitBranch aria-hidden className={SEGMENT_ICON} />}
+						onClick={() => tabId && revealSidebarSubagents(tabId)}
+						size="sm"
+						variant="ghost"
+					>
+						<span className="shrink-0 text-(--sc-text)">{t("dock.island.sessions")}</span>
+						{running > 0 && (
+							<StatusDot
+								className="shrink-0 tabular-nums"
+								label={t("dock.island.working", { count: running })}
+								pulse
+								tone="info"
+							/>
+						)}
+						{needYou > 0 && (
+							<Badge className="tabular-nums" data-island-sessions-need-you size="xs" variant="warning">
+								{t(ATTENTION_LABEL_KEY.childWaiting)} {needYou}
+							</Badge>
+						)}
+					</Button>
+				</Tooltip>
 			)}
 			{shells > 0 && (
-				<button
-					className={SEGMENT}
-					data-island-segment="shells"
-					onClick={openJobs}
-					title={t("dock.island.shellsOpen")}
-					type="button"
-				>
-					<SquareTerminal aria-hidden className="shrink-0 text-(--sc-text-muted)" size={14} />
-					<span className="shrink-0 tabular-nums">{t("dock.island.shells", { count: shells })}</span>
-				</button>
+				<Tooltip content={t("dock.island.shellsOpen")}>
+					<Button
+						className="min-w-0"
+						data-island-segment="shells"
+						icon={<SquareTerminal aria-hidden className={SEGMENT_ICON} />}
+						onClick={openJobs}
+						size="sm"
+						variant="ghost"
+					>
+						<span className="shrink-0 font-normal tabular-nums">
+							{t("dock.island.shells", { count: shells })}
+						</span>
+					</Button>
+				</Tooltip>
 			)}
 		</section>
 	);

@@ -20,13 +20,13 @@ import {
 	ConfirmDialog,
 	EmptyState,
 	InlineNotice,
+	ListRow,
 	MenuButton,
 	Popover,
 	SearchField,
 	SectionLabel,
 	SkeletonRows,
 } from "../../common";
-import { PanelListRow } from "../PanelChrome";
 import type { NameRequest } from "./NameDialog";
 import type { ScmRunner } from "./use-scm-action";
 
@@ -117,24 +117,21 @@ export function BranchPicker({
 		const held = item.worktree !== null;
 		return (
 			<div className="flex items-center gap-1" key={`${item.remote ? "r" : "l"}:${item.name}`}>
-				<PanelListRow
-					aria-current={item.current ? "true" : undefined}
+				<ListRow
+					buttonProps={{ "data-branch-row": true, onKeyDown: moveBetweenRows }}
 					className="min-w-0 flex-1"
-					data-branch-row
+					description={held ? t("scm.branch.heldBy", { path: item.worktree ?? "" }) : undefined}
 					disabled={item.current || held}
-					onKeyDown={moveBetweenRows}
+					leading={<GitBranch aria-hidden className="size-(--sc-icon-sm)" />}
+					meta={item.current ? t("scm.branch.current") : undefined}
 					onClick={() =>
 						act("switch", { type: "git_branch", action: "switch", name: item.name }, t("scm.branch.switchFailed"))
 					}
-					title={held ? t("scm.branch.heldBy", { path: item.worktree ?? "" }) : item.name}
-				>
-					<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-					<span className="min-w-0 flex-1 truncate">{item.name}</span>
-					{item.current && (
-						<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("scm.branch.current")}</span>
-					)}
-					{held && <span className="shrink-0 text-sc-xs text-(--sc-text-muted)">{t("scm.branch.held")}</span>}
-				</PanelListRow>
+					selected={item.current}
+					size="sm"
+					title={item.name}
+					titleText={item.name}
+				/>
 				{!item.remote && !item.current && (
 					<MenuButton
 						align="end"
@@ -243,7 +240,8 @@ export function BranchPicker({
 					/>
 					<div className="max-h-[min(24rem,60dvh)] overflow-y-auto" ref={listRef}>
 						{query.trim() && !exact && (
-							<PanelListRow
+							<ListRow
+								leading={<Plus aria-hidden className="size-(--sc-icon-sm)" />}
 								onClick={() =>
 									act(
 										"create",
@@ -251,12 +249,9 @@ export function BranchPicker({
 										t("scm.branch.createFailed"),
 									)
 								}
-							>
-								<Plus aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-								<span className="min-w-0 flex-1 truncate">
-									{t("scm.branch.create", { name: query.trim() })}
-								</span>
-							</PanelListRow>
+								size="sm"
+								title={t("scm.branch.create", { name: query.trim() })}
+							/>
 						)}
 						{error ? (
 							<InlineNotice detail={error} live title={t("scm.branch.loadFailed")} tone="danger" />

@@ -624,7 +624,7 @@ export function PluginDetailBody({
 				void load();
 			}}
 			size="sm"
-			title={!sidecarReady ? t("common.notConnected") : undefined}
+			disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 		>
 			{t("common.retry")}
 		</Button>

@@ -9,7 +9,15 @@ import { useTabsStore } from "../../stores/tabs";
 import { type TerminalMount, TerminalPanel, TerminalViewport } from "./TerminalPanel";
 
 const { document, window, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
-Object.assign(globalThis, { document, window, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
+Object.assign(globalThis, {
+	document,
+	window,
+	HTMLElement,
+	Element,
+	Node,
+	IS_REACT_ACT_ENVIRONMENT: true,
+	requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
+});
 let root: Root | undefined;
 let container: HTMLElement;
 afterEach(async () => {
@@ -302,7 +310,7 @@ describe("TerminalPanel on a phone", () => {
 		);
 		expect(exposed).toEqual([]);
 		// Assistive tech keeps a close: the selected session's, after the list (a touch screen reader has no Delete).
-		const closeSelected = container.querySelector("[data-terminal-close-selected]");
+		const closeSelected = container.querySelector("[data-tabs-close-selected]");
 		expect(closeSelected?.getAttribute("aria-label")).toBe("Close Terminal 1");
 		expect(closeSelected?.getAttribute("aria-hidden")).toBeNull();
 		const tabs = () => Array.from(list.querySelectorAll("[role=tab]")) as HTMLElement[];

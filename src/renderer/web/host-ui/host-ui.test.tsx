@@ -143,7 +143,8 @@ describe("PathActionsSheet", () => {
 	it("offers phone, computer and download for an open, naming the file", async () => {
 		await mount(<PathActionsSheet onSettled={() => {}} prompt={open(hostActions())} />);
 		expect(text()).toContain(translate("hostUi.openPath.title", { name: "todo.md" }));
-		expect($('[data-host-action="phone"]')?.textContent).toContain(translate("hostUi.openPath.viewOnPhone"));
+		// Outside a phone's shell the page is some other device: it says "this device", not "phone".
+		expect($('[data-host-action="phone"]')?.textContent).toContain(translate("hostUi.openPath.viewOnDevice"));
 		expect($('[data-host-action="computer"]')?.textContent).toContain(translate("hostUi.openPath.openOnComputer"));
 		expect($('[data-host-action="download"]')?.textContent).toContain(translate("hostUi.openPath.download"));
 	});

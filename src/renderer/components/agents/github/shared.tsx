@@ -46,35 +46,6 @@ export function GithubToolbar({ children }: { children: ReactNode }) {
 	);
 }
 
-export function ListButton({
-	active,
-	onSelect,
-	children,
-	label,
-}: {
-	active: boolean;
-	onSelect: () => void;
-	children: ReactNode;
-	label?: string;
-}) {
-	return (
-		<li>
-			<button
-				aria-current={active ? "true" : undefined}
-				aria-label={label}
-				className={cx(
-					"flex w-full flex-col gap-1 rounded-(--sc-radius-md) px-3 py-2 text-left",
-					active ? "bg-(--sc-selected)" : "hover:bg-(--sc-hover)",
-				)}
-				onClick={onSelect}
-				type="button"
-			>
-				{children}
-			</button>
-		</li>
-	);
-}
-
 /** Repository sections without a repository: say how to name one. */
 export function NeedsRepo() {
 	const t = useT();

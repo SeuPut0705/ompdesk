@@ -9,7 +9,6 @@
  * quotas, no polling of its own).
  */
 
-import { ChevronDown, ChevronRight } from "lucide-react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
@@ -17,7 +16,7 @@ import { lastUsedAccounts } from "../../../lib/usage-reports";
 import { useModelStore } from "../../../stores/model";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useUiStore } from "../../../stores/ui";
-import { UsageGauges, usageDescription, usageTooltip } from "../../common";
+import { DisclosureButton, UsageGauges, usageDescription, usageTooltip } from "../../common";
 import { ProviderMark } from "../../settings/providers/ProviderMark";
 import { AccountAddress, bareEmail, shortAccountLabel } from "../AccountLimit";
 
@@ -40,7 +39,6 @@ export function SidebarUsage({
 	if (lines.length === 0) return null;
 	const shown = collapsed ? [] : lines.slice(0, USAGE_LINE_CAP);
 	const more = collapsed ? 0 : lines.length - USAGE_LINE_CAP;
-	const Chevron = collapsed ? ChevronRight : ChevronDown;
 	return (
 		<div
 			className="omp-sidebar-usage"
@@ -51,16 +49,16 @@ export function SidebarUsage({
 			onContextMenu={onContextMenu}
 			onKeyDown={onKeyDown}
 		>
-			<button
-				aria-expanded={!collapsed}
-				className="flex h-6 w-full min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) hover:text-(--sc-text) focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--sc-focus-ring)"
+			<DisclosureButton
+				chevron="end"
+				chevronClassName="size-(--sc-icon-sm)"
+				className="h-6 min-w-0 gap-1 rounded-(--sc-radius-md) px-2 text-sc-xs font-medium text-(--sc-text-muted) hover:text-(--sc-text)"
 				data-sidebar-usage-toggle
-				onClick={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
-				type="button"
+				onToggle={() => useSidebarFolds.getState().setUsageCollapsed(!collapsed)}
+				open={!collapsed}
 			>
 				<span className="min-w-0 flex-1 truncate text-left">{t("sidebar.pin.usage")}</span>
-				<Chevron aria-hidden className="size-(--sc-icon-sm) shrink-0" />
-			</button>
+			</DisclosureButton>
 			{shown.map(({ report, inUse }) => {
 				const label = report.account?.trim() || report.provider;
 				const email = shortAccountLabel(label);

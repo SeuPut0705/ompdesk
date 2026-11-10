@@ -64,7 +64,7 @@ function providerProblem({
 	const title = t("modelRoles.quotaTitle", { limit: usageLimitLabel(quota.limit, t), percent });
 	return (
 		<Tooltip content={title}>
-			<span className="inline-flex items-center gap-1.5" data-role-quota>
+			<span className="inline-flex items-center gap-1.5" data-role-quota tabIndex={0}>
 				<span className="w-12">
 					<ProgressBar ariaLabel={title} height={3} value={quota.fraction} valueText="" />
 				</span>
@@ -114,7 +114,7 @@ function effectiveLine({
 							{t("modelRoles.unavailable")}
 						</Badge>
 						<Tooltip content={t("modelRoles.unavailableHint", { model: entry.model ?? "" })}>
-							<span>{entry.model}</span>
+							<span tabIndex={0}>{entry.model}</span>
 						</Tooltip>
 					</>
 				) : (
@@ -149,14 +149,14 @@ function effectiveLine({
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-xs text-(--sc-text-muted)" data-role-status>
 			{entry.model && effective.unavailable && (
 				<Tooltip content={t("modelRoles.unavailableHint", { model: entry.model })}>
-					<Badge dot variant="warning">
+					<Badge dot tabIndex={0} variant="warning">
 						{t("modelRoles.unavailable")}
 					</Badge>
 				</Tooltip>
 			)}
 			{inherited && (
 				<Tooltip content={[effective.name, effective.model].filter(Boolean).join(" · ")}>
-					<span className="flex items-baseline gap-1.5 text-(--sc-text-secondary)">
+					<span className="flex items-baseline gap-1.5 text-(--sc-text-secondary)" tabIndex={0}>
 						{label.name}
 						{label.suffix && <span className="tabular-nums text-(--sc-text-muted)">{label.suffix}</span>}
 					</span>
@@ -338,7 +338,7 @@ export function ModelRoleRow({
 			label={
 				tag ? (
 					<Tooltip content={tag}>
-						<span>{name}</span>
+						<span tabIndex={0}>{name}</span>
 					</Tooltip>
 				) : (
 					name

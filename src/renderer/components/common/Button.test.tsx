@@ -100,6 +100,31 @@ describe("Button", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("lets no pointer-down or key of its caller act while it is disabled and says why", async () => {
+		const handler = vi.fn();
+		await mount(
+			<Button
+				disabled
+				disabledReason="Pick a branch first"
+				onKeyDown={handler}
+				onKeyUp={handler}
+				onMouseDown={handler}
+				onPointerDown={handler}
+			>
+				Create
+			</Button>,
+		);
+		for (const type of ["pointerdown", "mousedown"]) {
+			await act(async () => button().dispatchEvent(new Event(type, { bubbles: true })));
+		}
+		for (const type of ["keydown", "keyup"]) {
+			const event = new Event(type, { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "key", { value: "Enter" });
+			await act(async () => button().dispatchEvent(event));
+		}
+		expect(handler).not.toHaveBeenCalled();
+	});
+
 	it("disables itself while loading, shows a status spinner, keeps its label and blocks onClick", async () => {
 		const click = vi.fn();
 		await mount(

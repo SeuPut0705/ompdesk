@@ -61,6 +61,37 @@ export function buttonPaint(variant: ButtonVariant, inert: boolean): string {
 	);
 }
 
+type PressHandler =
+	| "onClick"
+	| "onMouseDown"
+	| "onMouseUp"
+	| "onPointerDown"
+	| "onPointerUp"
+	| "onTouchStart"
+	| "onTouchEnd"
+	| "onKeyDown"
+	| "onKeyUp";
+
+/**
+ * A disabled control that explains itself (`aria-disabled`, focusable) drops its caller's press and key handlers, so
+ * no pointer-down or Enter acts; focus, blur and hover stay for its Tooltip. Shared with IconButton.
+ */
+export function withoutPress<T extends Partial<Record<PressHandler, unknown>>>(props: T): Omit<T, PressHandler> {
+	const {
+		onClick: _click,
+		onMouseDown: _mouseDown,
+		onMouseUp: _mouseUp,
+		onPointerDown: _pointerDown,
+		onPointerUp: _pointerUp,
+		onTouchStart: _touchStart,
+		onTouchEnd: _touchEnd,
+		onKeyDown: _keyDown,
+		onKeyUp: _keyUp,
+		...kept
+	} = props;
+	return kept;
+}
+
 const SIZE_CLASSES: Record<ButtonSize, string> = {
 	sm: "h-(--sc-control-sm) gap-1.5 rounded-(--sc-radius-sm) px-2.5 text-sc-sm [&>svg]:size-(--sc-icon-sm)",
 	md: "h-(--sc-control-md) gap-1.5 rounded-(--sc-radius-md) px-3 text-sc-md [&>svg]:size-(--sc-icon-sm)",
@@ -106,7 +137,7 @@ export function Button({
 				SIZE_CLASSES[size],
 				className,
 			)}
-			{...rest}
+			{...(explained ? withoutPress(rest) : rest)}
 			aria-disabled={explained || undefined}
 			disabled={inert && !explained}
 			onClick={explained ? undefined : onClick}

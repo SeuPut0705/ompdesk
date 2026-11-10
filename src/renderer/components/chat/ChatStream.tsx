@@ -2,7 +2,6 @@ import { type Range, useVirtualizer, type Virtualizer } from "@tanstack/react-vi
 import {
 	BookOpen,
 	Bug,
-	ChevronRight,
 	Code2,
 	History,
 	Languages,
@@ -37,17 +36,7 @@ import { toastError } from "../../stores/toast";
 import { type TodoSnapshot, useTodoStore } from "../../stores/todo";
 import { type ToolEntry, toolEntryKey, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
-import {
-	BrandMark,
-	Button,
-	Collapse,
-	JumpToLatest,
-	Kbd,
-	Skeleton,
-	Spinner,
-	StatusDot,
-	type StatusTone,
-} from "../common";
+import { BrandMark, Button, Card, Collapse, DisclosureButton, JumpToLatest, Kbd, Skeleton, Spinner } from "../common";
 import { FirstRunSetupSlot, useFirstRunActive } from "../onboarding/FirstRunSlot";
 import { ReadGroupCard } from "../tools/renderers/ReadGroupCard";
 import { ToolCard } from "../tools/ToolCard";
@@ -85,6 +74,7 @@ import {
 	workTurns,
 } from "./chat-stream-utils";
 import { type ContentAnchor, contentAnchor } from "./content-anchor";
+import { TODO_STATUS_LABEL_KEY, TodoStatusIcon } from "./dock/TodoStatusIcon";
 import { ExecutionGroup } from "./ExecutionGroup";
 import { createStageCall, StageCallContext, useStageCall, WorkCardPending } from "./LiveStepPeek";
 import { MessageBubble } from "./MessageBubble";
@@ -239,6 +229,18 @@ function SessionTranscript() {
 		workTurnsRef.current = workTurns(historyRows, isStreaming, workTurnsRef.current);
 		return workTurnsRef.current;
 	}, [historyRows, isStreaming]);
+	// A user's prompt or a reply whose clock reads the same as the one before it keeps it in its action row.
+	const repeatedClocks = useMemo(() => {
+		const repeated = new Set<HistoryRow>();
+		let previous = "";
+		for (const row of historyRows) {
+			if (row.kind !== "message" || (row.message.role !== "user" && row.message.role !== "assistant")) continue;
+			const clock = formatClock(row.message.timestamp);
+			if (clock && clock === previous) repeated.add(row);
+			previous = clock;
+		}
+		return repeated;
+	}, [historyRows]);
 
 	// The assistant message exists as an empty shell from message_start until
 	// the first delta — only real content swaps the status row for the
@@ -1080,15 +1082,17 @@ function SessionTranscript() {
 							    one-line card beside a two-line one (English) kept ~25 px of empty bottom. */}
 							<div className="omp-starter-grid mt-8 grid grid-cols-2 gap-(--sc-space-3) max-sm:grid-cols-1">
 								{starters.map(({ icon: Icon, title, prompt }) => (
-									<button
+									<Card
+										as="button"
 										key={title}
-										type="button"
 										onClick={() =>
 											window.dispatchEvent(
 												new CustomEvent("omp:fill-composer", { detail: { text: prompt, tabId } }),
 											)
 										}
-										className="omp-starter-card group flex items-center gap-3 rounded-(--sc-radius-lg) border border-(--sc-border-subtle) p-4 text-left transition-colors duration-(--sc-duration-fast) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)"
+										className="omp-starter-card group flex items-center gap-3 active:bg-(--sc-pressed)"
+										padding="lg"
+										radius="lg"
 									>
 										<span className="omp-starter-icon flex size-8 shrink-0 items-center justify-center rounded-(--sc-radius-md) bg-(--sc-surface-2) text-(--sc-text-muted)">
 											<Icon aria-hidden className="size-(--sc-icon-md)" />
@@ -1099,7 +1103,7 @@ function SessionTranscript() {
 												{prompt}
 											</span>
 										</span>
-									</button>
+									</Card>
 								))}
 							</div>
 						</div>
@@ -1137,7 +1141,12 @@ function SessionTranscript() {
 								>
 									<div className="omp-transcript-row w-full">
 										{row.kind === "message" ? (
-											<MessageBubble message={row.message} reaction={row.reaction} runningIndicator="dot" />
+											<MessageBubble
+												clockRepeats={repeatedClocks.has(row)}
+												message={row.message}
+												reaction={row.reaction}
+												runningIndicator="dot"
+											/>
 										) : row.kind === "readGroup" ? (
 											<ReadGroupCard entries={row.entries} runningIndicator="dot" usage={row.usage} />
 										) : row.kind === "process" ? (
@@ -1683,18 +1692,6 @@ export function TurnStatusRow({ attached = false }: { attached?: boolean }) {
 	);
 }
 
-/** A snapshot task's dot: its tone, and the word read out in place of colour. */
-const TODO_STATUS: Record<
-	TodoSnapshot["phases"][number]["tasks"][number]["status"],
-	{ tone: StatusTone; label: string }
-> = {
-	pending: { tone: "neutral", label: "todoPanel.status.pending" },
-	in_progress: { tone: "working", label: "todoPanel.status.inProgress" },
-	completed: { tone: "success", label: "todoPanel.status.completed" },
-	blocked: { tone: "warning", label: "todoPanel.status.blocked" },
-	abandoned: { tone: "danger", label: "todoPanel.status.abandoned" },
-};
-
 /**
  * Archived todo state rendered inline in the transcript where the change
  * happened (todo store history). Collapses to a one-line summary; expanding
@@ -1713,26 +1710,19 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 
 	return (
 		<div className="ml-(--omp-editorial-inset) mr-(--omp-editorial-edge) my-0.5">
-			<button
-				aria-expanded={expanded}
-				className="flex min-h-7 w-fit max-w-full min-w-0 items-center gap-2 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-subtle) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary) disabled:hover:bg-transparent disabled:hover:text-(--sc-text-subtle)"
+			<DisclosureButton
+				chevron={cleared ? "none" : "end"}
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
+				className="min-h-7 min-w-0 rounded-(--sc-radius-sm) px-1.5 text-sc-sm text-(--sc-text-subtle) transition-colors duration-(--sc-duration-instant) hover:bg-(--sc-hover) hover:text-(--sc-text-secondary) aria-expanded:text-(--sc-text-secondary) disabled:hover:bg-transparent disabled:hover:text-(--sc-text-subtle)"
 				disabled={cleared}
-				onClick={() => setExpanded(value => !value)}
-				type="button"
+				inline
+				onToggle={() => setExpanded(value => !value)}
+				open={expanded}
 			>
 				<ListTodo aria-hidden className="size-(--sc-icon-sm) shrink-0" />
 				<span className="truncate">{cleared ? t("todoSnapshot.cleared") : t("todoSnapshot.title")}</span>
 				{!cleared && <span className="shrink-0 tabular-nums">{t("todoSnapshot.progress", { done, total })}</span>}
-				{!cleared && (
-					<ChevronRight
-						aria-hidden
-						className={cx(
-							"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-							expanded && "rotate-90",
-						)}
-					/>
-				)}
-			</button>
+			</DisclosureButton>
 			<Collapse className="flow-root" open={expanded && !cleared}>
 				<div className="mt-0.5 mb-1 ml-(--omp-step-rule-inset) space-y-0.5 border-l border-(--sc-divider) pl-3">
 					{entry.phases.map((phase, phaseIndex) => (
@@ -1742,13 +1732,10 @@ const TodoSnapshotCard = memo(function TodoSnapshotCard({ entry }: { entry: Todo
 							)}
 							{phase.tasks.map((task, taskIndex) => (
 								<div key={`${task.content}-${taskIndex}`} className="flex items-center gap-2 py-0.5 text-sc-sm">
-									<StatusDot
-										className="shrink-0"
-										label={t(TODO_STATUS[task.status].label)}
-										labelHidden
-										pulse={false}
-										tone={TODO_STATUS[task.status].tone}
-									/>
+									<span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
+										<TodoStatusIcon status={task.status} />
+									</span>
+									<span className="sr-only">{t(TODO_STATUS_LABEL_KEY[task.status])}</span>
 									<span
 										className={cx(
 											"min-w-0 flex-1 truncate",

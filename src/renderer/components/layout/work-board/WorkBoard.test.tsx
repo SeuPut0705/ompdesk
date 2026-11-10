@@ -260,12 +260,13 @@ describe("WorkBoard header", () => {
 		expect(pane.querySelector("[data-board-status]")?.textContent).toBe(translate("attention.question"));
 		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("2 running");
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");
-		const bar = pane.querySelector(".omp-work-board-segments");
+		const bar = section("plan")?.querySelector('[role="progressbar"]');
 		expect(bar?.getAttribute("aria-label")).toBe("1 of 3 done");
-		expect([...(bar?.children ?? [])].map(segment => segment.getAttribute("data-status"))).toEqual([
-			"completed",
-			"in_progress",
-			"pending",
+		expect(bar?.getAttribute("aria-valuenow")).toBe("0.333");
+		expect([...(bar?.children ?? [])].map(segment => segment.getAttribute("title"))).toEqual([
+			translate("todoPanel.status.completed"),
+			translate("todoPanel.status.inProgress"),
+			translate("todoPanel.status.pending"),
 		]);
 		// The plan's bar and figure are said once, in the plan's own header; the section carries no count.
 		expect(section("plan")?.querySelector(".omp-work-board-progress")?.textContent).toBe("1/3");

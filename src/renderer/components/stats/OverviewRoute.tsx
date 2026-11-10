@@ -14,21 +14,13 @@ import {
 	useChartThemeKey,
 	withAlpha,
 } from "../../lib/chart";
+import { SectionLabel } from "../common";
 import "../../lib/chart";
 import type { AgentTypeRow, OverviewData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatUsd, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import {
-	ChartBox,
-	MetricCard,
-	MetricGrid,
-	RouteFrame,
-	SectionTitle,
-	type StatColumn,
-	type StatsRange,
-	StatTable,
-} from "./shared";
+import { ChartBox, MetricCard, MetricGrid, RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function OverviewRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -143,12 +135,16 @@ export function OverviewRoute({ range }: { range: StatsRange }) {
 						/>
 					</MetricGrid>
 
-					<SectionTitle>{t("stats.overview.activity")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.overview.activity")}
+					</SectionLabel>
 					<ChartBox height={240}>
 						<Line data={activityChart} options={chartOptions} />
 					</ChartBox>
 
-					<SectionTitle>{t("stats.overview.byAgentType")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.overview.byAgentType")}
+					</SectionLabel>
 					<StatTable columns={agentColumns} keyFor={row => row.agentType} rows={stats?.byAgentType ?? []} />
 				</>
 			)}

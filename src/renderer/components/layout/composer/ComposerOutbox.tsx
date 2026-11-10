@@ -8,14 +8,14 @@
  * ONE 36 px row at the top of the composer box, like the paused queue (`ComposerRestoredQueue`): the chips scroll
  * sideways. Nothing is drawn while nothing waits.
  */
-import { AlertTriangle, CloudOff, MessageCircleQuestion, Pencil, RotateCcw, Send, X } from "lucide-react";
+import { AlertTriangle, CloudOff, MessageCircleQuestion, Pencil, RotateCcw, Send } from "lucide-react";
 import { useMemo } from "react";
 import { useT } from "../../../lib/i18n";
 import { queueChipLabel } from "../../../lib/queue-chip";
 import { type OutboxItem, outboxFor, outboxSession, useOutboxStore } from "../../../stores/outbox";
 import { useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { pushTabExtensionUiRequest, useTabsStore } from "../../../stores/tabs";
-import { IconButton, Tooltip } from "../../common";
+import { Chip, IconButton, Tooltip } from "../../common";
 
 function OutboxChip({ item, tabId, onSettled }: { item: OutboxItem; tabId: string; onSettled: () => void }) {
 	const t = useT();
@@ -37,66 +37,64 @@ function OutboxChip({ item, tabId, onSettled }: { item: OutboxItem; tabId: strin
 	const stateWord =
 		item.state === "failed" ? t("outbox.failed", { error: item.error ?? "" }) : t(`outbox.${item.state}`);
 	return (
-		<li
-			className="inline-flex h-7 max-w-64 shrink-0 items-center gap-1.5 rounded-full border border-(--sc-border-subtle) bg-(--sc-surface-2) pr-0.5 pl-2.5 text-sc-xs text-(--sc-text-secondary)"
+		<Chip
+			as="li"
+			className="max-w-64"
 			data-outbox-item
 			data-outbox-state={item.state}
+			disabled={item.state === "sending"}
+			icon={
+				<Tooltip content={stateWord} describe={false}>
+					<span
+						className={`inline-flex shrink-0 ${item.state === "failed" ? "text-(--sc-warning)" : "text-(--sc-text-muted)"}`}
+					>
+						<StateIcon aria-hidden className="size-(--sc-icon-sm)" />
+						<span className="sr-only">{stateWord}</span>
+					</span>
+				</Tooltip>
+			}
+			onRemove={() => {
+				drop(item.id);
+				// The question is open on the computer still: its card comes back to be answered again.
+				if (send.kind === "answer" && send.request) pushTabExtensionUiRequest(send.tabId, send.request);
+				onSettled();
+			}}
+			removeLabel={t("outbox.cancel", { text })}
+			tooltip={text}
+			trailing={
+				<>
+					{item.state === "failed" && (
+						<IconButton
+							data-outbox-retry
+							icon={<RotateCcw />}
+							label={t("outbox.retry", { text })}
+							onClick={() => patch(item.id, { state: "held", error: undefined })}
+							size="inline"
+						/>
+					)}
+					{send.kind === "message" && (
+						<IconButton
+							data-outbox-edit
+							disabled={item.state === "sending"}
+							icon={<Pencil />}
+							label={t("outbox.edit", { text })}
+							onClick={() => {
+								drop(item.id);
+								window.dispatchEvent(
+									new CustomEvent("omp:fill-composer", {
+										detail: { text: send.text, images: send.images, prepend: true, tabId },
+									}),
+								);
+								onSettled();
+							}}
+							size="inline"
+						/>
+					)}
+				</>
+			}
 		>
-			<Tooltip content={stateWord} describe={false}>
-				<span
-					className={`inline-flex shrink-0 ${item.state === "failed" ? "text-(--sc-warning)" : "text-(--sc-text-muted)"}`}
-				>
-					<StateIcon aria-hidden className="size-(--sc-icon-sm)" />
-					<span className="sr-only">{stateWord}</span>
-				</span>
-			</Tooltip>
-			<span className="min-w-0 truncate" title={text}>
-				{text}
-			</span>
-			{item.state === "failed" && (
-				<IconButton
-					className="size-6 rounded-full"
-					data-outbox-retry
-					icon={<RotateCcw />}
-					label={t("outbox.retry", { text })}
-					onClick={() => patch(item.id, { state: "held", error: undefined })}
-					size="sm"
-				/>
-			)}
-			{send.kind === "message" && (
-				<IconButton
-					className="size-6 rounded-full"
-					data-outbox-edit
-					disabled={item.state === "sending"}
-					icon={<Pencil />}
-					label={t("outbox.edit", { text })}
-					onClick={() => {
-						drop(item.id);
-						window.dispatchEvent(
-							new CustomEvent("omp:fill-composer", {
-								detail: { text: send.text, images: send.images, prepend: true, tabId },
-							}),
-						);
-						onSettled();
-					}}
-					size="sm"
-				/>
-			)}
-			<IconButton
-				className="size-6 rounded-full"
-				data-outbox-cancel
-				disabled={item.state === "sending"}
-				icon={<X />}
-				label={t("outbox.cancel", { text })}
-				onClick={() => {
-					drop(item.id);
-					// The question is open on the computer still: its card comes back to be answered again.
-					if (send.kind === "answer" && send.request) pushTabExtensionUiRequest(send.tabId, send.request);
-					onSettled();
-				}}
-				size="sm"
-			/>
-		</li>
+			{text}
+		</Chip>
 	);
 }
 

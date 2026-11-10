@@ -855,7 +855,7 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 							icon={<RotateCw />}
 							onClick={tree.retry}
 							size="sm"
-							title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
+							disabledReason={!sidecarReady ? t("sessionTree.notConnected") : undefined}
 							variant="secondary"
 						>
 							{t("common.retry")}
@@ -1033,7 +1033,7 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 							loading={tree.savingLabel}
 							onClick={() => void tree.commitLabelEdit()}
 							size="sm"
-							title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
+							disabledReason={!sidecarReady ? t("sessionTree.notConnected") : undefined}
 							variant="secondary"
 						>
 							{t("common.save")}
@@ -1079,7 +1079,7 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 									loading={branching === selectedEntry.entryId}
 									onClick={() => void tree.branchFrom(selectedEntry.entryId)}
 									size="sm"
-									title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
+									disabledReason={!sidecarReady ? t("sessionTree.notConnected") : undefined}
 									variant="secondary"
 								>
 									{t("sessionTree.branch")}
@@ -1090,7 +1090,7 @@ function SessionTreeView({ tree, active }: { tree: SessionTreeController; active
 								icon={<Tag />}
 								onClick={() => tree.startLabelEdit(selectedEntry.entryId)}
 								size="sm"
-								title={!sidecarReady ? t("sessionTree.notConnected") : undefined}
+								disabledReason={!sidecarReady ? t("sessionTree.notConnected") : undefined}
 								variant="ghost"
 							>
 								{t("sessionTree.editLabel")}

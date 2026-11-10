@@ -345,7 +345,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 							disabled={disabled}
 							onClick={() => void rpc.mutate(client => client.setGoal({ objective: trimmedObjective }))}
 							size="sm"
-							title={notConnected}
+							disabledReason={notConnected}
 							variant="secondary"
 						>
 							{t("modesPanel.goal.saveObjective")}
@@ -394,7 +394,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 								void rpc.mutate(client => client.setGoal({ timeLimitMinutes: parseMinutes(minutesDraft) }))
 							}
 							size="sm"
-							title={notConnected}
+							disabledReason={notConnected}
 							variant="secondary"
 						>
 							{t("modesPanel.goal.saveTimeLimit")}
@@ -409,7 +409,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						disabled={disabled}
 						onClick={() => runAction("resume")}
 						size="sm"
-						title={notConnected}
+						disabledReason={notConnected}
 						variant="primary"
 					>
 						{t("modesPanel.goal.resume")}
@@ -419,7 +419,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 						disabled={disabled || state.status !== "active"}
 						onClick={() => runAction("pause")}
 						size="sm"
-						title={notConnected}
+						disabledReason={notConnected}
 						variant="secondary"
 					>
 						{t("modesPanel.goal.pause")}
@@ -429,7 +429,7 @@ function GoalEnabledView({ rpc, state }: { rpc: ModeRpc<RpcGoalState>; state: Rp
 					disabled={disabled}
 					onClick={() => runAction("drop")}
 					size="sm"
-					title={notConnected}
+					disabledReason={notConnected}
 					variant="ghost"
 				>
 					{t("modesPanel.goal.drop")}

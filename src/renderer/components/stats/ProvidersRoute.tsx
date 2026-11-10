@@ -6,12 +6,13 @@
 import { useMemo } from "react";
 import { Bar, Pie } from "react-chartjs-2";
 import { baseChartOptions, chartColors, compact, useChartThemeKey, withAlpha } from "../../lib/chart";
+import { SectionLabel } from "../common";
 import "../../lib/chart";
 import type { ProviderRow, ProvidersData, ProviderWindowsData, WindowInsight } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { ChartBox, RouteFrame, SectionTitle, type StatColumn, type StatsRange, StatTable } from "./shared";
+import { ChartBox, RouteFrame, type StatColumn, type StatsRange, StatTable } from "./shared";
 
 export function ProvidersRoute({ range }: { range: StatsRange }) {
 	const t = useT();
@@ -164,23 +165,31 @@ export function ProvidersRoute({ range }: { range: StatsRange }) {
 		>
 			<div className="grid gap-3 xl:grid-cols-2">
 				<div>
-					<SectionTitle>{t("stats.providers.tokenShare")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.providers.tokenShare")}
+					</SectionLabel>
 					<ChartBox height={230}>
 						<Pie data={pie} options={pieOptions} />
 					</ChartBox>
 				</div>
 				<div>
-					<SectionTitle>{t("stats.providers.peakBurn")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.providers.peakBurn")}
+					</SectionLabel>
 					<ChartBox height={230}>
 						<Bar data={hourly} options={hourlyOptions} />
 					</ChartBox>
 				</div>
 			</div>
-			<SectionTitle>{t("stats.providers")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("stats.providers")}
+			</SectionLabel>
 			<StatTable columns={columns} keyFor={row => row.provider} rows={providers} />
 			{windowInsights.length > 0 && (
 				<>
-					<SectionTitle>{t("stats.providers.windows")}</SectionTitle>
+					<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+						{t("stats.providers.windows")}
+					</SectionLabel>
 					<StatTable
 						columns={insightColumns}
 						keyFor={row => `${row.provider}/${row.windowKey}`}

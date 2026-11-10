@@ -1,7 +1,9 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../../lib/format";
+import { useT } from "../../lib/i18n";
+import { Tooltip } from "../common";
 
 /** Actions stay owned by the view; the container supplies a slim view-toolbar slot. */
 export const PanelActionsContext = createContext<HTMLElement | null>(null);
@@ -27,16 +29,32 @@ export function PanelToolbar({ children, className }: { children: ReactNode; cla
 
 export const PANEL_ROW_SURFACE =
 	"min-h-(--sc-control-sm) rounded-(--sc-radius-sm) px-2 py-1.5 text-left text-sc-sm text-(--sc-text) transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-hover) focus-visible:outline-(length:--sc-focus-width) focus-visible:outline-offset-(--sc-focus-offset) focus-visible:outline-(--sc-focus-ring)";
-export const PANEL_ROW = `flex w-full items-center gap-2 ${PANEL_ROW_SURFACE}`;
 
-/** A row of a panel's list; the one whose detail shows is `aria-current` (the list's current item, not a pressed toggle). */
-export function PanelListRow({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+/** A changed file's git state, as the Changes list and a commit's file list say it. */
+export type ChangeStatusName = "modified" | "added" | "deleted" | "untracked" | "renamed" | "conflicted";
+const CHANGE_STATUS: Record<ChangeStatusName, { letter: string; color: string }> = {
+	modified: { letter: "M", color: "text-(--sc-warning)" },
+	added: { letter: "A", color: "text-(--sc-success)" },
+	untracked: { letter: "U", color: "text-(--sc-success)" },
+	deleted: { letter: "D", color: "text-(--sc-danger)" },
+	renamed: { letter: "R", color: "text-(--sc-text-muted)" },
+	conflicted: { letter: "C", color: "text-(--sc-danger)" },
+};
+
+/** The state's letter at a file row's end, its word in the tooltip; the row's own name says the word too. */
+export function ChangeStatus({ status }: { status: ChangeStatusName }) {
+	const t = useT();
+	const mark = CHANGE_STATUS[status];
 	return (
-		<button
-			{...props}
-			type="button"
-			className={cx(PANEL_ROW, props["aria-current"] && "bg-(--sc-selected)", className)}
-		/>
+		<Tooltip content={t(`diffPanel.status.${status}`)} describe={false}>
+			<span
+				aria-hidden
+				className={`w-3 shrink-0 text-center font-mono text-sc-xs ${mark.color}`}
+				data-change-status={status}
+			>
+				{mark.letter}
+			</span>
+		</Tooltip>
 	);
 }
 

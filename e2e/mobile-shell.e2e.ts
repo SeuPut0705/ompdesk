@@ -364,7 +364,7 @@ for (const { engine, device } of variants(
 			// its 24 px floor.
 			const plan = await panel.locator("[data-board-section='plan'] .omp-work-board-title").evaluate(head => ({
 				head: head.getBoundingClientRect().width,
-				bar: head.querySelector(".omp-work-board-segments")?.getBoundingClientRect().width ?? 0,
+				bar: head.querySelector("[data-progress-segments]")?.getBoundingClientRect().width ?? 0,
 			}));
 			expect(plan.bar).toBeGreaterThan(plan.head * 0.5);
 			// The harness session's Current work rows (a lazy chunk, the branch's not-in-main read) land after the panel opens and grow it: measure

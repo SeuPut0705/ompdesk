@@ -298,7 +298,13 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The first screen's private dots, frames, notices and labels moved onto the kit, whose `Tabs` carries a tab's marks
 // and tooltip and whose `Banner`, `Sheet`, `ListRow` and menu items took the options their private copies had
 // (10 Nov 2026): 2,185,228, 395 bytes more.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_185_228;
+// The last private controls moved onto the kit and what sat only in a native `title` became reachable (11 Nov 2026):
+// `Chip` (composer attachments, outbox and queue), the kit `ChoiceList` (prompt cards), `KeyHints` (the model picker),
+// `Tabs` with closable tabs and a kit tooltip, menu items' tooltip and reason, `Button`/`IconButton` `disabledReason`,
+// `ListRow` tooltip and small size, `Card as`, a todo's state as a shape (`TodoStatusIcon`), a repeated minute's
+// clock shown on hover, the run section's in-view rule (`runSectionShown`), a table cell's text length and a file
+// card's `data-file-path`, all on surfaces the first screen holds: 2,196,625, 11,397 bytes more (0.5 %).
+const WEB_FIRST_SCREEN_JS_BYTES = 2_196_625;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

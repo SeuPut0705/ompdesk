@@ -96,7 +96,7 @@ export function AddMarketplaceForm({ onAdded, ready = true }: { onAdded: () => P
 					icon={<Plus />}
 					loading={busy}
 					onClick={() => void submit()}
-					title={!ready ? t("invPanel.notConnected") : undefined}
+					disabledReason={!ready ? t("invPanel.notConnected") : undefined}
 				>
 					{t("marketplace.add")}
 				</Button>
@@ -493,7 +493,7 @@ export function MarketplaceCard({
 									icon={<RefreshCw />}
 									onClick={() => void fetchAvailable()}
 									size="sm"
-									title={!ready ? t("invPanel.notConnected") : undefined}
+									disabledReason={!ready ? t("invPanel.notConnected") : undefined}
 								>
 									{t("common.retry")}
 								</Button>

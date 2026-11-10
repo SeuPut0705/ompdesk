@@ -6,14 +6,14 @@
  * ToolCard). Expanding reveals the individual read rows with full content.
  */
 
-import { ChevronRight, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { basename, cx } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { mergeReadGroupEntries, type ReadGroupEntry, type ReadGroupUsage } from "../../../lib/read-group";
 import { selectToolEntry, useToolsStore } from "../../../stores/tools";
 import { UsageRow } from "../../chat/UsageRow";
-import { Collapse } from "../../common";
+import { Collapse, DisclosureButton } from "../../common";
 import {
 	AFTER_INTENT_CLASS,
 	type RunningIndicator,
@@ -84,13 +84,14 @@ export function ReadGroupCard({
 
 	return (
 		<div className={cx("omp-read-group", pad)}>
-			{/* controls-ok: the omp-read-group-header class draws the whole control */}
-			<button
-				ref={rowRef}
-				type="button"
-				aria-expanded={open}
-				onClick={() => setOpen(value => !value)}
+			<DisclosureButton
+				chevron="end"
+				chevronClassName="size-(--sc-icon-sm) text-(--sc-text-subtle)"
 				className={cx("omp-read-group-header", TOOL_ROW_CLASS)}
+				inline
+				onToggle={() => setOpen(value => !value)}
+				open={open}
+				ref={rowRef}
 			>
 				<ToolStatusIcon kindIcon={<FileText />} runningIndicator={runningIndicator} state={state} />
 				{intent ? <span className="sr-only">{`${t("tools.label.read")}, `}</span> : null}
@@ -134,14 +135,7 @@ export function ReadGroupCard({
 					<span className="sr-only">{t("tools.status.done")}</span>
 				)}
 				{thoughts ? <ThoughtCount count={thoughts.count} /> : null}
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						open && "rotate-90",
-					)}
-				/>
-			</button>
+			</DisclosureButton>
 			<Collapse className="flow-root" open={open}>
 				<div className="omp-read-group-body">
 					{thoughts?.body}

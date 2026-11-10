@@ -132,10 +132,18 @@ describe("migrateRetiredPrefs", () => {
 		expect(bothOff.get("mobileWeb.confirmNewDevices")).toBeUndefined();
 	});
 
-	it("keeps one keep-awake switch, on when either old switch was on", () => {
+	it("keeps one keep-awake switch: a stored host on turns a stored-off work switch on, an untouched host does not", () => {
 		const hostOn = memoryStore({ keepAwakeWhileWorking: false, remote: { keepAwake: true } });
 		migrateRetiredPrefs(hostOn);
 		expect(hostOn.data).toEqual({ keepAwakeWhileWorking: true, remote: {} });
+
+		const hostUntouched = memoryStore({ keepAwakeWhileWorking: false });
+		migrateRetiredPrefs(hostUntouched);
+		expect(hostUntouched.data).toEqual({ keepAwakeWhileWorking: false });
+
+		const hostOff = memoryStore({ remote: { keepAwake: false } });
+		migrateRetiredPrefs(hostOff);
+		expect(hostOff.get("keepAwakeWhileWorking")).toBeUndefined();
 
 		const bothOff = memoryStore({ keepAwakeWhileWorking: false, remote: { keepAwake: false } });
 		migrateRetiredPrefs(bothOff);

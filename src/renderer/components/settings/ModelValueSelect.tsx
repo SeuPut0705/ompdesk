@@ -489,6 +489,7 @@ export function ModelValueSelect({
 
 	return (
 		<div className="relative" ref={rootRef}>
+			{/* controls-ok: a combobox trigger that opens the searchable listbox below; Select is a native popup with no search */}
 			<button
 				aria-description={notice}
 				aria-expanded={open}

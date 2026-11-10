@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, CircleX } from "lucide-react";
+import { Ban, CircleX } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { agentDesktopCall, agentDesktopErrorCode, isAgentDesktopNoMatch } from "../../lib/agent-desktop-name";
 import { basename, cx, dirname, durationBetween, resultDetails } from "../../lib/format";
@@ -9,7 +9,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { selectToolEntry, useToolsStore } from "../../stores/tools";
 import { useUiStore } from "../../stores/ui";
 import { stepIntent } from "../chat/work/work-steps";
-import { Collapse, Spinner, StatusDot } from "../common";
+import { Collapse, DisclosureButton, Spinner, StatusDot } from "../common";
 import { type DiffStats, toolDiffStats } from "./diff-stats";
 import { getToolHeader, getToolRenderer } from "./index";
 import { PathLink } from "./media/PathLink";
@@ -350,12 +350,14 @@ export function ToolCard({
 			data-tool-status={status}
 			data-tool-error={isError ? "true" : undefined}
 		>
-			<button
-				ref={rowRef}
-				type="button"
-				aria-expanded={expanded}
-				onClick={() => setExpanded(value => !value)}
+			<DisclosureButton
+				chevron="end"
+				chevronClassName="omp-tool-chevron size-(--sc-icon-sm) text-(--sc-text-subtle)"
 				className={TOOL_ROW_CLASS}
+				inline
+				onToggle={() => setExpanded(value => !value)}
+				open={expanded}
+				ref={rowRef}
 			>
 				<ToolStatusIcon
 					kindIcon={<KindIcon />}
@@ -436,14 +438,7 @@ export function ToolCard({
 						{duration}
 					</span>
 				)}
-				<ChevronRight
-					aria-hidden
-					className={cx(
-						"omp-tool-chevron omp-disclosure-chevron size-(--sc-icon-sm) shrink-0 text-(--sc-text-subtle)",
-						expanded && "rotate-90",
-					)}
-				/>
-			</button>
+			</DisclosureButton>
 			<Collapse className="flow-root" open={expanded}>
 				<div className="omp-tool-body">
 					{thoughts?.body}

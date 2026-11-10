@@ -19,7 +19,7 @@ import { cx, formatTokens, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { revealAndFocus } from "../../lib/reveal-focus";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { Badge, Banner, Button, DisclosureButton, ErrorDetail, Sheet, Spinner } from "../common";
+import { Badge, Banner, Button, Card, DisclosureButton, ErrorDetail, Sheet, Spinner } from "../common";
 
 /** Grid order, as stock's `/context` stacks them: prompt, tools, context, skills, messages. */
 export const CONTEXT_CATEGORIES: readonly RpcContextCategory[] = [
@@ -110,9 +110,13 @@ function EntryPreview({ id }: { id: string }) {
 	if (!preview) return <Spinner label={t("contextInspector.previewLoading")} size="sm" />;
 	return (
 		<div className="flex flex-col gap-1">
-			<pre className="max-h-80 overflow-auto rounded-(--sc-radius-sm) border border-(--sc-border-subtle) p-2 font-mono text-sc-xs whitespace-pre-wrap break-words text-(--sc-text-secondary)">
+			<Card
+				as="pre"
+				padding="none"
+				className="max-h-80 overflow-auto p-2 font-mono text-sc-xs whitespace-pre-wrap break-words text-(--sc-text-secondary)"
+			>
 				{preview.text || t("contextInspector.previewEmpty")}
-			</pre>
+			</Card>
 			{preview.truncated && (
 				<p className="text-sc-xs text-(--sc-text-muted)">
 					{t("contextInspector.previewTruncated", {
@@ -258,11 +262,11 @@ function InspectorBody({ data }: { data: RpcContextInspectResult }) {
 				{entries.length === 0 ? (
 					<p className="py-4 text-center text-sc-sm text-(--sc-text-muted)">{t("contextInspector.empty")}</p>
 				) : (
-					<ul className="rounded-(--sc-radius-md) border border-(--sc-border-subtle)">
+					<Card as="ul" padding="none">
 						{shown.map(entry => (
 							<EntryRow entry={entry} key={entry.id} showCategory={selected === null} />
 						))}
-					</ul>
+					</Card>
 				)}
 				{shown.length < entries.length && (
 					<Button

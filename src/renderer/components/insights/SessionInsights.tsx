@@ -17,8 +17,18 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { useMessagesStore } from "../../stores/messages";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, SessionTitle, SkeletonRows } from "../common";
-import { MetricCard, MetricGrid, SectionTitle } from "../stats/shared";
+import {
+	Banner,
+	Button,
+	Card,
+	EmptyState,
+	ErrorDetail,
+	IconButton,
+	SectionLabel,
+	SessionTitle,
+	SkeletonRows,
+} from "../common";
+import { MetricCard, MetricGrid } from "../stats/shared";
 import { AdvisorInsights } from "./AdvisorInsights";
 import { ContextBreakdown } from "./ContextBreakdown";
 import { ModelUsage } from "./ModelUsage";
@@ -31,7 +41,7 @@ interface Fact {
 
 function FactList({ facts }: { facts: Fact[] }) {
 	return (
-		<dl className="divide-y divide-(--sc-divider) rounded-(--sc-radius-lg) border border-(--sc-border-subtle)">
+		<Card as="dl" className="divide-y divide-(--sc-divider)" padding="none" radius="lg">
 			{facts.map(fact => (
 				<div className="flex items-baseline justify-between gap-4 px-4 py-2 text-sc-sm" key={fact.label}>
 					<dt className="text-(--sc-text-muted)">{fact.label}</dt>
@@ -47,7 +57,7 @@ function FactList({ facts }: { facts: Fact[] }) {
 					</dd>
 				</div>
 			))}
-		</dl>
+		</Card>
 	);
 }
 
@@ -219,7 +229,9 @@ export function SessionInsights() {
 			<ModelUsage stats={stats} />
 			<AdvisorInsights refreshKey={`${trigger}:${refreshKey}`} sessionCost={history?.cost ?? stats.cost} />
 
-			<SectionTitle>{t("sessionInfo.contextWindow")}</SectionTitle>
+			<SectionLabel className="mt-8 mb-3 first:mt-0" size="title">
+				{t("sessionInfo.contextWindow")}
+			</SectionLabel>
 			<ContextBreakdown refreshKey={refreshKey} />
 
 			<div className="mt-8">

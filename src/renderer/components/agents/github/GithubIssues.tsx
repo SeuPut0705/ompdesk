@@ -13,13 +13,14 @@ import {
 	Card,
 	IconButton,
 	Input,
+	ListRow,
 	MasterDetail,
 	Modal,
 	SearchField,
 	Tabs,
 	TextArea,
 } from "../../common";
-import { type GithubSectionProps, GithubToolbar, ListButton, NeedsRepo, useGithubMutation } from "./shared";
+import { type GithubSectionProps, GithubToolbar, NeedsRepo, useGithubMutation } from "./shared";
 
 const STATES: GithubIssueState[] = ["open", "closed", "all"];
 
@@ -307,33 +308,36 @@ export function GithubIssues({ target, repoName, targetKey }: GithubSectionProps
 					>
 						<ul className="flex flex-col gap-0.5">
 							{rows.map(item => (
-								<ListButton
-									active={item.number === selected}
-									key={item.number}
-									onSelect={() => setSelected(item.number)}
-								>
-									<span className="flex w-full items-center gap-2">
-										<CircleDot
-											aria-hidden
-											className={`size-(--sc-icon-sm) shrink-0 ${item.state === "OPEN" ? "text-(--sc-success)" : "text-(--sc-text-subtle)"}`}
-										/>
-										<span className="min-w-0 flex-1 truncate text-sc-md text-(--sc-text)">{item.title}</span>
-									</span>
-									<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
-										<span className="shrink-0 tabular-nums">#{item.number}</span>
-										<span className="min-w-0 flex-1 truncate">{item.author}</span>
-										{item.commentCount > 0 && (
-											<span
-												className="flex shrink-0 items-center gap-0.5 tabular-nums"
-												title={t("github.issues.commentCount", { count: item.commentCount })}
-											>
-												<MessageSquare aria-hidden className="size-3" />
-												{item.commentCount}
-											</span>
-										)}
-										<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
-									</span>
-								</ListButton>
+								<li key={item.number}>
+									<ListRow
+										leading={
+											<CircleDot
+												aria-hidden
+												className={`size-(--sc-icon-sm) shrink-0 ${item.state === "OPEN" ? "text-(--sc-success)" : "text-(--sc-text-subtle)"}`}
+											/>
+										}
+										onClick={() => setSelected(item.number)}
+										secondary={
+											<>
+												<span className="shrink-0 tabular-nums">#{item.number}</span>
+												<span className="min-w-0 flex-1 truncate">{item.author}</span>
+												{item.commentCount > 0 && (
+													<span className="flex shrink-0 items-center gap-0.5 tabular-nums">
+														<MessageSquare aria-hidden className="size-3" />
+														<span aria-hidden>{item.commentCount}</span>
+														<span className="sr-only">
+															{t("github.issues.commentCount", { count: item.commentCount })}
+														</span>
+													</span>
+												)}
+												<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
+											</>
+										}
+										selected={item.number === selected}
+										size="sm"
+										title={item.title}
+									/>
+								</li>
 							))}
 						</ul>
 					</AsyncSection>

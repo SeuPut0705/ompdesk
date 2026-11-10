@@ -23,13 +23,13 @@ import {
 	EmptyState,
 	ErrorDetail,
 	IconButton,
+	ListRow,
 	MasterDetail,
 	Skeleton,
 	SkeletonRows,
 	Tabs,
 } from "../common";
 import { GithubSignIn } from "../onboarding/GithubSignIn";
-import { ListButton } from "./github/shared";
 import { PrCreateDialog } from "./pr/PrCreateDialog";
 import { PrDetail } from "./pr/PrDetail";
 
@@ -60,27 +60,33 @@ function ChecksIcon({ item }: { item: RpcPrListItem }) {
 function PrListRow({ item, active, onSelect }: { item: RpcPrListItem; active: boolean; onSelect: () => void }) {
 	const t = useT();
 	return (
-		<ListButton active={active} onSelect={onSelect}>
-			<span className="flex w-full items-center gap-2">
-				<ChecksIcon item={item} />
-				<span className="line-clamp-2 min-w-0 flex-1 text-sc-md break-words text-(--sc-text)">{item.title}</span>
-			</span>
-			<span className="flex w-full items-center gap-2 pl-6 text-sc-xs text-(--sc-text-muted)">
-				{/* A draft's mark rides the meta line: at the title's end it cut that one title short of its neighbours. */}
-				{item.isDraft && (
-					<span className="flex shrink-0" title={t("prCenter.draft")}>
-						<GitPullRequestDraft aria-hidden className="size-(--sc-icon-sm)" />
-						<span className="sr-only">{t("prCenter.draft")}</span>
-					</span>
-				)}
-				<span className="shrink-0 tabular-nums">#{item.number}</span>
-				<span className="min-w-0 truncate">{item.authorLogin}</span>
-				<span className="min-w-0 flex-1 truncate font-mono">{item.headRefName}</span>
-				<span className="shrink-0 tabular-nums text-(--sc-success)">+{item.additions}</span>
-				<span className="shrink-0 tabular-nums text-(--sc-danger)">−{item.deletions}</span>
-				<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
-			</span>
-		</ListButton>
+		<li>
+			<ListRow
+				leading={<ChecksIcon item={item} />}
+				onClick={onSelect}
+				secondary={
+					<>
+						{/* A draft's mark rides the meta line: at the title's end it cut that one title short of its neighbours. */}
+						{item.isDraft && (
+							<span className="flex shrink-0 items-center gap-0.5">
+								<GitPullRequestDraft aria-hidden className="size-(--sc-icon-sm)" />
+								{t("prCenter.draft")}
+							</span>
+						)}
+						<span className="shrink-0 tabular-nums">#{item.number}</span>
+						<span className="min-w-0 truncate">{item.authorLogin}</span>
+						<span className="min-w-0 flex-1 truncate font-mono">{item.headRefName}</span>
+						<span className="shrink-0 tabular-nums text-(--sc-success)">+{item.additions}</span>
+						<span className="shrink-0 tabular-nums text-(--sc-danger)">−{item.deletions}</span>
+						<span className="shrink-0">{formatTimeAgo(item.updatedAt)}</span>
+					</>
+				}
+				selected={active}
+				size="sm"
+				title={item.title}
+				titleLines={2}
+			/>
+		</li>
 	);
 }
 

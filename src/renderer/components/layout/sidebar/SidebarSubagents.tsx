@@ -333,6 +333,7 @@ function FamilyChip({
 	const store = useSidebarSubagentsStore.getState;
 	return (
 		<>
+			{/* controls-ok: the omp-family-chip class draws the family count chip whole (the row's width rule) */}
 			<button
 				aria-expanded={expanded}
 				aria-label={label}

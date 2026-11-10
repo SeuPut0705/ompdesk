@@ -11,7 +11,12 @@
  * - Otherwise a plain chip: a button with `onClick`, or a static label.
  * `icon` leads the label (decorative, or a mark with its own kit `Tooltip`); `tooltip` is the whole of a label the
  * chip cuts (`max-w-*` in `className`), shown by the kit Tooltip on hover, focus and a tap. `as="li"` makes the chip a
- * list item of a `<ul>`. `data-*` attributes reach the chip's root.
+ * list item of a `<ul>`. `data-*` attributes and `ref` reach the chip's root. `tone="warning"` says the value is in
+ * trouble (a file that is gone) in the warning colour; the tooltip or the label says how in words.
+ * In a removable chip, `labelDisabled` refuses the label's press alone (it stays focusable as `aria-disabled`, its
+ * tooltip still says why, and the ✕ still removes the chip), and `labelAttrs` / `removeAttrs` reach the label and the
+ * ✕ (data hooks, and the `tabIndex` a roving row of chips sets). A `tooltip` that is more than the label's own text
+ * also describes the label for a screen reader.
  *
  * Touch: the chip is never drawn bigger. Its buttons take the reach of styles/mobile.css's hit-area rule; a row of
  * chips sets that rule's `--hit-gap-x`/`--hit-gap-y` (and the same `gap`) on its container, e.g.
@@ -21,12 +26,14 @@
  */
 
 import { Check, X } from "lucide-react";
-import type { HTMLAttributes, ReactElement, ReactNode } from "react";
+import { type HTMLAttributes, type ReactElement, type ReactNode, type Ref, useCallback } from "react";
 import { cx } from "../../lib/format";
 import { IconButton } from "./IconButton";
 import { Tooltip } from "./Tooltip";
 
 type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
+/** The DOM hooks of a chip's inner button: data attributes, and the tab stop a roving owner sets. */
+type PartAttributes = DataAttributes & { tabIndex?: number };
 
 type ChipCommon = DataAttributes & {
 	/** The label. */
@@ -39,6 +46,10 @@ type ChipCommon = DataAttributes & {
 	disabled?: boolean;
 	as?: "span" | "li";
 	className?: string;
+	/** The chip's root element. */
+	ref?: Ref<HTMLElement>;
+	/** `warning`: the value is in trouble (a missing file), in the warning colour. */
+	tone?: "default" | "warning";
 };
 
 export type ChipProps = ChipCommon &
@@ -51,6 +62,9 @@ export type ChipProps = ChipCommon &
 				onRemove?: never;
 				removeLabel?: never;
 				trailing?: never;
+				labelDisabled?: never;
+				labelAttrs?: never;
+				removeAttrs?: never;
 		  }
 		| {
 				pressed?: never;
@@ -64,6 +78,10 @@ export type ChipProps = ChipCommon &
 				onRemove: () => void;
 				/** The ✕'s accessible name and tooltip. */
 				removeLabel: string;
+				/** The label button refuses its press; the ✕ still removes the chip. */
+				labelDisabled?: boolean;
+				labelAttrs?: PartAttributes;
+				removeAttrs?: PartAttributes;
 		  }
 		| {
 				pressed?: never;
@@ -73,12 +91,16 @@ export type ChipProps = ChipCommon &
 				trailing?: ReactNode;
 				onRemove?: never;
 				removeLabel?: never;
+				labelDisabled?: never;
+				labelAttrs?: never;
+				removeAttrs?: never;
 		  }
 	);
 
 const PILL =
 	"inline-flex h-6 max-w-full min-w-0 shrink-0 items-center gap-1 rounded-(--sc-radius-full) border px-2 text-sc-xs [&>svg]:size-(--sc-icon-sm) [&>svg]:shrink-0";
 const QUIET = "border-(--sc-border-subtle) bg-(--sc-surface-2) text-(--sc-text-secondary)";
+const WARNING = "border-(--sc-border-subtle) bg-(--sc-surface-2) text-(--sc-warning)";
 
 export function Chip({
 	children,
@@ -87,6 +109,8 @@ export function Chip({
 	disabled,
 	as: Root = "span",
 	className,
+	ref,
+	tone = "default",
 	pressed,
 	onPressedChange,
 	onClick,
@@ -94,11 +118,24 @@ export function Chip({
 	trailing,
 	onRemove,
 	removeLabel,
+	labelDisabled,
+	labelAttrs,
+	removeAttrs,
 	...data
 }: ChipProps) {
+	// One element type for the caller's ref, whichever tag the chip's root is.
+	const rootRef = useCallback(
+		(node: HTMLElement | null) => {
+			if (typeof ref === "function") ref(node);
+			else if (ref) ref.current = node;
+		},
+		[ref],
+	);
+	const paint = tone === "warning" ? WARNING : QUIET;
 	const withTooltip = (element: ReactElement<HTMLAttributes<HTMLElement>>) =>
 		tooltip ? (
-			<Tooltip content={tooltip} describe={actionLabel !== undefined}>
+			// The tooltip describes the chip unless it only repeats the label's own text (a cut label made whole).
+			<Tooltip content={tooltip} describe={actionLabel !== undefined || tooltip !== children}>
 				{element}
 			</Tooltip>
 		) : (
@@ -109,6 +146,7 @@ export function Chip({
 		const toggle = (
 			<button
 				{...data}
+				ref={Root === "li" ? undefined : rootRef}
 				aria-pressed={pressed}
 				className={cx(
 					PILL,
@@ -126,7 +164,13 @@ export function Chip({
 				<span className="min-w-0 truncate">{children}</span>
 			</button>
 		);
-		return Root === "li" ? <li className="inline-flex">{withTooltip(toggle)}</li> : withTooltip(toggle);
+		return Root === "li" ? (
+			<li className="inline-flex" ref={rootRef}>
+				{withTooltip(toggle)}
+			</li>
+		) : (
+			withTooltip(toggle)
+		);
 	}
 
 	if (!onRemove && !trailing) {
@@ -136,46 +180,71 @@ export function Chip({
 				aria-label={actionLabel}
 				className={cx(
 					PILL,
-					QUIET,
+					paint,
 					"enabled:hover:text-(--sc-text) disabled:cursor-not-allowed disabled:opacity-50",
 					className,
 				)}
 				disabled={disabled}
 				onClick={onClick}
+				ref={Root === "li" ? undefined : rootRef}
 				type="button"
 			>
 				{icon}
 				<span className="min-w-0 truncate">{children}</span>
 			</button>
 		) : (
-			<span {...data} className={cx(PILL, QUIET, className)}>
+			<span {...data} className={cx(PILL, paint, className)} ref={Root === "li" ? undefined : rootRef}>
 				{icon}
 				<span className="min-w-0 truncate">{children}</span>
 			</span>
 		);
-		return Root === "li" ? <li className="inline-flex">{withTooltip(plain)}</li> : withTooltip(plain);
+		return Root === "li" ? (
+			<li className="inline-flex" ref={rootRef}>
+				{withTooltip(plain)}
+			</li>
+		) : (
+			withTooltip(plain)
+		);
 	}
 
 	const label = onClick ? (
 		<button
+			{...labelAttrs}
+			aria-disabled={labelDisabled || undefined}
 			aria-label={actionLabel}
-			className="min-w-0 truncate rounded-(--sc-radius-sm) text-left enabled:hover:text-(--sc-text) disabled:cursor-not-allowed disabled:opacity-50"
+			className={cx(
+				"min-w-0 truncate rounded-(--sc-radius-sm) text-left disabled:cursor-not-allowed disabled:opacity-50",
+				labelDisabled ? "cursor-not-allowed" : "enabled:hover:text-(--sc-text)",
+			)}
 			disabled={disabled}
-			onClick={onClick}
+			onClick={labelDisabled ? undefined : onClick}
 			type="button"
 		>
 			{children}
 		</button>
 	) : (
-		<span className="min-w-0 truncate">{children}</span>
+		<span {...labelAttrs} className="min-w-0 truncate">
+			{children}
+		</span>
 	);
 	return (
-		<Root {...data} className={cx(PILL, QUIET, onRemove && "pr-1 [--hit-gap-x:var(--sc-space-1)]", className)}>
+		<Root
+			{...data}
+			className={cx(PILL, paint, onRemove && "pr-1 [--hit-gap-x:var(--sc-space-1)]", className)}
+			ref={rootRef}
+		>
 			{icon}
 			{withTooltip(label)}
 			{trailing}
 			{onRemove && (
-				<IconButton disabled={disabled} icon={<X />} label={removeLabel ?? ""} onClick={onRemove} size="inline" />
+				<IconButton
+					{...removeAttrs}
+					disabled={disabled}
+					icon={<X />}
+					label={removeLabel ?? ""}
+					onClick={onRemove}
+					size="inline"
+				/>
 			)}
 		</Root>
 	);

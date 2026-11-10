@@ -169,10 +169,4 @@ describe("picker search fields", () => {
 		expect(source.match(/<Kbd shortcut=/g)?.length).toBeGreaterThanOrEqual(3);
 		expect(source).not.toContain('t("input.history.hint")');
 	});
-
-	it("the model picker keeps its default hint as the footer tooltip, not as a line of its own", () => {
-		const picker = readFileSync(new URL("../../dialogs/ModelPicker.tsx", import.meta.url), "utf8");
-		expect(picker).toMatch(/title=\{t\("modelPicker\.defaultHint"\)\}/);
-		expect(picker).not.toMatch(/<span[^>]*>\s*\{t\("modelPicker\.defaultHint"\)/);
-	});
 });

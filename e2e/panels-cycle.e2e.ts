@@ -471,7 +471,7 @@ for (const [language, theme] of RUNS) {
 					await shoot("file-tabs");
 					// A dirty file holds back a tab switch until the user answers.
 					await page.keyboard.type("// unsaved\n");
-					await tabs.first().locator("button").first().click();
+					await tabs.first().click();
 					const dialog = page.getByRole("dialog");
 					await expect(dialog).toBeVisible({ timeout: 3_000 });
 					await shoot("file-tab-switch-asks");

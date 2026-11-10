@@ -14,6 +14,10 @@
  * that toggle a setting set `checked` (menuitemcheckbox). Choosing a value
  * from data (models, sessions) is a picker, not a menu; a form value with
  * few static options is a Select.
+ *
+ * An item's `tooltip` (or, while it is `disabled`, its `disabledReason`) is the kit Tooltip beside the item on hover
+ * and on keyboard focus; in the touch action sheet, where nothing hovers, it is the item's muted last line. A disabled
+ * item stays in the DOM as `aria-disabled` so the pointer still reaches its reason; it never fires and the arrows skip it.
  */
 
 import { Check, type LucideIcon } from "lucide-react";
@@ -39,6 +43,7 @@ import { focusNear, placeOf } from "./focus-place";
 import { IconButton } from "./IconButton";
 import { Kbd } from "./Kbd";
 import { SheetHandle } from "./Sheet";
+import { Tooltip } from "./Tooltip";
 
 export interface ContextMenuItem {
 	/** Stable id for keyboard focus tracking. */
@@ -58,8 +63,9 @@ export interface ContextMenuItem {
 	danger?: boolean;
 	/** Disabled items render but never fire. */
 	disabled?: boolean;
+	/** Why a disabled item cannot be chosen now: its tooltip, or its last line in the touch sheet. */
 	disabledReason?: string;
-	/** Hover text of an enabled item (what it does in more words than its label); the label when omitted. */
+	/** What an enabled item does in more words than its label: its tooltip, or its last line in the touch sheet. */
 	tooltip?: string;
 	/** Starts a new group: a divider renders above this item (ignored on the first). */
 	separatorBefore?: boolean;
@@ -112,8 +118,11 @@ export function MenuSurface({
 	);
 }
 
-/** Inner layout of one menu item (icon or check · label + description · hint/shortcut). */
-export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" | "id"> }) {
+/** A muted line under an item's label; it wraps at word boundaries, never inside a Korean word ("가져 / 오기"). */
+const MENU_ITEM_LINE = "mt-0.5 block text-sc-xs font-normal text-pretty break-keep text-(--sc-text-muted)";
+
+/** Inner layout of one menu item (icon or check · label + description + `note` · hint/shortcut). */
+export function MenuItemView({ item, note }: { item: Omit<ContextMenuItem, "onSelect" | "id">; note?: string }) {
 	const Icon = item.icon;
 	const showCheckColumn = item.checked !== undefined;
 	return (
@@ -131,13 +140,9 @@ export function MenuItemView({ item }: { item: Omit<ContextMenuItem, "onSelect" 
 				/>
 			)}
 			<span className="min-w-0 flex-1">
-				<span className="block truncate">{item.label}</span>
-				{item.description && (
-					// Wraps at word boundaries, never inside a Korean word ("가져 / 오기"), and avoids a lone last word.
-					<span className="mt-0.5 block text-sc-xs font-normal text-pretty break-keep text-(--sc-text-muted)">
-						{item.description}
-					</span>
-				)}
+				<span className="block break-words">{item.label}</span>
+				{item.description && <span className={MENU_ITEM_LINE}>{item.description}</span>}
+				{note && <span className={MENU_ITEM_LINE}>{note}</span>}
 			</span>
 			{showCheckColumn && (
 				<Check
@@ -158,6 +163,45 @@ export function menuItemClasses(item: Pick<ContextMenuItem, "danger" | "disabled
 		item.danger ? "text-(--sc-danger)" : "text-(--sc-text)",
 		active && (item.danger ? "bg-(--sc-danger-soft)" : "bg-(--sc-selected)"),
 		item.disabled && "cursor-not-allowed opacity-50",
+	);
+}
+
+/** One item: a Tooltip carries its `tooltip` (or reason) in the popover, its last line carries it in the touch sheet. */
+function MenuItemButton({
+	item,
+	active,
+	sheet,
+	onHover,
+}: {
+	item: ContextMenuItem;
+	active: boolean;
+	sheet: boolean;
+	onHover: () => void;
+}) {
+	const more = item.disabled ? item.disabledReason : item.tooltip;
+	const button = (
+		<button
+			aria-checked={item.checked}
+			aria-disabled={item.disabled || undefined}
+			className={menuItemClasses(item, active)}
+			data-menu-item
+			onClick={event => {
+				if (item.disabled) return;
+				item.onSelect({ altKey: event.altKey });
+			}}
+			onMouseDown={item.disabled ? event => event.preventDefault() : undefined}
+			onMouseEnter={onHover}
+			role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+			type="button"
+		>
+			<MenuItemView item={item} note={sheet ? more : undefined} />
+		</button>
+	);
+	if (sheet || !more) return button;
+	return (
+		<Tooltip content={more} side="right">
+			{button}
+		</Tooltip>
 	);
 }
 
@@ -282,22 +326,14 @@ export function ContextMenu({
 					{item.separatorBefore && index > 0 && (
 						<div className="mx-2 my-1 h-px bg-(--sc-divider)" role="separator" />
 					)}
-					<button
-						aria-checked={item.checked}
-						className={menuItemClasses(item, index === activeIndex)}
-						data-menu-item
-						disabled={item.disabled}
-						onClick={event => {
-							if (item.disabled) return;
-							item.onSelect({ altKey: event.altKey });
+					<MenuItemButton
+						active={index === activeIndex}
+						item={item}
+						onHover={() => {
+							if (!item.disabled) setActiveIndex(index);
 						}}
-						onMouseEnter={() => setActiveIndex(index)}
-						role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
-						title={item.disabled ? item.disabledReason : (item.tooltip ?? item.label)}
-						type="button"
-					>
-						<MenuItemView item={item} />
-					</button>
+						sheet={sheet}
+					/>
 				</Fragment>
 			))}
 		</MenuSurface>

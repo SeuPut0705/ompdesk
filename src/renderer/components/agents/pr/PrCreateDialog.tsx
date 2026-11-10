@@ -100,7 +100,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 						disabled={!sidecarReady || title.trim().length === 0}
 						form={formId}
 						loading={creating}
-						title={!sidecarReady ? t("common.notConnected") : undefined}
+						disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 						type="submit"
 						variant="primary"
 					>
@@ -140,7 +140,7 @@ export function PrCreateDialog({ open, onClose }: { open: boolean; onClose: () =
 						icon={<Sparkles />}
 						loading={drafting}
 						onClick={() => void aiDraft()}
-						title={!sidecarReady ? t("common.notConnected") : undefined}
+						disabledReason={!sidecarReady ? t("common.notConnected") : undefined}
 						type="button"
 						variant="secondary"
 					>

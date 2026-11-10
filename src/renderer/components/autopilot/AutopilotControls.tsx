@@ -69,6 +69,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 						data-autopilot-pause={paused ? undefined : ""}
 						data-autopilot-resume={paused ? "" : undefined}
 						disabled={pause.disabled}
+						disabledReason={pause.title}
 						icon={pause.icon}
 						label={pause.label}
 						loading={pause.loading}
@@ -78,6 +79,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 					<IconButton
 						data-autopilot-ship-stop
 						disabled={ship.disabled}
+						disabledReason={ship.title}
 						icon={ship.icon}
 						label={ship.label}
 						loading={ship.loading}
@@ -88,6 +90,7 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 					<IconButton
 						data-autopilot-abort
 						disabled={abort.disabled}
+						disabledReason={abort.title}
 						icon={abort.icon}
 						label={abort.label}
 						loading={abort.loading}
@@ -98,12 +101,13 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 				</>
 			) : (
 				<div className="flex min-w-0 flex-1 gap-1" data-autopilot-control-row>
-					<Tooltip content={tip(pause)}>
+					<Tooltip content={tip(pause)} hidden={pause.disabled}>
 						<Button
 							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
 							data-autopilot-pause={paused ? undefined : ""}
 							data-autopilot-resume={paused ? "" : undefined}
 							disabled={pause.disabled}
+							disabledReason={pause.title}
 							icon={pause.icon}
 							loading={pause.loading}
 							onClick={pause.onClick}
@@ -113,12 +117,13 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 							<span className="max-w-full truncate">{pause.label}</span>
 						</Button>
 					</Tooltip>
-					<Tooltip content={tip(ship)}>
+					<Tooltip content={tip(ship)} hidden={ship.disabled}>
 						<Button
 							aria-pressed={shipThenStop}
 							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
 							data-autopilot-ship-stop
 							disabled={ship.disabled}
+							disabledReason={ship.title}
 							icon={ship.icon}
 							loading={ship.loading}
 							onClick={ship.onClick}
@@ -128,11 +133,12 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 							<span className="max-w-full truncate">{ship.label}</span>
 						</Button>
 					</Tooltip>
-					<Tooltip content={tip(abort)}>
+					<Tooltip content={tip(abort)} hidden={abort.disabled}>
 						<Button
 							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
 							data-autopilot-abort
 							disabled={abort.disabled}
+							disabledReason={abort.title}
 							icon={abort.icon}
 							loading={abort.loading}
 							onClick={abort.onClick}

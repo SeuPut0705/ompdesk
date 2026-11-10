@@ -263,7 +263,7 @@ export function SshSection() {
 	const editing = creating || selected !== undefined;
 	const empty = !loading && !loadError && hostCount === 0;
 	const addButton = (
-		<Button disabled={!sidecarReady} icon={<Plus />} onClick={addHost} size="sm" title={notConnectedTitle}>
+		<Button disabled={!sidecarReady} icon={<Plus />} onClick={addHost} size="sm" disabledReason={notConnectedTitle}>
 			{t("ssh.add")}
 		</Button>
 	);
@@ -324,7 +324,7 @@ export function SshSection() {
 									disabled={!sidecarReady}
 									onClick={() => void load()}
 									size="sm"
-									title={notConnectedTitle}
+									disabledReason={notConnectedTitle}
 								>
 									{t("common.retry")}
 								</Button>
@@ -533,14 +533,17 @@ export function SshSection() {
 									</Banner>
 								)}
 								{testResult && !testResult.ok && testResult.log && logOpen && (
-									<pre
+									<Card
 										aria-label={t("ssh.test.log")}
-										className="mt-2 max-h-64 min-w-0 overflow-auto rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-code-bg) px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
+										as="pre"
+										padding="none"
+										surface="code"
+										className="mt-2 max-h-64 min-w-0 overflow-auto px-2 py-1.5 font-mono text-sc-xs break-all whitespace-pre-wrap text-(--sc-text-secondary) select-text"
 										id="ssh-test-log"
 										tabIndex={0}
 									>
 										{testResult.log}
-									</pre>
+									</Card>
 								)}
 								{!creating && selected && !remote && (
 									<SshForwardsPanel

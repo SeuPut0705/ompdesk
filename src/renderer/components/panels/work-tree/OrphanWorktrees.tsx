@@ -11,12 +11,12 @@ import { GitBranch, RotateCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { RpcOrphanWorktree, RpcOrphanWorktrees } from "../../../../shared/rpc-types";
 import { useFocusedScope } from "../../../lib/focused-scope";
-import { cx, formatTimeAgo } from "../../../lib/format";
+import { cx, formatClock, formatTimeAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { toast, toastError } from "../../../stores/toast";
-import { ConfirmDialog, IconButton, SettingInfo, SkeletonRows } from "../../common";
+import { ConfirmDialog, IconButton, SettingInfo, SkeletonRows, Tooltip } from "../../common";
 import { PANEL_ROW_SURFACE } from "../PanelChrome";
 
 /** The ones a removal may take: nothing in them the user could lose. */
@@ -161,10 +161,11 @@ export function OrphanWorktrees() {
 								data-state={worktree.state}
 								data-squashed={worktree.squashed ? true : undefined}
 								key={worktree.path}
-								title={[name, state, worktree.path].join("\n")}
 							>
 								<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
-								<span className="min-w-0 flex-1 truncate font-mono text-sc-xs">{name}</span>
+								<Tooltip content={worktree.path} describe={false}>
+									<span className="min-w-0 flex-1 truncate font-mono text-sc-xs">{name}</span>
+								</Tooltip>
 								<span
 									className={cx(
 										"shrink-0 text-sc-xs",
@@ -173,7 +174,9 @@ export function OrphanWorktrees() {
 								>
 									{state}
 								</span>
-								<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+								<Tooltip content={formatClock(worktree.modifiedAt)} describe={false}>
+									<span className="shrink-0 text-sc-xs text-(--sc-text-subtle) tabular-nums">{age}</span>
+								</Tooltip>
 								{REMOVABLE[worktree.state] ? (
 									<IconButton
 										data-orphan-remove={worktree.path}

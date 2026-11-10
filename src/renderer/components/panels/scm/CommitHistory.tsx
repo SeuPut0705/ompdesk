@@ -27,7 +27,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import type { RpcGitCommit, RpcGitCommitDetail, RpcGitDiff, RpcGitLog } from "../../../../shared/rpc-types";
 import { errorDetail } from "../../../lib/error-detail";
 import { useFocusedScope } from "../../../lib/focused-scope";
-import { cx, formatAgo } from "../../../lib/format";
+import { formatAgo } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { lastRead, rememberRead } from "../../../lib/last-read";
 import { openExternal } from "../../../lib/open-external";
@@ -41,12 +41,13 @@ import {
 	EmptyState,
 	IconButton,
 	InlineNotice,
+	ListRow,
 	MenuButton,
 	SearchField,
 	Skeleton,
 } from "../../common";
-import { ChangeCounts, PanelListRow, PanelToolbar } from "../PanelChrome";
-import { parseRepositoryDiff, STATUS_STYLE } from "../RepositoryChanges";
+import { ChangeCounts, ChangeStatus, type ChangeStatusName, PanelToolbar } from "../PanelChrome";
+import { parseRepositoryDiff } from "../RepositoryChanges";
 import { FileIcon } from "../viewers/FileViewer";
 import { DiffLines, DiffSkeleton, VirtualRows } from "./DiffLines";
 import { NameDialog, type NameRequest } from "./NameDialog";
@@ -56,7 +57,7 @@ const PAGE = 100;
 /** The history's first visit: two-line commit rows (`estimate`), bars of varied width. */
 const COMMIT_SKELETON_WIDTHS = [74, 58, 68, 46, 62, 54] as const;
 
-const COMMIT_STATUS: Record<string, string> = {
+const COMMIT_STATUS: Record<string, ChangeStatusName> = {
 	A: "added",
 	D: "deleted",
 	R: "renamed",
@@ -413,7 +414,7 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 			)}
 			{!selected ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" ref={setListScroller}>
-					<div className="sticky top-0 z-(--sc-z-sticky) bg-(--sc-surface-1) pt-2 pb-1">
+					<div className="sticky top-0 z-(--sc-z-sticky) bg-(--sc-surface-1) pt-2 pb-1 [[data-sheet-panel]_&]:bg-(--sc-elevated)">
 						<SearchField
 							controlSize="sm"
 							label={t("scm.history.search")}
@@ -448,21 +449,21 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 								>
 									{commit => (
 										<div className="flex items-center gap-1">
-											<PanelListRow
-												className="min-w-0 flex-1 flex-col items-stretch gap-0.5"
+											<ListRow
+												className="min-w-0 flex-1"
+												meta={<RefMarks commit={commit} />}
 												onClick={() => setSelected(commit.sha)}
+												secondary={
+													<>
+														<span className="shrink-0 font-mono">{commit.shortSha}</span>
+														<span className="min-w-0 truncate">{commit.author}</span>
+														<span className="ml-auto shrink-0">{formatAgo(commit.date * 1000)}</span>
+													</>
+												}
+												size="sm"
 												title={commit.subject}
-											>
-												<span className="flex min-w-0 items-center gap-2">
-													<span className="min-w-0 flex-1 truncate">{commit.subject}</span>
-													<RefMarks commit={commit} />
-												</span>
-												<span className="flex min-w-0 gap-2 text-sc-xs text-(--sc-text-muted)">
-													<span className="font-mono">{commit.shortSha}</span>
-													<span className="min-w-0 truncate">{commit.author}</span>
-													<span className="ml-auto shrink-0">{formatAgo(commit.date * 1000)}</span>
-												</span>
-											</PanelListRow>
+												titleText={commit.subject}
+											/>
 											<MenuButton
 												align="end"
 												disabled={runner.busy !== null}
@@ -487,7 +488,7 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 				</div>
 			) : (
 				<div className="min-h-0 flex-1 overflow-y-auto" ref={setDiffScroller}>
-					<div className="sticky top-0 z-(--sc-z-sticky) flex items-center gap-1 bg-(--sc-surface-1) px-2 py-2">
+					<div className="sticky top-0 z-(--sc-z-sticky) flex items-center gap-1 bg-(--sc-surface-1) px-2 py-2 [[data-sheet-panel]_&]:bg-(--sc-elevated)">
 						<IconButton
 							icon={<ArrowLeft />}
 							label={file ? t("scm.history.backToCommit") : t("scm.history.back")}
@@ -555,28 +556,31 @@ export function CommitHistory({ sourceSelector }: { sourceSelector?: ReactNode }
 									const status = COMMIT_STATUS[entry.status] ?? "modified";
 									const slash = entry.path.lastIndexOf("/");
 									return (
-										<PanelListRow
+										<ListRow
 											key={entry.path}
+											leading={
+												<FileIcon
+													className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
+													path={entry.path}
+												/>
+											}
+											meta={<ChangeCounts added={entry.added} removed={entry.removed} />}
 											onClick={() => setFile(entry.path)}
-											title={entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path}
-										>
-											<FileIcon
-												className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)"
-												path={entry.path}
-											/>
-											<span className="min-w-0 flex-1 truncate">
-												{entry.path.slice(slash + 1)}
-												{slash >= 0 && (
-													<span className="ml-2 text-sc-xs text-(--sc-text-subtle)">
-														{entry.path.slice(0, slash)}
-													</span>
-												)}
-											</span>
-											<span className={cx("shrink-0 text-sc-xs", STATUS_STYLE[status])}>
-												{t(`diffPanel.status.${status}`)}
-											</span>
-											<ChangeCounts added={entry.added} removed={entry.removed} />
-										</PanelListRow>
+											size="sm"
+											title={
+												<>
+													{entry.path.slice(slash + 1)}
+													{slash >= 0 && (
+														<span className="ml-2 text-sc-xs text-(--sc-text-subtle)">
+															{entry.path.slice(0, slash)}
+														</span>
+													)}
+													<span className="sr-only">, {t(`diffPanel.status.${status}`)}</span>
+												</>
+											}
+											titleText={entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path}
+											trailing={<ChangeStatus status={status} />}
+										/>
 									);
 								})}
 							</div>

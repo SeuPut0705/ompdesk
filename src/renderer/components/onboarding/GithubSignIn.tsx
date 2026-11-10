@@ -14,7 +14,7 @@ import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { useGithubAuthStore } from "../../stores/github-auth";
 import { useMachineSetupStore } from "../../stores/machine-setup";
-import { Badge, Button, CopyButton, InlineNotice, MenuButton, Spinner } from "../common";
+import { Badge, Button, Card, CopyButton, InlineNotice, MenuButton, Spinner } from "../common";
 import { SETUP_ITEM_NAMES, useMachineSetupState } from "./MachineSetupView";
 import { SetupInstallInline, setupInstallShown } from "./SetupInstallInline";
 
@@ -130,16 +130,8 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 		},
 	];
 
-	return (
-		<div
-			className={cx(
-				"min-w-0",
-				framed && "rounded-(--sc-radius-lg) border border-(--sc-border-subtle) px-4 py-3",
-				className,
-			)}
-			data-github-phase={flow?.state === "installing" || backgroundInstall ? "installing" : live ? "login" : phase}
-			data-testid="github-sign-in"
-		>
+	const content = (
+		<>
 			<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
 				<Github aria-hidden className="size-(--sc-icon-md) shrink-0 text-(--sc-text)" />
 				<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
@@ -326,6 +318,19 @@ export function GithubSignIn({ framed = true, onSignedIn, className }: GithubSig
 			{error && (
 				<InlineNotice detail={error.message} live title={t(`githubAuth.error.${error.action}`)} tone="danger" />
 			)}
+		</>
+	);
+	const hooks = {
+		"data-github-phase": flow?.state === "installing" || backgroundInstall ? "installing" : live ? "login" : phase,
+		"data-testid": "github-sign-in",
+	};
+	return framed ? (
+		<Card className={cx("min-w-0", className)} padding="row" radius="lg" {...hooks}>
+			{content}
+		</Card>
+	) : (
+		<div className={cx("min-w-0", className)} {...hooks}>
+			{content}
 		</div>
 	);
 }

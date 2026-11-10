@@ -161,7 +161,7 @@ export function HandoffDialog() {
 						disabled={blockedReason !== null || !sidecarReady}
 						loading={running}
 						onClick={() => void submit()}
-						title={blockedReason ?? (!sidecarReady ? t("sidecar.notResponding") : undefined)}
+						disabledReason={blockedReason ?? (!sidecarReady ? t("sidecar.notResponding") : undefined)}
 						type="button"
 						variant="primary"
 					>

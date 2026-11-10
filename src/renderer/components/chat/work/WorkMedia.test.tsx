@@ -1,7 +1,7 @@
 import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
 import { useSubagentsStore } from "../../../stores/subagents";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
@@ -48,6 +48,20 @@ afterEach(async () => {
 	useSubagentsStore.getState().reset();
 	sequence = 0;
 });
+
+/** Hover past the kit Tooltip's delay and return the bubble's text. */
+async function tooltipOf(element: Element | null | undefined): Promise<string> {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => {
+			element?.dispatchEvent(new Event("pointerover", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(520);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
+}
 
 describe("work media", () => {
 	it("draws nothing for a run that made no picture", async () => {
@@ -102,6 +116,6 @@ describe("work media", () => {
 		}
 		const chip = view.querySelector(".omp-work-images [data-image-unavailable]");
 		expect(chip?.textContent).toContain("ko-group-1.png");
-		expect(chip?.querySelector("button")?.getAttribute("title")).toBe("/tmp/final2/real/scenarios/ko-group-1.png");
+		expect(await tooltipOf(chip?.querySelector("button"))).toBe("/tmp/final2/real/scenarios/ko-group-1.png");
 	});
 });

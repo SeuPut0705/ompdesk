@@ -76,7 +76,7 @@ export function GlobRenderer({ args, result, isPartial, partialResult, livePrevi
 						<PathLink
 							key={i}
 							path={p.endsWith("/") ? p.slice(0, -1) : p}
-							className="block truncate whitespace-pre text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-selected-bg)]/50"
+							className="w-full truncate whitespace-pre text-[var(--omp-muted)] transition-colors hover:bg-[var(--omp-selected-bg)]/50"
 						>
 							{p.endsWith("/") ? <span className="text-[var(--omp-status-path)]">{p}</span> : p}
 						</PathLink>

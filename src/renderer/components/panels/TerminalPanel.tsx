@@ -10,7 +10,6 @@ import {
 	RotateCw,
 	Terminal as TerminalIcon,
 	Trash2,
-	X,
 } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -23,7 +22,6 @@ import {
 import { currentShellMode, useCompactShell, useShellInput } from "../../hooks/use-shell-mode";
 import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { rovingIndex } from "../../lib/roving";
 import {
 	applyModifiers,
 	clampFontScale,
@@ -39,7 +37,7 @@ import { pollTerminal } from "../../lib/terminal-poll";
 import { chromePlatform } from "../../lib/window-chrome";
 import { useTabsStore } from "../../stores/tabs";
 import { useUiStore } from "../../stores/ui";
-import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner } from "../common";
+import { Banner, Button, EmptyState, ErrorDetail, IconButton, MenuButton, Spinner, Tabs } from "../common";
 import { TerminalKeyBar } from "./TerminalKeyBar";
 import "@xterm/xterm/css/xterm.css";
 
@@ -402,12 +400,6 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 				: tabsRef.current?.querySelector<HTMLElement>(`[data-terminal-tab="${target}"]`);
 		next?.focus();
 	});
-	useLayoutEffect(() => {
-		if (!selected) return;
-		tabsRef.current
-			?.querySelector<HTMLElement>('[aria-selected="true"]')
-			?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-	}, [selected]);
 	const request = useCallback(
 		async (operation: TerminalOperation) => {
 			try {
@@ -493,18 +485,14 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 			setClaimTick(tick => tick + 1);
 		}
 	};
-	const selectedIndex = sessions.findIndex(session => session.id === (selected ?? sessions[0]?.id));
-	const close = async (id: string) => {
-		const result = await request({ action: "close", id });
-		if (result && id === selected) setSelected(result[0]?.id ?? null);
-	};
-	// Delete on a tab (the APG's closable tabs): the session that took its place is selected and focused, the one
-	// before it when it was the last, and New terminal when none is left; focus never falls to the page.
-	const closeFromTab = async (index: number) => {
+	const activeId = selected ?? sessions[0]?.id ?? "";
+	// A closed tab that was chosen gives its place to the session after it (the one before it when it was the last),
+	// which takes focus, and New terminal takes it when none is left; focus never falls to the page.
+	const close = async (index: number) => {
 		const id = sessions[index]?.id;
 		if (!id) return;
 		const result = await request({ action: "close", id });
-		if (!result) return;
+		if (!result || id !== activeId) return;
 		const survivor = result[Math.min(index, result.length - 1)]?.id ?? null;
 		keyboardSwitch.current = true;
 		setSelected(survivor);
@@ -533,77 +521,27 @@ function TabTerminalPanel({ tabId }: { tabId: string }) {
 				)}
 				data-terminal-head
 			>
-				<div
-					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
-					ref={tabsRef}
-					role="tablist"
-					aria-label={t("panel.terminal.title")}
-					onKeyDown={event => {
-						const at = sessions.findIndex(session => session.id === (selected ?? sessions[0]?.id));
-						// A tab list holds only tabs: the close buttons beside them are for the pointer, Delete closes the
-						// focused one (the APG's closable tabs) and assistive tech has the selected one's close after the list.
-						if (event.key === "Delete") {
-							const tab = (event.target as HTMLElement).closest?.("[role=tab]");
-							const index = tab
-								? Array.from(event.currentTarget.querySelectorAll("[role=tab]")).indexOf(tab)
-								: at;
-							if (index === -1) return;
-							event.preventDefault();
-							void closeFromTab(index);
-							return;
-						}
-						const next = rovingIndex(event.key, at, sessions.length);
-						if (next === null) return;
-						event.preventDefault();
-						const id = sessions[next]?.id;
-						if (!id) return;
-						keyboardSwitch.current = true;
-						setSelected(id);
-						tabsRef.current?.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
-					}}
-				>
-					{sessions.map((session, index) => (
-						<div className="flex shrink-0 items-center" key={session.id}>
-							<button
-								type="button"
-								role="tab"
-								data-terminal-tab={session.id}
-								aria-keyshortcuts="Delete"
-								aria-selected={session.id === selected}
-								tabIndex={session.id === (selected ?? sessions[0]?.id) ? 0 : -1}
-								title={t("panel.terminal.session", { number: index + 1 })}
-								className="min-h-(--sc-control-sm) max-w-40 truncate rounded-(--sc-radius-sm) px-2 py-1 text-sc-xs text-(--sc-text-muted) transition-colors duration-(--sc-duration-fast) ease-(--sc-ease-standard) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed) aria-selected:bg-(--sc-selected) aria-selected:text-(--sc-text) motion-reduce:transition-none"
-								onClick={() => {
-									keyboardSwitch.current = false;
-									setSelected(session.id);
-								}}
-							>
-								{t("panel.terminal.session", { number: index + 1 })}
-							</button>
-							<IconButton
-								aria-hidden
-								icon={<X />}
-								label={t("panel.terminal.closeFor", { number: index + 1 })}
-								onClick={() => void close(session.id)}
-								size="sm"
-								tabIndex={-1}
-							/>
-						</div>
-					))}
-				</div>
-				{/* The tab list holds only tabs, so the close buttons beside them are the pointer's. The selected session's
-				    close lives here for assistive tech (a touch screen reader has no Delete key); sighted keyboard users
-				    see it when it takes focus. */}
-				{selectedIndex !== -1 && (
-					<IconButton
-						className="sr-only focus-visible:not-sr-only"
-						data-terminal-close-selected
-						icon={<X />}
-						label={t("panel.terminal.closeFor", { number: selectedIndex + 1 })}
-						onClick={() => void close(sessions[selectedIndex]?.id ?? "")}
-						size="sm"
+				<div className="flex min-w-0 flex-1 items-center" ref={tabsRef}>
+					<Tabs
+						activeId={activeId}
+						ariaLabel={t("panel.terminal.title")}
+						className="min-w-0 flex-1"
+						compact
+						onChange={(id, via) => {
+							keyboardSwitch.current = via === "key";
+							setSelected(id);
+						}}
+						tabs={sessions.map((session, index) => ({
+							id: session.id,
+							label: t("panel.terminal.session", { number: index + 1 }),
+							attrs: { "data-terminal-tab": session.id },
+							className: "max-w-40",
+							onClose: () => void close(index),
+							closeLabel: t("panel.terminal.closeFor", { number: index + 1 }),
+						}))}
+						variant="pills"
 					/>
-				)}
+				</div>
 				<IconButton
 					data-terminal-new
 					icon={<Plus />}

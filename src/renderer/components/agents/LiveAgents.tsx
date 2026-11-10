@@ -265,7 +265,7 @@ export function LiveAgents() {
 								loading={stopping}
 								onClick={() => void stopTurn()}
 								size="sm"
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="secondary"
 							>
 								{t("agentHub.hub.abortTurn")}
@@ -285,7 +285,7 @@ export function LiveAgents() {
 								icon={<RefreshCw />}
 								onClick={() => void refresh()}
 								size="sm"
-								title={notConnected}
+								disabledReason={notConnected}
 								variant="secondary"
 							>
 								{t("common.retry")}
