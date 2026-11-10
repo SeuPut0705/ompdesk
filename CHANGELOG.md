@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.122.0] - 2026-11-11
+
+모든 메뉴를 다시 다듬었어요. 같은 말을 두 번 하던 줄을 줄이고, 마우스를 올려야만 보이던 정보는 키보드와 터치로도 볼 수 있어요.
+
+### 바뀐 것
+- 설정 › 모델 및 계정: 초기화권 티켓 아래에 가장 먼저 만료되는 초기화권까지 남은 시간이 보여요. 직접 고른 모델 역할은 한 줄이고, 고르지 않은 역할만 실제로 쓰일 모델을 아래에 말해요.
+- 잠자기 방지 스위치가 하나가 됐어요. 설정 › 일반의 "쓰는 동안 잠자기 막기"가 이 컴퓨터의 작업과 이 컴퓨터를 쓰는 다른 기기를 함께 맡아요. 기기 및 연결에 있던 스위치는 없어졌고, 거기서 켜 두었던 선택은 새 스위치로 옮겨져요.
+- 설정 › 도구 및 확장은 탭 줄 하나예요. 설정의 스위치는 한 열로 서고, 섹션 설명은 제목 옆 (i)에 있어요.
+- 설정 › 업데이트: 설치된 도구는 한 줄(이름, 버전, 경로)이고, 배지가 이미 말하는 "최신 버전" 안내는 뺐어요.
+- 설정 › 메모리: 목록이 제목, 나이 순서의 한 줄이에요. 개요는 정상일 때 상태 배지를 붙이지 않고, 프로젝트 선택이 개요에 있어요.
+- 일정, 메일 계정, 기기, 허용한 사용자의 동작은 각 줄의 ⋯ 메뉴에 있어요.
+- 작업 현황판이 옆에 붙어 있으면 대화는 현황판이 이미 보여 주는 하위 세션 줄을 다시 그리지 않아요. 현황판이 띠로 접히는 좁은 창과 폰에서는 그대로 보여요.
+- 오토파일럿: 머리의 금액은 하나이고, 프로바이더별 청구액은 그 금액의 툴팁에 있어요. 현황판이 실행 버튼 세 개를 보여 주는 동안 모드 탭은 같은 버튼을 다시 그리지 않아요.
+- 변경 사항 목록의 상태는 글자 하나(M, A, D …)예요. 단어는 툴팁에 있어요.
+- 앞 메시지와 같은 분에 온 메시지의 시각은 마우스를 올리거나 포커스하거나 탭하면 보여요.
+- 누를 수 없는 주 버튼은 연한 강조색으로 남고, 왜 누를 수 없는지 포커스와 탭으로 볼 수 있어요. 메뉴의 누를 수 없는 항목도 이유를 보여 줘요.
+- 대화상자는 첫 입력란에 포커스를 두고 열려요. 스위치나 선택 상자에서 열리지 않아서, 열자마자 누른 Enter가 값을 바꾸지 않아요.
+- 질문 카드는 질문을 제목으로 써요. 승인 카드는 내용이 없는 아래 띠를 그리지 않고, 터치 화면에서는 숫자 단축키 배지를 빼요.
+- 명령 팔레트는 마우스를 실제로 움직였을 때만 그 아래 줄을 골라요. 가만히 둔 마우스 아래에 줄이 그려졌다고 Enter가 그 줄을 실행하지 않아요.
+- 모델 선택기는 강조된 모델의 이름과 ID, 설명을 목록 아래 한 줄로 말해요.
+- 통계, 에이전트, GitHub 화면에서 고른 보기와 기간, 저장소 이름을 되풀이하던 줄을 뺐어요.
+- 컨텍스트 팝오버가 남은 토큰을 한 줄로 말해요.
+- 탭, 칩, 줄, 카드, 점, 진행 막대가 화면마다 따로 그려지지 않고 같은 부품을 써서, 모양과 키보드 동작이 어디서나 같아요.
+
+### 고친 것
+- 파일을 읽지 못했을 때 안내 아래에 "[object Object]"가 보이던 문제를 고쳤어요.
+- 폰에서 패널 시트의 손잡이 위가 비어 있던 문제를 고쳤어요. 안전 영역 여백이 두 번 들어갔어요.
+- 폰에서 넓은 표의 화면 밖 칸이 좁게 접혀 보이는 줄까지 길어지던 문제를 고쳤어요. 넓은 표는 옆으로 밀어서 봐요.
+- 응답 글 옆의 턴 이동 막대가 현황판이 붙은 좁은 대화 칸에서 글을 덮던 문제를 고쳤어요.
+- iPhone 설치 안내가 메뉴에서 설치한다고 말하던 것을 공유 버튼으로 바로잡았어요. 데스크톱 브라우저에서 "폰에서 보기"라고 하던 문구도 고쳤어요.
+
+<!-- en -->
+
+Every menu got a design pass. Rows stopped saying the same thing twice, and details that only a mouse hover could show are now reachable by keyboard and touch.
+
+### Changed
+- Settings › Models & accounts: the reset-pass ticket shows under it how long until the soonest pass expires. A model role you set is one line, and only a role you left empty says under it which model it resolves to.
+- Keep awake is one switch. "Keep this computer awake while it is used" in Settings › General covers work on this computer and other devices using it. The switch in Devices & connections is gone, and a choice you had turned on there carries over.
+- Settings › Tools & extensions is one tab bar. Settings switches stand in one column, and a section's description is in the (i) beside its title.
+- Settings › Updates: an installed tool is one line (name, version, path), and the "up to date" notice that repeated the badge is gone.
+- Settings › Memory: lists are one line with the title first and the age in one column. The overview shows a state badge only when something is wrong, and the project picker is on the overview.
+- Actions for schedules, mail accounts, devices and allowed users are in each row's ⋯ menu.
+- While the work board is docked beside the conversation, the transcript no longer repeats the child sessions the board already lists. A narrow window and the phone, where the board is a strip, keep them.
+- Autopilot: the head shows one amount, with each provider's charge in its tooltip. The Mode tab no longer repeats the three run buttons while the board shows them.
+- A changed file's status is one letter (M, A, D …) with the word in a tooltip.
+- A message sent in the same minute as the one before it shows its time on hover, focus or tap.
+- A primary button that cannot be pressed keeps a soft accent fill and says why on focus or tap. A menu item that cannot be chosen says why too.
+- A dialog opens with focus on its first field, never on a switch or a select, so Enter right after opening changes nothing.
+- A question card is titled by its question. An approval card draws no empty strip under its choices and drops the number-key badges on a touch screen.
+- The command palette picks the row under the pointer only when the pointer really moves. A row that renders under a resting pointer no longer takes Enter.
+- The model picker says the highlighted model's name, id and description on one line under the list.
+- Stats, Agents and GitHub screens lost lines that repeated the picked view, the range or the repository name.
+- The context popover states the tokens left on one line.
+- Tabs, chips, rows, cards, dots and progress bars are the same shared parts on every screen, so they look and respond to the keyboard the same way everywhere.
+
+### Fixed
+- A file that could not be read showed "[object Object]" under the message.
+- On a phone, a panel sheet had empty room above its handle: the safe-area padding was applied twice.
+- On a phone, a wide table's off-screen column wrapped so narrow that the visible rows grew tall. A wide table now scrolls sideways.
+- The turn rail covered reply text in a narrow transcript column beside a docked board.
+- The iPhone install sheet said the browser installs from its menu; it installs from the Share button. A desktop browser no longer says "view on the phone".
+
 ## [0.121.0] - 2026-11-10
 
 봇 기능을 없앴어요. 프로바이더와 계정 목록이 한 줄로 정리되고 Fable 한도가 보이며, Claude 초기화권을 쓸 때 조회를 한 번만 해요.
