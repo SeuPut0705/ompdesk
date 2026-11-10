@@ -326,6 +326,7 @@ export function ProviderAccountRows({
 								account={account.label}
 								credentialId={account.credentialId}
 								disabled={!sidecarReady}
+								expiry
 								limits={account.limits}
 								onRedeemed={async (): Promise<readonly UsageLimit[] | undefined> =>
 									(await load())?.accounts.find(entry => entry.credentialId === account.credentialId)?.limits

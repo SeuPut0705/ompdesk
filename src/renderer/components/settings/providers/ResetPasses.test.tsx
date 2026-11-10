@@ -177,6 +177,20 @@ describe("reset passes on provider accounts", () => {
 		expect(text()).not.toContain(translate("resetPasses.use"));
 	});
 
+	it("says under the ticket how long until the soonest pass expires: whole days, then hours", async () => {
+		const hour = 60 * 60_000;
+		const expiring = (expiresAt: number): ResetPasses => ({ ...usable, expiresAt });
+		await mountAccounts([
+			{ ...healthy, resetPasses: expiring(Date.now() + 20 * 24 * hour + hour) },
+			{ ...limited, resetPasses: expiring(Date.now() + 5 * hour + 30_000) },
+		]);
+		const expiry = (id: number) => document.querySelector(`[data-reset-passes="${id}"] [data-reset-pass-expiry]`);
+		expect(expiry(7)?.textContent).toBe("20d");
+		expect(expiry(9)?.textContent).toBe("5h");
+		// The date itself is the tooltip and the accessible name.
+		expect(expiry(9)?.getAttribute("title")).toMatch(/\d+\/\d+/);
+	});
+
 	it("explains the spend, redeems only after confirming, and shows the refreshed quota", async () => {
 		const refreshed: ProviderAccount = {
 			...limited,

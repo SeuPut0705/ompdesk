@@ -12,9 +12,10 @@
  * decides whether there is anything to reset; automatic exhaustion policy is separate.
  */
 
-import { Ticket } from "lucide-react";
+import { Hourglass, Ticket } from "lucide-react";
 import { useState } from "react";
 import type { ResetPasses, ResetPassRedeemResult, UsageLimit } from "../../../../shared/rpc-types";
+import { formatSpanCompact } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
@@ -22,6 +23,8 @@ import { toast, toastError } from "../../../stores/toast";
 import { Button, ConfirmDialog } from "../../common";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
+
+const DAY_MS = 24 * 60 * 60_000;
 
 /** Localized names of the normalized limit ids stock's resets name (`formatUsageResetWindow`). */
 const WINDOW_KEYS: Record<string, string> = {
@@ -81,6 +84,7 @@ export function ResetPassControl({
 	limits,
 	disabled,
 	onRedeemed,
+	expiry = false,
 }: {
 	/** Login or credential provider id (the bridge maps one to the other). */
 	providerId: string;
@@ -94,6 +98,12 @@ export function ResetPassControl({
 	disabled: boolean;
 	/** Re-reads the quotas after a spend; resolves to the account's refreshed limits. */
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
+	/**
+	 * Under the ticket, the time left until the soonest pass expires, on the line and in the type of a gauge's
+	 * reset beside it (the accounts list; the owner's call, 10 Nov 2026). Whole days from two days on: a pass
+	 * lasts months, and the slot is narrow.
+	 */
+	expiry?: boolean;
 }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
@@ -145,8 +155,14 @@ export function ResetPassControl({
 		}
 	};
 
+	const expiresAt = expiry ? passes.expiresAt : undefined;
+	const expiresDate = expiresAt === undefined ? undefined : new Date(expiresAt);
+	const expiresText =
+		expiresDate && t("resetPasses.expires", { date: `${expiresDate.getMonth() + 1}/${expiresDate.getDate()}` });
+	const left = expiresAt === undefined ? 0 : Math.max(0, expiresAt - Date.now());
+
 	return (
-		<span className="inline-flex min-w-0 items-center" data-reset-passes={credentialId}>
+		<span className="inline-flex min-w-0 flex-col items-end" data-reset-passes={credentialId}>
 			<Button
 				aria-label={t("resetPasses.useFor", { account })}
 				disabled={disabled || busy || !passes.redeemable}
@@ -161,6 +177,18 @@ export function ResetPassControl({
 					{passes.count}
 				</span>
 			</Button>
+			{expiresAt !== undefined && (
+				<span
+					aria-label={expiresText}
+					className="omp-usage-gauge-reset inline-flex items-center gap-0.5"
+					data-reset-pass-expiry
+					role="img"
+					title={expiresText}
+				>
+					<Hourglass aria-hidden className="size-[0.85em] shrink-0" />
+					{left >= 2 * DAY_MS ? `${Math.floor(left / DAY_MS)}d` : formatSpanCompact(left)}
+				</span>
+			)}
 			<ConfirmDialog
 				busy={busy}
 				confirmLabel={t("resetPasses.use")}
