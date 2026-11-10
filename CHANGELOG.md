@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.120.1] - 2026-11-10
+
+에이전트가 자기가 연 세션을 정리할 때 사람이 보고 있다는 이유로 막히지 않고, 세션을 지우면 main에 들어간 작업 브랜치도 함께 지워져요.
+
+### 고친 것
+- 에이전트가 자기가 연 세션을 정지하거나 닫거나 지우려 할 때, 사람이 그 세션을 보고 있으면 거절되어 사람이 다시 말을 걸 때까지 남았어요. 이제 자기가 연 세션은 사람이 보고 있어도 바로 정리돼요. 사람이 직접 입력한 세션과 에이전트가 열지 않은 세션은 전처럼 사람이 말을 건 차례에만 정리돼요.
+- 에이전트가 연 worktree 세션을 지워도, 작업이 main에 들어간 브랜치가 남는 경우가 있었어요(부모 체크아웃이 원격보다 뒤처졌거나 squash로 합쳐진 경우). 이제 작업이 들어간 것으로 판정한 그 브랜치를 worktree와 함께 지워요. 그 사이 브랜치가 움직였으면 지우지 않아요.
+
+<!-- en -->
+
+An agent cleaning up a session it opened is no longer held back because the person is looking at it, and deleting a session also removes its work branch once the work is on main.
+
+### Fixed
+- An agent that stopped, closed or deleted a session it had opened was refused while the person was looking at that session, and the session stayed until the person's next message. A session the agent opened is now cleaned up at once, whoever watches it. A session the person typed into, and one the agent did not open, still wait for a turn the person starts.
+- Deleting a worktree session an agent opened could leave its branch behind although the work was on main (a parent checkout behind its remote, or a squash merge). The branch judged as landed now goes with its worktree; a branch that moved meanwhile is kept.
+
 ## [0.120.0] - 2026-11-10
 
 설정에서 프로바이더 연결을 끊을 수 없던 문제를 고쳤어요. 에이전트가 백그라운드 작업을 기다리며 모델을 헛되이 부르던 것이 없어졌고, 에이전트가 페어링한 컴퓨터의 omp 설정을 읽고 바꿀 수 있어요.
