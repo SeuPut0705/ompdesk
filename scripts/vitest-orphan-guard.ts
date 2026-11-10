@@ -1,5 +1,5 @@
 /**
- * Vitest setup: a test worker whose parent is gone ends itself.
+ * A test process whose runner is gone ends itself.
  *
  * Why: a `forks` worker of the node project outlives a killed or crashed Vitest (a run cut off with Ctrl-C, a
  * pipe that closed under it, a parent that was killed) and is then reparented to launchd/init. Such an orphan
@@ -7,9 +7,11 @@
  * 3.5 GB each were alive on a 16 GB Mac when its WindowServer stalled for 158 s and the machine rebooted
  * (22 Oct 2026). Vitest itself only stops a worker it can still talk to.
  *
- * Wired from `vitest.setup.ts`, so every worker of both projects carries it: a `threads` worker's parent is the
- * runner's own parent, which dies with the run too. Plain Node, no Vitest import: the test drives it in a child
- * process.
+ * `exitWhenParentGone` is wired from `vitest.setup.ts`, so every worker of both projects carries it: a `threads`
+ * worker's parent is the runner's own parent, which dies with the run too. `exitWhenGone` is what a test's own
+ * long-lived fake (a fake omp, an idle stand-in) runs, through `DIES_WITH_TEST` in `src/main/test-fake-omp.ts`: two
+ * fake omps that ignore SIGTERM were alive under launchd 33 hours after the worker that started them died (9 Nov
+ * 2026). Plain Node, no Vitest import: the tests drive it in child processes.
  */
 
 /** How often a worker looks for its parent. */
@@ -42,9 +44,22 @@ export function exitWhenParentGone(intervalMs = ORPHAN_CHECK_MS): void {
 		if (typeof process.send === "function") process.exit(1);
 		return;
 	}
-	if (!alive(parent)) process.exit(1);
+	exitWhen(() => process.ppid !== parent || !alive(parent), intervalMs);
+}
+
+/**
+ * Ends this process once the process `owner` no longer runs, whoever its own parent is: a fake omp the app under test
+ * started must outlive a killed app (an e2e checks the app's stop, not the fake's), but never the test that wrote it,
+ * and on Windows its parent is the `omp.cmd` shim's cmd.exe, which outlives the test too.
+ */
+export function exitWhenGone(owner: number, intervalMs = ORPHAN_CHECK_MS): void {
+	exitWhen(() => !alive(owner), intervalMs);
+}
+
+function exitWhen(gone: () => boolean, intervalMs: number): void {
+	if (gone()) process.exit(1);
 	const timer = setInterval(() => {
-		if (process.ppid === parent && alive(parent)) return;
+		if (!gone()) return;
 		clearInterval(timer);
 		process.exit(1);
 	}, intervalMs);

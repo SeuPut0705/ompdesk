@@ -13,17 +13,26 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/**
+ * One line of source (CommonJS or ESM, run by Node or Bun) that ends the process running it within 2 s of this test
+ * process ending, however it ends (`exitWhenGone`, scripts/vitest-orphan-guard.ts): a fake that ignores SIGTERM and
+ * stdin's end outlived a killed Vitest worker under launchd for 33 hours (9 Nov 2026). It watches the test process,
+ * not its own parent, so a fake the app under test started still sees only the app's stop while the test runs. Every
+ * long-lived process a test starts carries it; `writeFakeOmp` adds it to every fake omp.
+ */
+export const DIES_WITH_TEST = `import(${JSON.stringify(new URL("../../scripts/vitest-orphan-guard.ts", import.meta.url).href)}).then(guard => guard.exitWhenGone(${process.pid}));`;
+
 /** Write `source` (TypeScript run by bun) as a fake omp under `dir`; returns the bin path. */
 export async function writeFakeOmp(dir: string, source: string): Promise<string> {
 	const binDir = join(dir, "fake omp");
 	await mkdir(binDir, { recursive: true });
 	const script = join(binDir, "omp.ts");
 	if (process.platform !== "win32") {
-		await writeFile(script, `#!/usr/bin/env bun\n${source}`);
+		await writeFile(script, `#!/usr/bin/env bun\n${DIES_WITH_TEST}\n${source}`);
 		await chmod(script, 0o755);
 		return script;
 	}
-	await writeFile(script, source);
+	await writeFile(script, `${DIES_WITH_TEST}\n${source}`);
 	const shim = join(binDir, "omp.cmd");
 	await writeFile(shim, `@bun "${script}" %*\r\n`);
 	return shim;

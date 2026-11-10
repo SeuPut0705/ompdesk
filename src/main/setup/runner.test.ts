@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { RM_TEMP } from "../test-fake-omp";
+import { DIES_WITH_TEST, RM_TEMP } from "../test-fake-omp";
 import type { SpawnSpec } from "./plans";
 import { SetupRunner, type SupervisedChild } from "./runner";
 import { isolatedLaunch, quoteWindowsArg, SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./supervisor";
@@ -135,9 +135,10 @@ async function cancelKillsGrandchild(env: NodeJS.ProcessEnv): Promise<void> {
 		const pidFile = join(dir, "grandchild.pid");
 		// The installer starts a long-lived grandchild, reports it, and waits.
 		const installer = [
+			DIES_WITH_TEST,
 			"const { spawn } = require('node:child_process');",
 			"const fs = require('node:fs');",
-			`const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });`,
+			`const grandchild = spawn(process.execPath, ['-e', ${JSON.stringify(`${DIES_WITH_TEST} setInterval(() => {}, 1000)`)}], { stdio: 'ignore' });`,
 			`fs.writeFileSync(${JSON.stringify(pidFile)}, String(grandchild.pid));`,
 			"process.stdout.write('started\\n');",
 			"setInterval(() => {}, 1000);",

@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StepStalledError } from "../../serial-chain";
+import { DIES_WITH_TEST } from "../../test-fake-omp";
 import { execBin, REPO_LOCK_HOLD_MS, withRepoLock } from "./exec";
 
 const NEVER = () => Promise.withResolvers<never>().promise;
@@ -65,7 +66,7 @@ describe("withRepoLock", () => {
 		"ends the process a stopped holder still runs, and the next call goes on",
 		async () => {
 			const pidFile = path.join(dir, "pid");
-			const script = `require("fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1e9)`;
+			const script = `${DIES_WITH_TEST} require("fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1e9)`;
 			const stopped = withRepoLock("/repo/child", () =>
 				execBin(process.execPath, ["-e", script, pidFile], { cwd: dir, timeoutMs: 24 * 60 * 60_000 }),
 			).then(

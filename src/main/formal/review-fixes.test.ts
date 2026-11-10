@@ -11,6 +11,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { DIES_WITH_TEST } from "../test-fake-omp";
 import { inBun } from "./in-bun";
 
 const SKILL =
@@ -352,7 +353,7 @@ describe("M5: an interrupted script leaves no java or lake child behind", () => 
 				script,
 				[
 					`import { run } from ${JSON.stringify(path.join(SKILL, "scripts/lib/proc.ts"))};`,
-					`const code = "require('node:fs').writeFileSync(" + JSON.stringify(${JSON.stringify(pidFile)}) + ", String(process.pid)); setInterval(() => {}, 1000)";`,
+					`const code = ${JSON.stringify(DIES_WITH_TEST)} + "require('node:fs').writeFileSync(" + JSON.stringify(${JSON.stringify(pidFile)}) + ", String(process.pid)); setInterval(() => {}, 1000)";`,
 					"await run(process.execPath, ['-e', code]);",
 					"",
 				].join("\n"),

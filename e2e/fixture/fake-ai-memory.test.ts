@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { DIES_WITH_TEST } from "../../src/main/test-fake-omp";
 import { fixtureAiMemory, stopFakeServer } from "./fake-ai-memory-install";
 
 const homes: string[] = [];
@@ -62,7 +63,9 @@ posix(
 posix(
 	"the server ends once the worker that installed the fake is gone, its data dir still there",
 	async () => {
-		const owner = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+		const owner = spawn(process.execPath, ["-e", `${DIES_WITH_TEST} setInterval(() => {}, 1000)`], {
+			stdio: "ignore",
+		});
 		const { pid, home } = await startServer({ FAKE_AI_MEMORY_OWNER_PID: String(owner.pid) });
 		// Real time on purpose: the server is another process checking once a second; past one check it must still run.
 		await new Promise(resolve => setTimeout(resolve, 1_500));

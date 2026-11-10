@@ -20,6 +20,7 @@ import * as scm from "./local/git/scm";
 import { gitSync } from "./local/git/test-repos";
 import { createWorktree } from "./local/git/worktree";
 import { ChainBusyError, SerialChain, STALLED_DRAIN_MAX_MS, StepStalledError, trackEffect } from "./serial-chain";
+import { DIES_WITH_TEST } from "./test-fake-omp";
 import { removeOrphanWorktree } from "./worktree-orphans";
 import { bridge, deps, installOrphansRig, repo, root, SLOW, scene, wtRoot } from "./worktree-orphans-test-rig";
 
@@ -274,7 +275,7 @@ describe("an effect the OS already has when the holder is stopped", () => {
 		"a git child that ignores SIGTERM: the next holder starts only after it exited",
 		async () => {
 			const pidFile = path.join(root, "pid");
-			const script = `process.on("SIGTERM", () => {}); require("fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1e9)`;
+			const script = `${DIES_WITH_TEST} process.on("SIGTERM", () => {}); require("fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1e9)`;
 			const key = "/repo/sigterm";
 			let started = false;
 			const old = caught(

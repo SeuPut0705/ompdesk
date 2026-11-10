@@ -11,7 +11,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OmpProcesses, windowsStartTimes } from "./omp-processes";
 import { OMP_SPAWN_GROUP, pidAlive, STOP_GRACE_MS } from "./omp-stop";
-import { RM_TEMP } from "./test-fake-omp";
+import { DIES_WITH_TEST, RM_TEMP } from "./test-fake-omp";
 
 const dirs: string[] = [];
 const started: number[] = [];
@@ -31,7 +31,10 @@ async function stubborn(argv: string[], options: { detached: boolean } = OMP_SPA
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-"));
 	dirs.push(dir);
 	const script = path.join(dir, "omp.ts");
-	await fs.writeFile(script, 'process.on("SIGTERM", () => {});\nconsole.log("up");\nsetInterval(() => {}, 1000);\n');
+	await fs.writeFile(
+		script,
+		`${DIES_WITH_TEST}\nprocess.on("SIGTERM", () => {});\nconsole.log("up");\nsetInterval(() => {}, 1000);\n`,
+	);
 	const child = spawn("bun", [script, ...argv], { stdio: ["pipe", "pipe", "ignore"], ...options });
 	if (child.pid !== undefined) started.push(child.pid);
 	const up = Promise.withResolvers<void>();
@@ -94,7 +97,7 @@ describe.skipIf(process.platform === "win32")("OmpProcesses", () => {
 
 describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 	const idle = () => {
-		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+		const child = spawn(process.execPath, ["-e", `${DIES_WITH_TEST} setInterval(() => {}, 1000)`], {
 			stdio: "ignore",
 			windowsHide: true,
 		});
@@ -193,7 +196,7 @@ describe("OmpProcesses when the creation-time lookup fails", () => {
 		return path.join(dir, "omp-pids.json");
 	};
 	const idleOmp = () => {
-		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+		const child = spawn(process.execPath, ["-e", `${DIES_WITH_TEST} setInterval(() => {}, 1000)`], {
 			stdio: "ignore",
 			windowsHide: true,
 		});
