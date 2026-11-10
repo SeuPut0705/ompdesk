@@ -1,9 +1,12 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const GUARD = pathToFileURL(resolve("scripts/vitest-orphan-guard.ts")).href;
+const FAKE_OMP = pathToFileURL(resolve("src/main/test-fake-omp.ts")).href;
 
 function alive(pid: number): boolean {
 	try {
@@ -57,6 +60,40 @@ function orphan(worker: string): Promise<number> {
 }
 
 /**
+ * A writer process that writes a fake omp with `writeFakeOmp` (so the fake's guard watches the writer), starts it,
+ * prints the fake's pid once it is up and exits. The fake's source imports a module whose top-level await never
+ * settles and which ignores SIGTERM: the `stats` and `-p` modes of `e2e/sidecar-fixture.ts` await that way.
+ */
+function fakeOutlivingItsWriter(dir: string): Promise<number> {
+	const hang = join(dir, "hang.ts");
+	writeFileSync(hang, 'process.on("SIGTERM", () => {});\nconsole.log("up");\nawait new Promise(() => {});\n');
+	const writer = join(dir, "writer.ts");
+	writeFileSync(
+		writer,
+		[
+			'import { spawn } from "node:child_process";',
+			'import { dirname, join } from "node:path";',
+			`import { writeFakeOmp } from ${JSON.stringify(FAKE_OMP)};`,
+			`const bin = await writeFakeOmp(${JSON.stringify(dir)}, ${JSON.stringify(`import ${JSON.stringify(pathToFileURL(hang).href)};\n`)});`,
+			// The entry itself, not the Windows `omp.cmd` shim, which only cmd.exe starts.
+			'const fake = spawn("bun", [join(dirname(bin), "omp.ts"), "stats"], { stdio: ["ignore", "pipe", "ignore"], detached: true });',
+			'fake.stdout.once("data", () => { console.log(fake.pid); process.exit(0); });',
+			'fake.on("exit", () => { console.log(fake.pid); process.exit(0); });',
+			"",
+		].join("\n"),
+	);
+	return new Promise((done, fail) => {
+		const proc = spawn("bun", [writer], { stdio: ["ignore", "pipe", "inherit"] });
+		let out = "";
+		proc.stdout.on("data", chunk => {
+			out += String(chunk);
+		});
+		proc.on("error", fail);
+		proc.on("exit", () => done(Number(out.trim())));
+	});
+}
+
+/**
  * Real processes and their real clocks: the guard watches another process's parent, which no fake timer reaches,
  * so this polls for the worker's exit (every 50 ms, up to `withinMs`).
  */
@@ -88,6 +125,21 @@ describe("exitWhenParentGone", () => {
 			expect(await gone(late, 5_000)).toBe(true);
 		} finally {
 			if (alive(late)) process.kill(late, "SIGKILL");
+		}
+	}, 15_000);
+});
+
+describe("exitWhenGone through writeFakeOmp", () => {
+	it("ends a fake omp whose source never finishes importing, once the process that wrote it is gone", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "omp-gui-orphan-fake-"));
+		let fake = 0;
+		try {
+			fake = await fakeOutlivingItsWriter(dir);
+			expect(fake).toBeGreaterThan(0);
+			expect(await gone(fake, 5_000)).toBe(true);
+		} finally {
+			if (fake > 0 && alive(fake)) process.kill(fake, "SIGKILL");
+			rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 		}
 	}, 15_000);
 });
