@@ -3934,8 +3934,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		update(closed, { type: "thinking_end", contentIndex: 1, content: said });
 		return closed;
 	};
-	/** `fixture steer work`: one turn that takes a steer mid-run, driven by `fixture:steer-*` bash lines. */
-	let steerWork: { deliver: () => void; finish: () => void } | undefined;
+	/**
+	 * `fixture steer work`: one turn that takes a steer mid-run, driven by `fixture:steer-*` bash lines. `steer-next`
+	 * delivers the steer and streams the reply that answers it up to its narration's `thinking_end`, holding the reply
+	 * open; `steer-answer` ends it and starts its call (`steer-finish` does too when it is still held).
+	 */
+	let steerWork: { deliver: () => void; answer: () => void; finish: () => void } | undefined;
 	const startSteerWork = (user: AgentMessage) => {
 		const turn: AgentMessage[] = [user];
 		subagentRoster = [];
@@ -3950,10 +3954,12 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			};
 			write({ type: "message_start", message: call });
 			call.content = [...(said ? streamNarration(call, said) : []), { type: "toolCall", id, name, arguments: args }];
-			appendMessage(call);
-			write({ type: "message_end", message: call });
-			turn.push(call);
-			write({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
+			return () => {
+				appendMessage(call);
+				write({ type: "message_end", message: call });
+				turn.push(call);
+				write({ type: "tool_execution_start", toolCallId: id, toolName: name, args });
+			};
 		};
 		const endCall = (id: string, name: string, text: string, details?: Record<string, unknown>) => {
 			const content: AgentMessage["content"] = [{ type: "text", text }];
@@ -4020,9 +4026,9 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		startCall("steer-bash", "bash", {
 			command: "bun test e2e/work-replay.test.ts",
 			intent: "Running the lane replay",
-		});
+		})();
 		endCall("steer-bash", "bash", "12 pass\n0 fail", { exitCode: 0 });
-		startCall("steer-task-1", "task", { tasks: [{ name: "LaneRace", task: "Find the lane conclusion race" }] });
+		startCall("steer-task-1", "task", { tasks: [{ name: "LaneRace", task: "Find the lane conclusion race" }] })();
 		startAgent("LaneRace", "steer-task-1", "Find the lane conclusion race");
 		// Stock's background spawn returns at once with the spawned agent's progress row.
 		endCall("steer-task-1", "task", "LaneRace is working in the background", {
@@ -4032,6 +4038,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			],
 			async: { state: "running", jobId: "LaneRace", type: "task" },
 		});
+		let held: (() => void) | undefined;
 		steerWork = {
 			// Stock: the queued steer enters the running loop as a `steering` user message.
 			deliver: () => {
@@ -4049,10 +4056,21 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					write({ type: "message_end", message });
 					turn.push(message);
 				}
-				startCall("steer-task-2", "task", { tasks: [{ name: "CiSpeed", task: "Split CI timing" }] }, STEER_ANSWER);
-				startAgent("CiSpeed", "steer-task-2", "Split CI timing");
+				const end = startCall(
+					"steer-task-2",
+					"task",
+					{ tasks: [{ name: "CiSpeed", task: "Split CI timing" }] },
+					STEER_ANSWER,
+				);
+				held = () => {
+					held = undefined;
+					end();
+					startAgent("CiSpeed", "steer-task-2", "Split CI timing");
+				};
 			},
+			answer: () => held?.(),
 			finish: () => {
+				held?.();
 				for (const agent of subagentRoster) {
 					agent.status = "completed";
 					write({
@@ -5979,12 +5997,13 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 					ok();
 					break;
 				}
-				if (line === "fixture:steer-next" || line === "fixture:steer-finish") {
+				if (line === "fixture:steer-next" || line === "fixture:steer-answer" || line === "fixture:steer-finish") {
 					if (!steerWork) {
 						fail("Fixture has no steer work running");
 						break;
 					}
 					if (line === "fixture:steer-next") steerWork.deliver();
+					else if (line === "fixture:steer-answer") steerWork.answer();
 					else steerWork.finish();
 					ok();
 					break;

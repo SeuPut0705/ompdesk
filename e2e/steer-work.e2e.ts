@@ -111,6 +111,19 @@ test("a steer sent mid-run is the person's message in the chat between the turn'
 		await expect(page.locator("[data-queue-popover]")).toContainText(STEER);
 		await fixture("fixture:steer-next");
 		await expect(page.locator("[data-queue-pill]")).toHaveCount(0);
+		// The reply answering the steer is still streaming, held after stock closed its narration block: the answer
+		// already reads as the reply under the steer, once, and never as thinking.
+		const streamed = page.getByText(STEER_ANSWER, { exact: true });
+		await expect(streamed).toHaveCount(1);
+		await expect(streamed).toBeVisible();
+		await expect(page.locator("[data-transcript-kind='streaming']").getByText(STEER_ANSWER)).toHaveCount(1);
+		await expect(page.locator(".omp-thinking-block").getByText(STEER_ANSWER)).toHaveCount(0);
+		await expect(page.locator(".omp-execution-group").getByText(STEER_ANSWER)).toHaveCount(0);
+		const steerBubble = page.locator(".omp-user-bubble").filter({ hasText: STEER });
+		const [steerBox, answerBox] = await Promise.all([steerBubble.boundingBox(), streamed.boundingBox()]);
+		expect(steerBox && answerBox && steerBox.y < answerBox.y).toBe(true);
+		await capture("streaming");
+		await fixture("fixture:steer-answer");
 		const liveRow = await expectSteerInChat(page);
 		await expect(page.locator('.omp-live-step[data-state="running"]:not([data-nested="true"])')).toHaveCount(1);
 		await capture("live");
