@@ -33,7 +33,7 @@ export default defineConfig({
 	// GitHub's 3-core macOS and 2-core Windows runners stay at one. Keyed on
 	// GITHUB_ACTIONS, not CI: agent shells on this Mac export CI=true.
 	// OMP_GUI_WORKERS: fewer per run when several runs share the machine; RAM caps the default (2 on 16 GB,
-	// .omp/rules/e2e-ci-windows.md › Lock and gate).
+	// .omp/rules/e2e-ci-windows.md › Lock on a small machine › Workers).
 	workers: process.env.GITHUB_ACTIONS ? 1 : Number(process.env.OMP_GUI_WORKERS) || Math.min(4, ramWorkers(totalmem())),
 	timeout: 60_000,
 	expect: { timeout: 10_000 },

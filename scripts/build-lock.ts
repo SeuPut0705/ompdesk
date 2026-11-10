@@ -3,7 +3,7 @@
  *
  *   build       one at a time; builds into out/ never overlap
  *   playwright  a few runs at once (counting semaphore), each on its own immutable out snapshot
- *   vitest      a few runs at once, the static checks included
+ *   vitest      one run at a time, the static checks included
  *   other       one at a time
  *
  *   bun scripts/build-lock.ts [--kind <kind>] [--chunk <n>] [--] <command> [args…]   (`bun run locked -- …`)
