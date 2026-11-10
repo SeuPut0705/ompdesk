@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.120.2] - 2026-11-10
+
+에이전트가 일하는 중에 보낸 추가 지시와 그 답이 작업 상자 안에 접히지 않고 채팅에 보여요.
+
+### 고친 것
+- 에이전트가 일하는 중에 보낸 추가 지시가 작업 상자 안에 한 줄로 접혀 있었어요. 이제 에이전트가 그 지시를 받은 자리에 내 말풍선으로 보여요. 그 위의 작업 상자는 거기서 끝나고, 이어지는 작업은 아래 새 상자에 담겨요.
+- 에이전트가 도구를 쓰기 전에 사람에게 한 말이 생각으로 분류되면 작업 상자 안에 들어가, 답이 없는 것처럼 보였어요. 이제 그 말은 쓰이는 동안에도, 끝난 뒤에도, 다시 불러와도 채팅에 답으로 보여요.
+- 추가 지시에 대한 답은 지시 바로 아래, 그 답에 딸린 작업 상자 위에 보여요. 답이 쓰이던 자리 그대로라서 작업이 시작되거나 끝나도 움직이지 않아요.
+- 위 세 가지는 이 컴퓨터, 연결한 컴퓨터, 휴대폰 화면에서 똑같이 보여요.
+
+<!-- en -->
+
+A message you send while the agent works, and the agent's answer to it, now show in the chat instead of folded inside the work card.
+
+### Fixed
+- A message sent while the agent worked was folded into the work card as one line. It is now your own bubble at the point where the agent took it: the card above ends there and the work that follows goes into a new card under it.
+- What the agent said to you before its tool calls landed inside the work card when it arrived as thinking, so it looked as if there was no answer. It now shows in the chat as the answer while it streams, when it is finished and after a reload.
+- The answer to such a message sits right under it, above the card of that answer's own work. It stays where it streamed, so it does not move when the work starts or ends.
+- All three look the same on this computer, a paired computer and the phone.
+
 ## [0.120.1] - 2026-11-10
 
 에이전트가 자기가 연 세션을 정리할 때 사람이 보고 있다는 이유로 막히지 않고, 세션을 지우면 main에 들어간 작업 브랜치도 함께 지워져요.
