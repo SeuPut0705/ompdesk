@@ -44,7 +44,7 @@ import {
 	type StoredSession,
 } from "./service";
 import { SessionFates } from "./session-fates";
-import { tabCloseStep } from "./tab-close";
+import { needsPersonTurn, tabCloseStep } from "./tab-close";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 const bad = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
@@ -4678,20 +4678,78 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		expect(host.views).toEqual([]);
 	});
 
-	it("never closes a session the user looks at or typed into, its own child included", async () => {
-		const host = new FakeHost(
-			{ tabId: "boss0001", title: "Boss" },
-			{ tabId: "seen0002", looked: true },
-			{ tabId: "typed003", userTouched: true },
-		);
-		host.parents.set("seen0002", "boss0001");
-		const service = control(host);
-		for (const session of ["seen0002", "typed003"]) {
-			const refused = await service.run("boss0001", T.stop, { session, close: true });
-			expect(refused.isError).toBe(true);
-			expect(refused.text).toMatch(/user's view or they typed/);
-		}
-		expect(host.views).toEqual([]);
+	describe("in a turn the user's own message did not start", () => {
+		const actions = [{}, { close: true }, { delete: true }];
+		const pendingNotes = (host: FakeHost, boss: FakeTab) => {
+			boss.busy = false;
+			return (service: AgentControl) => {
+				service.personTyped("boss0001");
+				return host.mails.filter(mail => mail.to === "boss0001" && mail.content.includes("pending cleanups"));
+			};
+		};
+
+		it("stops, closes and deletes a session it opened that the user looks at, and keeps no pending cleanup", async () => {
+			for (const args of actions) {
+				const host = new FakeHost(
+					{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false, sessionPath: "/s/boss.jsonl" },
+					{
+						tabId: "seen0002",
+						title: "Seen",
+						looked: true,
+						busy: true,
+						status: "running",
+						sessionPath: "/s/a.jsonl",
+					},
+				);
+				host.parents.set("seen0002", "boss0001");
+				const service = control(host);
+				const result = await service.run("boss0001", T.stop, { session: "seen0002", ...args });
+				const label = JSON.stringify(args);
+				expect(result.isError, `${label} ${result.text}`).toBe(false);
+				expect(
+					host.sent.filter(entry => entry.command.type === "abort").map(entry => entry.tabId),
+					label,
+				).toEqual(["seen0002"]);
+				if ("close" in args) expect(host.views, label).toContainEqual({ tabId: "seen0002", how: "close" });
+				if ("delete" in args) expect(host.deleted, label).toEqual(["seen0002"]);
+				expect(host.cards, label).toEqual([]);
+				expect(pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service), label).toEqual([]);
+			}
+		});
+
+		it("refuses a session it opened that the user typed into, and keeps the call as a pending cleanup", async () => {
+			for (const args of actions) {
+				const host = new FakeHost(
+					{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false, sessionPath: "/s/boss.jsonl" },
+					{ tabId: "typed003", title: "Typed", looked: true, userTouched: true, sessionPath: "/s/b.jsonl" },
+				);
+				host.parents.set("typed003", "boss0001");
+				const service = control(host);
+				const refused = await service.run("boss0001", T.stop, { session: "typed003", ...args });
+				expect(refused.isError).toBe(true);
+				expect(refused.text).toMatch(/typed into it/);
+				expect(refused.text).toContain("pending cleanup");
+				expect(host.views).toEqual([]);
+				expect(host.deleted).toEqual([]);
+				expect(pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service)).toHaveLength(1);
+			}
+		});
+
+		it("refuses a session it did not open that the user looks at", async () => {
+			for (const args of actions) {
+				const host = new FakeHost(
+					{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false, sessionPath: "/s/boss.jsonl" },
+					{ tabId: "seen0002", title: "Seen", looked: true, sessionPath: "/s/a.jsonl" },
+				);
+				const service = control(host);
+				const refused = await service.run("boss0001", T.stop, { session: "seen0002", ...args });
+				expect(refused.isError).toBe(true);
+				expect(refused.text).toMatch(/in the user's view and you did not open it/);
+				expect(host.views).toEqual([]);
+				expect(host.deleted).toEqual([]);
+				expect(host.cards).toEqual([]);
+			}
+		});
 	});
 
 	it("stops, closes or deletes a session the user looks at or typed into when the user's own message started the turn", async () => {
@@ -4718,7 +4776,7 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		}
 	});
 
-	it("refuses to stop, close or delete a session the user looks at or typed into in a turn an agent's message started", async () => {
+	it("refuses to stop, close or delete a session the user typed into, or one it did not open that they look at, in a turn an agent's message started", async () => {
 		for (const args of [{}, { close: true }, { delete: true }]) {
 			const host = new FakeHost(
 				{ tabId: "boss0001", title: "Boss", busy: true, personTurn: false },
@@ -4732,7 +4790,7 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 				},
 				{ tabId: "typed003", title: "Typed", userTouched: true, sessionPath: "/s/b.jsonl" },
 			);
-			host.parents.set("seen0002", "boss0001");
+			host.parents.set("typed003", "boss0001");
 			const service = control(host);
 			for (const session of ["seen0002", "typed003"]) {
 				const refused = await service.run("boss0001", T.stop, { session, ...args });
@@ -4824,14 +4882,17 @@ describe("closing a tab a paired web page owns", () => {
 		expect(host.tabsById.has("web00002")).toBe(false);
 	});
 
-	it("never releases a tab the person looks at or typed into, even when its page reported it clean", async () => {
-		for (const patch of [{ looked: true }, { userTouched: true }]) {
-			const { host, service } = phoneChild("clean", patch);
-			const result = await service.run("boss0001", T.stop, closeArgs);
-			expect(result.isError).toBe(true);
-			expect(result.text).toMatch(/user's view or they typed/);
-			expect(host.releases).toEqual([]);
-		}
+	it("releases a tab it opened that the person looks at, never one they typed into, when its page reported it clean", async () => {
+		const seen = phoneChild("clean", { looked: true });
+		const closed = await seen.service.run("boss0001", T.stop, closeArgs);
+		expect(closed.isError, closed.text).toBe(false);
+		expect(seen.host.releases).toEqual(["web00002"]);
+
+		const typed = phoneChild("clean", { looked: true, userTouched: true });
+		const refused = await typed.service.run("boss0001", T.stop, closeArgs);
+		expect(refused.isError).toBe(true);
+		expect(refused.text).toMatch(/typed into it/);
+		expect(typed.host.releases).toEqual([]);
 	});
 
 	it("auto-closes a finished web child in main unless its page reported unsaved edits in that tab", async () => {
@@ -4927,7 +4988,7 @@ describe("every close path follows tabCloseStep", () => {
 			for (const webEdits of EDITS)
 				for (const person of PEOPLE) {
 					const patch: Partial<FakeTab> = { ...(webEdits ? { webEdits } : {}), ...person };
-					const step = tabCloseStep(patch);
+					const step = tabCloseStep(patch, name === "stop" && !needsPersonTurn(patch, true));
 					const { host, child } = await path(patch);
 					const label = JSON.stringify(patch);
 					expect(child, label).not.toBe("");
@@ -5898,7 +5959,6 @@ describe("a cleanup refused while the person was in the session", () => {
 			seen,
 			{ tabId: "typed003", title: "Typed", userTouched: true, sessionPath: "/s/b.jsonl" },
 		);
-		host.parents.set("seen0002", "boss0001");
 		host.parents.set("typed003", "boss0001");
 		return { host, service: control(host), boss: host.tabsById.get("boss0001") as FakeTab };
 	};

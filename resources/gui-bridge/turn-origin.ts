@@ -1,8 +1,9 @@
 /**
  * Who started the main agent's current run: the person's own typed message, or anything else (another agent's
  * message, a report mail, a schedule, Autopilot, a relaunch's continuation). Main asks it (`agent_control.turn`)
- * before a control tool stops, closes or deletes a session the person looks at or typed into: only a run the person's
- * own message started may (src/main/agent-control/service.ts `#stop`).
+ * before a control tool stops, closes or deletes a session the person typed into, or one the caller did not open that
+ * the person looks at: only a run the person's own message started may (src/main/agent-control/service.ts `#stop`,
+ * tab-close.ts `needsPersonTurn`).
  *
  * "Typed" is main's word (`typed_prompt`, typed-prompts.ts: a window's or the paired phone page's prompt, a paired
  * device's on its host; never an agent's wrapped message, Autopilot's own prompts or a relaunch's continuation), never

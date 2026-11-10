@@ -129,7 +129,7 @@ import {
 	type SentAnswer,
 } from "./send-outbox";
 import { FATE_BY, type FatedSession, fateWhen, type SessionFate, SessionFates } from "./session-fates";
-import { tabCloseStep } from "./tab-close";
+import { needsPersonTurn, tabCloseStep } from "./tab-close";
 import {
 	type AnswerArgs,
 	ARGS,
@@ -875,10 +875,11 @@ function cleanupOf(
 	};
 }
 
-/** Why a session the person looks at or typed into is not stopped, closed or deleted. */
+/** Why a session is not stopped, closed or deleted in this turn (`needsPersonTurn`). */
 function inUseRefusal(tab: ControlTab, args: { close?: boolean; delete?: boolean }): string {
 	const outcome = args.delete ? "it was not deleted" : args.close ? "it stays open" : "it keeps running";
-	return `${label(tab)} is in the user's view or they typed into it, and your current turn was not started by the user's own message (another agent's message, a report, a schedule or Autopilot started it): ${outcome}. Only a turn the user's own message starts may stop, close or delete it; ask the user.`;
+	const why = tab.userTouched ? "the user typed into it" : "it is in the user's view and you did not open it";
+	return `${label(tab)}: ${why}, and your current turn was not started by the user's own message (another agent's message, a report, a schedule or Autopilot started it): ${outcome}. Only a turn the user's own message starts may stop, close or delete it; ask the user.`;
 }
 
 /** A folder as two spellings of it compare: either slash, no trailing one, and a Windows drive path in any case. */
@@ -3466,7 +3467,9 @@ export class AgentControl {
 	/**
 	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
 	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone. A session the person
-	 * looks at or typed into is stopped, closed or deleted only in a turn their own message started (`#personTurn`).
+	 * typed into, or one the caller did not open that the person looks at, is stopped, closed or deleted only in a turn
+	 * their own message started (`needsPersonTurn`, `#personTurn`); the caller's own session is never held back because
+	 * the person looks at it.
 	 */
 	async #stop(
 		caller: ControlTab,
@@ -3478,12 +3481,15 @@ export class AgentControl {
 		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
 		const params = { caller: caller.title || "—", target: target.title || target.tabId };
 		let byPerson: boolean | undefined;
-		const personAsked = async () => (byPerson ??= await this.#personTurn(caller));
-		const inUse = (tab: ControlTab) => tab.looked === true || tab.userTouched === true;
-		if (inUse(target) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
+		const allowed = async (tab: ControlTab) => {
+			if (!needsPersonTurn(tab, own)) return true;
+			byPerson ??= await this.#personTurn(caller);
+			return byPerson;
+		};
+		if (!(await allowed(target))) this.#refuseInUse(caller, tabs, target, args);
 		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
 		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
-		const resting = !target.busy && !waits(target) && !inUse(target);
+		const resting = !target.busy && !waits(target) && !needsPersonTurn(target, false);
 		const harmless = args.close === true && !args.delete && resting;
 		if (!own && !harmless && !this.#host.fullEnabled() && (args.delete === true || !this.#host.manageEnabled())) {
 			const approved = await this.#host.confirm(
@@ -3509,16 +3515,14 @@ export class AgentControl {
 			if (args.delete) {
 				// The card and the lines took time: the person may have opened it meanwhile.
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && inUse(now) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
+				if (now && !(await allowed(now))) this.#refuseInUse(caller, tabs, target, args);
 				await this.#deleteWhenIdle(caller, target);
 				this.#fates.deleted(this.#fated(target, own ? caller.sessionPath : undefined), byCaller(caller));
 			} else if (args.close) {
 				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && inUse(now) && !(await personAsked())) this.#refuseInUse(caller, tabs, target, args);
-				const outcome = await this.#closeTab(caller.tabId, target.tabId, {
-					waitMs: CLOSE_WAIT_MS,
-					...(byPerson ? { byPerson } : {}),
-				});
+				if (now && !(await allowed(now))) this.#refuseInUse(caller, tabs, target, args);
+				// Checked just above: the in-use rule lets this close go.
+				const outcome = await this.#closeTab(caller.tabId, target.tabId, { waitMs: CLOSE_WAIT_MS, cleared: true });
 				if (outcome === "kept")
 					fail(
 						`${label(target)} is still open: its window kept the tab (it is that window's last tab, or it holds unsaved Files edits). Ask the user to close it; its session is saved either way.`,
@@ -3669,10 +3673,10 @@ export class AgentControl {
 	}
 
 	/**
-	 * Refuses a stop, close or delete of a session the person looks at or typed into, asked in a turn their own message
-	 * did not start (that rule stands), and keeps it as a pending cleanup: its caller is told the list once, at the start
-	 * of its next turn the person starts (`personTyped`), when the same call works. A caller that is no tab (a process
-	 * outside OMPdesk) has no such turn, so nothing is kept for it.
+	 * Refuses a stop, close or delete `needsPersonTurn` holds back, asked in a turn the person's own message did not
+	 * start (that rule stands), and keeps it as a pending cleanup: its caller is told the list once, at the start of its
+	 * next turn the person starts (`personTyped`), when the same call works. A caller that is no tab (a process outside
+	 * OMPdesk) has no such turn, so nothing is kept for it.
 	 */
 	#refuseInUse(
 		caller: ControlTab,
@@ -4423,19 +4427,19 @@ export class AgentControl {
 
 	/**
 	 * Close one open tab and wait for it to be gone, as `tabCloseStep` decides from the tab now. `kept`: the tab is
-	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's. `byPerson`: the
-	 * person's own message asked for the close (`#personTurn`).
+	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's. `cleared`: the
+	 * caller checked the in-use rule for this close (`needsPersonTurn`) and it lets it go.
 	 */
 	async #closeTab(
 		callerTabId: string,
 		tabId: string,
-		how: { auto?: boolean; waitMs: number; byPerson?: boolean },
+		how: { auto?: boolean; waitMs: number; cleared?: boolean },
 	): Promise<TabClose> {
 		const tabs = this.#host.tabs(callerTabId);
 		if (!tabs) return "kept";
 		const tab = tabs.find(entry => entry.tabId === tabId);
 		if (!tab) return "closed";
-		const step = tabCloseStep(tab, how.byPerson === true);
+		const step = tabCloseStep(tab, how.cleared === true);
 		if (step.action === "keep") return step.reason === "dirty" ? "dirty" : "kept";
 		if (step.action === "ask-window")
 			this.#host.view(callerTabId, { tabId, how: "close", ...(how.auto ? { auto: true } : {}) });

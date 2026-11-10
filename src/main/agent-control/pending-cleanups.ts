@@ -1,9 +1,9 @@
 /**
- * Cleanups a control tool refused: a stop, close or delete of a session the person looks at or typed into, asked in a
- * turn their own message did not start (service.ts `inUseRefusal`; that rule stands). The refusal is kept here per
- * caller, and the caller is told its list once, at the start of its next turn the person's own message starts, when
- * the same call is allowed (measured 3 to 10 Nov 2026: 6 refusals of sessions the bot had opened; nothing reminded it,
- * so its finished sessions stayed open).
+ * Cleanups a control tool refused: a stop, close or delete of a session the person typed into, or of one the caller did
+ * not open that the person looks at (tab-close.ts `needsPersonTurn`), asked in a turn their own message did not start
+ * (service.ts `inUseRefusal`; that rule stands). A session the caller opened that the person only looks at is never
+ * refused, so it never lands here. The refusal is kept here per caller, and the caller is told its list once, at the
+ * start of its next turn the person's own message starts, when the same call is allowed.
  *
  * Kept in `<userData>/agent-pending-cleanups.json` (written atomically), newest `PENDING_CLEANUPS_MAX`.
  */

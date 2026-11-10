@@ -81,8 +81,9 @@ async function call(name: string, args: Record<string, unknown> = {}): Promise<{
 
 /**
  * The person's own typed message starts the main agent's run (as the composer's Enter does: main notes it as typed before
- * the prompt). Only such a run may stop, close or delete a session the person looks at or typed into (`#stop`); the
- * control-tool calls after it, as a turn's own, are the person's.
+ * the prompt). Only such a run may stop, close or delete a session the person typed into, or one the agent did not open
+ * that the person looks at (`#stop`, `needsPersonTurn`); the control-tool calls after it, as a turn's own, are the
+ * person's.
  */
 async function personAsks(): Promise<void> {
 	const sent = await page.evaluate(
