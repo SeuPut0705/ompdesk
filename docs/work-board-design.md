@@ -111,6 +111,9 @@ What replaced what X removed: the head's multi-clause sentence and its "1개 실
 
 Both are visible twice on a docked desktop (the sidebar's usage block and the goal dock bar over the composer). The gauges are hidden by one CSS rule only while the sidebar's expanded usage block is on screen (the phone's strip, a window whose sidebar is folded and a folded usage block keep them; a metered provider's real charge, which the sidebar does not show, always stays). The goal is not hidden: its dock bar says the objective and its state but not the budget and time meter, so the board keeps it as the plan's lead line (one row, about 26 px) with the larger share of budget or time as its figure.
 
+### Later change (11 Nov 2026): children at work in the transcript
+
+Round 2 kept "children at work stay visible in the transcript". The owner reopened it: while the docked board's own section lists those children on the same screen, the transcript's lines for them are hidden (`chat/work/use-board-docked.ts`), and they return wherever the board is a strip, folded or absent. That is the round's own exception, "nothing visible by default disappears unless it duplicates what is on the same screen", applied to the one case it had left out.
 
 
 ## Not done

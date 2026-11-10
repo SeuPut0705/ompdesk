@@ -61,7 +61,8 @@ export function InsightsPage() {
 							variant="segmented"
 						/>
 					)}
-					{tab === "usage" && <UsageRefresh />}
+					{/* An offline host has nothing to refresh: its notice already stands in for the page. */}
+					{tab === "usage" && (!host || host.online) && <UsageRefresh />}
 				</div>
 			}
 			title={t("insights.title")}

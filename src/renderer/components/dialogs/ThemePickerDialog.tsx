@@ -22,7 +22,7 @@ import {
 } from "../../lib/themes";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { EmptyState, Modal, OptionRow, SearchField } from "../common";
+import { EmptyState, Modal, OptionGroup, OptionRow, SearchField } from "../common";
 import { ThemePreview } from "../settings/ThemePicker";
 
 interface ThemeEntry {
@@ -215,12 +215,9 @@ export function ThemePickerDialog() {
 						if (group.group === "system") return <Fragment key="system">{rows}</Fragment>;
 						const name = t(`themePicker.group.${group.group}`);
 						return (
-							<div aria-label={name} key={group.group} role="group">
-								<div aria-hidden className="px-3 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted)">
-									{name}
-								</div>
+							<OptionGroup key={group.group} label={name}>
 								{rows}
-							</div>
+							</OptionGroup>
 						);
 					})}
 				</div>

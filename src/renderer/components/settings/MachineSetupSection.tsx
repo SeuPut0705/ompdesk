@@ -112,7 +112,9 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 	const cli = cliState?.tools.find(tool => tool.id === item.id);
 	// The update check speaks only when it has something to say: a check under way, a skip, a newer or failed result.
 	const cliSays = cli && (cli.skip !== null || cli.phase !== "idle" || (cli.last && cli.last.kind !== "current"));
-	const omp = item.id === "omp" && item.phase === "present";
+	// An update moves the item through running and checking: the row keeps its status line and update control while the
+	// tool is there.
+	const omp = item.id === "omp" && item.presence?.kind === "present";
 	return (
 		<div
 			className="settings-row min-w-0 py-0.5 [html[data-input=touch]_&]:py-1"
@@ -133,7 +135,7 @@ function SetupItemRow({ item, windows }: { item: SetupItemState; windows: boolea
 				{!item.required && <Badge variant="muted">{t("machineSetup.optional")}</Badge>}
 				{cli && <CliMethodBadge tool={cli} />}
 				<SettingInfo
-					text={`${t(`machineSetup.purpose.${purpose}`)} ${item.required ? t("machineSetup.required") : t("machineSetup.optional")}`}
+					text={`${t(`machineSetup.purpose.${purpose}`)}${item.required ? ` ${t("machineSetup.requiredInfo")}` : ""}`}
 				/>
 				<span className="flex min-w-0 flex-1 text-sc-xs text-(--sc-text-muted)">
 					{path && <PathText className="flex-1" path={path} />}

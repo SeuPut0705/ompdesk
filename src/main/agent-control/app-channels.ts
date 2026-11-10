@@ -260,7 +260,6 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.REMOTE_SET_DEVICE_NAME]: change("remote.rename_this_computer"),
 	[C.REMOTE_RENAME_HOST]: change("remote.rename_host"),
 	[C.REMOTE_RENAME_PEER]: change("remote.rename_device"),
-	[C.REMOTE_SET_KEEP_AWAKE]: never(OPERATOR),
 	[C.REMOTE_REVOKE_PEER]: never(OPERATOR),
 	[C.REMOTE_BLOCK_PEER]: sensitive("remote.block"),
 	[C.REMOTE_SET_PEER_LIMITS]: never(OPERATOR),

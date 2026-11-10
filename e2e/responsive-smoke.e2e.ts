@@ -2,7 +2,7 @@ import { createServer as createNetServer } from "node:net";
 import * as path from "node:path";
 import { type Browser, chromium, expect, type Page, test } from "@playwright/test";
 import { createServer, type ViteDevServer } from "vite";
-import { type Look, lookTag, measure, measureDensity, openLook, resetPage } from "./responsive-audit";
+import { type Look, lookTag, measure, measureDensity, openLook, openSurface, resetPage } from "./responsive-audit";
 import { SURFACES } from "./responsive-surfaces";
 
 // The default run's responsive smoke: a phone (390) and a portrait tablet (834), en light, a handful of key surfaces
@@ -68,7 +68,8 @@ test.beforeAll(async () => {
 	const port = await freePort();
 	server = await createServer({
 		configFile: path.resolve("vite.harness.config.ts"),
-		server: { host: "127.0.0.1", port, strictPort: true },
+		// No hot updates: an edit saved elsewhere mid-run remounts what a surface measures (responsive-audit.e2e.ts).
+		server: { host: "127.0.0.1", port, strictPort: true, hmr: false },
 		logLevel: "error",
 	});
 	await server.listen();
@@ -94,9 +95,7 @@ for (const look of LOOKS) {
 				await page.reload();
 				await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 			}
-			await surface.open(page, look);
-			if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
-			await page.waitForTimeout(surface.settle ?? 450);
+			await openSurface(page, surface, look);
 			const hard = (await measure(page, look)).filter(issue => HARD.has(issue.kind));
 			expect(hard, `${surface.id} at ${look.width}`).toEqual([]);
 			if (surface.id === "session-idle" && look.width < 600) {
@@ -129,9 +128,7 @@ test("responsive smoke phone landscape: the session's controls keep their taps a
 			await page.reload();
 			await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 		}
-		await surface.open(page, PHONE_LANDSCAPE);
-		if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
-		await page.waitForTimeout(surface.settle ?? 450);
+		await openSurface(page, surface, PHONE_LANDSCAPE);
 		for (const issue of await measure(page, PHONE_LANDSCAPE))
 			if (issue.kind !== "safe-area") found.push(`${id}: ${issue.kind} ${issue.at} ${issue.detail}`);
 	}
@@ -160,9 +157,7 @@ for (const look of DESKTOP_LOOKS) {
 				await page.reload();
 				await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 			}
-			await surface.open(page, look);
-			if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
-			await page.waitForTimeout(surface.settle ?? 450);
+			await openSurface(page, surface, look);
 			const hard = (await measure(page, look)).filter(issue => HARD.has(issue.kind));
 			expect(hard, `${id} at ${look.width}`).toEqual([]);
 		}
@@ -192,9 +187,7 @@ for (const look of BOARD_LOOKS) {
 		// Every zone opened from its summary line, so the strip's rows are measured too, not only the lines.
 		const strip = SURFACES.find(surface => surface.id === "board-strip-open");
 		if (!strip) throw new Error("no board-strip-open surface");
-		await strip.open(page, look);
-		if (strip.ready) await page.locator(strip.ready).first().waitFor({ state: "visible" });
-		await page.waitForTimeout(600);
+		await openSurface(page, strip, look);
 		expect(await page.locator(".omp-work-board-slot [data-work-board-panel]").count(), "docked").toBe(
 			look.form === "docked" ? 1 : 0,
 		);
@@ -226,8 +219,9 @@ for (const look of AUTOPILOT_LOOKS) {
 	test(`responsive smoke ${lookTag(look)}: the Autopilot board and the goal bar keep their taps`, async () => {
 		if (!browser) throw new Error("the browser is not up");
 		const found: string[] = [];
-		// One page each: once the Autopilot board shows, the tab is a run's and its board has no waiting section.
-		for (const id of ["board-strip", "autopilot-board"]) {
+		// One page each: once the Autopilot board shows, the tab is a run's and its board has no waiting section. The
+		// busy board docked is `board-strip-open`'s; `board-strip` is the strip only.
+		for (const id of [look.form === "docked" ? "board-strip-open" : "board-strip", "autopilot-board"]) {
 			const query = SURFACES.find(surface => surface.id === id)?.query ?? "";
 			const page = await openLook(browser, look, { origin, query });
 			await show(page, look, id);
@@ -266,9 +260,7 @@ async function show(page: Page, look: Look, id: string): Promise<void> {
 		await page.reload();
 		await expect(page.locator("[data-titlebar-session-name]")).toBeVisible({ timeout: 30_000 });
 	}
-	await surface.open(page, look);
-	if (surface.ready) await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
-	await page.waitForTimeout(surface.settle ?? 450);
+	await openSurface(page, surface, look);
 }
 
 /**

@@ -198,6 +198,8 @@ interface ModelValueSelectBaseProps {
 	noun?: string;
 	/** Accessible name of the trigger when no visible label names it. */
 	ariaLabel?: string;
+	/** id of the trigger, so a field's `<label htmlFor>` names and focuses it. */
+	id?: string;
 	/** Trigger tooltip (e.g. why it is disabled). */
 	title?: string;
 	/** Label of the row that commits "" (defaults to "Clear (use default)"). */
@@ -235,6 +237,7 @@ export function ModelValueSelect({
 	allowCustom,
 	noun: nounOverride,
 	ariaLabel,
+	id,
 	title,
 	clearLabel,
 	clearable = true,
@@ -491,6 +494,7 @@ export function ModelValueSelect({
 				aria-expanded={open}
 				aria-haspopup="listbox"
 				aria-label={ariaLabel}
+				id={id}
 				className={cx(
 					"flex items-center gap-1.5 text-left transition-colors duration-(--sc-duration-instant) disabled:cursor-not-allowed disabled:opacity-50",
 					compact

@@ -280,31 +280,20 @@ function DeviceNameRow({ name }: { name: string }) {
 	);
 }
 
-/** The host's keep-awake option; its description is the live state while it is on. */
+/** Shown only while devices keep this computer awake; the switch is General's one keep-awake switch. */
 function KeepAwakeRow({ host }: { host: RemoteHostState }) {
 	const t = useT();
-	const [saving, setSaving] = useState(false);
-	let description = t("remote.host.keepAwakeDesc");
-	if (host.keepAwake && host.keepingAwake) {
-		description =
-			host.usedBy.length > 0
-				? t("remote.host.keepingAwakeFor", { names: host.usedBy.join(", ") })
-				: t("remote.host.keepingAwake");
-	}
+	if (!host.keepAwake || !host.keepingAwake) return null;
 	return (
-		<SettingsSwitchRow
+		<SettingsRow
+			description={
+				host.usedBy.length > 0 ? (
+					<span data-remote-keep-awake-state>{t("remote.host.usedBy", { names: host.usedBy.join(", ") })}</span>
+				) : undefined
+			}
 			icon={<Coffee />}
-			checked={host.keepAwake}
-			description={<span data-remote-keep-awake-state>{description}</span>}
-			disabled={saving}
 			id="settings-remote-keep-awake"
-			label={t("remote.host.keepAwake")}
-			onCheckedChange={enabled => {
-				setSaving(true);
-				void mutate(() => window.omp.remote.setKeepAwake(enabled), t("remote.host.keepAwakeFailed")).finally(() =>
-					setSaving(false),
-				);
-			}}
+			label={t("remote.host.keepingAwake")}
 		/>
 	);
 }

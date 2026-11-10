@@ -98,6 +98,7 @@ export function MemorySearch({ project, scope }: { project: AiMemoryProjectRef; 
 						<li key={`${hit.workspace}/${hit.project}/${hit.path}`}>
 							<ListRow
 								description={hit.snippet || undefined}
+								descriptionLines={2}
 								meta={
 									<span className="flex items-center gap-2">
 										{facts.length > 0 && <span>{facts.join(" · ")}</span>}
@@ -107,7 +108,6 @@ export function MemorySearch({ project, scope }: { project: AiMemoryProjectRef; 
 								onClick={() => useMemoryPageStore.getState().openPage(hit)}
 								rowProps={{ "data-memory-hit": hit.path }}
 								title={hit.title || hit.path}
-								titleText={hit.path}
 							/>
 						</li>
 					);

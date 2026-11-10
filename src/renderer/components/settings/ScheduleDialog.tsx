@@ -17,8 +17,7 @@ import {
 import { useT } from "../../lib/i18n";
 import { frequencySummary, weekdayNames } from "../../lib/schedule-text";
 import { pickWorkspaceDirectory } from "../../lib/workspace-dirs";
-import { Button, Input, Modal, PathText, SegmentedChoice, Select, SwitchField, TextArea } from "../common";
-import { FieldShell } from "../common/Input";
+import { Button, FieldLabel, Input, Modal, PathText, SegmentedChoice, Select, SwitchField, TextArea } from "../common";
 import { ModelValueSelect } from "./ModelValueSelect";
 
 type IntervalUnit = "minutes" | "hours";
@@ -168,12 +167,11 @@ export function ScheduleDialog({
 					rows={4}
 					value={form.prompt}
 				/>
-				<FieldShell
-					controlId={`${formId}-cwd`}
-					error={touched && problem === "cwd" ? t("schedules.problem.cwd") : undefined}
-					label={t("schedules.field.project")}
-					noteId={`${formId}-cwd-note`}
-				>
+				{/* The folder is a path and a picker button, so the label names their group, never the button. */}
+				<div aria-labelledby={`${formId}-cwd-label`} role="group">
+					<FieldLabel as="span" id={`${formId}-cwd-label`}>
+						{t("schedules.field.project")}
+					</FieldLabel>
 					<div className="flex min-w-0 items-center gap-2">
 						<span className="flex min-w-0 flex-1 text-sc-sm" data-schedule-cwd>
 							{form.cwd ? (
@@ -194,12 +192,16 @@ export function ScheduleDialog({
 							{t("schedules.field.chooseFolder")}
 						</Button>
 					</div>
-				</FieldShell>
-				<FieldShell
-					controlId={`${formId}-repeat`}
-					label={t("schedules.field.repeat")}
-					noteId={`${formId}-repeat-note`}
-				>
+					{touched && problem === "cwd" && (
+						<span className="mt-1.5 block text-sc-sm text-(--sc-danger)" role="alert">
+							{t("schedules.problem.cwd")}
+						</span>
+					)}
+				</div>
+				<div aria-labelledby={`${formId}-repeat-label`} role="group">
+					<FieldLabel as="span" id={`${formId}-repeat-label`}>
+						{t("schedules.field.repeat")}
+					</FieldLabel>
 					{form.fixed ? (
 						<div className="flex flex-col gap-0.5" data-schedule-fixed-trigger>
 							<span className="text-sc-md text-(--sc-text)">{frequencySummary(form.fixed)}</span>
@@ -283,20 +285,17 @@ export function ScheduleDialog({
 							)}
 						</div>
 					)}
-				</FieldShell>
-				<FieldShell
-					controlId={`${formId}-model`}
-					label={t("schedules.field.model")}
-					noteId={`${formId}-model-note`}
-				>
+				</div>
+				<div>
+					<FieldLabel htmlFor={`${formId}-model`}>{t("schedules.field.model")}</FieldLabel>
 					<ModelValueSelect
-						ariaLabel={t("schedules.field.model")}
+						id={`${formId}-model`}
 						kind="model"
 						onCommit={value => set("model", value)}
 						placeholder={t("schedules.field.modelHint")}
 						value={form.model}
 					/>
-				</FieldShell>
+				</div>
 				<SwitchField
 					checked={form.autoApprove}
 					description={t("schedules.field.autoApproveDesc")}

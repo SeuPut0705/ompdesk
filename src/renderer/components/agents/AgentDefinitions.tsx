@@ -603,6 +603,7 @@ export function AgentDefinitions() {
 					<Tabs
 						activeId={sourceFilter}
 						ariaLabel={t("agents.defs.sourceFilter")}
+						data-agent-sources
 						onChange={id => setSourceFilter(id as SourceFilter)}
 						tabs={sourceTabs.map(source => ({
 							id: source,

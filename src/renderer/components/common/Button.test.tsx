@@ -75,16 +75,29 @@ describe("Button", () => {
 		expect(click).not.toHaveBeenCalled();
 	});
 
-	it("draws a disabled primary as a quiet chip with readable text, not a faded accent fill", async () => {
+	it("keeps a disabled button that says why focusable, refuses its press and shows the reason on keyboard focus", async () => {
+		const click = vi.fn();
+		const submit = vi.fn();
+		// linkedom knows no `:focus-visible`; this focus came from the keyboard.
+		const matches = HTMLElement.prototype.matches;
+		vi.spyOn(HTMLElement.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+			return selector === ":focus-visible" ? true : matches.call(this, selector);
+		});
 		await mount(
-			<Button disabled variant="primary">
-				Commit
-			</Button>,
+			<form onSubmit={submit}>
+				<Button disabled disabledReason="Pick a branch first" onClick={click} type="submit" variant="primary">
+					Create
+				</Button>
+			</form>,
 		);
-		const classes = button().className;
-		expect(classes).toContain("disabled:bg-(--sc-surface-3)");
-		expect(classes).toContain("disabled:text-(--sc-text-secondary)");
-		expect(classes).toContain("disabled:opacity-100!");
+		expect(button().disabled).toBe(false);
+		expect(button().getAttribute("aria-disabled")).toBe("true");
+		await act(async () => button().click());
+		expect(click).not.toHaveBeenCalled();
+		expect(submit).not.toHaveBeenCalled();
+		await act(async () => button().dispatchEvent(new Event("focusin", { bubbles: true })));
+		expect(document.querySelector("[role=tooltip]")?.textContent).toBe("Pick a branch first");
+		vi.restoreAllMocks();
 	});
 
 	it("disables itself while loading, shows a status spinner, keeps its label and blocks onClick", async () => {

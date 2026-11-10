@@ -10,7 +10,6 @@
  * counts as seen once the card is up (lib/whats-new), and the Help menu's "What's new" stays reachable.
  */
 
-import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useLang, useT } from "../../lib/i18n";
 import {
@@ -21,7 +20,7 @@ import {
 	WHATS_NEW_PREF,
 } from "../../lib/whats-new";
 import { useUiStore } from "../../stores/ui";
-import { BrandMark, Button, IconButton } from "../common";
+import { Banner, BrandMark, Button } from "../common";
 import { Collapse } from "../common/Collapse";
 
 /** Focused, unhovered time before the card hides itself. */
@@ -59,16 +58,24 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 		// A full-width row with its own rule under it, so the transcript plainly starts below it: a pill floating over
 		// the scroller's top edge, with a line cut there, read as covering the transcript.
 		<div className="shrink-0 border-b border-(--sc-divider) px-(--omp-column-pad) py-2">
-			<section
+			<Banner
+				actions={
+					<Button className="ml-auto shrink-0" data-whats-new-details onClick={open} size="sm" variant="ghost">
+						{t("whatsNew.details")}
+					</Button>
+				}
 				aria-label={title}
-				className="omp-whats-new-card mx-auto flex max-w-(--omp-column-reading) items-center gap-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) bg-(--sc-surface-2) py-1 pr-1 pl-2.5 text-sc-sm"
-				data-whats-new-card
+				className="omp-whats-new-card mx-auto max-w-(--omp-column-reading)"
+				compact
+				data-whats-new-card=""
+				icon={<BrandMark size={16} />}
 				onBlur={event => {
 					if (!event.currentTarget.contains(event.relatedTarget as Node | null)) paused.current = false;
 				}}
 				onClick={event => {
 					if (!(event.target as Element).closest("button")) open();
 				}}
+				onDismiss={dismiss}
 				onFocus={() => {
 					paused.current = true;
 				}}
@@ -88,13 +95,14 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 				onMouseLeave={() => {
 					paused.current = false;
 				}}
+				role="region"
 				tabIndex={0}
+				variant="neutral"
 			>
-				<BrandMark size={16} />
 				{/* Title and the summary sentence wrap whole: one truncated line cut the summary mid-word ("…for the
 				    first t…"), so the visible text said nothing. A narrow pane (a phone, a split's quarter) shows the
 				    title alone (components.css), its sentence one tap away in See details. */}
-				<p className="min-w-0 flex-1 py-0.5 break-keep text-(--sc-text-secondary)" title={summary || title}>
+				<p className="py-0.5 break-keep" title={summary || title}>
 					<span className="font-semibold text-(--sc-text)">{title}</span>
 					{summary && (
 						<>
@@ -105,11 +113,7 @@ function WhatsNewCardBody({ version, since }: { version: string; since: string |
 						</>
 					)}
 				</p>
-				<Button className="ml-auto shrink-0" data-whats-new-details onClick={open} size="sm" variant="ghost">
-					{t("whatsNew.details")}
-				</Button>
-				<IconButton className="shrink-0" icon={<X />} label={t("common.close")} onClick={dismiss} size="sm" />
-			</section>
+			</Banner>
 		</div>
 	);
 }

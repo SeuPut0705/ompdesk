@@ -36,6 +36,22 @@ describe("SectionLabel", () => {
 		);
 	});
 
+	it("draws a section title as the same kind of heading, or the label as no heading where none belongs", async () => {
+		await mounted(
+			<>
+				<SectionLabel count={12} size="title">
+					Models
+				</SectionLabel>
+				<SectionLabel as="div">Shortcut</SectionLabel>
+			</>,
+			document => {
+				expect(document.querySelector("h3")?.textContent).toBe("Models12");
+				expect(document.querySelectorAll("h3, h4").length).toBe(1);
+				expect(document.querySelector("div[data-section-label]")?.textContent).toBe("Shortcut");
+			},
+		);
+	});
+
 	it("keeps the group action outside the heading and reachable", async () => {
 		const clear = vi.fn();
 		await mounted(

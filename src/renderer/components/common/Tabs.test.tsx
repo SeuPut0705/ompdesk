@@ -282,4 +282,99 @@ describe("Tabs", () => {
 		await press("Home");
 		expect(change).not.toHaveBeenCalled();
 	});
+
+	it("closes a tab from its ✕ or with Delete on it, and keeps the ✕ out of the tab list's reading and Tab order", async () => {
+		function Closable() {
+			const [open, setOpen] = useState(["a", "b", "c"]);
+			const [active, setActive] = useState("b");
+			const close = (id: string) => {
+				const rest = open.filter(item => item !== id);
+				setOpen(rest);
+				if (id === active) setActive(rest[0] ?? "");
+			};
+			return (
+				<Tabs
+					activeId={active}
+					ariaLabel="Files"
+					onChange={setActive}
+					tabs={open.map(id => ({
+						id,
+						label: id.toUpperCase(),
+						onClose: () => close(id),
+						closeLabel: `Close ${id}`,
+					}))}
+					variant="pills"
+				/>
+			);
+		}
+		const focused: string[] = [];
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			focused.push(this.getAttribute("data-tab-id") ?? "");
+		});
+		await mount(<Closable />);
+		expect(document.querySelector("[role='tablist']")?.querySelectorAll("[role='tab']")).toHaveLength(3);
+		const pointerClose = document.querySelector("[aria-label='Close a']") as HTMLElement;
+		expect(pointerClose.getAttribute("aria-hidden")).toBe("true");
+		expect(pointerClose.getAttribute("tabindex")).toBe("-1");
+		expect(tabs()[0]?.getAttribute("aria-keyshortcuts")).toBe("Delete");
+		// The chosen tab's close follows the list for a screen reader that has no Delete key.
+		const selectedClose = document.querySelector("[data-tabs-close-selected]") as HTMLElement;
+		expect(selectedClose.getAttribute("aria-label")).toBe("Close b");
+		expect(selectedClose.closest("[role='tablist']")).toBeNull();
+
+		await act(async () => pointerClose.click());
+		expect(tabs().map(tab => tab.textContent)).toEqual(["B", "C"]);
+
+		const event = new Event("keydown", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "key", { value: "Delete" });
+		await act(async () => {
+			tabs()[0]?.dispatchEvent(event);
+		});
+		expect(tabs().map(tab => tab.textContent)).toEqual(["C"]);
+		expect(selectedIds()).toEqual(["c"]);
+		expect(focused.at(-1)).toBe("c");
+	});
+
+	it("passes a tab's double click and its own keys on", async () => {
+		const keep = vi.fn();
+		await mount(
+			<Tabs
+				activeId="a"
+				ariaLabel="Files"
+				onChange={() => {}}
+				tabs={[{ id: "a", label: "notes.md", keyshortcuts: "Meta+W", onDoubleClick: keep }]}
+			/>,
+		);
+		expect(tabs()[0]?.getAttribute("aria-keyshortcuts")).toBe("Meta+W");
+		await act(async () => {
+			tabs()[0]?.dispatchEvent(new Event("dblclick", { bubbles: true }));
+		});
+		expect(keep).toHaveBeenCalledTimes(1);
+	});
+
+	it("stacks a vertical strip, says so, and moves with ↑/↓", async () => {
+		const change = vi.fn();
+		function Vertical() {
+			const [active, setActive] = useState("a");
+			return (
+				<Tabs
+					activeId={active}
+					ariaLabel="Sections"
+					onChange={id => {
+						change(id);
+						setActive(id);
+					}}
+					orientation="vertical"
+					tabs={TABS}
+					variant="pills"
+				/>
+			);
+		}
+		await mount(<Vertical />);
+		expect(document.querySelector("[role='tablist']")?.getAttribute("aria-orientation")).toBe("vertical");
+		await press("ArrowDown");
+		await press("ArrowDown");
+		await press("ArrowUp");
+		expect(change.mock.calls.map(call => call[0])).toEqual(["b", "c", "b"]);
+	});
 });

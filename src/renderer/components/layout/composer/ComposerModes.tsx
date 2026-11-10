@@ -22,7 +22,6 @@ import { type SessionStore, useSessionStore } from "../../../stores/session";
 import { sessionRuntimeStore, useRuntimeTabId } from "../../../stores/session-runtime-context";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { useWorkBoardStore } from "../../../stores/work-board";
 import { useAutopilotStateText } from "../../autopilot/use-autopilot-state-text";
 import { Button, IconButton, SectionLabel, SwitchTile, Tabs, Tooltip } from "../../common";
 import { AutopilotModeConfig } from "../../modes/AutopilotConfig";
@@ -138,22 +137,20 @@ export function ModesSection({
 
 /**
  * Autopilot's "show the run" button and the auto-mode "This request" chip: extra buttons beside the Run chip. The run
- * is shown on this pane's work board (docked, or its strip expanded), never in the side panel. While the board docks
- * with the run's section open it already shows the run beside the composer, so the button gives way there
- * (components.css, `data-run-folded`); the Mode tab's own button stays.
+ * is shown on this pane's work board (docked, or its strip expanded), never in the side panel. While the docked board
+ * shows the run's section open and in view it already shows the run beside the composer, so the button gives way there
+ * (components.css, the pane's `data-work-board-run-shown`, set by the board); the Mode tab's own button stays.
  */
 export function ComposerModeExtras() {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const autopilotLive = useAutopilotStore(isLiveAutopilot);
-	const runFolded = useWorkBoardStore(state => state.collapsed.autopilot === true);
 	return (
 		<>
 			{autopilotLive && (
 				<IconButton
 					className="omp-composer-chip"
 					data-autopilot-chip-open
-					data-run-folded={runFolded || undefined}
 					icon={<LayoutDashboard />}
 					label={t("autopilot.chip.open")}
 					onClick={() => useUiStore.getState().revealWorkBoard(tabId)}
@@ -205,6 +202,7 @@ function PlanModeConfig() {
 
 	return (
 		<SwitchTile
+			infoEnd
 			checked={planModeEnabled}
 			className="-mx-1.5"
 			data-plan-mode
@@ -223,6 +221,7 @@ function AutoModeSwitch() {
 	const [enabled, setEnabled] = useAutoModePref();
 	return (
 		<SwitchTile
+			infoEnd
 			checked={enabled}
 			className="-mx-1.5"
 			data-auto-mode-switch

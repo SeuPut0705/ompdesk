@@ -1,7 +1,7 @@
 /**
- * Settings › Plugins & resources: one section with underline tabs over the
- * session's installed plugins, configured marketplaces and prompt templates.
- * The page owns the active tab and the single search
+ * Settings › Tools & extensions, the plugins, marketplaces and prompt templates
+ * tabs: their bodies, under Extensions' one tab bar (ExtensionsSection owns the
+ * bar and the panel). The page owns the active tab and the single search
  * field (`query`, empty = no filter). Each tab lazy-loads its RPC on first
  * view and caches until refreshed.
  *
@@ -47,19 +47,16 @@ import {
 	SkeletonRows,
 	Spinner,
 	Switch,
-	type TabItem,
-	Tabs,
 } from "../common";
 import { AddMarketplaceForm, MarketplaceCard } from "../panels/inventory/MarketplacesSection";
 import { PluginDetailSheet } from "../panels/inventory/PluginDetailSheet";
 import { filterMarketplaces, filterPlugins, filterTemplates } from "../panels/inventory-utils";
 import { SettingsEmptyRow, SettingsRow } from "./SettingsLayout";
-
-export type PluginsTab = "plugins" | "marketplaces" | "templates";
+import type { PluginsTab as PluginsTabId } from "./settings-catalog";
 
 export interface PluginsSectionProps {
-	tab: PluginsTab;
-	onTabChange: (tab: PluginsTab) => void;
+	tab: PluginsTabId;
+	onTabChange: (tab: PluginsTabId) => void;
 	/** Page search; empty string = no filter. */
 	query: string;
 }
@@ -173,14 +170,12 @@ export function useAutoLoad(
 /** Tab body: count + refresh toolbar (once there is a list), content, footer note. */
 function TabPanel({
 	visible,
-	label,
 	count,
 	resource,
 	footer,
 	children,
 }: {
 	visible: boolean;
-	label: string;
 	/** "{shown} of {total}" once loaded; omitted for non-list tabs. */
 	count?: string;
 	resource: RpcResource<unknown>;
@@ -189,7 +184,8 @@ function TabPanel({
 }) {
 	const t = useT();
 	return (
-		<div aria-label={label} className={cx("flex flex-col gap-3", !visible && "hidden")} role="tabpanel">
+		// The tab bar and its panel are Extensions' (one bar for the whole page); this is the panel's body.
+		<div className={cx("flex flex-col gap-3", !visible && "hidden")}>
 			{/* The toolbar is the list's count and its refresh; with no count (loading, empty, failed) the state below carries it. */}
 			{count && (
 				<div className="flex items-center justify-end gap-2">
@@ -331,7 +327,6 @@ function PluginsTab({
 		<TabPanel
 			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: plugins.length, total }) : undefined}
 			footer={undefined}
-			label={t("invPanel.tabs.plugins")}
 			resource={resource}
 			visible={visible}
 		>
@@ -432,7 +427,6 @@ function MarketplacesTab({
 		<TabPanel
 			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: marketplaces.length, total }) : undefined}
 			footer={t("marketplace.footerNote")}
-			label={t("invPanel.tabs.marketplaces")}
 			resource={resource}
 			visible={visible}
 		>
@@ -509,7 +503,6 @@ function TemplatesTab({
 		<TabPanel
 			count={resource.loaded && total > 0 ? t("invPanel.count", { shown: templates.length, total }) : undefined}
 			footer={t("invPanel.readonlyNote")}
-			label={t("invPanel.tabs.templates")}
 			resource={resource}
 			visible={visible}
 		>
@@ -544,35 +537,13 @@ function TemplatesTab({
 
 export function PluginsSection({ tab, onTabChange, query }: PluginsSectionProps) {
 	const tabRpc = useTabRpc();
-	const t = useT();
 	const [detailPlugin, setDetailPlugin] = useState<RpcPluginInfo | null>(null);
 	const plugins = useRpcResource<RpcPluginsResult>(() => tabRpc.getPlugins());
 	const marketplaces = useRpcResource<RpcMarketplacesResult>(() => tabRpc.getMarketplaces());
 	const templates = useRpcResource<RpcPromptTemplatesResult>(() => tabRpc.getPromptTemplates());
 
-	const tabs = useMemo<TabItem[]>(
-		() => [
-			// A zero count says nothing the empty tab does not.
-			{ id: "plugins", label: t("invPanel.tabs.plugins"), badge: plugins.data?.plugins.length || undefined },
-			{
-				id: "marketplaces",
-				label: t("invPanel.tabs.marketplaces"),
-				badge: marketplaces.data?.marketplaces.length || undefined,
-			},
-			{ id: "templates", label: t("invPanel.tabs.templates"), badge: templates.data?.templates.length || undefined },
-		],
-		[t, plugins.data, marketplaces.data, templates.data],
-	);
-
 	return (
 		<div className="flex flex-col gap-4">
-			{/* A narrow column scrolls the tab row sideways instead of wrapping it or widening the page. */}
-			<Tabs
-				activeId={tab}
-				ariaLabel={t("settings.resources.title")}
-				onChange={id => onTabChange(id as PluginsTab)}
-				tabs={tabs}
-			/>
 			<PluginsTab
 				onBrowseMarketplaces={() => onTabChange("marketplaces")}
 				onOpenDetail={setDetailPlugin}

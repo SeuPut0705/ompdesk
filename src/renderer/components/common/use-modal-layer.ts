@@ -7,21 +7,35 @@ import { focusNear, type Place, placeOf } from "./focus-place";
 const FOCUSABLE =
 	'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** Where typing goes: a text field, a text area, a select. Not a checkbox, a radio, a file or a range input. */
+/**
+ * Where typing goes: a text field or a text area. Not a select (its arrow keys change the value), a checkbox, a radio,
+ * a file or a range input.
+ */
 const FIELD =
-	'textarea:not([disabled]), select:not([disabled]), input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]), [contenteditable="true"]';
+	'textarea:not([disabled]), input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]), [contenteditable="true"]';
+
+/** A control that Enter, Space or an arrow key changes the value of: a dialog never opens on one. */
+const STATEFUL =
+	'select, input[type="checkbox"], input[type="radio"], input[type="range"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"]';
+
+/** Never a first focus: the header's ✕, and whatever a dialog opts out (`data-dialog-nofocus` on it or around it). */
+const NEVER_FIRST = "[data-dialog-close], [data-dialog-nofocus]";
 
 /**
- * Where a dialog that focused nothing itself starts: its first field, else the first control of its body, else the
- * panel. Never the header's close button (`data-dialog-close`): a ✕ opening wrapped in the focus ring is the loudest
- * thing on screen, and typing would go nowhere. Escape closes, and Tab still reaches the ✕.
+ * Where a dialog that focused nothing itself starts: the element it marks (`data-dialog-autofocus`), else its first
+ * text field, else the first control of its body that changes nothing when pressed (a switch, a checkbox, a radio or a
+ * select would flip or change its value at the first Enter, Space or arrow), else the panel. Never the header's close
+ * button: a ✕ opening wrapped in the focus ring is the loudest thing on screen, and typing would go nowhere. Escape
+ * closes, and Tab still reaches every one of them.
  */
 function firstFocus(panel: HTMLElement): HTMLElement {
-	const field = panel.querySelector<HTMLElement>(FIELD);
+	const marked = panel.querySelector<HTMLElement>("[data-dialog-autofocus]");
+	if (marked) return marked;
+	const field = [...panel.querySelectorAll<HTMLElement>(FIELD)].find(element => !element.closest(NEVER_FIRST));
 	if (field) return field;
 	const body = panel.querySelector<HTMLElement>("[data-dialog-body]") ?? panel;
 	const control = [...body.querySelectorAll<HTMLElement>(FOCUSABLE)].find(
-		element => !element.closest("[data-dialog-close]"),
+		element => !element.closest(NEVER_FIRST) && !element.matches(STATEFUL),
 	);
 	return control ?? panel;
 }

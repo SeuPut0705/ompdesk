@@ -33,7 +33,7 @@ import { toast } from "../../stores/toast";
 import { type TranscriptDetail, useUiStore } from "../../stores/ui";
 import { webRuntime } from "../../web/runtime";
 import { Badge, Button, Input, Select, SettingInfo } from "../common";
-import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow, SettingsTiles } from "./SettingsLayout";
+import { SettingsAdvanced, SettingsRow, SettingsSection, SettingsSwitchRow } from "./SettingsLayout";
 import { ThemePicker } from "./ThemePicker";
 import { ThinkingDisplayRow } from "./ThinkingDisplayRow";
 
@@ -180,23 +180,21 @@ export function AppearanceSection() {
 					id="setting-gui-fontSize"
 					label={t("settings.gui.fontSize")}
 				/>
-				<SettingsTiles>
-					<SettingsSwitchRow
-						checked={compactDensity}
-						description={t("settings.gui.compactDensityDesc")}
-						icon={<Rows3 />}
-						id="setting-gui-compactDensity"
-						label={t("settings.gui.compactDensity")}
-						onCheckedChange={value => applyStorePreference("compactDensity", value)}
-					/>
-					<SettingsSwitchRow
-						checked={colorBlindMode}
-						icon={<Eye />}
-						id="setting-gui-colorBlindMode"
-						label={t("settings.gui.colorBlindMode")}
-						onCheckedChange={value => applyStorePreference("colorBlindMode", value)}
-					/>
-				</SettingsTiles>
+				<SettingsSwitchRow
+					checked={compactDensity}
+					description={t("settings.gui.compactDensityDesc")}
+					icon={<Rows3 />}
+					id="setting-gui-compactDensity"
+					label={t("settings.gui.compactDensity")}
+					onCheckedChange={value => applyStorePreference("compactDensity", value)}
+				/>
+				<SettingsSwitchRow
+					checked={colorBlindMode}
+					icon={<Eye />}
+					id="setting-gui-colorBlindMode"
+					label={t("settings.gui.colorBlindMode")}
+					onCheckedChange={value => applyStorePreference("colorBlindMode", value)}
+				/>
 			</SettingsSection>
 
 			<SettingsSection description={t("settings.display.scope")} title={t("settings.display.title")}>
@@ -228,37 +226,33 @@ export function AppearanceSection() {
 					label={t("settings.gui.transcriptDetail")}
 				/>
 				<ThinkingDisplayRow />
-				<SettingsTiles>
-					<SettingsSwitchRow
-						checked={codeLineNumbers}
-						icon={<ListOrdered />}
-						id="setting-gui-lineNumbers"
-						label={t("codeblock.lineNumbers")}
-						onCheckedChange={next =>
-							void setCodeLineNumbersPref(next).then(ok => {
-								if (ok) setCodeLineNumbers(next);
-							})
-						}
-					/>
-					{(["proseOnlyThinking", "showTokenUsage", "collapseCompacted", "goalStatusInFooter"] as const).map(
-						field => (
-							<DisplayPreferenceRow field={field} key={field} />
-						),
-					)}
-				</SettingsTiles>
+				<SettingsSwitchRow
+					checked={codeLineNumbers}
+					icon={<ListOrdered />}
+					id="setting-gui-lineNumbers"
+					label={t("codeblock.lineNumbers")}
+					onCheckedChange={next =>
+						void setCodeLineNumbersPref(next).then(ok => {
+							if (ok) setCodeLineNumbers(next);
+						})
+					}
+				/>
+				{(["proseOnlyThinking", "showTokenUsage", "collapseCompacted", "goalStatusInFooter"] as const).map(
+					field => (
+						<DisplayPreferenceRow field={field} key={field} />
+					),
+				)}
 			</SettingsSection>
 			<SettingsSection title={t("settings.appearance.input")}>
-				<SettingsTiles>
-					<DisplayPreferenceRow field="emojiAutocomplete" />
-					<SettingsSwitchRow
-						checked={mobileEnterSends}
-						description={t("settings.display.mobileEnterSends.desc")}
-						icon={<CornerDownLeft />}
-						id="setting-gui-mobileEnterSends"
-						label={t("settings.display.mobileEnterSends")}
-						onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
-					/>
-				</SettingsTiles>
+				<DisplayPreferenceRow field="emojiAutocomplete" />
+				<SettingsSwitchRow
+					checked={mobileEnterSends}
+					description={t("settings.display.mobileEnterSends.desc")}
+					icon={<CornerDownLeft />}
+					id="setting-gui-mobileEnterSends"
+					label={t("settings.display.mobileEnterSends")}
+					onCheckedChange={next => void setDisplayPreference("mobileEnterSends", next)}
+				/>
 			</SettingsSection>
 			<SettingsAdvanced>
 				<SettingsSection title={t("settings.appearance.theme")}>

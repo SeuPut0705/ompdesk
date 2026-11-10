@@ -6,8 +6,7 @@ import { cx, formatUsd } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useFocusedTabDevice } from "../../stores/remote";
-import { Button, Card, ErrorDetail, Input, Modal, Select } from "../common";
-import { FieldShell } from "../common/Input";
+import { Button, Card, ErrorDetail, FieldLabel, Input, Modal, Select } from "../common";
 import { ModelLabel } from "../settings/ModelLabel";
 import { ModelValueSelect } from "../settings/ModelValueSelect";
 import { compactModelLabels, modelRefOf } from "../settings/providers/provider-marks";
@@ -116,10 +115,11 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 		>
 			<div className="space-y-4">
 				<div className="grid grid-cols-[minmax(0,1fr)_9rem_5.5rem_5.5rem] gap-3 max-md:grid-cols-2 max-sm:grid-cols-1">
-					<FieldShell controlId={modelsId} label={t("benchmark.models")} noteId={`${modelsId}-note`}>
+					<div>
+						<FieldLabel htmlFor={modelsId}>{t("benchmark.models")}</FieldLabel>
 						<div className="space-y-2" data-benchmark-models>
 							<ModelValueSelect
-								ariaLabel={t("benchmark.models")}
+								id={modelsId}
 								kind="model"
 								value=""
 								placeholder={t("benchmark.addModel")}
@@ -144,7 +144,7 @@ export function BenchmarkDialog({ open, onClose }: { open: boolean; onClose: () 
 								))}
 							</div>
 						</div>
-					</FieldShell>
+					</div>
 					<Select
 						label={t("benchmark.profile")}
 						disabled={running}

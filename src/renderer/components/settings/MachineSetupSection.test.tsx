@@ -95,7 +95,7 @@ describe("MachineSetupSection", () => {
 		expect(
 			Array.from(document.body.querySelectorAll("[data-setup-item]")).map(el => el.getAttribute("data-setup-item")),
 		).toEqual([...SETUP_ITEMS]);
-		expect(row("bun")?.textContent).toContain(translate("machineSetup.required"));
+		expect(row("bun")?.textContent).toContain(translate("machineSetup.requiredInfo"));
 		expect(row("git")?.textContent).toContain(translate("machineSetup.optional"));
 		expect(row("bun")?.textContent).toContain("/usr/local/bin/bun");
 		// The check mark says a tool is there: no "Installed" words on its row.

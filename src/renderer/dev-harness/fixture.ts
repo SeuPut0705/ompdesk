@@ -571,7 +571,7 @@ const PROJECT_FILES = [
 	"src/renderer/lib/format.ts",
 	"src/renderer/App.tsx",
 	"src/renderer/main.tsx",
-	"src/renderer/components/layout/Sidebar.tsx",
+	"src/renderer/components/layout/sidebar/Sidebar.tsx",
 	"src/renderer/components/layout/Composer.tsx",
 	"src/renderer/components/panels/FilesPanel.tsx",
 	"src/renderer/components/panels/SessionTreeSheet.tsx",
@@ -629,6 +629,9 @@ export const FILE_CONTENTS: Record<string, string> = {
 	"src/renderer/lib/wait-for.ts":
 		"/** Poll `check` until it stops throwing, or fail with its last error after `timeoutMs`. */\nexport async function waitFor(check: () => void, timeoutMs = 1000): Promise<void> {\n\tconst end = Date.now() + timeoutMs;\n\tfor (;;) {\n\t\ttry {\n\t\t\treturn check();\n\t\t} catch (error) {\n\t\t\tif (Date.now() > end) throw error;\n\t\t\tawait new Promise(resolve => setTimeout(resolve, 20));\n\t\t}\n\t}\n}\n",
 	"package.json": '{\n\t"name": "ompdesk",\n\t"private": true\n}\n',
+	// The changed file of `GIT_CHANGES` the audit's Files viewer opens (e2e/responsive-surfaces.ts `panel-files-viewer`).
+	"src/renderer/components/layout/sidebar/Sidebar.tsx":
+		'import { useEffect, useState } from "react";\nimport { waitFor } from "../../../lib/wait-for";\n\n/** The session list beside the transcript. */\nexport function Sidebar({ sessions }: { sessions: string[] }) {\n\tconst [rows, setRows] = useState<string[]>([]);\n\tuseEffect(() => {\n\t\tsetRows(sessions);\n\t}, [sessions]);\n\treturn (\n\t\t<nav aria-label="Sessions">\n\t\t\t{rows.map(row => (\n\t\t\t\t<a href={row} key={row}>\n\t\t\t\t\t{row}\n\t\t\t\t</a>\n\t\t\t))}\n\t\t</nav>\n\t);\n}\n\nexport { waitFor };\n',
 	"README.md": "# OMPdesk\n\nA desktop for the omp agent.\n",
 	"page.html":
 		'<!doctype html><html><body style="margin:0;font:16px sans-serif"><h1>Report</h1><p style="height:2000px">A page an agent wrote.</p></body></html>\n',

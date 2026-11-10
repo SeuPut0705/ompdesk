@@ -523,7 +523,10 @@ export function PlanDockCard({
 																<Circle className="mt-0.5 shrink-0 text-(--sc-text-subtle)" size={14} />
 															)
 														) : (
-															<span className="w-4 shrink-0 pt-px text-right text-sc-2xs tabular-nums text-(--sc-text-muted)">
+															<span
+																className="w-4 shrink-0 pt-px text-right text-sc-2xs tabular-nums text-(--sc-text-muted)"
+																data-plan-step-number
+															>
 																{step.ordinal}
 															</span>
 														)}
@@ -588,7 +591,7 @@ export function PlanDockCard({
 					{/* Review footer: approve / request changes, all as chat messages. Only a plan under review in plan
 					    mode can be approved; without it the sheet is a reader. */}
 					{reviewable && !proposalPending && (
-						<div className="shrink-0 border-t border-(--sc-border-subtle) p-2">
+						<div className="shrink-0 border-t border-(--sc-border-subtle) p-2" data-plan-review>
 							<TextArea
 								aria-label={t("planPanel.feedbackPlaceholder")}
 								onChange={event => setPlanFeedback(event.target.value)}
@@ -636,10 +639,21 @@ export function PlanDockCard({
 	);
 }
 
-/** Reuse the dock's stock plan data and review actions without duplicate polling logic. */
+/**
+ * Reuse the dock's stock plan data and review actions without duplicate polling logic. The sheet opens on the plan
+ * itself (`data-dialog-autofocus`), not on the row of controls above it or the feedback box: arrows scroll the plan,
+ * typing goes nowhere and nothing toggles until the person moves on.
+ */
 function PlanSheetFrame({ actions, children }: ComponentProps<typeof DockCard>) {
+	const t = useT();
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2">
+		<div
+			aria-label={t("dock.plan")}
+			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-2 outline-none"
+			data-dialog-autofocus
+			role="region"
+			tabIndex={-1}
+		>
 			<div className="no-drag flex shrink-0 items-center gap-1 pb-1" data-plan-actions>
 				{actions}
 			</div>

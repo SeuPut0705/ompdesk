@@ -168,6 +168,33 @@ describe("the Run sheet is one line per row", () => {
 		expect(row?.textContent).toContain(translate("input.runSettings.contextLimit"));
 		expect(row?.querySelector("[data-setting-info]")).not.toBeNull();
 	});
+
+	it("ends every row in its (i), so the glyphs stand in one column", async () => {
+		const sheet = await openSheet();
+		const rows = Array.from(sheet.querySelectorAll("[data-switch-tile], [data-choice-row], [data-context-size]"));
+		expect(rows.length).toBeGreaterThanOrEqual(15);
+		for (const row of rows) {
+			const controls = row.querySelectorAll("[role=switch], [role=radiogroup], select, [data-setting-info]");
+			expect(controls[controls.length - 1]?.hasAttribute("data-setting-info")).toBe(true);
+		}
+	});
+
+	it("starts focus on the Mode section's tab, never on Plan's switch or an (i) whose tooltip covers the tabs", async () => {
+		const focused: Element[] = [];
+		const focus = vi
+			.spyOn(HTMLElement.prototype as unknown as { focus: () => void }, "focus")
+			.mockImplementation(function (this: Element) {
+				focused.push(this);
+			});
+		try {
+			await openSheet({ openAdvanced: false });
+		} finally {
+			focus.mockRestore();
+		}
+		const landed = focused.at(-1);
+		expect(landed?.getAttribute("role")).toBe("tab");
+		expect(landed?.closest("[data-composer-modes-section]")).not.toBeNull();
+	});
 });
 
 describe("Advanced", () => {

@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { type Browser, devices, expect, type Page } from "@playwright/test";
 import { expectTouchInput, reassertTouch } from "./fixture/touch-emulation";
+import type { Surface } from "./responsive-surfaces";
 import { outsideRoundedOutline as roundedOutline } from "./rounded-outline";
 
 // The responsive audit: a named list of surfaces (e2e/responsive-surfaces.ts) opened on the dev harness
@@ -235,10 +236,17 @@ export async function panelCrash(page: Page): Promise<string | null> {
 	return (await panel.innerText({ timeout: 2_000 }).catch(() => "")).replace(/\s+/g, " ").trim();
 }
 
+/** What stays over the page and takes it from the person: a dialog, a menu, a list of choices, the drawer. */
+const OPEN_LAYERS = '[role="dialog"], [role="menu"], [role="listbox"], [data-drawer]';
+
 /**
- * Close whatever a surface opened: every open flag of the ui store goes back to its initial value, the toasts and
- * cards go, Escape presses away a popover. Returns false when something modal is still on screen (the caller then
- * reloads the page).
+ * Close whatever a surface opened, each thing by its own means: every open flag of the ui store goes back to its
+ * initial value, the toasts, cards, plan, host sheets and update banner go, the draft empties (its `/` and `@` menus
+ * with it) and the transcript follows its end again, as a send makes it. A menu or picker a click opened has no flag:
+ * an Escape goes to that layer, whose own handler closes it and claims the key. No key ever goes to the page or the
+ * composer: there an Escape on an empty field is the composer's double Esc, which opened the fork picker over the next
+ * surface (use-composer-keys.ts `doubleEscapeAction`; 10 Nov 2026, twelve surfaces measured under it), and one in a
+ * running turn stops it. Returns false when something is still on screen a moment later (the caller then reloads).
  */
 export async function resetPage(page: Page): Promise<boolean> {
 	await page.evaluate(() => {
@@ -260,21 +268,100 @@ export async function resetPage(page: Page): Promise<boolean> {
 		const toast = stores.toast as unknown as { setState(partial: unknown): void };
 		toast.setState({ toasts: [] });
 		// What the other surfaces leave in front of the session: ask/approval cards, a plan, host sheets, a banner.
-		const call = (store: string, action: string) => {
-			const state = stores[store]?.getState() as Record<string, (() => void) | undefined> | undefined;
-			state?.[action]?.();
+		const call = (store: string, action: string, ...args: unknown[]) => {
+			const state = stores[store]?.getState() as
+				| Record<string, ((...rest: unknown[]) => void) | undefined>
+				| undefined;
+			state?.[action]?.(...args);
 		};
 		call("extensionUi", "clearAll");
 		call("planApproval", "clearProposal");
 		call("hostUi", "reset");
+		call("composer", "setDraft", "");
+		call("session", "pinTranscriptToBottom");
 		stores.updater?.setState({ status: { state: "idle" } });
+		if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 	});
-	await page.keyboard.press("Escape");
-	await page.keyboard.press("Escape");
-	const dialogs = await page
-		.locator('[role="dialog"]:visible, [role="menu"]:visible, [role="listbox"]:visible, [data-drawer]:visible')
-		.count();
-	return dialogs === 0;
+	for (let round = 0; round < 4; round++) {
+		const open = await page.evaluate(selector => {
+			const top = [...document.querySelectorAll(selector)].filter(layer => layer.checkVisibility()).at(-1);
+			top?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+			return top !== undefined;
+		}, OPEN_LAYERS);
+		if (!open) break;
+		await page.waitForTimeout(150);
+	}
+	// Something a reset set off on its own (an answer arriving, a card's delay) lands a moment later: wait for it. A
+	// closed layer hands focus back to a control by then, whose tooltip would show over the next surface.
+	await page.waitForTimeout(250);
+	await page.evaluate(() => {
+		if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+	});
+	// A click leaves the mouse where it was (a touch look's click is a mouse's too); a control the next surface moves
+	// under it gets its hover, a tooltip. Off the page, nothing is hovered.
+	await page.mouse.move(-1, -1);
+	const left = OPEN_LAYERS.replaceAll(",", ":visible,").concat(":visible, vite-error-overlay");
+	return (await page.locator(left).count()) === 0;
+}
+
+/**
+ * The layer drawn over `selector`, the part a surface waits for, when that part is not inside it: a dialog, menu,
+ * list, sheet or drawer the surface did not open, named by its role and label. Null when the part is on top, or sits
+ * in the layer on top. Read at the centre of the part's on-screen box, as the measure judges what a layer covers.
+ */
+export async function layerOver(page: Page, selector: string): Promise<string | null> {
+	return page
+		.locator(selector)
+		.first()
+		.evaluate(
+			element => {
+				const box = element.getBoundingClientRect();
+				const left = Math.max(box.left, 0);
+				const right = Math.min(box.right, window.innerWidth);
+				const upper = Math.max(box.top, 0);
+				const lower = Math.min(box.bottom, window.innerHeight);
+				if (right <= left || lower <= upper) return null;
+				const hit = document.elementFromPoint((left + right) / 2, (upper + lower) / 2);
+				if (!hit || element.contains(hit) || hit.contains(element)) return null;
+				const layer = hit.closest(
+					"[aria-modal='true'], [role='dialog'], [role='menu'], [role='listbox'], [data-drawer], [data-drawer-scrim], [data-scrim], [data-sheet-panel], [data-action-sheet]",
+				);
+				if (!layer || layer.contains(element)) return null;
+				const labelledBy = layer.getAttribute("aria-labelledby");
+				const name =
+					layer.getAttribute("aria-label") ??
+					(labelledBy ? document.getElementById(labelledBy)?.textContent : null) ??
+					layer.querySelector("h1, h2, h3")?.textContent ??
+					layer.textContent ??
+					"";
+				const kind = layer.getAttribute("role") ?? layer.getAttributeNames().find(attr => attr.startsWith("data-"));
+				return `${kind ?? layer.tagName.toLowerCase()} "${name.replace(/\s+/g, " ").trim().slice(0, 60)}"`;
+			},
+			undefined,
+			{ timeout: 2_000 },
+		);
+}
+
+/**
+ * Open `surface` on a page `resetPage` cleared: its `open`, its `ready` part on screen, its settle time. Fails when
+ * a layer it did not open sits over that part, so a capture of the wrong screen cannot pass for the surface.
+ */
+export async function openSurface(
+	page: Page,
+	surface: Pick<Surface, "id" | "open" | "ready" | "settle">,
+	look: Look,
+): Promise<void> {
+	await surface.open(page, look);
+	const part = surface.ready ? page.locator(surface.ready).first() : undefined;
+	await part?.waitFor({ state: "visible", timeout: 8_000 });
+	await page.waitForTimeout(surface.settle ?? 450);
+	// A source file the dev server cannot compile (an edit in flight) puts its overlay over the page.
+	if ((await page.locator("vite-error-overlay").count()) > 0)
+		throw new Error(`${surface.id}: the dev server shows a compile error`);
+	if (!part || !surface.ready) return;
+	if (!(await part.isVisible())) throw new Error(`${surface.id}: ${surface.ready} left the screen while it settled`);
+	const over = await layerOver(page, surface.ready);
+	if (over) throw new Error(`${surface.id}: ${over} is over ${surface.ready}, and this surface did not open it`);
 }
 
 /** Measure the page as it is now. */
@@ -515,9 +602,12 @@ function measureInPage(
 		}
 		return null;
 	};
+	// Text with something to read: a zero-width space alone (KaTeX's `vlist-s` strut, drawn at 1 px) shows nothing.
 	const ownText = (element: Element): Text[] =>
 		[...element.childNodes].filter(
-			(node): node is Text => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim().length > 0,
+			(node): node is Text =>
+				node.nodeType === Node.TEXT_NODE &&
+				(node.textContent ?? "").replace(/[\s\u200b-\u200d\u2060\ufeff]/g, "").length > 0,
 		);
 	for (const element of all) {
 		const texts = ownText(element);

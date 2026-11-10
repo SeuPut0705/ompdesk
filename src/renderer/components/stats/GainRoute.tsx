@@ -11,7 +11,7 @@ import type { GainData } from "../../../shared/stats-types";
 import { useStats } from "../../hooks/use-stats";
 import { formatPercent } from "../../lib/format";
 import { useT } from "../../lib/i18n";
-import { Select } from "../common";
+import { Card, Select } from "../common";
 import { ChartBox, MetricCard, MetricGrid, RouteFrame, SectionTitle, type StatsRange } from "./shared";
 
 export function GainRoute({ range }: { range: StatsRange }) {
@@ -102,10 +102,7 @@ export function GainRoute({ range }: { range: StatsRange }) {
 					</ChartBox>
 					{sourceEntries.length > 0 && <SectionTitle>{t("stats.gain.bySource")}</SectionTitle>}
 					{sourceEntries.map(([source, totals]) => (
-						<div
-							className="mb-1.5 flex items-center gap-3 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-xs"
-							key={source}
-						>
+						<Card className="mb-1.5 flex items-center gap-3 text-sc-xs" key={source} padding="sm">
 							<span className="font-mono font-medium text-(--sc-text)">{source}</span>
 							<span className="text-(--sc-text-muted)">
 								{t("stats.gain.tokens", { count: compact(totals.savedTokens) })}
@@ -116,7 +113,7 @@ export function GainRoute({ range }: { range: StatsRange }) {
 									−{formatPercent(totals.reductionPercent, 0)}
 								</span>
 							)}
-						</div>
+						</Card>
 					))}
 				</>
 			)}

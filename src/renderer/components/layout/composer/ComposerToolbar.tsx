@@ -314,6 +314,8 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						label: t("input.history.title"),
 						icon: History,
 						shortcut: "⌃R",
+						// One line per item: what it does in more words is the hover text.
+						tooltip: t("input.history.menuDesc"),
 						onSelect: onOpenHistory,
 					},
 					// Listed only while dictation is off, so the item names its action instead of saying it is off.

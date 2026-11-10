@@ -271,9 +271,9 @@ describe("work board opened sessions", () => {
 		]);
 		const waitingRows = needs()?.querySelectorAll('[data-board-opened][data-status="waiting"]') ?? [];
 		expect(waitingRows).toHaveLength(2);
-		// The head says the figure Needs you counts: its two rows.
+		// The head says the figure, as many as Needs you's rows; the section right under it does not say it again.
 		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 need you");
-		expect(needs()?.querySelector(".omp-work-board-count")?.textContent).toBe("2");
+		expect(needs()?.querySelector(".omp-work-board-count")).toBeNull();
 		// A child at work is not "running": it is Now's row, not part of the head's figure.
 		expect(pane.querySelector(".omp-work-board-figure")).toBeNull();
 		expect(pane.querySelector(".omp-work-board-pulse")?.getAttribute("data-state")).toBe("waiting");

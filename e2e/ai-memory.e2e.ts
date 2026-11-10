@@ -171,7 +171,7 @@ test("ai-memory loads through an app-owned root and shows one memory section wit
 			const section = settings.locator("#settings-memory");
 			await expect(section.locator("[role='switch']")).toHaveCount(0);
 			await expect(section.locator("#setting-aiMemory")).toHaveCount(0);
-			await expect(section.locator("[data-memory-status]")).toContainText("Running");
+			await expect(section.locator("[data-memory-status]")).toHaveAttribute("data-memory-phase", "ready");
 			await expect(section.locator("[data-memory-dir]")).toHaveText(dataDir);
 			await expect(section.getByRole("button", { name: "Open web console", exact: true })).toBeEnabled();
 			await expect(section.getByRole("button", { name: "Copy password", exact: true })).toBeEnabled();

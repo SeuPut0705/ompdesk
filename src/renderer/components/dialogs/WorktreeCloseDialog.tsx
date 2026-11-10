@@ -14,7 +14,7 @@ import { useT } from "../../lib/i18n";
 import { useTabsStore } from "../../stores/tabs";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, Modal, PathText, Spinner } from "../common";
+import { Button, Modal, Spinner } from "../common";
 
 type QueryState = { phase: "loading" } | { phase: "ready"; status: RpcGitStatus | null } | { phase: "error" };
 
@@ -137,9 +137,12 @@ export function WorktreeCloseDialog() {
 							{t("worktreeClose.cleanBody")}
 						</p>
 					)}
-					<p className="flex min-w-0 items-baseline gap-1.5 text-sc-sm">
+					{/* The folder this dialog may delete is read in full, not cut to a tooltip. */}
+					<p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sc-sm">
 						<span className="shrink-0 font-mono text-(--sc-text-muted)">{worktree.branch}</span>
-						<PathText path={worktree.path} />
+						<span className="min-w-0 font-mono break-all text-(--sc-text-muted) select-text">
+							{worktree.path}
+						</span>
 					</p>
 				</div>
 			)}

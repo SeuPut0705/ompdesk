@@ -620,8 +620,6 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_HOST_ENABLED, enabled) as Promise<RemoteState>,
 			setDeviceName: (name: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_SET_DEVICE_NAME, name) as Promise<RemoteState>,
-			setKeepAwake: (enabled: boolean) =>
-				transport.invoke(IPC_COMMANDS.REMOTE_SET_KEEP_AWAKE, enabled) as Promise<RemoteState>,
 			revokePeer: (deviceId: string) =>
 				transport.invoke(IPC_COMMANDS.REMOTE_REVOKE_PEER, deviceId) as Promise<RemoteState>,
 			blockPeer: (deviceId: string) =>

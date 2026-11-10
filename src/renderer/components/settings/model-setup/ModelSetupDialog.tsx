@@ -439,7 +439,7 @@ export function ModelSetupDialog() {
 					/>
 				)}
 			</div>
-			<Button onClick={close} variant="secondary">
+			<Button onClick={close} variant="ghost">
 				{t("common.cancel")}
 			</Button>
 			<Button
@@ -539,9 +539,10 @@ export function ModelSetupDialog() {
 							))}
 
 						{confirmOpen && researchModel && estimate && (
-							<div
-								className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-3 py-2 text-sc-sm text-(--sc-text-secondary)"
+							<Card
+								className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sc-sm text-(--sc-text-secondary)"
 								data-model-setup-confirm
+								padding="sm"
 								role="group"
 							>
 								<span className="min-w-0 flex-1">
@@ -561,7 +562,7 @@ export function ModelSetupDialog() {
 								<Button onClick={() => void runResearch()} size="sm" variant="primary">
 									{t("modelSetup.evidence.run")}
 								</Button>
-							</div>
+							</Card>
 						)}
 
 						{running && (

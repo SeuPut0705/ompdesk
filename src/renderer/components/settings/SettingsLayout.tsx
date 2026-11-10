@@ -38,11 +38,6 @@ const SettingsGroupContext = createContext(false);
 const SettingsTipOnlyContext = createContext(false);
 export const SettingsTipOnly = SettingsTipOnlyContext.Provider;
 
-/** Several compact rows side by side: two per line, one in a narrow column, divided like rows (global.css). */
-export function SettingsTiles({ children }: { children: ReactNode }) {
-	return <div data-settings-tiles>{children}</div>;
-}
-
 /**
  * An empty list in Settings: one row, its glyph, a muted "nothing yet" and the action that fills it (New, Browse); a
  * hint sits behind the (i). The one empty form across Settings' lists, never a centred card.

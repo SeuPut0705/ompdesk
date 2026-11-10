@@ -493,8 +493,6 @@ export const IPC_COMMANDS = {
 	/** Turn the host role (other devices may use this computer) on or off; persisted in prefs */
 	REMOTE_SET_HOST_ENABLED: "remote:set-host-enabled",
 	REMOTE_SET_DEVICE_NAME: "remote:set-device-name",
-	/** Keep this computer awake while a device uses it; persisted in prefs */
-	REMOTE_SET_KEEP_AWAKE: "remote:set-keep-awake",
 	/** Forget a device that uses this computer and close its live connections (it may come back while allowed) */
 	REMOTE_REVOKE_PEER: "remote:revoke-peer",
 	/** Keep a device that uses this computer out: block its Tailscale node, forget it, close its connections */
@@ -2018,7 +2016,7 @@ export interface RemoteHostState {
 	/** Every port it may use is taken by another program: it listens nowhere until one is free. */
 	listenError: { code: "port_in_use"; ports: number[] } | null;
 	peers: PeerView[];
-	/** Keep this computer awake while a device uses it (prefs `remote.keepAwake`, default on). */
+	/** General's "keep awake" switch (`KEEP_AWAKE_WORKING_PREF`, default on) also keeps it awake while a device uses it. */
 	keepAwake: boolean;
 	/** The sleep blocker is held now: a device uses this computer, or did within the last minute. */
 	keepingAwake: boolean;
@@ -2416,7 +2414,6 @@ export interface OmpApi {
 		getState(): Promise<RemoteState>;
 		setHostEnabled(enabled: boolean): Promise<RemoteState>;
 		setDeviceName(name: string): Promise<RemoteState>;
-		setKeepAwake(enabled: boolean): Promise<RemoteState>;
 		/** Forget a device that uses this computer; it may connect again while its account is allowed. */
 		revokePeer(deviceId: string): Promise<RemoteState>;
 		/** Block the device's Tailscale node (shared with Mobile web's blocks) and forget the device. */

@@ -12,6 +12,7 @@ import {
 	measureDensity,
 	mergeReport,
 	openLook,
+	openSurface,
 	panelCrash,
 	resetPage,
 	type SurfaceResult,
@@ -58,7 +59,9 @@ if (dir) {
 		const port = await freePort();
 		server = await createServer({
 			configFile: path.resolve("vite.harness.config.ts"),
-			server: { host: "127.0.0.1", port, strictPort: true },
+			// No hot updates: an edit saved elsewhere mid-run remounted the transcript under a surface and put its view
+			// back at the end (10 Nov 2026). A page measures the source as it was when the page loaded.
+			server: { host: "127.0.0.1", port, strictPort: true, hmr: false },
 			logLevel: "error",
 		});
 		await server.listen();
@@ -100,10 +103,7 @@ if (dir) {
 					}
 					let failed: string | undefined;
 					try {
-						await surface.open(page, look);
-						if (surface.ready)
-							await page.locator(surface.ready).first().waitFor({ state: "visible", timeout: 8_000 });
-						await page.waitForTimeout(surface.settle ?? 450);
+						await openSurface(page, surface, look);
 					} catch (error) {
 						failed = error instanceof Error ? error.message.split("\n")[0] : String(error);
 					}

@@ -12,7 +12,7 @@ import type { SystemInfo } from "../../../shared/ipc-types";
 import { useT } from "../../lib/i18n";
 import { openExternal } from "../../lib/open-external";
 import { useUiStore } from "../../stores/ui";
-import { Button, Card, Checkbox, Input, Modal, SegmentedChoice, SettingInfo, TextArea } from "../common";
+import { Button, Card, Checkbox, FieldLabel, Input, Modal, SegmentedChoice, SettingInfo, TextArea } from "../common";
 
 const LOG_TAIL_LINES = 20;
 
@@ -99,9 +99,9 @@ export function FeedbackDialog() {
 		>
 			<div className="space-y-4">
 				<div>
-					<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)" id={kindLabelId}>
+					<FieldLabel as="span" id={kindLabelId}>
 						{t("feedback.kind")}
-					</span>
+					</FieldLabel>
 					<SegmentedChoice
 						aria-labelledby={kindLabelId}
 						fit="content"
@@ -122,9 +122,7 @@ export function FeedbackDialog() {
 
 				{prefill?.error && (
 					<div>
-						<span className="mb-1.5 block text-sc-md font-medium text-(--sc-text-secondary)">
-							{t("feedback.capturedError")}
-						</span>
+						<FieldLabel as="span">{t("feedback.capturedError")}</FieldLabel>
 						<Card className="max-h-24 overflow-auto" padding="sm" surface="2">
 							<pre className="whitespace-pre-wrap break-words font-mono text-sc-xs text-(--sc-danger)">
 								{prefill.error}

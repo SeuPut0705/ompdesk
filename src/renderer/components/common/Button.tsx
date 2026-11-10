@@ -10,27 +10,56 @@
  *   without the confirming fill.
  * Sizes map to the control scale: sm 28px, md 32px (default), lg 36px.
  * Icon-only actions use IconButton, never a Button without text.
+ *
+ * A button that cannot be pressed (`disabled`, or busy with `loading`) loses its hover and press and shows the
+ * not-allowed cursor. A disabled primary keeps its identity as the main action, not ready yet: the accent's soft wash
+ * with the accent text drawn on it (`--sc-accent-on-soft`, the badge pair `lib/theme-contrast.ts` holds at the text
+ * floor in every theme), never a grey chip that reads like the Cancel beside it. The other variants fade to half.
+ * `disabledReason` says why it cannot be pressed: the button then stays focusable (`aria-disabled`, the press does
+ * nothing and submits nothing) and the kit Tooltip shows the reason on hover, on keyboard focus and on a tap.
  */
 
 import type { ComponentProps, ReactNode } from "react";
 import { cx } from "../../lib/format";
 import { Spinner } from "./Spinner";
+import { Tooltip } from "./Tooltip";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "danger-soft";
 export type ButtonSize = "sm" | "md" | "lg";
 
-/** Variant paint, shared with IconButton so both stay one visual family. */
-export const BUTTON_VARIANT_CLASSES: Record<ButtonVariant, string> = {
-	primary:
-		"border-transparent bg-(--sc-accent) text-(--sc-accent-fg) shadow-(--sc-shadow-sm) hover:bg-(--sc-accent-hover) active:brightness-95 disabled:border-(--sc-border-subtle) disabled:bg-(--sc-surface-3) disabled:text-(--sc-text-secondary) disabled:opacity-100!",
-	secondary:
-		"border-(--sc-border-subtle) bg-transparent text-(--sc-text) hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)",
-	ghost: "border-transparent bg-transparent text-(--sc-text-secondary) hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed)",
-	danger:
-		"border-transparent bg-(--sc-danger) text-(--sc-danger-fg) shadow-(--sc-shadow-sm) hover:brightness-110 active:brightness-95",
-	"danger-soft":
-		"border-(--sc-danger) bg-(--sc-danger-soft) text-(--sc-danger-on-soft) hover:brightness-110 active:brightness-95",
+const PAINT: Record<ButtonVariant, { rest: string; live: string }> = {
+	primary: {
+		rest: "border-transparent bg-(--sc-accent) text-(--sc-accent-fg) shadow-(--sc-shadow-sm)",
+		live: "hover:bg-(--sc-accent-hover) active:brightness-95",
+	},
+	secondary: {
+		rest: "border-(--sc-border-subtle) bg-transparent text-(--sc-text)",
+		live: "hover:border-(--sc-border) hover:bg-(--sc-hover) active:bg-(--sc-pressed)",
+	},
+	ghost: {
+		rest: "border-transparent bg-transparent text-(--sc-text-secondary)",
+		live: "hover:bg-(--sc-hover) hover:text-(--sc-text) active:bg-(--sc-pressed)",
+	},
+	danger: {
+		rest: "border-transparent bg-(--sc-danger) text-(--sc-danger-fg) shadow-(--sc-shadow-sm)",
+		live: "hover:brightness-110 active:brightness-95",
+	},
+	"danger-soft": {
+		rest: "border-(--sc-danger) bg-(--sc-danger-soft) text-(--sc-danger-on-soft)",
+		live: "hover:brightness-110 active:brightness-95",
+	},
 };
+
+/** Variant paint, shared with IconButton so both stay one visual family; `inert` when it cannot be pressed. */
+export function buttonPaint(variant: ButtonVariant, inert: boolean): string {
+	if (!inert) return cx(PAINT[variant].rest, PAINT[variant].live);
+	return cx(
+		"cursor-not-allowed shadow-none",
+		variant === "primary"
+			? "border-transparent bg-(--sc-accent-soft) text-(--sc-accent-on-soft)"
+			: cx(PAINT[variant].rest, "opacity-50"),
+	);
+}
 
 const SIZE_CLASSES: Record<ButtonSize, string> = {
 	sm: "h-(--sc-control-sm) gap-1.5 rounded-(--sc-radius-sm) px-2.5 text-sc-sm [&>svg]:size-(--sc-icon-sm)",
@@ -48,6 +77,8 @@ export interface ButtonProps extends ComponentProps<"button"> {
 	trailingIcon?: ReactNode;
 	/** Show a spinner and disable interaction. */
 	loading?: boolean;
+	/** With `disabled`: why it cannot be pressed now, in the kit Tooltip on hover, focus and a tap. */
+	disabledReason?: string;
 }
 
 export function Button({
@@ -57,27 +88,36 @@ export function Button({
 	trailingIcon,
 	loading,
 	disabled,
+	disabledReason,
 	className,
 	children,
 	type,
+	onClick,
 	...rest
 }: ButtonProps) {
-	return (
+	const inert = Boolean(disabled || loading);
+	const explained = Boolean(disabled && !loading && disabledReason);
+	const button = (
 		<button
 			type={type ?? "button"}
 			className={cx(
 				"omp-pressable inline-flex shrink-0 select-none items-center justify-center border font-medium whitespace-nowrap [&>svg]:shrink-0",
-				"disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none",
-				BUTTON_VARIANT_CLASSES[variant],
+				buttonPaint(variant, inert),
 				SIZE_CLASSES[size],
 				className,
 			)}
-			disabled={disabled || loading}
 			{...rest}
+			aria-disabled={explained || undefined}
+			disabled={inert && !explained}
+			onClick={explained ? undefined : onClick}
+			// A press on a disabled button that explains itself does nothing, and a submit button submits nothing.
+			onClickCapture={explained ? event => event.preventDefault() : rest.onClickCapture}
 		>
 			{loading ? <Spinner inheritColor size="sm" spin /> : icon}
 			{children}
 			{trailingIcon}
 		</button>
 	);
+	if (!explained) return button;
+	return <Tooltip content={disabledReason}>{button}</Tooltip>;
 }

@@ -61,3 +61,26 @@ it("opens and folds what is under it, says so, and turns its chevron without nam
 	expect(host.querySelector("[data-body]")).toBeNull();
 	expect(onSubmit).not.toHaveBeenCalled();
 });
+
+it("ends its row with the chevron, or draws none where the row cannot open", async () => {
+	const host = document.createElement("div");
+	document.body.appendChild(host);
+	root = createRoot(host as unknown as Element);
+	await act(async () =>
+		root?.render(
+			<>
+				<DisclosureButton chevron="end" onToggle={() => {}} open>
+					<span>Plan</span>
+				</DisclosureButton>
+				<DisclosureButton chevron="none" disabled onToggle={() => {}} open={false}>
+					<span>Cleared</span>
+				</DisclosureButton>
+			</>,
+		),
+	);
+	const [end, none] = [...host.querySelectorAll("button")] as unknown as HTMLElement[];
+	expect(end.lastElementChild?.tagName.toLowerCase()).toBe("svg");
+	expect(end.firstElementChild?.textContent).toBe("Plan");
+	expect(none.querySelector("svg")).toBeNull();
+	expect(none.getAttribute("aria-expanded")).toBe("false");
+});

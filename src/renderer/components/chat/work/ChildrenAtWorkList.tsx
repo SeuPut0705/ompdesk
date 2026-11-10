@@ -1,14 +1,19 @@
 /**
  * The rows of `ChildrenAtWork` (ChildrenAtWork.tsx loads this lazily: it only shows once a session has opened children,
- * so it stays out of the phone's first-screen JavaScript).
+ * so it stays out of the phone's first-screen JavaScript). While the pane's work board docks beside the transcript it
+ * lists the same children (a waiting one under Needs you, the others under Now), so the transcript leaves out each row
+ * whose board section is open; a folded section, the strip and a phone keep the line here.
  */
 import { useLiveReview } from "../../../hooks/use-live-review";
 import { cx, formatElapsed } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabsStore } from "../../../stores/tabs";
+import { useWorkBoardStore } from "../../../stores/work-board";
+import { Tooltip } from "../../common";
 import { childActivity, type OpenedChildRow } from "../../layout/work-board/opened-children";
 import { useChildrenAtWork } from "./ChildrenAtWork";
+import { useBoardDocked } from "./use-board-docked";
 
 function ChildLine({ row, now }: { row: OpenedChildRow; now: number }) {
 	const t = useT();
@@ -17,35 +22,39 @@ function ChildLine({ row, now }: { row: OpenedChildRow; now: number }) {
 	const clock = row.status === "running" && row.since ? formatElapsed(Math.max(0, now - row.since)) : "";
 	return (
 		<li>
-			{/* controls-ok: the omp-children-at-work-row class draws the whole control */}
-			<button
-				className="omp-children-at-work-row"
-				data-child-at-work={row.key}
-				data-status={row.status ?? "open"}
-				onClick={() => {
-					if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
-					else if (row.sessionPath)
-						void useTabsStore.getState().openTab({
-							sessionPath: row.sessionPath,
-							kind: "agent",
-							...(row.deviceId ? { device: row.deviceId } : {}),
-						});
-				}}
-				title={[title, activity].filter(Boolean).join("\n")}
-				type="button"
-			>
-				<span aria-hidden className="omp-children-at-work-dot" data-status={row.status ?? "open"} />
-				<span className="omp-children-at-work-title">{title}</span>
-				{activity ? <span className="omp-children-at-work-step">{activity}</span> : null}
-				{clock ? <span className="omp-children-at-work-clock">{clock}</span> : null}
-			</button>
+			<Tooltip content={[title, activity].filter(Boolean).join(" · ")} describe={false}>
+				{/* controls-ok: the omp-children-at-work-row class draws the whole control */}
+				<button
+					className="omp-children-at-work-row"
+					data-child-at-work={row.key}
+					data-status={row.status ?? "open"}
+					onClick={() => {
+						if (row.tabId) void useTabsStore.getState().applyAgentView({ tabId: row.tabId, how: "focus" });
+						else if (row.sessionPath)
+							void useTabsStore.getState().openTab({
+								sessionPath: row.sessionPath,
+								kind: "agent",
+								...(row.deviceId ? { device: row.deviceId } : {}),
+							});
+					}}
+					type="button"
+				>
+					<span aria-hidden className="omp-children-at-work-dot" data-status={row.status ?? "open"} />
+					<span className="omp-children-at-work-title">{title}</span>
+					{activity ? <span className="omp-children-at-work-step">{activity}</span> : null}
+					{clock ? <span className="omp-children-at-work-clock">{clock}</span> : null}
+				</button>
+			</Tooltip>
 		</li>
 	);
 }
 
 export function ChildrenAtWorkList({ className }: { className?: string }) {
 	const t = useT();
-	const { tabId, rows } = useChildrenAtWork();
+	const { tabId, rows: atWork } = useChildrenAtWork();
+	const docked = useBoardDocked();
+	const folded = useWorkBoardStore(state => state.collapsed);
+	const rows = docked ? atWork.filter(row => folded[row.status === "waiting" ? "needs" : "now"]) : atWork;
 	const running = rows.some(row => row.status === "running");
 	useLiveReview(tabId, running);
 	const now = useNowTick(running);

@@ -63,12 +63,14 @@ function providerProblem({
 	const percent = Math.round(quota.fraction * 100);
 	const title = t("modelRoles.quotaTitle", { limit: usageLimitLabel(quota.limit, t), percent });
 	return (
-		<span className="inline-flex items-center gap-1.5" data-role-quota title={title}>
-			<span className="w-12">
-				<ProgressBar ariaLabel={title} height={3} value={quota.fraction} valueText="" />
+		<Tooltip content={title}>
+			<span className="inline-flex items-center gap-1.5" data-role-quota>
+				<span className="w-12">
+					<ProgressBar ariaLabel={title} height={3} value={quota.fraction} valueText="" />
+				</span>
+				<span className="tabular-nums">{t("modelRoles.quota", { percent })}</span>
 			</span>
-			<span className="tabular-nums">{t("modelRoles.quota", { percent })}</span>
-		</span>
+		</Tooltip>
 	);
 }
 
@@ -111,7 +113,9 @@ function effectiveLine({
 						<Badge dot variant="warning">
 							{t("modelRoles.unavailable")}
 						</Badge>
-						<span title={t("modelRoles.unavailableHint", { model: entry.model ?? "" })}>{entry.model}</span>
+						<Tooltip content={t("modelRoles.unavailableHint", { model: entry.model ?? "" })}>
+							<span>{entry.model}</span>
+						</Tooltip>
 					</>
 				) : (
 					t("modelRoles.noModel")
@@ -121,7 +125,8 @@ function effectiveLine({
 	}
 	const slash = effective.model.indexOf("/");
 	const providerId = effective.model.slice(0, slash);
-	const inherited = !entry.model;
+	// A value of its own that does not resolve (signed out, gone) runs on something else: the row says so.
+	const inherited = !entry.model || effective.source !== "configured" || effective.unavailable === true;
 	const label =
 		labels.get(effective.model) ??
 		compactModelLabel({ provider: providerId, id: effective.model.slice(slash + 1), name: effective.name });
@@ -142,14 +147,20 @@ function effectiveLine({
 	if (!inherited && !account && !levelName && !compaction) return null;
 	return (
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sc-xs text-(--sc-text-muted)" data-role-status>
+			{entry.model && effective.unavailable && (
+				<Tooltip content={t("modelRoles.unavailableHint", { model: entry.model })}>
+					<Badge dot variant="warning">
+						{t("modelRoles.unavailable")}
+					</Badge>
+				</Tooltip>
+			)}
 			{inherited && (
-				<span
-					className="flex items-baseline gap-1.5 text-(--sc-text-secondary)"
-					title={[effective.name, effective.model].filter(Boolean).join(" · ")}
-				>
-					{label.name}
-					{label.suffix && <span className="tabular-nums text-(--sc-text-muted)">{label.suffix}</span>}
-				</span>
+				<Tooltip content={[effective.name, effective.model].filter(Boolean).join(" · ")}>
+					<span className="flex items-baseline gap-1.5 text-(--sc-text-secondary)">
+						{label.name}
+						{label.suffix && <span className="tabular-nums text-(--sc-text-muted)">{label.suffix}</span>}
+					</span>
+				</Tooltip>
 			)}
 			{inherited && source && <span>{source}</span>}
 			{account}

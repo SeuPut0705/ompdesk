@@ -1,18 +1,27 @@
 /**
  * ListRow — one item in a navigable list: sessions in the sidebar, agents,
- * providers, plugins, search results.
+ * providers, plugins, search results, a side panel's files and branches.
  *
  * Anatomy: leading (icon/avatar/status dot) · title + optional description
- * · meta (right-aligned quiet text: time, count, Kbd) · trailing (an
- * always-visible control such as a disclosure) · actions (IconButtons
- * revealed on hover and keyboard focus — never display:none, so they stay
- * in the tab order). The whole row is one click target (`onClick`); actions
- * and trailing sit above it and stop nothing. `selected` marks the current item
- * (aria-current). Min height 32px (compact) / 40px (with description).
+ * and `secondary` line · meta (right-aligned quiet text: time, count, Kbd) ·
+ * trailing (an always-visible control such as a disclosure) · actions
+ * (IconButtons revealed on hover and keyboard focus — never display:none, so
+ * they stay in the tab order). The whole row is one click target (`onClick`);
+ * actions and trailing sit above it and stop nothing. `selected` marks the
+ * current item (aria-current); a current row that is also `disabled` (the
+ * branch you are on: pressing it would do nothing) is not dimmed.
+ * `size`: `md` (default) min height 32px, 40px with a second line; `sm` the
+ * dense row of a side panel's list, 28px (36px with a second line), small text.
+ * `titleLines={2}` lets a long title (a pull request's) wrap once before it is
+ * cut. `secondary` is a free muted line under the title whose parts each shrink
+ * or stay whole on their own (a number, an author, a branch, counts, an age).
+ * The button is named by the title and described by the description and the
+ * secondary line; `accessibleName="row"` names it by every text of the row in
+ * order, for a list whose rows are found by any of their words.
  * Rows are colorless at rest; hover and selection are neutral washes.
  * `rowProps` / `buttonProps` pass extra attributes to the row and its
  * button — e.g. onContextMenu and a roving `tabIndex` for long lists (one
- * tab stop + arrow keys).
+ * tab stop + arrow keys), a `style` for an outline's indent.
  */
 
 import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, useId } from "react";
@@ -22,9 +31,17 @@ type DataAttributes = { [key: `data-${string}`]: string | number | boolean | und
 
 export interface ListRowProps {
 	title: ReactNode;
+	/** Lines the title may take before it is cut: 1 (default) or 2 (a pull request's title). */
+	titleLines?: 1 | 2;
 	description?: ReactNode;
 	/** Lines the description may take before it is cut: 1 (default) or 2 (a search hit's snippet). */
 	descriptionLines?: 1 | 2;
+	/** A muted one-line row of parts under the title and description; each part sets how it shrinks. */
+	secondary?: ReactNode;
+	/** `md` (default) or `sm`, the dense side-panel row. */
+	size?: "sm" | "md";
+	/** What names the row's button: the `title` (default) or every text of the `row` in order. */
+	accessibleName?: "title" | "row";
 	leading?: ReactNode;
 	/** Quiet right-aligned text (relative time, count) or a Kbd. */
 	meta?: ReactNode;
@@ -88,8 +105,12 @@ const QUIET_FADE =
 
 export function ListRow({
 	title,
+	titleLines = 1,
 	description,
 	descriptionLines = 1,
+	secondary,
+	size = "md",
+	accessibleName = "title",
 	leading,
 	meta,
 	actions,
@@ -105,12 +126,38 @@ export function ListRow({
 	rowProps,
 	buttonProps,
 }: ListRowProps) {
-	// The row's button carries only the title as its name; the description (a path, an account) is its description,
-	// so two rows of one title stay apart for a screen reader.
-	const descriptionId = useId();
-	const describedBy = [buttonProps?.["aria-describedby"], description ? descriptionId : undefined]
+	const baseId = useId();
+	const titleId = `${baseId}title`;
+	const descriptionId = `${baseId}description`;
+	const secondaryId = `${baseId}secondary`;
+	const metaId = `${baseId}meta`;
+	const wholeRow = accessibleName === "row";
+	// By default the button carries only the title as its name; the description (a path, an account) and the
+	// secondary line describe it, so two rows of one title stay apart for a screen reader.
+	const describedBy = [
+		buttonProps?.["aria-describedby"],
+		!wholeRow && description ? descriptionId : undefined,
+		!wholeRow && secondary ? secondaryId : undefined,
+	]
 		.filter(Boolean)
 		.join(" ");
+	const labelledBy = wholeRow
+		? [
+				titleId,
+				description ? descriptionId : undefined,
+				secondary ? secondaryId : undefined,
+				meta ? metaId : undefined,
+			]
+				.filter(Boolean)
+				.join(" ")
+		: undefined;
+	const small = size === "sm";
+	const twoLines = Boolean(description || secondary);
+	const titleClass = cx(
+		"text-(--sc-text)",
+		small ? "text-sc-sm" : "text-sc-md",
+		titleLines === 2 ? "line-clamp-2 break-words" : "truncate",
+	);
 	const room = ACTION_ROOM[Math.min(Math.max(actionCount ?? 2, 1), ACTION_ROOM.length) - 1] ?? ACTION_ROOM[1];
 	// Overlaid on the right edge (left of `trailing`) so hidden actions never
 	// reserve the width the title needs at rest.
@@ -131,10 +178,17 @@ export function ListRow({
 		<div
 			{...rowProps}
 			className={cx(
-				"omp-list-row group/row relative flex w-full items-center gap-2.5 rounded-(--sc-radius-md) px-2.5 text-left",
-				description ? "min-h-10 py-1.5" : "min-h-8 py-1",
+				"omp-list-row group/row relative flex w-full items-center text-left",
+				small ? "gap-2 rounded-(--sc-radius-sm) px-2" : "gap-2.5 rounded-(--sc-radius-md) px-2.5",
+				small
+					? twoLines
+						? "min-h-9 py-1"
+						: "min-h-(--sc-control-sm) py-1"
+					: twoLines
+						? "min-h-10 py-1.5"
+						: "min-h-8 py-1",
 				selected ? "bg-(--sc-selected)" : onClick && !disabled && "hover:bg-(--sc-hover)",
-				disabled && "opacity-50",
+				disabled && !selected && "opacity-50",
 				className,
 			)}
 		>
@@ -162,23 +216,29 @@ export function ListRow({
 						{...buttonProps}
 						aria-current={selected ? "true" : undefined}
 						aria-describedby={describedBy || undefined}
-						className="block w-full truncate text-left text-sc-md text-(--sc-text) after:absolute after:inset-0 after:rounded-(--sc-radius-md) focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed"
+						aria-labelledby={labelledBy}
+						className={cx(
+							"block w-full text-left after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--sc-focus-ring) disabled:cursor-not-allowed",
+							small ? "after:rounded-(--sc-radius-sm)" : "after:rounded-(--sc-radius-md)",
+							titleClass,
+						)}
 						disabled={disabled}
 						onClick={onClick}
 						title={titleText}
 						type="button"
 					>
-						{title}
+						<span id={titleId}>{title}</span>
 					</button>
 				) : (
-					<span className="block truncate text-sc-md text-(--sc-text)" title={titleText}>
+					<span className={cx("block", titleClass)} id={titleId} title={titleText}>
 						{title}
 					</span>
 				)}
 				{description && (
 					<span
 						className={cx(
-							"text-sc-sm text-(--sc-text-muted)",
+							"text-(--sc-text-muted)",
+							small ? "text-sc-xs" : "text-sc-sm",
 							descriptionLines === 2 ? "line-clamp-2 break-words" : "block truncate",
 						)}
 						id={descriptionId}
@@ -186,9 +246,18 @@ export function ListRow({
 						{description}
 					</span>
 				)}
+				{secondary && (
+					<span
+						className="flex min-w-0 items-center gap-2 overflow-hidden text-sc-xs whitespace-nowrap text-(--sc-text-muted)"
+						id={secondaryId}
+					>
+						{secondary}
+					</span>
+				)}
 			</span>
 			{meta && (
 				<span
+					id={metaId}
 					className={cx(
 						// Down to `--row-meta-min` (its whole content unless the list sets less: the sidebar lets a waiting
 						// badge's word go, down to its ⚠ glyph) before the title loses a character.

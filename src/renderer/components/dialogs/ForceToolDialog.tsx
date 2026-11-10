@@ -23,9 +23,9 @@ import {
 	InlineNotice,
 	Input,
 	Modal,
+	OptionGroup,
 	OptionRow,
 	SearchField,
-	SectionLabel,
 	SkeletonRows,
 } from "../common";
 import { groupToolsBySource } from "./tool-groups";
@@ -218,11 +218,7 @@ export function ForceToolDialog() {
 						groups.map(group => {
 							const name = t(`activeTools.source.${group.source}`);
 							return (
-								<div aria-label={name} key={group.source} role="group">
-									{/* A heading may not stand in a listbox: the group's name is its label, this is its look. */}
-									<div aria-hidden className="px-2.5 pt-2 pb-1">
-										<SectionLabel count={group.tools.length}>{name}</SectionLabel>
-									</div>
+								<OptionGroup count={group.tools.length} key={group.source} label={name}>
 									{group.tools.map(tool => (
 										<OptionRow
 											active={selected === tool.name}
@@ -252,7 +248,7 @@ export function ForceToolDialog() {
 											)}
 										</OptionRow>
 									))}
-								</div>
+								</OptionGroup>
 							);
 						})
 					)}

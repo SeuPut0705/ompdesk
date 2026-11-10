@@ -9,7 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
-import { Input, SearchField, TextArea } from "./Input";
+import { FieldShell, Input, SearchField, TextArea } from "./Input";
 import { Select } from "./Select";
 
 const { document, window, Event, HTMLElement, Node } = parseHTML("<html><body></body></html>");
@@ -90,6 +90,21 @@ it("describes a field by its error once there is one, and keeps a caller's own d
 	expect(select.getAttribute("id")).toBe("api");
 	expect(labelText(select)).toBe("Protocol");
 	expect(description(select)).toBe("The API shape the endpoint speaks.");
+});
+
+it("announces an error, and names a group a label cannot point at through its labelled-by id", async () => {
+	await render(
+		<FieldShell error="Choose a folder" label="Models" labelId="models-label" noteId="models-note">
+			<div aria-describedby="models-note" aria-labelledby="models-label" role="group">
+				<button type="button">Sonnet</button>
+			</div>
+		</FieldShell>,
+	);
+	const group = document.body.querySelector("[role=group]") as unknown as Element;
+	expect(document.body.querySelector("label")).toBeNull();
+	expect(document.getElementById(group.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("Models");
+	expect(description(group)).toBe("Choose a folder");
+	expect(document.body.querySelector("[role=alert]")?.textContent).toBe("Choose a folder");
 });
 
 it("grows an auto-grow field to its content plus its border, so an empty field has nothing to scroll", async () => {

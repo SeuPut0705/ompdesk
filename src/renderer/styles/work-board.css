@@ -367,10 +367,6 @@ button.omp-work-board-row:hover {
 	color: var(--sc-text);
 }
 
-.omp-work-board-sub[data-review-conflict] {
-	color: var(--sc-warning);
-}
-
 .omp-work-board-provider {
 	width: 14px;
 	height: 14px;

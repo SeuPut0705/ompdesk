@@ -18,7 +18,7 @@ import { useT } from "../../lib/i18n";
 import { PLATFORM } from "../../lib/keymap";
 import { toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Badge, type BadgeVariant, Banner, Button, IconButton, Input, Select, SwitchField } from "../common";
+import { Badge, type BadgeVariant, Banner, Button, Card, IconButton, Input, Select, SwitchField } from "../common";
 import { useNow } from "./SshPromptDialog";
 
 const GRACE_OPTIONS = [60_000, 10 * 60_000, SSH_GRACE_DEFAULT_MS, 24 * 60 * 60_000, 7 * 24 * 60 * 60_000] as const;
@@ -176,10 +176,12 @@ export function SshForwardsPanel({ target }: { target: SshTarget }) {
 						const status = entry.status;
 						const error = status.kind === "retrying" || status.kind === "stopped" ? status.error : null;
 						return (
-							<li
+							<Card
+								as="li"
 								key={entry.id}
-								className="flex flex-col gap-1 rounded-(--sc-radius-md) border border-(--sc-border-subtle) px-2 py-1.5"
+								className="flex flex-col gap-1 px-2 py-1.5"
 								data-ssh-forward={entry.remotePort}
+								padding="none"
 							>
 								<div className="flex min-w-0 items-center gap-2">
 									<span className="min-w-0 flex-1 truncate font-mono text-sc-xs text-(--sc-text)">
@@ -240,7 +242,7 @@ export function SshForwardsPanel({ target }: { target: SshTarget }) {
 										{status.detail}
 									</Banner>
 								)}
-							</li>
+							</Card>
 						);
 					})}
 				</ul>

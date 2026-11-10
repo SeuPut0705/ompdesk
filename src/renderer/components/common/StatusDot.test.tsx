@@ -1,6 +1,6 @@
 /**
- * StatusDot: the state is always a word, beside the dot or for screen readers and the hover title, and the dot itself
- * is decoration; a working state pulses unless told not to.
+ * StatusDot: the state is a word, beside the dot or for screen readers only, with no hover title unless the caller
+ * asks; a decorative dot is hidden from assistive tech and takes the caller's attributes itself.
  */
 
 import { parseHTML } from "linkedom";
@@ -23,37 +23,38 @@ async function mounted(node: ReactNode, check: (document: Document) => void): Pr
 }
 
 describe("StatusDot", () => {
-	it("shows the state's word beside a decorative dot", async () => {
+	it("shows the state's word beside a dot hidden from screen readers", async () => {
 		await mounted(<StatusDot label="Online" tone="success" />, document => {
 			const status = document.querySelector("[data-status-dot]");
 			expect(status?.textContent).toBe("Online");
 			expect(status?.querySelector("[aria-hidden]")?.textContent).toBe("");
-			expect(status?.querySelector(".sr-only")).toBeNull();
 			expect(status?.hasAttribute("title")).toBe(false);
 		});
 	});
 
-	it("keeps a hidden word for screen readers and the hover title", async () => {
-		await mounted(<StatusDot label="Offline" labelHidden tone="danger" />, document => {
-			const status = document.querySelector("[data-status-dot]");
-			expect(status?.querySelector(".sr-only")?.textContent).toBe("Offline");
-			expect(status?.getAttribute("title")).toBe("Offline");
-		});
-	});
-
-	it("pulses while working, unless told not to", async () => {
+	it("keeps a hidden word for screen readers, with no hover title unless asked", async () => {
 		await mounted(
 			<>
-				<StatusDot label="Running" tone="working" />
-				<StatusDot label="Held" pulse={false} tone="working" />
-				<StatusDot label="Idle" tone="neutral" />
+				<StatusDot label="Offline" labelHidden tone="danger" />
+				<StatusDot data-device="mini" label="Online" labelHidden title="Online since 9:00" tone="success" />
 			</>,
 			document => {
-				const pulsing = [...document.querySelectorAll("[data-status-dot]")].map(
-					status => status.querySelector(".omp-pulse-dot") !== null,
-				);
-				expect(pulsing).toEqual([true, false, false]);
+				const [plain, titled] = [...document.querySelectorAll("[data-status-dot]")];
+				expect(plain?.textContent).toBe("Offline");
+				expect(plain?.hasAttribute("title")).toBe(false);
+				expect(titled?.getAttribute("title")).toBe("Online since 9:00");
+				expect(titled?.getAttribute("data-device")).toBe("mini");
 			},
 		);
+	});
+
+	it("a decorative dot is one element hidden from assistive tech, carrying the caller's attributes", async () => {
+		await mounted(<StatusDot className="absolute" data-device-dot="" decorative tone="working" />, document => {
+			const dot = document.querySelector("[data-status-dot]");
+			expect(dot?.getAttribute("aria-hidden")).toBe("true");
+			expect(dot?.hasAttribute("data-device-dot")).toBe(true);
+			expect(dot?.children.length).toBe(0);
+			expect(dot?.textContent).toBe("");
+		});
 	});
 });

@@ -69,7 +69,12 @@ function useCardFocus(cardRef: RefObject<HTMLElement | null>): void {
 }
 
 export interface PromptCardProps {
+	/** The header's title; it wraps rather than cut, so nothing the agent asked is lost. */
 	label: string;
+	/** The card's accessible name when it says more than the title ("Question: Target"); defaults to `label`. */
+	regionLabel?: string;
+	/** An id on the title, for a control the title names (`aria-labelledby`). */
+	labelId?: string;
 	icon: LucideIcon;
 	iconClassName?: string;
 	/** Right side of the header: step counter, badge. */
@@ -83,6 +88,8 @@ export interface PromptCardProps {
 
 export function PromptCard({
 	label,
+	regionLabel,
+	labelId,
 	icon: Icon,
 	iconClassName,
 	headerAside,
@@ -118,7 +125,7 @@ export function PromptCard({
 	return (
 		<PromptDock>
 			<section
-				aria-label={label}
+				aria-label={regionLabel ?? label}
 				className="omp-pop-in omp-prompt-card mb-2 flex flex-col overflow-hidden rounded-(--sc-radius-xl) border border-(--sc-border-subtle) bg-(--sc-elevated) text-(--sc-text) shadow-(--sc-shadow-md) outline-none [--omp-pop-origin:bottom_center]"
 				data-prompt-card
 				onKeyDown={onKeyDown}
@@ -130,7 +137,9 @@ export function PromptCard({
 			>
 				<div className="flex shrink-0 items-center gap-2 px-4 pt-2 pb-1.5 [html[data-input=touch]_&]:pt-3 [html[data-input=touch]_&]:pb-2">
 					<Icon aria-hidden className={cx("size-(--sc-icon-md) shrink-0 text-(--sc-accent)", iconClassName)} />
-					<span className="min-w-0 flex-1 truncate text-sc-md font-semibold">{label}</span>
+					<span className="min-w-0 flex-1 text-sc-md font-semibold break-keep break-words" id={labelId}>
+						{label}
+					</span>
 					{waiting > 0 && (
 						<span className="inline-flex" data-prompt-waiting>
 							<Badge variant="muted">{t("extDialog.waiting", { count: waiting })}</Badge>

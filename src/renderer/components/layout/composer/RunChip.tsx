@@ -74,6 +74,13 @@ export function RunChip() {
 	useEffect(() => {
 		if (open && followsModes && firstForm) setTab(firstForm);
 	}, [open, followsModes, firstForm]);
+	const body = useRef<HTMLDivElement>(null);
+	// The popover focuses its first control, Plan's switch, which a stray Enter flips and whose (i) tooltip covers the
+	// mode tabs: it starts on the Mode section's tab stop (the selected tab) instead.
+	useEffect(() => {
+		if (!open) return;
+		body.current?.querySelector<HTMLElement>('[data-composer-modes-section] [role="tab"][tabindex="0"]')?.focus();
+	}, [open]);
 	const title = t("input.runSettings.title");
 	const ApprovalGlyph = APPROVAL_ICONS[approvalMode];
 	const delegationName = delegation.mode === null ? null : t(`input.delegation.mode.${delegation.mode}`);
@@ -154,7 +161,7 @@ export function RunChip() {
 				open={open}
 				placement="top-start"
 			>
-				<div className="flex flex-col gap-3 break-keep">
+				<div className="flex flex-col gap-3 break-keep" ref={body}>
 					<h2 className="text-sc-sm font-semibold text-(--sc-text)">{title}</h2>
 					<ModesSection
 						active={modes.active}

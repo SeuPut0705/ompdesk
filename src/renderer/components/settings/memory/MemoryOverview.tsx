@@ -74,8 +74,11 @@ export function MemoryOverview({
 				compactControl
 				control={
 					<span className="flex min-w-0 items-center gap-2 text-sc-sm text-(--sc-text-secondary)">
-						<span className="flex min-w-0 items-center gap-2" data-memory-status>
-							<Badge variant={statusVariant(state.phase)}>{t(`memory.phase.${state.phase}`)}</Badge>
+						<span className="flex min-w-0 items-center gap-2" data-memory-phase={state.phase} data-memory-status>
+							{/* Running is the normal state: only another phase says its name. */}
+							{state.phase !== "ready" && (
+								<Badge variant={statusVariant(state.phase)}>{t(`memory.phase.${state.phase}`)}</Badge>
+							)}
 							<span className="truncate">{statusDetail(t, state)}</span>
 						</span>
 						{problem && (
@@ -116,8 +119,12 @@ export function MemoryOverview({
 						compactControl
 						control={
 							<span className="truncate text-sc-sm text-(--sc-text-secondary)" data-memory-scope>
-								{project ? projectLabel(project) : t("memory.overview.scope.none")}
-								{projects.length > 1 ? ` · ${t("memory.overview.projects", { count: projects.length })}` : ""}
+								{/* With several, the project itself is the bar's picker; this row says how many there are. */}
+								{projects.length > 1
+									? t("memory.overview.projects", { count: projects.length })
+									: project
+										? projectLabel(project)
+										: t("memory.overview.scope.none")}
 							</span>
 						}
 						description={t("memory.overview.scope.info")}
@@ -292,7 +299,6 @@ export function MemoryOverview({
 }
 
 function statusVariant(phase: AiMemoryPhase) {
-	if (phase === "ready") return "success";
 	if (phase === "failed") return "error";
 	if (phase === "unreachable") return "warning";
 	return "muted";

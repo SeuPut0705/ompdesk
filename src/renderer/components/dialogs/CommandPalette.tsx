@@ -63,7 +63,7 @@ import { useSessionStore } from "../../stores/session";
 import { useSettingsStore } from "../../stores/settings";
 import { toast, toastError } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionRow, SearchField, Spinner } from "../common";
+import { Button, EmptyState, InlineNotice, Kbd, Modal, OptionGroup, OptionRow, SearchField, Spinner } from "../common";
 
 const RECENT_KEY = "omp.palette.recent";
 const RECENT_LIMIT = 5;
@@ -464,11 +464,6 @@ export function CommandPalette() {
 		armed && activeItem?.name === armed
 			? t(commandGuard(activeItem) === "destructive" ? "palette.confirmDestructive" : "palette.confirmTurn")
 			: "";
-	// Each group's header names its category and carries its icon once; it stays at the list's top while its rows
-	// scroll under it. One category icon on every row of a group read as the same icon for every command.
-	const sectionHeaderClass =
-		"sticky top-0 z-(--sc-z-raised) flex items-center gap-2 bg-(--sc-elevated) px-2.5 pt-3 pb-1 text-sc-xs font-medium text-(--sc-text-muted) select-none [&>svg]:size-(--sc-icon-sm) [&>svg]:shrink-0";
-
 	const renderItem = (item: CommandMenuItem, options?: { categoryLabel?: string }) => {
 		flatIndex++;
 		const index = flatIndex;
@@ -623,24 +618,24 @@ export function CommandPalette() {
 					{grouped ? (
 						<>
 							{recentItems.length > 0 && (
-								<div aria-label={t("palette.recent")} className="mb-1" role="group">
-									<div aria-hidden className={sectionHeaderClass}>
-										<History />
-										{t("palette.recent")}
-									</div>
+								<OptionGroup className="mb-1" icon={<History />} label={t("palette.recent")} sticky>
 									{recentItems.map(item => renderItem(item))}
-								</div>
+								</OptionGroup>
 							)}
 							{Array.from(grouped.entries()).map(([category, items]) => {
 								const Icon = CATEGORY_ICON[category];
 								return (
-									<div aria-label={t(`category.${category}`)} className="mb-1" key={category} role="group">
-										<div aria-hidden className={sectionHeaderClass}>
-											<Icon />
-											{t(`category.${category}`)}
-										</div>
+									// Each group's header names its category and carries its icon once; one category icon on
+									// every row of a group read as the same icon for every command.
+									<OptionGroup
+										className="mb-1"
+										icon={<Icon />}
+										key={category}
+										label={t(`category.${category}`)}
+										sticky
+									>
 										{items.map(item => renderItem(item))}
-									</div>
+									</OptionGroup>
 								);
 							})}
 						</>

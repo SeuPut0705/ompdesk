@@ -27,8 +27,10 @@ export function ConfirmSheet({
 		onSettled();
 	};
 	// The sentence is the body, as a confirm dialog's message is, so the body is never an empty band between dividers.
+	// The footer's Cancel is the way out (Escape and the back gesture too), so the header carries no second ✕.
 	return (
 		<Sheet
+			closeButton={false}
 			footer={
 				<>
 					<Button onClick={() => answer(false)} variant="ghost">

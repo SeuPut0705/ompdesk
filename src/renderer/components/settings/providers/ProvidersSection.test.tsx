@@ -1320,16 +1320,16 @@ describe("ProviderAccounts", () => {
 	it("tells apart two accounts that share an address by their muted suffix, and keeps a unique address bare", async () => {
 		const [first, second] = accounts as [ProviderAccount, ProviderAccount];
 		await mountWithAccounts([
-			{ ...first, label: "seuput@naver.com (team)" },
-			{ ...second, label: "seuput@naver.com (pro)" },
+			{ ...first, label: "shared@example.com (team)" },
+			{ ...second, label: "shared@example.com (pro)" },
 			{ ...first, credentialId: 99, label: "solo@example.com (personal)" },
 		]);
 		const label = (id: number) => document.querySelector(`[data-provider-account="${id}"] [data-account-label]`);
-		expect(label(first.credentialId)?.textContent).toBe("seuput@naver.com team");
+		expect(label(first.credentialId)?.textContent).toBe("shared@example.com team");
 		expect(label(first.credentialId)?.querySelector("[data-account-suffix]")?.textContent?.trim()).toBe("team");
-		expect(label(second.credentialId)?.textContent).toBe("seuput@naver.com pro");
+		expect(label(second.credentialId)?.textContent).toBe("shared@example.com pro");
 		expect(label(99)?.textContent).toBe("solo@example.com");
-		expect(label(first.credentialId)?.getAttribute("title")).toContain("seuput@naver.com (team)");
+		expect(label(first.credentialId)?.getAttribute("title")).toContain("shared@example.com (team)");
 	});
 
 	it("draws every window an account reports, a model's own limit too, each in the same column down the list", async () => {

@@ -1,6 +1,7 @@
 /**
- * ProgressBar's segmented form: one image of how a whole divides, named by its label and every share, each share
- * titled; empty shares are left out and a `total` larger than the shares leaves room at the end.
+ * ProgressBar: a single bar is a progressbar (no value claimed while indeterminate, its value in words when given); a
+ * segmented bar is one image named by its label and every share, or with a `value` a progressbar of the whole. Empty
+ * shares are left out and a `total` larger than the shares leaves room at the end.
  */
 
 import { parseHTML } from "linkedom";
@@ -22,7 +23,7 @@ async function mounted(node: ReactNode, check: (document: Document) => void): Pr
 	}
 }
 
-describe("ProgressBar segments", () => {
+describe("ProgressBar", () => {
 	it("is one image named by its label and its shares, leaving empty shares out", async () => {
 		await mounted(
 			<ProgressBar
@@ -57,9 +58,42 @@ describe("ProgressBar segments", () => {
 		);
 	});
 
-	it("leaves the single bar a progressbar", async () => {
-		await mounted(<ProgressBar ariaLabel="Quota" value={0.5} />, document => {
-			expect(document.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("0.5");
+	it("leaves the single bar a progressbar that can say its value in words", async () => {
+		await mounted(<ProgressBar ariaLabel="Quota" ariaValueText="50 of 100 requests" value={0.5} />, document => {
+			const bar = document.querySelector('[role="progressbar"]');
+			expect(bar?.getAttribute("aria-valuenow")).toBe("0.5");
+			expect(bar?.getAttribute("aria-valuetext")).toBe("50 of 100 requests");
+		});
+	});
+
+	it("with a value, a segmented bar is a progressbar of the whole, its shares drawn for the eye", async () => {
+		await mounted(
+			<ProgressBar
+				ariaLabel="Context 42%"
+				ariaValueText="42k used, 58k left"
+				segments={[
+					{ value: 30, label: "Messages", color: "var(--sc-accent)" },
+					{ value: 12, label: "Tools", color: "var(--sc-info)" },
+				]}
+				total={100}
+				value={0.42}
+			/>,
+			document => {
+				expect(document.querySelector('[role="img"]')).toBeNull();
+				const bar = document.querySelector('[role="progressbar"]');
+				expect(bar?.getAttribute("aria-label")).toBe("Context 42%");
+				expect(bar?.getAttribute("aria-valuenow")).toBe("0.42");
+				expect(bar?.getAttribute("aria-valuetext")).toBe("42k used, 58k left");
+				expect(bar?.children.length).toBe(3);
+			},
+		);
+	});
+
+	it("claims no value while indeterminate", async () => {
+		await mounted(<ProgressBar ariaLabel="Updating omp" tone="progress" />, document => {
+			const bar = document.querySelector('[role="progressbar"]');
+			expect(bar?.getAttribute("aria-label")).toBe("Updating omp");
+			expect(bar?.hasAttribute("aria-valuenow")).toBe(false);
 		});
 	});
 });

@@ -71,14 +71,17 @@ function PanelHeader({ bare }: { bare?: boolean }) {
 	const setPanelTab = useUiStore(s => s.setPanelTab);
 	const togglePanel = useUiStore(s => s.togglePanel);
 	const current = panelTab === "subagent" ? SUBAGENT_VIEW : (VIEWS.find(view => view.id === panelTab) ?? VIEWS[0]);
+	// The pressed view icon beside it already names the view, so the title is said only to screen readers; it shows
+	// where no icon says it (a phone's sheet, whose views are the tab bar under the thumb, and a subagent's transcript).
+	const iconNamed = !bare && panelTab !== "subagent";
 	return (
 		<div className="omp-panel-topbar drag-region flex min-h-(--sc-space-12) shrink-0 flex-wrap items-center gap-x-1 px-3">
 			<span
 				className="min-w-24 flex-1 truncate text-sc-sm font-medium text-(--sc-text)"
 				data-panel-title=""
-				title={t(current.labelKey)}
+				title={iconNamed ? undefined : t(current.labelKey)}
 			>
-				{t(current.labelKey)}
+				<span className={iconNamed ? "sr-only" : undefined}>{t(current.labelKey)}</span>
 			</span>
 			{!bare && (
 				<div

@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type AutopilotChildLive, cycleTotal } from "../../../../resources/gui-bridge/modes/autopilot-contracts";
+import { useSessionSpend } from "../../hooks/use-session-spend";
 import { formatCost, formatDuration, formatElapsed, formatTokens } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
@@ -9,8 +10,9 @@ import { tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { type ToolEntry, useToolsStore } from "../../stores/tools";
-import { IconButton } from "../common";
+import { IconButton, Tooltip } from "../common";
 import { BoardRow, BoardSection, CappedRows, Dot, SECTION_CAP } from "../layout/work-board/board-parts";
+import { chargeText, splitSpend } from "../layout/work-board/metered-charges";
 import { AreaIcon } from "./AreaIcon";
 import { AutopilotControls } from "./AutopilotControls";
 import { AutopilotCyclesSection } from "./AutopilotCycles";
@@ -84,7 +86,10 @@ const STATE_TONE = {
 
 /**
  * The head of an Autopilot tab's board, under its name: the run's state with the time it has been active, then its
- * tokens and dollars with the pace. The branch against its base and why the pace is what it is are the tooltip.
+ * tokens and dollars with the pace. The run reads as that one amount: what each metered provider charged this session
+ * is a line of the figure's tooltip (the board's own per-provider rows give way to it in a run's tab), never a second
+ * amount under it. The branch against its base, why the run stopped and why the pace is what it is are tooltips too,
+ * reachable by hover, keyboard focus and a tap.
  */
 export function AutopilotBoardHead() {
 	const t = useT();
@@ -104,6 +109,7 @@ export function AutopilotBoardHead() {
 	const rate = ratePrediction(status.cycles ?? []);
 	const tokensPerHour = status.totals?.tokensPerHour ?? rate?.tokensPerHour;
 	const usdPerHour = status.totals?.usdPerHour ?? rate?.usdPerHour;
+	const charges = splitSpend(useSessionSpend()).charged;
 	const ended = state === "ended";
 	const reason =
 		status.reason && (state === "paused" || ended)
@@ -124,36 +130,48 @@ export function AutopilotBoardHead() {
 				.filter(Boolean)
 				.join(" ")
 		: null;
+	const stateTip = [t(`autopilot.state.${state}`), reason, branchLine].filter(Boolean).join("\n");
+	const totalsTip = [
+		rate || tokensPerHour !== undefined
+			? t("autopilot.rateTip", { sample: rate?.sample ?? 5 })
+			: t("autopilot.rateNone"),
+		...charges.map(row =>
+			t("workBoard.spend.charged", { provider: row.name, cost: chargeText(row.cost), today: chargeText(row.today) }),
+		),
+	].join("\n");
 	return (
 		<div className="omp-work-board-run" data-board-autopilot-head>
-			<span
-				className="omp-work-board-run-state"
-				data-autopilot-reason={reason ? status.reason : undefined}
-				data-autopilot-state={state}
-				title={[t(`autopilot.state.${state}`), reason, branchLine].filter(Boolean).join("\n")}
-			>
-				<Dot ring={state === "running"} tone={STATE_TONE[state]} />
-				<span className="min-w-0 flex-1 truncate" data-board-autopilot-text>
-					{text}
-				</span>
-				<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">{formatDuration(activeMs)}</span>
-			</span>
-			{status.totals && (
+			<Tooltip content={<span className="whitespace-pre-line">{stateTip}</span>}>
 				<span
-					className="truncate tabular-nums"
-					data-autopilot-totals
-					title={
-						rate || tokensPerHour !== undefined
-							? t("autopilot.rateTip", { sample: rate?.sample ?? 5 })
-							: t("autopilot.rateNone")
-					}
+					className="omp-work-board-run-state"
+					data-autopilot-reason={reason ? status.reason : undefined}
+					data-autopilot-state={state}
+					tabIndex={0}
 				>
-					{t("autopilot.tokens", { tokens: formatTokens(status.totals.tokens) })} ·{" "}
-					{formatCost(status.totals.usd, 2)}
-					{tokensPerHour !== undefined && usdPerHour !== undefined
-						? ` · ≈ ${t("autopilot.perHour", { tokens: formatTokens(tokensPerHour), usd: formatCost(usdPerHour, 2) })}`
-						: ""}
+					<Dot ring={state === "running"} tone={STATE_TONE[state]} />
+					<span className="min-w-0 flex-1 truncate" data-board-autopilot-text>
+						{text}
+					</span>
+					<span className="shrink-0 text-sc-xs tabular-nums text-(--sc-text-muted)">
+						{formatDuration(activeMs)}
+					</span>
 				</span>
+			</Tooltip>
+			{status.totals && (
+				<Tooltip content={<span className="whitespace-pre-line">{totalsTip}</span>}>
+					<span
+						className="truncate tabular-nums"
+						data-autopilot-charges={charges.length > 0 ? charges.length : undefined}
+						data-autopilot-totals
+						tabIndex={0}
+					>
+						{t("autopilot.tokens", { tokens: formatTokens(status.totals.tokens) })} ·{" "}
+						{formatCost(status.totals.usd, 2)}
+						{tokensPerHour !== undefined && usdPerHour !== undefined
+							? ` · ≈ ${t("autopilot.perHour", { tokens: formatTokens(tokensPerHour), usd: formatCost(usdPerHour, 2) })}`
+							: ""}
+					</span>
+				</Tooltip>
 			)}
 		</div>
 	);

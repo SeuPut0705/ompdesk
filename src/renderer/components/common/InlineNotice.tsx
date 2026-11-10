@@ -5,7 +5,10 @@
  * at once read as two small rows, not two stacked Banners. The cause is the
  * muted secondary line (ErrorDetail), clipped to two lines with the whole
  * text on hover; `copyLabel` adds a CopyButton for a cause the user may need
- * to paste into a report. Page-wide conditions stay Banners.
+ * to paste into a report. `output` is the original text that explains it (a
+ * command's stderr, a response body): shown whole under the cause as
+ * ErrorDetail's `raw` block, every line kept, and copied with it. Page-wide
+ * conditions stay Banners.
  */
 
 import { AlertTriangle, Info, XCircle } from "lucide-react";
@@ -24,27 +27,32 @@ const ICONS: Record<Exclude<InlineNoticeTone, "pending">, { Icon: typeof Info; c
 	info: { Icon: Info, className: "text-(--sc-text-muted)" },
 };
 
-export function InlineNotice({
-	tone,
-	title,
-	detail,
-	action,
-	copyLabel,
-	live = false,
-	className,
-}: {
+export interface InlineNoticeProps {
 	tone: InlineNoticeTone;
 	title: ReactNode;
 	/** Raw cause under the sentence (an Error, an RPC failure, a string). */
 	detail?: unknown;
+	/** The original output that explains the notice, shown whole in a scrolling mono block. */
+	output?: string;
 	/** One small Button (the fix, usually Retry). */
 	action?: ReactNode;
-	/** Accessible name of a copy control for the cause (or the title when there is none). */
+	/** Accessible name of a copy control for the cause and output (or the title when there is neither). */
 	copyLabel?: string;
 	/** Announce on appearance: the user is waiting on this read. */
 	live?: boolean;
 	className?: string;
-}) {
+}
+
+export function InlineNotice({
+	tone,
+	title,
+	detail,
+	output,
+	action,
+	copyLabel,
+	live = false,
+	className,
+}: InlineNoticeProps) {
 	const icon = tone === "pending" ? null : ICONS[tone];
 	return (
 		<div
@@ -66,6 +74,7 @@ export function InlineNotice({
 						<ErrorDetail className="mt-0.5 line-clamp-2" error={detail} />
 					</span>
 				)}
+				{output?.trim() && <ErrorDetail className="mt-1.5" error={output} raw />}
 			</div>
 			{(action || copyLabel) && (
 				<div className="-my-0.5 flex shrink-0 items-center gap-1">
@@ -73,9 +82,12 @@ export function InlineNotice({
 					{copyLabel && (
 						<CopyButton
 							label={copyLabel}
-							text={() =>
-								detail === undefined ? (typeof title === "string" ? title : "") : errorDetail(detail)
-							}
+							text={() => {
+								const cause = [detail === undefined ? "" : errorDetail(detail), output?.trim() ?? ""]
+									.filter(Boolean)
+									.join("\n\n");
+								return cause || (typeof title === "string" ? title : "");
+							}}
 						/>
 					)}
 				</div>

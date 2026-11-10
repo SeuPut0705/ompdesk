@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../../lib/i18n";
 import { useSessionStore } from "../../../stores/session";
 import { useTabsStore } from "../../../stores/tabs";
+import { Sheet } from "../../common";
 import { PlanDockCard } from "./PlanDockCard";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
@@ -19,7 +20,7 @@ afterEach(async () => {
 	useTabsStore.getState().reset();
 });
 
-async function mount(content: string | null, planMode = true) {
+async function mount(content: string | null, planMode = true, inSheet = false) {
 	useTabsStore.setState({
 		activeTabId: "plan-tab",
 		tabs: [{ id: "plan-tab", cwd: "/work", status: "ready", kind: "agent", unreadDone: false }],
@@ -43,7 +44,13 @@ async function mount(content: string | null, planMode = true) {
 	await act(async () => {
 		root.render(
 			<I18nProvider>
-				<PlanDockCard presentation="sheet" />
+				{inSheet ? (
+					<Sheet onClose={() => {}} open title="Plan">
+						<PlanDockCard presentation="sheet" />
+					</Sheet>
+				) : (
+					<PlanDockCard presentation="sheet" />
+				)}
 			</I18nProvider>,
 		);
 	});
@@ -64,16 +71,29 @@ describe("the plan document sheet", () => {
 	});
 	it("numbers each section's items from 1 and counts only the steps on the tab", async () => {
 		await mount("## Steps\n1. Reproduce\n2. Fix\n\n## Risks\n- Same race elsewhere\n");
-		const numbers = [...container.querySelectorAll("section span.text-right")].map(span => span.textContent);
+		const numbers = [...container.querySelectorAll("[data-plan-step-number]")].map(span => span.textContent);
 		expect(numbers).toEqual(["1", "2", "1"]);
-		expect(container.querySelector('[data-tab-id="steps"]')?.textContent).toBe("Steps2");
+		expect(container.querySelector('[data-tab-id="steps"]')?.textContent).toMatch(/\D2$/);
 	});
 	it("is a reader with plan mode off: no feedback box, no approve or request", async () => {
 		await mount("## Steps\n1. Reproduce\n", false);
 		expect(container.textContent).toContain("Reproduce");
+		expect(container.querySelectorAll("[data-plan-review]")).toHaveLength(0);
 		expect(container.querySelectorAll("textarea")).toHaveLength(0);
-		expect([...container.querySelectorAll("button")].some(button => button.textContent?.includes("Approve"))).toBe(
-			false,
-		);
+	});
+	it("opens on the plan itself, never on the plan-mode switch above it", async () => {
+		const seen: { focused: HTMLElement | null } = { focused: null };
+		Object.defineProperty(document, "activeElement", { configurable: true, get: () => seen.focused });
+		const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			seen.focused = this;
+		});
+		try {
+			await mount("## Steps\n1. Reproduce\n", true, true);
+			expect(seen.focused?.getAttribute("role")).toBe("region");
+			expect(seen.focused?.querySelector('[role="switch"]')).not.toBeNull();
+		} finally {
+			focus.mockRestore();
+			Reflect.deleteProperty(document, "activeElement");
+		}
 	});
 });

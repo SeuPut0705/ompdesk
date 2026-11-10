@@ -156,6 +156,7 @@ export function ContextSizeField() {
 		<>
 			{loaded.extended !== undefined && (
 				<SwitchTile
+					infoEnd
 					checked={loaded.extended}
 					description={t("input.runSettings.extendedDesc")}
 					disabled={saving}
@@ -165,7 +166,7 @@ export function ContextSizeField() {
 				/>
 			)}
 			<div
-				className="col-span-2 flex min-h-(--sc-control-md) min-w-0 items-center gap-1.5 px-2 py-0.5"
+				className="col-span-2 flex min-h-(--sc-control-md) min-w-0 items-center gap-1.5 px-1.5 py-0.5 [&>[data-setting-info]]:ms-0.5"
 				data-context-size=""
 			>
 				<span
@@ -181,7 +182,6 @@ export function ContextSizeField() {
 				>
 					{pointValue === null ? limitLabel : `${limitLabel} · ${pointValue}`}
 				</label>
-				<SettingInfo text={limitTip} />
 				<div className="w-28 shrink-0">
 					<Select
 						controlSize="sm"
@@ -192,6 +192,7 @@ export function ContextSizeField() {
 						value={current}
 					/>
 				</div>
+				<SettingInfo text={limitTip} />
 			</div>
 		</>
 	);

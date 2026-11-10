@@ -119,6 +119,29 @@ describe("ModelRolesSection", () => {
 		expect(bodyText()).not.toContain("Hidden role");
 	});
 
+	it("says on its row when a role's own value runs on something else and is not available", async () => {
+		const roles = [
+			{
+				...ROLES[0],
+				effective: {
+					model: "openai/gpt",
+					name: "GPT",
+					source: "session",
+					unavailable: true,
+				},
+			},
+		];
+		installRpc(async () => ({ success: true, data: { roles } }));
+		useSessionStore.getState().setStatus("ready", "/repo");
+
+		await mount(<ModelRolesSection />);
+
+		const status = document.body.querySelector("#model-role-default [data-role-status]");
+		expect(status?.textContent).toContain(translate("modelRoles.unavailable"));
+		expect(status?.textContent).toContain("GPT");
+		expect(status?.textContent).toContain(translate("modelRoles.src.session"));
+	});
+
 	it("shows no tag chip: a tag that repeats the name is dropped, an internal id lives in a tooltip on the name only", async () => {
 		installRpc();
 		useSessionStore.getState().setStatus("ready", "/repo");

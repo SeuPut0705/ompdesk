@@ -1,8 +1,8 @@
 /**
- * Settings › Extensions: one section with underline tabs over the session's
+ * Settings › Tools & extensions: one underline tab bar over the session's
  * skills, MCP servers, hooks, instruction (context) files and custom slash
- * commands. The page owns the
- * active tab and the single search field (`query`, empty = no filter).
+ * commands, then plugins, marketplaces and prompt templates (./PluginsSection).
+ * The page owns the active tab and the single search field (`query`, empty = no filter).
  *
  * Each list tab lazy-loads on first view, caches for the lifetime of the
  * mounted section, and offers a manual refresh.
@@ -62,15 +62,16 @@ import { type McpCardAction, type McpReauthPhase, McpServerCard } from "../panel
 import { McpServerWizard } from "../panels/mcp/McpServerWizard";
 import { AgentControlRow } from "./AgentControlRow";
 import { BuiltinReaRow } from "./BuiltinReaRow";
+import { PluginsSection } from "./PluginsSection";
 import { SettingsEmptyRow, SettingsRow, SettingsSwitchRow } from "./SettingsLayout";
 import { SkillsTab } from "./SkillsTab";
+import type { ExtensionsTab, PluginsTab } from "./settings-catalog";
 
-export type ExtensionsTab = "skills" | "mcp" | "hooks" | "contextFiles" | "commands";
 type ListTab = Exclude<ExtensionsTab, "skills">;
 
 export interface ExtensionsSectionProps {
-	tab: ExtensionsTab;
-	onTabChange: (tab: ExtensionsTab) => void;
+	tab: ExtensionsTab | PluginsTab;
+	onTabChange: (tab: ExtensionsTab | PluginsTab) => void;
 	/** Page search; empty string = no filter. */
 	query: string;
 }
@@ -856,10 +857,14 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 			{ id: "hooks", label: t("extPanel.tabs.hooks"), badge: hooks.data?.length || undefined },
 			{ id: "contextFiles", label: t("extPanel.tabs.contextFiles"), badge: contextFiles.data?.length || undefined },
 			{ id: "commands", label: t("extPanel.tabs.commands"), badge: commands.data?.length || undefined },
+			{ id: "plugins", label: t("invPanel.tabs.plugins") },
+			{ id: "marketplaces", label: t("invPanel.tabs.marketplaces") },
+			{ id: "templates", label: t("invPanel.tabs.templates") },
 		],
 		[t, hooks.data, contextFiles.data, mcp.data, commands.data],
 	);
 	const activeLabel = tabs.find(item => item.id === tab)?.label;
+	const pluginsTab = tab === "plugins" || tab === "marketplaces" || tab === "templates" ? tab : null;
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -867,7 +872,7 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 			<Tabs
 				activeId={tab}
 				ariaLabel={t("extPanel.title")}
-				onChange={id => onTabChange(id as ExtensionsTab)}
+				onChange={id => onTabChange(id as ExtensionsTab | PluginsTab)}
 				tabs={tabs}
 			/>
 			<div aria-label={activeLabel} role="tabpanel">
@@ -876,6 +881,7 @@ export function ExtensionsSection({ tab, onTabChange, query }: ExtensionsSection
 				{tab === "hooks" && <HooksTab query={query} rpc={hooks} />}
 				{tab === "contextFiles" && <ContextFilesTab query={query} rpc={contextFiles} />}
 				{tab === "commands" && <CommandsTab query={query} rpc={commands} />}
+				{pluginsTab && <PluginsSection onTabChange={onTabChange} query={query} tab={pluginsTab} />}
 			</div>
 		</div>
 	);

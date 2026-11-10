@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
 import { INLINE_DESCRIPTION_MAX } from "./SettingInfo";
-import { SwitchField } from "./Switch";
+import { SwitchField, SwitchTile } from "./Switch";
 
 async function mounted(node: ReactNode, check: (document: Document) => void | Promise<void>): Promise<void> {
 	const { document, window } = parseHTML("<html><body></body></html>");
@@ -74,5 +74,27 @@ describe("SwitchField", () => {
 			await act(async () => toggle.click());
 			expect(change).toHaveBeenCalledWith(true);
 		});
+	});
+});
+
+describe("SwitchTile", () => {
+	const order = (document: Document) =>
+		[...document.querySelectorAll("[data-switch-tile] button")].map(button =>
+			button.hasAttribute("data-setting-info") ? "info" : button.getAttribute("role"),
+		);
+
+	it("puts its (i) before the switch, or after it with infoEnd, in the order Tab walks them", async () => {
+		const tile = (infoEnd?: boolean) => (
+			<SwitchTile
+				checked={false}
+				description="What it does."
+				icon={<svg />}
+				infoEnd={infoEnd}
+				label="Fast"
+				onCheckedChange={() => {}}
+			/>
+		);
+		await mounted(tile(), document => expect(order(document)).toEqual(["info", "switch"]));
+		await mounted(tile(true), document => expect(order(document)).toEqual(["switch", "info"]));
 	});
 });

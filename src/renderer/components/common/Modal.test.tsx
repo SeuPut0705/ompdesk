@@ -220,6 +220,55 @@ describe("Modal", () => {
 		expect(activeElement?.textContent).toBe("Details");
 	});
 
+	it("never opens on a control the first key would change, and honours a marked or opted-out control", async () => {
+		vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement) {
+			activeElement = this;
+		});
+		await mount(
+			<Modal onClose={() => {}} open title="Plan">
+				<select aria-label="Profile">
+					<option>Fast</option>
+				</select>
+				<button aria-checked="false" aria-label="Plan mode" role="switch" type="button" />
+				<input aria-label="Agree" type="checkbox" />
+				<button type="button">Open file</button>
+			</Modal>,
+		);
+		// A select's arrows and a switch's Space would change a value the person never chose to touch.
+		expect(activeElement?.textContent).toBe("Open file");
+		await render(
+			<Modal onClose={() => {}} open={false} title="Plan">
+				{null}
+			</Modal>,
+		);
+		await flush();
+
+		await render(
+			<Modal onClose={() => {}} open title="Rename">
+				<input aria-label="Search" data-dialog-nofocus />
+				<button type="button">Details</button>
+				<button data-dialog-autofocus type="button">
+					Approve
+				</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("Approve");
+		await render(
+			<Modal onClose={() => {}} open={false} title="Rename">
+				{null}
+			</Modal>,
+		);
+		await flush();
+
+		await render(
+			<Modal onClose={() => {}} open title="Rename">
+				<input aria-label="Search" data-dialog-nofocus />
+				<button type="button">Details</button>
+			</Modal>,
+		);
+		expect(activeElement?.textContent).toBe("Details");
+	});
+
 	it("puts focus where its opener sat when the dialog's action removed it", async () => {
 		const list = document.createElement("ul");
 		for (const name of ["a", "b", "c"]) {

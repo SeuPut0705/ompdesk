@@ -111,7 +111,8 @@ export function MemorySection({ sub }: { sub?: string }) {
 					>
 						<Tabs activeId={tab} ariaLabel={t("memory.title")} onChange={open} tabs={tabs} />
 					</div>
-					{tab !== "overview" && tab !== "profile" && (projects.data?.length ?? 0) > 0 && project && (
+					{/* Overview picks its project here too, the way every other tab does (Profile spans all projects). */}
+					{tab !== "profile" && (projects.data?.length ?? 0) > 0 && project && (
 						<Select
 							aria-label={t("memory.project")}
 							controlSize="sm"

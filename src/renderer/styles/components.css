@@ -754,8 +754,9 @@
 }
 
 /* The docked board shows the run beside the composer, so the composer's "show the run" chip (ComposerModeExtras)
-   gives way unless the board's run section is folded. */
-.omp-session-pane[data-work-board] [data-autopilot-chip-open]:not([data-run-folded]) {
+   gives way while the board's run section is open and in view (WorkBoard marks the pane); folded or scrolled out of
+   the board, the chip brings it back. */
+.omp-session-pane[data-work-board-run-shown] [data-autopilot-chip-open] {
 	display: none;
 }
 
@@ -3006,9 +3007,6 @@ button.omp-file-chip-name:hover {
 	.omp-work-motion .omp-bash-line::after,
 	.omp-work-motion pre code::after {
 		animation: none;
-	}
-	.omp-work-motion .omp-live-step-scroll[data-height-transition="true"] {
-		transition: none;
 	}
 }
 

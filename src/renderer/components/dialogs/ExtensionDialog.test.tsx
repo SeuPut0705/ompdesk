@@ -21,6 +21,7 @@ globals.HTMLElement = HTMLElement;
 globals.Node = Node;
 globals.IS_REACT_ACT_ENVIRONMENT = true;
 globals.requestAnimationFrame = (callback: () => void) => setTimeout(callback, 0);
+globals.CSS ??= { escape: (value: string) => value };
 
 const elementPrototype = HTMLElement.prototype as unknown as Record<string, unknown>;
 if (typeof elementPrototype.focus !== "function") elementPrototype.focus = () => {};
@@ -321,8 +322,9 @@ describe("ExtensionDialog ask", () => {
 		expect(card().textContent).toContain("Where should this deploy?");
 		expect(card().textContent).not.toContain("Run the tests first?");
 		expect(buttonWithText("Submit")).toBeUndefined();
-		// The card is named by the current question's header; the step chip says it too, the body does not repeat it.
-		expect(card().getAttribute("aria-label")).toBe("Target");
+		// The card is titled by the current question's header and named as a question waiting for an answer; the step
+		// chip says the header too, the body does not repeat it.
+		expect(card().getAttribute("aria-label")).toBe(translate("extDialog.ask.region", { title: "Target" }));
 		expect(
 			(
 				card()
@@ -431,11 +433,16 @@ describe("ExtensionDialog ask", () => {
 			});
 			await flush();
 		};
-		// A question without a header names the card by its question.
-		expect(card().getAttribute("aria-label")).toBe("Where should this deploy?");
+		// A question without a header titles the card by its question, which the body then does not draw again.
+		expect(card().getAttribute("aria-label")).toBe(
+			translate("extDialog.ask.region", { title: "Where should this deploy?" }),
+		);
+		expect(card().textContent?.match(/Where should this deploy\?/g)).toHaveLength(1);
 		await press("2");
 		expect(card().textContent).toContain("Which checks should run first?");
-		expect(card().getAttribute("aria-label")).toBe("Which checks should run first?");
+		expect(card().getAttribute("aria-label")).toBe(
+			translate("extDialog.ask.region", { title: "Which checks should run first?" }),
+		);
 		await press("1");
 		await press("3");
 		expect(card().textContent).toContain("Which checks should run first?");
@@ -461,6 +468,30 @@ describe("ExtensionDialog ask", () => {
 				{ id: "notify", selectedOptions: ["Yes"], customInput: undefined },
 			],
 		});
+	});
+
+	it("titles a header-less question by its first line and draws the lines after it once", async () => {
+		await mount({ withComposerDock: true });
+		await act(async () =>
+			useExtensionUiStore.getState().pushRequest({
+				type: "extension_ui_request",
+				id: "ask-long",
+				method: "ask",
+				questions: [
+					{
+						id: "env",
+						question: "Where should this deploy?\nStaging resets every night; production needs a sign-off.",
+						options: [{ label: "Staging" }, { label: "Production" }],
+					},
+				],
+			}),
+		);
+		const card = dockedCard() as TestElement & Element;
+		expect(card.getAttribute("aria-label")).toBe(
+			translate("extDialog.ask.region", { title: "Where should this deploy?" }),
+		);
+		expect(card.textContent?.match(/Where should this deploy\?/g)).toHaveLength(1);
+		expect(card.textContent?.match(/production needs a sign-off/g)).toHaveLength(1);
 	});
 
 	it.each([

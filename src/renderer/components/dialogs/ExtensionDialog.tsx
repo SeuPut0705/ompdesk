@@ -40,7 +40,6 @@ import { MarkdownRenderer } from "../../lib/markdown";
 import { NEXT_PROMPT_WIDGET } from "../../lib/next-prompt";
 import { useNowTick } from "../../lib/now-tick";
 import { openExternal } from "../../lib/open-external";
-import { rovingIndex } from "../../lib/roving";
 import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { isApprovalRequest, openUrlTarget, useExtensionUiStore } from "../../stores/extension-ui";
 import { useFocusedTabDevice } from "../../stores/remote";
@@ -48,7 +47,7 @@ import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { approvalHeldBack } from "../autopilot/autopilot-view";
-import { Badge, Button, Card, Input, Kbd, LinkButton, TextArea } from "../common";
+import { Badge, Button, Card, Input, Kbd, LinkButton, Tabs, TextArea } from "../common";
 import { ApprovalDialog } from "./ApprovalDialog";
 import { useAskDock, useBelowEditorDock } from "./ask-dock";
 import { ChoiceList, PromptCard, PromptQueueContext, TimeoutFooter } from "./PromptCard";
@@ -463,7 +462,13 @@ function AskDialog({
 
 	if (!question || !answer) return null;
 	const questionId = `${request.id}-q${step}`;
+	const titleId = `${questionId}-title`;
 	const showNote = noteOpen.has(step) || answer.note !== "";
+	// Without a header the question's first line is the card's title, so the body draws only the lines after it.
+	const { label: title, body: questionBody } = question.header
+		? { label: question.header, body: question.question }
+		: splitTitle(question.question);
+	const choicesLabelledBy = question.header ? questionId : questionBody ? `${titleId} ${questionId}` : titleId;
 
 	return (
 		<PromptCard
@@ -493,8 +498,9 @@ function AskDialog({
 				</>
 			}
 			icon={MessageCircleQuestion}
-			// Every ask is a question: the card names this one by its header, else its question's first line.
-			label={question.header || question.question.split("\n", 1)[0]}
+			label={title}
+			labelId={titleId}
+			regionLabel={t("extDialog.ask.region", { title })}
 			onCancel={onCancel}
 			onDigit={n => {
 				const option = question.options[n - 1];
@@ -510,43 +516,33 @@ function AskDialog({
 				}}
 			>
 				{total > 1 && (
-					<div
-						className="mb-3 flex gap-1 overflow-x-auto"
-						data-ask-steps
-						onKeyDown={event => {
-							const next = rovingIndex(event.key, step, questions.length);
-							if (next === null) return;
-							event.preventDefault();
-							stepFromStrip.current = next !== step;
+					<Tabs
+						activeId={String(step)}
+						ariaLabel={t("extDialog.ask.steps")}
+						className="mb-3"
+						data-ask-steps=""
+						onChange={(id, via) => {
+							const next = Number(id);
+							// A click moves on into the question; the arrows keep focus on the strip for the next arrow.
+							stepFromStrip.current = via === "key" && next !== step;
 							setStep(next);
-							event.currentTarget.querySelectorAll<HTMLElement>("[role=tab]")[next]?.focus();
 						}}
-						role="tablist"
-					>
-						{questions.map((item, index) => (
-							<button
-								aria-selected={index === step}
-								className={cx(
-									"flex max-w-full shrink-0 items-center gap-1 rounded-(--sc-radius-full) border px-2.5 py-0.5 text-sc-xs transition-colors duration-(--sc-duration-fast)",
-									index === step
-										? "border-(--sc-accent-border) bg-(--sc-accent-soft) text-(--sc-text)"
-										: "border-(--sc-border-subtle) text-(--sc-text-muted) hover:bg-(--sc-hover)",
-								)}
-								data-ask-step={index}
-								key={item.id}
-								onClick={() => setStep(index)}
-								role="tab"
-								tabIndex={index === step ? 0 : -1}
-								// The chip cuts a long label and shows no question but the current one's.
-								title={item.header ? `${item.header} · ${item.question}` : item.question}
-								type="button"
-							>
-								{isAnswered(index) && <Check aria-hidden className="size-3 text-(--sc-success)" />}
-								<span className="truncate">{item.header || index + 1}</span>
-								{isAnswered(index) && <span className="sr-only">{`, ${t("extDialog.ask.stepAnswered")}`}</span>}
-							</button>
-						))}
-					</div>
+						tabs={questions.map((item, index) => {
+							const done = isAnswered(index);
+							return {
+								id: String(index),
+								label: item.header || String(index + 1),
+								// The strip cuts a long label and shows no question but the current one's.
+								tooltip: item.header ? `${item.header} · ${item.question}` : item.question,
+								attrs: { "data-ask-step": index },
+								leading: done ? <Check aria-hidden className="size-3 text-(--sc-success)" /> : undefined,
+								trailing: done ? (
+									<span className="sr-only">{`, ${t("extDialog.ask.stepAnswered")}`}</span>
+								) : undefined,
+							};
+						})}
+						variant="segmented"
+					/>
 				)}
 				<div className="space-y-2.5" key={question.id} ref={bodyRef}>
 					{question.context && (
@@ -554,15 +550,19 @@ function AskDialog({
 							<MarkdownRenderer content={question.context} />
 						</div>
 					)}
-					<div className="space-y-1">
-						<p
-							className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
-							id={questionId}
-						>
-							{question.question}
-						</p>
-						{multi && <p className="text-sc-xs text-(--sc-text-muted)">{t("extDialog.ask.multiHint")}</p>}
-					</div>
+					{(questionBody || multi) && (
+						<div className="space-y-1">
+							{questionBody && (
+								<p
+									className="text-sc-md leading-(--sc-leading-normal) font-medium break-keep break-words whitespace-pre-wrap"
+									id={questionId}
+								>
+									{questionBody}
+								</p>
+							)}
+							{multi && <p className="text-sc-xs text-(--sc-text-muted)">{t("extDialog.ask.multiHint")}</p>}
+						</div>
+					)}
 					<ChoiceList
 						choices={question.options.map((option, index) => ({
 							key: option.label,
@@ -573,7 +573,7 @@ function AskDialog({
 									<Badge variant="accent">{t("extDialog.ask.recommended")}</Badge>
 								) : undefined,
 						}))}
-						labelledBy={questionId}
+						labelledBy={choicesLabelledBy}
 						mode={multi ? "multi" : "single"}
 						onChoose={choose}
 						selected={answer.selected}

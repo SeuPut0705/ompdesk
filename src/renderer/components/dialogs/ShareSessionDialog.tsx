@@ -7,7 +7,7 @@ import { openExternal } from "../../lib/open-external";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
-import { Button, Card, CopyButton, EmptyState, InlineNotice, Modal, Spinner } from "../common";
+import { Button, Card, CopyButton, EmptyState, FieldLabel, InlineNotice, Modal, PathText, Spinner } from "../common";
 
 /** A snapshot with no entries (`{"entries":[]}`): a session with nothing in it yet. */
 function isEmptySnapshot(text: string): boolean {
@@ -116,12 +116,7 @@ export function ShareSessionDialog() {
 								loading={uploading}
 								disabled={uploading || !sidecarReady}
 								onClick={() => void upload()}
-								// Where the upload goes is the upload's own detail.
-								title={
-									sidecarReady
-										? `${t("shareDialog.destination")}: ${preview.store === "gist" ? t("shareDialog.gistDestination") : ""}${preview.serverUrl}`
-										: t("sidecar.notResponding")
-								}
+								title={!sidecarReady ? t("sidecar.notResponding") : undefined}
 								variant="primary"
 							>
 								{t("shareDialog.upload")}
@@ -136,7 +131,7 @@ export function ShareSessionDialog() {
 			) : result ? (
 				<div className="space-y-3">
 					<div>
-						<div className="mb-1 text-sc-xs font-medium text-(--sc-text-muted)">{t("shareDialog.url")}</div>
+						<FieldLabel as="span">{t("shareDialog.url")}</FieldLabel>
 						<div className="flex flex-wrap items-end gap-2">
 							<Card className="min-w-0 flex-1 basis-48" padding="sm">
 								<code className="text-sc-sm break-all text-(--sc-text)">{result.url}</code>
@@ -164,6 +159,17 @@ export function ShareSessionDialog() {
 					<div className="space-y-3">
 						<p className="text-sc-sm text-(--sc-text-muted)">
 							{t(preview.redactionEnabled ? "shareDialog.noteRedacted" : "shareDialog.noteUnredacted")}
+						</p>
+						{/* Where the transcript goes, read before anything is uploaded. */}
+						<p
+							className="flex min-w-0 items-baseline gap-1 text-sc-sm text-(--sc-text-muted)"
+							data-share-destination
+						>
+							<span>
+								{t("shareDialog.destination")}:{" "}
+								{preview.store === "gist" ? t("shareDialog.gistDestination").trimEnd() : null}
+							</span>
+							<PathText path={preview.serverUrl} />
 						</p>
 						{preview.truncated && (
 							<p role="status" className="text-sc-sm text-(--sc-warning)">

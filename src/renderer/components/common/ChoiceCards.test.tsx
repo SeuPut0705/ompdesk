@@ -88,4 +88,43 @@ describe("ChoiceCards", () => {
 		await act(async () => cards[2]?.click());
 		expect(onChange).toHaveBeenCalledWith("c");
 	});
+
+	it("in parts, keeps one radio group whose arrows cross from one part's grid to the next", async () => {
+		const onChange = vi.fn();
+		const host = document.createElement("div");
+		document.body.appendChild(host);
+		root = createRoot(host as unknown as Element);
+		await act(async () =>
+			root?.render(
+				<ChoiceCards
+					aria-label="Theme"
+					groups={[
+						{ key: "system", options: [{ value: "a", title: "System", preview: <i /> }] },
+						{
+							key: "light",
+							label: "Light",
+							attrs: { "data-group": "light" },
+							options: [
+								{ value: "b", title: "Paper", preview: <i /> },
+								{ value: "c", title: "Sand", preview: <i />, tooltip: "Warm, low glare" },
+							],
+						},
+					]}
+					onChange={onChange}
+					optionAttr="data-pick"
+					value="a"
+				/>,
+			),
+		);
+		expect(document.querySelectorAll("[role=radiogroup]").length).toBe(1);
+		expect(document.querySelector("[data-group=light] h3")?.textContent).toBe("Light");
+		const cards = Array.from(document.querySelectorAll("[role=radio]")) as unknown as HTMLElement[];
+		// The picture is decoration: the card is named by its title.
+		expect(cards.map(card => card.textContent)).toEqual(["System", "Paper", "Sand"]);
+		expect(cards.map(card => card.getAttribute("tabindex"))).toEqual(["0", "-1", "-1"]);
+		await press(cards[0] as HTMLElement, "ArrowRight");
+		expect(onChange).toHaveBeenLastCalledWith("b");
+		await press(cards[0] as HTMLElement, "ArrowLeft");
+		expect(onChange).toHaveBeenLastCalledWith("c");
+	});
 });

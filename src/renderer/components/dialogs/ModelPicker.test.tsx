@@ -126,13 +126,6 @@ describe("ModelPicker compact layout", () => {
 		expect(option.querySelectorAll("span").length).toBeLessThanOrEqual(3);
 	});
 
-	it("uses the compact picker size and small-caps group headers", async () => {
-		await mount();
-		expect(document.querySelector(".omp-dialog-size-picker-compact")).not.toBeNull();
-		const header = document.querySelector('[data-model-group="recent"] span') as unknown as HTMLElement;
-		expect(header.className).toContain("uppercase");
-	});
-
 	it("filters while typing and Enter picks the highlighted row", async () => {
 		await mount();
 		const input = document.querySelector("input") as unknown as HTMLInputElement;

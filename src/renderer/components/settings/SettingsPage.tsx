@@ -66,7 +66,6 @@ import { MemorySection } from "./memory/MemorySection";
 import { OtherExtensionIds } from "./OtherExtensionIds";
 import { AdvancedSchemaSettings, OwnedSchemaSettings, ownedSchemaGroups } from "./OwnedSchemaSettings";
 import { PermissionsSection } from "./PermissionsSection";
-import { PluginsSection } from "./PluginsSection";
 import { RemoteSection } from "./RemoteSection";
 import { SchedulesSection } from "./SchedulesSection";
 import { SettingsScopeProvider, SettingsSection, SettingsTipOnly } from "./SettingsLayout";
@@ -90,11 +89,6 @@ import { searchSettings } from "./settings-search";
 import { UpdatesSection } from "./UpdatesSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { WorktreeBranchPrefixRow } from "./WorktreeBranchPrefixRow";
-
-/** The App and Agent groups read icon + label + control: no intro, every row description behind its info glyph. */
-const isTerse = (section: SettingsSectionId): boolean =>
-	section !== "memory" &&
-	SETTINGS_NAV.some(group => (group.id === "app" || group.id === "agent") && group.items.includes(section));
 
 const SECTION_ICONS: Record<SettingsSectionId, LucideIcon> = {
 	general: SlidersHorizontal,
@@ -246,9 +240,7 @@ export function SettingsPage() {
 					: (GUI_SEARCH_ITEMS.find(item => item.section === section && item.sub === sub)?.rowId ??
 						Object.values(CUSTOM_SCHEMA_EDITORS).find(editor => editor.section === section && editor.sub === sub)
 							?.rowId ??
-						(section === "tools"
-							? `settings-tools-${PLUGINS_TABS.includes(sub as PluginsTab) ? "plugins" : "extensions"}`
-							: `settings-${section}-${sub}`))
+						(section === "tools" ? "settings-tools-extensions" : `settings-${section}-${sub}`))
 				: null);
 		if (!id || query) return;
 		const frame = requestAnimationFrame(() => {
@@ -311,12 +303,8 @@ export function SettingsPage() {
 	}, [query, filterInPlace, data.schema, data.sidecarReady, data.values, lang, t, advancedHidden]);
 
 	const sectionTitle = t(`settings.section.${section}`);
-	const extensionsTab: ExtensionsTab = (EXTENSIONS_TABS as readonly string[]).includes(sub ?? "")
-		? (sub as ExtensionsTab)
-		: "skills";
-	const pluginsTab: PluginsTab = (PLUGINS_TABS as readonly string[]).includes(sub ?? "")
-		? (sub as PluginsTab)
-		: "plugins";
+	const toolsTab: ExtensionsTab | PluginsTab =
+		[...EXTENSIONS_TABS, ...PLUGINS_TABS].find(id => id === sub) ?? "skills";
 
 	const renderSection = () => {
 		switch (section) {
@@ -342,15 +330,8 @@ export function SettingsPage() {
 				return (
 					<>
 						<SettingsSection id="settings-tools-extensions" title={t("settings.section.extensions")}>
-							<ExtensionsSection
-								onTabChange={tab => navigate(`tools:${tab}`)}
-								query={query}
-								tab={extensionsTab}
-							/>
+							<ExtensionsSection onTabChange={tab => navigate(`tools:${tab}`)} query={query} tab={toolsTab} />
 							<OtherExtensionIds />
-						</SettingsSection>
-						<SettingsSection id="settings-tools-plugins" title={t("settings.section.plugins")}>
-							<PluginsSection onTabChange={tab => navigate(`tools:${tab}`)} query={query} tab={pluginsTab} />
 						</SettingsSection>
 						<AdvancedSchemaSettings
 							id="settings-tools-tools"
@@ -615,7 +596,9 @@ export function SettingsPage() {
 												</div>
 											)}
 											<SettingsScopeProvider value={SECTION_SCOPE[section]}>
-												<SettingsTipOnly value={isTerse(section)}>
+												{/* Every section but Memory reads icon + label + control, each description behind its (i); a
+												    warning or a cost is passed as a node and stays a visible note (`splitDescription`). */}
+												<SettingsTipOnly value={section !== "memory"}>
 													{/* A section that fails on bad data shows its own error here, never takes the page down. */}
 													<PanelErrorBoundary key={section}>
 														{SECTION_SCOPE[section] === "host" ? (

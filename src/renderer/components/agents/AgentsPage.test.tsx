@@ -191,10 +191,11 @@ describe("AgentsPage", () => {
 		useSessionStore.getState().setStatus("ready", "/repo");
 		useUiStore.getState().openAgents("definitions");
 		await mount();
-		expect(queryAll('[aria-label="Source"]')).toHaveLength(0);
-		expect(queryAll("button").filter(button => button.textContent?.trim() === "New agent")).toHaveLength(1);
-		expect(queryAll("button").filter(button => button.textContent?.trim() === "Templates")).toHaveLength(1);
-		expect(document.body.textContent).toContain("Start from a template or write a new agent.");
+		expect(queryAll("[data-agent-sources]")).toHaveLength(0);
+		expect(queryAll("[data-empty-actions] button")).toHaveLength(2);
+		const named = (key: string) => queryAll("button").filter(button => button.textContent?.trim() === translate(key));
+		expect(named("agentStudio.newAgent")).toHaveLength(1);
+		expect(named("agentStudio.templates")).toHaveLength(1);
 	});
 
 	it("shows the source filter when the agents come from more than one source", async () => {
@@ -202,7 +203,7 @@ describe("AgentsPage", () => {
 		useSessionStore.getState().setStatus("ready", "/repo");
 		useUiStore.getState().openAgents("definitions");
 		await mount();
-		expect(queryAll('[aria-label="Source"]')).toHaveLength(1);
+		expect(queryAll('[data-agent-sources] [role="tab"]')).toHaveLength(3);
 	});
 
 	it("connects right in the PR center when GitHub CLI is missing: the card's sign-in installs it, no download page", async () => {

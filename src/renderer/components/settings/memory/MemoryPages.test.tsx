@@ -137,6 +137,7 @@ describe("Memory › Pages", () => {
 		await settle();
 		expect(api.readPage).toHaveBeenCalledWith({ ...PROJECT, path: "decisions/d.md" });
 		expect(text("[data-memory-reader]")).toContain("Decision D");
+		expect(text("[data-memory-reader]")).toContain("decisions/d.md");
 		expect(useMemoryPageStore.getState().pending).toBeNull();
 	});
 

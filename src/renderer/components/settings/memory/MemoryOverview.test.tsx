@@ -25,12 +25,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Memory › Overview", () => {
-	it("shows status, scope, the project's counts, last capture, size and data folder when running", async () => {
+	it("shows the version, the number of projects, the project's counts, last capture, size and data folder when running", async () => {
 		await mount(<MemoryOverview project={PROJECT} projects={[APP, API]} state={memoryState()} />);
 		expect(api.overview).toHaveBeenCalledWith(PROJECT);
-		expect(text("[data-memory-status]")).toContain("Running");
+		expect(text("[data-memory-status]")).not.toContain("Running");
 		expect(text("[data-memory-status]")).toContain("v3.1.1");
-		expect(text("[data-memory-scope]")).toContain("work / app");
 		expect(text("[data-memory-scope]")).toContain("2 projects");
 		expect(text("[data-memory-counts]")).toBe("3 pages · 2 sessions · 7 observations");
 		expect(text("[data-memory-disk]")).toBe("2.0 KB");

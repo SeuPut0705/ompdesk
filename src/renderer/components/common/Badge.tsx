@@ -7,9 +7,14 @@
  * de-emphasised metadata. Use `dot` (+ `pulse` while live) for running
  * state; the text must still say the state — color is never the only cue.
  * Not a button: clickable chips are Buttons (size sm) or ListRows.
+ *
+ * `size`: `sm` 20 px (default), `xs` 16 px for a mark inside a dense line (a folded header's waiting count, an
+ * island's count). An icon child is drawn at 12 px. `truncate` lets a long badge (a path, a note) shrink with its
+ * row and end in an ellipsis instead of pushing the row wider; say the whole text elsewhere (a `Tooltip` around it).
+ * DOM attributes (`data-*`, `title`, `aria-hidden`, `id`) reach the badge itself.
  */
 
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cx } from "../../lib/format";
 
 export type BadgeVariant = "default" | "accent" | "success" | "warning" | "error" | "info" | "muted";
@@ -34,29 +39,49 @@ const DOT_CLASSES: Record<BadgeVariant, string> = {
 	muted: "bg-(--sc-text-subtle)",
 };
 
-export interface BadgeProps {
+type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
+
+export interface BadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children">, DataAttributes {
 	variant?: BadgeVariant;
 	/** Show a small colored dot before the label. */
 	dot?: boolean;
 	/** Pulse the dot (e.g. live/running states). */
 	pulse?: boolean;
-	className?: string;
+	/** `sm` 20 px (default), `xs` 16 px. */
+	size?: "xs" | "sm";
+	/** Shrink with the row and cut the text with an ellipsis. */
+	truncate?: boolean;
 	children: ReactNode;
 }
 
-export function Badge({ variant = "default", dot, pulse, className, children }: BadgeProps) {
+export function Badge({
+	variant = "default",
+	dot,
+	pulse,
+	size = "sm",
+	truncate,
+	className,
+	children,
+	...rest
+}: BadgeProps) {
 	return (
 		<span
+			{...rest}
 			className={cx(
-				"inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full px-2 text-sc-2xs font-medium whitespace-nowrap",
+				"inline-flex items-center rounded-full text-sc-2xs font-medium whitespace-nowrap [&_svg]:size-3 [&_svg]:shrink-0",
+				size === "xs" ? "h-4 gap-0.5 px-1" : "h-5 gap-1.5 px-2",
+				truncate ? "max-w-full min-w-0" : "shrink-0",
 				VARIANT_CLASSES[variant],
 				className,
 			)}
 		>
 			{dot && (
-				<span aria-hidden className={cx("size-1.5 rounded-full", pulse && "omp-pulse-dot", DOT_CLASSES[variant])} />
+				<span
+					aria-hidden
+					className={cx("size-1.5 shrink-0 rounded-full", pulse && "omp-pulse-dot", DOT_CLASSES[variant])}
+				/>
 			)}
-			{children}
+			{truncate ? <span className="min-w-0 truncate">{children}</span> : children}
 		</span>
 	);
 }

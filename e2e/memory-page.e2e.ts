@@ -38,8 +38,8 @@ test("the Memory page: search, read, edit, delete, restore and cancel a handoff 
 
 		await test.step("the overview shows the project's counts and no upstream name", async () => {
 			await expect(page.locator("[data-settings-page]")).toContainText("Memory");
-			await expect(section.locator("[data-memory-status]")).toContainText("Running");
-			await expect(section.locator("[data-memory-scope]")).toContainText("alpha");
+			await expect(section.locator("[data-memory-status]")).toHaveAttribute("data-memory-phase", "ready");
+			await expect(section.locator("[data-memory-project] option:checked")).toContainText("alpha");
 			await expect(section.locator("[data-memory-counts]")).toHaveText("4 pages · 2 sessions · 17 observations");
 			await expect(section.locator("[data-memory-last]")).not.toHaveText("");
 			await expect(section.getByRole("button", { name: "Open web console", exact: true })).toBeEnabled();

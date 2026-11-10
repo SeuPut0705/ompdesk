@@ -22,7 +22,7 @@ import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { toast } from "../../stores/toast";
 import { useUiStore } from "../../stores/ui";
-import { Button, InlineNotice, Input, Modal, Radio } from "../common";
+import { Button, FieldLabel, InlineNotice, Input, Modal, Radio } from "../common";
 
 /** Renderer-side mirror of the agent's slugify (rpc-worktree.ts). */
 function slugify(name: string): string {
@@ -204,7 +204,7 @@ export function WorktreeDialog() {
 				)}
 				{error && <InlineNotice detail={error.cause} live title={error.message} tone="danger" />}
 				<fieldset data-worktree-base disabled={creating || created !== null} className="flex flex-col gap-1.5">
-					<legend className="text-sc-sm font-medium text-(--sc-text-secondary)">{t("worktree.baseLabel")}</legend>
+					<FieldLabel as="legend">{t("worktree.baseLabel")}</FieldLabel>
 					{(["HEAD", "default"] as const).map(value => (
 						<label
 							key={value}

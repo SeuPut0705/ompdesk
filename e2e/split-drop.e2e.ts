@@ -123,8 +123,9 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture ask" }),
 			unfocused,
 		);
-		// The card is named by the question on screen: its header, so the name follows the steps.
-		const askStep = (header: string) => unfocusedPane.getByRole("region", { name: header, exact: true });
+		// The card is named as a question by the one on screen: its header, so the name follows the steps.
+		const askStep = (header: string) =>
+			unfocusedPane.getByRole("region", { name: `Question: ${header}`, exact: true });
 		await expect(askStep("Target")).toContainText("Where should this deploy?");
 		await expect(unfocusedPane).toHaveAttribute("data-active", "false");
 		await expect.poll(async () => (await tabs()).find(tab => tab.active)?.tabId).toBe(first);
@@ -298,7 +299,7 @@ test("dragging a session previews and splits on the hovered side", async () => {
 			tabId => window.omp.rpc.commandForTab(tabId, { type: "prompt", message: "fixture long ask" }),
 			quarterTab,
 		);
-		const longAsk = quarter.getByRole("region", { name: "Region", exact: true });
+		const longAsk = quarter.getByRole("region", { name: "Question: Region", exact: true });
 		await expect(longAsk).toContainText("Which region should host the release?");
 		const paneBox = await quarter.boundingBox();
 		const submit = longAsk.getByRole("button", { name: "Submit", exact: true });

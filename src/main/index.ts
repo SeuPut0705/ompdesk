@@ -2215,7 +2215,10 @@ app.whenReady().then(() => {
 			hostName: () => devices.deviceName(),
 		},
 		onPrefChanged: key => {
-			if (key === KEEP_AWAKE_WORKING_PREF) syncWorkAwake();
+			if (key === KEEP_AWAKE_WORKING_PREF) {
+				syncWorkAwake();
+				devices.keepAwakeChanged();
+			}
 			if (key === RESUME_INTERRUPTED_PREF) turnResume.sync();
 			if (key === APP_AUTO_UPDATE_PREF) appAutoUpdatePrefChanged();
 			if (key === TOOLS_AUTO_UPDATE_PREF) {

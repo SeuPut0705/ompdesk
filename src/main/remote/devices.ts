@@ -5,8 +5,8 @@
  * LAN or 0.0.0.0) and lets in the devices Tailscale vouches for: `tailscale whois` of the connection's address
  * must name a node of an allowed login (the list Mobile web uses) that is not blocked (Mobile web's blocks, by
  * node). Each device is pinned to its node and key on first contact; "approve new devices" asks first. While a
- * device is connected or one of its tabs still runs a turn, this computer is kept awake (prefs `remote.keepAwake`,
- * default on; see keep-awake.ts).
+ * device is connected or one of its tabs still runs a turn, this computer is kept awake (General's one keep-awake
+ * switch, `KEEP_AWAKE_WORKING_PREF`, default on; see keep-awake.ts).
  *
  * Client (A): the computers of the tailnet are probed while a view watches them; Connect pins one and keeps a
  * RemoteClient to it, reconnecting on its own at its node's current tailnet address. Tabs on a host are
@@ -21,6 +21,7 @@ import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+import { KEEP_AWAKE_WORKING_PREF } from "../../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import {
 	type HostView,
@@ -131,7 +132,6 @@ export const LEGACY_PEER_GRACE_MS = 30 * 24 * 60 * 60_000;
 
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
-const KEEP_AWAKE_KEY = "remote.keepAwake";
 /** The one "approve new devices" switch, shared with Mobile web (`MOBILE_WEB_PREFS.confirmNewDevices`, written there). */
 const CONFIRM_KEY = "mobileWeb.confirmNewDevices";
 /** When code-paired hosts were matched to tailnet nodes (epoch ms); unset = not yet. */
@@ -323,7 +323,7 @@ export class RemoteDevices {
 					limits: peer.limits ?? {},
 					usage: this.#quota.usage(peer),
 				})),
-				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
+				keepAwake: this.#deps.prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
 				keepingAwake: this.#keepAwake.held,
 				usedBy: peers.filter(peer => using.has(peer.deviceId)).map(peer => peer.name),
 			},
@@ -421,9 +421,9 @@ export class RemoteDevices {
 		return this.state();
 	}
 
-	setKeepAwake(enabled: boolean): RemoteState {
-		this.#deps.prefs.set(KEEP_AWAKE_KEY, enabled === true);
-		return this.#broadcastState();
+	/** General's keep-awake switch changed: the host's blocker follows it at once. */
+	keepAwakeChanged(): void {
+		this.#broadcastState();
 	}
 
 	/** Forget a device: it may come back while its login is allowed (a block keeps it out). */
@@ -1270,7 +1270,7 @@ export class RemoteDevices {
 			enabled:
 				!this.#disposed &&
 				this.#deps.prefs.get(HOST_ENABLED_KEY) === true &&
-				this.#deps.prefs.get(KEEP_AWAKE_KEY) !== false,
+				this.#deps.prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
 			connected: (host?.connections().length ?? 0) > 0,
 			running: this.#deps.services.runningPeers().length > 0,
 		});

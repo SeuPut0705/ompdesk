@@ -39,6 +39,7 @@ import {
 	MenuButton,
 	SkeletonRows,
 	Switch,
+	Tooltip,
 } from "../common";
 import { MailAccounts } from "./MailAccounts";
 import { ScheduleDialog } from "./ScheduleDialog";
@@ -138,9 +139,8 @@ export function SchedulesSection() {
 	const running = new Map(state.runs.filter(run => run.status === "running").map(run => [run.scheduleId, run]));
 	const lastRun = (id: string) => state.runs.find(run => run.scheduleId === id && run.status !== "running");
 	const names = new Map(state.schedules.map(schedule => [schedule.id, schedule.name]));
-	// A running run lives on its schedule's row (with Stop): Recent runs lists finished ones only.
-	const finished = state.runs.filter(run => run.status !== "running");
-	const runs = showAllRuns ? finished : finished.slice(0, RUNS_SHOWN);
+	// A running run stays here too (its log, trigger and start); its Stop lives on the schedule's row only.
+	const runs = showAllRuns ? state.runs : state.runs.slice(0, RUNS_SHOWN);
 	const newButton = (
 		<Button
 			data-schedule-new
@@ -285,7 +285,7 @@ export function SchedulesSection() {
 
 			<MailAccounts device={device} />
 
-			{finished.length > 0 && (
+			{state.runs.length > 0 && (
 				<SettingsSection id="settings-schedules-runs" title={t("schedules.runs")}>
 					<ul className="flex flex-col" data-schedule-runs>
 						{runs.map(run => (
@@ -299,14 +299,14 @@ export function SchedulesSection() {
 							/>
 						))}
 					</ul>
-					{finished.length > RUNS_SHOWN && (
+					{state.runs.length > RUNS_SHOWN && (
 						<Button
 							aria-expanded={showAllRuns}
 							onClick={() => setShowAllRuns(value => !value)}
 							size="sm"
 							variant="ghost"
 						>
-							{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: finished.length })}
+							{showAllRuns ? t("schedules.runsFewer") : t("schedules.runsAll", { count: state.runs.length })}
 						</Button>
 					)}
 				</SettingsSection>
@@ -377,10 +377,12 @@ function RunRow({
 						<span className="text-(--sc-text-muted)"> · {t(`schedules.trigger.${run.trigger}`)}</span>
 					)}
 				</span>
-				<span className="shrink-0 text-sc-xs text-(--sc-text-muted)" title={formatClock(run.startedAt)}>
-					{formatTimeAgo(run.startedAt)}
-					{duration ? ` · ${duration}` : ""}
-				</span>
+				<Tooltip content={formatClock(run.startedAt)}>
+					<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
+						{formatTimeAgo(run.startedAt)}
+						{duration ? ` · ${duration}` : ""}
+					</span>
+				</Tooltip>
 				{run.status !== "skipped" && (
 					<Button aria-expanded={open} icon={<Chevron />} onClick={onToggleLog} size="sm" variant="ghost">
 						{open ? t("schedules.hideLog") : t("schedules.showLog")}

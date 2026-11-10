@@ -22,6 +22,7 @@ import {
 	DisclosureButton,
 	ListRow,
 	MasterDetail,
+	PathText,
 	SearchField,
 	SectionLabel,
 	SettingInfo,
@@ -228,10 +229,10 @@ function PageReader({ target, onClose }: { target: MemoryPageTarget; onClose: ()
 				{!page.markdown.trimStart().startsWith(`# ${page.title}`) && (
 					<h3 className="truncate text-sc-md font-semibold text-(--sc-text)">{page.title}</h3>
 				)}
-				<p
-					className="flex min-w-0 flex-wrap items-center gap-x-2 text-sc-xs text-(--sc-text-muted)"
-					title={page.path}
-				>
+				<p className="flex min-w-0 flex-wrap items-center gap-x-2 text-sc-xs text-(--sc-text-muted)">
+					<span className="min-w-0 max-w-full" data-memory-reader-path>
+						<PathText path={page.path} />
+					</span>
 					{page.kind && <span>{t(`memory.kind.${page.kind}`)}</span>}
 					{unusualTier(page) && <span>{t(`memory.tier.${unusualTier(page)}`)}</span>}
 					<span>{formatTimeAgo(page.updatedAt)}</span>

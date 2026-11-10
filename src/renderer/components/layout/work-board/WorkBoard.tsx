@@ -106,6 +106,8 @@ function hasCharge(spend: SessionSpend | null): spend is SessionSpend {
 const TURN_STEPS = 1;
 /** A call's clock and the turn's come from different events of one batch: a call within this of the start is the turn's. */
 const TURN_CLOCK_SLACK_MS = 500;
+/** How much of the run's section must be in the docked board's view for the composer's "show the run" to give way. */
+const RUN_SHOWN_PX = 48;
 
 function stepHeader(entry: ToolEntry, t: (key: string, params?: Record<string, string | number>) => string) {
 	const header = getToolHeader(entry.toolName, entry.args);
@@ -300,6 +302,8 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const goalDetail = useGoalDetail(goal?.objective, goalState, turnActive);
 	// An Autopilot tab's board is the run's home: its head names the run, its first sections are the run's.
 	const autopilotTab = useAutopilotStore(isAutopilotTab);
+	// A run's head carries each metered provider's charge in its totals' tooltip, so the board's own spend line gives way.
+	const runTotals = useAutopilotStore(state => isAutopilotTab(state) && state.status.totals !== undefined);
 	const autopilotRunning = useAutopilotStore(state => isLiveAutopilot(state) && state.status.state === "running");
 	const pending = useExtensionUiStore(state => state.pendingRequests);
 	const loginRequestIds = useExtensionUiStore(state => state.loginRequestIds);
@@ -352,6 +356,46 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 			pane.removeAttribute("data-work-board-todo");
 		};
 	}, [pane, present, inline, showsRunning, showsTodos]);
+	const boardRef = useRef<HTMLElement>(null);
+	const runFolded = useWorkBoardStore(state => state.collapsed.autopilot === true);
+	// The composer's "show the run" chip gives way while the run's section is open and in the board's view
+	// (components.css): folded, or scrolled out of a long board, the run is not on screen and the chip brings it back.
+	useEffect(() => {
+		const board = boardRef.current;
+		if (!present || !board || inline || !autopilotTab || runFolded || typeof IntersectionObserver === "undefined")
+			return;
+		const mark = (shown: boolean) => pane.toggleAttribute("data-work-board-run-shown", shown);
+		let watched: Element | null = null;
+		// Shown once a row's worth of it is in view, or the whole of a section shorter than that.
+		const seen = new IntersectionObserver(
+			entries => {
+				const entry = entries.at(-1);
+				if (entry)
+					mark(
+						entry.isIntersecting &&
+							entry.intersectionRect.height >= Math.min(entry.boundingClientRect.height, RUN_SHOWN_PX),
+					);
+			},
+			{ root: board, threshold: [0, 0.25, 0.5, 0.75, 1] },
+		);
+		// The run's sections come from a lazy chunk and remount as the run changes: follow whichever is there.
+		const watch = () => {
+			const section = board.querySelector(':scope > [data-board-section="autopilot"]');
+			if (section === watched) return;
+			if (watched) seen.unobserve(watched);
+			watched = section;
+			if (section) seen.observe(section);
+			else mark(false);
+		};
+		watch();
+		const children = new MutationObserver(watch);
+		children.observe(board, { childList: true });
+		return () => {
+			children.disconnect();
+			seen.disconnect();
+			mark(false);
+		};
+	}, [pane, present, inline, autopilotTab, runFolded]);
 	if (!present) return null;
 
 	// The head, the Needs you section and its live region read these (the strip's label reads the same), so a figure is
@@ -432,7 +476,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 	const planFigure = plan && (plan.rows.length > 0 || showsGoal) ? `${plan.done}/${plan.total}` : undefined;
 
 	return (
-		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel>
+		<aside aria-label={t("workBoard.label")} className="omp-work-board" data-work-board-panel ref={boardRef}>
 			{/* One line of status (the pulse, the one clause that matters, a figure for what runs), the project of a
 			   linked worktree, then one line of meters: the subscription accounts' windows and a metered provider's
 			   charge side by side where they fit (each item's details are its tooltip). The strip names itself above. */}
@@ -486,7 +530,7 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				) : null}
 				<div className="omp-work-board-meters">
 					<AccountLimit />
-					{hasCharge(spend) ? (
+					{!runTotals && hasCharge(spend) ? (
 						<Suspense fallback={null}>
 							<SessionSpendLine spend={spend} />
 						</Suspense>
@@ -498,7 +542,9 @@ export function WorkBoard({ pane, inline = false }: { pane: HTMLElement; inline?
 				<BoardSection
 					action={workTree === "needs" ? <WorkTreeButton /> : null}
 					aside={jumpKey ? <Kbd shortcut={jumpKey} /> : null}
-					count={counts.needs}
+					// The docked head right above already says how many ("3 need you"); the strip panel's head draws no
+					// clause, and one ask's head says its word, so there the section keeps the figure.
+					count={!inline && counts.needs > 1 ? undefined : counts.needs}
 					live={needsText}
 					id="needs"
 					title={t("workBoard.needs")}

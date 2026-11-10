@@ -313,9 +313,10 @@ describe("WorkBoard header", () => {
 			expect(pane.querySelector('[data-board-section="current"] [data-board-session="check"]')).not.toBeNull(),
 		);
 		const needs = section("needs");
-		// Two asks (a question, a plan up for review): one figure, in the head, the section's count and the strip's
-		// label; what runs is its own figure. The failed check is a Current work row and counts for nothing here.
-		expect(needs?.querySelector(".omp-work-board-count")?.textContent).toBe("2");
+		// Two asks (a question, a plan up for review): one figure, in the head and the strip's label (the section right
+		// under the docked head does not say it again); what runs is its own figure. The failed check is a Current work
+		// row and counts for nothing here.
+		expect(needs?.querySelector(".omp-work-board-count")).toBeNull();
 		expect(needs?.querySelectorAll("li")).toHaveLength(2);
 		expect(pane.querySelector("[data-board-status]")?.textContent).toBe("2 need you");
 		expect(pane.querySelector(".omp-work-board-figure")?.textContent).toBe("3 running");
@@ -665,7 +666,7 @@ describe("WorkBoard sections", () => {
 			el.getAttribute("data-board-section"),
 		);
 		expect(sections[0]).toBe("needs");
-		expect(section("needs")?.textContent).toContain("Needs you2");
+		expect(section("needs")?.querySelector(".omp-work-board-fold")?.textContent).toBe("Needs you");
 		expect(section("needs")?.querySelector("kbd")?.textContent).toBe("⌥B");
 		// A tool approval says approval, as the head's clause does, never question.
 		expect(pane.querySelector('[data-board-waiting="ap1"]')?.textContent).toMatch(/^Approval.*Allow bash\?/);

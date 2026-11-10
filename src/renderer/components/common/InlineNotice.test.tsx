@@ -1,3 +1,4 @@
+import { parseHTML } from "linkedom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { I18nProvider } from "../../lib/i18n";
@@ -26,9 +27,17 @@ describe("InlineNotice", () => {
 		expect(copyable).toMatch(/<button[^>]*aria-label="Copy error"/);
 	});
 
-	it("shows a still pending ring, never a turning one", () => {
+	it("shows the original output whole under the cause, every line as written", () => {
+		const stderr = "Error: model not found\n  at bench (run.ts:12)\n  at main (run.ts:40)";
+		const { document } = parseHTML(
+			`<html><body>${render(<InlineNotice detail="exit 1" output={stderr} title="The benchmark failed." tone="danger" />)}</body></html>`,
+		);
+		expect(document.querySelector("pre[data-error-detail]")?.textContent).toBe(stderr);
+		expect(document.body.textContent).toContain("exit 1");
+	});
+
+	it("announces a live pending read as a status", () => {
 		const html = render(<InlineNotice live title="Checking accounts…" tone="pending" />);
 		expect(html).toContain('role="status"');
-		expect(html).not.toContain("animate-spin");
 	});
 });

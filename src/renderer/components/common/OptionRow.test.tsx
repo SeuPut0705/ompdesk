@@ -39,7 +39,7 @@ describe("OptionRow", () => {
 				<OptionRow active id="o-1">
 					One
 				</OptionRow>
-				<OptionRow active={false} id="o-2">
+				<OptionRow active={false} id="o-2" size="xs">
 					Two
 				</OptionRow>
 				<OptionRow active selected={false} id="o-3">

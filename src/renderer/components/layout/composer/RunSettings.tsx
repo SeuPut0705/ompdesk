@@ -123,6 +123,7 @@ export function SpeedFields() {
 		// so its switch lines up at the right edge with the rows above instead of stopping mid-sheet.
 		<div className="-mx-1.5 grid grid-cols-2 gap-x-1 [&>:last-child:nth-child(odd)]:col-span-2" data-switch-grid>
 			<SwitchTile
+				infoEnd
 				checked={fastEnabled}
 				data-fast-mode
 				description={
@@ -136,6 +137,7 @@ export function SpeedFields() {
 			/>
 			{slowSupported && (
 				<SwitchTile
+					infoEnd
 					checked={slowEnabled}
 					data-slow-mode
 					description={t(
@@ -148,6 +150,7 @@ export function SpeedFields() {
 			)}
 			{ultrafastSupported && (
 				<SwitchTile
+					infoEnd
 					checked={ultrafastEnabled}
 					data-ultrafast-mode
 					description={t("input.runSettings.ultrafastDesc")}
@@ -192,8 +195,10 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 					{t("input.runSettings.advanced")}
 				</Button>
 				{advancedOpen && (
-					<div className="grid grid-cols-2 gap-x-1 pb-1" data-switch-grid>
+					// 2 px in: with the row's 4 px, a tile's 6 px padding puts its (i) in the sheet's one column at 12 px.
+					<div className="grid grid-cols-2 gap-x-1 px-0.5 pb-1" data-switch-grid>
 						<SwitchTile
+							infoEnd
 							checked={autoCompaction}
 							description={t("input.more.autoCompactDesc")}
 							disabled={pending}
@@ -203,6 +208,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 						/>
 						<ContextSizeField />
 						<SwitchTile
+							infoEnd
 							checked={autoRetry}
 							description={t("input.more.autoRetryDesc")}
 							disabled={pending}
@@ -211,6 +217,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 							onCheckedChange={next => void run(() => rpc.setAutoRetry(next))}
 						/>
 						<SwitchTile
+							infoEnd
 							checked={prewalkArmed}
 							description={t("cmd.prewalk.desc")}
 							disabled={pending}
@@ -219,6 +226,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 							onCheckedChange={next => void run(() => rpc.setPrewalk(next), "prewalk")}
 						/>
 						<SwitchTile
+							infoEnd
 							checked={steeringMode === "all"}
 							description={t("input.more.steeringAllDesc")}
 							disabled={pending}
@@ -227,6 +235,7 @@ export function AdvancedAndRoles({ onClose }: { onClose: () => void }) {
 							onCheckedChange={next => void run(() => rpc.setSteeringMode(next ? "all" : "one-at-a-time"))}
 						/>
 						<SwitchTile
+							infoEnd
 							checked={interruptMode === "immediate"}
 							description={t("input.more.interruptImmediateDesc")}
 							disabled={pending}

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { TOOLS_AUTO_UPDATE_PREF } from "../shared/desktop-prefs";
+import { KEEP_AWAKE_WORKING_PREF, TOOLS_AUTO_UPDATE_PREF } from "../shared/desktop-prefs";
 import { writeFileAtomicSync } from "./atomic-file";
 
 /** The prefs store as electron-store offers it: a dotted key names a nested value. */
@@ -26,6 +26,13 @@ const MERGES: readonly { into: string; from: readonly string[]; value: (old: unk
 		from: ["mobileWeb.confirmNewDevices", "remote.confirmNewDevices"],
 		value: old => (old.some(value => value === true) ? true : undefined),
 	},
+	{
+		// One keep-awake switch for work here and for devices using this computer: off only when both were off.
+		into: KEEP_AWAKE_WORKING_PREF,
+		from: [KEEP_AWAKE_WORKING_PREF, "remote.keepAwake"],
+		// Both default on, so only a stored `false` counts: the host's stored `true` turns a stored-off work switch on.
+		value: ([work, host]) => (work === false && host === true ? true : undefined),
+	},
 ];
 
 /** Prefs whose switch was removed; `migrateRetiredPrefs` deletes them so a stale value never lingers in prefs.json. */
@@ -33,6 +40,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 	{
 		key: "modelPool",
 		why: "The model pool was removed. The journal's `ompdesk.model-pool` entries stay in old sessions and are ignored.",
+	},
+	{
+		key: "remote.keepAwake",
+		why: "Merged into General's one keep-awake switch (`keepAwakeWhileWorking`), which also covers devices using this computer.",
 	},
 	{
 		key: "worktreeAutoClean",

@@ -112,6 +112,8 @@ describe("dialogs that start something only on a click", () => {
 		useUiStore.setState({ shareSessionOpen: true });
 		await mount(<ShareSessionDialog />);
 		expect(document.body.textContent).toContain("user: hi");
+		// Where the transcript would go is on screen before anything uploads, not only in a hover text.
+		expect(document.body.textContent).toContain("http://127.0.0.1/");
 		const uploads = () => sent.filter(type => type !== "preview_share_session");
 		expect(uploads()).toEqual([]);
 		await click(translate("shareDialog.upload"));

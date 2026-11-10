@@ -43,6 +43,7 @@ import {
 	Kbd,
 	Modal,
 	type ModalAnchor,
+	OptionGroup,
 	SearchField,
 	SkeletonRows,
 	Spinner,
@@ -399,29 +400,28 @@ export function ModelPicker() {
 							const groupName =
 								provider === null ? t("modelPicker.recent") : (nameByProvider.get(provider) ?? provider);
 							return (
-								<section aria-label={groupName} data-model-group={groupId} key={groupId} role="group">
-									<div
-										className={cx(
-											"flex items-center gap-1.5 px-2 pt-1.5 pb-0.5",
-											auth?.available && !auth.authenticated ? "min-h-(--sc-control-sm)" : "min-h-6",
-										)}
-									>
-										<span className="truncate text-sc-2xs font-medium tracking-wider text-(--sc-text-muted) uppercase">
-											{groupName}
-										</span>
-										{auth && !auth.authenticated && (
-											<Badge variant={auth.available ? "warning" : "muted"}>
-												{auth.available
-													? t("modelPicker.auth.notSignedIn")
-													: t("modelPicker.auth.unavailable")}
-											</Badge>
-										)}
-										{auth?.available && !auth.authenticated && (
-											<Button className="ml-auto" onClick={manageProviders} size="sm" variant="ghost">
-												{t("providerList.connect")}
-											</Button>
-										)}
-									</div>
+								<OptionGroup
+									action={
+										auth &&
+										!auth.authenticated && (
+											<>
+												<Badge variant={auth.available ? "warning" : "muted"}>
+													{auth.available
+														? t("modelPicker.auth.notSignedIn")
+														: t("modelPicker.auth.unavailable")}
+												</Badge>
+												{auth.available && (
+													<Button className="ml-auto" onClick={manageProviders} size="sm" variant="ghost">
+														{t("providerList.connect")}
+													</Button>
+												)}
+											</>
+										)
+									}
+									data-model-group={groupId}
+									key={groupId}
+									label={groupName}
+								>
 									{models.map(model => {
 										const key = `${model.provider}/${model.id}`;
 										const isCurrent = current?.provider === model.provider && current.id === model.id;
@@ -532,7 +532,7 @@ export function ModelPicker() {
 											</button>
 										);
 									})}
-								</section>
+								</OptionGroup>
 							);
 						})
 					)}

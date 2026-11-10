@@ -1,6 +1,15 @@
 import * as fs from "node:fs/promises";
 import type { Locator, Page } from "@playwright/test";
-import type { Look } from "./responsive-audit";
+import { en } from "../src/renderer/locales/en";
+import { ko } from "../src/renderer/locales/ko";
+import { type Look, touchLook } from "./responsive-audit";
+
+/** A control's words in the look's language, so a Korean look finds by name what an English one does. */
+const say = (look: Look, key: string): string => {
+	const words = (look.lang === "ko" ? ko : en)[key];
+	if (!words) throw new Error(`no ${look.lang} text for ${key}`);
+	return words;
+};
 
 // The surfaces the responsive audit opens, split by owner (A: sidebar, transcript, composer and its popovers, side
 // panels; B: Settings, Stats/Usage, Agents, Autopilot, Schedules, remote devices, model compare, Mobile web, every
@@ -223,17 +232,20 @@ async function ui(page: Page, action: string, ...args: unknown[]): Promise<void>
 }
 
 /**
- * Show the side panel's `name` view by clicks a person makes, on a real window as on the harness: the title bar's Side
+ * Show the side panel's `view` by clicks a person makes, on a real window as on the harness: the title bar's Side
  * panel button when the panel is closed, then the view's button (the panel's top bar; a phone's tab bar at its foot).
  */
-async function openPanelView(page: Page, name: string): Promise<void> {
-	const view = page
+async function openPanelView(page: Page, look: Look, view: "diff" | "files"): Promise<void> {
+	const button = page
 		.locator(".omp-panel-topbar:visible, [data-panel-tabbar]:visible")
-		.getByRole("button", { name, exact: true })
+		.getByRole("button", { name: say(look, `panel.tabs.${view}`), exact: true })
 		.first();
-	if (!(await view.isVisible().catch(() => false)))
-		await page.getByRole("button", { name: "Side panel", exact: true }).first().click();
-	await view.click();
+	if (!(await button.isVisible().catch(() => false)))
+		await page
+			.getByRole("button", { name: say(look, "titlebar.sidePanel"), exact: true })
+			.first()
+			.click();
+	await button.click();
 }
 
 /**
@@ -241,7 +253,7 @@ async function openPanelView(page: Page, name: string): Promise<void> {
  * board docks in, so the board of the surface after it folds into its strip.
  */
 async function closePanelView(page: Page): Promise<void> {
-	const close = page.getByRole("button", { name: "Close side panel", exact: true }).first();
+	const close = page.locator("[data-panel-close]:visible").first();
 	if (await close.isVisible().catch(() => false)) await close.click();
 }
 
@@ -270,6 +282,14 @@ async function updater(page: Page, status: Record<string, unknown>): Promise<voi
 }
 
 const isPhone = (look: Look): boolean => look.width < 600;
+/**
+ * Where the work board is its strip, not docked beside the transcript (`workBoardDocks`, work-board.ts): every phone,
+ * tablet in portrait and the 1024 px tablet sideways keep the strip; an iPad from 1133 sideways and every desktop
+ * window from 1100 dock it beside a column narrowed for it.
+ */
+const boardIsStrip = (look: Look): boolean => look.width < 1100;
+/** The host's sheets are the paired web page's (`WebHostUi` renders nothing in the desktop app). */
+const webPage = (look: Look): boolean => look.device !== "electron";
 
 /**
  * The soft keyboard comes up the way Chrome on Android shows it (`interactive-widget=resizes-content`): the layout
@@ -469,18 +489,7 @@ async function openPageTab(
 	const section = page.locator(`section[data-destination="${command === "stats" ? "insights" : "agents"}"]`);
 	await section.waitFor({ state: "visible", timeout: 15_000 });
 	if (!tab) return;
-	const target = section.locator(`[role="tab"][data-tab-id="${tab}"]`);
-	// The harness's resetPage presses Escape twice, which the composer reads as its double Esc and answers with the
-	// rewind picker a moment later, over the page: close it once and click again. A real window has no such picker.
-	if (
-		!(await target.click({ timeout: 3_000 }).then(
-			() => true,
-			() => false,
-		))
-	) {
-		await page.keyboard.press("Escape");
-		await target.click();
-	}
+	await section.locator(`[role="tab"][data-tab-id="${tab}"]`).click();
 }
 
 async function openSettings(page: Page, section: string): Promise<void> {
@@ -602,6 +611,23 @@ async function showInReply(page: Page, target: Locator, drawn: readonly string[]
 	await holdAtTop(target);
 }
 
+/** The transcript's first row at the top of its view, reached the way `showTurn` reaches a turn (a wheel, then scrolls). */
+async function showTranscriptStart(page: Page): Promise<void> {
+	const scroller = page.locator(".omp-transcript-scroll").first();
+	const first = scroller.locator('[data-index="0"]');
+	await scroller.evaluate(element =>
+		element.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true })),
+	);
+	for (let attempt = 0; attempt < 30 && (await first.count()) === 0; attempt++)
+		await scroller.evaluate(async element => {
+			element.scrollTop = 0;
+			const mounted = Promise.withResolvers<void>();
+			requestAnimationFrame(() => requestAnimationFrame(() => mounted.resolve()));
+			await mounted.promise;
+		});
+	await holdAtTop(first);
+}
+
 export const SURFACES: readonly Surface[] = [
 	// ── Area A: sidebar, transcript, composer, panels ─────────────────────────────────────────
 	{
@@ -707,7 +733,7 @@ export const SURFACES: readonly Surface[] = [
 					[".markdown-body .katex-display", ".markdown-body [data-figure] img"],
 				);
 			},
-			ready: ".markdown-body h2",
+			ready: `.markdown-body h2:text-is("${heading}")`,
 			settle: 900,
 			// Each view shows its section; the Text one, the row whose chips spilled their paths sideways.
 			parity: {
@@ -883,16 +909,16 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "board-strip",
 		area: "A",
-		title: "Work board (busy session, ?board=busy): docked beside the transcript where the pane holds it (an iPad sideways), else the status strip under the header, expanded",
+		title: "Work board strip (busy session, ?board=busy), expanded: under the header on a phone, above the composer elsewhere, where the pane cannot dock the board (docked: board-strip-open)",
 		query: "&board=busy",
+		when: boardIsStrip,
 		open: async page => {
 			// The busy fixture's turn, question and goal land 1.5 s after boot (dev-harness/boot.ts).
 			const chip = page.locator("[data-work-chip][data-state='waiting']");
-			const docked = page.locator(".omp-work-board-slot [data-board-section='needs']");
-			await chip.or(docked).first().waitFor({ state: "visible", timeout: 15_000 });
-			if ((await chip.count()) > 0 && (await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
+			await chip.waitFor({ state: "visible", timeout: 15_000 });
+			if ((await chip.getAttribute("aria-expanded")) !== "true") await chip.click();
 		},
-		ready: "[data-work-board-panel]",
+		ready: "[data-work-strip-panel]",
 		settle: 600,
 	},
 	{
@@ -987,27 +1013,15 @@ export const SURFACES: readonly Surface[] = [
 		id: "transcript-top",
 		area: "A",
 		title: "Transcript scrolled to its first turn",
-		open: async page => {
-			await page.evaluate(() => {
-				const row = document.querySelector("[data-transcript-kind]");
-				let node = row?.parentElement ?? null;
-				while (node && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
-				if (node) node.scrollTop = 0;
-			});
-		},
+		open: showTranscriptStart,
+		ready: '.omp-transcript-scroll [data-index="0"]',
 	},
 	{
 		id: "transcript-stress",
 		area: "A",
 		title: "Transcript at the stress turns: long URL, wide table, long code line, diff, mermaid, long tool paths",
-		open: async page => {
-			await page.evaluate(() => {
-				const row = document.querySelector("[data-transcript-kind]");
-				let node = row?.parentElement ?? null;
-				while (node && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) node = node.parentElement;
-				if (node) node.scrollTop = node.scrollHeight;
-			});
-		},
+		open: page => showTurn(page, "Show me everything that tends to overflow on a phone."),
+		ready: '.omp-user-bubble:has-text("Show me everything that tends to overflow on a phone.")',
 		settle: 900,
 	},
 	{
@@ -1054,9 +1068,10 @@ export const SURFACES: readonly Surface[] = [
 		title: "Slash command menu",
 		open: async page => {
 			const input = page.locator("[data-composer-input]");
-			await input.click();
+			await input.fill("");
 			await input.pressSequentially("/", { delay: 30 });
 		},
+		ready: '.omp-composer-anchor [role="listbox"]',
 	},
 	{
 		id: "composer-at-menu",
@@ -1064,9 +1079,10 @@ export const SURFACES: readonly Surface[] = [
 		title: "@ file menu",
 		open: async page => {
 			const input = page.locator("[data-composer-input]");
-			await input.click();
+			await input.fill("");
 			await input.pressSequentially("@", { delay: 30 });
 		},
+		ready: '.omp-composer-anchor [role="listbox"]',
 	},
 	{
 		id: "composer-long-draft",
@@ -1123,12 +1139,13 @@ export const SURFACES: readonly Surface[] = [
 			id: `panel-${panel}`,
 			area: "A",
 			title: `Side panel › ${panel}`,
-			open: async page => {
+			open: async (page, look) => {
 				if (panel !== "diff") return ui(page, "setPanelTab", panel);
-				await openPanelView(page, "Changes");
+				await openPanelView(page, look, "diff");
 				await page.locator("[data-scm-bar]:visible").first().waitFor({ timeout: 20_000 });
 			},
-			ready: "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
+			ready:
+				panel === "diff" ? "[data-scm-bar]:visible" : "[data-sheet-panel], [data-panel-tabbar], .omp-panel-topbar",
 			...(panel === "diff" ? { parity: { session: "work" as const, after: closePanelView } } : {}),
 			settle: 900,
 		}),
@@ -1149,9 +1166,9 @@ export const SURFACES: readonly Surface[] = [
 		id: "panel-files-viewer",
 		area: "A",
 		title: "Files viewer on a changed file",
-		open: async page => {
-			await openPanelView(page, "Files");
-			await page.getByLabel("Search files", { exact: true }).first().fill("Sidebar.tsx");
+		open: async (page, look) => {
+			await openPanelView(page, look, "files");
+			await page.getByLabel(say(look, "filesPanel.search"), { exact: true }).first().fill("Sidebar.tsx");
 			await page
 				.getByRole("treeitem", { name: /Sidebar\.tsx/ })
 				.first()
@@ -1270,8 +1287,11 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Settings › Devices & connections with the installed-app notification row",
 		query: "&pwa=push",
-		open: page => openSettings(page, "connections"),
-		ready: "[data-settings-page]",
+		open: async page => {
+			await openSettings(page, "connections");
+			await page.locator("[data-settings-page] [data-web-push-state]").first().scrollIntoViewIfNeeded();
+		},
+		ready: "[data-settings-page] [data-web-push-state]",
 		settle: 900,
 	},
 	...(["live", "definitions", "prs", "github"] as const).map(
@@ -1538,7 +1558,7 @@ export const SURFACES: readonly Surface[] = [
 	{
 		id: "card-approval",
 		area: "A",
-		title: "Tool approval card with a long command",
+		title: "Tool approval card with a long command, docked above the composer (an Autopilot run's card once its approver's 3 s have passed)",
 		open: page =>
 			request(page, {
 				id: "audit-approval",
@@ -1546,6 +1566,7 @@ export const SURFACES: readonly Surface[] = [
 				title: "Allow tool: bash\nbunx vitest run src/renderer/components/layout/sidebar src/renderer/components/layout/composer --repeat 10 --reporter=verbose",
 				options: ["Approve", "Deny"],
 			}),
+		ready: ".omp-ask-dock [data-prompt-card]",
 	},
 	{
 		id: "card-input",
@@ -1633,17 +1654,20 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: a file the agent named (open / reveal / download)",
 		query: "&host=1",
+		when: webPage,
 		open: page =>
 			hostPrompt(page, {
 				kind: "openPath",
 				path: "/Users/dev/projects/ompdesk/src/renderer/components/layout/sidebar/Sidebar.tsx",
 			}),
+		ready: '[data-host-sheet="openPath"]',
 	},
 	{
 		id: "host-browser-folder",
 		area: "B",
 		title: "Host sheet: the computer's folder browser",
 		query: "&host=1",
+		when: webPage,
 		open: page =>
 			hostPrompt(page, {
 				kind: "browse",
@@ -1658,6 +1682,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: the computer's file browser",
 		query: "&host=1",
+		when: webPage,
 		open: page =>
 			hostPrompt(page, { kind: "browse", mode: "file", title: "Attach a file", defaultPath: "/Users/dev/projects" }),
 		settle: 700,
@@ -1667,6 +1692,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: edit on the computer",
 		query: "&host=1",
+		when: webPage,
 		open: page =>
 			hostPrompt(page, {
 				kind: "editor",
@@ -1678,6 +1704,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: save an image (phone or computer)",
 		query: "&host=1",
+		when: webPage,
 		open: page =>
 			hostPrompt(page, { kind: "saveImage", name: "diagram.png", mime: "image/png", base64: "iVBORw0KGgo=" }),
 	},
@@ -1686,6 +1713,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: the agent's models file",
 		query: "&host=1",
+		when: webPage,
 		open: page => hostPrompt(page, { kind: "models" }),
 		settle: 700,
 	},
@@ -1694,6 +1722,7 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: quit confirmation",
 		query: "&host=1",
+		when: webPage,
 		open: page => hostPrompt(page, { kind: "quit" }),
 	},
 	{
@@ -1701,15 +1730,20 @@ export const SURFACES: readonly Surface[] = [
 		area: "B",
 		title: "Host sheet: update confirmation",
 		query: "&host=1",
+		when: webPage,
 		open: page => hostPrompt(page, { kind: "update" }),
 	},
-	...(["ios-share", "prompt", "samsung-menu", "firefox-menu"] as const).map(
+	// No sheet for `prompt`: a browser that offers its own install prompt gets that prompt (install-ui.ts), the sheet
+	// only lists the menu steps of one that does not. Those browsers are a phone's or a tablet's.
+	...(["ios-share", "samsung-menu", "firefox-menu"] as const).map(
 		(guidance): Surface => ({
 			id: `host-install-${guidance}`,
 			area: "B",
 			title: `PWA install sheet (${guidance})`,
 			query: "&host=1",
+			when: touchLook,
 			open: page => hostPrompt(page, { kind: "install", guidance }),
+			ready: `[data-install-steps="${guidance}"]`,
 		}),
 	),
 ];

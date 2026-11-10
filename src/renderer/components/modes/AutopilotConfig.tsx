@@ -1,9 +1,11 @@
 /**
  * The Autopilot tab of the Mode popover: the start sheet while no run is live, the way to the run and its controls
- * while one is (the tab's badge says it runs; the board says where). Starting always opens a new worktree tab on a new
- * `autopilot/<date>` branch cut from the folder's own branch (the Branch row shows that branch, nothing else) and runs
- * there with every tool approved, so this sheet is where the user consents to that (it replaces the full-access
- * confirmation).
+ * while one is (the tab's badge says it runs; the board says where). While the pane's work board docks with the run's
+ * section open, its row of three controls sits beside the composer, so the tab leaves them out and keeps only the way
+ * to the run; in the strip, with the section folded and on a phone the tab carries them. Starting always opens a new
+ * worktree tab on a new `autopilot/<date>` branch cut from the folder's own branch (the Branch row shows that branch,
+ * nothing else) and runs there with every tool approved, so this sheet is where the user consents to that (it replaces
+ * the full-access confirmation).
  */
 
 import { CircleCheck, GitBranch, LayoutDashboard, Rocket, TriangleAlert } from "lucide-react";
@@ -21,10 +23,12 @@ import { useTabRpc } from "../../lib/tab-rpc";
 import { isLiveAutopilot, tabAutopilotStore, useAutopilotStore } from "../../stores/autopilot";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useUiStore } from "../../stores/ui";
+import { useWorkBoardStore } from "../../stores/work-board";
 import { AutopilotControls } from "../autopilot/AutopilotControls";
 import { FocusChips } from "../autopilot/FocusChips";
 import { useAutopilotActions } from "../autopilot/use-autopilot-actions";
 import { useAutopilotStateText } from "../autopilot/use-autopilot-state-text";
+import { useBoardDocked } from "../chat/work/use-board-docked";
 import { Button, InlineNotice, SettingInfo, Tabs, Tooltip } from "../common";
 import { SettingsAdvanced, SettingsRow } from "../settings/SettingsLayout";
 
@@ -60,12 +64,15 @@ function useIsRepo(): boolean | null {
 	return isRepo;
 }
 
-/** The way to the run on the work board, with the controls that apply to it; the cycle and branch are its tooltip. */
+/** The way to the run on the work board, with the controls the board does not already show beside it. */
 function RunSummary({ onOpened }: { onOpened?: () => void }) {
 	const t = useT();
 	const tabId = useRuntimeTabId();
 	const text = useAutopilotStateText();
 	const branch = useAutopilotStore(s => s.status.branch);
+	const docked = useBoardDocked();
+	const runFolded = useWorkBoardStore(state => state.collapsed.autopilot === true);
+	const boardShowsControls = docked && !runFolded;
 	return (
 		<div className="flex flex-wrap items-center gap-1.5" data-autopilot-run data-autopilot-run-actions>
 			<Tooltip content={[text, branch].filter(Boolean).join(" · ") || t("autopilot.chip.open")} describe={false}>
@@ -82,7 +89,7 @@ function RunSummary({ onOpened }: { onOpened?: () => void }) {
 					{t("autopilot.chip.open")}
 				</Button>
 			</Tooltip>
-			<AutopilotControls compact />
+			{boardShowsControls ? null : <AutopilotControls compact />}
 		</div>
 	);
 }

@@ -8,9 +8,20 @@ import { I18nProvider } from "../../../lib/i18n";
 import { useAgentReviewStore } from "../../../stores/agent-review";
 import { type SessionTab, useTabsStore } from "../../../stores/tabs";
 import { type ToolEntry, toolEntriesState, useToolsStore } from "../../../stores/tools";
+import { useWorkBoardStore } from "../../../stores/work-board";
 
-const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
-Object.assign(globalThis, { document, window, Event, HTMLElement, Element, Node, IS_REACT_ACT_ENVIRONMENT: true });
+const { document, window, Event, HTMLElement, Element, Node, MutationObserver } =
+	parseHTML("<html><body></body></html>");
+Object.assign(globalThis, {
+	document,
+	window,
+	Event,
+	HTMLElement,
+	Element,
+	Node,
+	MutationObserver,
+	IS_REACT_ACT_ENVIRONMENT: true,
+});
 const command = vi.fn(async (_sent: { type: string; live?: boolean }) => ({ success: true, data: null }));
 Object.assign(window, {
 	innerWidth: 1280,
@@ -92,6 +103,7 @@ afterEach(async () => {
 	useToolsStore.getState().reset();
 	useTabsStore.getState().reset();
 	useAgentReviewStore.getState().reset();
+	useWorkBoardStore.getState().reset();
 	command.mockClear();
 	vi.useRealTimers();
 });
@@ -196,5 +208,35 @@ describe("between the parent's turns", () => {
 			useAgentReviewStore.getState().apply({ tabId: "p", items: [] });
 		});
 		expect(rows()).toHaveLength(0);
+	});
+});
+
+describe("beside the pane's docked work board", () => {
+	async function mountInPane() {
+		container.className = "omp-session-pane";
+		container.setAttribute("data-tab-id", "p");
+		container.setAttribute("data-work-board", "");
+		await act(async () =>
+			root.render(
+				<I18nProvider>
+					<ChildrenAtWork />
+				</I18nProvider>,
+			),
+		);
+		await rowsLoaded();
+	}
+
+	it("leaves the children to the board while its section is open, and lists them once it is folded", async () => {
+		await mountInPane();
+		expect(rows()).toHaveLength(0);
+		await act(async () => useWorkBoardStore.setState({ collapsed: { now: true }, hydrated: true }));
+		expect(rows().map(row => row.getAttribute("data-child-at-work"))).toEqual(["c1", "c2"]);
+	});
+
+	it("lists them again when the board leaves for the strip", async () => {
+		await mountInPane();
+		expect(rows()).toHaveLength(0);
+		await act(async () => container.removeAttribute("data-work-board"));
+		expect(rows()).toHaveLength(2);
 	});
 });

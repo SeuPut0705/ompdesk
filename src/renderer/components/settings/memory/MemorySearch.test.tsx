@@ -56,9 +56,8 @@ describe("Memory › Search", () => {
 		expect(hit).toContain("work / api");
 		expect(hit).toContain("Decision");
 		expect(hit).toContain("we chose sqlite for the cache");
-		// The path is the tooltip and a decision's usual tier goes unsaid.
+		// The path is the reader's (opening the hit shows it) and a decision's usual tier goes unsaid.
 		expect(hit).not.toContain("decisions/0007-db.md");
-		expect(q('[data-memory-hit="decisions/0007-db.md"] button')?.getAttribute("title")).toBe("decisions/0007-db.md");
 		expect(hit).not.toContain("Semantic");
 	});
 

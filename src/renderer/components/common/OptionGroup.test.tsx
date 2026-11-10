@@ -46,19 +46,4 @@ describe("OptionGroup", () => {
 		expect(connect?.textContent).toBe("Connect");
 		expect(connect?.closest("[aria-hidden='true']")).toBeNull();
 	});
-
-	it("pins its header while the rows scroll only when asked", () => {
-		const sticky = render(
-			<OptionGroup label="Recent" sticky>
-				<span />
-			</OptionGroup>,
-		);
-		const plain = render(
-			<OptionGroup label="Recent">
-				<span />
-			</OptionGroup>,
-		);
-		expect(sticky.querySelector("[data-option-group-header]")?.getAttribute("class")).toContain("sticky");
-		expect(plain.querySelector("[data-option-group-header]")?.getAttribute("class")).not.toContain("sticky");
-	});
 });

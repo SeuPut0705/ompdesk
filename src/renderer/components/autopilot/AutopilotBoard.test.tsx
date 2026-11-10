@@ -45,6 +45,8 @@ interface TestElement {
 
 let setAutopilot: Mock<(action: AutopilotAction) => Promise<RpcResponse>>;
 let prompt: Mock<(message: string) => Promise<RpcResponse>>;
+/** What `get_session_spend` answers; null answers as an omp that cannot say. */
+let sessionSpend: unknown = null;
 
 function installMockOmp(): void {
 	setAutopilot = vi.fn(
@@ -63,6 +65,11 @@ function installMockOmp(): void {
 				success: true,
 				data: { ahead: 12, behind: 0 },
 			})),
+			getSessionSpend: vi.fn(async () =>
+				sessionSpend
+					? { type: "response", command: "get_session_spend", success: true, data: sessionSpend }
+					: { type: "response", command: "get_session_spend", success: false, error: "unsupported_omp" },
+			),
 		},
 		prefs: { get: vi.fn(async () => undefined), set: vi.fn(async () => {}) },
 		system: { openExternal: vi.fn(async () => {}) },
@@ -111,6 +118,7 @@ afterEach(async () => {
 	document.body.innerHTML = "";
 	useAutopilotStore.getState().reset();
 	useSessionStore.getState().reset();
+	sessionSpend = null;
 	useUiStore.setState({ panelVisible: false, panelTab: "diff", changesFocusCommit: null, changesMode: "repository" });
 });
 
@@ -120,6 +128,20 @@ function $(selector: string): TestElement | null {
 
 function all(selector: string): TestElement[] {
 	return Array.from(document.querySelectorAll(selector)) as unknown as TestElement[];
+}
+
+/** Hover the element past the tooltip delay and return the bubble's text (a kit Tooltip, reachable by focus and touch). */
+async function tooltipOf(element: TestElement | null): Promise<string> {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	try {
+		await act(async () => {
+			(element as unknown as Element | null)?.dispatchEvent(new Event("pointerover", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(520);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+	return document.querySelector('[role="tooltip"]')?.textContent ?? "";
 }
 
 function cycle(n: number, partial: Partial<AutopilotCycleRecord> = {}): AutopilotCycleRecord {
@@ -174,7 +196,7 @@ describe("an Autopilot run on the work board", () => {
 		await mount();
 		expect($("[data-autopilot-state]")?.getAttribute("data-autopilot-state")).toBe("running");
 		expect($("[data-autopilot-totals]")?.textContent).toContain("1.8M");
-		expect($("[data-autopilot-state]")?.getAttribute("title")).toContain("↑12");
+		expect(await tooltipOf($("[data-autopilot-state]"))).toContain("↑12");
 		// The head names the cycle; the section under it does not say it again.
 		const cycleThree = translate("autopilot.cycleN", { n: 3 });
 		expect($("[data-board-autopilot-text]")?.textContent).toContain(cycleThree);
@@ -187,6 +209,30 @@ describe("an Autopilot run on the work board", () => {
 		expect($('[data-autopilot-cycle="2"]')?.getAttribute("data-verify")).toBe("red");
 		expect($("[data-ship-queue] [data-ship-state]")?.getAttribute("data-ship-state")).toBe("queued");
 		expect($("[data-ship-procedure]")?.textContent).toContain("AGENTS.md › Change workflow › Release");
+	});
+
+	it("reads as one amount: each metered provider's charge is a line of the total's tooltip, never a second figure", async () => {
+		sessionSpend = {
+			providers: {
+				openrouter: { billing: "metered", name: "OpenRouter", cost: 0.000624, today: 0.000146 },
+				anthropic: { billing: "subscription", name: "Anthropic (Claude Pro/Max)", cost: 12.5, today: 3 },
+			},
+			billing: { openrouter: "metered", anthropic: "subscription" },
+		};
+		installMockOmp();
+		useSessionStore.setState({ status: "ready", sessionId: "autopilot-spend" });
+		useAutopilotStore.getState().apply(status);
+		await mount();
+		await vi.waitFor(() => expect($("[data-autopilot-totals]")?.getAttribute("data-autopilot-charges")).toBe("1"));
+		const totals = $("[data-autopilot-totals]");
+		expect(all("[data-autopilot-totals]")).toHaveLength(1);
+		expect(totals?.textContent).toContain("$6.20");
+		expect(totals?.textContent).not.toContain("$0.0006");
+		const tip = await tooltipOf(totals);
+		expect(tip).toContain(
+			translate("workBoard.spend.charged", { provider: "OpenRouter", cost: "$0.0006", today: "$0.0001" }),
+		);
+		expect(tip).not.toContain("12.5");
 	});
 
 	it("keeps a fresh run to one-line rows: no empty-state sentences, no cycles section before the first cycle", async () => {

@@ -7,7 +7,9 @@
  * - `SwitchField`: one dense row — label, a short description inline or a longer
  *   one behind an (i) tooltip (`SettingInfo`), and the switch at the right, the
  *   whole row clickable. Use it for every boolean setting row.
- * - `SwitchTile`: the same switch as a half-width tile (glyph, short label, (i), switch) for a two-column grid.
+ * - `SwitchTile`: the same switch as a half-width tile (glyph, short label, (i), switch) for a two-column grid;
+ *   `infoEnd` draws the (i) after the switch, at the tile's end, where the rows around it (the Run sheet's choice
+ *   rows) end in their (i), so every (i) of the surface stands in one column.
  * Off = outlined track (≥3:1 border) with a muted knob; on = accent track
  * with an accent-foreground knob — the state never depends on color alone.
  * Use a checkbox instead when the choice is only applied on submit.
@@ -165,6 +167,8 @@ export interface SwitchTileProps extends Omit<SwitchProps, "label" | "aria-label
 	label: string;
 	/** The explanation: always behind the (i) glyph (the tile has no room for a clause, so no length rule applies). */
 	description?: string;
+	/** The (i) after the switch, at the tile's end (default: before it), so it lines up with rows that end in their (i). */
+	infoEnd?: boolean;
 }
 
 /**
@@ -172,7 +176,7 @@ export interface SwitchTileProps extends Omit<SwitchProps, "label" | "aria-label
  * in the Run sheet) where a `SwitchField` row would waste the row's width. Same behaviour as `SwitchField`: the whole
  * tile toggles, the glyph sits outside the label so the switch is named by the label alone.
  */
-export function SwitchTile({ icon, label, description, id, className, disabled, ...rest }: SwitchTileProps) {
+export function SwitchTile({ icon, label, description, infoEnd, id, className, disabled, ...rest }: SwitchTileProps) {
 	const autoId = useId();
 	const switchId = id ?? autoId;
 	return (
@@ -180,8 +184,11 @@ export function SwitchTile({ icon, label, description, id, className, disabled, 
 			className={cx(
 				"flex min-h-(--sc-control-md) min-w-0 items-center gap-1 rounded-(--sc-radius-md) px-1.5 py-1 hover:bg-(--sc-hover)",
 				disabled && "opacity-60 hover:bg-transparent",
+				// A choice row's (i) stands 8 px after its control; this one keeps the same distance from the switch.
+				infoEnd && "[&>[data-setting-info]]:ms-1",
 				className,
 			)}
+			data-info-end={infoEnd || undefined}
 			data-switch-tile
 		>
 			<label
@@ -202,8 +209,9 @@ export function SwitchTile({ icon, label, description, id, className, disabled, 
 					{label}
 				</span>
 			</label>
-			{description !== undefined && <SettingInfo text={description} />}
+			{description !== undefined && !infoEnd && <SettingInfo text={description} />}
 			<Switch disabled={disabled} id={switchId} size="sm" {...rest} />
+			{description !== undefined && infoEnd && <SettingInfo text={description} />}
 		</div>
 	);
 }

@@ -118,6 +118,5 @@ describe("Banner", () => {
 		const buttons = [...(row?.querySelectorAll("button") ?? [])];
 		expect(buttons.map(button => button.parentElement)).toEqual([row, row]);
 		expect(buttons[0].textContent).toBe("Check again");
-		expect(row?.getAttribute("class")).not.toContain("flex-wrap");
 	});
 });

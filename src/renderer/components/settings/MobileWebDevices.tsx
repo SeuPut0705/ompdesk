@@ -323,11 +323,11 @@ export function MobileWebAllowedUsers({ state }: { state: MobileWebState }) {
 		// The explanation sits behind the title's (i): a collection never opens with a paragraph.
 		<SettingsTipOnly value>
 			<SettingsSection description={t("mobileWeb.users.desc")} list title={t("mobileWeb.users.title")}>
-				<div className="flex flex-col gap-px py-2" data-mobile-web-users>
+				<ul className="flex flex-col gap-px py-2" data-mobile-web-users>
 					{state.allowedUsers.map(user => {
 						const isOwn = user.trim().toLowerCase() === own;
 						return (
-							<div data-mobile-web-user={user} key={user}>
+							<li data-mobile-web-user={user} key={user}>
 								<ListRow
 									leading={<UserRound aria-hidden />}
 									meta={isOwn ? <Badge variant="muted">{t("mobileWeb.users.you")}</Badge> : undefined}
@@ -353,10 +353,10 @@ export function MobileWebAllowedUsers({ state }: { state: MobileWebState }) {
 										)
 									}
 								/>
-							</div>
+							</li>
 						);
 					})}
-				</div>
+				</ul>
 				<form
 					className="flex min-w-0 items-center gap-2"
 					onSubmit={event => {

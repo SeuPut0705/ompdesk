@@ -121,7 +121,7 @@ describe("migrateRetiredPrefs", () => {
 	it("asks before new devices when either approval switch was on", () => {
 		const remoteOn = memoryStore({ remote: { confirmNewDevices: true, keepAwake: false } });
 		migrateRetiredPrefs(remoteOn);
-		expect(remoteOn.data).toEqual({ remote: { keepAwake: false }, mobileWeb: { confirmNewDevices: true } });
+		expect(remoteOn.data).toEqual({ remote: {}, mobileWeb: { confirmNewDevices: true } });
 
 		const webOn = memoryStore({ remote: { confirmNewDevices: false }, mobileWeb: { confirmNewDevices: true } });
 		migrateRetiredPrefs(webOn);
@@ -130,6 +130,18 @@ describe("migrateRetiredPrefs", () => {
 		const bothOff = memoryStore({ remote: { confirmNewDevices: false } });
 		migrateRetiredPrefs(bothOff);
 		expect(bothOff.get("mobileWeb.confirmNewDevices")).toBeUndefined();
+	});
+
+	it("keeps one keep-awake switch, on when either old switch was on", () => {
+		const hostOn = memoryStore({ keepAwakeWhileWorking: false, remote: { keepAwake: true } });
+		migrateRetiredPrefs(hostOn);
+		expect(hostOn.data).toEqual({ keepAwakeWhileWorking: true, remote: {} });
+
+		const bothOff = memoryStore({ keepAwakeWhileWorking: false, remote: { keepAwake: false } });
+		migrateRetiredPrefs(bothOff);
+		expect(bothOff.data).toEqual({ keepAwakeWhileWorking: false, remote: {} });
+		migrateRetiredPrefs(bothOff);
+		expect(bothOff.data).toEqual({ keepAwakeWhileWorking: false, remote: {} });
 	});
 
 	it("drops the run-state and progress switches and the work board switch, keeping other display preferences", () => {

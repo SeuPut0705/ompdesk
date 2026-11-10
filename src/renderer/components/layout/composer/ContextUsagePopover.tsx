@@ -23,7 +23,7 @@ import { useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { toastError } from "../../../stores/toast";
 import { useUiStore } from "../../../stores/ui";
-import { Button, Spinner, Tooltip } from "../../common";
+import { Button, ProgressBar, Spinner, Tooltip } from "../../common";
 import { popoverTabStops, tabOutOfPopover } from "../../common/popover-focus";
 import { ComposerSheet } from "./ComposerSheet";
 import { keepFocus } from "./keep-focus";
@@ -346,52 +346,44 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 									<strong className="ml-1 font-semibold text-(--sc-text)">{`${Math.round(percent)}%`}</strong>
 								)}
 							</span>
-							{capacityKnown ? (
-								<Tooltip
-									content={`${t("contextUsage.remaining")} ${formatTokens(remainingTokens)}`}
-									describe={false}
-								>
-									<span className="shrink-0 text-sc-md font-semibold tabular-nums" data-context-figure>
-										{`${approximateTokens(usedTokens)} / ${formatTokens(contextWindow)}`}
-									</span>
-								</Tooltip>
-							) : (
-								<span className="shrink-0 text-sc-md font-semibold tabular-nums">
-									{approximateTokens(usedTokens)}
-								</span>
-							)}
+							<span className="shrink-0 text-sc-md font-semibold tabular-nums" data-context-figure>
+								{capacityKnown
+									? `${approximateTokens(usedTokens)} / ${formatTokens(contextWindow)}`
+									: approximateTokens(usedTokens)}
+							</span>
 						</div>
-						{capacityKnown && compactAt !== undefined && (
-							<p className="mt-1 text-sc-xs text-(--sc-text-muted)" data-context-compacts>
-								{t("contextUsage.compactsAt", { point: formatTokens(compactAt) })}
+						{/* What is left, said once, where touch and the keyboard read it too; the compaction point beside it. */}
+						{capacityKnown && (
+							<p className="mt-1 text-sc-xs text-(--sc-text-muted) tabular-nums" data-context-left>
+								<span data-context-remaining>
+									{t("contextUsage.left", { tokens: formatTokens(remainingTokens) })}
+								</span>
+								{compactAt !== undefined && (
+									<>
+										{" · "}
+										<span data-context-compacts>
+											{t("contextUsage.compactsAt", { point: formatTokens(compactAt) })}
+										</span>
+									</>
+								)}
 							</p>
 						)}
 
 						{capacityKnown && (
-							<div
-								aria-label={t("contextUsage.progress", { percent: Math.round(percent) })}
-								aria-valuemax={100}
-								aria-valuemin={0}
-								aria-valuenow={Math.round(percent)}
-								aria-valuetext={`${formatTokens(usedTokens)} ${t("contextUsage.used")}, ${formatTokens(remainingTokens)} ${t("contextUsage.remaining")}`}
-								className="mt-3 flex h-1.5 overflow-hidden rounded-(--sc-radius-full) bg-(--sc-surface-3)"
-								role="progressbar"
-							>
-								{categories.length > 0 ? (
-									categories.map(category => (
-										<span
-											aria-hidden="true"
-											key={category.key}
-											style={{
-												backgroundColor: category.color,
-												width: `${Math.min(100, (category.tokens / contextWindow) * 100)}%`,
-											}}
-										/>
-									))
-								) : (
-									<span aria-hidden="true" className="bg-(--sc-accent)" style={{ width: `${percent}%` }} />
-								)}
-							</div>
+							<ProgressBar
+								ariaLabel={t("contextUsage.progress", { percent: Math.round(percent) })}
+								className="mt-3"
+								segments={
+									categories.length > 0
+										? categories.map(category => ({
+												value: category.tokens,
+												label: t(`contextUsage.category.${category.key}`),
+												color: category.color,
+											}))
+										: [{ value: usedTokens, label: t("contextUsage.used"), color: "var(--sc-accent)" }]
+								}
+								total={contextWindow}
+							/>
 						)}
 
 						{!capacityKnown && (

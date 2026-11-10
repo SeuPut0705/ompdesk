@@ -482,7 +482,6 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 		web: "Turning it on waits for a confirmation on the computer",
 	},
 	[C.REMOTE_SET_DEVICE_NAME]: { dir: "invoke", permission: "host-admin", mode: "pass" },
-	[C.REMOTE_SET_KEEP_AWAKE]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_REVOKE_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_BLOCK_PEER]: { dir: "invoke", permission: "host-admin", mode: "pass" },
 	[C.REMOTE_SET_PEER_LIMITS]: { dir: "invoke", permission: "host-admin", mode: "pass" },

@@ -2,16 +2,27 @@ import { PackageCheck, Pause, Play, Square } from "lucide-react";
 import { useState } from "react";
 import { useT } from "../../lib/i18n";
 import { useAutopilotStore } from "../../stores/autopilot";
-import { Button, ConfirmDialog, IconButton } from "../common";
+import { Button, ConfirmDialog, IconButton, Tooltip } from "../common";
 import { useAutopilotActions } from "./use-autopilot-actions";
+
+/** A board control's tooltip: its whole name (the button may cut it) over what it does. */
+function tip(control: { label: string; title: string }) {
+	return (
+		<>
+			<span className="block">{control.label}</span>
+			<span className="block font-normal opacity-70">{control.title}</span>
+		</>
+	);
+}
 
 /**
  * A run's three controls in one row (the user's layout, 23 Oct 2026): Pause as a toggle (Resume while paused), Ship
  * then stop (the run lands its work and releases when a release is due, then ends; pressed again it cancels) and Stop
  * now. Stop now asks first while a push or a release is under way, since it may be half done. On the board the three
  * share ONE line in equal thirds at any board width, each its icon and its name; a name that does not fit its third
- * ends in an ellipsis and stays the button's accessible name. `compact` draws icons alone (their names are the tooltip
- * and the accessible name) for the dock's one-line row.
+ * ends in an ellipsis and stays the button's accessible name, and the button's tooltip (hover, focus, a long press)
+ * says the whole name with what it does. `compact` draws icons alone (their names are the tooltip and the accessible
+ * name) for the dock's one-line row.
  */
 export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 	const t = useT();
@@ -87,47 +98,50 @@ export function AutopilotControls({ compact = false }: { compact?: boolean }) {
 				</>
 			) : (
 				<div className="flex min-w-0 flex-1 gap-1" data-autopilot-control-row>
-					<Button
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
-						data-autopilot-pause={paused ? undefined : ""}
-						data-autopilot-resume={paused ? "" : undefined}
-						disabled={pause.disabled}
-						icon={pause.icon}
-						loading={pause.loading}
-						onClick={pause.onClick}
-						size="sm"
-						title={pause.title}
-						variant={paused ? "primary" : "secondary"}
-					>
-						<span className="max-w-full truncate">{pause.label}</span>
-					</Button>
-					<Button
-						aria-pressed={shipThenStop}
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
-						data-autopilot-ship-stop
-						disabled={ship.disabled}
-						icon={ship.icon}
-						loading={ship.loading}
-						onClick={ship.onClick}
-						size="sm"
-						title={ship.title}
-						variant={shipThenStop ? "primary" : "secondary"}
-					>
-						<span className="max-w-full truncate">{ship.label}</span>
-					</Button>
-					<Button
-						className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
-						data-autopilot-abort
-						disabled={abort.disabled}
-						icon={abort.icon}
-						loading={abort.loading}
-						onClick={abort.onClick}
-						size="sm"
-						title={abort.title}
-						variant="danger-soft"
-					>
-						<span className="max-w-full truncate">{abort.label}</span>
-					</Button>
+					<Tooltip content={tip(pause)}>
+						<Button
+							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
+							data-autopilot-pause={paused ? undefined : ""}
+							data-autopilot-resume={paused ? "" : undefined}
+							disabled={pause.disabled}
+							icon={pause.icon}
+							loading={pause.loading}
+							onClick={pause.onClick}
+							size="sm"
+							variant={paused ? "primary" : "secondary"}
+						>
+							<span className="max-w-full truncate">{pause.label}</span>
+						</Button>
+					</Tooltip>
+					<Tooltip content={tip(ship)}>
+						<Button
+							aria-pressed={shipThenStop}
+							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
+							data-autopilot-ship-stop
+							disabled={ship.disabled}
+							icon={ship.icon}
+							loading={ship.loading}
+							onClick={ship.onClick}
+							size="sm"
+							variant={shipThenStop ? "primary" : "secondary"}
+						>
+							<span className="max-w-full truncate">{ship.label}</span>
+						</Button>
+					</Tooltip>
+					<Tooltip content={tip(abort)}>
+						<Button
+							className="h-auto! min-h-(--sc-control-lg) min-w-0 flex-1 basis-0 px-2! py-1 text-sc-xs!"
+							data-autopilot-abort
+							disabled={abort.disabled}
+							icon={abort.icon}
+							loading={abort.loading}
+							onClick={abort.onClick}
+							size="sm"
+							variant="danger-soft"
+						>
+							<span className="max-w-full truncate">{abort.label}</span>
+						</Button>
+					</Tooltip>
 				</div>
 			)}
 			<ConfirmDialog

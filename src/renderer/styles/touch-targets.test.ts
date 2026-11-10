@@ -101,7 +101,7 @@ describe("the prompt card on touch", () => {
 		).toMatch(/min-height:\s*var\(--sc-row-touch\)/);
 		expect(read("../components/dialogs/PromptCard.tsx")).toContain("data-choice-list");
 		const ask = read("../components/dialogs/ExtensionDialog.tsx");
-		expect(ask).toContain("data-ask-step={index}");
+		expect(ask).toContain('"data-ask-step": index');
 		expect(ask).toContain("data-ask-note");
 	});
 });
@@ -366,10 +366,10 @@ describe("controls close enough to take each other's taps", () => {
 		expect(rule('html[data-input="touch"] [data-feedback-include] [data-setting-info]')).toMatch(
 			/--hit-gap-x:\s*20px;[^}]*--hit-gap-y:\s*20px/,
 		);
-		// A multi-question card's step tabs 10 px apart, outranking the tab bars' 4 px bound; a phone's figure header
-		// buttons (24 px) 14 px apart.
+		// A multi-question card's step tabs 10 px apart, outranking the segmented bar's 2 px bound; a phone's figure
+		// header buttons (24 px) 14 px apart.
 		declares("../components/dialogs/ExtensionDialog.tsx", "data-ask-steps");
-		expect(rule('html[data-input="touch"] [data-ask-steps][role="tablist"]')).toMatch(
+		expect(rule('html[data-input="touch"] [data-ask-steps][role="tablist"][data-segmented]')).toMatch(
 			/gap:\s*10px;[^}]*--hit-gap-x:\s*10px/,
 		);
 		expect(rule('html[data-shell="phone"][data-input="touch"] [data-figure-header]')).toMatch(

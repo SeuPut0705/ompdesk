@@ -75,9 +75,6 @@ const remote = {
 	getState: vi.fn(async (): Promise<RemoteState> => hostOn()),
 	setHostEnabled: vi.fn(async (enabled: boolean): Promise<RemoteState> => hostOn({ enabled })),
 	setDeviceName: vi.fn(async (name: string): Promise<RemoteState> => hostOn({ name })),
-	setKeepAwake: vi.fn(
-		async (enabled: boolean): Promise<RemoteState> => hostOn({ keepAwake: enabled, keepingAwake: false, usedBy: [] }),
-	),
 	revokePeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
 	blockPeer: vi.fn(async (_deviceId: string): Promise<RemoteState> => hostOn({ peers: [] })),
 	setPeerLimits: vi.fn(async (_deviceId: string, _limits: PeerLimits): Promise<RemoteState> => hostOn()),
@@ -349,33 +346,22 @@ describe("RemoteSection", () => {
 		expect(keepAwakeRow()).toBeNull();
 	});
 
-	it("shows the keep-awake option on by default, with who keeps the computer awake now", async () => {
+	it("says who keeps the computer awake now, with no switch of its own", async () => {
 		remote.getState.mockImplementation(async () =>
 			hostOn({ keepingAwake: true, usedBy: ["MacBook", "studio-mini"] }),
 		);
 		await mount();
 
 		const row = keepAwakeRow();
-		expect(row?.textContent).toContain(translate("remote.host.keepAwake"));
-		expect(row?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("true");
+		expect(row?.querySelector('[role="switch"]')).toBeNull();
 		expect(row?.querySelector("[data-remote-keep-awake-state]")?.textContent).toBe(
-			translate("remote.host.keepingAwakeFor", { names: "MacBook, studio-mini" }),
+			translate("remote.host.usedBy", { names: "MacBook, studio-mini" }),
 		);
 	});
 
-	it("explains the option while nothing keeps the computer awake, and turns it off through setKeepAwake", async () => {
+	it("shows no keep-awake row while nothing keeps the computer awake", async () => {
 		await mount();
-
-		expect(keepAwakeRow()?.querySelector("[data-remote-keep-awake-state]")?.textContent).toBe(
-			translate("remote.host.keepAwakeDesc"),
-		);
-		await act(async () => {
-			(keepAwakeRow()?.querySelector('[role="switch"]') as HTMLButtonElement | null)?.click();
-		});
-
-		expect(remote.setKeepAwake).toHaveBeenCalledWith(false);
-		expect(useRemoteStore.getState().state?.host.keepAwake).toBe(false);
-		expect(keepAwakeRow()?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+		expect(keepAwakeRow()).toBeNull();
 	});
 
 	it("names a paired host's full folder on hover where the row truncates it", async () => {

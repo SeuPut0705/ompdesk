@@ -926,10 +926,10 @@ html[data-input="touch"] :is([data-choice-list] > button, [data-ask-step], [data
 	min-height: var(--sc-row-touch);
 }
 
-/* A multi-question card's step tabs sit 10 px apart on touch and each reaches half way to the next: a one-digit tab
-   ("2", 31 px wide, 29 inside its border) becomes a 39 px target and no tab covers its neighbour (4 px apart, a bare
-   digit reached 31). Doubled to outrank the tab bars' own 4 px bound below. */
-html[data-input="touch"] [data-ask-steps][role="tablist"] {
+/* A multi-question card's step tabs (a segmented `Tabs`) sit 10 px apart on touch and each reaches half way to the
+   next, so a one-digit tab ("2") is a 36 px target and no tab covers its neighbour (at the bar's 2 px a bare digit fell
+   short). Tripled to outrank the segmented bar's own 2 px bound below. */
+html[data-input="touch"] [data-ask-steps][role="tablist"][data-segmented] {
 	gap: 10px;
 	--hit-gap-x: 10px;
 }
@@ -1563,17 +1563,29 @@ html[data-input="touch"] [data-choice-row] > [data-setting-info] {
 	--hit-gap-y: 20px;
 }
 
+/* The compaction point's (i) ends its line after the select the same way. */
+html[data-input="touch"] [data-context-size] > [data-setting-info] {
+	margin-inline-start: 12px;
+	--hit-gap-x: 20px;
+	--hit-gap-y: 20px;
+}
+
 html[data-input="touch"] [data-switch-tile] {
 	min-height: var(--sc-row-touch);
 }
 
 /* A tile's (i) and switch reach the tile's height and keep clear of each other: the (i) sits 14 px from the switch (the
-   tile's 4 px gap and 10 px more) and reaches 10 px each way (a 36 px target; the grid's 4 px bound cut it to 20), the switch reaches 4 px sideways
+   tile's 4 px gap and 10 px more, before the switch or, in the Run sheet's tiles (`infoEnd`), after it) and reaches 10 px
+   each way (a 36 px target; the grid's 4 px bound cut it to 20), the switch reaches 4 px sideways
    (the tile's own 6 px padding and the grid's gap are beside it) and 6 px up and down: 36 px (it was 32 × 28). The label still toggles the tile around them. */
 html[data-input="touch"] [data-switch-tile] > [data-setting-info] {
 	margin-inline-end: 10px;
 	--hit-gap-x: 20px;
 	--hit-gap-y: 20px;
+}
+
+html[data-input="touch"] [data-switch-tile][data-info-end] > [data-setting-info] {
+	margin-inline: 10px 0;
 }
 
 html[data-input="touch"] [data-switch-tile] > [role="switch"] {

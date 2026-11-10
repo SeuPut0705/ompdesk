@@ -106,32 +106,50 @@ export function FieldLabel({ as = "label", htmlFor, id, className, children }: F
 	);
 }
 
-/** Label above, hint or error below. Used by every field primitive. */
-export function FieldShell({
-	label,
-	error,
-	hint,
-	controlId,
-	noteId,
-	className,
-	children,
-}: {
+export type FieldShellProps = {
 	label?: ReactNode;
 	error?: string;
 	hint?: ReactNode;
-	/** The control's id (`useFieldIds`): the label points at it. */
-	controlId: string;
 	/** The hint or error's id, which the control lists in aria-describedby. */
 	noteId: string;
 	className?: string;
 	children: ReactNode;
-}) {
+} & (
+	| {
+			/** The id of the form element the label names (`useFieldIds`). */
+			controlId: string;
+			labelId?: never;
+	  }
+	| {
+			/** The label's own id, for the `aria-labelledby` of a group a `<label>` cannot name. */
+			labelId: string;
+			controlId?: never;
+	  }
+);
+
+/**
+ * Label above, hint or error below: every field primitive wears it, and so does a field the kit has no primitive for
+ * (a list of model chips, a folder chosen by a button). With `controlId` the label is a `<label htmlFor>`, so it must
+ * be the `id` of a form element (an `<input>`, a `<select>`, a `<textarea>`, a trigger `<button>`). A radio group
+ * (`SegmentedChoice`, `ChoiceCards`), a list of chips or a custom picker is no form element a label can name: pass
+ * `labelId` instead, which draws the label as `FieldLabel as="span" id`, and put `aria-labelledby={labelId}` on the
+ * group. The error replaces the hint and is announced when it appears (`role="alert"`); the control lists `noteId` in
+ * its `aria-describedby`.
+ */
+export function FieldShell({ label, error, hint, controlId, labelId, noteId, className, children }: FieldShellProps) {
 	return (
 		<div className={className}>
-			{label && <FieldLabel htmlFor={controlId}>{label}</FieldLabel>}
+			{label &&
+				(labelId !== undefined ? (
+					<FieldLabel as="span" id={labelId}>
+						{label}
+					</FieldLabel>
+				) : (
+					<FieldLabel htmlFor={controlId}>{label}</FieldLabel>
+				))}
 			{children}
 			{error ? (
-				<span className="mt-1.5 block text-sc-sm text-(--sc-danger)" id={noteId}>
+				<span className="mt-1.5 block text-sc-sm text-(--sc-danger)" id={noteId} role="alert">
 					{error}
 				</span>
 			) : hint ? (

@@ -1,7 +1,8 @@
 /**
  * Destructive-action confirmation: the only place a user says "yes, really"
  * before something irreversible (hard file delete, discarded worktree). The
- * safe action is autofocused, so Enter never confirms by accident.
+ * safe action is autofocused, so Enter never confirms by accident. Cancel is the
+ * quiet `ghost` every dialog footer uses; the danger button is the one filled action.
  */
 
 import type { ReactNode } from "react";
@@ -38,7 +39,7 @@ export function ConfirmDialog({
 		<Modal
 			footer={
 				<>
-					<Button autoFocus onClick={onCancel} variant="secondary">
+					<Button autoFocus onClick={onCancel} variant="ghost">
 						{cancelLabel ?? t("common.cancel")}
 					</Button>
 					<Button disabled={busy} loading={busy} onClick={onConfirm} variant="danger">

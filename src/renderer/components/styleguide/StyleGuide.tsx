@@ -14,11 +14,13 @@ import {
 	BarChart3,
 	Bot,
 	Check,
+	CircleCheck,
 	Copy,
 	FileText,
 	Folder,
 	FolderGit2,
 	GitBranch,
+	GitPullRequest,
 	Inbox,
 	MessageSquarePlus,
 	Mic,
@@ -29,6 +31,7 @@ import {
 	Settings,
 	Sparkles,
 	Trash2,
+	TriangleAlert,
 	Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -45,7 +48,9 @@ import {
 	Button,
 	Card,
 	Checkbox,
+	Chip,
 	ChoiceCards,
+	ChoiceList,
 	Collapse,
 	ConfirmDialog,
 	CopyButton,
@@ -54,11 +59,13 @@ import {
 	EmptyState,
 	ErrorDetail,
 	FieldLabel,
+	FieldShell,
 	IconButton,
 	InlineNotice,
 	Input,
 	JumpToLatest,
 	Kbd,
+	KeyHints,
 	LangSwitcher,
 	LinkButton,
 	ListRow,
@@ -74,6 +81,7 @@ import {
 	PathText,
 	PinchZoomArea,
 	Popover,
+	PopoverSurface,
 	ProgressBar,
 	type ProgressSegment,
 	QrCode,
@@ -88,6 +96,7 @@ import {
 	Sheet,
 	Skeleton,
 	SkeletonRows,
+	SortHeader,
 	Spinner,
 	StatusDot,
 	SwapText,
@@ -108,7 +117,6 @@ import {
 } from "../common";
 import { MenuItemView, MenuSurface, menuItemClasses } from "../common/ContextMenu";
 import { DialogSurface } from "../common/Modal";
-import { PopoverSurface } from "../common/Popover";
 import { SheetSurface } from "../common/Sheet";
 import { ToastCard } from "../common/Toast";
 import { TooltipBubble } from "../common/Tooltip";
@@ -379,6 +387,132 @@ function CrashOnRender({ crash, children }: { crash: boolean; children: ReactNod
 	return children;
 }
 
+/** Chips: toggles that turn on and off, removable chips whose text is its own action, a plain one. */
+function ChipSamples() {
+	const [areas, setAreas] = useState<ReadonlySet<string>>(() => new Set(["tests"]));
+	const [queued, setQueued] = useState(["fix the flaky test", "then bump the version"]);
+	return (
+		<div className="flex flex-col gap-3">
+			<div aria-label="Focus" className="flex flex-wrap gap-1.5" role="group">
+				{["tests", "docs", "ui", "release"].map(area => (
+					<Chip
+						key={area}
+						onPressedChange={on =>
+							setAreas(current => {
+								const next = new Set(current);
+								if (on) next.add(area);
+								else next.delete(area);
+								return next;
+							})
+						}
+						pressed={areas.has(area)}
+					>
+						{area}
+					</Chip>
+				))}
+				<Chip icon={<Zap />} onPressedChange={() => {}} pressed>
+					With its icon
+				</Chip>
+			</div>
+			<ul className="flex flex-wrap gap-1.5">
+				{queued.map(text => (
+					<Chip
+						actionLabel={`Edit queued: ${text}`}
+						as="li"
+						className="max-w-48"
+						key={text}
+						onClick={() => toast({ message: `Back in the field: ${text}` })}
+						onRemove={() => setQueued(current => current.filter(item => item !== text))}
+						removeLabel={`Remove ${text}`}
+						tooltip={text}
+					>
+						{text}
+					</Chip>
+				))}
+				<Chip as="li" icon={<FileText />}>
+					notes.md
+				</Chip>
+			</ul>
+		</div>
+	);
+}
+
+/**
+ * Pills: a panel's open files (✕ for the pointer, Delete on a focused tab, a double click keeps a preview), and a
+ * page's sections as a vertical strip that is one row on a phone.
+ */
+function PillTabsSample() {
+	const [open, setOpen] = useState(["tokens.css", "themes.ts", "README.md"]);
+	const [active, setActive] = useState("themes.ts");
+	const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set(["tokens.css", "README.md"]));
+	const [section, setSection] = useState("overview");
+	const close = (name: string) => {
+		const rest = open.filter(item => item !== name);
+		setOpen(rest);
+		if (name === active) setActive(rest[0] ?? "");
+	};
+	return (
+		<>
+			<Tabs
+				activeId={active}
+				ariaLabel="Open files"
+				compact
+				onChange={setActive}
+				tabs={open.map(name => ({
+					id: name,
+					label: name,
+					leading: <FileText aria-hidden className="size-(--sc-icon-sm)" />,
+					className: cx("max-w-48 min-w-24", !kept.has(name) && "italic"),
+					tooltip: kept.has(name) ? name : `${name} (preview: double-click to keep it open)`,
+					onDoubleClick: () => setKept(current => new Set(current).add(name)),
+					onClose: () => close(name),
+					closeLabel: `Close ${name}`,
+				}))}
+				variant="pills"
+			/>
+			<Tabs
+				activeId={section}
+				ariaLabel="Sections"
+				className="w-40"
+				onChange={setSection}
+				orientation="vertical"
+				tabs={[
+					{ id: "overview", label: "Overview" },
+					{ id: "costs", label: "Costs" },
+					{ id: "tools", label: "Tools" },
+					{ id: "errors", label: "Errors" },
+				]}
+				variant="pills"
+			/>
+		</>
+	);
+}
+
+/** A sortable table head: only the sorted column says its order. */
+function SortSample() {
+	const [sort, setSort] = useState<{ key: "model" | "cost"; ascending: boolean }>({ key: "cost", ascending: true });
+	const by = (key: "model" | "cost") => () =>
+		setSort(current => ({ key, ascending: current.key === key ? !current.ascending : true }));
+	const direction = (key: "model" | "cost") =>
+		sort.key === key ? (sort.ascending ? "ascending" : "descending") : null;
+	return (
+		<table className="text-sc-sm">
+			<thead>
+				<tr>
+					<SortHeader className="px-3 py-2" direction={direction("model")} label="Model" onSort={by("model")} />
+					<SortHeader
+						align="end"
+						className="px-3 py-2"
+						direction={direction("cost")}
+						label="Cost"
+						onSort={by("cost")}
+					/>
+				</tr>
+			</thead>
+		</table>
+	);
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function StyleGuide() {
@@ -386,6 +520,8 @@ export default function StyleGuide() {
 	const [approval, setApproval] = useState<"ask" | "remember" | "full">("ask");
 	const [disclosureOpen, setDisclosureOpen] = useState(true);
 	const [scope, setScope] = useState<"user" | "project">("user");
+	const [themePick, setThemePick] = useState<"system" | "paper" | "night">("paper");
+	const [answers, setAnswers] = useState<ReadonlySet<string>>(() => new Set(["tests"]));
 	const [measureKey, setMeasureKey] = useState(0);
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [contrast, setContrast] = useState<ContrastRow[]>([]);
@@ -713,12 +849,50 @@ export default function StyleGuide() {
 							Actions
 						</MenuButton>
 					</Block>
+					<Block
+						className="flex items-center gap-3"
+						label="Button — disabled with its reason (hover, focus or tap)"
+					>
+						<Button variant="ghost">Cancel</Button>
+						<Button disabled disabledReason="Pick a branch first" variant="primary">
+							Create and open
+						</Button>
+					</Block>
+					<Block className="flex items-center gap-4" label="IconButton — inline glyph in text, status tones">
+						<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-secondary)">
+							Ship procedure
+							<IconButton icon={<CircleCheck />} label="AGENTS.md › Release" size="inline" tone="success" />
+						</span>
+						<span className="flex items-center gap-1.5 text-sc-sm text-(--sc-text-secondary)">
+							No procedure
+							<IconButton icon={<TriangleAlert />} label="No release steps found" size="inline" tone="warning" />
+						</span>
+						<IconButton icon={<Trash2 />} label="Delete" tone="danger" />
+					</Block>
+					<Block label="Chip — toggles, removable with a text action, plain">
+						<ChipSamples />
+					</Block>
 					<Block className="flex items-center gap-4" label="Kbd (platform-formatted)">
 						<Kbd shortcut="⌘K" />
 						<Kbd shortcut="⇧⌘T" />
 						<Kbd shortcut="⌥A" />
 						<Kbd shortcut="⌘K / ⌃K" />
 						<Kbd shortcut="⎋" />
+					</Block>
+					<Block label="KeyHints (a picker's foot; nothing on a touch screen)">
+						<Card padding="none">
+							<KeyHints
+								hints={[
+									{ keys: ["↑", "↓"], label: "move" },
+									{ keys: ["↵"], label: "open" },
+									{ keys: ["⎋"], label: "close" },
+								]}
+							>
+								<Button icon={<Settings />} size="sm" variant="ghost">
+									Manage providers
+								</Button>
+							</KeyHints>
+						</Card>
 					</Block>
 				</Section>
 
@@ -889,6 +1063,15 @@ export default function StyleGuide() {
 							/>
 						</Block>
 						<Block
+							className="space-y-6"
+							label="Tabs — pills: closable (✕, Delete), vertical (one row on a phone)"
+						>
+							<PillTabsSample />
+						</Block>
+						<Block label="SortHeader (a table's sortable column)">
+							<SortSample />
+						</Block>
+						<Block
 							className="rounded-(--sc-radius-lg) bg-(--sc-surface-1) p-2"
 							label="ListRow (sidebar sessions)"
 						>
@@ -926,6 +1109,42 @@ export default function StyleGuide() {
 								title="decisions/settings-layout.md"
 							/>
 							<ListRow disabled leading={<GitBranch />} meta="3d" onClick={() => {}} title="Archived worktree" />
+							<ListRow
+								accessibleName="row"
+								leading={<GitPullRequest />}
+								onClick={() => {}}
+								secondary={
+									<>
+										<span className="shrink-0 tabular-nums">#128</span>
+										<span className="min-w-0 truncate">octocat</span>
+										<span className="min-w-0 flex-1 truncate font-mono">feature/settings-layout</span>
+										<span className="shrink-0 tabular-nums text-(--sc-success)">+30</span>
+										<span className="shrink-0">2h</span>
+									</>
+								}
+								title="The project page loads every provider's accounts in one request instead of one per row"
+								titleLines={2}
+							/>
+						</Block>
+						<Block className="space-y-px" label="ListRow size=sm (a side panel's list)">
+							<ListRow
+								disabled
+								leading={<GitBranch />}
+								meta="current"
+								onClick={() => {}}
+								selected
+								size="sm"
+								title="main"
+							/>
+							<ListRow leading={<GitBranch />} onClick={() => {}} size="sm" title="feature/settings" />
+							<ListRow
+								leading={<FileText />}
+								meta="+4 −1"
+								onClick={() => {}}
+								secondary={<span className="min-w-0 truncate">src/renderer/components</span>}
+								size="sm"
+								title="ListRow.tsx"
+							/>
 						</Block>
 						<Block className="space-y-3" label="FieldLabel · SegmentedChoice (a value, applied at once)">
 							<div>
@@ -946,6 +1165,24 @@ export default function StyleGuide() {
 								/>
 							</div>
 						</Block>
+						<Block label="FieldShell (a group a label cannot point at: labelId, an announced error)">
+							<FieldShell
+								error="Pick at least two models to compare."
+								label="Models"
+								labelId="styleguide-models-label"
+								noteId="styleguide-models-note"
+							>
+								<ul
+									aria-describedby="styleguide-models-note"
+									aria-labelledby="styleguide-models-label"
+									className="flex flex-wrap gap-1.5"
+								>
+									<Chip as="li" onRemove={() => {}} removeLabel="Remove acme-opus-5">
+										acme-opus-5
+									</Chip>
+								</ul>
+							</FieldShell>
+						</Block>
 						<Block label="ChoiceCards (a value whose options need a hint)">
 							<ChoiceCards
 								aria-label="Scope"
@@ -959,6 +1196,68 @@ export default function StyleGuide() {
 								value={scope}
 							/>
 						</Block>
+						<Block label="ChoiceCards with previews, in parts">
+							<ChoiceCards
+								aria-label="Theme"
+								gridClassName="grid-cols-3"
+								groups={[
+									{
+										key: "system",
+										options: [
+											{
+												value: "system",
+												title: "System",
+												preview: (
+													<>
+														<span className="w-1/2 bg-(--sc-bg)" />
+														<span className="w-1/2 bg-(--sc-text)" />
+													</>
+												),
+											},
+										],
+									},
+									{
+										key: "themes",
+										label: "Themes",
+										options: [
+											{
+												value: "paper",
+												title: "Paper",
+												preview: <span className="w-full bg-(--sc-surface-1)" />,
+												tooltip: "Warm white, low glare",
+											},
+											{
+												value: "night",
+												title: "Night",
+												preview: <span className="w-full bg-(--sc-text)" />,
+											},
+										],
+									},
+								]}
+								onChange={setThemePick}
+								optionAttr="data-styleguide-theme"
+								value={themePick}
+							/>
+						</Block>
+						<Block label="ChoiceList (a numbered answer: action, single, multi)">
+							<ChoiceList
+								choices={[
+									{ key: "tests", label: "Run the tests", aside: <Badge variant="accent">Recommended</Badge> },
+									{ key: "lint", label: "Run the linter", description: "Biome over the changed files." },
+									{ key: "none", label: "Skip checks", tone: "danger" },
+								]}
+								mode="multi"
+								onChoose={key =>
+									setAnswers(current => {
+										const next = new Set(current);
+										if (next.has(key)) next.delete(key);
+										else next.add(key);
+										return next;
+									})
+								}
+								selected={answers}
+							/>
+						</Block>
 						<Block className="space-y-2" label="OptionGroup · OptionRow (a picker's rows) · LinkButton">
 							<div aria-label="Branches" role="listbox">
 								<OptionGroup count={2} icon={<GitBranch />} label="Local">
@@ -966,7 +1265,7 @@ export default function StyleGuide() {
 										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 										main
 									</OptionRow>
-									<OptionRow active={false} id="styleguide-option-1" size="sm">
+									<OptionRow active={false} id="styleguide-option-1" size="xs">
 										<GitBranch aria-hidden className="size-(--sc-icon-sm) shrink-0 text-(--sc-text-muted)" />
 										feature/settings
 									</OptionRow>
@@ -991,6 +1290,12 @@ export default function StyleGuide() {
 									Add a note
 								</LinkButton>
 							</p>
+							<p className="font-mono text-sc-sm text-(--sc-text-muted)">
+								Read{" "}
+								<LinkButton onClick={() => {}} tone="inherit">
+									src/renderer/styles/tokens.css
+								</LinkButton>
+							</p>
 						</Block>
 						<Block className="space-y-1" label="DisclosureButton (opens what is under it)">
 							<DisclosureButton
@@ -1005,6 +1310,23 @@ export default function StyleGuide() {
 							<Collapse open={disclosureOpen}>
 								<p className="pl-8 text-sc-sm text-(--sc-text-secondary)">The file's diff opens here.</p>
 							</Collapse>
+							<DisclosureButton
+								chevron="end"
+								className="rounded-(--sc-radius-md) px-2 py-1.5 text-sc-sm hover:bg-(--sc-hover)"
+								onToggle={() => setDisclosureOpen(open => !open)}
+								open={disclosureOpen}
+							>
+								<span className="min-w-0 flex-1 truncate text-(--sc-text)">Plan · 3 of 5 steps</span>
+							</DisclosureButton>
+							<DisclosureButton
+								chevron="none"
+								className="rounded-(--sc-radius-md) px-2 py-1.5 text-sc-sm text-(--sc-text-subtle)"
+								disabled
+								onToggle={() => {}}
+								open={false}
+							>
+								Todo list cleared
+							</DisclosureButton>
 						</Block>
 						<Block className="space-y-3" label="SectionLabel (a group's label)">
 							<SectionLabel
@@ -1018,6 +1340,9 @@ export default function StyleGuide() {
 								Projects
 							</SectionLabel>
 							<SectionLabel as="h4">Model roles</SectionLabel>
+							<SectionLabel count={3} size="title">
+								Models (a content page's section title)
+							</SectionLabel>
 						</Block>
 						<Block label="TreeView">
 							<TreeView
@@ -1092,6 +1417,14 @@ export default function StyleGuide() {
 						<Badge variant="error">Failed</Badge>
 						<Badge variant="info">New</Badge>
 						<Badge variant="muted">Draft</Badge>
+						<Badge aria-hidden size="xs" variant="warning">
+							<TriangleAlert />2
+						</Badge>
+						<span className="flex w-32">
+							<Badge truncate variant="accent">
+								Moved to the end of Steer
+							</Badge>
+						</span>
 					</Block>
 					<Block className="w-64 text-sc-sm" label="PathText">
 						<PathText path="/Users/someone/projects/a-long-folder-name/node_modules/.bin/omp" />
@@ -1170,6 +1503,21 @@ export default function StyleGuide() {
 							<ProgressBar ariaLabel="Updating omp" tone="progress" />
 							<ProgressBar label="Steps" segments={STEP_SHARES} valueText="3 of 7" />
 							<ProgressBar ariaLabel="Context by kind" segments={CONTEXT_SHARES} total={128_000} />
+							<ProgressBar
+								ariaLabel="Context 42%"
+								ariaValueText="54k used, 74k left"
+								segments={CONTEXT_SHARES}
+								total={128_000}
+								value={0.42}
+							/>
+							<ProgressBar
+								animate={false}
+								color="var(--sc-accent)"
+								label="Input"
+								labelCase="keep"
+								labelClassName="w-14"
+								value={0.36}
+							/>
 						</Block>
 						<Block label="Tooltip (inline render)">
 							<TooltipBubble content="Search sessions" shortcut="⌘K" />
@@ -1184,6 +1532,12 @@ export default function StyleGuide() {
 								tone="danger"
 							/>
 							<InlineNotice title="Nothing matched this filter." tone="info" />
+							<InlineNotice
+								detail="exit code 1"
+								output={"model not found: acme-opus-5\n  at bench (run.ts:12)\n  at main (run.ts:40)"}
+								title="The benchmark failed."
+								tone="danger"
+							/>
 						</Block>
 						<Block className="space-y-3" label="Skeleton">
 							<Skeleton className="h-4 w-2/3" />
@@ -1225,6 +1579,19 @@ export default function StyleGuide() {
 								title="No pull requests"
 							/>
 						</Block>
+						<Block label="EmptyState — a list row (row)">
+							<EmptyState
+								actions={
+									<Button icon={<Plus />} size="sm">
+										Add a host
+									</Button>
+								}
+								description="Hosts you add here open from the sidebar and the command palette."
+								icon={<Inbox />}
+								size="row"
+								title="No SSH hosts yet"
+							/>
+						</Block>
 					</div>
 					<div className="grid grid-cols-3 gap-6">
 						<Block className="space-y-2" label="StatusDot (a state as a dot and its word)">
@@ -1238,7 +1605,14 @@ export default function StyleGuide() {
 							</div>
 							<div className="flex items-center gap-2 text-sc-sm">
 								<StatusDot label="Online" labelHidden size="md" tone="success" />
-								Mac mini (the word is read aloud and shown on hover)
+								Mac mini (the word is read aloud; the avatar's row names the device)
+							</div>
+							<div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sc-sm text-(--sc-text-secondary)">
+								<StatusDot label="Queued" ring tone="info" />
+								<span className="flex items-center gap-2">
+									<StatusDot decorative tone="working" />
+									The agent drives the page (the words say it)
+								</span>
 							</div>
 						</Block>
 						<Block className="space-y-2 text-sc-sm" label="Card — padding × surface">
@@ -1246,6 +1620,15 @@ export default function StyleGuide() {
 							<Card surface="1">md · surface 1</Card>
 							<Card padding="lg" surface="2">
 								lg · surface 2
+							</Card>
+							<Card padding="row" radius="lg" surface="elevated">
+								row · lg · elevated
+							</Card>
+							<Card as="pre" className="font-mono text-sc-xs" padding="sm" surface="code">
+								{"$ omp update\nup to date"}
+							</Card>
+							<Card as="button" className="w-full" onClick={() => {}} padding="row" radius="lg">
+								A pressable card
 							</Card>
 						</Block>
 						<Block className="space-y-2 text-sc-sm" label="TimeAgo · CostAmount · UsageGauges">

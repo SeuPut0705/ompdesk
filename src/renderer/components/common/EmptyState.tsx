@@ -4,31 +4,89 @@
  * (usually one primary Button, optionally a secondary). Every empty state
  * that the user can fix MUST offer the fixing action ("Connect GitHub",
  * "New session") — a sentence alone is a dead end.
- * `size="sm"` fits panels and lists; `md` (default) fills a page or column.
+ *
+ * One component for every place a list can be empty, in three sizes:
+ * - `md` (default) fills a page, a column or a list's detail pane.
+ * - `sm` a panel, a dialog's body, a list inside a sheet: centred, smaller.
+ * - `row` one left-aligned line inside a list of rows (a Settings list with no
+ *   entries yet): the icon, the title in the muted colour, the description
+ *   behind an (i) glyph (`SettingInfo`: hover, keyboard focus, a tap) when it
+ *   is a string, and the action at the row's end, at a row's height.
+ *
+ * `id` and `data-*` attributes reach the outer element (a deep link's
+ * target, a test hook).
  */
 
 import type { ReactNode } from "react";
 import { cx } from "../../lib/format";
+import { SettingInfo } from "./SettingInfo";
 
-export interface EmptyStateProps {
+type DataAttributes = { [key: `data-${string}`]: string | number | boolean | undefined };
+
+export interface EmptyStateProps extends DataAttributes {
 	icon?: ReactNode;
 	title: ReactNode;
 	description?: ReactNode;
 	/** Buttons; primary first. */
 	actions?: ReactNode;
-	size?: "sm" | "md";
+	size?: "row" | "sm" | "md";
+	id?: string;
 	className?: string;
 }
 
-export function EmptyState({ icon, title, description, actions, size = "md", className }: EmptyStateProps) {
+export function EmptyState({
+	icon,
+	title,
+	description,
+	actions,
+	size = "md",
+	id,
+	className,
+	...data
+}: EmptyStateProps) {
+	if (size === "row") {
+		return (
+			<div
+				{...data}
+				className={cx("flex min-h-(--sc-control-md) min-w-0 items-center gap-2 py-0.5", className)}
+				data-empty-state="row"
+				id={id}
+			>
+				{icon && (
+					<span
+						aria-hidden
+						className="flex size-(--sc-icon-lg) shrink-0 items-center justify-center text-(--sc-text-muted) [&>svg]:size-(--sc-icon-md)"
+					>
+						{icon}
+					</span>
+				)}
+				<span className="flex min-w-0 flex-1 items-center gap-2">
+					<span className="min-w-0 text-sc-md font-medium break-keep text-(--sc-text-muted)">{title}</span>
+					{typeof description === "string" ? (
+						<SettingInfo text={description} />
+					) : (
+						description && <span className="min-w-0 text-sc-xs text-(--sc-text-muted)">{description}</span>
+					)}
+				</span>
+				{actions && (
+					<div className="flex shrink-0 items-center gap-2" data-empty-actions>
+						{actions}
+					</div>
+				)}
+			</div>
+		);
+	}
 	const small = size === "sm";
 	return (
 		<div
+			{...data}
 			className={cx(
 				"flex flex-col items-center justify-center text-center",
 				small ? "gap-2 px-4 py-6" : "gap-3 px-6 py-12",
 				className,
 			)}
+			data-empty-state={size}
+			id={id}
 		>
 			{icon && (
 				<span
