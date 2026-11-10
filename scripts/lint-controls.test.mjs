@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareToBaseline, findRawControls, isCounted, seedNewKinds } from "./lint-controls.mjs";
+import { findRawControls, isCounted } from "./lint-controls.mjs";
 
 describe("lint-controls", () => {
 	it("finds raw buttons, raw checkboxes and radios, and hand-made dialogs", () => {
@@ -58,35 +58,5 @@ const f = <div role="status" />;
 		expect(isCounted("components/common/Button.tsx")).toBe(false);
 		expect(isCounted("components/chat/ChatStream.test.tsx")).toBe(false);
 		expect(isCounted("lib/format.ts")).toBe(false);
-	});
-
-	it("fails a file above its baseline and a baseline above its file, so the count only goes down", () => {
-		const hit = { line: 1, kind: "raw <button>" };
-		const hits = new Map([
-			["components/a.tsx", [hit, hit, hit]],
-			["components/new.tsx", [hit]],
-			["components/c.tsx", [hit]],
-		]);
-		const baseline = { "components/a.tsx": 2, "components/b.tsx": 1, "components/c.tsx": 1 };
-		const messages = compareToBaseline(hits, baseline).filter(line => !line.startsWith("  "));
-		expect(messages).toEqual([
-			expect.stringMatching(/^components\/a\.tsx: 3 raw controls, baseline 2/),
-			expect.stringMatching(/^components\/new\.tsx: 1 raw controls, baseline 0/),
-			expect.stringMatching(/^components\/b\.tsx: baseline 1, now 0/),
-		]);
-	});
-
-	it("seeds the later kinds once without raising any file's first-kind count", () => {
-		const at = id => ({ line: 1, kind: id, id });
-		const hits = new Map([
-			// One raw button over its baseline of 1 stays failing; its tab strip is frozen.
-			["components/a.tsx", [at("button"), at("button"), at("tab")]],
-			// Holds only later kinds: added.
-			["components/new.tsx", [at("progressbar"), at("spinner")]],
-			// Fixed since: a stale entry drops out.
-			["components/c.tsx", []],
-		]);
-		const baseline = { "components/a.tsx": 1, "components/c.tsx": 2 };
-		expect(seedNewKinds(hits, baseline)).toEqual({ "components/a.tsx": 2, "components/new.tsx": 2 });
 	});
 });

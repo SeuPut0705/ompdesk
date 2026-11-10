@@ -11,9 +11,8 @@ outside this folder that adds a raw `<button>`, a raw checkbox or radio, a hand-
 `role="tab"` or `role="tablist"` (`Tabs`, `SegmentedChoice`), a hand-made `role="progressbar"` (`ProgressBar`) or a
 turning lucide loader (`Loader2` and the like with `animate-spin`; `Spinner`). A raw element
 that has a real reason (a listbox option with `aria-activedescendant`, a row whose whole box is styled by an `omp-*`
-class) says why on the line or the one above: `controls-ok: <reason>`. Existing raw elements are frozen per file in
-`scripts/lint-controls-baseline.json`: a file may hold at most its count, and one below it fails until
-`node scripts/lint-controls.mjs --update` lowers the count (it never raises one or adds a file).
+class) says why on the line or the one above: `controls-ok: <reason>`. Any other raw element fails; there is no
+allow-list beside the marker.
 
 ## Pick by need
 

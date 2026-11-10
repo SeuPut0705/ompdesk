@@ -31,8 +31,8 @@
  *
  * Controls (renderer .tsx outside components/common, tests excluded): no new raw `<button>`, raw checkbox or radio,
  * hand-made `role="dialog"`, `role="tab"`/`"tablist"` or `role="progressbar"`, or turning lucide loader; the shared
- * components are catalogued in components/common/README.md (see scripts/lint-controls.mjs and its per-file
- * baseline); an exception carries `controls-ok: <reason>`.
+ * components are catalogued in components/common/README.md (see scripts/lint-controls.mjs); an exception carries
+ * `controls-ok: <reason>`.
  *
  * The same run checks the gui-bridge (resources/gui-bridge): a `before_agent_start` handler that returns its own
  * `systemPrompt` instead of registering a section (see scripts/lint-prompt-sections.mjs); an exception carries
@@ -45,7 +45,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compareToBaseline, readBaseline, scanRenderer } from "./lint-controls.mjs";
+import { rawControlViolations } from "./lint-controls.mjs";
 import { compareToAllowList, findDuplicateRules, readAllowList, readSides } from "./lint-duplicate-rules.mjs";
 import { findImeViolations } from "./lint-ime.mjs";
 import { findLocaleViolations } from "./lint-locale.mjs";
@@ -119,7 +119,7 @@ for (const file of collect(BRIDGE)) {
 		);
 	}
 }
-violations.push(...compareToBaseline(scanRenderer(), readBaseline()));
+violations.push(...rawControlViolations());
 violations.push(...compareToAllowList(findDuplicateRules(readSides()), readAllowList()));
 
 if (violations.length > 0) {
