@@ -1361,7 +1361,7 @@ export const ko: Record<string, string> = {
 	"resetPasses.confirmPass": "초기화권: {title}",
 	"resetPasses.confirmEarly": "이 초기화권은 한도에 도달하기 전에도 쓸 수 있어요.",
 	"resetPasses.autoRedeem":
-		"자동 사용(codexResets.autoRedeem / claudeResets.autoRedeem)을 켜면 모든 계정이 한도에 막히거나 초기화권이 곧 만료될 때 omp가 직접 초기화권을 써요. 설정하지 않았으면 먼저 물어봐요.",
+		"자동 사용(omp의 codexResets / claudeResets 설정)을 켜면 모든 계정이 한도에 막히거나 초기화권이 곧 만료될 때 omp가 직접 초기화권을 써요. 설정하지 않았으면 먼저 물어봐요.",
 	"resetPasses.confirmWarning": "사용한 초기화권은 되돌릴 수 없어요.",
 	"resetPasses.windowsAll": "이 계정의 사용 한도",
 	"resetPasses.window.5h": "5시간 한도",

@@ -1326,6 +1326,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description:
 			"저장된 Codex 사용량 리셋을 자동으로 써요: 턴이 막히고 대신할 다른 계정이 없을 때 5시간 또는 주간 한도 소진으로 잠긴 계정을 복구하고, 곧 만료될 크레딧을 살려요. unset은 처음 쓰기 전에 묻고, yes는 묻지 않고 쓰며, no는 두 검사를 모두 꺼요.",
 	},
+	"codexResets.autoRedeem5h": {
+		label: "Codex 저장된 리셋 자동 사용 (5시간)",
+		description:
+			"5시간 한도에만 막혔을 때와, 가장 많이 찬 채팅 한도가 5시간 한도인 크레딧이 곧 만료될 때 저장된 Codex 리셋을 써요. unset은 쓰기 전에 묻고 묻지 않고는 쓰지 않아요. yes는 묻지 않고 쓰고, no는 쓰지 않아요.",
+	},
+	"codexResets.autoRedeemWeekly": {
+		label: "Codex 저장된 리셋 자동 사용 (주간)",
+		description:
+			"주간 한도에 막혔을 때와, 가장 많이 찬 채팅 한도가 주간 한도인 크레딧이 곧 만료될 때 저장된 Codex 리셋을 써요. 짧은 429 대기로만 알게 된 차단에는 Codex 두 한도의 설정이 모두 필요해요. unset은 쓰기 전에 묻고 묻지 않고는 쓰지 않아요. yes는 묻지 않고 쓰고, no는 쓰지 않아요.",
+	},
 	"codexResets.minBlockedMinutes": {
 		label: "Codex 자동 사용 최소 잠금 시간",
 		description:
@@ -1882,6 +1892,21 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "Claude 리셋 자동 사용",
 		description:
 			"사용 가능한 Claude Cedar 또는 Juniper 리셋을 자동으로 사용해요. Cedar는 적용 대상 한도에만 쓰고, Juniper는 단독 5시간 차단만 복구할 수 있어요. unset은 첫 사용 전에 묻고, yes는 묻지 않고 사용하며, no는 차단 복구와 만료 구제를 꺼요.",
+	},
+	"claudeResets.autoRedeem5h": {
+		label: "Claude 리셋 자동 사용 (5시간)",
+		description:
+			"5시간 한도에만 막혔을 때와, 적용 대상 중 가장 많이 찬 한도가 5시간 한도인 리셋이 곧 만료될 때 Claude Cedar 또는 Juniper 리셋을 써요. unset은 쓰기 전에 묻고 묻지 않고는 쓰지 않아요. yes는 묻지 않고 쓰고, no는 쓰지 않아요.",
+	},
+	"claudeResets.autoRedeemWeekly": {
+		label: "Claude 리셋 자동 사용 (주간)",
+		description:
+			"주간 한도나 모델별 한도에 막혔을 때와, 적용 대상 중 가장 많이 찬 한도가 주간 한도인 리셋이 곧 만료될 때 Claude Cedar 리셋을 써요. unset은 쓰기 전에 묻고 묻지 않고는 쓰지 않아요. yes는 묻지 않고 쓰고, no는 쓰지 않아요.",
+	},
+	"claudeResets.autoRedeemFable": {
+		label: "Claude Fable 리셋 자동 사용",
+		description:
+			"Fable 주간 사용량과 5시간 한도를 되돌리는 Claude Fable 출시 기념 리셋을 써요. 이 리셋은 이 설정만 따라요. unset은 쓰기 전에 묻고 묻지 않고는 쓰지 않아요. yes는 묻지 않고 쓰고, no는 쓰지 않아요.",
 	},
 	"claudeResets.minBlockedMinutes": {
 		label: "Claude 자동 사용 최소 차단 시간",

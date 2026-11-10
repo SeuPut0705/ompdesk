@@ -1371,7 +1371,7 @@ export const en: Record<string, string> = {
 	"resetPasses.confirmPass": "Pass: {title}",
 	"resetPasses.confirmEarly": "The provider allows using this pass before the limit is reached.",
 	"resetPasses.autoRedeem":
-		"With auto-redeem on (codexResets.autoRedeem / claudeResets.autoRedeem), omp also spends passes itself when a limit blocks every account or a pass is about to expire. Unset, omp asks first.",
+		"With auto-redeem on (omp's codexResets / claudeResets settings), omp also spends passes itself when a limit blocks every account or a pass is about to expire. Unset, omp asks first.",
 	"resetPasses.confirmWarning": "A used pass can't be returned.",
 	"resetPasses.windowsAll": "the account's usage limits",
 	"resetPasses.window.5h": "5-hour limit",
