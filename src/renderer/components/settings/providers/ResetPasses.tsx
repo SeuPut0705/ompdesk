@@ -57,6 +57,10 @@ const OUTCOME_KEYS: Record<string, string> = {
 	reset_unconfirmed: "resetPasses.outcome.unconfirmed",
 	network_error: "resetPasses.outcome.unconfirmed",
 	malformed_response: "resetPasses.outcome.unconfirmed",
+	// The provider's own answers to a claim OMPdesk sent for a picked pass (pi-ai `consumeClaudeResetCredit`).
+	unavailable: "resetPasses.outcome.unconfirmed",
+	cooldown: "resetPasses.outcome.notRedeemable",
+	auth_error: "resetPasses.outcome.accountUnavailable",
 };
 
 /** "2 reset passes · expires 10/12" (month/day, the soonest pass); `usable` between them when it differs. */
@@ -136,7 +140,10 @@ export function ResetPassControl({
 	const view = shown ?? passes;
 	const tickets = view.tickets ?? [];
 	const offered = tickets.filter(ticket => ticket.creditId !== undefined);
-	const chosen = offered.find(ticket => ticketKind(ticket) === pick) ?? offered[0];
+	const chosen =
+		offered.find(ticket => ticketKind(ticket) === pick) ??
+		offered.find(ticket => ticket.creditId === view.creditId) ??
+		offered[0];
 	/** The pass a confirm spends and describes: the chosen kind's, else the one stock spends by itself. */
 	const spent = chosen ?? view;
 
@@ -263,8 +270,8 @@ export function ResetPassControl({
 									value={chosen ? ticketKind(chosen) : null}
 								/>
 								{offered.length < tickets.length && (
-									<p className="mt-1.5 text-sc-xs text-(--sc-text-muted)" data-reset-tickets-limit>
-										{t("resetPasses.chooseLimit", { provider: providerName })}
+									<p className="mt-1.5 text-sc-xs text-(--sc-text-muted)" data-reset-tickets-paused>
+										{t("resetPasses.choosePaused")}
 									</p>
 								)}
 							</div>

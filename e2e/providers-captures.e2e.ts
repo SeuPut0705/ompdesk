@@ -102,8 +102,10 @@ for (const [size, options] of Object.entries(SIZES))
 				const cards = dialog.locator("[data-reset-ticket]");
 				await expect(cards).toHaveCount(2);
 				await expect(cards.nth(0)).toHaveAttribute("aria-checked", "true");
-				await expect(cards.nth(1)).toBeDisabled();
-				await expect(dialog.locator("[data-reset-tickets-limit]")).toBeVisible();
+				// Every kind can be picked: the second card takes the pick.
+				await cards.nth(1).click();
+				await expect(cards.nth(1)).toHaveAttribute("aria-checked", "true");
+				await expect(dialog.locator("[data-reset-tickets-paused]")).toHaveCount(0);
 				// Nothing drawn past the dialog's edges (its own scroll width counts the ✕'s touch area, so boxes are compared).
 				const spill = await dialog.evaluate(node => {
 					const box = node.getBoundingClientRect();

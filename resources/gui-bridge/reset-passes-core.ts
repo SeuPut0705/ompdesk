@@ -53,39 +53,53 @@ const expiryMs = (credit: ResetCreditDetail): number => {
 	return Number.isFinite(at) ? at : Number.POSITIVE_INFINITY;
 };
 
+/** A pass still there to spend: something left on it, not expired. */
+const live = (credit: ResetCreditDetail): boolean =>
+	credit.status !== "expired" && credit.status !== "redeemed" && (credit.remainingCount ?? 1) > 0;
+
+/** A pass a person may pick: live, named, and not paused by the provider. Whether it applies now is the provider's answer. */
+const choosable = (credit: ResetCreditDetail): credit is ResetCreditDetail & { id: string } =>
+	live(credit) && credit.status !== "paused" && Boolean(credit.id);
+
 /**
  * The account's passes by kind: what one resets tells kinds apart (a Claude Fable reset and a full reset), and passes
- * that reset the same limits are one ticket with their count and soonest expiry. A ticket names a pass (`creditId`)
- * only where stock marks one of its kind usable now: stock decides what can be spent, never this list. Stock's Claude
- * redeem spends the one grant Claude names next (pi-ai auth/resets.ts: any other id is `offer_changed`), so that is
- * the only ticket with a pass to spend until stock takes a chosen grant.
+ * that reset the same limits are one ticket with their count and soonest expiry. A ticket names the pass a spend of
+ * its kind takes (`creditId`): the one stock marks usable (the one the provider names next), else the kind's soonest
+ * to expire that can be picked. A kind whose passes are all paused names none.
  */
 export function resetTickets(credits: readonly ResetCreditDetail[]): ResetTicket[] {
 	const kinds = new Map<string, ResetCreditDetail[]>();
 	for (const credit of credits) {
-		if (credit.status === "expired" || credit.status === "redeemed" || (credit.remainingCount ?? 1) <= 0) continue;
+		if (!live(credit)) continue;
 		const kind = [...(credit.clears ?? [])].sort().join(" ");
 		kinds.set(kind, [...(kinds.get(kind) ?? []), credit]);
 	}
+	const sooner = <Pass extends ResetCreditDetail>(first: Pass, pass: Pass): Pass =>
+		expiryMs(pass) < expiryMs(first) ? pass : first;
 	return [...kinds.values()]
-		.map((passes): ResetTicket => {
-			const soonest = passes.reduce((first, pass) => (expiryMs(pass) < expiryMs(first) ? pass : first));
-			const spendable = passes.find(pass => pass.usable === true && pass.id);
-			const shown = spendable ?? soonest;
-			return {
+		.map(passes => {
+			const soonest = passes.reduce(sooner);
+			const pickable = passes.filter(choosable);
+			const next = pickable.find(pass => pass.usable === true);
+			const spent = next ?? (pickable.length > 0 ? pickable.reduce(sooner) : undefined);
+			const shown = spent ?? soonest;
+			const ticket: ResetTicket = {
 				clears: shown.clears ?? [],
 				...(shown.title ? { title: shown.title } : {}),
 				count: passes.reduce((sum, pass) => sum + (pass.remainingCount ?? 1), 0),
 				...(Number.isFinite(expiryMs(soonest)) ? { expiresAt: expiryMs(soonest) } : {}),
 				early: shown.requiresLimit === false,
-				...(spendable?.id ? { creditId: spendable.id } : {}),
+				...(spent ? { creditId: spent.id } : {}),
 			};
+			// The kind the provider spends next leads, then those that can be picked, each by its soonest expiry.
+			return { ticket, rank: next ? 0 : spent ? 1 : 2 };
 		})
 		.sort(
 			(a, b) =>
-				Number(b.creditId !== undefined) - Number(a.creditId !== undefined) ||
-				(a.expiresAt ?? Number.POSITIVE_INFINITY) - (b.expiresAt ?? Number.POSITIVE_INFINITY),
-		);
+				a.rank - b.rank ||
+				(a.ticket.expiresAt ?? Number.POSITIVE_INFINITY) - (b.ticket.expiresAt ?? Number.POSITIVE_INFINITY),
+		)
+		.map(entry => entry.ticket);
 }
 
 /**
@@ -176,6 +190,104 @@ export interface ResetPassSurface {
 	redeem(target: ResetTarget): Promise<ResetRedeemOutcome>;
 	/** Stock `describeRedeemOutcome`. */
 	describe(outcome: ResetRedeemOutcome, label: string): string;
+	/**
+	 * One stored account's live offer, read once, and the spend of one pass of it: pi-ai `listClaudeResetCredits` and
+	 * `consumeClaudeResetCredit` over that account's access (`authStorage.oauth.accessById`). A code when the account
+	 * is gone (`no_account`), cannot sign in (`account_unavailable`) or its offer cannot be read (`credit_list_failed`).
+	 */
+	account(provider: string, credentialId: number): Promise<ChosenAccount | { code: string }>;
+	/** After a spend: stock drops its cached usage, so the next read asks the provider and lifts the account's blocks. */
+	settle(provider: string): Promise<void>;
+}
+
+/** pi-ai `ClaudeResetCreditList`, the fields used here. */
+export interface ChosenOffer {
+	nextCreditId?: string;
+	credits: ResetCreditDetail[];
+}
+
+/** pi-ai `ClaudeResetConsumeResult`, the fields used here. */
+export interface ChosenSpend {
+	ok: boolean;
+	code: string;
+	status: number;
+	cleared?: string[];
+	reason?: string;
+}
+
+export interface ChosenAccount {
+	email?: string;
+	offer: ChosenOffer;
+	/** Spends exactly `credit` under `requestId`, the provider's idempotency key. Never retried. */
+	spend(credit: ResetCreditDetail & { id: string }, requestId: string): Promise<ChosenSpend>;
+}
+
+/** What chosen spends remember between calls, per omp (reset-passes.ts holds one). */
+export interface ChosenClaims {
+	/** Accounts with a chosen spend under way: a second one is refused, never sent. */
+	running: Set<number>;
+	/**
+	 * A spend the provider never answered keeps its request id, so trying the same pass again repeats the same claim
+	 * and cannot spend a second pass (stock's own `#pendingClaudeResets` does this for the pass named next).
+	 */
+	unsettled: Map<number, { creditId: string; requestId: string }>;
+}
+
+export const chosenClaims = (): ChosenClaims => ({ running: new Set(), unsettled: new Map() });
+
+/** Answers after which a claim is over: it applied, or the provider said it will not. */
+const SETTLED_CODES: Record<string, true> = {
+	already_redeemed: true,
+	nothing_to_reset: true,
+	ineligible: true,
+	cooldown: true,
+};
+const SETTLED_STATUSES: Record<number, true> = { 401: true, 403: true, 429: true };
+
+/**
+ * Spend the pass a person picked when it is not the one the provider names next. Stock's redeem refuses that
+ * (`offer_changed`: it spends only `nextCreditId`), although Claude takes any grant of the account by id, which is how
+ * Claude Code spends the kind a person picks there (the owner's rule, 11 Nov 2026: every kind listed can be spent).
+ * So this path reads the account's offer once and sends that one pass's claim with stock's own request.
+ *
+ * Undefined when the offer does not name a different pass next, or the picked one is gone, spent or paused: stock's
+ * refusal then stands.
+ */
+async function spendChosenPass(
+	surface: ResetPassSurface,
+	claims: ChosenClaims,
+	provider: string,
+	credentialId: number,
+	creditId: string,
+): Promise<ResetRedeemOutcome | undefined> {
+	if (claims.running.has(credentialId)) return { ok: false, code: "reset_in_progress", provider };
+	claims.running.add(credentialId);
+	try {
+		const account = await surface.account(provider, credentialId);
+		if ("code" in account) return { ok: false, code: account.code, provider };
+		const { offer } = account;
+		const credit = offer.credits.find(candidate => candidate.id === creditId);
+		if (!offer.nextCreditId || offer.nextCreditId === creditId || !credit || !choosable(credit)) return undefined;
+		const held = claims.unsettled.get(credentialId);
+		const requestId = held?.creditId === creditId ? held.requestId : crypto.randomUUID();
+		claims.unsettled.set(credentialId, { creditId, requestId });
+		// Stock's `usable` says "the one named next"; the claim's own guard reads it as "may be sent".
+		const spend = await account.spend({ ...credit, usable: true }, requestId);
+		if (spend.ok || SETTLED_CODES[spend.code] || SETTLED_STATUSES[spend.status])
+			claims.unsettled.delete(credentialId);
+		if (spend.ok) await surface.settle(provider);
+		return {
+			ok: spend.ok,
+			code: spend.code,
+			provider,
+			creditId,
+			...(account.email ? { email: account.email } : {}),
+			...(spend.reason ? { reason: spend.reason } : {}),
+			...(spend.cleared ? { cleared: spend.cleared } : {}),
+		};
+	} finally {
+		claims.running.delete(credentialId);
+	}
 }
 
 export interface RedeemRequest {
@@ -213,16 +325,25 @@ const outcomeResult = (surface: ResetPassSurface, outcome: ResetRedeemOutcome, l
 /**
  * Spend the pass the user confirmed. Where stock's redeem checks the live offer itself, the confirmed pass goes
  * straight to it; elsewhere the offer is read here first and a changed confirmation is refused before stock redeems.
+ * A confirmed pass stock refuses only because the provider names another one next is spent by `spendChosenPass`.
  */
-export async function redeemResetPass(surface: ResetPassSurface, request: RedeemRequest): Promise<RedeemResult> {
+export async function redeemResetPass(
+	surface: ResetPassSurface,
+	request: RedeemRequest,
+	claims: ChosenClaims,
+): Promise<RedeemResult> {
 	const { provider, credentialId } = request;
 	if (surface.verifiesOffer(provider)) {
-		const outcome = await surface.redeem({
+		const refused = await surface.redeem({
 			provider,
 			credentialId,
 			...(request.creditId ? { creditId: request.creditId } : {}),
 		});
-		return outcomeResult(surface, outcome, outcome.email ?? `#${credentialId}`);
+		const outcome =
+			refused.code === "offer_changed" && request.creditId
+				? ((await spendChosenPass(surface, claims, provider, credentialId, request.creditId)) ?? refused)
+				: refused;
+		return outcomeResult(surface, outcome, outcome.email ?? refused.email ?? `#${credentialId}`);
 	}
 	const status = (await surface.list(provider)).find(candidate => candidate.credentialId === credentialId);
 	if (!status) return refusal("no_account", `Could not find the stored account #${credentialId}.`);

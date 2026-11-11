@@ -308,10 +308,11 @@ describe("reset passes on provider accounts", () => {
 			expect(cards()[0]?.textContent).toContain(
 				`Fable launch reset · ${translate("resetPasses.countOne")} · ${translate("resetPasses.expires", { date: "10/12" })}`,
 			);
-			// Until a kind is picked, the dialog describes the first one on offer.
+			// Until a kind is picked, the dialog describes the one the provider spends next.
 			expect(cards()[0]?.getAttribute("aria-checked")).toBe("true");
 			expect(text()).not.toContain(translate("resetPasses.confirmResets", { windows: fullWindows }));
-			expect(text()).not.toContain(translate("resetPasses.chooseLimit", { provider: "Claude" }));
+			expect(card(fullWindows)?.disabled).toBe(false);
+			expect(text()).not.toContain(translate("resetPasses.choosePaused"));
 
 			await act(async () => card(fullWindows)?.click());
 			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("true");
@@ -332,7 +333,13 @@ describe("reset passes on provider accounts", () => {
 			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("false");
 		});
 
-		it("cannot pick a kind omp is offered no pass of, says why, and spends the one on offer", async () => {
+		it("starts on the pass the provider spends next, wherever its card stands", async () => {
+			await mountAccounts([holding([{ ...full, creditId: "grant-full" }, fable])]);
+			await open();
+			expect(cards().map(candidate => candidate.getAttribute("aria-checked"))).toEqual(["false", "true"]);
+		});
+
+		it("cannot pick a kind whose passes are paused, says so, and spends the one that can be", async () => {
 			await mountAccounts([holding([fable, full])]);
 			redeemResetPass.mockResolvedValue(
 				ok("redeem_reset_pass", { ok: false, code: "nothing_to_reset", message: "" }),
@@ -340,7 +347,7 @@ describe("reset passes on provider accounts", () => {
 			await open();
 
 			expect(card(fullWindows)?.disabled).toBe(true);
-			expect(text()).toContain(translate("resetPasses.chooseLimit", { provider: "Claude" }));
+			expect(text()).toContain(translate("resetPasses.choosePaused"));
 			await act(async () => card(fullWindows)?.click());
 			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("false");
 

@@ -113,31 +113,32 @@ function fable(usedFraction: number) {
 const PASSES = { count: 2, usableCount: 1, clears: ["anthropic:7d"], early: false, redeemable: true };
 
 /**
- * An account holding two kinds of pass, as stock omp reports them: a Fable reset Claude names next (the only one omp
- * can spend) and two regular ones.
+ * An account holding two kinds of pass, as a real one did (11 Nov 2026): a full reset Claude names next and a Fable
+ * launch reset. Either can be picked.
  */
 function twoKinds(): NonNullable<ProviderAccount["resetPasses"]> {
 	const day = 24 * 60 * MINUTE;
-	const fable = {
-		clears: ["anthropic:5h", "anthropic:7d:fable"],
-		title: "Fable launch reset",
-		early: false,
-		creditId: "fable",
+	const full = {
+		clears: ["anthropic:5h", "anthropic:7d", "anthropic:7d:fable"],
+		title: "One full limit reset",
+		early: true,
+		creditId: "full",
 	};
 	return {
-		...fable,
-		count: 3,
+		...full,
+		count: 2,
 		usableCount: 1,
 		expiresAt: Date.now() + 30 * day,
 		redeemable: true,
 		tickets: [
-			{ ...fable, count: 1, expiresAt: Date.now() + 120 * day },
+			{ ...full, count: 1, expiresAt: Date.now() + 30 * day },
 			{
-				clears: ["anthropic:5h", "anthropic:7d"],
-				title: "Limit reset",
-				count: 2,
-				expiresAt: Date.now() + 30 * day,
+				clears: ["anthropic:5h", "anthropic:7d:fable"],
+				title: "New model launch: one Fable reset",
+				count: 1,
+				expiresAt: Date.now() + 120 * day,
 				early: false,
+				creditId: "fable",
 			},
 		],
 	};

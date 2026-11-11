@@ -1198,15 +1198,15 @@ export function runRpcUi(): void {
 			],
 		},
 	};
-	// `OMP_GUI_TEST_RESET_TICKETS=1` (with OMP_GUI_TEST_MODELS): home@ holds two kinds of reset pass as stock omp
-	// reports them, a Fable reset Claude names next (the one omp can spend) and two regular ones, and a Fable window.
+	// `OMP_GUI_TEST_RESET_TICKETS=1` (with OMP_GUI_TEST_MODELS): home@ holds two kinds of reset pass, as a real account
+	// did (11 Nov 2026): a full reset Claude names next and a Fable launch reset, and a Fable window.
 	if (modelsData && process.env.OMP_GUI_TEST_RESET_TICKETS === "1") {
 		const day = 86_400_000;
-		const fable = {
-			clears: ["anthropic:5h", "anthropic:7d:fable"],
-			title: "Fable launch reset",
-			early: false,
-			creditId: "fable",
+		const full = {
+			clears: ["anthropic:5h", "anthropic:7d", "anthropic:7d:fable"],
+			title: "One full limit reset",
+			early: true,
+			creditId: "full",
 		};
 		accountQuota[2].limits.push({
 			id: "anthropic:7d:fable",
@@ -1216,19 +1216,20 @@ export function runRpcUi(): void {
 			windowLabel: "Claude 7 Day",
 		});
 		accountQuota[2].resetPasses = {
-			...fable,
-			count: 3,
+			...full,
+			count: 2,
 			usableCount: 1,
 			expiresAt: Date.now() + 30 * day,
 			redeemable: true,
 			tickets: [
-				{ ...fable, count: 1, expiresAt: Date.now() + 120 * day },
+				{ ...full, count: 1, expiresAt: Date.now() + 30 * day },
 				{
-					clears: ["anthropic:5h", "anthropic:7d"],
-					title: "Limit reset",
-					count: 2,
-					expiresAt: Date.now() + 30 * day,
+					clears: ["anthropic:5h", "anthropic:7d:fable"],
+					title: "New model launch: one Fable reset",
+					count: 1,
+					expiresAt: Date.now() + 120 * day,
 					early: false,
+					creditId: "fable",
 				},
 			],
 		};

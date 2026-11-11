@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { resolve as absolute, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
 import { configDirName, INSTALLED_OMP } from "./test-bridge-probe";
@@ -45,16 +44,54 @@ const live = offer({ eligible: true, grants: [grant()], next_grant_id: "grant-li
  * An account with two kinds of pass, both usable by Claude's own word: a Fable reset, which Claude names next, and a
  * regular one. Claude Code lets a person pick either; stock omp spends only the one named next.
  */
-const KINDS = offer({
-	eligible: true,
-	grants: [
-		grant({ id: "grant-fable", label: "Fable reset", clears: ["five_hour", "seven_day_overage_included"] }),
-		grant({ id: "grant-regular", label: "Limit reset", clears: ["five_hour", "seven_day"], resets_left: 2 }),
-	],
-	next_grant_id: "grant-fable",
-});
+const kinds = (regular: Record<string, unknown> = {}) =>
+	offer({
+		eligible: true,
+		grants: [
+			grant({ id: "grant-fable", label: "Fable reset", clears: ["five_hour", "seven_day_overage_included"] }),
+			grant({
+				id: "grant-regular",
+				label: "Limit reset",
+				clears: ["five_hour", "seven_day"],
+				resets_left: 2,
+				...regular,
+			}),
+		],
+		next_grant_id: "grant-fable",
+	});
+const KINDS = kinds();
 /** The fake's route for the listing of that account (no redeem). */
 const LISTED = "kinds";
+
+/**
+ * The same redeems through OMPdesk's bridge method (`reset_pass_redeem`, reset-passes.ts), each of a pass a person
+ * picked. The one stock refuses only because Claude names another next is the one the bridge sends itself
+ * (reset-passes-core.ts `spendChosenPass`): stock's read, the bridge's read, then one claim of exactly that grant.
+ */
+const PICKS: Record<string, Case> = {
+	picked: { confirm: "grant-regular", usage: KINDS, expected: { ok: true, code: "reset" }, spends: true },
+	// Picked, then gone from the offer, spent, or paused by Claude before the confirm: nothing is sent.
+	"picked-gone": {
+		confirm: "grant-regular",
+		usage: live,
+		expected: { ok: false, code: "offer_changed" },
+		spends: false,
+	},
+	"picked-spent": {
+		confirm: "grant-regular",
+		usage: kinds({ resets_left: 0 }),
+		expected: { ok: false, code: "offer_changed" },
+		spends: false,
+	},
+	"picked-paused": {
+		confirm: "grant-regular",
+		usage: kinds({ paused: true }),
+		expected: { ok: false, code: "offer_changed" },
+		spends: false,
+	},
+	// The pass Claude names next goes through stock's own redeem alone: one read, one claim.
+	"picked-next": { confirm: "grant-fable", usage: KINDS, expected: { ok: true, code: "reset" }, spends: true },
+};
 interface Case {
 	/** The pass the person confirmed; absent = the target carries no `creditId`. */
 	confirm?: string;
@@ -96,9 +133,8 @@ const CASES: Record<string, Case> = {
 		expected: { ok: false, code: "credit_list_failed" },
 		spends: false,
 	},
-	// What keeps the other kinds of an account's passes unpickable in OMPdesk (reset-passes-core.ts `resetTickets`): a
-	// grant Claude calls usable but did not name next is refused unspent. When stock takes a chosen grant, this case
-	// and the listing below change with it, and the dialog's other cards open by themselves.
+	// Why the bridge sends a picked pass itself (PICKS below): stock refuses, unspent, a grant Claude calls usable but
+	// did not name next. When stock takes a chosen grant this case changes, and that path can go.
 	"other-kind": {
 		confirm: "grant-regular",
 		usage: KINDS,
@@ -142,11 +178,11 @@ guarded.preconnect = (input, options) => {
 globalThis.fetch = guarded;
 `;
 
-/** The bridge's pure ticket rules, read from this checkout by the probe (a file outside omp's package). */
-const CORE = pathToFileURL(resolve("resources/gui-bridge/reset-passes-core.ts")).href;
-
+// The probe sits beside a copy of resources/gui-bridge (as `runBridgeProbe`'s does), so the bridge's own modules and
+// their `@oh-my-pi/*` imports resolve the way they do in the app.
 const PROBE = `
-import { resetTickets } from "${CORE}";
+import { resetTickets } from "./reset-passes-core";
+import { methods } from "./reset-passes";
 export default function (pi) {
  const run = async () => {
   try {
@@ -184,8 +220,16 @@ export default function (pi) {
    }
    pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/${LISTED}" });
    const [listed] = await session.listResetCredits(undefined, "anthropic");
+   const env = { pi, session: () => session, context: () => undefined, emit: () => {} };
+   const picks = {};
+   for (const { name, confirm } of JSON.parse(process.env.OMPDESK_RESET_PICKS)) {
+    pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/" + name });
+    const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: confirm }, env);
+    picks[name] = { ok: result.ok, code: result.code, message: result.message };
+   }
    console.error("RESET_REDEEM_PROBE=" + JSON.stringify({
     results,
+    picks,
     listed: { count: listed?.availableCount, tickets: resetTickets(listed?.credits ?? []) },
     startupRefused: guard.blocked.slice(0, startup),
     blocked: guard.blocked.slice(startup),
@@ -214,7 +258,7 @@ function fakeClaude(received: Received[]) {
 			received.push({ method: request.method ?? "", path, body });
 			const [, name = "", ...rest] = path.split("/");
 			const route = `/${rest.join("/")}`;
-			const scripted = CASES[name];
+			const scripted = CASES[name] ?? PICKS[name];
 			const answer = (status: number, payload?: unknown) => {
 				response.writeHead(status, { "content-type": "application/json" });
 				response.end(payload === undefined ? "" : JSON.stringify(payload));
@@ -237,7 +281,8 @@ function runRedeemProbe(fake: string): Promise<Record<string, unknown>> {
 	const isolated = mkdtempSync(join(tmpdir(), "ompdesk-reset-redeem-"));
 	chmodSync(isolated, 0o700);
 	const guard = join(isolated, "net-guard.js");
-	const extension = join(isolated, "reset-redeem-probe.js");
+	cpSync(absolute("resources/gui-bridge"), join(isolated, "bridge"), { recursive: true });
+	const extension = join(isolated, "bridge", "reset-redeem-probe.ts");
 	writeFileSync(guard, GUARD);
 	writeFileSync(extension, PROBE);
 	const env: Record<string, string | undefined> = {
@@ -252,6 +297,7 @@ function runRedeemProbe(fake: string): Promise<Record<string, unknown>> {
 		OPENAI_API_KEY: "probe-not-a-real-key",
 		OMPDESK_RESET_FAKE: fake,
 		OMPDESK_RESET_CASES: JSON.stringify(Object.entries(CASES).map(([name, { confirm }]) => ({ name, confirm }))),
+		OMPDESK_RESET_PICKS: JSON.stringify(Object.entries(PICKS).map(([name, { confirm }]) => ({ name, confirm }))),
 	};
 	for (const key of [
 		"ANTHROPIC_API_KEY",
@@ -321,7 +367,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 		// engine probes at startup).
 		const toFake = (probe.loopback as string[]).filter(url => url.startsWith(`${base}/`));
 		expect(toFake.map(url => url.slice(base.length)).sort()).toEqual(received.map(entry => entry.path).sort());
-		const routes = [...Object.keys(CASES), LISTED];
+		const routes = [...Object.keys(CASES), ...Object.keys(PICKS), LISTED];
 		expect(received.every(entry => routes.some(name => entry.path.startsWith(`/${name}/`)))).toBe(true);
 	});
 
@@ -336,14 +382,47 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 	});
 
 	it("spends exactly the live offer's pass", () => {
-		const spends = received.filter(entry => entry.method === "POST").map(entry => JSON.parse(entry.body));
+		const spends = received
+			.filter(entry => entry.method === "POST" && CASES[entry.path.split("/")[1] ?? ""])
+			.map(entry => JSON.parse(entry.body));
 		expect(spends).toHaveLength(2);
 		for (const body of spends) {
 			expect(body).toMatchObject({ program: "cedar_ember", grant_id: "grant-live", request_id: expect.any(String) });
 		}
 	});
 
-	it("lists two kinds of pass as two tickets, a pass to spend only on the one Claude names next", () => {
+	it.each(Object.entries(PICKS))(
+		"through the bridge, %s: only the pass the person picked is ever claimed",
+		(name, pick) => {
+			const picks = probe.picks as Record<string, { ok: boolean; code: string; message: string }>;
+			expect(picks[name]).toMatchObject(pick.expected);
+			const routes = received.filter(entry => entry.path.startsWith(`/${name}/api/`));
+			const claims = routes.filter(entry => entry.method === "POST");
+			expect(routes.filter(entry => entry.method === "GET").every(entry => entry.path === `/${name}${USAGE}`)).toBe(
+				true,
+			);
+			expect(claims.map(entry => entry.path)).toEqual(pick.spends ? [`/${name}${CONSUME}`] : []);
+			for (const claim of claims) {
+				expect(JSON.parse(claim.body)).toEqual({
+					program: "cedar_ember",
+					grant_id: pick.confirm,
+					request_id: expect.stringMatching(/^[A-Za-z0-9_-]{1,64}$/),
+				});
+			}
+		},
+	);
+
+	it("reads a picked pass's offer once more than stock did, and the next pass's not at all", () => {
+		const reads = (name: string) =>
+			received.filter(entry => entry.method === "GET" && entry.path.startsWith(`/${name}/`)).length;
+		expect(reads("picked")).toBe(2);
+		expect(reads("picked-next")).toBe(1);
+		expect((probe.picks as Record<string, { message: string }>).picked?.message).toContain(
+			"reset-probe@example.invalid",
+		);
+	});
+
+	it("lists two kinds of pass as two tickets, each naming the pass a pick of it spends", () => {
 		expect(probe.listed).toEqual({
 			count: 3,
 			tickets: [
@@ -361,6 +440,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 					count: 2,
 					expiresAt: Date.parse(FUTURE),
 					early: false,
+					creditId: "grant-regular",
 				},
 			],
 		});
