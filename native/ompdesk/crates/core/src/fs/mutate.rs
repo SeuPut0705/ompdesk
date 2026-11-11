@@ -116,6 +116,13 @@ fn sibling(entry: &str, name: &str) -> String {
     format!("{}{name}", &entry[..parent])
 }
 
+/// Whether canonical `path` is `root` or lies under it, by whole components: `/ab` is not under `/a`, and every
+/// path of the volume is under a root that is the volume's own (`/`, `C:\`), whose spelling already ends in a
+/// separator (the TypeScript appended one more and so refused every save in such a workspace).
+fn within(root: &std::path::Path, path: &std::path::Path) -> bool {
+    path.starts_with(root)
+}
+
 /// A canonical path as node's `realpath` spells it (libuv drops Windows' `\\?\` prefix), for messages.
 fn spelled(path: &std::path::Path) -> String {
     let text = path.to_string_lossy();
@@ -212,14 +219,7 @@ pub fn mutate(call: Call) -> Result<Reply, Fault> {
             // Through a symlink only when its target is inside the project too.
             let real_root = disk::realpath(&params.root).map_err(fs_fault)?;
             let real_source = disk::realpath(&source).map_err(fs_fault)?;
-            let (root_bytes, source_bytes) = (
-                real_root.as_os_str().as_encoded_bytes(),
-                real_source.as_os_str().as_encoded_bytes(),
-            );
-            let inside = source_bytes == root_bytes
-                || (source_bytes.starts_with(root_bytes)
-                    && source_bytes.get(root_bytes.len()) == Some(&(MAIN_SEPARATOR as u8)));
-            if !inside {
+            if !within(&real_root, &real_source) {
                 return Err(escapes());
             }
             let real = spelled(&real_source);
@@ -351,5 +351,38 @@ mod tests {
         assert_eq!(join("/", "a"), "/a");
         assert_eq!(sibling("/w/src/a.ts", "b.ts"), "/w/src/b.ts");
         assert_eq!(sibling("/a", "b"), "/b");
+    }
+
+    #[test]
+    fn a_write_stays_within_the_workspace_by_whole_components() {
+        use std::path::Path;
+        #[cfg(unix)]
+        let cases = [
+            ("/w", "/w", true),
+            ("/w", "/w/a.txt", true),
+            ("/w", "/w/src/a.txt", true),
+            ("/w", "/wide/a.txt", false),
+            ("/w", "/a.txt", false),
+            ("/w/src", "/w/a.txt", false),
+            // A workspace that is the volume's root: its spelling ends in the separator already.
+            ("/", "/a.txt", true),
+            ("/", "/etc/hosts", true),
+        ];
+        #[cfg(windows)]
+        let cases = [
+            (r"C:\w", r"C:\w\a.txt", true),
+            (r"C:\w", r"C:\wide\a.txt", false),
+            (r"C:\w", r"D:\w\a.txt", false),
+            (r"C:\", r"C:\a.txt", true),
+            (r"\\?\C:\", r"\\?\C:\Users\a.txt", true),
+            (r"\\?\C:\w", r"\\?\C:\wide\a.txt", false),
+        ];
+        for (root, path, expected) in cases {
+            assert_eq!(
+                within(Path::new(root), Path::new(path)),
+                expected,
+                "{root} {path}"
+            );
+        }
     }
 }
