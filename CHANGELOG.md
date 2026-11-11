@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.123.0] - 2026-11-11
+
+초기화권이 여러 종류인 계정은 초기화권을 누르면 종류별 티켓이 보이고, 그중에서 쓸 것을 골라요.
+
+### 새 기능
+- 한 계정에 초기화권이 두 종류 이상이면(Claude의 Fable 초기화와 전체 초기화) 확인 창에 종류마다 티켓이 하나씩 보여요. 티켓에는 무엇을 초기화하는지, 몇 장인지, 언제 만료되는지가 적혀 있고, 고른 티켓이 쓰여요. 설정 › 모델 및 계정과 통계 › 사용량에서 같아요.
+- 지금 omp(18.18.8)는 Claude가 다음 차례로 내주는 초기화권 한 장만 쓸 수 있어요. 그래서 나머지 종류는 보이지만 아직 고를 수 없고, 창에 그 이유가 적혀 있어요. omp가 고른 초기화권을 받게 되면 OMPdesk를 바꾸지 않아도 고를 수 있게 돼요.
+- 초기화권이 한 종류뿐인 계정은 전과 같아요.
+
+### 고친 것
+- omp가 저장을 기다린다고 알리는 줄이 둘로 나뉘어 오거나 다른 출력과 섞여 와도 읽어요. 전에는 이런 경우 omp를 5초 뒤에 강제로 끝낼 수 있었어요.
+
+<!-- en -->
+
+An account that holds several kinds of reset pass now shows a ticket for each kind when you click its passes, and you pick the one to use.
+
+### Added
+- When an account holds two or more kinds of reset pass (Claude's Fable reset and its full reset), the confirmation shows one ticket per kind: what it resets, how many are left and when they expire. The ticket you pick is the one spent. It is the same in Settings › Models & accounts and Stats › Usage.
+- omp as it is today (18.18.8) can spend only the one pass Claude offers next. The other kinds are shown but cannot be picked yet, and the dialog says why. Once omp takes a chosen pass, they can be picked with no change to OMPdesk.
+- An account with one kind of pass works as before.
+
+### Fixed
+- The line omp prints when it waits to save is read even when it arrives in two pieces or mixed with other output. Before, such a line could be missed and omp killed after 5 seconds.
+
 ## [0.122.2] - 2026-11-11
 
 Windows에서, 그리고 메모리를 켠 채 탭을 닫거나 앱을 끝낼 때도 omp가 로그인 갱신을 저장한 뒤에 끝나요.
