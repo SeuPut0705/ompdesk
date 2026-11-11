@@ -1787,17 +1787,34 @@ export class AgentControl {
 
 	/**
 	 * A saved session no tab of this app held when it was named, as its computer lists it now: the tab of this app that
-	 * holds it since, else a view of the tab that holds it elsewhere (`#join`). One open nowhere fails with the call
-	 * that opens it.
+	 * holds it since, else a view of the tab that holds it elsewhere (`#join`). One open nowhere this app can see fails
+	 * with the call that opens it, and one whose computer's list cannot be read now fails saying so: telling to open it
+	 * again then would open a tab on a session a tab there may hold.
 	 */
 	async #joinStored(caller: ControlTab, row: StoredSession, verb: string): Promise<ControlTab> {
-		const now = await this.#currentRow(row);
+		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
+		const where = row.deviceName ?? home?.name ?? "this computer";
+		const now = await (async () => {
+			if (home) await this.#reach(home);
+			const rows = await this.#overLink(row.device, () => this.#host.stored(row.device));
+			const current = rows.find(entry => entry.path === row.path) ?? row;
+			this.#stored.set(current.id, current);
+			return current;
+		})().catch((error: unknown) => {
+			if (error instanceof ToolError) throw error;
+			fail(
+				`What ${where} holds could not be read now (${error instanceof Error ? error.message : String(error)}), so whether a tab there has "${oneLine(storedTitle(row), 80)}" (${row.id}) open is not known: nothing was sent. Try again in a moment.`,
+			);
+		});
 		const live = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], now);
 		if (live) return live;
 		if (now.hidden) fail("The user hid that session from other agents.");
+		// What a computer lists as held is its windows' tabs and the tabs it runs for devices that are attached. A paired
+		// device's tab restored by a relaunch and not shown since runs no omp and tells no computer (11 Nov 2026 10:26:
+		// "문의" read as open nowhere 39 s after its host relaunched, and the agent sent to an older tab of its title).
 		if (!now.elsewhere)
 			fail(
-				`"${oneLine(storedTitle(now), 80)}" (${now.id}) is saved${now.deviceName ? ` on ${now.deviceName}` : ""} but not open in any tab. Open it again with ompdesk_session_open {"reopen":"${now.id}"}, then ${verb} it by the id that returns (ompdesk_session_read reads it without opening).`,
+				`"${oneLine(storedTitle(now), 80)}" (${now.id}) is saved${now.deviceName ? ` on ${now.deviceName}` : ""} and not open in any tab OMPdesk can see: no tab of this app, and none ${where} lists. A paired computer may still show it in a tab that has not started since a relaunch (it starts when the person shows it there), which no other computer sees. To ${verb} it now, open it with ompdesk_session_open {"reopen":"${now.id}"} and ${verb} it by the id that returns: a tab elsewhere that shows it then views that tab's omp, never a second omp (ompdesk_session_read reads it without opening).`,
 			);
 		return this.#join(caller, now);
 	}
@@ -3280,8 +3297,15 @@ export class AgentControl {
 		const known = find();
 		if (known) return { row: known, unreached: [] };
 		const load = async (deviceId: string | undefined): Promise<void> => {
-			for (const row of await this.#overLink(deviceId, () => this.#host.stored(deviceId)))
-				this.#stored.set(row.id, row);
+			const rows = await this.#overLink(deviceId, () => this.#host.stored(deviceId)).catch((error: unknown) => {
+				// This computer's index is read through omp's own session code (the stock helper): its error alone (an
+				// omp module that failed to load, 11 Nov 2026) said nothing of what the call did or that it can pass later.
+				if (deviceId !== undefined || error instanceof ToolError) throw error;
+				fail(
+					`This computer's list of saved sessions could not be read (${error instanceof Error ? error.message : String(error)}), so "${session}" was not looked up and nothing was done. Try again in a moment.`,
+				);
+			});
+			for (const row of rows) this.#stored.set(row.id, row);
 		};
 		if (device !== undefined) {
 			if (device) await this.#reach(device);
