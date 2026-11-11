@@ -1,43 +1,5 @@
 # Changelog
 
-## [0.124.0] - 2026-11-12
-
-세션끼리 보낸 메시지가 같은 이름의 다른 세션으로 가던 문제를 고쳤고, 한도에 걸렸을 때 초기화권을 쓰라고 묻던 질문을 없앴어요.
-
-### 새 기능
-- 한도에 걸리거나 초기화권 만료가 가까워져도 omp가 초기화권을 쓸지 묻지 않아요. OMPdesk가 여는 세션에서는 omp의 초기화권 자동 사용이 꺼진 값으로 잡혀 있어요. 한도 알림은 그대로이고, 초기화권은 설정 › 모델 및 계정의 티켓에서 직접 쓰면 돼요. 자동 사용을 원하면 같은 화면의 설정에서 켤 수 있어요.
-- `ompdesk` 명령이 Rust로 만든 실행 파일이 됐어요. Bun이 없어도 돌고, 명령 한 번이 18.6ms에서 2.8ms로 줄었어요(이 Mac에서 30번씩 번갈아 잰 중앙값). 명령, 옵션, 출력, 종료 코드는 그대로예요. 달라진 점은 둘이에요. `events`가 아닌 명령은 첫 Ctrl-C에 바로 끝나고, `events`는 출력을 읽는 쪽이 사라지면 멈춰요.
-
-### 고친 것
-- 받은 메시지에 보낸 세션의 고유 id(저장 id)가 실려요. 전에는 제목만 실려서, 제목이 같은 세션이 여럿이면 답이 다른 세션으로 갔어요.
-- 세션 목록이 모든 세션의 저장 id를 보여 줘요. 탭 id는 컴퓨터마다 다르고 앱을 다시 켤 때마다 바뀌어서, 다른 세션에 알려 줄 수 없는 값이었어요.
-- 메시지를 보낸 뒤의 영수증이 실제로 닿은 세션의 제목, 저장 id, 컴퓨터, 상태를 말해요. 전에는 잠든 탭을 깨워서 보내면 제목 없는 쉬는 세션에 보낸 것처럼 적혔어요.
-- 같은 제목의 세션이 다른 컴퓨터에도 열려 있으면 이 컴퓨터의 탭으로 조용히 보내지 않고, 후보와 각 저장 id를 보여 주며 실패해요.
-- 세션 목록의 낡은 줄이 가리키던 탭이 지금은 다른 세션을 갖고 있으면 그 탭으로 보내지 않아요.
-- 다른 컴퓨터의 세션 목록을 읽지 못했을 때 "다시 여세요"라고 하지 않고 읽지 못했다고 말해요. 아직 시작하지 않은 다른 컴퓨터의 탭이 갖고 있는 세션은 이 컴퓨터에서 보이지 않는다는 것도 그대로 알려요.
-- 긴 제목을 줄일 때 이모지가 반으로 잘리지 않아요.
-
-메시지 배달 수정은 테스트와 가짜 omp로 확인했어요. 컴퓨터 세 대를 이은 실제 환경에서는 이 버전을 설치한 뒤에 확인돼요.
-
-<!-- en -->
-
-Messages between sessions no longer go to another session of the same name, and omp no longer asks to spend a reset pass when a limit is hit.
-
-### Added
-- omp no longer asks whether to spend a reset pass when a limit blocks you or a pass nears its expiry. Sessions OMPdesk starts hold omp's saved-reset auto-redeem off. The limit notice stays, and you spend a pass yourself from its ticket in Settings › Models & accounts. To let omp spend passes, turn auto-redeem on in the settings on that page.
-- The `ompdesk` command is now a native Rust executable. It runs without Bun, and one command takes 2.8 ms instead of 18.6 ms (median of 30 alternating runs each on this Mac). Commands, flags, output and exit codes are the same. Two things differ: a command other than `events` ends at the first Ctrl-C, and `events` stops when nothing reads its output any more.
-
-### Fixed
-- A received message carries the sending session's own id (its saved id). Before, it carried only the title, so with several sessions of one title the answer went to another session.
-- The session list shows every session's saved id. A tab id differs on each computer and changes when the app relaunches, so it could not be handed to another session.
-- The receipt of a sent message names the session it reached: title, saved id, computer and state. Before, a send that woke an asleep tab read as sent to an untitled, idle session.
-- When a session of the same title is also open on another computer, the message is not quietly delivered to the tab here: the send fails and lists the candidates with their saved ids.
-- A stale row of the session list whose tab now holds another session no longer receives the message.
-- When another computer's session list cannot be read, the send says so instead of telling you to open the session again. It also says plainly that a session held by a tab on another computer that has not started yet cannot be seen from here.
-- A long title is no longer cut through the middle of an emoji.
-
-The message delivery fixes were checked with tests and the fake omp. On three linked computers they can be confirmed once this version is installed.
-
 ## [0.123.1] - 2026-11-11
 
 초기화권이 여러 종류인 계정에서 어느 종류든 골라서 쓸 수 있어요.
