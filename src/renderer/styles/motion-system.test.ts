@@ -33,6 +33,10 @@ function sources(dir: string): { file: string; text: string }[] {
 	});
 }
 
+// Read once as the file loads: a first walk of the whole renderer (930 files) took over 9 s on a busy machine, past
+// the 5 s deadline of whichever test made it.
+const rendererSources = sources(RENDERER);
+
 const lineOf = (text: string, index: number): string => {
 	const start = text.lastIndexOf("\n", index) + 1;
 	const end = text.indexOf("\n", index);
@@ -107,7 +111,7 @@ describe("motion system", () => {
 				const hit = (match[3] ?? "").replace(/var\([^)]*\)/g, "").match(LAYOUT_PROPERTY);
 				if (hit) offenders.push(`${name}:${lineNumber(css, at)} transition of ${hit[0]}`);
 			}
-		for (const { file, text } of sources(RENDERER)) {
+		for (const { file, text } of rendererSources) {
 			for (const match of text.matchAll(/\btransition-\[([^\]]+)\]|\btransition-all\b/g)) {
 				const at = match.index ?? 0;
 				if (lineOf(text, at).includes("motion-ok")) continue;
@@ -122,7 +126,7 @@ describe("motion system", () => {
 		const offenders: string[] = [];
 		const RAW =
 			/(?<![\w-])(?:[a-z-]+:)*(?:duration-(?:\d+|\[[^\]]*\])|ease-(?:in|out|in-out)|delay-(?:\d+|\[[^\]]*\])|animate-(?:pulse|bounce|ping))(?![\w-])/g;
-		for (const { file, text } of sources(RENDERER)) {
+		for (const { file, text } of rendererSources) {
 			for (const match of text.matchAll(RAW)) {
 				const at = match.index ?? 0;
 				if (!lineOf(text, at).includes("motion-ok"))
@@ -133,7 +137,7 @@ describe("motion system", () => {
 	});
 
 	it("runs Web Animations only through lib/motion-play.ts", () => {
-		const offenders = sources(RENDERER)
+		const offenders = rendererSources
 			.filter(({ file, text }) => !file.endsWith(join("lib", "motion-play.ts")) && /\.animate\(\s*\[/.test(text))
 			.map(({ file }) => relative(RENDERER, file));
 		expect(offenders).toEqual([]);
