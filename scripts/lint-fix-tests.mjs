@@ -5,7 +5,9 @@
  *
  * Why: a fix without a test that fails before it is a fix nobody can tell from a regression; the regression census of
  * Oct 2026 found fixes fixed again within minutes and a test that pinned the bug as correct. A test file is a
- * `*.test.*`, `*.e2e.*` or `*.spec.*` file, or anything under `e2e/` (fixtures and harness are test code).
+ * `*.test.*`, `*.e2e.*` or `*.spec.*` file, or anything under `e2e/` (fixtures and harness are test code). Rust keeps
+ * a module's tests in the module's own file, so a `.rs` file counts when the commit changes a line at or after its
+ * `#[cfg(test)]` mark, and a crate's `tests/` folder counts whole.
  *
  *   bun scripts/lint-fix-tests.mjs [<rev-range>]
  *
@@ -20,11 +22,12 @@ import { fileURLToPath } from "node:url";
 import { withoutGitSelectors } from "../src/shared/git-env.ts";
 
 const FIX_SUBJECT = /^fix(?:\([^)]*\))?!?:/;
-const TEST_FILE = /(?:^|\/)[^/]+\.(?:test|e2e|spec)\.[cm]?[jt]sx?$|^e2e\//;
+const TEST_FILE = /(?:^|\/)[^/]+\.(?:test|e2e|spec)\.[cm]?[jt]sx?$|^e2e\/|^native\/.*\/tests\/[^/]+\.rs$/;
 const NO_TEST = /^no-test:\s*\S/m;
+const RUST_TEST_MARK = /^\s*#\[cfg\(test\)\]/;
 
 /**
- * @typedef {{ sha: string; subject: string; body: string; files: string[] }} Commit
+ * @typedef {{ sha: string; subject: string; body: string; files: string[]; rustTests?: boolean }} Commit
  * @param {Commit[]} commits
  * @returns {Commit[]} the fix commits that change no test file and give no `no-test:` reason
  */
@@ -33,6 +36,7 @@ export function fixCommitsWithoutTests(commits) {
 		commit =>
 			FIX_SUBJECT.test(commit.subject) &&
 			!commit.files.some(file => TEST_FILE.test(file)) &&
+			!commit.rustTests &&
 			!NO_TEST.test(commit.body),
 	);
 }
@@ -63,6 +67,31 @@ export function defaultRevs(cwd) {
 }
 
 /**
+ * Whether commit `sha` changes a test of a Rust file it touches: a line at or after the file's `#[cfg(test)]` mark.
+ * @param {string} sha
+ * @param {string[]} files
+ * @param {string} [cwd]
+ */
+export function changesRustTests(sha, files, cwd) {
+	for (const file of files.filter(name => name.endsWith(".rs"))) {
+		let text;
+		try {
+			text = git(["show", `${sha}:${file}`], cwd);
+		} catch {
+			continue; // the commit deleted it
+		}
+		const mark = text.split("\n").findIndex(line => RUST_TEST_MARK.test(line)) + 1;
+		if (mark === 0) continue;
+		const diff = git(["show", "--format=", "-U0", sha, "--", file], cwd);
+		for (const hunk of diff.matchAll(/^@@ -\S+ \+(\d+)(?:,(\d+))? @@/gm)) {
+			const last = Number(hunk[1]) + Math.max(hunk[2] === undefined ? 1 : Number(hunk[2]), 1) - 1;
+			if (last >= mark) return true;
+		}
+	}
+	return false;
+}
+
+/**
  * @param {string[]} revs
  * @param {string} [cwd]
  * @returns {Commit[]}
@@ -74,8 +103,10 @@ export function readCommits(revs, cwd) {
 		.split("\x1e")
 		.filter(Boolean)
 		.map(record => {
-			const [sha = "", subject = "", body = "", rest = ""] = record.split("\x00");
-			return { sha, subject, body, files: rest.split("\n").filter(Boolean) };
+			const [sha, subject = "", body = "", rest = ""] = record.split("\x00");
+			const files = rest.split("\n").filter(Boolean);
+			const rustTests = FIX_SUBJECT.test(subject) && changesRustTests(sha ?? "", files, cwd);
+			return { sha: sha ?? "", subject, body, files, ...(rustTests ? { rustTests } : {}) };
 		});
 }
 

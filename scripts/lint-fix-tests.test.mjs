@@ -99,6 +99,23 @@ describe("readCommits", () => {
 		expect(fixCommitsWithoutTests(commits)).toEqual([]);
 	});
 
+	it("counts a Rust file's own tests: a change at or after its #[cfg(test)] mark, never one before it", () => {
+		const { dir: repo, git } = newRepo();
+		const file = path.join(repo, "lib.rs");
+		const source = (body, test) =>
+			`fn within() -> bool {\n    ${body}\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn holds() {\n        ${test}\n    }\n}\n`;
+		writeFileSync(file, source("false", "assert!(true);"));
+		git("add", ".");
+		git("commit", "-q", "-m", "feat: a rust module");
+		writeFileSync(file, source("true", "assert!(true);"));
+		git("commit", "-q", "-am", "fix: only the code");
+		writeFileSync(file, source("1 == 1", "assert!(super::within());"));
+		git("commit", "-q", "-am", "fix: the code and its test");
+
+		const bad = fixCommitsWithoutTests(readCommits(["HEAD~2..HEAD"], repo));
+		expect(bad.map(commit => commit.subject)).toEqual(["fix: only the code"]);
+	});
+
 	it("on a branch, leaves out origin/main's commits that a stale local main lacks", () => {
 		const { dir: repo, git } = newRepo();
 		// Another session's published fix: on origin/main, never fetched into local `main`.
