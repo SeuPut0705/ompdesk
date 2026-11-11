@@ -12,7 +12,7 @@ import {
 	type ControlErrorCode,
 	type ControlResponse,
 	MAX_FRAME_BYTES,
-} from "../../../resources/cli/protocol";
+} from "../../shared/control-protocol";
 import type { EventSink } from "./events";
 import { type ConnectionContext, type ControlRouter, outsideCaller, type RoutedRequest } from "./router";
 

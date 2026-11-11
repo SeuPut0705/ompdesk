@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ControlResponse, SessionState } from "../../../resources/cli/protocol";
+import type { ControlResponse, SessionState } from "../../shared/control-protocol";
 import type { ToolOutcome } from "../agent-control/service";
 import type { TabActivity } from "../sidecar-pool";
 import type { ControlBackend, OutsideCaller, SessionView } from "./backend";

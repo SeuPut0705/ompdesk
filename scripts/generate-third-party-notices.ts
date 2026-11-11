@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import aiMemorySource from "../native/memory/ompdesk.json" with { type: "json" };
 import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
-import { lockHash } from "./gen-ai-memory-notices";
+import { committedCrateList } from "./gen-crate-notices";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = join(ROOT, "THIRD_PARTY_NOTICES.txt");
@@ -230,6 +230,12 @@ function vendoredSections(): string {
 			aiMemoryLicense,
 		].join("\n"),
 		[
+			"OMPdesk's own native binaries (native/ompdesk)",
+			"OMPdesk's own Rust source is built into the binaries that ship inside the app under ompdesk-bin/ (ompdesk /",
+			"ompdesk.exe, the command-line tool). They are OMPdesk's, under the Apache License, Version 2.0 (LICENSE), and",
+			"statically link the Rust crates listed in section 4, each under its own license.",
+		].join("\n"),
+		[
 			`agent-desktop ${agentDesktopPin.version} (https://github.com/${agentDesktopPin.repo}, tag v${agentDesktopPin.version})`,
 			"The upstream release binaries (agent-desktop and agent-desktop-macos-helper on macOS, agent-desktop.exe",
 			"on Windows) ship unmodified inside the app under agent-desktop-bin/, unpacked from the release archive",
@@ -321,20 +327,6 @@ function vendoredSections(): string {
 	].join(`\n\n${THIN}\n\n`);
 }
 
-/** The committed crate list (scripts/gen-ai-memory-notices.ts); stale when it was made for another pin. */
-function aiMemoryDependencies(): string {
-	const text = readFileSync(join(ROOT, "LICENSES", "ai-memory-dependencies.txt"), "utf8")
-		.replace(/\r\n?/g, "\n")
-		.trim();
-	const header = `ai-memory ${aiMemorySource.version} statically linked Rust crates`;
-	if (!text.startsWith(header) || !text.includes(`Cargo.lock SHA-256: ${lockHash()}`)) {
-		throw new Error(
-			`LICENSES/ai-memory-dependencies.txt is not for native/memory ${aiMemorySource.version} with its current Cargo.lock: run bun scripts/gen-ai-memory-notices.ts (needs cargo and network).`,
-		);
-	}
-	return text;
-}
-
 function generate(): { text: string; flagged: string[] } {
 	const { components, missing } = collect();
 	if (missing.length) throw new Error(`dependencies not installed (run bun install): ${missing.join(", ")}`);
@@ -403,7 +395,13 @@ function generate(): { text: string; flagged: string[] } {
 		`3. Rust crates linked into the bundled ai-memory ${aiMemorySource.version} binary`,
 		RULE,
 		"",
-		aiMemoryDependencies(),
+		committedCrateList("ai-memory"),
+		"",
+		RULE,
+		"4. Rust crates linked into OMPdesk's own native binaries (native/ompdesk)",
+		RULE,
+		"",
+		committedCrateList("ompdesk"),
 		"",
 	);
 	return { text: `${out.join("\n").replace(/\n{4,}/g, "\n\n\n")}`, flagged };

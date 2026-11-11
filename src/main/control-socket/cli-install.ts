@@ -1,7 +1,8 @@
 /**
  * The `ompdesk` command on PATH: a launcher in the app's own `bin` folder (reaches every process OMPdesk spawns,
  * terminals included) and, in the packaged app, one in Bun's global bin folder next to `omp`, so a terminal outside
- * OMPdesk finds it too. The launcher runs the CLI (`resources/cli/ompdesk.ts`) with bun.
+ * OMPdesk finds it too. The launcher runs the CLI the app ships (the `ompdesk` executable built from
+ * `native/ompdesk/crates/cli`) by its absolute path, which moves with the app: every launch writes it again.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,8 +13,8 @@ import { bunInstallDir, mergePathLists } from "../setup/paths";
 export const LAUNCHER_MARKER = "ompdesk CLI launcher, written by OMPdesk";
 
 export interface CliInstallOptions {
-	/** The folder holding `ompdesk.ts`. */
-	cliDir: string;
+	/** The `ompdesk` executable (`ompdesk.exe` on Windows). */
+	binary: string;
 	userData: string;
 	platform: SetupPlatform;
 	packaged: boolean;
@@ -24,16 +25,14 @@ export interface CliInstallOptions {
 
 const shQuote = (text: string): string => `'${text.replace(/'/g, "'\\''")}'`;
 
-function posixLauncher(script: string, bunBin: string, platform: SetupPlatform): string {
-	// Git Bash on Windows: Bun's own executable by its absolute path (a `C:\…` PATH entry would split at its colon).
-	const run =
-		platform === "win32" ? `exec ${shQuote(join(bunBin, "bun.exe"))}` : `PATH=${shQuote(bunBin)}":$PATH" exec bun`;
-	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\n${run} ${shQuote(script)} "$@"\n`;
+/** Also Git Bash's launcher on Windows. */
+function posixLauncher(binary: string): string {
+	return `#!/bin/sh\n# ${LAUNCHER_MARKER}\nexec ${shQuote(binary)} "$@"\n`;
 }
 
-/** cmd.exe looks in the current folder before PATH: a bare `bun` would run a `bun.exe` the folder holds. */
-function cmdLauncher(script: string, bunBin: string): string {
-	return ["@echo off", `rem ${LAUNCHER_MARKER}`, `"${join(bunBin, "bun.exe")}" "${script}" %*`, ""].join("\r\n");
+/** The executable by its absolute path: cmd.exe looks in the current folder before PATH. */
+function cmdLauncher(binary: string): string {
+	return ["@echo off", `rem ${LAUNCHER_MARKER}`, `"${binary}" %*`, ""].join("\r\n");
 }
 
 /**
@@ -57,14 +56,13 @@ function place(file: string, content: string, foreignWins: boolean): boolean {
 
 /** Writes the launchers and puts the app's bin folder on `env.PATH`; returns the folders that now hold ours. */
 export function installCliLaunchers(options: CliInstallOptions): string[] {
-	const { cliDir, userData, platform, packaged, env, home } = options;
-	const script = join(cliDir, "ompdesk.ts");
+	const { binary, userData, platform, packaged, env, home } = options;
 	const bunBin = join(bunInstallDir(env, home), "bin");
 	const appBin = join(userData, "bin");
 
 	const files = (dir: string, foreignWins: boolean): boolean => {
-		const ok = [place(join(dir, "ompdesk"), posixLauncher(script, bunBin, platform), foreignWins)];
-		if (platform === "win32") ok.push(place(join(dir, "ompdesk.cmd"), cmdLauncher(script, bunBin), foreignWins));
+		const ok = [place(join(dir, "ompdesk"), posixLauncher(binary), foreignWins)];
+		if (platform === "win32") ok.push(place(join(dir, "ompdesk.cmd"), cmdLauncher(binary), foreignWins));
 		return ok.every(Boolean);
 	};
 

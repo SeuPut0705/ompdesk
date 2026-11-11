@@ -103,6 +103,32 @@ async function fakeAiMemory(
 	return file;
 }
 
+/** The packed app's `ompdesk-bin/` for `platform` under `appOutDir`, as `bun run build:native` stages it. */
+async function fakeNative(
+	appOutDir: string,
+	platform: string,
+	bytes: Uint8Array = FAKE_AI_MEMORY,
+	mode = 0o755,
+): Promise<void> {
+	const hook = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")) as {
+		NATIVE_BINARIES: Record<string, string[]>;
+	};
+	const resources =
+		platform === "darwin"
+			? path.join(appOutDir, "OMPdesk.app", "Contents", "Resources")
+			: path.join(appOutDir, "resources");
+	const folder = path.join(resources, "ompdesk-bin");
+	await fs.promises.rm(folder, { recursive: true, force: true });
+	await fs.promises.mkdir(folder, { recursive: true });
+	const binaries: Record<string, string> = {};
+	for (const name of hook.NATIVE_BINARIES[platform] ?? []) {
+		await fs.promises.writeFile(path.join(folder, name), bytes, { mode });
+		await fs.promises.chmod(path.join(folder, name), mode);
+		binaries[name] = sha256(FAKE_AI_MEMORY);
+	}
+	await fs.promises.writeFile(path.join(folder, "ompdesk.build.json"), JSON.stringify({ binaries }));
+}
+
 const AGENT_DESKTOP_PIN = JSON.parse(
 	fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/agent-desktop-pin.json"), "utf8"),
 ) as { version: string; targets: Record<string, { sha256: string; binaries: string[] }> };
@@ -192,7 +218,6 @@ describe("mac bundle configs", () => {
 	it("ships the gui-bridge extension outside the asar", () => {
 		const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, "electron-builder.yml"), "utf8")) as BuilderConfig;
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
-		expect(config.extraResources).toContainEqual({ from: "resources/cli", to: "cli" });
 	});
 
 	it("wears the generated mark on the DMG, the installer and the Windows icon file", () => {
@@ -442,6 +467,7 @@ describe("mac bundle configs", () => {
 			await fakeLocales(directory, "darwin", ["en", "ko"]);
 			await fakeAiMemory(directory, "darwin");
 			await fakeAgentDesktop(directory, "darwin");
+			await fakeNative(directory, "darwin");
 			for (const { file, config } of configs) {
 				await savePlistFile(plistPath, original);
 				const hookPath = config.afterPack;
@@ -489,6 +515,8 @@ describe("mac bundle configs", () => {
 			await fakeAiMemory(directory, "darwin");
 			await fakeAgentDesktop(directory, "win32");
 			await fakeAgentDesktop(directory, "darwin");
+			await fakeNative(directory, "win32");
+			await fakeNative(directory, "darwin");
 			await expect(run("win32")).resolves.toBeUndefined();
 			for (const names of [["ko"], [], ["de", "en-US", "ko"]]) {
 				await fakeLocales(directory, "win32", names);
@@ -541,6 +569,7 @@ describe("mac bundle configs", () => {
 				try {
 					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
 					await fakeAgentDesktop(directory, platform);
+					await fakeNative(directory, platform);
 					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
 					await fs.promises.writeFile(
 						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
@@ -560,6 +589,71 @@ describe("mac bundle configs", () => {
 					}
 					await fakeAiMemory(directory, platform);
 					await expect(run(), `${platform} with the pinned binary`).resolves.toBeUndefined();
+				} finally {
+					await fs.promises.rm(directory, { recursive: true, force: true });
+				}
+			}
+		});
+	});
+
+	describe("native binaries", () => {
+		it("ships each platform's own ompdesk-bin directory as extraResources and keeps the binaries untracked", () => {
+			for (const [platform, { key, builderConfig }] of Object.entries(AI_MEMORY_PLATFORMS)) {
+				const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, builderConfig), "utf8")) as BuilderConfig;
+				const entries = (config.extraResources ?? []).filter(resource =>
+					resource.from.startsWith("resources/ompdesk-bin"),
+				);
+				expect(entries, `${platform}: ${builderConfig}`).toEqual([
+					{ from: `resources/ompdesk-bin/${key}`, to: "ompdesk-bin" },
+				]);
+			}
+			const ignored = fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n");
+			expect(ignored).toContain("resources/ompdesk-bin/");
+		});
+
+		it("fails the package when a binary is missing, not executable or not the bytes its build record names", async () => {
+			const afterPack = require(path.resolve(PACKAGE_ROOT, "scripts/after-pack.cjs")).afterPack as AfterPackHook;
+			for (const platform of ["darwin", "win32"]) {
+				const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-native-pack-"));
+				const run = () =>
+					afterPack({
+						electronPlatformName: platform,
+						appOutDir: directory,
+						packager: { appInfo: { productFilename: "OMPdesk" } },
+					});
+				const folder =
+					platform === "darwin"
+						? path.join(directory, "OMPdesk.app", "Contents", "Resources", "ompdesk-bin")
+						: path.join(directory, "resources", "ompdesk-bin");
+				const cli = path.join(folder, platform === "darwin" ? "ompdesk" : "ompdesk.exe");
+				try {
+					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
+					await fakeAiMemory(directory, platform);
+					await fakeAgentDesktop(directory, platform);
+					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
+					await fs.promises.writeFile(
+						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
+						'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict/></plist>',
+					);
+					await expect(run(), `${platform} without the folder`).rejects.toThrow(
+						/ompdesk-bin has no build record; run `bun run build:native`/,
+					);
+					await fakeNative(directory, platform);
+					await fs.promises.rm(cli);
+					await expect(run(), `${platform} without the binary`).rejects.toThrow(
+						/is missing; run `bun run build:native`/,
+					);
+					await fakeNative(directory, platform, Buffer.from("other bytes"));
+					await expect(run(), `${platform} with other bytes`).rejects.toThrow(
+						/hashes to [0-9a-f]{64}; its build record expects/,
+					);
+					// The execute bit exists only on a POSIX file system (after-pack.cjs checks it there only).
+					if (platform === "darwin" && process.platform !== "win32") {
+						await fakeNative(directory, platform, FAKE_AI_MEMORY, 0o644);
+						await expect(run(), "darwin, not executable").rejects.toThrow(/is not executable/);
+					}
+					await fakeNative(directory, platform);
+					await expect(run(), `${platform} with the built binaries`).resolves.toBeUndefined();
 				} finally {
 					await fs.promises.rm(directory, { recursive: true, force: true });
 				}
@@ -598,6 +692,7 @@ describe("mac bundle configs", () => {
 				try {
 					await fakeLocales(directory, platform, platform === "darwin" ? ["en", "ko"] : ["en-US", "ko"]);
 					await fakeAiMemory(directory, platform);
+					await fakeNative(directory, platform);
 					await fs.promises.mkdir(path.join(directory, "OMPdesk.app", "Contents"), { recursive: true });
 					await fs.promises.writeFile(
 						path.join(directory, "OMPdesk.app", "Contents", "Info.plist"),
@@ -705,7 +800,6 @@ describe("Windows package config", () => {
 			`${file} ships no URL scheme`,
 		).toContain("omp");
 		expect(config.extraResources).toContainEqual({ from: "resources/gui-bridge", to: "gui-bridge" });
-		expect(config.extraResources).toContainEqual({ from: "resources/cli", to: "cli" });
 		expect(config.win?.target).toEqual([{ target: "nsis", arch: ["x64"] }]);
 	});
 

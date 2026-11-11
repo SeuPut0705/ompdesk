@@ -4,7 +4,7 @@
  * skipped silently. Sessions hidden from agents never appear (the backend's `views`/`view` leave them out).
  */
 
-import type { ControlEvent, EventFrame, SessionState } from "../../../resources/cli/protocol";
+import type { ControlEvent, EventFrame, SessionState } from "../../shared/control-protocol";
 import type { ControlBackend } from "./backend";
 
 export interface EventSink {

@@ -10,7 +10,7 @@
   "main": "./out/main/index.js",
   "scripts": {
     "postinstall": "bun scripts/ensure-electron.ts",
-    "dev": "electron-vite dev",
+    "dev": "bun scripts/build-native.ts && electron-vite dev",
     "build": "bun scripts/build-cache.ts",
     "preview": "electron-vite preview",
     "package": "bun run build && electron-builder",
@@ -19,6 +19,7 @@
     "gen:icons": "bun scripts/gen-icons.ts",
     "sync:rea-skill": "bun scripts/sync-rea-skill.ts",
     "build:memory": "bun scripts/build-memory.ts",
+    "build:native": "bun scripts/build-native.ts",
     "build:agent-desktop": "bun scripts/build-agent-desktop.ts",
     "sync:pstack": "bun scripts/sync-pstack.ts",
     "sync:ecc": "bun scripts/sync-ecc.ts",

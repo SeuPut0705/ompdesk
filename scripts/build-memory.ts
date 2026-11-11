@@ -25,9 +25,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cargoPath, rustcPath } from "./cargo";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const MEMORY_DIR = path.join(REPO_ROOT, "native", "memory");
@@ -57,15 +57,6 @@ export interface BuildRecord {
 function fail(message: string): never {
 	console.error(`build:memory: ${message}`);
 	process.exit(1);
-}
-
-function cargoPath(): string | null {
-	const exe = process.platform === "win32" ? "cargo.exe" : "cargo";
-	const candidates = [
-		...(process.env.PATH ?? "").split(path.delimiter).map(dir => path.join(dir, exe)),
-		path.join(os.homedir(), ".cargo", "bin", exe),
-	];
-	return candidates.find(file => file && fs.existsSync(file)) ?? null;
 }
 
 function check(
@@ -154,11 +145,7 @@ if (import.meta.main) {
 		embeddedSha256,
 		platform: process.platform,
 		arch: process.arch,
-		rustc: execFileSync(
-			path.join(path.dirname(cargo), process.platform === "win32" ? "rustc.exe" : "rustc"),
-			["--version"],
-			{ cwd: MEMORY_DIR, encoding: "utf8" },
-		).trim(),
+		rustc: execFileSync(rustcPath(cargo), ["--version"], { cwd: MEMORY_DIR, encoding: "utf8" }).trim(),
 		builtAt: new Date().toISOString(),
 		buildSeconds,
 	};

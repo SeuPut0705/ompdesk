@@ -18,8 +18,10 @@ files:
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge
-  - from: resources/cli
-    to: cli
+  # OMPdesk's own Rust built from native/ompdesk (the `ompdesk` CLI) and its build record. bun run build:native
+  # fills the gitignored directory; scripts/after-pack.cjs checks the binaries against the record.
+  - from: resources/ompdesk-bin/darwin-arm64
+    to: ompdesk-bin
   - from: resources/omp-builtin
     to: omp-builtin
   # The memory binary built from native/memory and its build record, nothing else: the binary embeds its

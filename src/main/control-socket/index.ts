@@ -4,7 +4,7 @@
  * failed start is one log line and a null handle.
  */
 
-import { CONTROL_PROTOCOL_VERSION } from "../../../resources/cli/protocol";
+import { CONTROL_PROTOCOL_VERSION } from "../../shared/control-protocol";
 import type { ControlBackend } from "./backend";
 import { controlEndpoint, prepareControlDir, readOrCreateToken, removeEndpoint, writeEndpoint } from "./endpoint";
 import { setControlEndpoint } from "./env";

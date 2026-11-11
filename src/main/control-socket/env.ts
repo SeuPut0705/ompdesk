@@ -1,4 +1,4 @@
-import { CONTROL_DIR_ENV, CONTROL_OFF_ENV, CONTROL_SOCKET_ENV } from "../../../resources/cli/protocol";
+import { CONTROL_DIR_ENV, CONTROL_OFF_ENV, CONTROL_SOCKET_ENV } from "../../shared/control-protocol";
 
 const CONTROL_ENV = [CONTROL_SOCKET_ENV, CONTROL_DIR_ENV, CONTROL_OFF_ENV] as const;
 

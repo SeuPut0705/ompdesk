@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ENDPOINT_FILE, type Endpoint, POSIX_SOCKET_FILE, TOKEN_FILE } from "../../../resources/cli/protocol";
+import { ENDPOINT_FILE, type Endpoint, POSIX_SOCKET_FILE, TOKEN_FILE } from "../../shared/control-protocol";
 import { writeFileAtomicSync } from "../atomic-file";
 
 /** `sockaddr_un.sun_path` holds 104 bytes on macOS (108 on Linux) with its terminator. */

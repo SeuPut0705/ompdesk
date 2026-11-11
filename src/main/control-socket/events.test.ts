@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EventFrame, SessionState } from "../../../resources/cli/protocol";
+import type { EventFrame, SessionState } from "../../shared/control-protocol";
 import type { TabActivity } from "../sidecar-pool";
 import type { ControlBackend, SessionView } from "./backend";
 import { EventHub, type EventSink } from "./events";

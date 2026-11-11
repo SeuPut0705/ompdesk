@@ -814,8 +814,12 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
+	// The CLI the app ships (bun run build:native stages it for an unpacked run).
+	const cliBinary = process.platform === "win32" ? "ompdesk.exe" : "ompdesk";
 	installCliLaunchers({
-		cliDir: app.isPackaged ? join(process.resourcesPath, "cli") : join(devResourcesDir, "cli"),
+		binary: app.isPackaged
+			? join(process.resourcesPath, "ompdesk-bin", cliBinary)
+			: join(devResourcesDir, "ompdesk-bin", `${process.platform}-${process.arch}`, cliBinary),
 		userData: app.getPath("userData"),
 		platform,
 		packaged: app.isPackaged,

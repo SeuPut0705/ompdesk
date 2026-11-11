@@ -23,7 +23,7 @@ import {
 	WAIT_UNTIL,
 	type WaitResult,
 	type WaitUntil,
-} from "../../../resources/cli/protocol";
+} from "../../shared/control-protocol";
 import type { OutsideCaller } from "../agent-control/host";
 import type { ControlBackend, SessionView } from "./backend";
 import type { EventHub, EventSink } from "./events";

@@ -1,6 +1,7 @@
 /**
- * The OMPdesk control socket's wire contract, shared by main (`src/main/control-socket/`) and the `ompdesk` CLI
- * (`resources/cli/ompdesk.ts`, run by bun from the app's resources). Dependency-free: the CLI runs it outside the app.
+ * The OMPdesk control socket's wire contract as main speaks it (`src/main/control-socket/`). The `ompdesk` CLI is a
+ * Rust program (`native/ompdesk/crates/cli`) with its own spelling of the constants it needs (`src/protocol.rs`);
+ * `src/main/control-socket/cli.test.ts` runs the built CLI against main's server, so the two cannot drift apart.
  *
  * Inspired by Herdr's socket API (https://herdr.dev, Apache-2.0): JSON lines over a per-user local socket,
  * server-owned waits, `agent_blocked` and `events_lost`. No Herdr code is copied.

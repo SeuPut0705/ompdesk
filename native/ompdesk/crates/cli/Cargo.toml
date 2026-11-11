@@ -1,0 +1,20 @@
+[package]
+name = "ompdesk-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ompdesk"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

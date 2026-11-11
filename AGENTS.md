@@ -27,6 +27,7 @@ This file holds what every change needs. Each area's detailed rules (its user's 
 - `e2e-ci-windows` (`.omp/rules/e2e-ci-windows.md`): Playwright e2e rules and fixtures, responsive audit, CI and release workflow layout, Windows test scope and fakes, the machine-wide lock.
 - `app-updater` (`.omp/rules/app-updater.md`): OMPdesk's updater: auth, release lookup, install modes, automatic install timing, update log.
 - `waste-guards` (`.omp/rules/waste-guards.md`): Measured session waste: a bash `ready.log` that cannot match is refused, polling gets one hint per kind.
+- `native-rust` (`.omp/rules/native-rust.md`): The conversion from Electron/TypeScript to Rust: what stays TypeScript, target architecture, unit order, the `native/ompdesk` workspace, its build, staging, packaging and CI, the ledger of what has moved.
 
 - New detail about an area goes into its rule file, never here. This file stays under 64 KB (`src/main/agents-md.test.ts`): every byte of it rides in front of every request of every session here.
 - A new area gets its own rule file with `description` and `globs` frontmatter and a line in the list above.
@@ -150,7 +151,8 @@ renderer (React) ── IPC ──▶ main (Electron)
 ### Build and the agent loop
 
 - Build: `bun run build` (`scripts/build-cache.ts`: electron-vite → `out/`, then `scripts/check-main-bundle.ts`). It reuses `out/` built from identical inputs and says so in one `[build] reusing …` / `[build] building out/: <reason>` line; `OMPDESK_FORCE_BUILD=1` always builds (inputs and stamp: e2e-ci-windows › Local checks).
-- Dev: `bun run dev` (HMR against the system omp; opens a visible window).
+- Native: `bun run build:native` (`scripts/build-native.ts`) builds OMPdesk's own Rust (`native/ompdesk`, today the `ompdesk` CLI) into the gitignored `resources/ompdesk-bin/<platform>-<arch>/`; it needs Rust (rustup; the toolchain is pinned in `native/ompdesk/rust-toolchain.toml`). Tests that run a binary build it on demand (`ensureNative`), packaging fails without it (native-rust).
+- Dev: `bun run dev` (builds native first; HMR against the system omp; opens a visible window).
 - Fresh worktrees install through the repo's `.ompdesk/worktree-setup` (`.cmd` on Windows; OMPdesk runs it after `worktree add`, run it yourself after a plain `git worktree add`): `bun install --frozen-lockfile`, then `bun scripts/ensure-electron.ts` (the `postinstall` script runs it on every `bun install`), because bun runs electron's `install.js` with the `node` on PATH, and on Node 26 `extract-zip@2` never settles, so the binary is never unpacked ("Electron failed to install correctly"); `ensure-electron.ts` re-runs the installer under bun's runtime from the `~/Library/Caches/electron` zip. Never copy `node_modules` or `dist` from another checkout.
 - Default agent loop: `bun run check:changed [--base <ref>] [--no-e2e] [--list]` (`scripts/check-changed.ts`), not the gate: typecheck, biome on the changed files, the surface policy and `vitest related`, then the build, then the Playwright specs whose file name or shown English text matches the change (e2e-ci-windows › Local checks). It is a name match, not a dependency graph: a change whose specs find it neither by name nor by its text, or one in e2e support files, needs `bun run locked -- bunx playwright test <spec>` by hand. Neither the full vitest nor the full Playwright suite is needed between edits.
 - Never drive the app with synthetic OS input (osascript keystrokes etc.); use Playwright.

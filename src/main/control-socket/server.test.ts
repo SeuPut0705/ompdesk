@@ -22,7 +22,7 @@ import {
 	ENDPOINT_FILE,
 	MAX_FRAME_BYTES,
 	TOKEN_FILE,
-} from "../../../resources/cli/protocol";
+} from "../../shared/control-protocol";
 import type { ToolOutcome } from "../agent-control/service";
 import type { TabActivity } from "../sidecar-pool";
 import type { ControlBackend, OutsideCaller, SessionView } from "./backend";

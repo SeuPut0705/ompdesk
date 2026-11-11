@@ -4,7 +4,7 @@
  * never decides a tool's rules itself.
  */
 
-import type { SessionState } from "../../../resources/cli/protocol";
+import type { SessionState } from "../../shared/control-protocol";
 import type { AgentControlRuntime, OutsideCaller } from "../agent-control/host";
 import { type ControlTab, type ToolOutcome, waits } from "../agent-control/service";
 import type { SidecarPool, TabActivity } from "../sidecar-pool";

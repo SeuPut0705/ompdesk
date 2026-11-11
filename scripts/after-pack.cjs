@@ -126,6 +126,48 @@ async function checkAgentDesktop(context) {
 	}
 }
 
+/** OMPdesk's own Rust binaries (`bun run build:native`, scripts/build-native.ts `BINARIES`), by packaged platform. */
+const NATIVE_BINARIES = { darwin: ["ompdesk"], win32: ["ompdesk.exe"] };
+
+/**
+ * Fail the package unless every binary built from native/ompdesk is in the packed app's Resources (`ompdesk-bin/`),
+ * executable and the bytes its build record names (`ompdesk.build.json`; this runs before signing). Whether the record
+ * matches the current sources is `bun run build:native -- --check`'s to say, which the packaging jobs run first.
+ */
+async function checkNative(context) {
+	const platform = context.electronPlatformName;
+	const binaries = NATIVE_BINARIES[platform];
+	if (!binaries) return;
+	const resources =
+		platform === "darwin"
+			? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources")
+			: path.join(context.appOutDir, "resources");
+	const directory = path.join(resources, "ompdesk-bin");
+	let record;
+	try {
+		record = JSON.parse(await fs.readFile(path.join(directory, "ompdesk.build.json"), "utf8"));
+	} catch {
+		throw new Error(`${directory} has no build record; run \`bun run build:native\` before packaging`);
+	}
+	for (const name of binaries) {
+		const file = path.join(directory, name);
+		let stat;
+		try {
+			stat = await fs.stat(file);
+		} catch {
+			throw new Error(`${file} is missing; run \`bun run build:native\` before packaging`);
+		}
+		if (platform === "darwin" && (stat.mode & 0o111) === 0) throw new Error(`${file} is not executable`);
+		const actual = crypto
+			.createHash("sha256")
+			.update(await fs.readFile(file))
+			.digest("hex");
+		if (actual !== record.binaries?.[name]) {
+			throw new Error(`${file} hashes to ${actual}; its build record expects ${record.binaries?.[name]}`);
+		}
+	}
+}
+
 /**
  * electron-builder enables arbitrary ATS loads after applying mac.extendInfo so
  * its localhost updater exception works. Restore the app's explicit policy
@@ -135,6 +177,7 @@ async function afterPack(context) {
 	await checkLocales(context);
 	await checkAiMemory(context);
 	await checkAgentDesktop(context);
+	await checkNative(context);
 	if (context.electronPlatformName !== "darwin") return;
 
 	const bundle = `${context.packager.appInfo.productFilename}.app`;
@@ -149,4 +192,4 @@ async function afterPack(context) {
 	await fs.writeFile(infoPath, plist.build(info));
 }
 
-module.exports = { afterPack, KEPT_LOCALES };
+module.exports = { afterPack, KEPT_LOCALES, NATIVE_BINARIES };

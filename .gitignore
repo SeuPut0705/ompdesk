@@ -24,3 +24,5 @@ test-results/
 resources/ai-memory-bin/
 # agent-desktop's pinned release (scripts/agent-desktop-pin.json): bun run build:agent-desktop unpacks it here (never committed)
 resources/agent-desktop-bin/
+# OMPdesk's own Rust built from native/ompdesk: bun run build:native puts the binaries and their build record here (never committed)
+resources/ompdesk-bin/

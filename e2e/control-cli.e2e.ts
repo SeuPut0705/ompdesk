@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -6,8 +6,15 @@ import { expect, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
 import { exitApp, launchApp } from "./harness";
 
-// The control socket (src/main/control-socket) and the `ompdesk` CLI (resources/cli): a shell outside any session
-// drives the built app through the launcher OMPdesk writes into `<userData>/bin`, against the fake omp.
+// The control socket (src/main/control-socket) and the `ompdesk` CLI (native/ompdesk/crates/cli): a shell outside any
+// session drives the built app through the launcher OMPdesk writes into `<userData>/bin`, against the fake omp.
+
+// The app's launcher runs the staged binary; build it when it is missing or stale (a fresh one only hashes sources).
+test.beforeAll(() => {
+	test.setTimeout(600_000);
+	// Playwright runs from the repository root, as the harness's own paths assume.
+	execFileSync("bun", [path.resolve("scripts/build-native.ts"), "--ensure"], { stdio: "inherit" });
+});
 
 let app: ElectronApplication;
 let profile: string;
