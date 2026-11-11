@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { AGENT_MESSAGE_START } from "../../resources/gui-bridge/agent-control-contracts";
 import {
 	CHECKOUT_REV_PARSE_ARGS,
 	type CheckoutProbe,
@@ -123,6 +124,19 @@ describe("unwrapPrompt / firstMeaningfulLine", () => {
 	it("an attribute with entities and a CRLF wrapper still unwrap", () => {
 		const text = `<ompdesk-agent-message from="a &amp; b">\r\nTitle: x\r\n</ompdesk-agent-message>`;
 		expect(unwrapPrompt(text)).toMatchObject({ body: "Title: x", agentMessage: true });
+	});
+
+	it("unwraps a wrapper that names the sender's saved id as it does one without", () => {
+		const wrapped = wrapAgentMessage("Title: 답장 확인\n\nbody", "메인", "01a1c9f4-8354-70aa-91a9-473beaf7e427");
+		expect(unwrapPrompt(wrapped)).toEqual({
+			body: "Title: 답장 확인\n\nbody",
+			agentMessage: true,
+			subagentAssignment: false,
+		});
+		expect(promptTitle(wrapped)).toBe("답장 확인");
+		expect(isAgentPrompt(wrapped)).toBe(true);
+		expect(AGENT_MESSAGE_START.test(wrapped)).toBe(true);
+		expect(isJunkTitle(wrapped.split("\n")[0] ?? "")).toBe(true);
 	});
 
 	it("skips tags, rules and fences", () => {

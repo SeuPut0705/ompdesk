@@ -3845,7 +3845,13 @@ describe("ompdesk_session_read of a saved session", () => {
 	it("reads an open session's tab when the saved session is open", async () => {
 		const host = new FakeHost(
 			{ tabId: "main0001" },
-			{ tabId: "open0002", title: "Live", messages: [{ role: "user", content: "live text" } as AgentMessage] },
+			{
+				tabId: "open0002",
+				title: "Live",
+				// main lists a row as open in the tab that holds its file (host.ts `sessionOwner(row.path)`).
+				sessionPath: "/s/proj/one.jsonl",
+				messages: [{ role: "user", content: "live text" } as AgentMessage],
+			},
 		);
 		host.storedRows = [storedRow({ tabId: "open0002" })];
 		const text = (await control(host).run("main0001", T.read, { session: "11111111-aaaa" })).text;
@@ -3929,8 +3935,11 @@ describe("ompdesk_session_open on a device and reopen", () => {
 	});
 
 	it("refuses to reopen a session that is open, hidden, or with folder or worktree", async () => {
-		const host = new FakeHost({ tabId: "main0001" }, { tabId: "open0002" });
-		host.storedRows = [storedRow({ tabId: "open0002" }), storedRow({ id: "44444444-dddd", hidden: true })];
+		const host = new FakeHost({ tabId: "main0001" }, { tabId: "open0002", sessionPath: "/s/proj/one.jsonl" });
+		host.storedRows = [
+			storedRow({ tabId: "open0002" }),
+			storedRow({ id: "44444444-dddd", path: "/s/proj/four.jsonl", hidden: true }),
+		];
 		const service = control(host);
 		expect((await service.run("main0001", T.open, { reopen: "11111111-aaaa" })).text).toContain(
 			"already open as open0002",
@@ -6077,5 +6086,154 @@ describe("an app action on another computer", () => {
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain(desktop.name);
 		expect(host.spawned).toEqual([]);
+	});
+});
+
+/**
+ * The owner's report (12 Nov 2026, three paired computers): three sessions titled "메인" and two titled "문의", a
+ * received message naming its sender by title alone, tab ids that differ per app and per launch, and a receipt that
+ * named another session than the one the message reached.
+ */
+describe("one id per session: a message names its sender and reaches the session it names", () => {
+	const MAIN = "01a1c4ad-72b6-75db-9140-8a896455855b";
+	const ASK = "01a1c9f4-8354-70aa-91a9-473beaf7e427";
+	const OLD_ASK = "01a1b001-0000-7000-8000-000000000001";
+	const HELP = "01a1b002-0000-7000-8000-000000000002";
+	const OTHER = "01a1b003-0000-7000-8000-000000000003";
+	const file = (id: string, folder = "-Volumes-BACKUP-github-ompdesk--") =>
+		`/Users/u/.omp/agent/sessions/${folder}/2026-11-11T09-33-27-252Z_${id}.jsonl`;
+	const askFile = file(ASK, "-Desktop-GitHub-yuyu-mos");
+	const seuput: ControlDevice = { id: "seuput", name: "SeuPut", state: "online" };
+	const userText = (text: string) => ({ role: "user", content: [{ type: "text", text }] }) as AgentMessage;
+
+	it("carries the sender's saved id in the message, and a read shows it to answer with", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인", sessionPath: file(MAIN) },
+			{ tabId: "ask00002", title: "문의", sessionPath: askFile },
+		);
+		await control(host).run("main0001", T.send, { session: "ask00002", message: "받았다" });
+		const [prompt = ""] = prompts(host, "ask00002");
+		expect(prompt).toBe(wrapAgentMessage("받았다", "메인", MAIN));
+		expect(renderMessage(userText(prompt))).toBe(`[user, sent by an agent (메인, saved id ${MAIN})] 받았다`);
+		// What journals hold from before the id was carried reads as it did.
+		expect(renderMessage(userText(wrapAgentMessage("받았다", "메인")))).toBe(
+			"[user, sent by an agent (메인)] 받았다",
+		);
+	});
+
+	it("lists every open session with its saved id, the one id that names it on every computer", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인", sessionPath: file(MAIN) },
+			{
+				tabId: "15ca089d159bfde0",
+				title: "문의",
+				sessionPath: askFile,
+				device: seuput.id,
+				deviceName: seuput.name,
+				here: false,
+			},
+			{ tabId: "new00003", title: "Fresh" },
+		);
+		host.deviceList = [seuput];
+		const service = control(host);
+		expect((await service.run("main0001", T.list, {})).text).toContain(`- main0001 "메인" (saved id ${MAIN})`);
+		const app = (await service.run("main0001", T.list, { scope: "app" })).text;
+		expect(app).toContain(`- 15ca089d159bfde0 "문의" (saved id ${ASK})`);
+		// A session that has no file yet has no saved id to give.
+		expect(app).toMatch(/- new00003 "Fresh"\n/);
+	});
+
+	it("names in its receipt the session it reached as it is once woken, never the asleep tab's leftovers", async () => {
+		// 11 Nov 2026 15:35:01 UTC: the send by saved id woke the restored tab 15ca089d159bfde0 (its layout kept no
+		// title and the folder its tab was spawned in, ~/.omp/work) and answered `Sent to (untitled, in work): accepted,
+		// turn started; it was idle`, while the session it reached was "문의", waiting for the user's answer.
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인", sessionPath: file(MAIN) },
+			{
+				tabId: "15ca089d159bfde0",
+				title: "",
+				cwd: "/Users/seuput/.omp/work",
+				status: "asleep",
+				device: seuput.id,
+				deviceName: seuput.name,
+				sessionPath: askFile,
+			},
+		);
+		host.deviceList = [seuput];
+		// Main lists every tab afresh (host.ts `#controlTab`): a woken tab is a new row with what its omp says now.
+		host.start = tabId => {
+			const asleep = host.tabsById.get(tabId) as FakeTab;
+			host.tabsById.set(tabId, {
+				...asleep,
+				status: "ready",
+				title: "문의",
+				cwd: "/Users/seuput/Desktop/GitHub/yuyu-mos",
+				busy: true,
+				asks: [select("판단에 필요한 사실", ["가", "나"])],
+			});
+		};
+		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(prompts(host, "15ca089d159bfde0")).toHaveLength(1);
+		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on SeuPut): accepted`);
+		expect(result.text).toContain(`waiting for the user's answer: "판단에 필요한 사실"`);
+		expect(result.text).not.toContain("untitled");
+		expect(result.text).not.toContain("idle");
+	});
+
+	it("says what it reached when it joins a session open in a tab on a paired computer", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "메인", sessionPath: file(MAIN) });
+		host.deviceList = [seuput];
+		host.storedRows = [
+			storedRow({
+				id: ASK,
+				path: askFile,
+				title: "문의",
+				device: seuput.id,
+				deviceName: seuput.name,
+				elsewhere: { work: "idle" },
+			}),
+		];
+		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(host.spawned).toEqual([{ sessionPath: askFile, device: seuput.id, join: true }]);
+		expect(result.text).toContain(`Sent to "문의" (saved id ${ASK}, on `);
+	});
+
+	it("never delivers to the tab a listed row named once that tab holds another session", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인" },
+			{ tabId: "ask00002", title: "문의", sessionPath: askFile },
+		);
+		host.storedRows = [storedRow({ id: ASK, path: askFile, title: "문의", tabId: "ask00002" })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored" });
+		// A new session in that tab: the row's tab id now names another conversation.
+		(host.tabsById.get("ask00002") as FakeTab).sessionPath = file(OTHER);
+		host.storedRows = [storedRow({ id: ASK, path: askFile, title: "문의" })];
+		const result = await service.run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(prompts(host, "ask00002")).toEqual([]);
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("not open in any tab");
+	});
+
+	it("refuses a title another session holds open on a paired computer, and never takes a tab it only starts", async () => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인" },
+			{ tabId: "old00002", title: "문의", sessionPath: file(OLD_ASK) },
+			{ tabId: "help0003", title: "문의응대", sessionPath: file(HELP) },
+		);
+		host.deviceList = [seuput];
+		const there = [summary({ sessionPath: askFile, sessionId: ASK, title: "문의", cwd: "/yuyu-mos" })];
+		host.summaries = device => (device === seuput.id ? there : host.localRows);
+		const service = control(host);
+		const both = await service.run("main0001", T.send, { session: "문의", message: "받았다" });
+		expect(both.isError).toBe(true);
+		expect(both.text).toContain(`old00002 "문의" (saved id ${OLD_ASK})`);
+		expect(both.text).toContain(`"문의" (saved id ${ASK}, open in a tab on SeuPut)`);
+		expect(prompts(host, "old00002")).toEqual([]);
+		// The older tab closed: the title names the paired computer's session alone, never a tab it only starts.
+		host.tabsById.delete("old00002");
+		const one = await service.run("main0001", T.send, { session: "문의", message: "받았다" });
+		expect(prompts(host, "help0003")).toEqual([]);
+		expect(one.text).not.toContain("문의응대");
 	});
 });
