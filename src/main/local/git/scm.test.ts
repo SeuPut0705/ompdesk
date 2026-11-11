@@ -7,7 +7,7 @@ import { RM_TEMP } from "../../test-fake-omp";
 import type { OmpRuntime } from "../types";
 import { getGitChanges, repoRoot } from "./changes";
 import { REPO_LOCK_HOLD_MS, withRepoLock } from "./exec";
-import { isValidRefName, parseDecorations, remoteWebBase } from "./parse";
+import { isValidRefName } from "./parse";
 import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 
@@ -264,21 +264,6 @@ describe("remote", () => {
 });
 
 describe("parsers", () => {
-	it("splits decorations into refs and tags", () => {
-		expect(parseDecorations("HEAD -> main, tag: v1.0, origin/main, origin/HEAD")).toEqual({
-			refs: ["main", "origin/main", "origin/HEAD"],
-			tags: ["v1.0"],
-		});
-	});
-
-	it("derives a hosted remote's web base", () => {
-		expect(remoteWebBase("git@github.com:o/r.git")).toBe("https://github.com/o/r");
-		expect(remoteWebBase("https://gitlab.com/group/sub/r.git\n")).toBe("https://gitlab.com/group/sub/r");
-		expect(remoteWebBase("ssh://git@github.com/o/r")).toBe("https://github.com/o/r");
-		expect(remoteWebBase("/srv/git/r.git")).toBeNull();
-		expect(remoteWebBase("file:///srv/git/r.git")).toBeNull();
-	});
-
 	it("accepts git ref names and refuses the rest", () => {
 		for (const name of ["main", "feature/x-1", "v1.2.3"]) expect(isValidRefName(name), name).toBe(true);
 		for (const name of ["", "-x", "a..b", "a b", "a~1", "x.lock", "a/.b", "@", "a@{1}", "a:b"])

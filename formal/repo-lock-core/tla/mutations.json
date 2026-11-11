@@ -1,0 +1,78 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg"
+	},
+	"mutations": [
+		{
+			"name": "answer-without-wait-group",
+			"why": "the core answers when the handler returned although a git it started is still alive: the lock moves on beside it",
+			"search": "    /\\ WaitGroup => alive = 0",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoOverlapAfterStop"
+		},
+		{
+			"name": "effect-settles-at-timeout",
+			"why": "the step's tracked effect is the call, which settles when main stops waiting, not when the core is done",
+			"search": "    /\\ req' = IF SettleOnAnswer THEN \"late\" ELSE \"settled\"",
+			"replace": "    /\\ req' = \"settled\"",
+			"breaks": "NoOverlapAfterStop"
+		},
+		{
+			"name": "next-ignores-the-hold",
+			"why": "the chain starts the next holder after a stop without waiting for what the stopped step had in flight",
+			"search": "    /\\ step = \"stopped\" => req \\in {\"none\", \"settled\"}",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoOverlapAfterStop"
+		},
+		{
+			"name": "settle-before-group-gone",
+			"why": "main settles what waited on a dead core at its close, before the gits of its group are gone: the next holder runs beside them",
+			"search": "    /\\ KillGroup => alive = 0",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoOverlapAfterCoreDeath"
+		},
+		{
+			"name": "spawn-ignores-cancel",
+			"why": "run.rs starts a git although its request was cancelled",
+			"search": "    /\\ coreUp /\\ handler = \"running\" /\\ ~cancelled /\\ gits < MaxGits /\\ alive < Par",
+			"replace": "    /\\ coreUp /\\ handler = \"running\" /\\ gits < MaxGits /\\ alive < Par",
+			"breaks": "NoSpawnAfterCancel"
+		},
+		{
+			"name": "cancel-never-read",
+			"why": "the core skips a cancel frame, so a stopped request runs all its gits; the lock still waits, so only the cancel's own property sees it",
+			"search": "    /\\ cancelled' = (cancelled \\/ (registered /\\ ~answered))",
+			"replace": "    /\\ cancelled' = cancelled",
+			"breaks": "CancelReachesCore"
+		},
+		{
+			"name": "stop-without-cancel",
+			"why": "a stopped step leaves its request running in the core (2b's read): its git finishes the write instead of being ended",
+			"search": "    /\\ toCore' = IF req = \"pending\" /\\ coreUp THEN Append(toCore, \"cancel\") ELSE toCore",
+			"replace": "    /\\ toCore' = toCore",
+			"breaks": "CancelReachesCore"
+		},
+		{
+			"name": "no-fairness",
+			"why": "nothing forces the core to read, answer or the gits to end: a stopped holder could keep the lock forever",
+			"search": "Spec == Init /\\ [][Next]_vars /\\ Fairness",
+			"replace": "Spec == Init /\\ [][Next]_vars",
+			"breaks": "StopReleases"
+		},
+		{
+			"name": "answer-while-handler-runs",
+			"why": "the core answers before its handler returned",
+			"search": "    /\\ coreUp /\\ handler = \"finished\" /\\ ~answered",
+			"replace": "    /\\ coreUp /\\ handler # \"idle\" /\\ ~answered",
+			"breaks": "AnswerAfterHandler"
+		},
+		{
+			"name": "spawn-counts-twice",
+			"why": "a spawn counts two live gits, past the range TypeOK states",
+			"search": "    /\\ gits' = gits + 1 /\\ alive' = alive + 1",
+			"replace": "    /\\ gits' = gits + 1 /\\ alive' = alive + 2",
+			"breaks": "TypeOK"
+		}
+	]
+}

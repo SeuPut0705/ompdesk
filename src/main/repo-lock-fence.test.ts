@@ -8,6 +8,8 @@
  *    holder's files; a call still running `STALLED_DRAIN_MAX_MS` after the stop makes every mutation fail busy (naming it)
  *    until it ended, and then the repository is usable again.
  */
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promises } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -337,6 +339,52 @@ describe("every caller of withRepoLock that touches the disk", () => {
 			await settle();
 			expect(order).toEqual(["rm done", "next start"]);
 			expect(await promises.readFile(file, "utf8")).toBe("next holder\n");
+		},
+		SLOW,
+	);
+
+	it.skipIf(process.platform === "win32")(
+		"scm commit in the core: a stopped holder's git is ended, and the next holder starts once it exited",
+		async () => {
+			const marker = `late-${randomUUID()}`;
+			const gitRunning = () =>
+				execFileSync("ps", ["-A", "-o", "args="], { encoding: "utf8" })
+					.split("\n")
+					.some(line => line.includes(marker));
+			const ready = path.join(root, "hook-pid");
+			const hook = path.join(repo, ".git", "hooks", "pre-commit");
+			await promises.mkdir(path.dirname(hook), { recursive: true });
+			await promises.writeFile(hook, `#!/bin/sh\necho $$ > '${ready}'\nexec sleep 60 </dev/null >/dev/null 2>&1\n`, {
+				mode: 0o755,
+			});
+			await promises.writeFile(path.join(repo, "a.txt"), "a\n");
+			await scm.stage(repo, ["a.txt"]);
+			const key = (await repoRoot(repo)) as string;
+			// The lock step is stopped through its caller's own bounded step, so no other timer of the request runs out.
+			const caller = new SerialChain({ name: "caller", maxStepMs: 1_000, log: () => {} });
+			const old = caught(caller.run(() => scm.commit(repo, { message: marker })));
+			let hookPid = 0;
+			await vi.waitFor(
+				async () => {
+					hookPid = Number(await promises.readFile(ready, "utf8"));
+					expect(hookPid).toBeGreaterThan(0);
+				},
+				{ timeout: 20_000, interval: 20 },
+			);
+			try {
+				expect(gitRunning()).toBe(true);
+				let gitAtStart: boolean | null = null;
+				const next = withRepoLock(key, async () => {
+					gitAtStart = gitRunning();
+				});
+				await vi.advanceTimersByTimeAsync(1_000);
+				expect(await old).toBeInstanceOf(StepStalledError);
+				await next;
+				expect(gitAtStart).toBe(false);
+				expect(gitSync(repo, "log", "-1", "--format=%s")).toBe("init");
+			} finally {
+				if (alive(hookPid)) process.kill(hookPid, "SIGKILL");
+			}
 		},
 		SLOW,
 	);

@@ -4,13 +4,15 @@
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  *
- * The read side of git runs in the core process (`changes.ts`, `native/ompdesk/crates/core/src/git`); `gitRunner`
- * hands it this file's rules (binary, environment, timeout, output cap), so both runners follow one set.
+ * The Changes panel's git (`changes.ts`, `scm.ts`) runs in the core process (`native/ompdesk/crates/core/src/git`):
+ * `gitRunner` hands it this file's rules (binary, environment, timeout, output cap), so both runners follow one set,
+ * and `coreGit` holds each request to the repository-lock step it is made in as `execBin` holds a git.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
+import { core } from "../../core/process";
 import { ChainBusyError, currentStepSignal, SerialChain, trackEffect } from "../../serial-chain";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
@@ -123,6 +125,44 @@ export async function gitRunner(): Promise<GitRunner> {
 	const env: Record<string, string> = {};
 	for (const [name, value] of Object.entries(await spawnEnv(GIT_ENV))) if (value !== undefined) env[name] = value;
 	return { bin, args: GIT_ARGS, env, timeoutMs: DEFAULT_TIMEOUT_MS, maxBytes: DEFAULT_MAX_BYTES };
+}
+
+/** Room past a request's git timeouts for its disk work, the core round trip and the end of a git that ran past one. */
+const CORE_SLACK_MS = KILL_GRACE_MS + 5_000;
+
+/**
+ * A request to the core that runs git with this process's rules (`gitRunner`), held to the repository-lock step it is
+ * made in as an `execBin` git is: it never starts in a stopped step; when its step is stopped it fails at once with the
+ * stop, the core ends the git it runs (asked, then killed `KILL_GRACE_MS` later) and starts no other, and the lock's next
+ * holder waits until the core is done with the request, which is once every git it started exited. `rounds` is how
+ * many gits it runs one after another at the default timeout, `slowMs` the timeout of its slow one (a hook, the network,
+ * a merge); the call waits for both.
+ */
+export async function coreGit<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<T> {
+	const hold = currentStepSignal();
+	if (hold?.aborted) throw hold.reason;
+	const runner = await gitRunner();
+	if (hold?.aborted) throw hold.reason;
+	const ended = Promise.withResolvers<void>();
+	void trackEffect(method, ended.promise);
+	const answer = core().call<T>(
+		method,
+		{ ...params, git: runner },
+		{
+			timeoutMs: rounds * runner.timeoutMs + slowMs + CORE_SLACK_MS,
+			signal: hold,
+			onEnded: ended.resolve,
+		},
+	);
+	if (!hold) return (await answer).result;
+	const stopped = Promise.withResolvers<never>();
+	const stop = () => stopped.reject(hold.reason);
+	hold.addEventListener("abort", stop, { once: true });
+	try {
+		return (await Promise.race([answer, stopped.promise])).result;
+	} finally {
+		hold.removeEventListener("abort", stop);
+	}
 }
 
 /** Ask a process to end, and end it for good when it ignores the request. */

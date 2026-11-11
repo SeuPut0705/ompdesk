@@ -2,19 +2,28 @@
  * The `ompdesk-core` process (native/ompdesk/crates/core), where main's subsystems move one at a time. Started on its
  * first request with an open stdin pipe, so it exits when main does, however main ends. Both ways, one JSON object per
  * line; a frame with `"bin": n` is followed by exactly n raw bytes (file contents, never base64). Requests run
- * concurrently in the core and are matched here by id; events reach subscribers.
+ * concurrently in the core and are matched here by id; events reach subscribers. `{"cancel": id}` stops a request in
+ * the core (the processes it runs end, it starts no more) when its caller's signal aborts or its timeout passed.
  *
  * A request fails alone when its timeout passes (its late answer is dropped), and every request waiting on a core that
- * ends without being asked to fails at once; the next request starts a fresh core. A core that ends three times in a
- * row before answering anything is not started again for 30 s, so a broken binary is never spawned per request.
+ * ends without being asked to fails; the next request starts a fresh core. A core that ends three times in a row before
+ * answering anything is not started again for 30 s, so a broken binary is never spawned per request.
+ *
+ * The processes a core starts (git) end with it, so a repository lock's next holder never runs beside a git of a dead
+ * core: on POSIX the core leads its own process group and, once it is gone, main kills what is left of the group and
+ * settles what waited only when none of it exists; on Windows the core keeps its children in a job object that kills
+ * them as its last handle closes (`crates/core/src/sys.rs`).
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { once } from "node:events";
 import { createInterface } from "node:readline";
+import { setTimeout as sleep } from "node:timers/promises";
 import { nativeBinPath } from "../native-bin";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const STOP_KILL_MS = 5_000;
+/** The longest main waits, after a core ended, for its process group to be gone before it settles what waited. */
+const GROUP_GONE_MS = 3_000;
+const POSIX = process.platform !== "win32";
 const MAX_FAILED_STARTS = 3;
 const FAILED_START_REST_MS = 30_000;
 const NEWLINE = 0x0a;
@@ -29,11 +38,62 @@ export class CoreError extends Error {
 	}
 }
 
+/** Whether a process of the group `pgid` still exists (a zombie counts until its new parent reaps it). */
+function groupAlive(pgid: number): boolean {
+	try {
+		process.kill(-pgid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+}
+
+/** Kills the core and every process it started: its process group on POSIX, the core alone (its job) on Windows. */
+function killTree(child: ChildProcessWithoutNullStreams): void {
+	if (!POSIX || child.pid === undefined) {
+		child.kill();
+		return;
+	}
+	try {
+		process.kill(-child.pid, "SIGKILL");
+	} catch {
+		// ESRCH: nothing of the group is left.
+	}
+}
+
+/**
+ * After a core ended: kills what is left of its process group and resolves once none of it exists (true), or false when
+ * some still does after `GROUP_GONE_MS`. Windows has no group to wait on: the core's job object ended its children.
+ */
+async function groupGone(pid: number | undefined): Promise<boolean> {
+	if (!POSIX || pid === undefined) return true;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		// ESRCH: nothing of the group is left.
+	}
+	for (let waited = 0, pause = 5; groupAlive(pid); waited += pause, pause = Math.min(pause * 2, 200)) {
+		if (waited >= GROUP_GONE_MS) return false;
+		await sleep(pause);
+	}
+	return true;
+}
+
 export interface CoreCallOptions {
 	/** Raw bytes sent after the request's line. */
 	bin?: Uint8Array;
 	/** Replaces the 30 s default. */
 	timeoutMs?: number;
+	/**
+	 * Stops the request in the core when it aborts: what it runs is ended and it starts nothing more. The call still
+	 * settles with the core's answer (`cancelled` when the core stopped it), which comes once all of that ended.
+	 */
+	signal?: AbortSignal;
+	/**
+	 * Called once the core is done with the request: when its answer arrives (also one that comes after the timeout
+	 * failed the call) or when the core ends. Whatever the request started in the core has ended by then.
+	 */
+	onEnded?: () => void;
 }
 
 export interface CoreAnswer<T> {
@@ -66,6 +126,15 @@ interface Pending {
 	resolve: (answer: CoreAnswer<unknown>) => void;
 	reject: (error: Error) => void;
 	timer: NodeJS.Timeout;
+	/** Removes the caller's abort listener. */
+	detach: () => void;
+	onEnded?: () => void;
+}
+
+/** A request whose caller stopped waiting (its timeout) and that still runs in the core. */
+interface Late {
+	child: ChildProcessWithoutNullStreams;
+	onEnded: () => void;
 }
 
 /** JSON carries no lone surrogate (the core's parser refuses one): it goes as U+FFFD, as node writes it to disk. */
@@ -132,7 +201,10 @@ export class CoreProcess {
 	#restUntil = 0;
 	#sequence = 0;
 	readonly #pending = new Map<number, Pending>();
+	readonly #late = new Map<number, Late>();
 	readonly #stopping = new Set<ChildProcessWithoutNullStreams>();
+	/** Resolves once a core ended and every process it started is gone (or past `GROUP_GONE_MS`). */
+	readonly #gone = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
 	readonly #listeners = new Map<string, Set<(data: unknown) => void>>();
 	readonly #binary: () => string;
 	readonly #log: (line: string) => void;
@@ -165,35 +237,52 @@ export class CoreProcess {
 		try {
 			child = this.#start();
 		} catch (error) {
+			options.onEnded?.();
 			return Promise.reject(error);
 		}
 		const id = ++this.#sequence;
 		const { promise, resolve, reject } = Promise.withResolvers<CoreAnswer<unknown>>();
+		const { signal, onEnded } = options;
+		const cancel = () => this.#cancel(child, id);
+		const detach = () => signal?.removeEventListener("abort", cancel);
 		const timer = setTimeout(() => {
 			this.#pending.delete(id);
+			detach();
+			if (onEnded) this.#late.set(id, { child, onEnded });
+			cancel();
 			reject(new CoreError("timeout", `ompdesk-core did not answer ${method} in time`));
 		}, options.timeoutMs ?? this.#timeoutMs);
-		this.#pending.set(id, { method, child, resolve, reject, timer });
+		this.#pending.set(id, { method, child, resolve, reject, timer, detach, onEnded });
 		const bin = options.bin ? { bin: options.bin.byteLength } : {};
 		child.stdin.write(`${JSON.stringify({ id, method, params, ...bin }, wellFormed)}\n`);
 		if (options.bin) child.stdin.write(options.bin);
+		if (signal?.aborted) cancel();
+		else signal?.addEventListener("abort", cancel, { once: true });
 		return promise as Promise<CoreAnswer<T>>;
 	}
 
-	/** Ends the core: its stdin closes, it answers what it holds and exits; killed after 5 s. Resolves once it is gone. */
+	/**
+	 * Ends the core: its stdin closes, it answers what it holds and exits; after 5 s it is killed with every process it
+	 * started. Resolves once it and they are gone.
+	 */
 	async stop(): Promise<void> {
 		const child = this.#child;
 		if (!child) return;
 		this.#child = null;
 		this.#stopping.add(child);
-		const closed = once(child, "close");
+		const gone = this.#gone.get(child);
 		child.stdin.end();
-		const kill = setTimeout(() => child.kill(), STOP_KILL_MS);
+		const kill = setTimeout(() => killTree(child), STOP_KILL_MS);
 		try {
-			await closed;
+			await gone;
 		} finally {
 			clearTimeout(kill);
 		}
+	}
+
+	/** Asks the core that has request `id` to stop it; a core that already ended or answered has nothing to stop. */
+	#cancel(child: ChildProcessWithoutNullStreams, id: number): void {
+		if (child.stdin.writable) child.stdin.write(`${JSON.stringify({ cancel: id })}\n`);
 	}
 
 	#start(): ChildProcessWithoutNullStreams {
@@ -203,7 +292,9 @@ export class CoreProcess {
 				"core_unavailable",
 				`ompdesk-core ended ${MAX_FAILED_STARTS} times in a row before answering; it is not started again for ${FAILED_START_REST_MS / 1000} s`,
 			);
-		const child = spawn(this.#binary(), [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+		// Detached on POSIX: the core leads a process group of its own, which every git it starts joins. It still ends
+		// with stdin's end (main's), and it is never `unref`ed.
+		const child = spawn(this.#binary(), [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, detached: POSIX });
 		this.#child = child;
 		this.#answered = false;
 		const reader = new FrameReader((frame, bin) => this.#receive(child, frame, bin), this.#log);
@@ -211,11 +302,13 @@ export class CoreProcess {
 		createInterface({ input: child.stderr }).on("line", line => this.#log(line));
 		// A write to a core that already ended fails here; its close rejects what waits.
 		child.stdin.on("error", () => {});
+		const gone = Promise.withResolvers<void>();
+		this.#gone.set(child, gone.promise);
 		let ended = false;
 		const end = (error: CoreError) => {
 			if (ended) return;
 			ended = true;
-			this.#ended(child, error);
+			this.#ended(child, error, gone.resolve);
 		};
 		child.on("error", error =>
 			end(new CoreError("core_unavailable", `ompdesk-core could not run: ${error.message}`)),
@@ -238,11 +331,18 @@ export class CoreProcess {
 		}
 		const pending = this.#pending.get(frame.id);
 		if (!pending) {
+			const late = this.#late.get(frame.id);
+			if (late?.child === child) {
+				this.#late.delete(frame.id);
+				late.onEnded();
+			}
 			this.#log(`ompdesk-core: dropped a late answer to request ${frame.id}`);
 			return;
 		}
 		this.#pending.delete(frame.id);
 		clearTimeout(pending.timer);
+		pending.detach();
+		pending.onEnded?.();
 		if (frame.ok) pending.resolve({ result: frame.result, bin });
 		else
 			pending.reject(
@@ -253,7 +353,7 @@ export class CoreProcess {
 			);
 	}
 
-	#ended(child: ChildProcessWithoutNullStreams, error: CoreError): void {
+	#ended(child: ChildProcessWithoutNullStreams, error: CoreError, gone: () => void): void {
 		const expected = this.#stopping.delete(child);
 		if (this.#child === child) {
 			this.#child = null;
@@ -263,12 +363,27 @@ export class CoreProcess {
 			}
 		}
 		if (!expected) this.#log(error.message);
-		for (const [id, pending] of this.#pending) {
-			if (pending.child !== child) continue;
+		const waiting = [...this.#pending].filter(([, pending]) => pending.child === child);
+		for (const [id, pending] of waiting) {
 			this.#pending.delete(id);
 			clearTimeout(pending.timer);
-			pending.reject(error);
+			pending.detach();
 		}
+		const late = [...this.#late].filter(([, entry]) => entry.child === child);
+		for (const [id] of late) this.#late.delete(id);
+		// What waited settles once every git the core started is gone: a lock's next holder starts only then.
+		void groupGone(child.pid).then(empty => {
+			const failure = empty
+				? error
+				: new CoreError(error.code, `${error.message}; git processes it started may still run`);
+			if (!empty) this.#log(`ompdesk-core: ${failure.message} (its process group outlived ${GROUP_GONE_MS} ms)`);
+			for (const [, pending] of waiting) {
+				pending.onEnded?.();
+				pending.reject(failure);
+			}
+			for (const [, entry] of late) entry.onEnded();
+			gone();
+		});
 	}
 }
 

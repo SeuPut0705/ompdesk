@@ -1,0 +1,329 @@
+{
+  "spec": "/Volumes/BACKUP/github/ompdesk/formal/repo-lock-core/tla/RepoLockCore.tla",
+  "name": "MC_coredies.cfg",
+  "config": "MC_coredies.cfg",
+  "ok": false,
+  "expect": "pass",
+  "durationMs": 293,
+  "outcome": "invariant",
+  "property": "NoOverlapAfterCoreDeath",
+  "stats": {
+    "generated": 345,
+    "distinct": 216,
+    "queue": 98,
+    "depth": 8
+  },
+  "trace": [
+    {
+      "step": 1,
+      "action": "Init",
+      "changed": {
+        "gits": "0",
+        "coreUp": "TRUE",
+        "cancelled": "FALSE",
+        "timedOut": "FALSE",
+        "nextHolder": "\"waiting\"",
+        "spawnedAfterStop": "FALSE",
+        "alive": "0",
+        "toMain": "<<>>",
+        "req": "\"none\"",
+        "toCore": "<<>>",
+        "step": "\"running\"",
+        "answered": "FALSE",
+        "registered": "FALSE",
+        "handler": "\"idle\""
+      }
+    },
+    {
+      "step": 2,
+      "action": "Send",
+      "code": "src/main/local/git/exec.ts:141-166",
+      "changed": {
+        "req": "\"none\" -> \"pending\"",
+        "toCore": "<<>> -> <<\"request\">>"
+      }
+    },
+    {
+      "step": 3,
+      "action": "Stop",
+      "code": "src/main/core/process.ts:259-260",
+      "changed": {
+        "toCore": "<<\"request\">> -> <<\"request\", \"cancel\">>",
+        "step": "\"running\" -> \"stopped\""
+      }
+    },
+    {
+      "step": 4,
+      "action": "CoreReadsRequest",
+      "code": "native/ompdesk/crates/core/src/server.rs:193-210",
+      "changed": {
+        "toCore": "<<\"request\", \"cancel\">> -> <<\"cancel\">>",
+        "registered": "FALSE -> TRUE",
+        "handler": "\"idle\" -> \"running\""
+      }
+    },
+    {
+      "step": 5,
+      "action": "Spawn",
+      "code": "native/ompdesk/crates/core/src/git/run.rs:130-133",
+      "changed": {
+        "gits": "0 -> 1",
+        "spawnedAfterStop": "FALSE -> TRUE",
+        "alive": "0 -> 1"
+      }
+    },
+    {
+      "step": 6,
+      "action": "CoreDies",
+      "changed": {
+        "coreUp": "TRUE -> FALSE",
+        "toCore": "<<\"cancel\">> -> <<>>"
+      }
+    },
+    {
+      "step": 7,
+      "action": "MainSeesDeath",
+      "code": "src/main/core/process.ts:356-387",
+      "changed": {
+        "req": "\"pending\" -> \"settled\""
+      }
+    },
+    {
+      "step": 8,
+      "action": "NextStarts",
+      "code": "src/main/serial-chain.ts:262-269",
+      "changed": {
+        "nextHolder": "\"waiting\" -> \"running\""
+      },
+      "violation": true
+    }
+  ],
+  "rows": [
+    {
+      "n": 1,
+      "step": "Init",
+      "code": [],
+      "changed": {
+        "gits": {
+          "to": "0"
+        },
+        "coreUp": {
+          "to": "TRUE"
+        },
+        "cancelled": {
+          "to": "FALSE"
+        },
+        "timedOut": {
+          "to": "FALSE"
+        },
+        "nextHolder": {
+          "to": "\"waiting\""
+        },
+        "spawnedAfterStop": {
+          "to": "FALSE"
+        },
+        "alive": {
+          "to": "0"
+        },
+        "toMain": {
+          "to": "<<>>"
+        },
+        "req": {
+          "to": "\"none\""
+        },
+        "toCore": {
+          "to": "<<>>"
+        },
+        "step": {
+          "to": "\"running\""
+        },
+        "answered": {
+          "to": "FALSE"
+        },
+        "registered": {
+          "to": "FALSE"
+        },
+        "handler": {
+          "to": "\"idle\""
+        }
+      }
+    },
+    {
+      "n": 2,
+      "step": "Send",
+      "action": "Send",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 42,
+        "col": 5,
+        "endLine": 44,
+        "endCol": 136
+      },
+      "code": [
+        "src/main/local/git/exec.ts:141-166"
+      ],
+      "changed": {
+        "req": {
+          "from": "\"none\"",
+          "to": "\"pending\""
+        },
+        "toCore": {
+          "from": "<<>>",
+          "to": "<<\"request\">>"
+        }
+      }
+    },
+    {
+      "n": 3,
+      "step": "Stop",
+      "action": "Stop",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 49,
+        "col": 5,
+        "endLine": 52,
+        "endCol": 135
+      },
+      "code": [
+        "src/main/core/process.ts:259-260"
+      ],
+      "changed": {
+        "toCore": {
+          "from": "<<\"request\">>",
+          "to": "<<\"request\", \"cancel\">>"
+        },
+        "step": {
+          "from": "\"running\"",
+          "to": "\"stopped\""
+        }
+      }
+    },
+    {
+      "n": 4,
+      "step": "CoreReadsRequest",
+      "action": "CoreReadsRequest",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 70,
+        "col": 5,
+        "endLine": 72,
+        "endCol": 120
+      },
+      "code": [
+        "native/ompdesk/crates/core/src/server.rs:193-210"
+      ],
+      "changed": {
+        "toCore": {
+          "from": "<<\"request\", \"cancel\">>",
+          "to": "<<\"cancel\">>"
+        },
+        "registered": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "handler": {
+          "from": "\"idle\"",
+          "to": "\"running\""
+        }
+      }
+    },
+    {
+      "n": 5,
+      "step": "Spawn",
+      "action": "Spawn",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 83,
+        "col": 5,
+        "endLine": 86,
+        "endCol": 118
+      },
+      "code": [
+        "native/ompdesk/crates/core/src/git/run.rs:130-133"
+      ],
+      "changed": {
+        "gits": {
+          "from": "0",
+          "to": "1"
+        },
+        "spawnedAfterStop": {
+          "from": "FALSE",
+          "to": "TRUE"
+        },
+        "alive": {
+          "from": "0",
+          "to": "1"
+        }
+      }
+    },
+    {
+      "n": 6,
+      "step": "CoreDies",
+      "action": "CoreDies",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 116,
+        "col": 5,
+        "endLine": 118,
+        "endCol": 125
+      },
+      "code": [],
+      "changed": {
+        "coreUp": {
+          "from": "TRUE",
+          "to": "FALSE"
+        },
+        "toCore": {
+          "from": "<<\"cancel\">>",
+          "to": "<<>>"
+        }
+      }
+    },
+    {
+      "n": 7,
+      "step": "MainSeesDeath",
+      "action": "MainSeesDeath",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 122,
+        "col": 5,
+        "endLine": 125,
+        "endCol": 144
+      },
+      "code": [
+        "src/main/core/process.ts:356-387"
+      ],
+      "changed": {
+        "req": {
+          "from": "\"pending\"",
+          "to": "\"settled\""
+        }
+      }
+    },
+    {
+      "n": 8,
+      "step": "NextStarts",
+      "action": "NextStarts",
+      "location": {
+        "module": "RepoLockCore",
+        "line": 136,
+        "col": 5,
+        "endLine": 139,
+        "endCol": 137
+      },
+      "code": [
+        "src/main/serial-chain.ts:262-269"
+      ],
+      "changed": {
+        "nextHolder": {
+          "from": "\"waiting\"",
+          "to": "\"running\""
+        }
+      },
+      "violation": true
+    }
+  ],
+  "tlcVersion": "2026.10.28.014557",
+  "message": "Invariant NoOverlapAfterCoreDeath is violated.",
+  "warnings": []
+}

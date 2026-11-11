@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::fs::order::js_trim;
+
 /// Paths a fingerprint stats and files a change list keeps.
 pub const MAX_FILES: usize = 1000;
 
@@ -87,6 +89,12 @@ impl Entries {
             .chain(&self.unmerged)
             .chain(&self.untracked)
             .map(|entry| entry.path.as_str())
+    }
+
+    /// How many paths are unmerged (a merge, cherry-pick, revert, rebase or stash pop stopped on them): the entries
+    /// porcelain v1 lists as `DD`, `AU`, `UD`, `UA`, `DU`, `AA` or `UU`.
+    pub fn unmerged(&self) -> usize {
+        self.unmerged.len()
     }
 
     /// The entries as `--porcelain=v1` lists them: git sorts its changes by path (bytes, `strcmp`) and v1 prints an
@@ -272,6 +280,228 @@ pub fn utf16_prefix(text: &str, max: usize) -> (&str, Option<char>, bool) {
         units += width;
     }
     (text, None, false)
+}
+
+/// Branch and tag names from `git log --format=%D` (`HEAD -> main, tag: v1, origin/main`).
+#[derive(Serialize, Debug, PartialEq, Default)]
+pub struct Decorations {
+    pub refs: Vec<String>,
+    pub tags: Vec<String>,
+}
+
+pub fn decorations(text: &str) -> Decorations {
+    let mut found = Decorations::default();
+    for raw in text.split(", ") {
+        let entry = js_trim(raw);
+        if entry.is_empty() || entry == "HEAD" {
+            continue;
+        }
+        if let Some(tag) = entry.strip_prefix("tag: ") {
+            found.tags.push(tag.to_owned());
+        } else {
+            found
+                .refs
+                .push(entry.strip_prefix("HEAD -> ").unwrap_or(entry).to_owned());
+        }
+    }
+    found
+}
+
+/// What the history asks `git log` for: sha, short sha, author, author time, subject, decorations and parents, NUL
+/// between fields and 0x1e after each commit.
+pub const LOG_FORMAT: &str = "%H%x00%h%x00%an%x00%at%x00%s%x00%D%x00%P%x1e";
+
+/// One commit of the history.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub sha: String,
+    pub short_sha: String,
+    pub author: String,
+    pub date: u64,
+    pub subject: String,
+    #[serde(flatten)]
+    pub decorations: Decorations,
+    pub parents: Vec<String>,
+}
+
+/// One record of `LOG_FORMAT` output (the ones after the first start with git's newline); none without a sha.
+pub fn log_record(record: &str) -> Option<Commit> {
+    let record = record.strip_prefix('\n').unwrap_or(record);
+    let mut fields = record.split('\0');
+    let mut next = || fields.next().unwrap_or("");
+    let (sha, short_sha) = (next(), next());
+    if sha.is_empty() || short_sha.is_empty() {
+        return None;
+    }
+    let (author, date, subject, decoration, parents) = (next(), next(), next(), next(), next());
+    Some(Commit {
+        sha: sha.to_owned(),
+        short_sha: short_sha.to_owned(),
+        author: author.to_owned(),
+        date: seconds(date),
+        subject: subject.to_owned(),
+        decorations: decorations(decoration),
+        parents: parents
+            .split(' ')
+            .filter(|parent| !parent.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    })
+}
+
+/// `Number(text) || 0` of the Unix time git prints (`%at`, `%(committerdate:unix)`: digits, or nothing).
+pub fn seconds(text: &str) -> u64 {
+    digits(text).unwrap_or(0)
+}
+
+/// A file of one commit, from its `show --numstat -z` and `show --name-status -z` (renames found, first parent).
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed: Option<u64>,
+}
+
+/// `\d+` or `-`, a numstat count field.
+fn count_field(field: &str) -> bool {
+    field == "-" || digits(field).is_some()
+}
+
+/// The files of a commit in `--name-status` order, each with the lines `--numstat` counted for its path (none for a
+/// binary file). A record may start with the newline git puts after the empty `--format=`.
+pub fn commit_files(numstat: &str, names: &str) -> Vec<CommitFile> {
+    let records: Vec<&str> = numstat.split('\0').collect();
+    let mut counts: HashMap<&str, (u64, u64)> = HashMap::new();
+    let mut index = 0;
+    while index < records.len() {
+        let record = records[index];
+        let record = record.strip_prefix('\n').unwrap_or(record);
+        let mut fields = record.splitn(3, '\t');
+        if let (Some(added), Some(removed), Some(path)) =
+            (fields.next(), fields.next(), fields.next())
+            && count_field(added)
+            && count_field(removed)
+        {
+            // A rename is an empty path field followed by its old and new paths as records of their own.
+            let path = if path.is_empty() {
+                index += 2;
+                records.get(index).copied()
+            } else {
+                Some(path)
+            };
+            if let (Some(path), Some(added), Some(removed)) = (path, digits(added), digits(removed))
+                && !path.is_empty()
+            {
+                counts.insert(path, (added, removed));
+            }
+        }
+        index += 1;
+    }
+    let fields: Vec<&str> = names
+        .split('\0')
+        .map(|field| field.strip_prefix('\n').unwrap_or(field))
+        .collect();
+    let field = |at: usize| fields.get(at).copied().unwrap_or("");
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index < fields.len() {
+        let status = fields[index];
+        if !status.is_empty() {
+            let (path, old_path) = if status.starts_with('R') || status.starts_with('C') {
+                index += 2;
+                (field(index), Some(field(index - 1).to_owned()))
+            } else {
+                index += 1;
+                (field(index), None)
+            };
+            let count = counts.get(path);
+            files.push(CommitFile {
+                path: path.to_owned(),
+                old_path,
+                status: status.chars().take(1).collect(),
+                added: count.map(|(added, _)| *added),
+                removed: count.map(|(_, removed)| *removed),
+            });
+        }
+        index += 1;
+    }
+    files
+}
+
+/// JavaScript's `/^<prefix>/m`: `text` has a line (after a `\n`, `\r`, U+2028 or U+2029) that starts with `prefix`.
+pub fn has_line_starting(text: &str, prefix: &str) -> bool {
+    text.starts_with(prefix)
+        || text
+            .match_indices(['\n', '\r', '\u{2028}', '\u{2029}'])
+            .any(|(at, end)| text[at + end.len()..].starts_with(prefix))
+}
+
+/// `String(number)` for a count git is given (`-n`, `--skip`): no fraction digits for a whole number, an exponent
+/// past 1e21 and under 1e-6, as JavaScript spells them.
+pub fn js_number(value: f64) -> String {
+    if value == 0.0 {
+        return "0".into();
+    }
+    let size = value.abs();
+    if !(1e-6..1e21).contains(&size) {
+        let spelled = format!("{value:e}");
+        return match spelled.split_once('e') {
+            Some((digits, exponent)) if !exponent.starts_with('-') => {
+                format!("{digits}e+{exponent}")
+            }
+            _ => spelled,
+        };
+    }
+    format!("{value}")
+}
+
+/// `[\w.-]`.
+fn scp_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')
+}
+
+/// `user@host:path` (`/^[\w.-]+@([\w.-]+):(?!\/)(.+)$/`): its host and path.
+fn scp_remote(url: &str) -> Option<(&str, &str)> {
+    let (user, rest) = url.split_once('@')?;
+    let (host, path) = rest.split_once(':')?;
+    let word = |part: &str| !part.is_empty() && part.chars().all(scp_char);
+    let one_line = !path.contains(['\n', '\r', '\u{2028}', '\u{2029}']);
+    (word(user) && word(host) && !path.is_empty() && !path.starts_with('/') && one_line)
+        .then_some((host, path))
+}
+
+/// Web base of a hosted remote (`https://host/owner/repo`) from its fetch URL: https, ssh `git@host:owner/repo.git`
+/// and `ssh://git@host/owner/repo` forms, the URL read as the WHATWG URL standard reads it (node's `URL`). None for
+/// local paths and anything else that has no web page.
+pub fn remote_web_base(url: &str) -> Option<String> {
+    let trimmed = js_trim(url);
+    let trimmed = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    let trimmed = trimmed.strip_suffix('/').unwrap_or(trimmed);
+    let (host, path) = match scp_remote(trimmed) {
+        Some((host, path)) => (host.to_owned(), path.to_owned()),
+        None => {
+            let parsed = url::Url::parse(trimmed).ok()?;
+            if !matches!(parsed.scheme(), "https" | "http" | "ssh" | "git") {
+                return None;
+            }
+            let path = parsed.path();
+            (
+                parsed.host_str().unwrap_or("").to_owned(),
+                path.strip_prefix('/').unwrap_or(path).to_owned(),
+            )
+        }
+    };
+    if host.is_empty() || path.split('/').filter(|part| !part.is_empty()).count() < 2 {
+        return None;
+    }
+    Some(format!("https://{host}/{path}"))
 }
 
 #[cfg(test)]
@@ -484,5 +714,176 @@ mod tests {
         assert_eq!(utf16_prefix("a😀b", 2), ("a", Some('\u{fffd}'), true));
         assert_eq!(utf16_prefix("a😀b", 3), ("a😀", None, true));
         assert_eq!(utf16_prefix("한글", 1), ("한", None, true));
+    }
+
+    // The cases of `scm.test.ts` "parsers" (parseDecorations, remoteWebBase) and tables captured from the TypeScript
+    // before it was deleted (`remoteWebBase`, `parseDecorations`, the loops of `log` and `commitDetail`).
+
+    #[test]
+    fn splits_decorations_into_refs_and_tags() {
+        let refs = |refs: &[&str], tags: &[&str]| Decorations {
+            refs: refs.iter().map(|r| r.to_string()).collect(),
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+        };
+        for (text, expected) in [
+            (
+                "HEAD -> main, tag: v1.0, origin/main, origin/HEAD",
+                refs(&["main", "origin/main", "origin/HEAD"], &["v1.0"]),
+            ),
+            ("", refs(&[], &[])),
+            ("HEAD", refs(&[], &[])),
+            ("tag: a, tag: b", refs(&[], &["a", "b"])),
+            (" HEAD -> x ,  y ", refs(&["x", "y"], &[])),
+            ("grafted, HEAD -> main", refs(&["grafted", "main"], &[])),
+            ("main,tag: v2", refs(&["main,tag: v2"], &[])),
+            (
+                "HEAD -> feature/한글, tag: v1 ",
+                refs(&["feature/한글"], &["v1"]),
+            ),
+        ] {
+            assert_eq!(decorations(text), expected, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn derives_a_hosted_remote_s_web_base_as_the_typescript_did() {
+        for (url, base) in [
+            ("git@github.com:o/r.git", Some("https://github.com/o/r")),
+            (
+                "https://gitlab.com/group/sub/r.git\n",
+                Some("https://gitlab.com/group/sub/r"),
+            ),
+            ("ssh://git@github.com/o/r", Some("https://github.com/o/r")),
+            ("/srv/git/r.git", None),
+            ("file:///srv/git/r.git", None),
+            ("https://github.com/o/r", Some("https://github.com/o/r")),
+            ("https://github.com/o/r/", Some("https://github.com/o/r")),
+            (
+                "https://github.com/o/r.git/",
+                Some("https://github.com/o/r.git"),
+            ),
+            (
+                "https://user:tok@GitHub.COM:443/O/R.git",
+                Some("https://github.com/O/R"),
+            ),
+            (
+                "http://host.example:8080/a/b/c",
+                Some("https://host.example/a/b/c"),
+            ),
+            ("git://host/o/r.git", Some("https://host/o/r")),
+            ("ssh://git@host:2222/o/r.git", Some("https://host/o/r")),
+            ("git@host:/abs/path.git", None),
+            ("me@host:o", None),
+            ("me@host:o/r", Some("https://host/o/r")),
+            ("https://host/only", None),
+            ("https://host//o//r", Some("https://host//o//r")),
+            ("https://host/o/my repo", Some("https://host/o/my%20repo")),
+            ("https://host/o/%41r", Some("https://host/o/%41r")),
+            (
+                "https://bücher.example/o/r",
+                Some("https://xn--bcher-kva.example/o/r"),
+            ),
+            ("https://[::1]/o/r", Some("https://[::1]/o/r")),
+            ("HTTPS://Host/o/r", Some("https://host/o/r")),
+            ("svn://host/o/r", None),
+            ("https:///o/r", None),
+            ("  https://host/o/r.git  ", Some("https://host/o/r")),
+            ("https://host/o/r?x=1#frag", Some("https://host/o/r")),
+            ("https://host/o/./r/../s", Some("https://host/o/s")),
+            ("https://host/o\\r\\s", Some("https://host/o/r/s")),
+            ("x@y.z:a/b.git", Some("https://y.z/a/b")),
+            ("a_b-c.d@h-1.e_f:p/q", Some("https://h-1.e_f/p/q")),
+            ("git+ssh://host/o/r", None),
+            ("", None),
+        ] {
+            assert_eq!(remote_web_base(url).as_deref(), base, "{url:?}");
+        }
+    }
+
+    #[test]
+    fn reads_log_records_as_the_history_lists_them() {
+        let output = "a1\0a\0Ann Ö\x001767225600\0subject one\0HEAD -> main, tag: v1\0p1 p2\x1e\nb2\0b\0\0\0\0\0\x1e\n";
+        let commits: Vec<Commit> = output.split('\x1e').filter_map(log_record).collect();
+        assert_eq!(
+            commits,
+            [
+                Commit {
+                    sha: "a1".into(),
+                    short_sha: "a".into(),
+                    author: "Ann Ö".into(),
+                    date: 1767225600,
+                    subject: "subject one".into(),
+                    decorations: Decorations {
+                        refs: vec!["main".into()],
+                        tags: vec!["v1".into()]
+                    },
+                    parents: vec!["p1".into(), "p2".into()],
+                },
+                Commit {
+                    sha: "b2".into(),
+                    short_sha: "b".into(),
+                    author: String::new(),
+                    date: 0,
+                    subject: String::new(),
+                    decorations: Decorations::default(),
+                    parents: Vec::new(),
+                }
+            ]
+        );
+        assert_eq!(log_record("\nonly-sha"), None);
+        assert_eq!(seconds("x"), 0);
+    }
+
+    #[test]
+    fn lists_a_commit_s_files_with_their_counts() {
+        // `show --format= --numstat -z` and `--name-status -z` of one commit (git 2.54): a leading newline, a rename,
+        // a binary file, a path with a tab.
+        let numstat = "\n1\t0\t\0a.txt\0b.txt\0-\t-\tbin.dat\x00002\t1\ttab\there.txt\0";
+        let names = "\nR087\0a.txt\0b.txt\0A\0bin.dat\0M\0tab\there.txt\0D\0gone.txt\0";
+        let files = commit_files(numstat, names);
+        let file =
+            |path: &str, old: Option<&str>, status: &str, counts: Option<(u64, u64)>| CommitFile {
+                path: path.into(),
+                old_path: old.map(String::from),
+                status: status.into(),
+                added: counts.map(|c| c.0),
+                removed: counts.map(|c| c.1),
+            };
+        assert_eq!(
+            files,
+            [
+                file("b.txt", Some("a.txt"), "R", Some((1, 0))),
+                file("bin.dat", None, "A", None),
+                file("tab\there.txt", None, "M", Some((2, 1))),
+                file("gone.txt", None, "D", None),
+            ]
+        );
+        assert_eq!(commit_files("", ""), []);
+    }
+
+    #[test]
+    fn finds_a_binary_line_and_spells_counts_as_javascript() {
+        assert!(has_line_starting(
+            "Binary files a and b differ",
+            "Binary files "
+        ));
+        assert!(has_line_starting("x\r\nBinary files a", "Binary files "));
+        assert!(has_line_starting(
+            "x\u{2028}Binary files a",
+            "Binary files "
+        ));
+        assert!(!has_line_starting("x Binary files a", "Binary files "));
+        for (value, spelled) in [
+            (101.0, "101"),
+            (3.5, "3.5"),
+            (0.0, "0"),
+            (-0.0, "0"),
+            (1e21, "1e+21"),
+            (1.5e22, "1.5e+22"),
+            (1e-7, "1e-7"),
+            (0.000001, "0.000001"),
+        ] {
+            assert_eq!(js_number(value), spelled, "{value}");
+        }
     }
 }

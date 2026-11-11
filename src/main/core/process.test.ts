@@ -1,8 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { withRepoLock } from "../local/git/exec";
 import { nativeBinPath } from "../native-bin";
+import { DIES_WITH_TEST, RM_TEMP } from "../test-fake-omp";
 import { type CoreAnswer, CoreError, CoreProcess } from "./process";
 
 const CRATE_VERSION = /^version = "(.+)"$/m.exec(
@@ -47,6 +51,44 @@ const alive = (pid: number): boolean => {
 		return false;
 	}
 };
+
+/**
+ * How main runs git, with a stand-in for git: node, which writes its pid to `pidFile` and then waits, as a git waiting
+ * on a hook or the network does. It needs no shell, so the same case runs on Windows.
+ */
+const standInRunner = (pidFile: string) => ({
+	bin: process.execPath,
+	args: [
+		"-e",
+		`${DIES_WITH_TEST} require("fs").writeFileSync(process.argv[1], String(process.pid)); setInterval(() => {}, 1e9)`,
+		pidFile,
+	],
+	env: Object.fromEntries(
+		Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+	),
+	timeoutMs: 600_000,
+	maxBytes: 1024 * 1024,
+});
+
+interface StandIn {
+	answer: Promise<CoreAnswer<unknown>>;
+	pid: number;
+}
+
+/** A `git.stage` whose git is the stand-in, and the stand-in's pid once it runs. */
+async function standInRequest(core: CoreProcess, dir: string, onEnded?: () => void): Promise<StandIn> {
+	const pidFile = join(dir, "pid");
+	const answer = core.call("git.stage", { git: standInRunner(pidFile), root: dir, paths: null }, { onEnded });
+	let pid = 0;
+	await vi.waitFor(
+		async () => {
+			pid = Number(await readFile(pidFile, "utf8").catch(() => "0"));
+			expect(pid).toBeGreaterThan(0);
+		},
+		{ timeout: 20_000, interval: 20 },
+	);
+	return { answer, pid };
+}
 
 afterEach(async () => {
 	await Promise.all(cores.map(core => core.stop()));
@@ -111,6 +153,28 @@ describe("CoreProcess", () => {
 		await dropped;
 	});
 
+	it("stops a request in the core when its signal aborts, and says once the core is done with it", async () => {
+		const core = startCore();
+		const stop = new AbortController();
+		const ended = Promise.withResolvers<void>();
+		const held = core.call("core.echo", { waitFor: randomUUID() }, { signal: stop.signal, onEnded: ended.resolve });
+		await echo(core, { value: "running" });
+		stop.abort();
+		await expect(held).rejects.toMatchObject({ code: "cancelled" });
+		await ended.promise;
+		const late = core.call("core.echo", { waitFor: randomUUID() }, { signal: stop.signal });
+		await expect(late).rejects.toMatchObject({ code: "cancelled" });
+	});
+
+	it("stops a request past its timeout in the core, and says when its late answer came", async () => {
+		const core = startCore();
+		const ended = Promise.withResolvers<void>();
+		const late = core.call("core.echo", { waitFor: randomUUID() }, { timeoutMs: 50, onEnded: ended.resolve });
+		await expect(late).rejects.toMatchObject({ code: "timeout" });
+		await ended.promise;
+		await nextLog(/dropped a late answer to request \d+/);
+	});
+
 	it("rejects what waits on a core that dies, and the next request starts a fresh one", async () => {
 		const core = startCore();
 		await echo(core, { value: 1 });
@@ -131,6 +195,59 @@ describe("CoreProcess", () => {
 		await core.stop();
 		expect(core.pid).toBeNull();
 		expect(alive(pid)).toBe(false);
+	});
+
+	describe("a core that ends while a request runs its git", () => {
+		let dir: string;
+		let standIn = 0;
+		afterEach(async () => {
+			if (standIn && alive(standIn)) process.kill(standIn, "SIGKILL");
+			standIn = 0;
+			await rm(dir, RM_TEMP);
+		});
+
+		it("is killed with it before what waited settles, so the lock's next holder never runs beside that git", async () => {
+			dir = await mkdtemp(join(tmpdir(), "omp-core-death-"));
+			const core = startCore();
+			const seen: Record<string, boolean> = {};
+			const request = Promise.withResolvers<StandIn>();
+			const old = withRepoLock(dir, async () => {
+				const started = await standInRequest(core, dir, () => {
+					seen.ended = alive(standIn);
+				});
+				request.resolve(started);
+				try {
+					return await started.answer;
+				} catch (error) {
+					seen.rejected = alive(standIn);
+					throw error;
+				}
+			});
+			const next = withRepoLock(dir, async () => {
+				seen.next = alive(standIn);
+			});
+			standIn = (await request.promise).pid;
+			expect(alive(standIn)).toBe(true);
+			process.kill(core.pid as number, "SIGKILL");
+			await expect(old).rejects.toMatchObject({ code: "core_exited" });
+			await next;
+			expect(seen).toEqual({ ended: false, rejected: false, next: false });
+		}, 60_000);
+
+		it("stop() ends a core whose request still runs, and its git with it, leaving none of its processes", async () => {
+			dir = await mkdtemp(join(tmpdir(), "omp-core-stop-"));
+			const core = startCore();
+			const { answer, pid } = await standInRequest(core, dir);
+			standIn = pid;
+			const group = core.pid as number;
+			const settled = answer.catch((error: unknown) => error);
+			// stdin's end leaves the request running, so this waits for stop()'s kill.
+			await core.stop();
+			expect(alive(standIn)).toBe(false);
+			expect(alive(group)).toBe(false);
+			if (process.platform !== "win32") expect(() => process.kill(-group, 0)).toThrow(/ESRCH/);
+			expect(await settled).toMatchObject({ code: "core_exited" });
+		}, 60_000);
 	});
 
 	it("rests after three starts that end before answering", async () => {

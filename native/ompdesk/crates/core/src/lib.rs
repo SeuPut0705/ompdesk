@@ -9,3 +9,5 @@ mod sys;
 pub mod wire;
 
 pub use server::{registry, serve};
+#[cfg(windows)]
+pub use sys::end_children_with_this_process;

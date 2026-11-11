@@ -1,6 +1,7 @@
 //! Methods and dispatch. A handler is an async function from a request's params (and its `bin` tail) to a result or
 //! a coded error. Requests run concurrently and are answered in completion order; at end of input the server waits
-//! for the ones in flight, then returns.
+//! for the ones in flight, then returns. A `{"cancel": id}` frame stops the request `id` where its handler looks
+//! (every git it runs, `Scope`), and a request answers only once every process it started has ended.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
 use crate::wire::{self, Frame, Incoming};
@@ -34,12 +35,56 @@ impl Fault {
             message: message.into(),
         }
     }
+
+    /// What a request stopped by its `cancel` frame answers.
+    pub fn cancelled() -> Fault {
+        Fault::new("cancelled", "The request was cancelled")
+    }
+}
+
+/// A request's hold on what it started. `cancel` is set by the request's `{"cancel": id}` frame; the request is
+/// answered only once every clone of its scope is gone, so a task that keeps one (a git being ended after its timeout
+/// or its cancel) holds the answer until its process exited.
+#[derive(Clone)]
+pub struct Scope {
+    cancel: Arc<watch::Sender<bool>>,
+    _alive: mpsc::Sender<()>,
+}
+
+impl Scope {
+    /// Whether the request was cancelled.
+    pub fn cancelled(&self) -> bool {
+        *self.cancel.borrow()
+    }
+
+    /// Resolves once the request is cancelled (at once when it already was).
+    pub async fn on_cancel(&self) {
+        let mut cancelled = self.cancel.subscribe();
+        // The sender lives in this scope, so the wait ends only by the flag.
+        let _ = cancelled.wait_for(|cancelled| *cancelled).await;
+    }
+
+    /// A scope no frame cancels and nothing waits on, for code run outside a request (tests).
+    #[cfg(test)]
+    pub fn detached() -> Scope {
+        Scope {
+            cancel: Arc::new(watch::channel(false).0),
+            _alive: mpsc::channel(1).0,
+        }
+    }
+
+    /// Cancels the request as its `cancel` frame would (tests).
+    #[cfg(test)]
+    pub fn cancel(&self) {
+        self.cancel.send_replace(true);
+    }
 }
 
 /// What a handler is given.
 pub struct Call {
     pub params: Box<RawValue>,
     pub bin: Option<Vec<u8>>,
+    pub scope: Scope,
 }
 
 impl Call {
@@ -104,6 +149,17 @@ struct Ready {
     protocol: u32,
 }
 
+/// The cancel flag of each request in flight, by id.
+type InFlight = Arc<Mutex<HashMap<u64, Arc<watch::Sender<bool>>>>>;
+
+fn in_flight(
+    requests: &InFlight,
+) -> std::sync::MutexGuard<'_, HashMap<u64, Arc<watch::Sender<bool>>>> {
+    requests
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Serves requests from `input`, answering on `output`, until `input` ends. Announces `ready` first.
 pub async fn serve<R, W>(input: R, output: W, registry: Registry) -> io::Result<()>
 where
@@ -119,7 +175,8 @@ where
     let _ = frames.send(Frame::event("ready", &ready));
     let mut reader = BufReader::new(input);
     let mut line = Vec::new();
-    let mut in_flight = JoinSet::new();
+    let mut tasks = JoinSet::new();
+    let requests: InFlight = Arc::default();
     let read_result = loop {
         match wire::read_request(&mut reader, &mut line).await {
             Ok(None) => break Ok(()),
@@ -127,40 +184,60 @@ where
             Ok(Some(Incoming::Skipped(reason))) => {
                 eprintln!("ompdesk-core: skipped a frame: {reason}")
             }
+            // A request that already answered (or never came) has nothing to stop.
+            Ok(Some(Incoming::Cancel(id))) => {
+                if let Some(cancel) = in_flight(&requests).get(&id) {
+                    cancel.send_replace(true);
+                }
+            }
             Ok(Some(Incoming::Request(request))) => {
                 let registry = Arc::clone(&registry);
                 let frames = frames.clone();
-                in_flight.spawn(async move {
+                let requests = Arc::clone(&requests);
+                // Registered before the next frame is read, so a cancel that follows always finds it.
+                let cancel = Arc::new(watch::channel(false).0);
+                in_flight(&requests).insert(request.id, Arc::clone(&cancel));
+                tasks.spawn(async move {
                     let id = request.id;
-                    let frame = match answer(&registry, request).await {
+                    let frame = match answer(&registry, request, cancel).await {
                         Ok(reply) => Frame::result(id, &reply.result, reply.bin),
                         Err(fault) => Frame::error(id, &fault.code, &fault.message),
                     };
+                    in_flight(&requests).remove(&id);
                     let _ = frames.send(frame);
                 });
             }
         }
-        while in_flight.try_join_next().is_some() {}
+        while tasks.try_join_next().is_some() {}
     };
-    while in_flight.join_next().await.is_some() {}
+    while tasks.join_next().await.is_some() {}
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;
     read_result.and(written)
 }
 
-async fn answer(registry: &Registry, request: wire::Request) -> Result<Reply, Fault> {
+async fn answer(
+    registry: &Registry,
+    request: wire::Request,
+    cancel: Arc<watch::Sender<bool>>,
+) -> Result<Reply, Fault> {
     let Some(handler) = registry.get(&request.method) else {
         return Err(Fault::new(
             "unknown_method",
             format!("Unknown method \"{}\"", request.method),
         ));
     };
+    let (alive, mut ended) = mpsc::channel(1);
     let call = Call {
         params: request.params,
         bin: request.bin,
+        scope: Scope {
+            cancel,
+            _alive: alive,
+        },
     };
     // Its own task, so a panic fails this request instead of the connection.
-    match tokio::spawn(handler(call)).await {
+    let outcome = match tokio::spawn(handler(call)).await {
         Ok(outcome) => outcome,
         Err(error) if error.is_panic() => {
             Err(Fault::new("internal", "The request's handler panicked"))
@@ -169,7 +246,10 @@ async fn answer(registry: &Registry, request: wire::Request) -> Result<Reply, Fa
             "internal",
             "The request's handler was cancelled",
         )),
-    }
+    };
+    // Nothing is ever sent: `recv` ends once the last scope (a process's supervisor) is gone.
+    let _ = ended.recv().await;
+    outcome
 }
 
 #[derive(serde::Deserialize)]
@@ -201,7 +281,8 @@ fn gate(name: &str) -> Arc<Semaphore> {
 }
 
 /// The wire's own check: answers `value` and the `bin` tail it was given. `waitFor` holds the answer until another
-/// request `release`s that name, which is how the plumbing tests get answers out of order without timing.
+/// request `release`s that name, or until the request is cancelled, which is how the plumbing tests get answers out
+/// of order and cancellations without timing.
 async fn echo(call: Call) -> Result<Reply, Fault> {
     let params: EchoParams = call.params()?;
     if let Some(name) = &params.release {
@@ -209,11 +290,12 @@ async fn echo(call: Call) -> Result<Reply, Fault> {
     }
     if let Some(name) = &params.wait_for {
         let gate = gate(name);
-        let permit = gate
-            .acquire()
-            .await
-            .map_err(|error| Fault::new("internal", error.to_string()))?;
-        permit.forget();
+        tokio::select! {
+            permit = gate.acquire() => permit
+                .map_err(|error| Fault::new("internal", error.to_string()))?
+                .forget(),
+            () = call.scope.on_cancel() => return Err(Fault::cancelled()),
+        }
     }
     let reply = Reply::json(&EchoResult {
         value: params.value,
@@ -227,14 +309,23 @@ async fn echo(call: Call) -> Result<Reply, Fault> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{
+        AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadHalf, WriteHalf,
+    };
 
-    #[tokio::test]
-    async fn answers_in_completion_order_and_ends_with_its_input() {
-        let (mut client, server_io) = tokio::io::duplex(1 << 16);
+    type Lines = tokio::io::BufReader<ReadHalf<DuplexStream>>;
+
+    async fn start(
+        registry: Registry,
+    ) -> (
+        Lines,
+        WriteHalf<DuplexStream>,
+        tokio::task::JoinHandle<io::Result<()>>,
+    ) {
+        let (client, server_io) = tokio::io::duplex(1 << 16);
         let (server_read, server_write) = tokio::io::split(server_io);
-        let server = tokio::spawn(serve(server_read, server_write, registry()));
-        let (client_read, mut client_write) = tokio::io::split(&mut client);
+        let server = tokio::spawn(serve(server_read, server_write, registry));
+        let (client_read, client_write) = tokio::io::split(client);
         let mut lines = tokio::io::BufReader::new(client_read);
         let mut line = String::new();
         lines.read_line(&mut line).await.unwrap();
@@ -242,7 +333,18 @@ mod tests {
             line.starts_with("{\"event\":\"ready\",\"data\":{\"version\":"),
             "{line}"
         );
+        (lines, client_write, server)
+    }
 
+    async fn next(lines: &mut Lines) -> serde_json::Value {
+        let mut line = String::new();
+        lines.read_line(&mut line).await.unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    #[tokio::test]
+    async fn answers_in_completion_order_and_ends_with_its_input() {
+        let (mut lines, mut client_write, server) = start(registry()).await;
         client_write
             .write_all(b"{\"id\":1,\"method\":\"core.echo\",\"params\":{\"value\":1,\"waitFor\":\"unit\"}}\n")
             .await
@@ -257,9 +359,7 @@ mod tests {
             .unwrap();
         let mut answers = Vec::new();
         for _ in 0..3 {
-            line.clear();
-            lines.read_line(&mut line).await.unwrap();
-            let head: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let head = next(&mut lines).await;
             if head["bin"] == 3 {
                 let mut bin = [0; 3];
                 lines.read_exact(&mut bin).await.unwrap();
@@ -271,6 +371,62 @@ mod tests {
         assert!(position(2) < position(1), "{answers:?}");
         assert_eq!(answers[position(1)]["result"]["value"], 1);
         assert_eq!(answers[position(3)]["error"]["code"], "unknown_method");
+        client_write.shutdown().await.unwrap();
+        drop(client_write);
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_cancel_frame_stops_its_request_and_no_other() {
+        let (mut lines, mut client_write, server) = start(registry()).await;
+        client_write
+            .write_all(b"{\"id\":1,\"method\":\"core.echo\",\"params\":{\"waitFor\":\"cancel-unit\"}}\n{\"id\":2,\"method\":\"core.echo\",\"params\":{\"value\":2,\"waitFor\":\"cancel-other\"}}\n{\"cancel\":9}\n{\"cancel\":1}\n")
+            .await
+            .unwrap();
+        let first = next(&mut lines).await;
+        assert_eq!(first["id"], 1);
+        assert_eq!(first["error"]["code"], "cancelled");
+        client_write
+            .write_all(b"{\"cancel\":1}\n{\"id\":3,\"method\":\"core.echo\",\"params\":{\"release\":\"cancel-other\"}}\n")
+            .await
+            .unwrap();
+        let mut ids = [next(&mut lines).await, next(&mut lines).await];
+        ids.sort_by_key(|answer| answer["id"].as_u64());
+        assert_eq!(ids[0]["result"]["value"], 2);
+        assert_eq!(ids[1]["id"], 3);
+        client_write.shutdown().await.unwrap();
+        drop(client_write);
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn answers_only_once_what_the_request_left_running_has_ended() {
+        static LEFT: LazyLock<Mutex<Option<tokio::sync::oneshot::Sender<()>>>> =
+            LazyLock::new(Default::default);
+        let mut registry = Registry::default();
+        registry.add("test.leave", |call| {
+            Box::pin(async move {
+                let (finish, finished) = tokio::sync::oneshot::channel::<()>();
+                *LEFT.lock().unwrap() = Some(finish);
+                let scope = call.scope;
+                tokio::spawn(async move {
+                    let _ = finished.await;
+                    drop(scope);
+                });
+                Reply::json(&"left")
+            })
+        });
+        let (mut lines, mut client_write, server) = start(registry).await;
+        client_write
+            .write_all(b"{\"id\":1,\"method\":\"test.leave\"}\n")
+            .await
+            .unwrap();
+        let answered =
+            tokio::time::timeout(std::time::Duration::from_millis(200), next(&mut lines)).await;
+        assert!(answered.is_err(), "answered while its task still ran");
+        let finish = LEFT.lock().unwrap().take().unwrap();
+        finish.send(()).unwrap();
+        assert_eq!(next(&mut lines).await["result"], "left");
         client_write.shutdown().await.unwrap();
         drop(client_write);
         server.await.unwrap().unwrap();

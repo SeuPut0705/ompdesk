@@ -1,0 +1,48 @@
+{
+	"runs": [
+		{
+			"name": "code-2-gits-1-at-once",
+			"config": "MC.cfg",
+			"expect": "pass"
+		},
+		{
+			"name": "code-3-gits-2-at-once",
+			"config": "MC.cfg",
+			"constants": {
+				"MaxGits": "3",
+				"Par": "2"
+			},
+			"expect": "pass"
+		},
+		{
+			"name": "answer-before-gits-ended",
+			"config": "MC_nowait.cfg",
+			"expect": "invariant",
+			"property": "NoOverlapAfterStop"
+		},
+		{
+			"name": "effect-settles-at-timeout",
+			"config": "MC_settle.cfg",
+			"expect": "invariant",
+			"property": "NoOverlapAfterStop"
+		},
+		{
+			"name": "core-death-settled-at-once",
+			"config": "MC_coredies.cfg",
+			"expect": "invariant",
+			"property": "NoOverlapAfterCoreDeath"
+		},
+		{
+			"name": "group-outlives-its-bound",
+			"config": "MC_bound.cfg",
+			"expect": "invariant",
+			"property": "NoOverlapAfterCoreDeath"
+		},
+		{
+			"name": "git-starts-before-cancel-arrives",
+			"config": "MC_sanity.cfg",
+			"expect": "invariant",
+			"property": "NoSpawnAfterStop"
+		}
+	]
+}

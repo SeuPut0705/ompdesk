@@ -1,6 +1,7 @@
 //! Frames on the wire, both ways over stdio: one JSON object per line, UTF-8. A frame whose JSON carries
 //! `"bin": <n>` is followed by exactly `n` raw bytes after its newline, which belong to it (a file's contents,
-//! never base64). One writer task owns the output, so frames never interleave.
+//! never base64). One writer task owns the output, so frames never interleave. Main also sends `{"cancel": <id>}`,
+//! which stops a request it no longer waits for.
 
 use std::io;
 
@@ -26,11 +27,13 @@ struct Head {
     method: Option<String>,
     params: Option<Box<RawValue>>,
     bin: Option<usize>,
+    cancel: Option<u64>,
 }
 
-/// One line read: a request, or why it was skipped.
+/// One line read: a request, a cancel of one, or why it was skipped.
 pub enum Incoming {
     Request(Request),
+    Cancel(u64),
     Skipped(String),
 }
 
@@ -59,9 +62,10 @@ pub async fn read_request<R: AsyncBufRead + Unpin>(
         None => None,
     };
     let (Some(id), Some(method)) = (head.id, head.method) else {
-        return Ok(Some(Incoming::Skipped(
-            "a frame without an integer id and a method".into(),
-        )));
+        return Ok(Some(match head.cancel {
+            Some(id) => Incoming::Cancel(id),
+            None => Incoming::Skipped("a frame without an integer id and a method".into()),
+        }));
     };
     let params = match head.params {
         Some(params) => params,
@@ -181,6 +185,7 @@ mod tests {
         while let Some(incoming) = read_request(&mut reader, &mut line).await.unwrap() {
             out.push(match incoming {
                 Incoming::Request(r) => Ok((r.id, r.method, r.params.get().to_owned(), r.bin)),
+                Incoming::Cancel(id) => Err(format!("cancel {id}")),
                 Incoming::Skipped(reason) => Err(reason),
             });
         }
@@ -207,6 +212,13 @@ mod tests {
         assert!(matches!(&frames[0], Err(reason) if reason.starts_with("malformed line")));
         assert!(matches!(&frames[1], Err(reason) if reason.contains("without an integer id")));
         assert_eq!(frames[2], Ok((4, "d".into(), "{}".into(), None)));
+    }
+
+    #[tokio::test]
+    async fn reads_a_cancel_frame() {
+        let frames = read_all(b"{\"cancel\":7}\n{\"cancel\":\"x\"}\n").await;
+        assert_eq!(frames[0], Err("cancel 7".into()));
+        assert!(matches!(&frames[1], Err(reason) if reason.starts_with("malformed line")));
     }
 
     #[test]

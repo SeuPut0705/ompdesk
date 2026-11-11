@@ -25,50 +25,6 @@ export function parseGitStatus(text: string): GitStatusEntry[] {
 	return entries;
 }
 
-/** Branch/tag names from `git log --format=%D` (`HEAD -> main, tag: v1, origin/main`). */
-export function parseDecorations(decoration: string): { refs: string[]; tags: string[] } {
-	const refs: string[] = [];
-	const tags: string[] = [];
-	for (const raw of decoration.split(", ")) {
-		const entry = raw.trim();
-		if (!entry || entry === "HEAD") continue;
-		if (entry.startsWith("tag: ")) tags.push(entry.slice("tag: ".length));
-		else refs.push(entry.startsWith("HEAD -> ") ? entry.slice("HEAD -> ".length) : entry);
-	}
-	return { refs, tags };
-}
-
-/**
- * Web base of a hosted remote (`https://host/owner/repo`) from its fetch URL:
- * https, ssh `git@host:owner/repo.git` and `ssh://git@host/owner/repo` forms.
- * Null for local paths and anything else that has no web page.
- */
-export function remoteWebBase(url: string): string | null {
-	const trimmed = url
-		.trim()
-		.replace(/\.git$/, "")
-		.replace(/\/$/, "");
-	let host: string;
-	let repoPath: string;
-	const scp = /^[\w.-]+@([\w.-]+):(?!\/)(.+)$/.exec(trimmed);
-	if (scp) {
-		host = scp[1]!;
-		repoPath = scp[2]!;
-	} else {
-		let parsed: URL;
-		try {
-			parsed = new URL(trimmed);
-		} catch {
-			return null;
-		}
-		if (!["https:", "http:", "ssh:", "git:"].includes(parsed.protocol)) return null;
-		host = parsed.hostname;
-		repoPath = parsed.pathname.replace(/^\//, "");
-	}
-	if (!host || repoPath.split("/").filter(Boolean).length < 2) return null;
-	return `https://${host}/${repoPath}`;
-}
-
 /** A branch or tag name git accepts (`git check-ref-format --branch` rules, checked without spawning git). */
 export function isValidRefName(name: string): boolean {
 	return (

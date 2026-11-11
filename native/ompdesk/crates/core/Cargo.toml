@@ -30,6 +30,8 @@ icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).
 icu_casemap = "2"
 icu_locale_core = "2"
+# The history's commit links read a remote's URL as node's `URL` does: the WHATWG URL standard (host, IDNA, path).
+url = "2"
 
 [target.'cfg(unix)'.dependencies]
 # errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a

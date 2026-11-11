@@ -112,6 +112,28 @@
 			],
 			"syncCommit": "65377d09421b55e9a89cf22f8b6d73aa084361f8",
 			"verifySkill": ".omp/skills/checkout-claims-verify/SKILL.md"
+		},
+		{
+			"id": "repo-lock-core",
+			"title": "Repository lock over the core process: a stopped holder's git is ended, and no git of a stopped holder or a dead core runs beside the next holder",
+			"kind": "tla",
+			"dir": "repo-lock-core/tla",
+			"spec": "RepoLockCore.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/local/git/exec.ts#coreGit",
+				"src/main/local/git/scm.ts#mutate",
+				"src/main/core/process.ts",
+				"src/main/serial-chain.ts",
+				"native/ompdesk/crates/core/src/server.rs",
+				"native/ompdesk/crates/core/src/git/run.rs",
+				"native/ompdesk/crates/core/src/sys.rs",
+				"native/ompdesk/crates/core/src/main.rs"
+			],
+			"syncCommit": "f3da872ce42e75b6b9ce7b1288a895fcd864105f",
+			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md",
+			"syncDiff": "d23dc079125d968cb9aeeaf283926a26bfe6979c01ea6a98f45fb4dce9f0524e"
 		}
 	]
 }

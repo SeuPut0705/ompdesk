@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 
 use super::parse::{self, MAX_FILES};
-use super::run::{Output, Runner};
+use super::run::{Git, Output};
 use crate::fs::disk;
 use crate::fs::error::{Codes, NodeError};
 use crate::fs::order::js_trim;
@@ -45,7 +45,7 @@ fn is_absolute(path: &str) -> bool {
 }
 
 /// Disk work on tokio's blocking pool.
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, Fault> {
     tokio::task::spawn_blocking(work)
@@ -54,7 +54,7 @@ async fn blocking<T: Send + 'static>(
 }
 
 /// Worktree top level of `cwd`, or none outside a repository.
-pub async fn repo_root(git: &Runner, cwd: &str) -> Result<Option<String>, Fault> {
+pub async fn repo_root(git: &Git, cwd: &str) -> Result<Option<String>, Fault> {
     let output = git.raw(cwd, &["rev-parse", "--show-toplevel"]).await?;
     if output.code != 0 {
         return Ok(None);
@@ -64,7 +64,7 @@ pub async fn repo_root(git: &Runner, cwd: &str) -> Result<Option<String>, Fault>
     Ok((!root.is_empty()).then(|| native(root)))
 }
 
-async fn head_sha(git: &Runner, cwd: &str) -> Result<Option<String>, Fault> {
+async fn head_sha(git: &Git, cwd: &str) -> Result<Option<String>, Fault> {
     let output = git
         .raw(cwd, &["rev-parse", "--verify", "--quiet", "HEAD"])
         .await?;
@@ -84,7 +84,7 @@ pub struct Status {
     summary: parse::Summary,
 }
 
-pub async fn status(git: &Runner, cwd: &str) -> Result<Status, Fault> {
+pub async fn status(git: &Git, cwd: &str) -> Result<Status, Fault> {
     let output = git
         .raw(
             cwd,
@@ -113,13 +113,13 @@ pub async fn status(git: &Runner, cwd: &str) -> Result<Status, Fault> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Head {
-    branch: Option<String>,
-    upstream: Option<String>,
+    pub(super) branch: Option<String>,
+    pub(super) upstream: Option<String>,
     ahead: u64,
     behind: u64,
-    operation: Option<&'static str>,
+    pub(super) operation: Option<&'static str>,
     stashes: usize,
-    has_remote: bool,
+    pub(super) has_remote: bool,
 }
 
 /// Which stopped operation (merge, rebase, cherry-pick, revert) waits in `git_dir`, if any.
@@ -139,7 +139,7 @@ fn pending_operation(git_dir: &str) -> Option<&'static str> {
 }
 
 /// Branch, upstream, ahead/behind, stopped operation and stash count of the checkout at `root`.
-pub async fn head(git: &Runner, root: &str) -> Result<Head, Fault> {
+pub async fn head(git: &Git, root: &str) -> Result<Head, Fault> {
     let (branch_status, git_dir, stashes, remotes) = tokio::try_join!(
         git.text(
             root,
@@ -194,7 +194,7 @@ static SHOW_STASH: AtomicBool = AtomicBool::new(true);
 
 /// The checkout's porcelain status with a `# stash <n>` header (`--show-stash`, in the same process): making or
 /// removing a stash changes no file, and the Changes bar shows the count.
-async fn checkout_status(git: &Runner, cwd: &str) -> Result<Output, Fault> {
+async fn checkout_status(git: &Git, cwd: &str) -> Result<Output, Fault> {
     if SHOW_STASH.load(Ordering::Relaxed) {
         let mut args = STATUS_ARGS.to_vec();
         args.push("--show-stash");
@@ -212,11 +212,7 @@ async fn checkout_status(git: &Runner, cwd: &str) -> Result<Output, Fault> {
 /// pass the root its last full read reported (or passes one that does not hold `cwd`). The stats matter because a
 /// file edited again keeps its ` M` status while its line counts and diff move. It changes whenever the full answer
 /// may have, and never reads a diff. Its value only compares with this process's own answers.
-pub async fn fingerprint(
-    git: &Runner,
-    cwd: &str,
-    known: Option<&str>,
-) -> Result<Fingerprint, Fault> {
+pub async fn fingerprint(git: &Git, cwd: &str, known: Option<&str>) -> Result<Fingerprint, Fault> {
     // Git reports the root as a real path; the tab's folder may reach it through a symlink (macOS /var, /tmp).
     let known = known.filter(|root| is_absolute(root)).map(native);
     let trusted = match known {
@@ -305,7 +301,7 @@ pub struct Changes {
 }
 
 /// Net changes from HEAD to the checkout `cwd` is in, untracked files included, with its head.
-pub async fn changes(git: &Runner, cwd: &str) -> Result<Changes, Fault> {
+pub async fn changes(git: &Git, cwd: &str) -> Result<Changes, Fault> {
     // HEAD resolves the same from anywhere in the worktree, so it does not wait for the root.
     let (root, base) = tokio::try_join!(repo_root(git, cwd), head_sha(git, cwd))?;
     let Some(root) = root else {
@@ -404,6 +400,32 @@ pub struct Diff {
     truncated: bool,
 }
 
+impl Diff {
+    /// A path answered by its kind alone (binary, large, a symlink, a directory).
+    pub(super) fn of_kind(path: &str, kind: &'static str, truncated: bool) -> Diff {
+        Diff {
+            path: path.to_owned(),
+            diff: String::new(),
+            kind,
+            truncated,
+        }
+    }
+
+    /// A text diff as the page gets it: its first `MAX_DIFF_CHARS` UTF-16 units, `truncated` when cut here or
+    /// before (`cut`).
+    pub(super) fn text(path: &str, diff: &str, cut: bool) -> Diff {
+        let (kept, half, truncated) = parse::utf16_prefix(diff, MAX_DIFF_CHARS);
+        let mut shown = kept.to_owned();
+        shown.extend(half);
+        Diff {
+            path: path.to_owned(),
+            diff: shown,
+            kind: "text",
+            truncated: cut || truncated,
+        }
+    }
+}
+
 /// What the disk says about the changed path before any diff is read.
 enum OnDisk {
     /// A symlink, a directory or a file over the cap: answered by its kind alone.
@@ -463,7 +485,7 @@ fn inspect(root: &str, absolute: &str) -> Result<OnDisk, Fault> {
 
 /// One changed path's diff against HEAD; never follows a symlink out of the checkout. Main checked that `file_path`
 /// is a safe relative path (`isSafeRelativePath`).
-pub async fn diff(git: &Runner, cwd: &str, file_path: &str) -> Result<Diff, Fault> {
+pub async fn diff(git: &Git, cwd: &str, file_path: &str) -> Result<Diff, Fault> {
     let changes = changes(git, cwd).await?;
     let entry = changes
         .files
@@ -476,12 +498,7 @@ pub async fn diff(git: &Runner, cwd: &str, file_path: &str) -> Result<Diff, Faul
             "This file is no longer in the changed file list. Refresh to continue.",
         ));
     };
-    let answer = |kind: &'static str, truncated: bool| Diff {
-        path: file_path.to_owned(),
-        diff: String::new(),
-        kind,
-        truncated,
-    };
+    let answer = |kind: &'static str, truncated: bool| Diff::of_kind(file_path, kind, truncated);
     let absolute = native(&Path::new(&root).join(file_path).to_string_lossy());
     let exists = {
         let (root, absolute) = (root.clone(), absolute.clone());
@@ -558,21 +575,13 @@ pub async fn diff(git: &Runner, cwd: &str, file_path: &str) -> Result<Diff, Faul
     {
         diff = format!("rename from {old}\nrename to {file_path}");
     }
-    let (kept, half, truncated) = parse::utf16_prefix(&diff, MAX_DIFF_CHARS);
-    let mut shown = kept.to_owned();
-    shown.extend(half);
-    Ok(Diff {
-        path: file_path.to_owned(),
-        diff: shown,
-        kind: "text",
-        truncated,
-    })
+    Ok(Diff::text(file_path, &diff, false))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::run::tests::runner;
+    use crate::git::run::tests::git;
 
     #[test]
     fn spells_paths_as_node_resolves_them() {
@@ -586,7 +595,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ompdesk-core-git-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cwd = dir.to_str().unwrap();
-        let git = runner();
+        let git = git();
         let changes = serde_json::to_value(changes(&git, cwd).await.unwrap()).unwrap();
         assert_eq!(
             changes,

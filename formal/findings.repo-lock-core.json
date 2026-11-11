@@ -1,0 +1,253 @@
+{
+	"concern": "repo-lock-core",
+	"workflow": "W3",
+	"generated_at": "2026-11-11T19:12:42Z",
+	"repo_commit": "f3da872c (plus unit 2c, uncommitted)",
+	"summary": "Unit 2c moves a repository-lock holder's git into ompdesk-core. Within the bounds (one holder, one next holder, a request of 2 gits one at a time and 3 gits two at a time, the core free to die at any step) the next holder never runs beside a stopped holder's git or a git of a dead core, a cancelled request starts no git, a stopped request in flight is cancelled once the core read main's frames, and a stop always hands the lock on. The core's death was a reproduced finding and is fixed: its gits are in its process group (POSIX) or kill-on-close job (Windows), and main settles only once the group is gone. Two limits remain: a git can start between the stop and the cancel's arrival (then ended at once), and a git that survives SIGKILL past 3 s is settled past with an error that says so.",
+	"scope": {
+		"modeled": [
+			"coreGit: send in a live step, the request's end as the step's effect",
+			"the stop and its cancel frame; the call's timeout",
+			"the core's frame loop, Git::run's cancel check, a git's exit, the handler's return, the answer after the wait group",
+			"process.ts #receive and #ended; SerialChain #clearHolds",
+			"the core's death; main settling its requests after groupGone"
+		],
+		"abstracted": [
+			"a killed git is one that exits",
+			"timings (kill grace, drain bound, timeouts)",
+			"one request per step"
+		],
+		"out_of_scope": [
+			"main's own file calls in a step (fenced-fs, unchanged)",
+			"the chain's queue of several steps"
+		],
+		"assumptions": [
+			"A1: frames are FIFO both ways",
+			"A2: the core registers a request's cancel flag before it reads the next frame",
+			"A3: an answered id leaves in_flight before its frame is queued",
+			"A4: Windows: the job object ended the core's gits by the time main sees the core's close (not verified on Windows)"
+		]
+	},
+	"properties": [
+		{
+			"name": "NoOverlapAfterStop",
+			"kind": "invariant",
+			"statement": "(nextHolder = \"running\" /\\ step = \"stopped\") => alive = 0",
+			"meaning": "The next holder never runs while a git of the stopped holder's request is alive.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "NoSpawnAfterCancel",
+			"kind": "action-property",
+			"statement": "[][cancelled => gits' = gits]_vars",
+			"meaning": "Once the core read the cancel, the request starts no git.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "AnswerAfterHandler",
+			"kind": "invariant",
+			"statement": "answered => handler = \"finished\"",
+			"meaning": "A request answers only when its handler returned.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "CancelReachesCore",
+			"kind": "invariant",
+			"statement": "(step = \"stopped\" /\\ req = \"pending\" /\\ registered /\\ ~answered /\\ coreUp /\\ toCore = <<>>) => cancelled",
+			"meaning": "A stopped holder's request still in flight is cancelled in the core once the core read what main sent.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "StopReleases",
+			"kind": "liveness",
+			"statement": "(step = \"stopped\") ~> (nextHolder = \"running\")",
+			"meaning": "A stopped holder hands the lock on.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "NoOverlapAfterCoreDeath",
+			"kind": "invariant",
+			"statement": "(nextHolder = \"running\" /\\ ~coreUp /\\ ~timedOut) => alive = 0",
+			"meaning": "After the core died, the next holder never runs while a git it started is alive.",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		},
+		{
+			"name": "NoOverlapAfterCoreDeath (before the fix)",
+			"kind": "invariant",
+			"statement": "(nextHolder = \"running\" /\\ ~coreUp /\\ ~timedOut) => alive = 0",
+			"meaning": "The same promise with main settling a dead core's requests at its close (KillGroup=FALSE): it fails.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "as the code, KillGroup=FALSE",
+			"evidence": "formal/repo-lock-core/evidence/core-death-trace.json"
+		},
+		{
+			"name": "NoSpawnAfterStop (sanity)",
+			"kind": "invariant",
+			"statement": "~spawnedAfterStop",
+			"meaning": "Must fail: a git can start after the stop, before the cancel reached the core.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "MaxGits=2, Par=1, WaitGroup=TRUE, SettleOnAnswer=TRUE, CoreMayDie=TRUE, KillGroup=TRUE, BoundMayPass=FALSE, weak fairness on every main and core step",
+			"evidence": "formal/repo-lock-core/evidence/matrix.log"
+		}
+	],
+	"findings": [
+		{
+			"id": "F1",
+			"title": "A core that died mid-write released the lock while its git still ran",
+			"severity": "medium",
+			"status": "fixed",
+			"property": "NoOverlapAfterCoreDeath",
+			"story": "A commit runs in the core and its step is stopped (or the core dies first). The core process dies (a crash, a kill) while the commit's git waits on a hook. Main settled the request (core_exited) at the core's close, and the lock's next holder started while the git, orphaned, kept running. Before 2c the git's parent was main itself, so the same death ended every holder. Reproduced as a failing test (evidence/core-death-before.log), passing after the fix (evidence/core-death-after.log).",
+			"trace": [
+				{
+					"step": 1,
+					"action": "Init",
+					"changed": {
+						"gits": "0",
+						"coreUp": "TRUE",
+						"cancelled": "FALSE",
+						"timedOut": "FALSE",
+						"nextHolder": "\"waiting\"",
+						"spawnedAfterStop": "FALSE",
+						"alive": "0",
+						"toMain": "<<>>",
+						"req": "\"none\"",
+						"toCore": "<<>>",
+						"step": "\"running\"",
+						"answered": "FALSE",
+						"registered": "FALSE",
+						"handler": "\"idle\""
+					}
+				},
+				{
+					"step": 2,
+					"action": "Send",
+					"code": "src/main/local/git/exec.ts:141-166",
+					"changed": {
+						"req": "\"none\" -> \"pending\"",
+						"toCore": "<<>> -> <<\"request\">>"
+					}
+				},
+				{
+					"step": 3,
+					"action": "Stop",
+					"code": "src/main/core/process.ts:259-260",
+					"changed": {
+						"toCore": "<<\"request\">> -> <<\"request\", \"cancel\">>",
+						"step": "\"running\" -> \"stopped\""
+					}
+				},
+				{
+					"step": 4,
+					"action": "CoreReadsRequest",
+					"code": "native/ompdesk/crates/core/src/server.rs:193-210",
+					"changed": {
+						"toCore": "<<\"request\", \"cancel\">> -> <<\"cancel\">>",
+						"registered": "FALSE -> TRUE",
+						"handler": "\"idle\" -> \"running\""
+					}
+				},
+				{
+					"step": 5,
+					"action": "Spawn",
+					"code": "native/ompdesk/crates/core/src/git/run.rs:130-133",
+					"changed": {
+						"gits": "0 -> 1",
+						"spawnedAfterStop": "FALSE -> TRUE",
+						"alive": "0 -> 1"
+					}
+				},
+				{
+					"step": 6,
+					"action": "CoreDies",
+					"changed": {
+						"coreUp": "TRUE -> FALSE",
+						"toCore": "<<\"cancel\">> -> <<>>"
+					}
+				},
+				{
+					"step": 7,
+					"action": "MainSeesDeath",
+					"code": "src/main/core/process.ts:356-387",
+					"changed": {
+						"req": "\"pending\" -> \"settled\""
+					}
+				},
+				{
+					"step": 8,
+					"action": "NextStarts",
+					"code": "src/main/serial-chain.ts:262-269",
+					"changed": {
+						"nextHolder": "\"waiting\" -> \"running\""
+					},
+					"violation": true
+				}
+			],
+			"fix": {
+				"summary": "The core leads its own process group on POSIX (spawned detached, never unref'ed); when it ends main SIGKILLs the group and settles what waited only once kill(-pid, 0) says ESRCH (3 s bound, then an error and a log line). On Windows the core joins a JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE job at start (sys.rs). stop()'s 5 s kill takes the group (POSIX) or the job (Windows) too.",
+				"model_recheck": "passes",
+				"mutation_check": "fails-as-expected"
+			}
+		},
+		{
+			"id": "F2",
+			"title": "A git can start between the stop in main and the cancel's arrival in the core",
+			"severity": "low",
+			"status": "confirmed",
+			"property": "NoSpawnAfterStop",
+			"story": "The stop aborts the step in main and writes the cancel frame; until the core reads it (one pipe write and read), the request's handler may start its next git. That git is ended as soon as the cancel is read, and the next holder still waits for its exit (NoOverlapAfterStop holds). execBin refused such a spawn synchronously.",
+			"fix": {
+				"summary": "Accepted: closing it would make every git a round trip to main.",
+				"model_recheck": "not-run",
+				"mutation_check": "not-run"
+			}
+		}
+	],
+	"trust_base": {
+		"tla": {
+			"tool_version": "TLC2 2026.10.28.014557 (tla2tools 1.8.0)",
+			"states_generated": 1694,
+			"distinct_states": 777,
+			"depth": 15,
+			"sanity_checks": [
+				"git-starts-before-cancel-arrives: NoSpawnAfterStop violated as expected",
+				"answer-before-gits-ended, effect-settles-at-timeout: NoOverlapAfterStop violated as expected",
+				"core-death-settled-at-once, group-outlives-its-bound: NoOverlapAfterCoreDeath violated as expected",
+				"10 of 10 mutations detected"
+			]
+		}
+	},
+	"rerun": [
+		"bun <skill-dir>/scripts/verify-all.ts formal --only repo-lock-core"
+	],
+	"next_steps": [
+		"Read the first Windows run of process.test.ts \"a core that ends while a request runs its git\" (win-platform): the job object's only real check",
+		"Re-stamp syncCommit after the unit is committed"
+	]
+}
