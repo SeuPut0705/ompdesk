@@ -12,12 +12,15 @@
  * decides whether there is anything to reset; automatic exhaustion policy is separate.
  *
  * An account that holds more than one kind of pass (`passes.tickets`: a Claude Fable reset and a full reset) lists
- * them in that dialog, one card per kind, and spends the one picked. A kind stock offers no pass of cannot be picked;
- * one line under the cards says why.
+ * them in that dialog, one card per kind, and spends the one picked.
+ *
+ * The dialog describes and spends the passes it was opened on, never the live ones: the accounts are read again on
+ * usage polls, and a pass that took another's place under an open dialog must not be the one Confirm spends. When a
+ * pass the dialog offers leaves the account's offer, the dialog closes and says the offer changed.
  */
 
 import { Hourglass, Ticket } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ResetPasses, ResetPassRedeemResult, ResetTicket, UsageLimit } from "../../../../shared/rpc-types";
 import { formatSpanCompact } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
@@ -86,6 +89,10 @@ function windowsText(clears: readonly string[], limits: readonly UsageLimit[], t
 /** A ticket's name among an account's tickets: what it resets, which is what makes it a kind. */
 const ticketKind = (ticket: ResetTicket): string => [...ticket.clears].sort().join(" ");
 
+/** The passes an account's offer names: the one stock spends next and each kind's. */
+const passIds = (passes: ResetPasses): string[] =>
+	[passes.creditId, ...(passes.tickets ?? []).map(ticket => ticket.creditId)].filter(id => id !== undefined);
+
 export function ResetPassControl({
 	providerId,
 	providerName,
@@ -118,18 +125,32 @@ export function ResetPassControl({
 }) {
 	const t = useT();
 	const tabRpc = useTabRpc();
-	const [confirming, setConfirming] = useState(false);
+	/** The passes the open dialog was opened on; none while it is closed. */
+	const [shown, setShown] = useState<ResetPasses>();
 	const [busy, setBusy] = useState(false);
-	/** The kind picked in the dialog; none picked means the first one stock offers a pass of. */
+	/** The kind picked in the dialog; none picked means the first one that can be spent. */
 	const [pick, setPick] = useState<string>();
 	const hint = passes.redeemable
 		? undefined
 		: t("resetPasses.unavailable", { reason: passes.unavailableReason ?? t("resetPasses.unavailableUnknown") });
-	const tickets = passes.tickets ?? [];
+	const view = shown ?? passes;
+	const tickets = view.tickets ?? [];
 	const offered = tickets.filter(ticket => ticket.creditId !== undefined);
 	const chosen = offered.find(ticket => ticketKind(ticket) === pick) ?? offered[0];
 	/** The pass a confirm spends and describes: the chosen kind's, else the one stock spends by itself. */
-	const spent = chosen ?? passes;
+	const spent = chosen ?? view;
+
+	// A spend under way changes the offer itself; its own result reports it.
+	const changed = shown !== undefined && !busy && passIds(shown).some(id => !passIds(passes).includes(id));
+	useEffect(() => {
+		if (!changed) return;
+		setShown(undefined);
+		toastError({
+			title: t("resetPasses.failed"),
+			error: t("resetPasses.outcome.offerChanged"),
+			variant: "warning",
+		});
+	}, [changed, t]);
 
 	const redeem = async () => {
 		setBusy(true);
@@ -169,7 +190,7 @@ export function ResetPassControl({
 			toastError({ title: t("resetPasses.failed"), error: cause });
 		} finally {
 			setBusy(false);
-			setConfirming(false);
+			setShown(undefined);
 		}
 	};
 
@@ -190,7 +211,7 @@ export function ResetPassControl({
 			loading={busy}
 			onClick={() => {
 				setPick(undefined);
-				setConfirming(true);
+				setShown(passes);
 			}}
 			size="sm"
 			variant="secondary"
@@ -221,7 +242,7 @@ export function ResetPassControl({
 				confirmLabel={t("resetPasses.use")}
 				message={
 					<>
-						{t("resetPasses.confirmSpend", { account, provider: providerName, count: passes.count })}
+						{t("resetPasses.confirmSpend", { account, provider: providerName, count: view.count })}
 						{tickets.length > 0 ? (
 							<div className="my-3 whitespace-normal" data-reset-tickets>
 								<ChoiceCards
@@ -261,9 +282,9 @@ export function ResetPassControl({
 						].join("\n\n")}
 					</>
 				}
-				onCancel={() => setConfirming(false)}
+				onCancel={() => setShown(undefined)}
 				onConfirm={() => void redeem()}
-				open={confirming}
+				open={shown !== undefined}
 				title={t("resetPasses.confirmTitle")}
 				warning={t("resetPasses.confirmWarning")}
 			/>
