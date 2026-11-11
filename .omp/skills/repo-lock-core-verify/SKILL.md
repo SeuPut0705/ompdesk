@@ -1,6 +1,6 @@
 ---
 name: repo-lock-core-verify
-description: "Checks that a repository-lock holder whose git runs in the ompdesk-core process is stopped as execBin stopped it, and that no git of a stopped holder or of a core that died runs beside the next holder. Use when changing coreGit in src/main/local/git/exec.ts, the cancel, timeout, onEnded, process-group or death paths of src/main/core/process.ts, the frame loop, Scope or answer in native/ompdesk/crates/core/src/server.rs, Git::run or supervise in native/ompdesk/crates/core/src/git/run.rs, the job object in native/ompdesk/crates/core/src/sys.rs, or SerialChain's holds; or when asked whether a stopped commit or push, or one whose core crashed, can still change the checkout under the next one."
+description: "Checks that a repository-lock holder whose git runs in the ompdesk-core process is stopped as execBin stopped it, and that no git of a stopped holder or of a core that died runs beside the next holder. Use when changing heldRequest, coreGit or coreGh in src/main/local/git/exec.ts, the cancel, timeout, onEnded, process-group or death paths of src/main/core/process.ts, the frame loop, Scope or answer in native/ompdesk/crates/core/src/server.rs, Exec::run or supervise in native/ompdesk/crates/core/src/run.rs, the job object in native/ompdesk/crates/core/src/sys.rs, or SerialChain's holds; or when asked whether a stopped commit or push, or one whose core crashed, can still change the checkout under the next one."
 ---
 
 # Repository lock over the core: verification
@@ -13,7 +13,7 @@ A holder of `withRepoLock` that runs past its bound fails its caller at once; th
 
 | Check id | Tool | Covers | Model |
 |---|---|---|---|
-| `repo-lock-core` | TLC 1.8.0 | `coreGit`, `mutate` (`scm.ts`), `process.ts`, `serial-chain.ts`, `server.rs`, `git/run.rs`, `sys.rs`, `main.rs` | `formal/repo-lock-core/tla/RepoLockCore.tla`, `@code` tags on each action |
+| `repo-lock-core` | TLC 1.8.0 | `heldRequest` and `coreGit` (`exec.ts`), `mutate` (`scm.ts`), `process.ts`, `serial-chain.ts`, `server.rs`, `run.rs`, `sys.rs`, `main.rs` | `formal/repo-lock-core/tla/RepoLockCore.tla`, `@code` tags on each action |
 
 Sync commit: see `syncCommit` of `repo-lock-core` in `formal/manifest.json` (the manifest wins).
 

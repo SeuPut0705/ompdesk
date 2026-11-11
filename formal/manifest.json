@@ -122,12 +122,13 @@
 			"matrix": "matrix.json",
 			"mutations": "mutations.json",
 			"covers": [
+				"src/main/local/git/exec.ts#heldRequest",
 				"src/main/local/git/exec.ts#coreGit",
 				"src/main/local/git/scm.ts#mutate",
 				"src/main/core/process.ts",
 				"src/main/serial-chain.ts",
 				"native/ompdesk/crates/core/src/server.rs",
-				"native/ompdesk/crates/core/src/git/run.rs",
+				"native/ompdesk/crates/core/src/run.rs",
 				"native/ompdesk/crates/core/src/sys.rs",
 				"native/ompdesk/crates/core/src/main.rs"
 			],

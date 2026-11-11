@@ -190,20 +190,3 @@ export interface GithubResults {
 	notification_read: { ok: true };
 	notification_read_all: { ok: true };
 }
-
-/**
- * A notification subject's API URL → its web page: `https://api.github.com/repos/o/r/pulls/1` →
- * `https://github.com/o/r/pull/1`; Enterprise `https://host/api/v3/repos/…` → `https://host/…`.
- * `null` when the subject has no URL (e.g. a discussion) or it is not an API URL.
- */
-export function notificationWebUrl(apiUrl: string | null | undefined): string | null {
-	if (!apiUrl) return null;
-	const match = /^https:\/\/(?:api\.(github\.com)|([^/]+)\/api\/v3)\/repos\/([^/]+\/[^/]+)(\/.*)?$/.exec(apiUrl);
-	if (!match) return null;
-	const host = match[1] ?? match[2];
-	const rest = (match[4] ?? "")
-		.replace(/^\/pulls\//, "/pull/")
-		.replace(/^\/commits\//, "/commit/")
-		.replace(/^\/releases\/\d+$/, "/releases");
-	return `https://${host}/${match[3]}${rest}`;
-}

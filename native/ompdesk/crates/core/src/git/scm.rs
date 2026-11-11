@@ -8,17 +8,17 @@
 //! failure keeps run's `git_exit` (main reports it as `git_failed` in a mutation, as the TypeScript did).
 
 use std::collections::HashSet;
-use std::hash::{BuildHasher, RandomState};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use super::parse::{self, LOG_FORMAT};
 use super::read::{self, Diff, blocking};
-use super::run::{Git, Opts, Output, failure};
+use super::run::{Git, failure};
 use crate::fs::disk;
 use crate::fs::error::{Codes, NodeError};
 use crate::fs::order::js_trim;
+use crate::run::{Opts, Output};
 use crate::server::Fault;
 
 const LOG_PAGE: f64 = 100.0;
@@ -884,47 +884,6 @@ async fn parents_of(git: &Git, root: &str, commit: &str) -> Result<Vec<String>, 
         .collect())
 }
 
-/// A fresh folder `<temp>/<prefix>XXXXXX`, only the user's (node's `fs.mkdtemp`).
-fn make_temp_dir(prefix: &str) -> Result<PathBuf, NodeError> {
-    const LETTERS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let base = std::env::temp_dir();
-    let random = RandomState::new();
-    let mut attempt = 0u32;
-    loop {
-        let mut bits = random.hash_one(attempt);
-        let name: String = (0..6)
-            .map(|_| {
-                let letter = LETTERS[(bits % LETTERS.len() as u64) as usize];
-                bits /= LETTERS.len() as u64;
-                char::from(letter)
-            })
-            .collect();
-        let dir = base.join(format!("{prefix}{name}"));
-        #[cfg(unix)]
-        let builder = {
-            let mut builder = std::fs::DirBuilder::new();
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder
-        };
-        #[cfg(not(unix))]
-        let builder = std::fs::DirBuilder::new();
-        match builder.create(&dir) {
-            Ok(()) => return Ok(dir),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && attempt < 100 => {
-                attempt += 1;
-            }
-            Err(error) => {
-                let spelled = base.join(format!("{prefix}XXXXXX"));
-                return Err(NodeError::new(
-                    &error,
-                    "mkdtemp",
-                    Some(&spelled.to_string_lossy()),
-                ));
-            }
-        }
-    }
-}
-
 /// Swap `sha` with its parent (`earlier`) or with its child on HEAD's line through an interactive rebase whose todo is
 /// written here (`GIT_SEQUENCE_EDITOR` copies it in). Only a clean, merge-free, unpushed stretch of the current line
 /// is rewritten; a conflict stops the rebase for continue/abort like any other.
@@ -1016,7 +975,7 @@ async fn reorder(
         .iter()
         .map(|commit| format!("pick {commit}\n"))
         .collect();
-    let dir = blocking(|| make_temp_dir("ompdesk-reorder-"))
+    let dir = blocking(|| disk::make_temp_dir("ompdesk-reorder-"))
         .await?
         .map_err(|error| error.fault(Codes::None))?;
     let file = dir.join("git-rebase-todo");
@@ -1056,6 +1015,7 @@ async fn reorder(
 mod tests {
     use super::*;
     use crate::git::run::tests::git;
+    use std::path::PathBuf;
     use std::process::Command;
 
     /// The tests' own git, which no host config shapes (an empty file: Windows git cannot open `NUL` as one).
@@ -1153,24 +1113,5 @@ mod tests {
             "?? added.txt\0?? new file.txt\0"
         );
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn makes_a_private_temp_folder_once_per_name() {
-        let one = make_temp_dir("ompdesk-core-test-").unwrap();
-        let two = make_temp_dir("ompdesk-core-test-").unwrap();
-        assert_ne!(one, two);
-        let name = one.file_name().unwrap().to_string_lossy().into_owned();
-        assert_eq!(name.len(), "ompdesk-core-test-".len() + 6);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                std::fs::metadata(&one).unwrap().permissions().mode() & 0o777,
-                0o700
-            );
-        }
-        std::fs::remove_dir(one).unwrap();
-        std::fs::remove_dir(two).unwrap();
     }
 }

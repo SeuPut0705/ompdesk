@@ -9,8 +9,9 @@ use serde::Serialize;
 
 use super::parse;
 use super::read::resolve;
-use super::run::{Git, Opts};
+use super::run::Git;
 use crate::fs::order::js_trim;
+use crate::run::Opts;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

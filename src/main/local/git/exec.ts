@@ -4,9 +4,10 @@
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  *
- * The Changes panel's git (`changes.ts`, `scm.ts`) runs in the core process (`native/ompdesk/crates/core/src/git`):
- * `gitRunner` hands it this file's rules (binary, environment, timeout, output cap), so both runners follow one set,
- * and `coreGit` holds each request to the repository-lock step it is made in as `execBin` holds a git.
+ * The Changes panel's git (`changes.ts`, `scm.ts`) and every gh run (`pr.ts`, `github.ts` and the clients `gh`,
+ * `ghText` below) run in the core process (`native/ompdesk/crates/core/src/{git,gh}`): `gitRunner` and `ghRunner` hand
+ * it this file's rules (binary, environment, timeout, output cap), so both runners follow one set, and `coreGit` and
+ * `coreGh` hold each request to the repository-lock step it is made in as `execBin` holds a git.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -109,8 +110,8 @@ async function spawnEnv(env: Record<string, string> | undefined): Promise<NodeJS
 const GIT_ARGS = ["-c", "core.quotepath=false", "-c", "color.ui=false"];
 const GIT_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", LC_ALL: "C" };
 
-/** How a git runs, as the core process is told it: the core spawns `bin` with `args` first and exactly `env`. */
-export interface GitRunner {
+/** How a git or a gh runs, as the core process is told it: the core spawns `bin` with `args` first and exactly `env`. */
+export interface CoreRunner {
 	bin: string;
 	args: string[];
 	env: Record<string, string>;
@@ -118,42 +119,57 @@ export interface GitRunner {
 	maxBytes: number;
 }
 
+/** `spawnEnv` with `extra` over it, as the plain strings a request carries. */
+async function runnerEnv(extra: Record<string, string>): Promise<Record<string, string>> {
+	const env: Record<string, string> = {};
+	for (const [name, value] of Object.entries(await spawnEnv(extra))) if (value !== undefined) env[name] = value;
+	return env;
+}
+
 /** This process's git rules for a git the core runs, read now (the PATH and the environment can change while the app runs). */
-export async function gitRunner(): Promise<GitRunner> {
+export async function gitRunner(): Promise<CoreRunner> {
 	const bin = await gitBin();
 	if (!bin) throw new Error("git is not installed or not on PATH");
-	const env: Record<string, string> = {};
-	for (const [name, value] of Object.entries(await spawnEnv(GIT_ENV))) if (value !== undefined) env[name] = value;
-	return { bin, args: GIT_ARGS, env, timeoutMs: DEFAULT_TIMEOUT_MS, maxBytes: DEFAULT_MAX_BYTES };
+	return {
+		bin,
+		args: GIT_ARGS,
+		env: await runnerEnv(GIT_ENV),
+		timeoutMs: DEFAULT_TIMEOUT_MS,
+		maxBytes: DEFAULT_MAX_BYTES,
+	};
+}
+
+/** Never prompt, never check for a newer gh, no colour. */
+const GH_ENV = { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1" };
+
+/** This process's rules for the gh (or, for the sign-in's git calls, the git) at `bin` that the core runs, read now. */
+async function ghRunner(bin: string): Promise<CoreRunner> {
+	return { bin, args: [], env: await runnerEnv(GH_ENV), timeoutMs: DEFAULT_TIMEOUT_MS, maxBytes: DEFAULT_MAX_BYTES };
 }
 
 /** Room past a request's git timeouts for its disk work, the core round trip and the end of a git that ran past one. */
 const CORE_SLACK_MS = KILL_GRACE_MS + 5_000;
 
 /**
- * A request to the core that runs git with this process's rules (`gitRunner`), held to the repository-lock step it is
- * made in as an `execBin` git is: it never starts in a stopped step; when its step is stopped it fails at once with the
- * stop, the core ends the git it runs (asked, then killed `KILL_GRACE_MS` later) and starts no other, and the lock's next
- * holder waits until the core is done with the request, which is once every git it started exited. `rounds` is how
- * many gits it runs one after another at the default timeout, `slowMs` the timeout of its slow one (a hook, the network,
- * a merge); the call waits for both.
+ * A request to the core whose processes run with this process's rules (`params` builds it, runners included), held to
+ * the repository-lock step it is made in as an `execBin` process is: it never starts in a stopped step; when its step
+ * is stopped it fails at once with the stop, the core ends the process it runs (asked, then killed `KILL_GRACE_MS`
+ * later) and starts no other, and the lock's next holder waits until the core is done with the request, which is once
+ * every process it started exited. `timeoutMs` is how long its processes may take in all; the call waits that plus
+ * `CORE_SLACK_MS`.
  */
-export async function coreGit<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<T> {
+async function heldRequest<T>(method: string, params: () => Promise<object>, timeoutMs: number): Promise<T> {
 	const hold = currentStepSignal();
 	if (hold?.aborted) throw hold.reason;
-	const runner = await gitRunner();
+	const request = await params();
 	if (hold?.aborted) throw hold.reason;
 	const ended = Promise.withResolvers<void>();
 	void trackEffect(method, ended.promise);
-	const answer = core().call<T>(
-		method,
-		{ ...params, git: runner },
-		{
-			timeoutMs: rounds * runner.timeoutMs + slowMs + CORE_SLACK_MS,
-			signal: hold,
-			onEnded: ended.resolve,
-		},
-	);
+	const answer = core().call<T>(method, request, {
+		timeoutMs: timeoutMs + CORE_SLACK_MS,
+		signal: hold,
+		onEnded: ended.resolve,
+	});
 	if (!hold) return (await answer).result;
 	const stopped = Promise.withResolvers<never>();
 	const stop = () => stopped.reject(hold.reason);
@@ -163,6 +179,35 @@ export async function coreGit<T>(method: string, params: object, rounds: number,
 	} finally {
 		hold.removeEventListener("abort", stop);
 	}
+}
+
+/**
+ * A git request to the core (`gitRunner`), held as `heldRequest` says. `rounds` is how many gits it runs one after
+ * another at the default timeout, `slowMs` the timeout of its slow one (a hook, the network, a merge); the call waits
+ * for both.
+ */
+export function coreGit<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<T> {
+	return heldRequest(
+		method,
+		async () => ({ ...params, git: await gitRunner() }),
+		rounds * DEFAULT_TIMEOUT_MS + slowMs,
+	);
+}
+
+/**
+ * A gh request to the core (`gh.*`), held as `heldRequest` says: gh as `resolveBin` finds it (`null` when it is not
+ * installed, which the core refuses as `gh_missing` where the request's rules say) and git for the checkout root
+ * (`null` when missing). `timeoutMs` is how long its gh and git runs may take in all.
+ */
+export function coreGh<T>(method: string, params: object, timeoutMs: number): Promise<T> {
+	return heldRequest(
+		method,
+		async () => {
+			const bin = await resolveBin("gh");
+			return { ...params, gh: bin ? await ghRunner(bin) : null, git: await gitRunner().catch(() => null) };
+		},
+		timeoutMs,
+	);
 }
 
 /** Ask a process to end, and end it for good when it ignores the request. */
@@ -263,37 +308,33 @@ export async function gitRaw(cwd: string, args: string[], opts: Omit<ExecOptions
 	return execBin(bin, [...GIT_ARGS, ...args], { cwd, ...opts, env: { ...GIT_ENV, ...opts.env } });
 }
 
-/** Run gh; resolves stdout text, rejects with gh's stderr on non-zero exit. */
-export async function gh(
+/** Run gh at `bin` (core `gh.run`); resolves stdout text, rejects with gh's stderr on a non-zero exit or a cut output. */
+export function gh(
 	cwd: string,
 	bin: string,
 	args: string[],
-	opts: Omit<ExecOptions, "cwd"> = {},
+	opts: { timeoutMs?: number; env?: Record<string, string> } = {},
 ): Promise<string> {
-	const result = await execBin(bin, args, {
-		cwd,
-		...opts,
-		env: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1", ...opts.env },
-	});
-	if (result.code !== 0) {
-		throw new Error(result.stderr.trim() || `gh ${args.slice(0, 2).join(" ")} exited with code ${result.code}`);
-	}
-	if (result.truncated) throw new Error(`gh ${args.slice(0, 2).join(" ")} output exceeded the size cap`);
-	return result.stdout.toString("utf8");
+	return heldRequest(
+		"gh.run",
+		async () => ({ gh: await ghRunner(bin), cwd, args, timeoutMs: opts.timeoutMs, env: opts.env }),
+		opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+	);
 }
 
-/** Run gh (or git) with gh's non-interactive env to completion as text; never rejects on a non-zero exit. */
-export async function ghText(
+/** `ghText`'s timeout. */
+export const GH_TEXT_TIMEOUT_MS = 30_000;
+
+/**
+ * Run gh (or git) at `bin` with gh's non-interactive env to completion as text (core `gh.text`); never rejects on a
+ * non-zero exit, rejects when it could not run or ran past `GH_TEXT_TIMEOUT_MS`.
+ */
+export function ghText(
 	cwd: string,
 	bin: string,
 	args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-	const result = await execBin(bin, args, {
-		cwd,
-		timeoutMs: 30_000,
-		env: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1" },
-	});
-	return { code: result.code, stdout: result.stdout.toString("utf8"), stderr: result.stderr };
+	return heldRequest("gh.text", async () => ({ gh: await ghRunner(bin), cwd, args }), GH_TEXT_TIMEOUT_MS);
 }
 
 /**

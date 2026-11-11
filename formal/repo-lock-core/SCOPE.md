@@ -18,12 +18,12 @@ One holder and one next holder, one request of at most 2 gits one at a time (`MC
 
 ## In the model
 
-`coreGit` (send in a live step, the request's end as the step's effect), the stop and its cancel frame, the call's timeout (fails the caller, sends a cancel, keeps waiting for the end), the step's end in `mutate`, the core's frame loop (a request registers its cancel flag before the next frame), `run.rs` refusing a spawn once cancelled, a git's exit, the handler's return, the answer after the wait group, the core's death, `#receive` and `#ended` (settling a dead core's requests after `groupGone`) in `process.ts`, and `#clearHolds` in `serial-chain.ts`.
+`coreGit` and `coreGh` (`heldRequest`: send in a live step, the request's end as the step's effect), the stop and its cancel frame, the call's timeout (fails the caller, sends a cancel, keeps waiting for the end), the step's end in `mutate`, the core's frame loop (a request registers its cancel flag before the next frame), `crates/core/src/run.rs` refusing a spawn once cancelled, a git's exit, the handler's return, the answer after the wait group, the core's death, `#receive` and `#ended` (settling a dead core's requests after `groupGone`) in `process.ts`, and `#clearHolds` in `serial-chain.ts`.
 
 ## Not in the model
 
 - Timing: the 2 s kill grace, the drain bound (`STALLED_DRAIN_MAX_MS`, after which the next holder is refused `repo_busy` rather than started), the timeouts' and `GROUP_GONE_MS`'s lengths. A killed git is modeled as one that exits.
-- The difference between a git that finished and one that was ended: `CancelReachesCore` says the core heard of the stop; that it then ends the running git is `run.rs` `supervise` (pinned by the Rust test "ends the running git of a cancelled request…").
+- The difference between a git that finished and one that was ended: `CancelReachesCore` says the core heard of the stop; that it then ends the running git is `crates/core/src/run.rs` `supervise` (pinned by the Rust test "ends the running process of a cancelled request…").
 - How the gits die with the core: one action stands for both platforms. POSIX: main kills the group and polls it (`groupGone`). Windows: the job object kills them as the core's last handle closes, which is before main sees the core's `close`; main has nothing to poll there (assumption, see CORRESPONDENCE).
 - Main's own file calls in a step (`fenced-fs`): unchanged by 2c, pinned by `repo-lock-fence.test.ts`.
 - Several requests in one step, several steps queued: each request is this one; the chain's queue is `SerialChain`, unchanged.

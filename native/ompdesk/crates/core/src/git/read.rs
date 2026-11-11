@@ -9,10 +9,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 
 use super::parse::{self, MAX_FILES};
-use super::run::{Git, Output};
+use super::run::Git;
 use crate::fs::disk;
 use crate::fs::error::{Codes, NodeError};
 use crate::fs::order::js_trim;
+use crate::run::Output;
 use crate::server::Fault;
 
 const MAX_DIFF_BYTES: u64 = 4 * 1024 * 1024;

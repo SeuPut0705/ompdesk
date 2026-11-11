@@ -10,17 +10,18 @@
 //! `-c timed out after 60000ms`); a refusal the TypeScript coded carries that code.
 
 mod origin;
-mod parse;
-mod read;
-mod run;
+pub(crate) mod parse;
+pub(crate) mod read;
+pub(crate) mod run;
 mod scm;
 mod unlanded;
 mod worktree;
 
 use serde::Deserialize;
 
+use crate::run::Runner;
 use crate::server::{Registry, Reply};
-use run::{Git, Runner};
+use run::Git;
 
 #[derive(Deserialize)]
 struct At {

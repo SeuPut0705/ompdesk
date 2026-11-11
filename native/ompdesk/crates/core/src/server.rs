@@ -140,6 +140,7 @@ pub fn registry() -> Registry {
     registry.add("core.echo", |call| Box::pin(echo(call)));
     crate::fs::register(&mut registry);
     crate::git::register(&mut registry);
+    crate::gh::register(&mut registry);
     registry
 }
 

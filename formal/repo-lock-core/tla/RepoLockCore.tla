@@ -37,7 +37,7 @@ Init ==
     /\ gits = 0 /\ alive = 0 /\ answered = FALSE /\ coreUp = TRUE
     /\ nextHolder = "waiting" /\ spawnedAfterStop = FALSE /\ timedOut = FALSE
 
-\* @code src/main/local/git/exec.ts:141-166 coreGit: a live step sends its request; its end is the step's tracked effect
+\* @code src/main/local/git/exec.ts:161-195 heldRequest (coreGit, coreGh): a live step sends its request; its end is the step's tracked effect
 Send ==
     /\ step = "running" /\ req = "none" /\ coreUp
     /\ req' = "pending" /\ toCore' = Append(toCore, "request")
@@ -65,39 +65,39 @@ StepEnds ==
     /\ step' = "done"
     /\ UNCHANGED <<req, toCore, toMain, registered, cancelled, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:193-210 a request registers its cancel flag before the next frame is read
+\* @code native/ompdesk/crates/core/src/server.rs:194-211 a request registers its cancel flag before the next frame is read
 CoreReadsRequest ==
     /\ coreUp /\ toCore # <<>> /\ Head(toCore) = "request"
     /\ toCore' = Tail(toCore) /\ registered' = TRUE /\ handler' = "running"
     /\ UNCHANGED <<step, req, toMain, cancelled, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:187-192 a cancel sets the flag of a request still in flight; else nothing
+\* @code native/ompdesk/crates/core/src/server.rs:188-193 a cancel sets the flag of a request still in flight; else nothing
 CoreReadsCancel ==
     /\ coreUp /\ toCore # <<>> /\ Head(toCore) = "cancel"
     /\ toCore' = Tail(toCore)
     /\ cancelled' = (cancelled \/ (registered /\ ~answered))
     /\ UNCHANGED <<step, req, toMain, registered, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/git/run.rs:130-133 a git starts only while its request is not cancelled
+\* @code native/ompdesk/crates/core/src/run.rs:85-87 a git (or gh) starts only while its request is not cancelled
 Spawn ==
     /\ coreUp /\ handler = "running" /\ ~cancelled /\ gits < MaxGits /\ alive < Par
     /\ gits' = gits + 1 /\ alive' = alive + 1
     /\ spawnedAfterStop' = (spawnedAfterStop \/ step = "stopped")
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, answered, coreUp, nextHolder, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/git/run.rs:264-284 supervise: the git exits (by itself, or ended after a cancel or its timeout)
+\* @code native/ompdesk/crates/core/src/run.rs:223-243 supervise: the git (or gh) exits (by itself, or ended after a cancel or its timeout)
 GitExits ==
     /\ alive > 0
     /\ alive' = alive - 1
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, gits, answered, coreUp, nextHolder, spawnedAfterStop, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:240-250 the handler returns (done, failed or cancelled); a git's task may still run
+\* @code native/ompdesk/crates/core/src/server.rs:241-251 the handler returns (done, failed or cancelled); a git's task may still run
 HandlerEnds ==
     /\ coreUp /\ handler = "running"
     /\ handler' = "finished"
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:251-252 the answer waits until every scope clone (a git's supervisor) is gone
+\* @code native/ompdesk/crates/core/src/server.rs:252-253 the answer waits until every scope clone (a git's supervisor) is gone
 CoreAnswers ==
     /\ coreUp /\ handler = "finished" /\ ~answered
     /\ WaitGroup => alive = 0

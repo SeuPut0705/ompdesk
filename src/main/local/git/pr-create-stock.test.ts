@@ -1,16 +1,15 @@
 /**
- * prCreate (pr.ts) against its stock counterpart,
- * tools/gh-pr-checkout.ts#executePrCreate: for the same input, stock hands a
- * recording `gh` exactly the flags prCreateArgs builds, with the same body
- * text, and reads the same PR number from gh's output (stock's follow-up
- * `gh pr view <n>` names it).
+ * prCreate (pr.ts, run by the core process: crates/core/src/gh/pr.rs) against its stock counterpart,
+ * tools/gh-pr-checkout.ts#executePrCreate: for the same input, both hand a recording `gh` the same flags with the same
+ * body text, and read the same PR number from gh's output (stock's follow-up `gh pr view <n>` names it).
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createdPr, prCreateArgs } from "./pr";
+import { prCreate } from "./pr";
+import { initRepo } from "./test-repos";
 
 const stockModules = path.join(os.homedir(), ".bun/install/global/node_modules");
 const stockRoot = path.join(stockModules, "@oh-my-pi/pi-coding-agent");
@@ -36,8 +35,9 @@ function flagSet(args: string[]): string[] {
 describe.skipIf(!fs.existsSync(stockRoot) || process.platform === "win32")(
 	"prCreate against stock executePrCreate",
 	() => {
-		it("passes stock's gh pr create flags and reads stock's PR number", () => {
+		it("passes stock's gh pr create flags and reads stock's PR number", async () => {
 			const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-stock-pr-"));
+			const savedPath = process.env.PATH;
 			try {
 				const bin = path.join(dir, "bin");
 				fs.mkdirSync(bin);
@@ -56,6 +56,7 @@ if [ "$1 $2" = "pr create" ]; then
 	printf '${GH_OUTPUT.replaceAll("\n", "\\n")}'
 	exit 0
 fi
+if [ "$1 $2" = "repo view" ]; then printf '{"nameWithOwner":"o/r","defaultBranchRef":{"name":"main"}}'; exit 0; fi
 if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$3" > "${dir}/view.args"; fi
 exit 1
 `,
@@ -82,14 +83,29 @@ console.log("stock pr create done");
 						timeout: 30_000,
 					}),
 				).toContain("stock pr create done");
-
 				const stockArgs = fs.readFileSync(path.join(dir, "create.args"), "utf8").trimEnd().split("\n");
-				expect(stockArgs.slice(0, 2)).toEqual(["pr", "create"]);
-				expect(flagSet(stockArgs)).toEqual(flagSet(prCreateArgs("o/r", input, "/tmp/body.md")));
-				expect(fs.readFileSync(path.join(dir, "body.md"), "utf8")).toBe(input.body);
+				const stockBody = fs.readFileSync(path.join(dir, "body.md"), "utf8");
 				const stockNumber = Number(fs.readFileSync(path.join(dir, "view.args"), "utf8").trim());
-				expect(createdPr(GH_OUTPUT)).toEqual({ url: "https://github.com/o/r/pull/7", number: stockNumber });
+				fs.rmSync(path.join(dir, "create.args"));
+				fs.rmSync(path.join(dir, "body.md"));
+
+				// The recording gh answers before any gh the machine has: `resolveBin` reads the inherited PATH first.
+				process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
+				process.env.OMP_GUI_TEST_BREW_DIRS = "";
+				const repo = path.join(dir, "repo");
+				await initRepo(repo);
+				const created = await prCreate(repo, input);
+				const ourArgs = fs.readFileSync(path.join(dir, "create.args"), "utf8").trimEnd().split("\n");
+
+				expect(stockArgs.slice(0, 2)).toEqual(["pr", "create"]);
+				expect(ourArgs.slice(0, 2)).toEqual(["pr", "create"]);
+				expect(flagSet(ourArgs)).toEqual(flagSet(stockArgs));
+				expect(stockBody).toBe(input.body);
+				expect(fs.readFileSync(path.join(dir, "body.md"), "utf8")).toBe(stockBody);
+				expect(created).toEqual({ url: "https://github.com/o/r/pull/7", number: stockNumber });
 			} finally {
+				process.env.PATH = savedPath;
+				delete process.env.OMP_GUI_TEST_BREW_DIRS;
 				fs.rmSync(dir, { recursive: true, force: true });
 			}
 		});

@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 
 use super::parse;
 use super::read::{self, blocking};
-use super::run::{Git, Opts, Output};
+use super::run::Git;
 use crate::fs::disk;
 use crate::fs::error::{Codes, NodeError};
 use crate::fs::order::js_trim;
+use crate::run::{Opts, Output};
 use crate::server::Fault;
 
 fn refuse(code: &'static str, message: impl Into<String>) -> Fault {

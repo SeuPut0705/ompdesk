@@ -1,8 +1,9 @@
 //! The file system calls, each failing as node's would (code and message), on paths main resolved.
 
 use std::fs::{self, File, Metadata};
+use std::hash::{BuildHasher, RandomState};
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use super::error::NodeError;
@@ -173,6 +174,47 @@ pub fn same_entry(a: &Metadata, b: &Metadata, a_path: &str, b_path: &str) -> boo
     same_file::is_same_file(a_path, b_path).unwrap_or(false)
 }
 
+/// A fresh folder `<temp>/<prefix>XXXXXX`, only the user's (node's `fs.mkdtemp` in `os.tmpdir()`).
+pub fn make_temp_dir(prefix: &str) -> Result<PathBuf, NodeError> {
+    const LETTERS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let base = std::env::temp_dir();
+    let random = RandomState::new();
+    let mut attempt = 0u32;
+    loop {
+        let mut bits = random.hash_one(attempt);
+        let name: String = (0..6)
+            .map(|_| {
+                let letter = LETTERS[(bits % LETTERS.len() as u64) as usize];
+                bits /= LETTERS.len() as u64;
+                char::from(letter)
+            })
+            .collect();
+        let dir = base.join(format!("{prefix}{name}"));
+        #[cfg(unix)]
+        let builder = {
+            let mut builder = fs::DirBuilder::new();
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder
+        };
+        #[cfg(not(unix))]
+        let builder = fs::DirBuilder::new();
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && attempt < 100 => {
+                attempt += 1;
+            }
+            Err(error) => {
+                let spelled = base.join(format!("{prefix}XXXXXX"));
+                return Err(NodeError::new(
+                    &error,
+                    "mkdtemp",
+                    Some(&spelled.to_string_lossy()),
+                ));
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +235,24 @@ mod tests {
     fn refuses_a_nul_before_the_system_call() {
         let error = stat("/tmp/a\0b").unwrap_err();
         assert_eq!(error.code, "ERR_INVALID_ARG_VALUE");
+    }
+
+    #[test]
+    fn makes_a_private_temp_folder_once_per_name() {
+        let one = make_temp_dir("ompdesk-core-test-").unwrap();
+        let two = make_temp_dir("ompdesk-core-test-").unwrap();
+        assert_ne!(one, two);
+        let name = one.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(name.len(), "ompdesk-core-test-".len() + 6);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&one).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
+        fs::remove_dir(one).unwrap();
+        fs::remove_dir(two).unwrap();
     }
 }
