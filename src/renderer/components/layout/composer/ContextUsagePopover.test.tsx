@@ -19,6 +19,7 @@ const reportWithoutWindow: RpcContextReportResult = {
 		usedTokens: 16_000,
 		systemPromptTokens: 1_000,
 		systemContextTokens: 200,
+		instructionFilesTokens: 0,
 		systemToolsTokens: 6_400,
 		skillsTokens: 300,
 		messagesTokens: 8_100,
@@ -64,9 +65,10 @@ const report: RpcContextReportResult = {
 		usedTokens: 161_900,
 		systemPromptTokens: 1_000,
 		systemContextTokens: 200,
+		instructionFilesTokens: 900,
 		systemToolsTokens: 6_400,
 		skillsTokens: 300,
-		messagesTokens: 154_000,
+		messagesTokens: 153_100,
 	},
 };
 
@@ -177,7 +179,7 @@ describe("ContextUsagePopover", () => {
 		expect(dialog?.textContent).toContain(translate("contextUsage.windowUnknown"));
 	});
 
-	it("keeps context usage to one control and reveals the native three-category breakdown", async () => {
+	it("keeps context usage to one control and reveals the native breakdown", async () => {
 		useSessionStore.setState({
 			contextUsage: { contextWindow: 1_000_000, percent: 16.19, tokens: 161_900 },
 			sessionId: "session-1",
@@ -208,8 +210,9 @@ describe("ContextUsagePopover", () => {
 			translate("contextUsage.left", { tokens: "838.1k" }),
 		);
 		expect(dialog?.textContent).toContain("System context~1.5k");
+		expect(dialog?.textContent).toContain("Instruction files~900");
 		expect(dialog?.textContent).toContain("Tools~6.4k");
-		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~154.0k`);
+		expect(dialog?.textContent).toContain(`${translate("contextUsage.category.messages")}~153.1k`);
 		const bar = dialog?.querySelector('[role="progressbar"]');
 		expect(bar?.getAttribute("aria-label")).toContain(translate("contextUsage.progress", { percent: 16 }));
 		expect(bar?.getAttribute("aria-valuenow")).not.toBeNull();

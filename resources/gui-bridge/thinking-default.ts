@@ -18,8 +18,10 @@
  * ceiling is read per classification (`auto-thinking/classifier.ts`), so it
  * applies to every auto turn of the process. Tool sets (ast_grep) and the
  * advisor are built by createAgentSession and read their settings there.
- * `applyProtocolDefaults("rpc")` (stock main.ts) pinned `advisor.enabled` off
- * before the extensions load; the override here replaces that pin.
+ * `applyProtocolDefaults("rpc")` (stock main.ts) pinned `advisor.enabled` off, and main.ts overrode
+ * `launch.persist` on for every non-interactive host (omp 18.18.9), before the extensions load; the
+ * override here replaces both (`STOCK_HOST_VALUES`). `launch/services.ts` reads `launch.persist` from the
+ * session's settings at every service start.
  * Not held, because stock reads them before the extensions load or only the
  * terminal UI reads them: `telemetry.otlpExportEnabled` (main.ts
  * initTelemetryExport), `display.showTurnTime` and `read.toolResultPreview` (TUI renderers).

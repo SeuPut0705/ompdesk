@@ -950,7 +950,7 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"launch.persist": {
 		label: "서비스 유지",
 		description:
-			"프로젝트의 마지막 omp 프로세스가 끝나도 그 프로젝트에서 시작한 서비스를 끄지 않아요. OMPdesk처럼 omp를 대신 실행하는 앱에서는 omp가 기본으로 켜 둬요",
+			"프로젝트의 마지막 omp 프로세스가 끝나도 그 프로젝트에서 시작한 서비스를 끄지 않아요. OMPdesk는 직접 켜지 않는 한 꺼 둬서, 세션이 시작한 서비스가 앱보다 오래 남지 않아요",
 	},
 	"speechgen.enabled": {
 		label: "음성 생성",

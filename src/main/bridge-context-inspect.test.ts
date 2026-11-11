@@ -1,7 +1,7 @@
 /**
  * gui-bridge context inspector rules (resources/gui-bridge/context-inspect-core.ts):
- * reading context files back out of stock's rendered project prompt, the
- * skills stock lists, the provider text an entry previews and its cap. The
+ * splitting a system prompt block around the instruction files and skills stock
+ * located in it, the provider text an entry previews and its cap. The
  * project-prompt sample follows stock `prompts/system/project-prompt.md`;
  * src/main/bridge-input-history.test.ts runs the bridge methods on real omp.
  */
@@ -10,9 +10,8 @@ import {
 	capPreview,
 	llmMessagesText,
 	PREVIEW_MAX_CHARS,
-	promptSkills,
-	repoRulesFiles,
 	snippet,
+	splitBlock,
 } from "../../resources/gui-bridge/context-inspect-core";
 
 const projectPrompt = `<project-context>
@@ -32,19 +31,24 @@ Nested rules.
 </repo-rules>
 </project-context>`;
 
-describe("context inspector rules", () => {
-	it("reads each context file stock rendered into <repo-rules>", () => {
-		const files = repoRulesFiles(projectPrompt);
-		expect(files.map(file => file.path)).toEqual(["/repo/AGENTS.md", "/repo/pkg/CLAUDE.md"]);
-		expect(files[0]?.content).toBe("# Rules\nUse tabs.");
-		expect(files[0]?.block.startsWith('<file path="/repo/AGENTS.md">')).toBe(true);
-		expect(repoRulesFiles("<project-context>\n</project-context>")).toEqual([]);
-	});
+/** A source over `text` in `block`, as stock's `buildSystemPrompt` records one. */
+function sourceOf(block: string, text: string) {
+	const start = block.indexOf(text);
+	return { kind: "instruction-files" as const, start, end: start + text.length };
+}
 
-	it("lists skills only with the read tool and never a hidden one (stock renderedSkills)", () => {
-		const skills = [{ name: "a" }, { name: "b", hide: true }];
-		expect(promptSkills(skills, ["bash"])).toEqual([]);
-		expect(promptSkills(skills, ["read", "bash"])).toEqual([{ name: "a" }]);
+describe("context inspector rules", () => {
+	it("splits each source stock located out of its block and keeps the rest", () => {
+		const agents = '<file path="/repo/AGENTS.md">\n# Rules\nUse tabs.\n</file>\n';
+		const claude = '<file path="/repo/pkg/CLAUDE.md">\nNested rules.\n</file>\n';
+		const { sources, rest } = splitBlock(projectPrompt, [
+			sourceOf(projectPrompt, agents),
+			sourceOf(projectPrompt, claude),
+		]);
+		expect(sources.map(split => split.text)).toEqual([agents, claude]);
+		expect(rest).toBe(projectPrompt.replace(agents, "").replace(claude, ""));
+		expect(rest).toContain("MUST follow these context files for all tasks:\n</repo-rules>");
+		expect(splitBlock(projectPrompt, [])).toEqual({ sources: [], rest: projectPrompt });
 	});
 
 	it("prints provider messages with tool calls, images and tool results", () => {

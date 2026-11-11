@@ -198,7 +198,7 @@ const p = (text: string, argUsage?: string): CommandAffordance => ({ kind: "prom
 
 /**
  * Locale key stem for a command name: hyphens camelCase, spaces become dots
- * ("model cycle" → "cmd.model.cycle", "mcp smithery-search" → "cmd.mcp.smitherySearch").
+ * ("model cycle" → "cmd.model.cycle", "auto-compact" → "cmd.autoCompact").
  */
 const keyOf = (name: string): string =>
 	name.replace(/-(\w)/g, (_hyphen, ch: string) => ch.toUpperCase()).replace(/ /g, ".");
@@ -1203,9 +1203,6 @@ export function buildCommandMenu(ctx: CommandRegistryContext): CommandMenuItem[]
 				sub("mcp resources", "/mcp resources"),
 				sub("mcp prompts", "/mcp prompts"),
 				sub("mcp notifications", "/mcp notifications"),
-				sub("mcp smithery-search", "/mcp smithery-search ", "<keyword>"),
-				sub("mcp smithery-login", "/mcp smithery-login"),
-				sub("mcp smithery-logout", "/mcp smithery-logout"),
 				sub("mcp help", "/mcp help"),
 			],
 		},

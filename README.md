@@ -73,7 +73,7 @@
 
 macOS first open: the build is signed but not notarized, so right-click the app and choose **Open** once. Windows SmartScreen: **More info → Run anyway**.
 
-Needs macOS on Apple Silicon or Windows 10/11 x64. omp 18.18.2 or newer, installed for you.
+Needs macOS on Apple Silicon or Windows 10/11 x64. omp 18.18.9 or newer, installed for you.
 
 ## Updates
 
@@ -105,7 +105,7 @@ OMPdesk, omp, the CLIs of your connected accounts, and omp's plugins, skills and
 
 ## Build from source
 
-Needs Bun, Git and omp 18.18.2 or newer.
+Needs Bun, Git and omp 18.18.9 or newer.
 
 ```bash
 git clone https://github.com/SeuPut0705/ompdesk.git

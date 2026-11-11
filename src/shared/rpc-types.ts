@@ -621,6 +621,8 @@ export interface RpcContextUsageBreakdown {
 	systemPromptTokens: number;
 	systemToolsTokens: number;
 	systemContextTokens: number;
+	/** Context files (AGENTS.md, CLAUDE.md, …); not part of `systemContextTokens`. */
+	instructionFilesTokens: number;
 	skillsTokens: number;
 	messagesTokens: number;
 }

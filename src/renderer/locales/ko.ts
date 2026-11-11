@@ -840,6 +840,7 @@ export const ko: Record<string, string> = {
 	"contextUsage.compactFailed": "대화를 압축하지 못했어요",
 	"contextUsage.unavailable": "세부 내역을 일시적으로 볼 수 없어요.",
 	"contextUsage.category.system": "시스템 컨텍스트",
+	"contextUsage.category.files": "지침 파일",
 	"contextUsage.category.tools": "도구",
 	"contextUsage.category.messages": "세션 메시지",
 
@@ -1111,9 +1112,6 @@ export const ko: Record<string, string> = {
 	"cmd.mcp.resources": "리소스 목록",
 	"cmd.mcp.prompts": "프롬프트 목록",
 	"cmd.mcp.notifications": "알림",
-	"cmd.mcp.smitherySearch": "Smithery 검색",
-	"cmd.mcp.smitheryLogin": "Smithery 로그인",
-	"cmd.mcp.smitheryLogout": "Smithery 로그아웃",
 	"cmd.mcp.help": "도움말",
 	"cmd.marketplace": "플러그인 마켓플레이스",
 	"cmd.marketplace.desc": "플러그인 둘러보기 및 설치",

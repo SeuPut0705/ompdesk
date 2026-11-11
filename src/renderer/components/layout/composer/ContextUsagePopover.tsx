@@ -37,7 +37,7 @@ interface AnchorPosition {
 
 interface UsageCategory {
 	color: string;
-	key: "messages" | "system" | "tools";
+	key: "files" | "messages" | "system" | "tools";
 	tokens: number;
 }
 
@@ -217,6 +217,8 @@ export function ContextUsagePopover({ variant = "ring" }: { variant?: "ring" | "
 				key: "system",
 				tokens: breakdown.systemPromptTokens + breakdown.systemContextTokens + breakdown.skillsTokens,
 			},
+			// Stock's `/context` counts the context files (AGENTS.md, CLAUDE.md, …) as a category of their own.
+			{ color: "var(--omp-syntax-string)", key: "files", tokens: breakdown.instructionFilesTokens },
 			{ color: "var(--sc-info)", key: "tools", tokens: breakdown.systemToolsTokens },
 			{ color: "var(--sc-accent)", key: "messages", tokens: breakdown.messagesTokens },
 		].filter(category => category.tokens > 0) as UsageCategory[];

@@ -852,6 +852,7 @@ export const en: Record<string, string> = {
 	"contextUsage.compactFailed": "Couldn't compact the conversation",
 	"contextUsage.unavailable": "The detailed breakdown is temporarily unavailable.",
 	"contextUsage.category.system": "System context",
+	"contextUsage.category.files": "Instruction files",
 	"contextUsage.category.tools": "Tools",
 	"contextUsage.category.messages": "Session messages",
 
@@ -1122,9 +1123,6 @@ export const en: Record<string, string> = {
 	"cmd.mcp.resources": "List resources",
 	"cmd.mcp.prompts": "List prompts",
 	"cmd.mcp.notifications": "Notifications",
-	"cmd.mcp.smitherySearch": "Search Smithery",
-	"cmd.mcp.smitheryLogin": "Sign in to Smithery",
-	"cmd.mcp.smitheryLogout": "Sign out of Smithery",
 	"cmd.mcp.help": "Help",
 	"cmd.marketplace": "Plugin marketplace",
 	"cmd.marketplace.desc": "Browse and install plugins",

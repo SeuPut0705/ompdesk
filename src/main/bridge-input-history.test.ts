@@ -22,6 +22,13 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			path.join(agent, "models.yml"),
 			"providers:\n  fixture:\n    baseUrl: http://127.0.0.1:9/v1\n    api: openai-completions\n    apiKey: unused\n    models:\n      - id: idle\n",
 		);
+		// One context file and one skill, so the inspector's instruction-file and skill rows have stock's sources to show.
+		await fs.writeFile(path.join(profile, "AGENTS.md"), "# Probe rules\nInspector probe rule text.\n");
+		await fs.mkdir(path.join(agent, "skills", "inspector-probe"), { recursive: true });
+		await fs.writeFile(
+			path.join(agent, "skills", "inspector-probe", "SKILL.md"),
+			"---\nname: inspector-probe\ndescription: Probe skill the context inspector lists.\n---\nBody.\n",
+		);
 		// The developer's agent.db, when there is one, so the recent-models check below reads a non-empty MRU.
 		// node:sqlite, not the sqlite3 CLI, which Windows does not ship.
 		const realAgentDb = path.join(os.homedir(), ".omp/agent/agent.db");
@@ -50,7 +57,8 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 				"rpc-ui",
 				"--no-session",
 				"--no-extensions",
-				"--no-skills",
+				"--skills",
+				"inspector-probe",
 				"--no-rules",
 				"--model",
 				"fixture/idle",
@@ -101,13 +109,38 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			// Context inspector: per-tool counts add up to stock's own tool-schema total, entries open.
 			const inspected = await client.request<{
 				categories: Record<string, number>;
-				entries: Array<{ id: string; category: string; tokens: number }>;
+				entries: Array<{ id: string; category: string; label: string; tokens: number }>;
 			}>("context.inspect", {});
-			const report = await client.request<{ breakdown: { systemToolsTokens: number } }>("composer.context_report");
+			const report = await client.request<{
+				breakdown: {
+					systemToolsTokens: number;
+					systemPromptTokens: number;
+					instructionFilesTokens: number;
+					skillsTokens: number;
+				};
+			}>("composer.context_report");
 			const { builtinTools, mcpTools, extensionTools } = inspected.categories;
 			expect(builtinTools + mcpTools + extensionTools).toBe(report.breakdown.systemToolsTokens);
 			expect(inspected.entries.find(entry => entry.id === "tool:read")).toMatchObject({ category: "builtinTools" });
-			expect(inspected.entries.find(entry => entry.id === "prompt:0")?.tokens).toBeGreaterThan(0);
+			// Stock's prompt sources: the context file and the skill are rows of their own that add up to stock's
+			// totals, and the system prompt block no longer counts the skill list.
+			const rows = (category: string) => inspected.entries.filter(entry => entry.category === category);
+			const sum = (category: string) => rows(category).reduce((total, entry) => total + entry.tokens, 0);
+			expect(inspected.categories.memoryFiles).toBe(report.breakdown.instructionFilesTokens);
+			expect(inspected.categories.skills).toBe(report.breakdown.skillsTokens);
+			expect(sum("memoryFiles")).toBe(inspected.categories.memoryFiles);
+			expect(sum("skills")).toBe(inspected.categories.skills);
+			const rulesRow = rows("memoryFiles").find(entry => entry.label.endsWith("AGENTS.md"));
+			const skillRow = rows("skills").find(entry => entry.label === "inspector-probe");
+			expect(rulesRow?.tokens).toBeGreaterThan(0);
+			expect(skillRow?.tokens).toBeGreaterThan(0);
+			const promptRow = inspected.entries.find(entry => entry.id === "prompt:0");
+			expect(promptRow?.tokens).toBe(report.breakdown.systemPromptTokens);
+			expect(promptRow?.tokens).toBeGreaterThan(0);
+			const rulesText = await client.request<{ text: string }>("context.entry", { id: rulesRow?.id });
+			expect(rulesText.text).toContain("Inspector probe rule text.");
+			const skillText = await client.request<{ text: string }>("context.entry", { id: skillRow?.id });
+			expect(skillText.text).toContain("inspector-probe: Probe skill the context inspector lists.");
 			const readTool = await client.request<{ text: string; truncated: boolean }>("context.entry", {
 				id: "tool:read",
 			});

@@ -21,6 +21,8 @@
  * - `codexResets.*` / `claudeResets.*` auto-redeem = `no` (stock: `unset`, which asks before spending whenever a
  *   limit blocks every account or a saved reset nears its expiry): OMPdesk never suggests spending a reset (the
  *   owner's rule); a person spends one from Settings, or turns auto-redeem on there.
+ * - `launch.persist` off (stock: on for every non-interactive host since omp 18.18.9): a named service an agent
+ *   starts ends with the last omp of its project, so nothing a session started outlives OMPdesk.
  *
  * All are runtime overrides on the omp process's Settings: never written to
  * config.yml, so the omp CLI outside OMPdesk keeps stock behavior.
@@ -30,10 +32,10 @@
  * - `settleThinkingDefault` re-checks against the persisted layers: a value the
  *   user wrote into config.yml or a project config meanwhile releases the
  *   override, and a reset back to "not configured" takes it up again.
- * - A setting stock pins to its default for protocol hosts (`protocolDefault`,
- *   `advisor.enabled` over RPC) reads as configured through that soft pin, which is
- *   no layer's value: {@link PROTOCOL_PINNED} settings take it over while nothing
- *   but the pin sets them.
+ * - A value stock itself puts on the runtime layer for an RPC host ({@link STOCK_HOST_VALUES}: the
+ *   `protocolDefault` soft pin of `advisor.enabled`, `main.ts`'s `launch.persist` override) makes the setting
+ *   read as configured, but it is no layer's value: OMPdesk's default replaces it while no persisted layer
+ *   sets the setting, and a persisted value replaces it too, since a runtime value hides the user's own.
  *
  * No omp imports (not even types), no Bun globals: the GUI's vitest exercises
  * this file directly (src/main/bridge-thinking-default.test.ts).
@@ -61,6 +63,9 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"title.icons": "boring",
 	// Stock's live job widgets cost a model call per job the GUI's jobs poll views; the GUI never draws them.
 	"async.widgets": false,
+	// Stock's main.ts keeps a non-interactive host's services past its exit (omp 18.18.9); OMPdesk's children never
+	// outlive it, so a service ends with the last omp of its project, as in the terminal.
+	"launch.persist": false,
 	// Stock's `unset` asks to spend a saved reset on a blocked turn and on every usage poll that finds one expiring.
 	// Held off, so nothing suggests it; the per-window ids are omp 18.18.7's, the two plain ones the omp before it.
 	"codexResets.autoRedeem": "no",
@@ -72,8 +77,15 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"claudeResets.autoRedeemFable": "no",
 };
 
-/** Settings stock soft-pins to their default for RPC hosts (`protocolDefault: ["rpc", "acp"]`). */
-export const PROTOCOL_PINNED: Readonly<Record<string, true>> = { "advisor.enabled": true };
+/**
+ * The value stock itself puts on the runtime layer of an RPC host: `advisor.enabled`'s `protocolDefault` pin
+ * (`applyProtocolDefaults("rpc")`, the schema default) and `launch.persist`, which `main.ts` overrides on for
+ * every non-interactive host (omp 18.18.9). Both run before the `-e` extensions load.
+ */
+export const STOCK_HOST_VALUES: Readonly<Record<string, unknown>> = {
+	"advisor.enabled": false,
+	"launch.persist": true,
+};
 
 /** Held defaults that need a native feature, and the export that proves it (see thinking-default.ts). */
 export const NATIVE_DEFAULTS: Readonly<Record<string, string>> = { "astGrep.enabled": "astGrep" };
@@ -104,13 +116,11 @@ export function defaultValueOf(id: string): unknown {
 export interface ThinkingDefaultSetting {
 	id: string;
 	segments: readonly string[];
-	/** The schema default (a protocol pin holds exactly this value). */
-	default?: unknown;
 	/** Whether the environment or any settings layer (runtime, overlay, project, global) sets the value. */
 	isConfigured(scope: object): boolean;
-	/** Effective value (needed for {@link PROTOCOL_PINNED} settings). */
+	/** Effective value (needed for {@link STOCK_HOST_VALUES} settings). */
 	get?(scope: object): unknown;
-	/** Layer supplying the effective value (needed for {@link PROTOCOL_PINNED} settings). */
+	/** Layer supplying the effective value (needed for {@link STOCK_HOST_VALUES} settings). */
 	provenance?(scope: object): string;
 	override(scope: object, value: unknown): void;
 	clearOverride(scope: object): void;
@@ -128,7 +138,7 @@ export function asThinkingDefaultSetting(value: unknown): ThinkingDefaultSetting
 	)
 		return undefined;
 	if (
-		PROTOCOL_PINNED[String(candidate.id)] === true &&
+		String(candidate.id) in STOCK_HOST_VALUES &&
 		(typeof candidate.get !== "function" || typeof candidate.provenance !== "function")
 	)
 		return undefined;
@@ -142,14 +152,11 @@ function isHeld(setting: ThinkingDefaultSetting, scope: object): boolean {
 	return held.get(scope)?.has(setting.id) === true;
 }
 
-/**
- * Whether the only thing setting `setting` is stock's protocol pin: a runtime value equal to the schema
- * default, with no environment, overlay, project or global layer behind it (`persisted` covers the last two).
- */
-function pinnedOnly(setting: ThinkingDefaultSetting, scope: object, persisted: boolean): boolean {
-	if (PROTOCOL_PINNED[setting.id] !== true || persisted) return false;
+/** Whether the runtime layer holds only stock's own host value for `setting` ({@link STOCK_HOST_VALUES}). */
+function stockHostValueOnly(setting: ThinkingDefaultSetting, scope: object): boolean {
+	if (!(setting.id in STOCK_HOST_VALUES)) return false;
 	if (typeof setting.get !== "function" || typeof setting.provenance !== "function") return false;
-	return setting.provenance(scope) === "runtime" && Object.is(setting.get(scope), setting.default);
+	return setting.provenance(scope) === "runtime" && Object.is(setting.get(scope), STOCK_HOST_VALUES[setting.id]);
 }
 
 /**
@@ -160,7 +167,14 @@ export function applyThinkingDefault(setting: ThinkingDefaultSetting, scope: obj
 	if (isHeld(setting, scope)) return true;
 	const value = defaultValueOf(setting.id);
 	if (value === undefined) return false;
-	if (setting.isConfigured(scope) && !pinnedOnly(setting, scope, persisted)) return false;
+	if (setting.isConfigured(scope)) {
+		if (!stockHostValueOnly(setting, scope)) return false;
+		if (persisted) {
+			// Stock's runtime value would hide the user's own.
+			setting.clearOverride(scope);
+			return false;
+		}
+	}
 	setting.override(scope, value);
 	const ids = held.get(scope) ?? new Set<string>();
 	ids.add(setting.id);

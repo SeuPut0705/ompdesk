@@ -13,8 +13,11 @@ import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-
  * - with no layer setting it, the effective value is OMPdesk's (on; `title.icons` = `boring`) and
  *   reported as `runtime`, config.yml is never written, and the tool set / advisor stock builds from it follows;
  * - `advisor.enabled` is soft-pinned off by stock for RPC hosts; the override replaces that pin;
+ * - `launch.persist` is overridden on by stock's `main.ts` for every non-interactive host (omp 18.18.9); the
+ *   override replaces that too, so a named service ends with the session's omp as in a terminal omp;
  * - a Settings write releases the default and wins; resetting it brings the default back;
- * - a value already in config.yml is the user's and wins, `advisor.enabled: false` included.
+ * - a value already in config.yml is the user's and wins, `advisor.enabled: false` and `launch.persist: true`
+ *   included (stock's own runtime `launch.persist` would hide it, so it is dropped).
  *
  * Not held (stock reads them before extensions load, or only its terminal UI does):
  * `telemetry.otlpExportEnabled`, `display.showTurnTime`, `read.toolResultPreview`; the probe shows
@@ -31,6 +34,8 @@ const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>>
 	"advisor.enabled": [true, false],
 	"title.icons": ["boring", "emoji"],
 	"async.widgets": [false, true],
+	// Services an agent starts end with the last omp of the project, as in every OMPdesk before omp 18.18.9.
+	"launch.persist": [false, true],
 	// Saved-reset auto-redeem (the per-window ids of omp 18.18.7 and later): stock's `unset` asks before spending.
 	"codexResets.autoRedeem5h": ["no", "yes"],
 	"codexResets.autoRedeemWeekly": ["no", "yes"],
@@ -69,6 +74,9 @@ export default function (pi) {
    };
    const out = { initial: await read() };
    out.advisorEnabled = session.isAdvisorEnabled?.();
+   // What \`launch/services.ts\` \`startService\` reads for each service it starts.
+   const { lookup } = await import("@oh-my-pi/pi-coding-agent/config/registry");
+   out.servicePersist = lookup("launch.persist")?.get(session.settings);
    out.tools = session.getEnabledToolNames?.() ?? [];
    out.computerPrelude = session.getEvalPreludes?.().some(definition => definition.name === "computer") ?? null;
    if (process.env.DEFAULTS_PROBE_FALLBACK === "1") {
@@ -157,6 +165,7 @@ function runProbe(configYml: string | undefined, write: boolean, extraEnv: Recor
 		const probe = JSON.parse(line?.slice("DEFAULTS_PROBE=".length) ?? "{}") as {
 			initial: Readings;
 			advisorEnabled?: boolean;
+			servicePersist?: unknown;
 			tools: string[];
 			computerPrelude: boolean | null;
 			advisorRole: { model: string; thinkingLevel?: string } | null;
@@ -179,6 +188,8 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 		}
 		// Stock pins the advisor off for RPC hosts; the override replaced the pin before the session was built.
 		expect(probe.advisorEnabled).toBe(true);
+		// Stock's main.ts held services past the omp's exit for RPC hosts; the session's services read OMPdesk's value.
+		expect(probe.servicePersist).toBe(false);
 		// ast_grep joined the enabled tool set; the advisor role resolves (unset: stock's slow chain) on an available model.
 		expect(probe.tools).toContain("ast_grep");
 		// `/computer status` reads "enabled" and "prelude: active" from exactly these two facts.
@@ -212,6 +223,8 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 				"  formatOnWrite: false",
 				"advisor:",
 				"  enabled: false",
+				"launch:",
+				"  persist: true",
 				"title:",
 				"  icons: emoji",
 				"",
@@ -223,6 +236,8 @@ describe.skipIf(!existsSync(omp))("OMPdesk's held stock defaults on stock omp", 
 		}
 		expect(probe.initial["title.icons"]).toEqual({ value: "emoji", layers: ["global"] });
 		expect(probe.advisorEnabled).toBe(false);
+		expect(probe.initial["launch.persist"]).toEqual({ value: true, layers: ["global"] });
+		expect(probe.servicePersist).toBe(true);
 		// The rest of the list is still held.
 		expect(probe.initial["lsp.diagnosticsOnEdit"]).toEqual({ value: true, layers: ["runtime"] });
 		expect(probe.initial["astGrep.enabled"]).toEqual({ value: true, layers: ["runtime"] });

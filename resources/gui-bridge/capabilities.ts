@@ -1329,14 +1329,15 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()", "MAIN_AGENT_ID"],
 		session: ["agent.state"],
 	},
-	/** context-inspect.ts: every tool, skill, context file, prompt block and message with stock's own estimators. */
+	/** context-inspect.ts: every tool, skill, instruction file, prompt block and message, counted as stock counts them. */
 	contextInspector: {
 		session: [
 			"getContextBreakdown()",
 			"systemPrompt",
+			// Where stock built each instruction file and skill into the prompt (omp 18.18.9).
+			"systemPromptSources",
 			// OMPdesk's sections read the session as a prompt's hook does (prompt-sections.ts `sectionContext`).
 			"extensionRunner.createContext()",
-			"renderedSkills",
 			"hasBuiltInTool()",
 			"getXdevToolEntries()",
 			"settings",
@@ -1346,7 +1347,7 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		],
 		modules: {
 			[`${AGENT}/session/messages`]: ["convertToLlm()"],
-			"@oh-my-pi/pi-tui/status-line/context-usage": ["estimateToolSchemaTokens()", "estimateSkillsTokens()"],
+			"@oh-my-pi/pi-tui/status-line/context-usage": ["estimateToolSchemaTokens()", "claimPromptSources()"],
 			"@oh-my-pi/pi-ai/utils/schema": ["toolWireSchema()"],
 		},
 	},

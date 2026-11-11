@@ -35,11 +35,14 @@ import {
 
 /**
  * Oldest omp whose RPC surface and bridge-extension internals this GUI is written
- * against. 18.18.2 is the first omp whose `logoutCredential` takes the session
- * (`slash-commands/helpers/logout`; a model registry and a session id before), which
- * Settings' Disconnect calls (`provider_logout`, gui-bridge settings.ts): the old call
- * threw on every omp from 18.18.2 on.
- * Earlier floors: 18.12.6's pi-catalog `isPromptCachePersistent`, which idle compaction
+ * against. 18.18.9 is the first omp that records where it built each instruction file
+ * and skill into the system prompt (`session.systemPromptSources`, pi-tui
+ * `claimPromptSources`) and counts them as their own categories; Settings' context
+ * inspector (gui-bridge context-inspect.ts) lists them from those sources, and the
+ * per-skill estimator it used before (`estimateSkillsTokens`) is gone from 18.18.9.
+ * Earlier floors: 18.18.2's `logoutCredential(session, …)`
+ * (`slash-commands/helpers/logout`), which Settings' Disconnect calls (`provider_logout`,
+ * gui-bridge settings.ts); 18.12.6's pi-catalog `isPromptCachePersistent`, which idle compaction
  * asks so it never throws away a logged-in Codex session's warm cache (stock's own rule
  * since that release, `idle-compaction-core.ts`); 18.12.3's `always-ask-cached` ("Ask and
  * remember") tool approval mode the composer offers (`src/shared/tool-approval.ts`);
@@ -50,7 +53,7 @@ import {
  * `worktree.onStart`/`onExit` (18.8.6), per-model compaction limits and account
  * identity keys (18.8.7), stock's project-scoped memory backend call (18.11.0).
  */
-export const MIN_OMP_VERSION = "18.18.2";
+export const MIN_OMP_VERSION = "18.18.9";
 
 const VERSION_TIMEOUT_MS = 15_000;
 const DEFAULT_RUN_TIMEOUT_MS = 60_000;

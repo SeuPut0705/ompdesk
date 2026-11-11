@@ -8,7 +8,7 @@ import * as fs from "node:fs";
  * missing on any version but FIXTURE_MIN_OMP_VERSION.
  * `OMP_GUI_TEST_BOOT_LOG=<file>` gets one line (the version) per `--mode rpc-ui` boot.
  */
-export const FIXTURE_MIN_OMP_VERSION = "18.18.2";
+export const FIXTURE_MIN_OMP_VERSION = "18.18.9";
 /** A release after the floor, for the scenarios that update the fake omp: the floor's next minor. */
 export const FIXTURE_NEWER_OMP_VERSION = (() => {
 	const [major = 0, minor = 0] = FIXTURE_MIN_OMP_VERSION.split(".").map(Number);

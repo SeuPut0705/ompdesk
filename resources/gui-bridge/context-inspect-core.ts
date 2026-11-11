@@ -4,7 +4,7 @@
  * preview text one entry shows. No omp imports, so the unit test runs anywhere.
  */
 
-/** The GUI's categories: stock's five (`getContextBreakdown`) with tools split by source and context files pulled out of system context. */
+/** The GUI's categories: stock's six (`getContextBreakdown`) with tools split by source; `memoryFiles` is stock's instruction files. */
 export type ContextCategory =
 	| "systemPrompt"
 	| "systemContext"
@@ -39,49 +39,36 @@ export function capPreview(text: string): Preview {
 		: { text, totalChars: text.length, truncated: false };
 }
 
-export interface RepoRulesFile {
-	path: string;
-	/** The whole `<file …>…</file>` block, as the model reads it. */
-	block: string;
-	/** The file's content inside the block. */
-	content: string;
+/** The fields of stock's `SystemPromptSource` (`pi-tui/status-line/context-usage.ts`) the inspector reads. */
+export interface PromptSource {
+	readonly kind: "instruction-files" | "skills";
+	/** UTF-16 range of the source in its block. */
+	readonly start: number;
+	readonly end: number;
 }
 
-const REPO_RULES = /<repo-rules>([\s\S]*?)<\/repo-rules>/;
-const FILE_BLOCK = /<file path="([^"]*)">\n([\s\S]*?)\n<\/file>/g;
+export const SOURCE_CATEGORY: Record<PromptSource["kind"], ContextCategory> = {
+	"instruction-files": "memoryFiles",
+	skills: "skills",
+};
 
 /**
- * The context files (AGENTS.md, CLAUDE.md, …) stock rendered into a system
- * prompt block. Stock's `prompts/system/project-prompt.md` writes each one as
- * `<file path="…">\n{content}\n</file>` inside `<repo-rules>`; the inspector
- * reads them back from the text the model actually gets, so a disabled or
- * deduplicated file never shows.
+ * `block` split around the sources stock's `claimPromptSources` attributed to it (sorted by start): each source's
+ * own text, and the block's text without them. Stock's status line and `/context` count a block this way, so the
+ * entries add up to its category totals.
  */
-export function repoRulesFiles(part: string): RepoRulesFile[] {
-	const rules = REPO_RULES.exec(part)?.[1];
-	if (!rules) return [];
-	return Array.from(rules.matchAll(FILE_BLOCK), match => ({
-		path: match[1] ?? "",
-		block: match[0],
-		content: match[2] ?? "",
-	}));
-}
-
-export interface InspectSkill {
-	readonly name: string;
-	readonly description?: string;
-	readonly hide?: boolean;
-}
-
-/**
- * Skills stock lists in the system prompt. Copy of the private
- * `renderedSkills` filter in stock `pi-tui/status-line/context-usage.ts`
- * (which mirrors `buildSystemPrompt`): none without the `read` tool, never a
- * hidden one. Stock does not export it.
- */
-export function promptSkills<T extends InspectSkill>(skills: readonly T[], toolNames: readonly string[]): T[] {
-	if (!toolNames.includes("read")) return [];
-	return skills.filter(skill => skill.hide !== true);
+export function splitBlock<T extends PromptSource>(
+	block: string,
+	sources: readonly T[],
+): { sources: Array<{ source: T; text: string }>; rest: string } {
+	let rest = "";
+	let cursor = 0;
+	const split = sources.map(source => {
+		rest += block.slice(cursor, source.start);
+		cursor = source.end;
+		return { source, text: block.slice(source.start, source.end) };
+	});
+	return { sources: split, rest: rest + block.slice(cursor) };
 }
 
 /** One provider message block, loosely typed: the inspector prints any shape stock may add. */

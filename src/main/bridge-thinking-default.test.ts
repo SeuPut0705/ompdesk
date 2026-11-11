@@ -163,14 +163,14 @@ describe("gui-bridge thinking default", () => {
 });
 
 /**
- * `advisor.enabled`: stock soft-pins it to false for RPC hosts, a runtime override that makes it read as
- * configured. `layers` in the fake mirror `getProvenance` (runtime → project → global).
+ * A setting stock puts a runtime value on for RPC hosts (`advisor.enabled`'s protocol pin, `launch.persist`'s
+ * `main.ts` override), which makes it read as configured. `layers` in the fake mirror `getProvenance`
+ * (runtime → project → global).
  */
 function fakeAdvisor(id = "advisor.enabled"): ThinkingDefaultSetting & { get(scope: FakeSettings): unknown } {
 	return {
 		id,
 		segments: [id],
-		default: false,
 		get: (scope: FakeSettings) => scope.overrides[id] ?? scope.project[id] ?? scope.global[id] ?? false,
 		provenance(scope: object): string {
 			const settings = scope as FakeSettings;
@@ -201,6 +201,7 @@ describe("gui-bridge held stock defaults", () => {
 			"computer.enabled": true,
 			"advisor.enabled": true,
 			"title.icons": "boring",
+			"launch.persist": false,
 		});
 		for (const path of [
 			"telemetry.otlpExportEnabled",
@@ -259,6 +260,24 @@ describe("gui-bridge held stock defaults", () => {
 		const scope = fakeSettings();
 		scope.overrides["lsp.formatOnWrite"] = false;
 		expect(applyThinkingDefault(lsp, scope, false)).toBe(false);
+	});
+
+	it("takes over stock's launch.persist override for non-interactive hosts, and lets a persisted value through", () => {
+		const persist = fakeAdvisor("launch.persist");
+		const scope = fakeSettings();
+		scope.overrides["launch.persist"] = true; // main.ts: cfgLaunchPersist.override(settings, true)
+		expect(applyThinkingDefault(persist, scope, false)).toBe(true);
+		expect(persist.get(scope)).toBe(false);
+		expect(persist.provenance?.(scope)).toBe("runtime");
+		expect(scope.global).toEqual({});
+
+		for (const value of [true, false]) {
+			const configured = fakeSettings({ "launch.persist": value });
+			configured.overrides["launch.persist"] = true;
+			expect(applyThinkingDefault(persist, configured, true)).toBe(false);
+			expect(persist.get(configured)).toBe(value);
+			expect(persist.provenance?.(configured)).toBe("global");
+		}
 	});
 
 	it("refuses a pinned-class handle that cannot report its provenance", () => {
