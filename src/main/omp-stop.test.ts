@@ -68,22 +68,34 @@ describe("stopOmp and an omp that is saving a refreshed login", () => {
 		expect(existsSync(join(dir, "saved"))).toBe(true);
 	}, 20_000);
 
-	it("reads the wait however the pipe cut the line", async () => {
-		dir = mkdtempSync(join(tmpdir(), "ompdesk-stop-hold-"));
-		child = refreshingOmp(dir, 0);
-		await firstData(child.stdout);
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-		const stop = stopOmp(child);
-		const line = Buffer.from("Waiting for the login refresh to finish saving (up to 120 s)…\n");
-		const cut = line.indexOf("0 s)");
-		child.stderr?.emit("data", line.subarray(0, cut));
-		child.stderr?.emit("data", line.subarray(cut));
-		await vi.advanceTimersByTimeAsync(STOP_GRACE_MS * 4);
-		expect(running(child)).toBe(true);
-		writeFileSync(join(dir, "gate"), "");
-		await stop;
-		expect(existsSync(join(dir, "saved"))).toBe(true);
-	}, 20_000);
+	const WAIT_LINE = "Waiting for the login refresh to finish saving (up to 120 s)…\n";
+	it.each([
+		[
+			"cut inside the number",
+			[WAIT_LINE.slice(0, WAIT_LINE.indexOf("0 s)")), WAIT_LINE.slice(WAIT_LINE.indexOf("0 s)"))],
+		],
+		["followed by 300 characters of other output in the same chunk", [WAIT_LINE + "x".repeat(300)]],
+		[
+			"after 300 characters of other output, cut inside the number",
+			["x".repeat(300) + WAIT_LINE.slice(0, -8), WAIT_LINE.slice(-8)],
+		],
+	])(
+		"reads the wait however the pipe framed the line: %s",
+		async (_name, chunks) => {
+			dir = mkdtempSync(join(tmpdir(), "ompdesk-stop-hold-"));
+			child = refreshingOmp(dir, 0);
+			await firstData(child.stdout);
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+			const stop = stopOmp(child);
+			for (const chunk of chunks) child.stderr?.emit("data", Buffer.from(chunk));
+			await vi.advanceTimersByTimeAsync(STOP_GRACE_MS * 4);
+			expect(running(child)).toBe(true);
+			writeFileSync(join(dir, "gate"), "");
+			await stop;
+			expect(existsSync(join(dir, "saved"))).toBe(true);
+		},
+		20_000,
+	);
 
 	it("is killed once the time it asked for ran out, and never held longer than the cap", async () => {
 		for (const [asked, heldMs] of [
