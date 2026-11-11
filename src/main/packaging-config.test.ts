@@ -792,6 +792,9 @@ describe("release assets", () => {
 		expect(verify("mac")).toContain("Resources/ompdesk-bin/ompdesk");
 		expect(verify("mac")).toContain('codesign --verify --strict --verbose=2 "$CLI"');
 		expect(verify("win")).toContain("ompdesk-bin/ompdesk.exe help");
+		// The core process answers ready from the package on both platforms.
+		expect(verify("mac")).toContain('codesign --verify --strict --verbose=2 "$CORE"');
+		for (const name of ["mac", "win"]) expect(verify(name), name).toContain(`| grep -F '"event":"ready"'`);
 	});
 });
 

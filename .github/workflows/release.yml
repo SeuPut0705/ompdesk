@@ -381,6 +381,11 @@ jobs:
           test -x "$CLI"
           codesign --verify --strict --verbose=2 "$CLI"
           "$CLI" help | grep -F "Exit codes"
+          # The core process starts, says ready and ends when its stdin does.
+          CORE="$APP/Contents/Resources/ompdesk-bin/ompdesk-core"
+          test -x "$CORE"
+          codesign --verify --strict --verbose=2 "$CORE"
+          "$CORE" < /dev/null | grep -F '"event":"ready"'
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
         run: |
@@ -611,6 +616,7 @@ jobs:
           "$ADT" --version | grep -Fx "agent-desktop $(jq -r .version scripts/agent-desktop-pin.json)"
           # OMPdesk's own Rust (native/ompdesk): the CLI runs.
           dist/win-unpacked/resources/ompdesk-bin/ompdesk.exe help | grep -F "Exit codes"
+          dist/win-unpacked/resources/ompdesk-bin/ompdesk-core.exe < /dev/null | grep -F '"event":"ready"'
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"
