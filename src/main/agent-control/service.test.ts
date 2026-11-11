@@ -6237,3 +6237,59 @@ describe("one id per session: a message names its sender and reaches the session
 		expect(one.text).not.toContain("문의응대");
 	});
 });
+
+/**
+ * The three sends of 11 Nov 2026 (UTC) by the saved id of "문의", whose omp ran on SeuPut for a paired device's tab:
+ * at 09:55 and 09:57 this computer's saved-session list could not be read (omp's packages out of step under the stock
+ * helper), and the agent got the reader's own error; at 10:26, 39 s after SeuPut relaunched, no tab it could see held
+ * the session and the agent was told it was "not open in any tab", so it sent to an older tab of the same title.
+ */
+describe("a message to a saved session whose holder this app cannot see", () => {
+	const ASK = "01a1c9f4-8354-70aa-91a9-473beaf7e427";
+	const askFile = `/Users/seuput/.omp/agent/sessions/-Desktop-GitHub-yuyu-mos/2026-11-11T09-33-27-252Z_${ASK}.jsonl`;
+	const seuput: ControlDevice = { id: "seuput", name: "SeuPut", state: "online" };
+	const askRow = (over: Partial<StoredSession> = {}) => storedRow({ id: ASK, path: askFile, title: "문의", ...over });
+
+	it("says a paired computer's tab that has not started is out of its sight, and that opening it here joins it", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "메인" });
+		host.storedRows = [askRow()];
+		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("not open in any tab OMPdesk can see");
+		expect(result.text).toContain("has not started since a relaunch");
+		expect(result.text).toContain("never a second omp");
+		expect(result.text).toContain(`{"reopen":"${ASK}"}`);
+	});
+
+	it("never tells to open again a session whose computer's list cannot be read now", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "메인" });
+		host.deviceList = [seuput];
+		host.storedRows = [askRow({ device: seuput.id, deviceName: seuput.name })];
+		const service = control(host);
+		await service.run("main0001", T.list, { scope: "stored", device: "SeuPut" });
+		// The list was read; the link then drops and every read of SeuPut's list fails while it comes back.
+		const stored = host.stored;
+		host.stored = async (device, query) => {
+			if (device === seuput.id) throw new Error("[remote_offline] SeuPut is offline");
+			return stored(device, query);
+		};
+		const result = await service.run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("What SeuPut holds could not be read now");
+		expect(result.text).not.toContain("reopen");
+		expect(host.spawned).toEqual([]);
+	});
+
+	it("says this computer's saved-session list could not be read, never only the reader's own error", async () => {
+		const host = new FakeHost({ tabId: "main0001", title: "메인" });
+		const broken =
+			"Export named 'providerLoginWarning' not found in module '/Users/seuput/.bun/install/global/node_modules/@oh-my-pi/pi-catalog/src/compat/auth.ts'.";
+		host.stored = async () => {
+			throw new Error(broken);
+		};
+		const result = await control(host).run("main0001", T.send, { session: ASK, message: "받았다" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain(`This computer's list of saved sessions could not be read (${broken})`);
+		expect(result.text).toContain("nothing was done");
+	});
+});
