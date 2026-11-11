@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.124.1] - 2026-11-12
+
+omp 18.18.9에서 컨텍스트 검사기가 열리지 않던 문제를 고쳤고, 이 버전부터 omp 18.18.9 이상이 필요해요.
+
+### 고친 것
+- omp 18.18.9에서 인사이트의 컨텍스트 검사기가 "지원하지 않는 omp"로 막히던 문제를 고쳤어요. omp가 검사기가 쓰던 내부 함수를 없애서 생긴 일이에요. 이제 omp가 프롬프트를 만들 때 남기는 기록으로 지침 파일과 스킬을 한 줄씩 보여 주고, 스킬의 토큰 수는 이름과 설명으로 어림한 값이 아니라 프롬프트에 실제로 들어간 글로 세요.
+- 컨텍스트 링의 풍선에 "지침 파일" 줄이 따로 나와요. omp 18.18.9가 AGENTS.md 같은 지침 파일을 시스템 컨텍스트에서 떼어 따로 세기 때문이에요.
+- 세션이 시작한 서비스(개발 서버 등)가 앱을 꺼도 계속 남지 않아요. omp 18.18.9는 OMPdesk처럼 omp를 대신 실행하는 앱에서 서비스를 omp가 끝난 뒤에도 남겨 두는데, OMPdesk는 이 설정(`launch.persist`)을 꺼 둬서 전처럼 그 프로젝트의 마지막 omp와 함께 끝나요. config.yml에 직접 적은 값은 그대로 따라요.
+- omp 18.18.9에서 없어진 `/mcp smithery-search`, `smithery-login`, `smithery-logout`을 명령 메뉴에서 뺐어요.
+- 설정에서 `launch.persist`가 id 그대로 보이지 않고 "서비스 유지"라는 이름과 설명으로 나와요.
+
+### 바뀐 것
+- 필요한 omp가 18.18.9 이상이 됐어요. 더 낮은 omp는 OMPdesk가 켜질 때 스스로 올려요.
+- 파일 패널의 읽기와 쓰기, 소스 제어의 git 실행이 Rust로 만든 코어 프로세스(`ompdesk-core`)로 옮겨졌어요. 화면과 결과는 그대로이고, 속도는 재 보니 차이가 없었어요(변경 목록 41.0ms → 40.8ms, 이 Mac에서 번갈아 다섯 번 잰 중앙값). git과 디스크가 시간을 정하기 때문이에요. 달라진 점은 셋이에요. 디스크의 맨 위 폴더(`/`, `C:\`)를 작업 폴더로 열어도 저장이 돼요. 30초 넘게 걸리는 파일 요청은 기다리지 않고 실패해요. 멈춘 git 작업은 그 git이 실제로 끝난 뒤에 다음 작업에 자리를 내줘요.
+
+서비스가 omp와 함께 끝나는 것은 설정값이 꺼짐으로 읽히는 것까지 실제 omp 18.18.9에서 확인했고, 서비스를 직접 띄워 끝나는 것까지 보지는 않았어요.
+
+<!-- en -->
+
+The context inspector opens again on omp 18.18.9, and OMPdesk now needs omp 18.18.9 or newer.
+
+### Fixed
+- On omp 18.18.9 the context inspector in Insights was refused as "unsupported omp", because omp removed an internal function it used. It now lists instruction files and skills from the record omp keeps while it builds the prompt, and a skill's token count is taken from the text the prompt really holds instead of an estimate from its name and description.
+- The context ring's popover shows "Instruction files" as its own row, because omp 18.18.9 counts files such as AGENTS.md apart from the system context.
+- A service a session started (a dev server, say) no longer stays behind after you quit the app. omp 18.18.9 keeps services past omp's exit for apps that run omp on your behalf; OMPdesk holds that setting (`launch.persist`) off, so a service ends with the last omp of its project as before. A value you wrote into config.yml is still followed.
+- `/mcp smithery-search`, `smithery-login` and `smithery-logout`, which omp 18.18.9 removed, are gone from the command menu.
+- Settings shows `launch.persist` with a Korean name and description instead of its bare id.
+
+### Changed
+- OMPdesk needs omp 18.18.9 or newer. An older omp is updated by OMPdesk itself at launch.
+- Reading and writing in the Files panel and the git runs of Source Control moved into a core process written in Rust (`ompdesk-core`). Screens and results are the same, and no speed difference was measurable (the change list 41.0 ms → 40.8 ms, median of five alternating runs on this Mac), because git and the disk set the time. Three things differ: a save works in a workspace that is a disk's top folder (`/`, `C:\`); a file request that takes over 30 s fails instead of waiting; and a stopped git operation gives way to the next one only after its git has really ended.
+
+That services end with omp was confirmed on a real omp 18.18.9 as far as the setting reading off; a service was not started and watched ending.
+
 ## [0.124.0] - 2026-11-12
 
 세션끼리 보낸 메시지가 같은 이름의 다른 세션으로 가던 문제를 고쳤고, 한도에 걸렸을 때 초기화권을 쓰라고 묻던 질문을 없앴어요.
