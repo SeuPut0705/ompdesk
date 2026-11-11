@@ -19,7 +19,7 @@ import { routeCommands } from "../../../test-support/route-commands";
 import { UsageQuotas } from "../../insights/UsageQuotas";
 import { SettingsNavigationProvider } from "../settings-navigation";
 import { ProvidersSection } from "./ProvidersSection";
-import { resetPassSummary } from "./ResetPasses";
+import { ResetPassControl, resetPassSummary } from "./ResetPasses";
 
 const { document, window, Event, HTMLElement, Element, Node } = parseHTML("<html><body></body></html>");
 Object.assign(globalThis as Record<string, unknown>, {
@@ -346,6 +346,82 @@ describe("reset passes on provider accounts", () => {
 
 			await confirm();
 			expect(redeemResetPass).toHaveBeenCalledWith("anthropic", 9, "grant-fable");
+		});
+
+		/** The control alone, so a test can hand it the passes a re-read of the accounts would. */
+		async function mountControl(first: ResetPasses, afterSpend?: ResetPasses) {
+			const root = createRoot(document.body as unknown as Element);
+			roots.push(root);
+			const control = (passes: ResetPasses) => (
+				<I18nProvider>
+					<ResetPassControl
+						account="home@example.com"
+						credentialId={9}
+						disabled={false}
+						limits={[]}
+						onRedeemed={async () => {
+							if (afterSpend) root.render(control(afterSpend));
+							return undefined;
+						}}
+						passes={passes}
+						providerId="anthropic"
+						providerName="Claude"
+					/>
+				</I18nProvider>
+			);
+			const show = (passes: ResetPasses) => act(async () => root.render(control(passes)));
+			await show(first);
+			await act(tick);
+			return show;
+		}
+		const both = holding([fable, full]).resetPasses as ResetPasses;
+		/** The account once its Fable pass is gone: the regular one is what the provider offers next. */
+		const fullOnly: ResetPasses = { ...usable, ...full, creditId: "grant-full", usableCount: 2 };
+		const changedToast = {
+			variant: "warning",
+			title: translate("resetPasses.failed"),
+			detail: translate("resetPasses.outcome.offerChanged"),
+		};
+
+		it("never spends a pass that took the place of the one its open dialog shows", async () => {
+			const show = await mountControl(both);
+			redeemResetPass.mockResolvedValue(ok("redeem_reset_pass", { ok: true, code: "reset", message: "" }));
+			await open();
+			expect(cards()[0]?.getAttribute("aria-checked")).toBe("true");
+
+			// The accounts are read again while the dialog is open: the Fable pass is gone.
+			await show(fullOnly);
+			await confirm();
+
+			expect(redeemResetPass).not.toHaveBeenCalled();
+			expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+			expect(toasts().at(-1)).toMatchObject(changedToast);
+		});
+
+		it("keeps its dialog and the pick through a re-read that still offers the same passes", async () => {
+			const offered = holding([fable, { ...full, creditId: "grant-full" }]).resetPasses as ResetPasses;
+			const show = await mountControl(offered);
+			redeemResetPass.mockResolvedValue(
+				ok("redeem_reset_pass", { ok: false, code: "nothing_to_reset", message: "" }),
+			);
+			await open();
+			await act(async () => card(fullWindows)?.click());
+			await show({ ...offered, count: 4, tickets: [{ ...full, creditId: "grant-full", count: 3 }, fable] });
+
+			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("true");
+			await confirm();
+			expect(redeemResetPass).toHaveBeenCalledWith("anthropic", 9, "grant-full");
+		});
+
+		it("reports a spend that changed the offer as the spend it was", async () => {
+			await mountControl(both, fullOnly);
+			redeemResetPass.mockResolvedValue(ok("redeem_reset_pass", { ok: true, code: "reset", message: "" }));
+			await open();
+			await confirm();
+			await act(tick);
+
+			expect(redeemResetPass).toHaveBeenCalledWith("anthropic", 9, "grant-fable");
+			expect(toasts().map(toast => toast.variant)).toEqual(["success"]);
 		});
 	});
 });
