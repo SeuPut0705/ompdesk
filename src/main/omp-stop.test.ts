@@ -9,7 +9,8 @@ import { OMP_SPAWN_GROUP, STOP_GRACE_MS, STOP_HOLD_MAX_MS, stopOmp } from "./omp
 /**
  * A stand-in for an omp whose exit waits on a login refresh it has to save: asked to stop (SIGTERM, or its stdin
  * ending, as on Windows), it says on stderr what stock's exit says (`postmortem.ts`: the hold's message and
- * "(up to N s)…"), then saves and exits once `gate` exists, or never when there is no gate.
+ * "(up to N s)…"), then saves and exits once `gate` exists, or never when there is no gate. With `holdSeconds` 0 it
+ * says nothing itself: the test writes its stderr.
  */
 function refreshingOmp(dir: string, holdSeconds: number): ChildProcess {
 	const script = `
@@ -18,7 +19,7 @@ let asked = false;
 const stop = () => {
 	if (asked) return;
 	asked = true;
-	fs.writeSync(2, "Waiting for the login refresh to finish saving (up to ${holdSeconds} s)…\\n");
+	if (${holdSeconds}) fs.writeSync(2, "Waiting for the login refresh to finish saving (up to ${holdSeconds} s)…\\n");
 	setInterval(() => {
 		if (!fs.existsSync(${JSON.stringify(join(dir, "gate"))})) return;
 		fs.writeFileSync(${JSON.stringify(join(dir, "saved"))}, "token");
@@ -60,6 +61,23 @@ describe("stopOmp and an omp that is saving a refreshed login", () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 		const stop = stopOmp(child);
 		expect(await said).toContain("(up to 120 s)");
+		await vi.advanceTimersByTimeAsync(STOP_GRACE_MS * 4);
+		expect(running(child)).toBe(true);
+		writeFileSync(join(dir, "gate"), "");
+		await stop;
+		expect(existsSync(join(dir, "saved"))).toBe(true);
+	}, 20_000);
+
+	it("reads the wait however the pipe cut the line", async () => {
+		dir = mkdtempSync(join(tmpdir(), "ompdesk-stop-hold-"));
+		child = refreshingOmp(dir, 0);
+		await firstData(child.stdout);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const stop = stopOmp(child);
+		const line = Buffer.from("Waiting for the login refresh to finish saving (up to 120 s)…\n");
+		const cut = line.indexOf("0 s)");
+		child.stderr?.emit("data", line.subarray(0, cut));
+		child.stderr?.emit("data", line.subarray(cut));
 		await vi.advanceTimersByTimeAsync(STOP_GRACE_MS * 4);
 		expect(running(child)).toBe(true);
 		writeFileSync(join(dir, "gate"), "");
