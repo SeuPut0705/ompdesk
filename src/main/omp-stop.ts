@@ -12,11 +12,13 @@ export const STOP_GRACE_MS = 5_000;
 const KILL_WAIT_MS = 2_000;
 /**
  * What stock's exit writes to stderr when it waits on one thing alone (`@oh-my-pi/pi-utils` postmortem.ts: the hold's
- * message, then "(up to N s)…"). The hold that matters is the login refresh (`pi-ai` auth/refresh.ts, up to 125 s):
- * the provider has already swapped the refresh token, so an omp killed before it saved the new one leaves a spent
- * token in the store every omp shares, and the account drops off the list at the next refresh (`invalid_grant`).
+ * message, then "(up to N s)…"; matched without the ellipsis, whose three bytes a relayed pipe may split). The hold
+ * that matters is the login refresh (`pi-ai` auth/refresh.ts, up to 125 s): the provider has already swapped the
+ * refresh token, so an omp killed before it saved the new one leaves a spent token in the store every omp shares, and
+ * the account drops off the list at the next refresh (`invalid_grant`). A signal's exit prints it by itself; an exit
+ * after stdin closed does once the bridge's `exit-drain.ts` made that exit wait for the same pass.
  */
-const EXIT_HOLD = /\(up to (\d+) s\)…/;
+const EXIT_HOLD = /\(up to (\d+) s\)/;
 /** Past the time an exit hold asked for, how long the omp still has to end before the kill. */
 const HOLD_SLACK_MS = 2_000;
 /** The longest a stop is held for an omp's exit hold, whatever it asks for (stock's longest is 125 s). */

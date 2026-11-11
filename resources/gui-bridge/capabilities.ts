@@ -89,6 +89,7 @@ export const FEATURES = {
 	wasteGuards:
 		"A bash service start whose ready.log cannot match is refused; a polling call or a refused edit is told once what to do instead; a wait returns only with news",
 	quitJournal: "A quit while a tool runs journals the tool's aborted result before the process ends",
+	exitDrain: "An omp that ends by itself finishes its exit cleanup first (a login refresh being saved)",
 	turnStages: "Turn stages recorded when a turn waits long for the model or ends without output (gui-runtime.jsonl)",
 	askForm: "An ask form's paragraphs, tables and pictures on its question card",
 } as const;
@@ -563,6 +564,16 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	quitJournal: {
 		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
 		session: ["agent.abort()"],
+	},
+	/**
+	 * exit-drain.ts: the public `session_shutdown` hook of the main agent, and stock's `postmortem` for the awaited
+	 * cleanup pass (`quit`), the native exit (`exitProcess`) and the key a stand-in for `process.exit` names it under.
+	 */
+	exitDrain: {
+		pkg: ["MAIN_AGENT_ID"],
+		modules: {
+			[UTILS]: ["postmortem.quit()", "postmortem.exitProcess()", "postmortem.NATIVE_PROCESS_EXIT"],
+		},
 	},
 	/**
 	 * turn-stages.ts: the main session's `subscribe` and live `model`/`isStreaming`, and three instance methods wrapped

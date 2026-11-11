@@ -4439,6 +4439,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.todoCompact": "Long todo list folded by the agent",
 	"bridgeHealth.feature.wasteGuards": "Refusing a bash ready.log that cannot match, and a hint against polling",
 	"bridgeHealth.feature.quitJournal": "Aborted tool result kept when the app quits during a tool",
+	"bridgeHealth.feature.exitDrain": "A login refresh saved before a stopped session's omp ends",
 	"bridgeHealth.feature.turnStages": "Logging of slow or empty turns",
 	"bridgeHealth.feature.askForm": "Pictures and paragraphs of an agent's question form",
 	"bridgeHealth.feature.visuals": "Diagram instructions (Mermaid, SVG)",
