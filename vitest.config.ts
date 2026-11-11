@@ -79,8 +79,9 @@ export default defineConfig({
 					hookTimeout: process.platform === "win32" ? 20_000 : 10_000,
 					// `tmp/` is gitignored scratch (captures, a clone of another repository): never this repository's tests.
 					exclude: [...configDefaults.exclude, RENDERER, "tmp/**"],
-					// The folder the git test repositories are copied from (`src/main/local/git/test-repos.ts`).
-					globalSetup: ["./scripts/vitest-test-repos.ts"],
+					// The folder the git test repositories are copied from (`src/main/local/git/test-repos.ts`), and the
+					// native binaries the core process and the CLI tests run.
+					globalSetup: ["./scripts/vitest-test-repos.ts", "./scripts/vitest-native.ts"],
 				},
 			},
 		],

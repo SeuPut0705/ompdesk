@@ -120,6 +120,7 @@ import {
 	tcpConnects,
 } from "./connectivity";
 import { installCliLaunchers } from "./control-socket/cli-install";
+import { stopCore } from "./core/process";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
@@ -161,6 +162,7 @@ import { type ProcessRow, testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, insertModelsProvider, listModelsProviders } from "./models-config";
+import { configureNativeBin, nativeBinPath } from "./native-bin";
 import { followSetupState } from "./omp-availability";
 import { OMP_PIDS_FILE, OmpProcesses } from "./omp-processes";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
@@ -814,12 +816,13 @@ app.whenReady().then(() => {
 	const initialCwd = resolveInitialCwd();
 	const explicitStartupCwd = resolveExplicitStartupCwd();
 	const bridgeDir = app.isPackaged ? join(process.resourcesPath, "gui-bridge") : join(devResourcesDir, "gui-bridge");
+	configureNativeBin({
+		packaged: app.isPackaged,
+		resourcesPath: app.isPackaged ? process.resourcesPath : devResourcesDir,
+	});
 	// The CLI the app ships (bun run build:native stages it for an unpacked run).
-	const cliBinary = process.platform === "win32" ? "ompdesk.exe" : "ompdesk";
 	installCliLaunchers({
-		binary: app.isPackaged
-			? join(process.resourcesPath, "ompdesk-bin", cliBinary)
-			: join(devResourcesDir, "ompdesk-bin", `${process.platform}-${process.arch}`, cliBinary),
+		binary: nativeBinPath("ompdesk"),
 		userData: app.getPath("userData"),
 		platform,
 		packaged: app.isPackaged,
@@ -2477,6 +2480,7 @@ installQuitGuard(
 			["web-host", () => void webHost?.stop()],
 			["session-index", () => sessionIndex?.stop()],
 			["log-watcher", () => logWatcher?.stop()],
+			["core", () => void stopCore()],
 			["tray", () => destroyTray()],
 		];
 		for (const [name, run] of steps) {

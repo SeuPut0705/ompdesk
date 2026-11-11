@@ -127,7 +127,7 @@ async function checkAgentDesktop(context) {
 }
 
 /** OMPdesk's own Rust binaries (`bun run build:native`, scripts/build-native.ts `BINARIES`), by packaged platform. */
-const NATIVE_BINARIES = { darwin: ["ompdesk"], win32: ["ompdesk.exe"] };
+const NATIVE_BINARIES = { darwin: ["ompdesk", "ompdesk-core"], win32: ["ompdesk.exe", "ompdesk-core.exe"] };
 
 /**
  * Fail the package unless every binary built from native/ompdesk is in the packed app's Resources (`ompdesk-bin/`),

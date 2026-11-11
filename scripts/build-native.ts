@@ -29,7 +29,7 @@ export const NATIVE_DIR = path.join(REPO_ROOT, "native", "ompdesk");
 export const BIN_ROOT = path.join(REPO_ROOT, "resources", "ompdesk-bin");
 export const BUILD_MANIFEST = "ompdesk.build.json";
 /** The executables the workspace ships, by cargo binary name. */
-export const BINARIES = ["ompdesk"] as const;
+export const BINARIES = ["ompdesk", "ompdesk-core"] as const;
 export type NativeBinary = (typeof BINARIES)[number];
 
 export interface NativeBuildRecord {

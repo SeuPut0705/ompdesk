@@ -1,26 +1,23 @@
 /**
- * Workspace filesystem behind fs:list / fs:read / fs:read-image /
- * fs:read-binary / fs:read-plan / fs:stat, plus the Files panel's few writes
- * (fs:mutate: new file or folder, rename, move to the trash) — node:fs based,
- * no sidecar session required, cross-platform, rooted at a tab's cwd. Shared by
- * the local IPC handlers and by the remote host (src/main/remote/host-services.ts),
- * which serves the same calls for a paired device's tabs with the same
- * confinement and caps. Never throws: every failure is an `ok: false` result
- * with a stable code.
+ * Workspace filesystem behind fs:list / fs:read / fs:read-image / fs:read-binary / fs:read-plan / fs:stat, plus the
+ * Files panel's few writes (fs:mutate: new file or folder, rename, write, move to the trash), rooted at a tab's cwd.
+ * Shared by the local IPC handlers and by the remote host (src/main/remote/host-services.ts), which serves the same
+ * calls for a paired device's tabs with the same confinement and caps. Never throws (`listDirectories` aside): every
+ * failure is an `ok: false` result with a stable code.
+ *
+ * The disk work runs in the core process (`native/ompdesk/crates/core/src/fs`, methods `fs.*`). What stays here: each
+ * call's argument checks and its path resolution with node's `path` rules (`resolveWithin`, which other modules call
+ * synchronously; the core only ever gets absolute paths main produced), the MIME sniffing (`sniffMime`, synchronous
+ * for its callers too) over the bytes the core sends, and the trash, which needs Electron.
  */
-import type { Dirent } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promises as fsp } from "original-fs";
-import { z } from "zod";
-import { codedError, type IpcErrorCode } from "../shared/ipc-error-codes";
+import { codedError, type IpcErrorCode, isIpcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	FsTreeEntry,
 	IpcFsListPayload,
 	IpcFsListResult,
 	IpcFsMutateResult,
-	IpcFsMutation,
 	IpcFsReadBinaryPayload,
 	IpcFsReadBinaryResult,
 	IpcFsReadImagePayload,
@@ -33,19 +30,14 @@ import type {
 	RemoteDirListing,
 } from "../shared/ipc-types";
 import { FS_LIST_MAX_ENTRIES, FS_WRITE_MAX_BYTES, HOST_DOWNLOAD_PART_BYTES } from "../shared/ipc-types";
+import { CoreError, core } from "./core/process";
 
-const FS_LIST_DEFAULT_DEPTH = 8;
-const FS_LIST_MAX_DEPTH = 16;
 /** Files one listing returns: `default` without a `maxEntries`, never more than `max`. */
 interface FsListFileCaps {
 	default: number;
 	max: number;
 }
 const FS_LIST_FILE_CAPS: FsListFileCaps = { default: 2000, max: FS_LIST_MAX_ENTRIES };
-const FS_READ_DEFAULT_MAX_BYTES = 200_000;
-const FS_READ_MAX_BYTES_CAP = 2_000_000;
-/** Markdown images become data URLs in the renderer; bound the bytes. */
-const FS_IMAGE_MAX_BYTES = 25_000_000;
 /** File viewer reads on this device: whole files up to this size. */
 export const FS_BINARY_LOCAL_MAX_BYTES = 100 * 1024 * 1024;
 /** A paired host's reply travels base64 (+33%) in one 16 MiB frame (remote/wire.ts). */
@@ -53,124 +45,8 @@ export const FS_BINARY_REMOTE_MAX_BYTES = 11 * 1024 * 1024;
 /** Bytes read for magic-number sniffing (SVG's text check needs a few hundred). */
 const SNIFF_HEADER_BYTES = 512;
 const OCTET_STREAM = "application/octet-stream";
-/**
- * Remote folder picker: one level, bounded so a huge directory cannot flood the link; the
- * picker's name filter reaches the folders past the bound.
- */
-const LIST_DIRS_MAX_ENTRIES = 2000;
-
-/** Always-skipped names, applied like root .gitignore patterns. */
-const FS_IGNORED_DEFAULTS = [
-	"node_modules",
-	".git",
-	".hg",
-	".svn",
-	"dist",
-	"out",
-	".next",
-	"target",
-	"build",
-	".turbo",
-	"coverage",
-	"__pycache__",
-	".venv",
-	"venv",
-	".cache",
-	".codegraph",
-	"bazel-*",
-];
-
-interface IgnoreRule {
-	negated: boolean;
-	dirOnly: boolean;
-	regex: RegExp;
-}
-
-const REGEX_SPECIALS = "\\^$.|+()[]{}";
-
-/**
- * Compile one gitignore pattern line into a rule. Minimal but faithful to the
- * common semantics: `!` negation, trailing `/` dir-only, any slash anchors the
- * pattern to the root, `*`/`?` match within a segment, `**` crosses segments.
- */
-function compileIgnoreRule(rawLine: string): IgnoreRule | null {
-	let line = rawLine.trimEnd();
-	if (!line || line.startsWith("#")) return null;
-	let negated = false;
-	if (line.startsWith("!")) {
-		negated = true;
-		line = line.slice(1);
-	} else if (line.startsWith("\\!") || line.startsWith("\\#")) {
-		line = line.slice(1);
-	}
-	let dirOnly = false;
-	if (line.endsWith("/")) {
-		dirOnly = true;
-		line = line.slice(0, -1);
-	}
-	if (!line) return null;
-	const anchored = line.includes("/");
-	if (line.startsWith("/")) line = line.slice(1);
-	let body = "";
-	let i = 0;
-	while (i < line.length) {
-		const char = line[i];
-		if (char === "*") {
-			if (line[i + 1] === "*") {
-				if (line[i + 2] === "/") {
-					body += "(?:[^/]+/)*";
-					i += 3;
-				} else {
-					body += ".*";
-					i += 2;
-				}
-			} else {
-				body += "[^/]*";
-				i += 1;
-			}
-		} else if (char === "?") {
-			body += "[^/]";
-			i += 1;
-		} else if (REGEX_SPECIALS.includes(char)) {
-			body += `\\${char}`;
-			i += 1;
-		} else {
-			body += char;
-			i += 1;
-		}
-	}
-	// A matching directory also ignores everything beneath it.
-	const source = anchored ? `^${body}(?:/.*)?$` : `(?:^|/)${body}(?:/.*)?$`;
-	return { negated, dirOnly, regex: new RegExp(source) };
-}
-
-/** Last matching rule wins, per gitignore semantics. */
-function isIgnored(rules: IgnoreRule[], relPath: string, isDir: boolean): boolean {
-	let ignored = false;
-	for (const rule of rules) {
-		if (rule.dirOnly && !isDir) continue;
-		if (rule.regex.test(relPath)) ignored = !rule.negated;
-	}
-	return ignored;
-}
-
-async function loadIgnoreRules(rootAbs: string): Promise<IgnoreRule[]> {
-	const rules: IgnoreRule[] = [];
-	for (const pattern of FS_IGNORED_DEFAULTS) {
-		const rule = compileIgnoreRule(pattern);
-		if (rule) rules.push(rule);
-	}
-	try {
-		const content = await fsp.readFile(path.join(rootAbs, ".gitignore"), "utf8");
-		for (const line of content.split(/\r?\n/)) {
-			const rule = compileIgnoreRule(line);
-			if (rule) rules.push(rule);
-		}
-	} catch {
-		// No readable root .gitignore — defaults only.
-	}
-	return rules;
-}
+/** The name order's locale: what `new Intl.Collator()` resolves, which the core's ICU collation then uses. */
+const NAME_LOCALE = new Intl.Collator().resolvedOptions().locale;
 
 /** Resolve `rel` against `root`, refusing escapes outside the workspace. */
 export function resolveWithin(root: string, rel: string): string | null {
@@ -178,107 +54,6 @@ export function resolveWithin(root: string, rel: string): string | null {
 	const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
 	if (resolved !== root && !resolved.startsWith(rootWithSep)) return null;
 	return resolved;
-}
-
-/** `abs` when it exists and is a regular file, else null. */
-async function statFile(abs: string): Promise<string | null> {
-	try {
-		return (await fsp.stat(abs)).isFile() ? abs : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Newest top-level `*plan.md` (case-insensitive) in `dirAbs`, mirroring the
- * agent-side `listPlanFiles` fallback (the agent names its own
- * `local://<slug>-plan.md`, so the configured path alone often misses it).
- */
-async function newestPlanFile(dirAbs: string): Promise<string | null> {
-	let dirents: Dirent[];
-	try {
-		dirents = await fsp.readdir(dirAbs, { withFileTypes: true });
-	} catch {
-		return null;
-	}
-	let best: { abs: string; mtimeMs: number } | null = null;
-	for (const dirent of dirents) {
-		if (!dirent.isFile() || !/plan\.md$/i.test(dirent.name)) continue;
-		const abs = path.join(dirAbs, dirent.name);
-		try {
-			const { mtimeMs } = await fsp.stat(abs);
-			if (!best || mtimeMs > best.mtimeMs) best = { abs, mtimeMs };
-		} catch {
-			// Vanished between readdir and stat — skip.
-		}
-	}
-	return best?.abs ?? null;
-}
-
-function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-	return Math.min(max, Math.max(min, Math.floor(value)));
-}
-
-interface WalkState {
-	rules: IgnoreRule[];
-	maxDepth: number;
-	maxFiles: number;
-	fileCount: number;
-	truncated: boolean;
-}
-
-/**
- * Name order for every listing here: numeric runs compare as numbers, so
- * `file-2` sorts before `file-10`. Stock omp exports no name comparator (its
- * only one is inline in `ida/install.ts`), so this is the platform's own.
- */
-const NAME_ORDER = new Intl.Collator(undefined, { numeric: true });
-
-/**
- * Breadth-first readdir → sorted tree (dirs first, then files, each in natural name order). Level by level,
- * so when the file cap stops the walk it is the deepest files that are missing, never every file of a
- * folder that merely sorts late; every folder seen is in the tree, with the children the walk got to.
- */
-async function walkWorkspace(dirAbs: string, relPrefix: string, state: WalkState): Promise<FsTreeEntry[]> {
-	const top: FsTreeEntry[] = [];
-	let level = [{ abs: dirAbs, rel: relPrefix, out: top }];
-	for (let depth = 0; level.length > 0 && !state.truncated; depth++) {
-		const next: typeof level = [];
-		for (const dir of level) {
-			if (state.truncated) break;
-			let dirents: Dirent[];
-			try {
-				dirents = await fsp.readdir(dir.abs, { withFileTypes: true });
-			} catch {
-				continue; // Unreadable directory (permissions) — skip, don't fail the walk.
-			}
-			const files: FsTreeEntry[] = [];
-			const sorted = dirents
-				.filter(dirent => !dirent.isSymbolicLink())
-				.sort((a, b) => NAME_ORDER.compare(a.name, b.name));
-			for (const dirent of sorted) {
-				const isDir = dirent.isDirectory();
-				if (!isDir && !dirent.isFile()) continue;
-				const rel = dir.rel ? `${dir.rel}/${dirent.name}` : dirent.name;
-				if (isIgnored(state.rules, rel, isDir)) continue;
-				if (isDir) {
-					const children: FsTreeEntry[] = [];
-					dir.out.push({ name: dirent.name, path: rel, kind: "dir", children });
-					if (depth < state.maxDepth) next.push({ abs: path.join(dir.abs, dirent.name), rel, out: children });
-				} else if (state.fileCount >= state.maxFiles) {
-					state.truncated = true;
-					break;
-				} else {
-					state.fileCount += 1;
-					files.push({ name: dirent.name, path: rel, kind: "file" });
-				}
-			}
-			dir.out.push(...files);
-		}
-		level = next;
-	}
-	return top;
 }
 
 /** `~/` expands to this machine's home; absolute paths normalize; relative ones resolve inside `cwd`. */
@@ -290,6 +65,28 @@ function resolveReadPath(cwd: string | null, target: string): { abs: string } | 
 	return within ? { abs: within } : { error: "Path escapes the workspace", code: "path_escapes_workspace" };
 }
 
+type Asked<T> = { ok: true; result: T; bin: Uint8Array } | { ok: false; error: string; code?: IpcErrorCode };
+
+/** One core call as the functions here report it: the app's code when the failure has one, and its message. */
+async function ask<T>(method: string, params: unknown, bin?: Uint8Array): Promise<Asked<T>> {
+	try {
+		const answer = await core().call<T>(method, params, bin ? { bin } : {});
+		return { ok: true, result: answer.result, bin: answer.bin ?? new Uint8Array(0) };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return error instanceof CoreError && isIpcErrorCode(error.code)
+			? { ok: false, error: message, code: error.code }
+			: { ok: false, error: message };
+	}
+}
+
+interface CoreStat {
+	file: boolean;
+	directory: boolean;
+	size: number;
+	mtimeMs: number;
+}
+
 /**
  * The workspace tree under `rootAbs` (gitignore-aware, depth- and file-capped). `fileCaps` is the production
  * pair; a test passes small ones so the caps are proven on a dozen files instead of thousands.
@@ -299,43 +96,31 @@ export async function listWorkspace(
 	payload: Omit<IpcFsListPayload, "tabId">,
 	fileCaps: FsListFileCaps = FS_LIST_FILE_CAPS,
 ): Promise<IpcFsListResult> {
-	if (!rootAbs) return { ok: false, entries: [], truncated: false, error: "No workspace", code: "no_workspace" };
+	const fail = (error: string, code?: IpcErrorCode): IpcFsListResult => ({
+		ok: false,
+		entries: [],
+		truncated: false,
+		error,
+		...(code ? { code } : {}),
+	});
+	if (!rootAbs) return fail("No workspace", "no_workspace");
 	const prefix = (typeof payload?.path === "string" ? payload.path : "")
 		.replace(/\\/g, "/")
 		.replace(/^\.\//, "")
 		.replace(/^\/+|\/+$/g, "");
 	const dirAbs = resolveWithin(rootAbs, prefix);
-	if (!dirAbs) {
-		return {
-			ok: false,
-			entries: [],
-			truncated: false,
-			error: "Path escapes the workspace",
-			code: "path_escapes_workspace",
-		};
-	}
-	const state: WalkState = {
-		rules: await loadIgnoreRules(rootAbs),
-		maxDepth: clampInt(payload?.maxDepth, 1, FS_LIST_MAX_DEPTH, FS_LIST_DEFAULT_DEPTH),
-		maxFiles: clampInt(payload?.maxEntries, 1, fileCaps.max, fileCaps.default),
-		fileCount: 0,
-		truncated: false,
-	};
-	try {
-		const stat = await fsp.stat(dirAbs);
-		if (!stat.isDirectory()) {
-			return { ok: false, entries: [], truncated: false, error: "Not a directory", code: "not_a_directory" };
-		}
-		const entries = await walkWorkspace(dirAbs, prefix, state);
-		return { ok: true, entries, truncated: state.truncated };
-	} catch (err) {
-		return {
-			ok: false,
-			entries: [],
-			truncated: state.truncated,
-			error: err instanceof Error ? err.message : String(err),
-		};
-	}
+	if (!dirAbs) return fail("Path escapes the workspace", "path_escapes_workspace");
+	const listed = await ask<{ entries: FsTreeEntry[]; truncated: boolean }>("fs.list", {
+		root: rootAbs,
+		dir: dirAbs,
+		prefix,
+		maxDepth: payload?.maxDepth,
+		maxEntries: payload?.maxEntries,
+		caps: fileCaps,
+		locale: NAME_LOCALE,
+	});
+	if (!listed.ok) return fail(listed.error, listed.code);
+	return { ok: true, entries: listed.result.entries, truncated: listed.result.truncated };
 }
 
 /** A text file with a byte cap; binary (NUL in the read region) comes back empty. */
@@ -355,32 +140,12 @@ export async function readWorkspaceFile(
 	if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
 	const target = resolveReadPath(cwd, payload.path);
 	if ("error" in target) return fail(target.error, target.code);
-	const maxBytes = clampInt(payload.maxBytes, 1, FS_READ_MAX_BYTES_CAP, FS_READ_DEFAULT_MAX_BYTES);
-	try {
-		const stat = await fsp.stat(target.abs);
-		if (!stat.isFile()) return fail("Not a file", "not_a_file");
-		const handle = await fsp.open(target.abs, "r");
-		try {
-			const length = Math.min(stat.size, maxBytes + 1);
-			const buffer = Buffer.alloc(length);
-			const { bytesRead } = await handle.read(buffer, 0, length, 0);
-			const slice = buffer.subarray(0, bytesRead);
-			if (slice.includes(0)) {
-				return { ok: true, content: "", truncated: false, binary: true, size: stat.size };
-			}
-			return {
-				ok: true,
-				content: slice.subarray(0, Math.min(bytesRead, maxBytes)).toString("utf8"),
-				truncated: stat.size > maxBytes,
-				binary: false,
-				size: stat.size,
-			};
-		} finally {
-			await handle.close();
-		}
-	} catch (err) {
-		return fail(err instanceof Error ? err.message : String(err));
-	}
+	const read = await ask<{ content: string; truncated: boolean; binary: boolean; size: number }>("fs.readText", {
+		path: target.abs,
+		maxBytes: payload.maxBytes,
+	});
+	if (!read.ok) return fail(read.error, read.code);
+	return { ok: true, ...read.result };
 }
 
 function hasBytes(header: Uint8Array, offset: number, bytes: readonly number[]): boolean {
@@ -512,17 +277,6 @@ export function sniffMime(header: Uint8Array, filePath: string): string {
 	return byExtension ?? OCTET_STREAM;
 }
 
-/** Fill `buffer` from the start of the file; fewer bytes only when the file is shorter. */
-async function readInto(handle: FileHandle, buffer: Uint8Array): Promise<number> {
-	let offset = 0;
-	while (offset < buffer.length) {
-		const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
-		if (bytesRead === 0) break;
-		offset += bytesRead;
-	}
-	return offset;
-}
-
 /**
  * File viewer read: the bytes of any file with a sniffed MIME, resolved like
  * `readWorkspaceFile`. A whole file up to `capBytes` (local 100 MB, a paired
@@ -547,41 +301,28 @@ export async function readWorkspaceBinary(
 	if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
 	const target = resolveReadPath(cwd, payload.path);
 	if ("error" in target) return fail(target.error, target.code);
-	const prefix =
-		typeof payload.maxBytes === "number" && payload.maxBytes < capBytes
-			? clampInt(payload.maxBytes, 1, capBytes, capBytes)
-			: null;
-	try {
-		const stat = await fsp.stat(target.abs);
-		if (!stat.isFile()) return fail("Not a file", "not_a_file");
-		const handle = await fsp.open(target.abs, "r");
-		try {
-			if (prefix === null && stat.size > capBytes) {
-				const header = new Uint8Array(Math.min(stat.size, SNIFF_HEADER_BYTES));
-				const read = await readInto(handle, header);
-				const mime = sniffMime(header.subarray(0, read), target.abs);
-				return fail(`File is ${stat.size} bytes, over the ${capBytes}-byte cap`, "file_too_large", stat.size, mime);
-			}
-			const length = prefix === null ? stat.size : Math.min(stat.size, prefix);
-			const buffer = new Uint8Array(length);
-			const read = await readInto(handle, buffer);
-			// A file that shrank since the stat: hand over an exact-size copy, not a view of the larger buffer.
-			const data = read === length ? buffer : buffer.slice(0, read);
-			return {
-				ok: true,
-				data,
-				mime: sniffMime(data.subarray(0, SNIFF_HEADER_BYTES), target.abs),
-				size: stat.size,
-				truncated: stat.size > length,
-			};
-		} finally {
-			await handle.close();
-		}
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
-		return fail(message, missing ? "file_not_found" : undefined);
-	}
+	const read = await ask<{ size: number; truncated: boolean; tooLarge: boolean }>("fs.readBinary", {
+		path: target.abs,
+		maxBytes: payload.maxBytes,
+		cap: capBytes,
+		head: SNIFF_HEADER_BYTES,
+	});
+	if (!read.ok) return fail(read.error, read.code);
+	const { size, truncated, tooLarge } = read.result;
+	if (tooLarge)
+		return fail(
+			`File is ${size} bytes, over the ${capBytes}-byte cap`,
+			"file_too_large",
+			size,
+			sniffMime(read.bin, target.abs),
+		);
+	return {
+		ok: true,
+		data: read.bin,
+		mime: sniffMime(read.bin.subarray(0, SNIFF_HEADER_BYTES), target.abs),
+		size,
+		truncated,
+	};
 }
 
 export interface WorkspaceRangePayload {
@@ -614,37 +355,20 @@ export async function readWorkspaceRange(
 	if (!Number.isSafeInteger(payload.offset) || payload.offset < 0) return fail("Invalid offset", "invalid_path");
 	const target = resolveReadPath(cwd, payload.path);
 	if ("error" in target) return fail(target.error, target.code);
-	const length = clampInt(payload.length, 0, Math.min(capBytes, HOST_DOWNLOAD_PART_BYTES), 0);
-	try {
-		const stat = await fsp.stat(target.abs);
-		if (!stat.isFile()) return fail("Not a file", "not_a_file");
-		const want = Math.max(0, Math.min(length, stat.size - payload.offset));
-		const buffer = new Uint8Array(want);
-		const handle = await fsp.open(target.abs, "r");
-		let read = 0;
-		try {
-			while (read < want) {
-				const { bytesRead } = await handle.read(buffer, read, want - read, payload.offset + read);
-				if (bytesRead === 0) break;
-				read += bytesRead;
-			}
-		} finally {
-			await handle.close();
-		}
-		// A file that shrank since the stat: an exact-size copy, not a view of the larger buffer.
-		const data = read === want ? buffer : buffer.slice(0, read);
-		return {
-			ok: true,
-			data,
-			mime: sniffMime(payload.offset === 0 ? data.subarray(0, SNIFF_HEADER_BYTES) : new Uint8Array(0), target.abs),
-			size: stat.size,
-			truncated: payload.offset + data.length < stat.size,
-		};
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
-		return fail(message, missing ? "file_not_found" : undefined);
-	}
+	const read = await ask<{ size: number; truncated: boolean }>("fs.readRange", {
+		path: target.abs,
+		offset: payload.offset,
+		length: payload.length,
+		cap: Math.min(capBytes, HOST_DOWNLOAD_PART_BYTES),
+	});
+	if (!read.ok) return fail(read.error, read.code);
+	return {
+		ok: true,
+		data: read.bin,
+		mime: sniffMime(payload.offset === 0 ? read.bin.subarray(0, SNIFF_HEADER_BYTES) : new Uint8Array(0), target.abs),
+		size: read.result.size,
+		truncated: read.result.truncated,
+	};
 }
 
 export type WorkspaceFileResult =
@@ -657,18 +381,10 @@ export async function resolveWorkspaceFile(cwd: string | null, target: unknown):
 		return { ok: false, error: "Invalid path", code: "invalid_path" };
 	const resolved = resolveReadPath(cwd, target);
 	if ("error" in resolved) return { ok: false, error: resolved.error, code: resolved.code };
-	try {
-		const stat = await fsp.stat(resolved.abs);
-		if (!stat.isFile()) return { ok: false, error: "Not a file", code: "not_a_file" };
-		return { ok: true, abs: resolved.abs, size: stat.size };
-	} catch (err) {
-		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
-		return {
-			ok: false,
-			error: err instanceof Error ? err.message : String(err),
-			...(missing ? { code: "file_not_found" as const } : {}),
-		};
-	}
+	const stat = await ask<CoreStat>("fs.stat", { path: resolved.abs });
+	if (!stat.ok) return stat;
+	if (!stat.result.file) return { ok: false, error: "Not a file", code: "not_a_file" };
+	return { ok: true, abs: resolved.abs, size: stat.result.size };
 }
 
 export type WorkspaceMediaResult =
@@ -686,29 +402,12 @@ export async function resolveWorkspaceMedia(cwd: string | null, target: unknown)
 		return { ok: false, error: "Invalid path", code: "invalid_path" };
 	const resolved = resolveReadPath(cwd, target);
 	if ("error" in resolved) return { ok: false, error: resolved.error, code: resolved.code };
-	try {
-		const stat = await fsp.stat(resolved.abs);
-		if (!stat.isFile()) return { ok: false, error: "Not a file", code: "not_a_file" };
-		const handle = await fsp.open(resolved.abs, "r");
-		let mime: string;
-		try {
-			const header = new Uint8Array(Math.min(stat.size, SNIFF_HEADER_BYTES));
-			const read = await readInto(handle, header);
-			mime = sniffMime(header.subarray(0, read), resolved.abs);
-		} finally {
-			await handle.close();
-		}
-		if (!/^(?:audio|video)\//.test(mime))
-			return { ok: false, error: `Not audio or video (${mime})`, code: "unsupported" };
-		return { ok: true, abs: resolved.abs, mime, size: stat.size };
-	} catch (err) {
-		const missing = err instanceof Error && "code" in err && err.code === "ENOENT";
-		return {
-			ok: false,
-			error: err instanceof Error ? err.message : String(err),
-			...(missing ? { code: "file_not_found" as const } : {}),
-		};
-	}
+	const head = await ask<{ size: number }>("fs.resolveMedia", { path: resolved.abs, head: SNIFF_HEADER_BYTES });
+	if (!head.ok) return head;
+	const mime = sniffMime(head.bin, resolved.abs);
+	if (!/^(?:audio|video)\//.test(mime))
+		return { ok: false, error: `Not audio or video (${mime})`, code: "unsupported" };
+	return { ok: true, abs: resolved.abs, mime, size: head.result.size };
 }
 
 /**
@@ -734,34 +433,17 @@ export async function readWorkspaceImage(
 	if (typeof payload?.path !== "string" || payload.path.length === 0) return fail("Invalid path", "invalid_path");
 	const target = resolveReadPath(cwd, payload.path);
 	if ("error" in target) return fail(target.error, target.code);
-	try {
-		const stat = await fsp.stat(target.abs);
-		if (!stat.isFile()) return fail("Not a file", "not_a_file");
-		if (stat.size > FS_IMAGE_MAX_BYTES) return fail("Image too large", "image_too_large");
-		const { known } = payload;
-		if (known && known.mtimeMs === stat.mtimeMs && known.size === stat.size)
-			return { ok: true, dataUrl: null, mime: null, size: stat.size, mtimeMs: stat.mtimeMs, unchanged: true };
-		const handle = await fsp.open(target.abs, "r");
-		try {
-			const header = Buffer.alloc(512);
-			const { bytesRead } = await handle.read(header, 0, 512, 0);
-			const mime = sniffImageMime(header.subarray(0, bytesRead));
-			if (!mime) return fail("Not a supported image", "unsupported_image");
-			const body = Buffer.alloc(stat.size);
-			await handle.read(body, 0, stat.size, 0);
-			return {
-				ok: true,
-				dataUrl: `data:${mime};base64,${body.toString("base64")}`,
-				mime,
-				size: stat.size,
-				mtimeMs: stat.mtimeMs,
-			};
-		} finally {
-			await handle.close();
-		}
-	} catch (err) {
-		return fail(err instanceof Error ? err.message : String(err));
-	}
+	const read = await ask<{ size: number; mtimeMs: number; unchanged?: boolean }>("fs.readImage", {
+		path: target.abs,
+		known: payload.known,
+	});
+	if (!read.ok) return fail(read.error, read.code);
+	const { size, mtimeMs, unchanged } = read.result;
+	if (unchanged) return { ok: true, dataUrl: null, mime: null, size, mtimeMs, unchanged: true };
+	const body = Buffer.from(read.bin.buffer, read.bin.byteOffset, read.bin.byteLength);
+	const mime = sniffImageMime(body.subarray(0, SNIFF_HEADER_BYTES));
+	if (!mime) return fail("Not a supported image", "unsupported_image");
+	return { ok: true, dataUrl: `data:${mime};base64,${body.toString("base64")}`, mime, size, mtimeMs };
 }
 
 /**
@@ -794,48 +476,35 @@ export async function readPlanFile(
 		localRoot = withinAllowedRoots(payload.localRoot);
 		if (!localRoot) return fail("Path escapes allowed roots", "path_escapes_roots");
 	}
-	try {
-		const picked = (await statFile(target)) ?? (localRoot ? await newestPlanFile(localRoot) : null);
-		if (!picked) return { ok: true, path: null, content: null };
-		return { ok: true, path: picked, content: await fsp.readFile(picked, "utf8") };
-	} catch (err) {
-		return fail(err instanceof Error ? err.message : String(err));
-	}
+	const plan = await ask<{ content: string | null; fallback: string | null }>("fs.readPlan", { target, localRoot });
+	if (!plan.ok) return fail(plan.error, plan.code);
+	const { content, fallback } = plan.result;
+	if (content === null) return { ok: true, path: null, content: null };
+	return { ok: true, path: fallback !== null && localRoot ? path.join(localRoot, fallback) : target, content };
 }
 
 /**
  * One directory level for a folder picker: the subdirectories of `target`
  * (this machine's home when omitted), hidden ones skipped, only those whose
  * name contains `query` (case-insensitive) when one is given. At most
- * LIST_DIRS_MAX_ENTRIES come back, `truncated` when more matched. Throws a coded
+ * 2000 come back, `truncated` when more matched. Throws a coded
  * error (`not_absolute_path`, `not_a_directory`, `file_not_found`) for a bad target.
  */
 export async function listDirectories(target: string | undefined, query?: string): Promise<RemoteDirListing> {
 	const dir = target === undefined || target === "" ? os.homedir() : target;
 	if (!path.isAbsolute(dir)) throw codedError("not_absolute_path", "Not an absolute path");
 	const abs = path.resolve(dir);
-	let dirents: Dirent[];
+	let listed: { names: string[]; truncated: boolean };
 	try {
-		dirents = await fsp.readdir(abs, { withFileTypes: true });
-	} catch (err) {
-		const code = (err as NodeJS.ErrnoException).code;
-		if (code === "ENOTDIR") throw codedError("not_a_directory", "Not a directory");
-		if (code === "ENOENT") throw codedError("file_not_found", "Directory not found");
-		throw err;
+		listed = (await core().call<typeof listed>("fs.listDirs", { dir: abs, query, locale: NAME_LOCALE })).result;
+	} catch (error) {
+		if (error instanceof CoreError && (error.code === "not_a_directory" || error.code === "file_not_found"))
+			throw codedError(error.code, error.message);
+		throw error instanceof CoreError && error.code === "io" ? new Error(error.message) : error;
 	}
-	const needle = query?.trim().toLocaleLowerCase() ?? "";
-	const names = dirents
-		.filter(
-			dirent =>
-				dirent.isDirectory() &&
-				!dirent.name.startsWith(".") &&
-				(needle === "" || dirent.name.toLocaleLowerCase().includes(needle)),
-		)
-		.map(dirent => dirent.name)
-		.sort(NAME_ORDER.compare);
-	const entries = names.slice(0, LIST_DIRS_MAX_ENTRIES).map(name => ({ name, path: path.join(abs, name) }));
+	const entries = listed.names.map(name => ({ name, path: path.join(abs, name) }));
 	const parent = path.dirname(abs);
-	return { path: abs, parent: parent === abs ? null : parent, entries, truncated: names.length > entries.length };
+	return { path: abs, parent: parent === abs ? null : parent, entries, truncated: listed.truncated };
 }
 
 /** The file's mtime and size, for the viewer's disk watch; a missing path is `file_not_found`. */
@@ -850,53 +519,18 @@ export async function statWorkspacePath(cwd: string | null, target: unknown): Pr
 	if (typeof target !== "string" || target.length === 0) return fail("Invalid path", "invalid_path");
 	const resolved = resolveReadPath(cwd, target);
 	if ("error" in resolved) return fail(resolved.error, resolved.code);
-	try {
-		const stat = await fsp.stat(resolved.abs);
-		return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size, directory: stat.isDirectory() };
-	} catch (err) {
-		return fail(err instanceof Error ? err.message : String(err), fsErrorCode(err));
-	}
+	const stat = await ask<CoreStat>("fs.stat", { path: resolved.abs });
+	if (!stat.ok) return fail(stat.error, stat.code);
+	return { ok: true, mtimeMs: stat.result.mtimeMs, size: stat.result.size, directory: stat.result.directory };
 }
-
-function fsErrorCode(err: unknown): IpcErrorCode | undefined {
-	const code = err && typeof err === "object" && "code" in err ? err.code : undefined;
-	if (code === "ENOENT") return "file_not_found";
-	if (code === "EEXIST" || code === "ENOTEMPTY") return "exists";
-	return undefined;
-}
-
-/** One path segment a user typed: no separators, no `.`/`..`, no control characters. */
-function validEntryName(name: unknown): name is string {
-	return (
-		typeof name === "string" &&
-		name.trim() === name &&
-		name.length > 0 &&
-		name.length <= 255 &&
-		name !== "." &&
-		name !== ".." &&
-		!/[\\/]|\p{Cc}/u.test(name)
-	);
-}
-
-/** The wire shape of `IpcFsMutation`; anything else from a renderer or a peer is refused. */
-const FsMutationSchema: z.ZodType<IpcFsMutation> = z.discriminatedUnion("op", [
-	z.object({ op: z.enum(["createFile", "createFolder"]), parent: z.string(), name: z.string() }),
-	z.object({ op: z.literal("rename"), path: z.string(), name: z.string() }),
-	z.object({ op: z.literal("trash"), path: z.string() }),
-	z.object({
-		op: z.literal("write"),
-		path: z.string(),
-		content: z.string(),
-		expectedMtimeMs: z.number(),
-		force: z.boolean().optional(),
-	}),
-]);
 
 /**
  * The Files panel's writes inside `root`: create an empty file or a folder in `parent`, rename an entry in place,
  * hand it to `trash` (the OS trash, never a hard delete), or `write` an existing text file the viewer edited.
  * An existing target is `exists`, never overwritten; a write whose file changed since the editor loaded it is
- * `changed_on_disk` unless forced. `path` in the result is the new workspace-relative POSIX path.
+ * `changed_on_disk` unless forced. `path` in the result is the new workspace-relative POSIX path. The core validates
+ * the request and does the work; here the request's path is resolved (it gets `resolved`, null for an escape) and a
+ * `trash` answer, on the path the core just checked, goes to `trash`.
  */
 export async function mutateWorkspace(
 	root: string | null,
@@ -909,65 +543,34 @@ export async function mutateWorkspace(
 		...(code ? { code } : {}),
 	});
 	if (!root) return fail("No workspace", "no_workspace");
-	const parsed = FsMutationSchema.safeParse(request);
-	if (!parsed.success) return fail("Invalid file operation", "invalid_path");
-	const mutation = parsed.data;
-	const relative = (abs: string) => path.relative(root, abs).split(path.sep).join("/");
-	const inside = (rel: unknown) =>
-		typeof rel === "string" ? resolveWithin(root, rel.replace(/\\/g, "/").replace(/^\.\//, "")) : null;
-	const exists = (abs: string) =>
-		fsp.lstat(abs).then(
-			() => true,
-			() => false,
-		);
-	try {
-		if ("parent" in mutation) {
-			if (!validEntryName(mutation.name)) return fail("Invalid name", "invalid_name");
-			const dir = inside(mutation.parent);
-			if (!dir) return fail("Path escapes the workspace", "path_escapes_workspace");
-			if (!(await fsp.stat(dir)).isDirectory()) return fail("Not a directory", "not_a_directory");
-			const abs = path.join(dir, mutation.name);
-			if (mutation.op === "createFile") await fsp.writeFile(abs, "", { flag: "wx" });
-			else await fsp.mkdir(abs);
-			return { ok: true, path: relative(abs) };
+	const fields =
+		typeof request === "object" && request !== null && !Array.isArray(request)
+			? (request as Record<string, unknown>)
+			: null;
+	const rel = fields?.op === "createFile" || fields?.op === "createFolder" ? fields.parent : fields?.path;
+	const resolved = typeof rel === "string" ? resolveWithin(root, rel.replace(/\\/g, "/").replace(/^\.\//, "")) : null;
+	// A write's text goes as the frame's bytes, encoded as node writes it.
+	const content =
+		fields?.op === "write" && typeof fields.content === "string" ? Buffer.from(fields.content, "utf8") : undefined;
+	const done = await ask<{ abs: string; trash?: boolean; mtimeMs?: number }>(
+		"fs.mutate",
+		{
+			root,
+			request: content ? { ...fields, content: undefined } : request,
+			resolved,
+			maxWriteBytes: FS_WRITE_MAX_BYTES,
+		},
+		content,
+	);
+	if (!done.ok) return fail(done.error, done.code);
+	const { abs, mtimeMs } = done.result;
+	if (done.result.trash) {
+		try {
+			await trash(abs);
+		} catch (err) {
+			return fail(err instanceof Error ? err.message : String(err));
 		}
-		const source = inside(mutation.path);
-		if (!source) return fail("Path escapes the workspace", "path_escapes_workspace");
-		if (source === root) return fail("The project folder itself can't change here", "invalid_path");
-		if (!(await exists(source))) return fail("File not found", "file_not_found");
-		if (mutation.op === "trash") {
-			await trash(source);
-			return { ok: true, path: relative(source) };
-		}
-		if (mutation.op === "write") {
-			// Through a symlink only when its target is inside the project too.
-			const [realRoot, realSource] = await Promise.all([fsp.realpath(root), fsp.realpath(source)]);
-			if (realSource !== realRoot && !realSource.startsWith(realRoot + path.sep)) {
-				return fail("Path escapes the workspace", "path_escapes_workspace");
-			}
-			const before = await fsp.stat(realSource);
-			if (!before.isFile()) return fail("Not a file", "not_a_file");
-			if (Buffer.byteLength(mutation.content, "utf8") > FS_WRITE_MAX_BYTES) {
-				return fail("The file is too large to save here", "file_too_large");
-			}
-			if (!mutation.force && before.mtimeMs !== mutation.expectedMtimeMs) {
-				return fail("The file changed on disk since it was opened", "changed_on_disk");
-			}
-			// In place, so the file keeps its mode, owner, links and any open handles.
-			await fsp.writeFile(realSource, mutation.content, "utf8");
-			return { ok: true, path: relative(source), mtimeMs: (await fsp.stat(realSource)).mtimeMs };
-		}
-		if (!validEntryName(mutation.name)) return fail("Invalid name", "invalid_name");
-		const target = path.join(path.dirname(source), mutation.name);
-		if (target === source) return { ok: true, path: relative(source) };
-		// A case-only rename finds the source itself on a case-insensitive disk; anything else there is taken.
-		if (await exists(target)) {
-			const [from, to] = await Promise.all([fsp.lstat(source), fsp.lstat(target)]);
-			if (from.ino !== to.ino || from.dev !== to.dev) return fail("A file with that name already exists", "exists");
-		}
-		await fsp.rename(source, target);
-		return { ok: true, path: relative(target) };
-	} catch (err) {
-		return fail(err instanceof Error ? err.message : String(err), fsErrorCode(err));
 	}
+	const relative = path.relative(root, abs).split(path.sep).join("/");
+	return mtimeMs === undefined ? { ok: true, path: relative } : { ok: true, path: relative, mtimeMs };
 }

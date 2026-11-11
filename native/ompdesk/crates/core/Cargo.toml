@@ -1,0 +1,43 @@
+[package]
+name = "ompdesk-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "ompdesk_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ompdesk-core"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The process's base: requests run concurrently (a slow listing never holds a small read behind it); later units
+# bring sockets, child processes and timers. Only the features used.
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync"] }
+# The wire: one JSON object per line. `raw_value` hands a request's params to its handler unparsed.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+# Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
+icu_collator = "2"
+# The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).
+icu_casemap = "2"
+icu_locale_core = "2"
+
+[target.'cfg(unix)'.dependencies]
+# errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`).
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# A rename's "is the target the source itself" (a case-only rename) needs the file's identity, which std keeps
+# unstable on Windows (`windows_by_handle`).
+same-file = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "sync"] }

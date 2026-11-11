@@ -15,7 +15,6 @@ const MAIN = __dirname;
 const USER_FOLDER_MODULES = [
 	"agent-browsers.ts",
 	"open-path.ts",
-	"workspace-fs.ts",
 	"worktree-orphans.ts",
 	"worktree-removals.ts",
 	"web/host-actions.ts",

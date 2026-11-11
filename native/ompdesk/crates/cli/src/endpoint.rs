@@ -87,21 +87,19 @@ pub fn read_endpoint(socket: Option<&str>, io: &Io) -> Result<Endpoint, String> 
             token_file.display()
         ));
     }
+    if io.platform != "win32" && !Path::new(&path).exists() {
+        return Err(format!("OMPdesk is not running (no {path})"));
+    }
+    #[cfg(unix)]
     if io.platform != "win32" {
-        if !Path::new(&path).exists() {
-            return Err(format!("OMPdesk is not running (no {path})"));
-        }
-        #[cfg(unix)]
-        {
-            let socket = Path::new(&path);
-            let folder = match socket.parent() {
-                Some(parent) if !parent.as_os_str().is_empty() => parent,
-                _ => Path::new("."),
-            };
-            owner_only(folder, "socket folder", io.uid)?;
-            owner_only(socket, "socket", io.uid)?;
-            owner_only(&token_file, "token", io.uid)?;
-        }
+        let socket = Path::new(&path);
+        let folder = match socket.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        owner_only(folder, "socket folder", io.uid)?;
+        owner_only(socket, "socket", io.uid)?;
+        owner_only(&token_file, "token", io.uid)?;
     }
     let token =
         fs::read(&token_file).map_err(|e| format!("{e}, open '{}'", token_file.display()))?;
