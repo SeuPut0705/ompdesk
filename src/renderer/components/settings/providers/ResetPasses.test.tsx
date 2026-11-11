@@ -263,6 +263,91 @@ describe("reset passes on provider accounts", () => {
 			detail: translate("resetPasses.outcome.offerChanged"),
 		});
 	});
+
+	describe("an account that holds more than one kind of pass", () => {
+		const fable = {
+			clears: ["anthropic:5h", "anthropic:7d:fable"],
+			title: "Fable launch reset",
+			count: 1,
+			expiresAt,
+			early: false,
+			creditId: "grant-fable",
+		};
+		const full = { clears: ["anthropic:5h", "anthropic:7d"], title: "Limit reset", count: 2, early: false };
+		const fullWindows = `${translate("resetPasses.window.5h")}, ${translate("resetPasses.window.7d")}`;
+		const holding = (tickets: NonNullable<ResetPasses["tickets"]>): ProviderAccount => ({
+			...limited,
+			resetPasses: { ...usable, ...fable, count: 3, usableCount: 1, tickets },
+		});
+		const cards = () => Array.from(document.body.querySelectorAll('[role="dialog"] [role="radio"]'));
+		const card = (windows: string) =>
+			cards().find(candidate => (candidate.textContent ?? "").includes(windows)) as HTMLButtonElement | undefined;
+		const open = () =>
+			act(async () => button(translate("resetPasses.useFor", { account: "home@example.com" }))?.click());
+		const confirm = () =>
+			act(async () =>
+				(
+					Array.from(document.body.querySelectorAll('[role="dialog"] button')).find(
+						candidate => (candidate.textContent ?? "").trim() === translate("resetPasses.use"),
+					) as HTMLButtonElement | undefined
+				)?.click(),
+			);
+
+		it("lists each kind in the dialog and spends the one picked", async () => {
+			await mountAccounts([holding([fable, { ...full, creditId: "grant-full" }])]);
+			redeemResetPass.mockResolvedValue(
+				ok("redeem_reset_pass", { ok: false, code: "nothing_to_reset", message: "" }),
+			);
+			await open();
+
+			expect(cards()).toHaveLength(2);
+			// A card says what its kind resets, the provider's name for it, how many and until when.
+			expect(card(fullWindows)?.textContent).toContain(
+				`Limit reset · ${translate("resetPasses.count", { count: 2 })}`,
+			);
+			expect(cards()[0]?.textContent).toContain(
+				`Fable launch reset · ${translate("resetPasses.countOne")} · ${translate("resetPasses.expires", { date: "10/12" })}`,
+			);
+			// Until a kind is picked, the dialog describes the first one on offer.
+			expect(cards()[0]?.getAttribute("aria-checked")).toBe("true");
+			expect(text()).not.toContain(translate("resetPasses.confirmResets", { windows: fullWindows }));
+			expect(text()).not.toContain(translate("resetPasses.chooseLimit", { provider: "Claude" }));
+
+			await act(async () => card(fullWindows)?.click());
+			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("true");
+			expect(text()).toContain(translate("resetPasses.confirmResets", { windows: fullWindows }));
+			expect(redeemResetPass).not.toHaveBeenCalled();
+
+			await confirm();
+			expect(redeemResetPass).toHaveBeenCalledTimes(1);
+			expect(redeemResetPass).toHaveBeenCalledWith("anthropic", 9, "grant-full");
+		});
+
+		it("forgets the pick when the dialog is opened again", async () => {
+			await mountAccounts([holding([fable, { ...full, creditId: "grant-full" }])]);
+			await open();
+			await act(async () => card(fullWindows)?.click());
+			await act(async () => button(translate("common.cancel"))?.click());
+			await open();
+			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("false");
+		});
+
+		it("cannot pick a kind omp is offered no pass of, says why, and spends the one on offer", async () => {
+			await mountAccounts([holding([fable, full])]);
+			redeemResetPass.mockResolvedValue(
+				ok("redeem_reset_pass", { ok: false, code: "nothing_to_reset", message: "" }),
+			);
+			await open();
+
+			expect(card(fullWindows)?.disabled).toBe(true);
+			expect(text()).toContain(translate("resetPasses.chooseLimit", { provider: "Claude" }));
+			await act(async () => card(fullWindows)?.click());
+			expect(card(fullWindows)?.getAttribute("aria-checked")).toBe("false");
+
+			await confirm();
+			expect(redeemResetPass).toHaveBeenCalledWith("anthropic", 9, "grant-fable");
+		});
+	});
 });
 
 describe("reset passes on the Usage page", () => {

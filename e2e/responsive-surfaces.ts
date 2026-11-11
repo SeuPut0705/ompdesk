@@ -71,6 +71,11 @@ export interface Surface {
 		 * shows nothing of it).
 		 */
 		inView?: string;
+		/**
+		 * False while the fake omp was not started with the data this surface shows (a flag of e2e/fixture/rpc-ui.ts):
+		 * the sheet then has no such surface, and `--both-orders` leaves it out.
+		 */
+		available?(): boolean;
 	};
 }
 
@@ -1217,6 +1222,30 @@ export const SURFACES: readonly Surface[] = [
 		// Parity only: the audits measure the model picker through the composer's chip above.
 		when: () => false,
 		parity: { session: "work", after: closeOverlay },
+	},
+	{
+		id: "settings-reset-tickets",
+		area: "B",
+		title: "Settings › Models & accounts, the reset pass dialog of an account that holds two kinds of pass",
+		open: async (page, look) => {
+			await openSettingsModels(page, look);
+			const ticket = page.locator("[data-settings-page] [data-reset-passes] button").first();
+			await ticket.waitFor({ state: "visible", timeout: 30_000 });
+			await ticket.scrollIntoViewIfNeeded();
+			await ticket.click();
+		},
+		ready: "[role='dialog'] [data-reset-ticket]",
+		settle: 600,
+		// Parity only, and only over a host whose fake omp has such an account.
+		when: () => false,
+		parity: {
+			session: "work",
+			after: closeOverlay,
+			available: () =>
+				process.env.OMP_GUI_TEST_LOGIN === "1" &&
+				process.env.OMP_GUI_TEST_MODELS === "1" &&
+				process.env.OMP_GUI_TEST_RESET_TICKETS === "1",
+		},
 	},
 	{
 		id: "settings-computer-use",

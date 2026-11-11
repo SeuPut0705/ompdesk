@@ -306,7 +306,9 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // length, a file card's `data-file-path`, the model picker's line for the highlighted model, a menu's reason reachable
 // by the arrows and segments that shrink to fit their track, all on surfaces the first screen holds: 2,197,597,
 // 12,369 bytes more (0.6 %).
-const WEB_FIRST_SCREEN_JS_BYTES = 2_197_597;
+// A reset pass dialog's choice between an account's kinds of pass (11 Nov 2026): its two strings in the English
+// catalog, which the first screen loads; the dialog itself is Settings', off it: 2,197,603.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_197_603;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

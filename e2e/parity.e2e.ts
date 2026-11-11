@@ -87,7 +87,9 @@ interface SurfaceRecord {
 type ParitySurface = Surface & { parity: NonNullable<Surface["parity"]> };
 
 function paritySurfaces(): ParitySurface[] {
-	const capable = SURFACES.filter((surface): surface is ParitySurface => surface.parity !== undefined);
+	const capable = SURFACES.filter(
+		(surface): surface is ParitySurface => surface.parity !== undefined && surface.parity.available?.() !== false,
+	);
 	const only = process.env.OMP_GUI_PARITY_ONLY?.split(",").filter(Boolean);
 	if (!only) return capable;
 	return only.map(id => {

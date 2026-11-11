@@ -3,7 +3,8 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ompPackageRoot } from "./omp-runtime";
 import { configDirName, INSTALLED_OMP } from "./test-bridge-probe";
@@ -40,6 +41,20 @@ const grant = (extra: Record<string, unknown> = {}) => ({
 const offer = (status: Record<string, unknown>) => ({ status: 200, body: { cedar_ember: status } });
 const live = offer({ eligible: true, grants: [grant()], next_grant_id: "grant-live" });
 
+/**
+ * An account with two kinds of pass, both usable by Claude's own word: a Fable reset, which Claude names next, and a
+ * regular one. Claude Code lets a person pick either; stock omp spends only the one named next.
+ */
+const KINDS = offer({
+	eligible: true,
+	grants: [
+		grant({ id: "grant-fable", label: "Fable reset", clears: ["five_hour", "seven_day_overage_included"] }),
+		grant({ id: "grant-regular", label: "Limit reset", clears: ["five_hour", "seven_day"], resets_left: 2 }),
+	],
+	next_grant_id: "grant-fable",
+});
+/** The fake's route for the listing of that account (no redeem). */
+const LISTED = "kinds";
 interface Case {
 	/** The pass the person confirmed; absent = the target carries no `creditId`. */
 	confirm?: string;
@@ -81,6 +96,15 @@ const CASES: Record<string, Case> = {
 		expected: { ok: false, code: "credit_list_failed" },
 		spends: false,
 	},
+	// What keeps the other kinds of an account's passes unpickable in OMPdesk (reset-passes-core.ts `resetTickets`): a
+	// grant Claude calls usable but did not name next is refused unspent. When stock takes a chosen grant, this case
+	// and the listing below change with it, and the dialog's other cards open by themselves.
+	"other-kind": {
+		confirm: "grant-regular",
+		usage: KINDS,
+		expected: { ok: false, code: "offer_changed" },
+		spends: false,
+	},
 	// No confirmed pass: stock still checks the offer is usable, then spends its own live pick.
 	unconfirmed: { usage: live, expected: { ok: true, code: "reset" }, spends: true },
 	confirmed: { confirm: "grant-live", usage: live, expected: { ok: true, code: "reset" }, spends: true },
@@ -118,7 +142,11 @@ guarded.preconnect = (input, options) => {
 globalThis.fetch = guarded;
 `;
 
+/** The bridge's pure ticket rules, read from this checkout by the probe (a file outside omp's package). */
+const CORE = pathToFileURL(resolve("resources/gui-bridge/reset-passes-core.ts")).href;
+
 const PROBE = `
+import { resetTickets } from "${CORE}";
 export default function (pi) {
  const run = async () => {
   try {
@@ -154,8 +182,11 @@ export default function (pi) {
      creditId: outcome.creditId,
     };
    }
+   pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/${LISTED}" });
+   const [listed] = await session.listResetCredits(undefined, "anthropic");
    console.error("RESET_REDEEM_PROBE=" + JSON.stringify({
     results,
+    listed: { count: listed?.availableCount, tickets: resetTickets(listed?.credits ?? []) },
     startupRefused: guard.blocked.slice(0, startup),
     blocked: guard.blocked.slice(startup),
     loopback: guard.loopback,
@@ -188,8 +219,9 @@ function fakeClaude(received: Received[]) {
 				response.writeHead(status, { "content-type": "application/json" });
 				response.end(payload === undefined ? "" : JSON.stringify(payload));
 			};
-			if (scripted && request.method === "GET" && route === USAGE) {
-				answer(scripted.usage.status, scripted.usage.body);
+			const usage = name === LISTED ? KINDS : scripted?.usage;
+			if (usage && request.method === "GET" && route === USAGE) {
+				answer(usage.status, usage.body);
 			} else if (scripted && request.method === "POST" && route === CONSUME) {
 				answer(200, { result: "reset", cleared: ["five_hour"] });
 			} else {
@@ -289,7 +321,8 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 		// engine probes at startup).
 		const toFake = (probe.loopback as string[]).filter(url => url.startsWith(`${base}/`));
 		expect(toFake.map(url => url.slice(base.length)).sort()).toEqual(received.map(entry => entry.path).sort());
-		expect(received.every(entry => Object.keys(CASES).some(name => entry.path.startsWith(`/${name}/`)))).toBe(true);
+		const routes = [...Object.keys(CASES), LISTED];
+		expect(received.every(entry => routes.some(name => entry.path.startsWith(`/${name}/`)))).toBe(true);
 	});
 
 	it.each(Object.entries(CASES))("%s: one live offer read, then a spend only when it holds", (name, scripted) => {
@@ -308,5 +341,31 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 		for (const body of spends) {
 			expect(body).toMatchObject({ program: "cedar_ember", grant_id: "grant-live", request_id: expect.any(String) });
 		}
+	});
+
+	it("lists two kinds of pass as two tickets, a pass to spend only on the one Claude names next", () => {
+		expect(probe.listed).toEqual({
+			count: 3,
+			tickets: [
+				{
+					clears: ["anthropic:5h", "anthropic:7d:fable"],
+					title: "Fable reset",
+					count: 1,
+					expiresAt: Date.parse(FUTURE),
+					early: false,
+					creditId: "grant-fable",
+				},
+				{
+					clears: ["anthropic:5h", "anthropic:7d"],
+					title: "Limit reset",
+					count: 2,
+					expiresAt: Date.parse(FUTURE),
+					early: false,
+				},
+			],
+		});
+		expect(received.filter(entry => entry.path.startsWith(`/${LISTED}/`)).map(entry => entry.method)).toEqual([
+			"GET",
+		]);
 	});
 });

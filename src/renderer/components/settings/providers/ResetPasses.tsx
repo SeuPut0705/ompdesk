@@ -10,17 +10,21 @@
  *
  * Manual eligibility follows stock toResetUsageAccounts. Stock redeemResetCredit
  * decides whether there is anything to reset; automatic exhaustion policy is separate.
+ *
+ * An account that holds more than one kind of pass (`passes.tickets`: a Claude Fable reset and a full reset) lists
+ * them in that dialog, one card per kind, and spends the one picked. A kind stock offers no pass of cannot be picked;
+ * one line under the cards says why.
  */
 
 import { Hourglass, Ticket } from "lucide-react";
 import { useState } from "react";
-import type { ResetPasses, ResetPassRedeemResult, UsageLimit } from "../../../../shared/rpc-types";
+import type { ResetPasses, ResetPassRedeemResult, ResetTicket, UsageLimit } from "../../../../shared/rpc-types";
 import { formatSpanCompact } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useTabRpc } from "../../../lib/tab-rpc";
 import { usageLimitLabel } from "../../../lib/usage-labels";
 import { toast, toastError } from "../../../stores/toast";
-import { Button, ConfirmDialog, Tooltip } from "../../common";
+import { Button, ChoiceCards, ConfirmDialog, Tooltip } from "../../common";
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -52,21 +56,25 @@ const OUTCOME_KEYS: Record<string, string> = {
 	malformed_response: "resetPasses.outcome.unconfirmed",
 };
 
-/** "2 reset passes · expires 10/12" (month/day, the soonest pass). */
-export function resetPassSummary(passes: ResetPasses, t: TFn): string {
-	const parts = [passes.count === 1 ? t("resetPasses.countOne") : t("resetPasses.count", { count: passes.count })];
-	if (passes.usableCount !== passes.count) parts.push(t("resetPasses.usableNow", { count: passes.usableCount }));
-	if (passes.expiresAt !== undefined) {
-		const date = new Date(passes.expiresAt);
+/** "2 reset passes · expires 10/12" (month/day, the soonest pass); `usable` between them when it differs. */
+function countAndExpiry(count: number, expiresAt: number | undefined, t: TFn, usable = count): string {
+	const parts = [count === 1 ? t("resetPasses.countOne") : t("resetPasses.count", { count })];
+	if (usable !== count) parts.push(t("resetPasses.usableNow", { count: usable }));
+	if (expiresAt !== undefined) {
+		const date = new Date(expiresAt);
 		parts.push(t("resetPasses.expires", { date: `${date.getMonth() + 1}/${date.getDate()}` }));
 	}
 	return parts.join(" · ");
 }
 
+export function resetPassSummary(passes: ResetPasses, t: TFn): string {
+	return countAndExpiry(passes.count, passes.expiresAt, t, passes.usableCount);
+}
+
 /** What one pass resets, by name: the account's own limit titles where the provider's names are unknown. */
-function windowsText(passes: ResetPasses, limits: readonly UsageLimit[], t: TFn): string {
-	if (passes.clears.length === 0) return t("resetPasses.windowsAll");
-	return passes.clears
+function windowsText(clears: readonly string[], limits: readonly UsageLimit[], t: TFn): string {
+	if (clears.length === 0) return t("resetPasses.windowsAll");
+	return clears
 		.map(id => {
 			if (WINDOW_KEYS[id]) return t(WINDOW_KEYS[id]);
 			const limit = limits.find(entry => entry.id === id);
@@ -74,6 +82,9 @@ function windowsText(passes: ResetPasses, limits: readonly UsageLimit[], t: TFn)
 		})
 		.join(", ");
 }
+
+/** A ticket's name among an account's tickets: what it resets, which is what makes it a kind. */
+const ticketKind = (ticket: ResetTicket): string => [...ticket.clears].sort().join(" ");
 
 export function ResetPassControl({
 	providerId,
@@ -109,14 +120,21 @@ export function ResetPassControl({
 	const tabRpc = useTabRpc();
 	const [confirming, setConfirming] = useState(false);
 	const [busy, setBusy] = useState(false);
+	/** The kind picked in the dialog; none picked means the first one stock offers a pass of. */
+	const [pick, setPick] = useState<string>();
 	const hint = passes.redeemable
 		? undefined
 		: t("resetPasses.unavailable", { reason: passes.unavailableReason ?? t("resetPasses.unavailableUnknown") });
+	const tickets = passes.tickets ?? [];
+	const offered = tickets.filter(ticket => ticket.creditId !== undefined);
+	const chosen = offered.find(ticket => ticketKind(ticket) === pick) ?? offered[0];
+	/** The pass a confirm spends and describes: the chosen kind's, else the one stock spends by itself. */
+	const spent = chosen ?? passes;
 
 	const redeem = async () => {
 		setBusy(true);
 		try {
-			const response = await tabRpc.redeemResetPass(providerId, credentialId, passes.creditId);
+			const response = await tabRpc.redeemResetPass(providerId, credentialId, spent.creditId);
 			if (!response.success) {
 				toastError({ title: t("resetPasses.failed"), error: response });
 				return;
@@ -170,7 +188,10 @@ export function ResetPassControl({
 			disabledReason={summary}
 			icon={<Ticket />}
 			loading={busy}
-			onClick={() => setConfirming(true)}
+			onClick={() => {
+				setPick(undefined);
+				setConfirming(true);
+			}}
 			size="sm"
 			variant="secondary"
 		>
@@ -198,13 +219,48 @@ export function ResetPassControl({
 			<ConfirmDialog
 				busy={busy}
 				confirmLabel={t("resetPasses.use")}
-				message={[
-					t("resetPasses.confirmSpend", { account, provider: providerName, count: passes.count }),
-					t("resetPasses.confirmResets", { windows: windowsText(passes, limits, t) }),
-					...(passes.title ? [t("resetPasses.confirmPass", { title: passes.title })] : []),
-					...(passes.early ? [t("resetPasses.confirmEarly")] : []),
-					t("resetPasses.autoRedeem"),
-				].join("\n\n")}
+				message={
+					<>
+						{t("resetPasses.confirmSpend", { account, provider: providerName, count: passes.count })}
+						{tickets.length > 0 ? (
+							<div className="my-3 whitespace-normal" data-reset-tickets>
+								<ChoiceCards
+									aria-label={t("resetPasses.choose")}
+									className="grid-cols-1"
+									disabled={busy}
+									onChange={setPick}
+									optionAttr="data-reset-ticket"
+									options={tickets.map(ticket => ({
+										value: ticketKind(ticket),
+										icon: <Ticket aria-hidden className="size-3.5 shrink-0" />,
+										title: windowsText(ticket.clears, limits, t),
+										hint: [ticket.title, countAndExpiry(ticket.count, ticket.expiresAt, t)]
+											.filter(Boolean)
+											.join(" · "),
+										disabled: ticket.creditId === undefined,
+									}))}
+									value={chosen ? ticketKind(chosen) : null}
+								/>
+								{offered.length < tickets.length && (
+									<p className="mt-1.5 text-sc-xs text-(--sc-text-muted)" data-reset-tickets-limit>
+										{t("resetPasses.chooseLimit", { provider: providerName })}
+									</p>
+								)}
+							</div>
+						) : (
+							"\n\n"
+						)}
+						{[
+							t("resetPasses.confirmResets", { windows: windowsText(spent.clears, limits, t) }),
+							// A card already carries its pass's name.
+							...(spent.title && tickets.length === 0
+								? [t("resetPasses.confirmPass", { title: spent.title })]
+								: []),
+							...(spent.early ? [t("resetPasses.confirmEarly")] : []),
+							t("resetPasses.autoRedeem"),
+						].join("\n\n")}
+					</>
+				}
 				onCancel={() => setConfirming(false)}
 				onConfirm={() => void redeem()}
 				open={confirming}

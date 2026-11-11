@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	type ResetAccountStatus,
+	type ResetCreditDetail,
 	type ResetPassSurface,
 	type ResetUsageAccount,
 	redeemResetPass,
@@ -119,6 +120,84 @@ describe("reset confirmation binding", () => {
 			ok: false,
 			code: "nothing_to_reset",
 		});
+	});
+});
+describe("an account's passes by kind", () => {
+	const day = (n: number) => new Date(Date.UTC(2027, 0, n)).toISOString();
+	/** Two live Claude grants as stock 18.18.8 lists them: only the one Claude names next is usable. */
+	const fable: ResetCreditDetail = {
+		id: "g_fable",
+		title: "Fable launch reset",
+		remainingCount: 1,
+		usable: true,
+		requiresLimit: true,
+		clears: ["anthropic:5h", "anthropic:7d:fable"],
+		expiresAt: day(20),
+		status: "available",
+	};
+	const regular: ResetCreditDetail = {
+		id: "g_regular",
+		title: "Limit reset",
+		remainingCount: 2,
+		usable: false,
+		requiresLimit: false,
+		clears: ["anthropic:7d", "anthropic:5h"],
+		expiresAt: day(9),
+		status: "unavailable",
+	};
+	const holding: ResetUsageAccount = {
+		...account,
+		availableCount: 3,
+		target: { provider: "anthropic", credentialId: 7, creditId: "g_fable" },
+		credit: fable,
+	};
+
+	it("lists one ticket per kind, the one stock can spend first, and names a pass only on that one", () => {
+		const passes = shapeResetPasses(holding, [regular, fable]);
+		expect(passes?.tickets).toEqual([
+			{
+				clears: ["anthropic:5h", "anthropic:7d:fable"],
+				title: "Fable launch reset",
+				count: 1,
+				expiresAt: Date.parse(day(20)),
+				early: false,
+				creditId: "g_fable",
+			},
+			{
+				clears: ["anthropic:7d", "anthropic:5h"],
+				title: "Limit reset",
+				count: 2,
+				expiresAt: Date.parse(day(9)),
+				early: true,
+			},
+		]);
+		expect(passes?.tickets?.reduce((sum, ticket) => sum + ticket.count, 0)).toBe(passes?.count);
+		expect(passes?.creditId).toBe("g_fable");
+	});
+
+	it("counts passes that reset the same limits as one kind, with the soonest expiry and the usable pass", () => {
+		const second: ResetCreditDetail = { ...fable, id: "g_fable_2", usable: false, expiresAt: day(3) };
+		const [first] = shapeResetPasses(holding, [second, fable, regular])?.tickets ?? [];
+		expect(first).toMatchObject({ count: 2, expiresAt: Date.parse(day(3)), creditId: "g_fable" });
+	});
+
+	it("offers nothing to choose with one kind, and never counts a spent or expired pass as a kind", () => {
+		expect(shapeResetPasses(holding, [fable])?.tickets).toBeUndefined();
+		expect(shapeResetPasses(holding)?.tickets).toBeUndefined();
+		expect(
+			shapeResetPasses(holding, [
+				fable,
+				{ ...regular, status: "expired" },
+				{ ...regular, id: "g_spent", remainingCount: 0, status: "redeemed" },
+			])?.tickets,
+		).toBeUndefined();
+		// Codex credits name no limits: however many, they are one kind.
+		expect(
+			shapeResetPasses(codexAccount, [
+				{ id: "c1", status: "available", expiresAt: day(3) },
+				{ id: "c2", status: "available", expiresAt: day(9) },
+			])?.tickets,
+		).toBeUndefined();
 	});
 });
 describe("a provider whose stock redeem checks the live offer itself (Claude)", () => {

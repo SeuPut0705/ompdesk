@@ -1355,6 +1355,9 @@ export const ko: Record<string, string> = {
 	"resetPasses.useFor": "{account} 초기화권 사용",
 	"resetPasses.unavailable": "지금은 쓸 수 없어요: {reason}",
 	"resetPasses.unavailableUnknown": "프로바이더가 허용하지 않아요",
+	"resetPasses.choose": "쓸 초기화권",
+	"resetPasses.chooseLimit":
+		"omp는 {provider}가 다음 차례로 내주는 초기화권만 쓸 수 있어요. 나머지는 아직 고를 수 없어요.",
 	"resetPasses.confirmTitle": "초기화권을 사용할까요?",
 	"resetPasses.confirmSpend": "{account}({provider})의 초기화권 {count}개 중 1개를 써요.",
 	"resetPasses.confirmResets": "{windows} 초기화를 요청해요. 실제 적용 가능 여부는 프로바이더가 판단해요.",

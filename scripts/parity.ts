@@ -20,7 +20,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { SURFACES } from "../e2e/responsive-surfaces";
 
-const capable = SURFACES.filter(surface => surface.parity).map(surface => surface.id);
+const capable = SURFACES.filter(surface => surface.parity && surface.parity.available?.() !== false).map(
+	surface => surface.id,
+);
 const args = process.argv.slice(2);
 const outAt = args.indexOf("--out");
 const bothOrders = args.includes("--both-orders");

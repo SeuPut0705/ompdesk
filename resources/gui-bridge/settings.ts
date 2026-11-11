@@ -491,7 +491,7 @@ async function resetProjector(
 				credits: report.resetCredits.credits ?? [],
 			},
 		]);
-		return shapeResetPasses(selected);
+		return shapeResetPasses(selected, report.resetCredits.credits ?? []);
 	};
 }
 

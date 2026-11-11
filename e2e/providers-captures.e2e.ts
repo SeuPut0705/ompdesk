@@ -96,6 +96,35 @@ for (const [size, options] of Object.entries(SIZES))
 					animations: "disabled",
 					path: path.join(SHOTS ?? "", `providers-${size}-${lang}.png`),
 				});
+				// The account that holds two kinds of reset pass: its ticket opens the dialog with one card per kind.
+				await list.locator('[data-provider-account="2"] [data-reset-passes] button').click();
+				const dialog = page.locator('[role="dialog"]');
+				const cards = dialog.locator("[data-reset-ticket]");
+				await expect(cards).toHaveCount(2);
+				await expect(cards.nth(0)).toHaveAttribute("aria-checked", "true");
+				await expect(cards.nth(1)).toBeDisabled();
+				await expect(dialog.locator("[data-reset-tickets-limit]")).toBeVisible();
+				// Nothing drawn past the dialog's edges (its own scroll width counts the ✕'s touch area, so boxes are compared).
+				const spill = await dialog.evaluate(node => {
+					const box = node.getBoundingClientRect();
+					return Array.from(node.querySelectorAll("*")).flatMap(element => {
+						const rect = element.getBoundingClientRect();
+						return rect.right > box.right + 0.5 || rect.left < box.left - 0.5 ? [element.tagName] : [];
+					});
+				});
+				expect(spill).toEqual([]);
+				if (size === "phone") {
+					for (const { hit, label } of await hitSizes(cards)) {
+						expect(hit.height, label).toBeGreaterThanOrEqual(44);
+					}
+				}
+				await page.waitForTimeout(300);
+				await dialog.screenshot({
+					animations: "disabled",
+					path: path.join(SHOTS ?? "", `reset-tickets-${size}-${lang}.png`),
+				});
+				await dialog.getByRole("button", { name: lang === "ko" ? "취소" : "Cancel" }).click();
+				await expect(dialog).toHaveCount(0);
 			} finally {
 				await browser.close();
 			}

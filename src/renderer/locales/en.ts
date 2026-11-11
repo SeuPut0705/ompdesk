@@ -1365,6 +1365,8 @@ export const en: Record<string, string> = {
 	"resetPasses.useFor": "Use a reset pass for {account}",
 	"resetPasses.unavailable": "Can't be used now: {reason}",
 	"resetPasses.unavailableUnknown": "the provider doesn't allow it",
+	"resetPasses.choose": "Which pass to use",
+	"resetPasses.chooseLimit": "omp can spend only the pass {provider} offers next. The others can't be chosen yet.",
 	"resetPasses.confirmTitle": "Use a reset pass?",
 	"resetPasses.confirmSpend": "This spends 1 of the {count} reset passes on {account} ({provider}).",
 	"resetPasses.confirmResets": "Requests a reset of: {windows}. The provider decides whether it can be applied.",

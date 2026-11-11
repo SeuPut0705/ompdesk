@@ -112,6 +112,37 @@ function fable(usedFraction: number) {
 
 const PASSES = { count: 2, usableCount: 1, clears: ["anthropic:7d"], early: false, redeemable: true };
 
+/**
+ * An account holding two kinds of pass, as stock omp reports them: a Fable reset Claude names next (the only one omp
+ * can spend) and two regular ones.
+ */
+function twoKinds(): NonNullable<ProviderAccount["resetPasses"]> {
+	const day = 24 * 60 * MINUTE;
+	const fable = {
+		clears: ["anthropic:5h", "anthropic:7d:fable"],
+		title: "Fable launch reset",
+		early: false,
+		creditId: "fable",
+	};
+	return {
+		...fable,
+		count: 3,
+		usableCount: 1,
+		expiresAt: Date.now() + 30 * day,
+		redeemable: true,
+		tickets: [
+			{ ...fable, count: 1, expiresAt: Date.now() + 120 * day },
+			{
+				clears: ["anthropic:5h", "anthropic:7d"],
+				title: "Limit reset",
+				count: 2,
+				expiresAt: Date.now() + 30 * day,
+				early: false,
+			},
+		],
+	};
+}
+
 /** What `get_provider_accounts` answers for one of the providers above. */
 export function accountsFor(providerId: string): ProviderAccount[] {
 	switch (providerId) {
@@ -119,7 +150,7 @@ export function accountsFor(providerId: string): ProviderAccount[] {
 			const work = account(1, "work@example.com", "anthropic", 0.34, 0.52, { inUse: true });
 			const home = account(2, "home@example.com", "anthropic", 1, 0.9, {
 				limitedUntil: Date.now() + 95 * MINUTE,
-				resetPasses: { ...PASSES, expiresAt: Date.now() + 120 * 24 * 60 * MINUTE },
+				resetPasses: twoKinds(),
 			});
 			const studio = account(3, "studio@example.com", "anthropic", 0.08, 0.31, {
 				resetPasses: { ...PASSES, count: 1, usableCount: 0, redeemable: false },

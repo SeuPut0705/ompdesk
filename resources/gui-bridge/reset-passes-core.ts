@@ -24,6 +24,16 @@ export interface ResetCreditsInfo {
 	credits?: ResetCreditDetail[];
 }
 
+/** Wire shape: `ResetTicket` in src/shared/rpc-types.ts. */
+export interface ResetTicket {
+	clears: string[];
+	title?: string;
+	count: number;
+	expiresAt?: number;
+	early: boolean;
+	creditId?: string;
+}
+
 /** Wire shape: `ResetPasses` in src/shared/rpc-types.ts. */
 export interface ResetPasses {
 	count: number;
@@ -35,12 +45,60 @@ export interface ResetPasses {
 	creditId?: string;
 	redeemable: boolean;
 	unavailableReason?: string;
+	tickets?: ResetTicket[];
 }
 
-/** The selector, not GUI quota heuristics, determines whether manual redemption is offered. */
-export function shapeResetPasses(account: ResetUsageAccount | undefined): ResetPasses | undefined {
+const expiryMs = (credit: ResetCreditDetail): number => {
+	const at = credit.expiresAt ? Date.parse(credit.expiresAt) : Number.NaN;
+	return Number.isFinite(at) ? at : Number.POSITIVE_INFINITY;
+};
+
+/**
+ * The account's passes by kind: what one resets tells kinds apart (a Claude Fable reset and a full reset), and passes
+ * that reset the same limits are one ticket with their count and soonest expiry. A ticket names a pass (`creditId`)
+ * only where stock marks one of its kind usable now: stock decides what can be spent, never this list. Stock's Claude
+ * redeem spends the one grant Claude names next (pi-ai auth/resets.ts: any other id is `offer_changed`), so that is
+ * the only ticket with a pass to spend until stock takes a chosen grant.
+ */
+export function resetTickets(credits: readonly ResetCreditDetail[]): ResetTicket[] {
+	const kinds = new Map<string, ResetCreditDetail[]>();
+	for (const credit of credits) {
+		if (credit.status === "expired" || credit.status === "redeemed" || (credit.remainingCount ?? 1) <= 0) continue;
+		const kind = [...(credit.clears ?? [])].sort().join(" ");
+		kinds.set(kind, [...(kinds.get(kind) ?? []), credit]);
+	}
+	return [...kinds.values()]
+		.map((passes): ResetTicket => {
+			const soonest = passes.reduce((first, pass) => (expiryMs(pass) < expiryMs(first) ? pass : first));
+			const spendable = passes.find(pass => pass.usable === true && pass.id);
+			const shown = spendable ?? soonest;
+			return {
+				clears: shown.clears ?? [],
+				...(shown.title ? { title: shown.title } : {}),
+				count: passes.reduce((sum, pass) => sum + (pass.remainingCount ?? 1), 0),
+				...(Number.isFinite(expiryMs(soonest)) ? { expiresAt: expiryMs(soonest) } : {}),
+				early: shown.requiresLimit === false,
+				...(spendable?.id ? { creditId: spendable.id } : {}),
+			};
+		})
+		.sort(
+			(a, b) =>
+				Number(b.creditId !== undefined) - Number(a.creditId !== undefined) ||
+				(a.expiresAt ?? Number.POSITIVE_INFINITY) - (b.expiresAt ?? Number.POSITIVE_INFINITY),
+		);
+}
+
+/**
+ * The selector, not GUI quota heuristics, determines whether manual redemption is offered. `credits` is the account's
+ * whole list (the selector row carries only the next one): more than one kind among them becomes `tickets`.
+ */
+export function shapeResetPasses(
+	account: ResetUsageAccount | undefined,
+	credits: readonly ResetCreditDetail[] = [],
+): ResetPasses | undefined {
 	if (!account || account.availableCount <= 0) return undefined;
 	const expiresAt = account.expiresAt ? Date.parse(account.expiresAt) : Number.NaN;
+	const tickets = resetTickets(credits);
 	return {
 		count: account.availableCount,
 		usableCount: account.redeemableCount,
@@ -51,6 +109,7 @@ export function shapeResetPasses(account: ResetUsageAccount | undefined): ResetP
 		...(account.target.creditId ? { creditId: account.target.creditId } : {}),
 		redeemable: !account.error && account.redeemableCount > 0,
 		...(account.unavailableReason ? { unavailableReason: account.unavailableReason } : {}),
+		...(tickets.length > 1 ? { tickets } : {}),
 	};
 }
 

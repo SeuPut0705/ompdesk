@@ -1175,6 +1175,7 @@ export function runRpcUi(): void {
 				windowLabel: string;
 				resetsAt?: number;
 			}>;
+			resetPasses?: Record<string, unknown>;
 		}
 	> = {
 		1: {
@@ -1197,6 +1198,41 @@ export function runRpcUi(): void {
 			],
 		},
 	};
+	// `OMP_GUI_TEST_RESET_TICKETS=1` (with OMP_GUI_TEST_MODELS): home@ holds two kinds of reset pass as stock omp
+	// reports them, a Fable reset Claude names next (the one omp can spend) and two regular ones, and a Fable window.
+	if (modelsData && process.env.OMP_GUI_TEST_RESET_TICKETS === "1") {
+		const day = 86_400_000;
+		const fable = {
+			clears: ["anthropic:5h", "anthropic:7d:fable"],
+			title: "Fable launch reset",
+			early: false,
+			creditId: "fable",
+		};
+		accountQuota[2].limits.push({
+			id: "anthropic:7d:fable",
+			label: "Claude 7 Day (Fable)",
+			usedFraction: 0.12,
+			windowId: "7d",
+			windowLabel: "Claude 7 Day",
+		});
+		accountQuota[2].resetPasses = {
+			...fable,
+			count: 3,
+			usableCount: 1,
+			expiresAt: Date.now() + 30 * day,
+			redeemable: true,
+			tickets: [
+				{ ...fable, count: 1, expiresAt: Date.now() + 120 * day },
+				{
+					clears: ["anthropic:5h", "anthropic:7d"],
+					title: "Limit reset",
+					count: 2,
+					expiresAt: Date.now() + 30 * day,
+					early: false,
+				},
+			],
+		};
+	}
 	/**
 	 * `OMP_GUI_TEST_USAGE_DRIFT=1` (with OMP_GUI_TEST_MODELS): the quota moves
 	 * between reads the way a live account does. Each window names its reset,

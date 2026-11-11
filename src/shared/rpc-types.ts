@@ -2326,6 +2326,24 @@ export interface UsageReport {
 }
 
 /**
+ * One kind of reset pass an account holds: passes that reset the same limits (a Claude Fable reset, a full reset),
+ * with how many are left and when the soonest expires.
+ */
+export interface ResetTicket {
+	/** Limit ids (`UsageLimit.id`) one pass of this kind resets. */
+	clears: string[];
+	/** The provider's name for it. */
+	title?: string;
+	count: number;
+	/** When the soonest pass of this kind expires, epoch ms. */
+	expiresAt?: number;
+	/** The provider allows spending it before a covered limit is reached. */
+	early: boolean;
+	/** The pass a spend of this kind names; absent while stock offers none of this kind to spend. */
+	creditId?: string;
+}
+
+/**
  * An account's saved rate-limit resets ("reset passes"), projected from stock
  * toResetUsageAccounts. Stock chooses the credit, target and manual eligibility.
  */
@@ -2348,6 +2366,11 @@ export interface ResetPasses {
 	redeemable: boolean;
 	/** The provider's reason none can be spent now. */
 	unavailableReason?: string;
+	/**
+	 * The kinds to choose between, only when the account holds more than one; the fields above then describe the one
+	 * stock spends when nothing is chosen. An older host sends none.
+	 */
+	tickets?: ResetTicket[];
 }
 
 /** `redeem_reset_pass` result: stock's redeem outcome. */
