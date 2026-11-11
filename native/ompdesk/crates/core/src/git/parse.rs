@@ -1,6 +1,7 @@
 //! What git prints, read the way the TypeScript read it (`split("\0")` records, prefixes, JavaScript string lengths
 //! where the answer counted in them).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -504,6 +505,111 @@ pub fn remote_web_base(url: &str) -> Option<String> {
     Some(format!("https://{host}/{path}"))
 }
 
+/// `text.slice(from)` counted in UTF-16 units, as JavaScript slices; a cut through a surrogate pair keeps U+FFFD for
+/// the half JavaScript kept.
+fn utf16_tail(text: &str, from: usize) -> Cow<'_, str> {
+    let mut units = 0;
+    for (at, c) in text.char_indices() {
+        if units == from {
+            return Cow::Borrowed(&text[at..]);
+        }
+        units += c.len_utf16();
+        if units > from {
+            return Cow::Owned(format!("\u{fffd}{}", &text[at + c.len_utf8()..]));
+        }
+    }
+    Cow::Borrowed("")
+}
+
+/// The untracked paths (`??`) of `git status --porcelain=v1 -z`, read as `parseGitStatus` reads it: a record under
+/// four UTF-16 units is skipped, and a rename or copy on either side takes the next record as its origin.
+pub fn untracked_v1(text: &str) -> Vec<String> {
+    let moved = |unit: Option<u16>| matches!(unit, Some(0x52 | 0x43));
+    let mut paths = Vec::new();
+    let mut records = text.split('\0');
+    while let Some(record) = records.next() {
+        if record.encode_utf16().count() < 4 {
+            continue;
+        }
+        let mut units = record.encode_utf16();
+        let (index, worktree) = (units.next(), units.next());
+        if moved(index) || moved(worktree) {
+            records.next();
+        }
+        if index == Some(u16::from(b'?')) {
+            paths.push(utf16_tail(record, 3).into_owned());
+        }
+    }
+    paths
+}
+
+/// The paths a session worktree's snapshot stats from `git status --porcelain -z`: each record of four UTF-16 units
+/// or more, after its two letters and the space; an index rename or copy skips the record after it (its origin).
+pub fn status_v1_paths(text: &str) -> Vec<Cow<'_, str>> {
+    let mut paths = Vec::new();
+    let mut records = text.split('\0');
+    while let Some(record) = records.next() {
+        if record.encode_utf16().count() < 4 {
+            continue;
+        }
+        if record.starts_with(['R', 'C']) {
+            records.next();
+        }
+        paths.push(utf16_tail(record, 3));
+    }
+    paths
+}
+
+/// What a branch has not landed: the files of `git diff --name-status -z` in its order, each with the lines
+/// `--numstat -z` counted for its path (none for a binary file), a rename or copy with its origin.
+pub fn landing_files(names: &str, counts_text: &str) -> Vec<CommitFile> {
+    let counts = numstat(counts_text);
+    let records: Vec<&str> = names.split('\0').collect();
+    let mut files = Vec::new();
+    let mut index = 0;
+    while index < records.len() {
+        let code = records[index];
+        if !code.is_empty() {
+            let step = if code.starts_with(['R', 'C']) { 2 } else { 1 };
+            let old_path = (step == 2)
+                .then(|| records.get(index + 1).map(|old| (*old).to_owned()))
+                .flatten();
+            let path = records.get(index + step).copied().unwrap_or("");
+            index += step;
+            if !path.is_empty() {
+                let count = counts.get(path);
+                files.push(CommitFile {
+                    path: path.to_owned(),
+                    old_path,
+                    status: code.chars().take(1).collect(),
+                    added: count.map(|(added, _)| *added),
+                    removed: count.map(|(_, removed)| *removed),
+                });
+            }
+        }
+        index += 1;
+    }
+    files
+}
+
+/// The first checkout `git worktree list --porcelain` names (JavaScript's `/^worktree (.+)$/m`: a line ends at `\n`,
+/// `\r`, U+2028 or U+2029, and an empty path is no match).
+pub fn first_worktree(listing: &str) -> Option<&str> {
+    listing
+        .split(['\n', '\r', '\u{2028}', '\u{2029}'])
+        .find_map(|line| {
+            line.strip_prefix("worktree ")
+                .filter(|path| !path.is_empty())
+        })
+}
+
+/// Every checkout `git worktree list --porcelain -z` names, the main one first.
+pub fn worktree_paths(list: &str) -> Vec<&str> {
+    list.split('\0')
+        .filter_map(|field| field.strip_prefix("worktree "))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -884,6 +990,193 @@ mod tests {
             (0.000001, "0.000001"),
         ] {
             assert_eq!(js_number(value), spelled, "{value}");
+        }
+    }
+
+    /// `serde_json` decoding of a captured row's JSON string literal.
+    fn text(json: &str) -> String {
+        serde_json::from_str(json).unwrap()
+    }
+
+    // Rows captured on 12 Nov 2026 from `parseDiff` of `src/main/local/git/unlanded.ts`, copied verbatim into a Bun
+    // script outside the repository (`/tmp/ompdesk-held/capture-pure-2d.ts`) and run before the TypeScript was
+    // deleted: names, numstat, the files it answered.
+    #[test]
+    fn lists_what_a_branch_has_not_landed_as_unlanded_ts_did() {
+        let rows = [
+            (
+                "\"M\\u0000a.txt\\u0000\"",
+                "\"1\\t2\\ta.txt\\u0000\"",
+                "[{\"path\":\"a.txt\",\"status\":\"M\",\"added\":1,\"removed\":2}]",
+            ),
+            (
+                "\"A\\u0000new\\u0000D\\u0000gone\\u0000\"",
+                "\"3\\t0\\tnew\\u00000\\t4\\tgone\\u0000\"",
+                "[{\"path\":\"new\",\"status\":\"A\",\"added\":3,\"removed\":0},{\"path\":\"gone\",\"status\":\"D\",\"added\":0,\"removed\":4}]",
+            ),
+            (
+                "\"R100\\u0000old\\u0000new\\u0000\"",
+                "\"0\\t0\\t\\u0000old\\u0000new\\u0000\"",
+                "[{\"path\":\"new\",\"oldPath\":\"old\",\"status\":\"R\",\"added\":0,\"removed\":0}]",
+            ),
+            (
+                "\"R087\\u0000o\\u0000n\\u0000M\\u0000x\\u0000\"",
+                "\"2\\t1\\t\\u0000o\\u0000n\\u00005\\t5\\tx\\u0000\"",
+                "[{\"path\":\"n\",\"oldPath\":\"o\",\"status\":\"R\",\"added\":2,\"removed\":1},{\"path\":\"x\",\"status\":\"M\",\"added\":5,\"removed\":5}]",
+            ),
+            (
+                "\"C075\\u0000src\\u0000copy\\u0000\"",
+                "\"1\\t0\\t\\u0000src\\u0000copy\\u0000\"",
+                "[{\"path\":\"copy\",\"oldPath\":\"src\",\"status\":\"C\",\"added\":1,\"removed\":0}]",
+            ),
+            (
+                "\"A\\u0000bin.dat\\u0000\"",
+                "\"-\\t-\\tbin.dat\\u0000\"",
+                "[{\"path\":\"bin.dat\",\"status\":\"A\"}]",
+            ),
+            (
+                "\"M\\u0000tab\\tname\\u0000\"",
+                "\"1\\t1\\ttab\\tname\\u0000\"",
+                "[{\"path\":\"tab\\tname\",\"status\":\"M\",\"added\":1,\"removed\":1}]",
+            ),
+            (
+                "\"M\\u0000nl\\nname\\u0000\"",
+                "\"1\\t1\\tnl\\nname\\u0000\"",
+                "[{\"path\":\"nl\\nname\",\"status\":\"M\",\"added\":1,\"removed\":1}]",
+            ),
+            ("\"\"", "\"\"", "[]"),
+            ("\"M\\u0000\"", "\"\"", "[]"),
+            (
+                "\"R100\\u0000only-old\\u0000\"",
+                "\"x\\ty\\tz\\u0000\"",
+                "[]",
+            ),
+            (
+                "\"T\\u0000link\\u0000\"",
+                "\"1\\t1\\tlink\\u00001\\t1\\tlink\\u0000\"",
+                "[{\"path\":\"link\",\"status\":\"T\",\"added\":1,\"removed\":1}]",
+            ),
+            // JavaScript's Number rounded the count to 12345678901234567000; a u64 keeps it.
+            (
+                "\"M\\u0000k\\u0000\"",
+                "\"12345678901234567890\\t1\\tk\\u0000\"",
+                "[{\"path\":\"k\",\"status\":\"M\",\"added\":12345678901234567890,\"removed\":1}]",
+            ),
+            (
+                "\"U\\u0000conflict\\u0000M\\u0000a\\u0000\"",
+                "\"abc\\t1\\ta\\u0000\"",
+                "[{\"path\":\"conflict\",\"status\":\"U\"},{\"path\":\"a\",\"status\":\"M\"}]",
+            ),
+            (
+                "\"M\\u0000π.txt\\u0000\"",
+                "\"1\\t0\\tπ.txt\\u0000\"",
+                "[{\"path\":\"π.txt\",\"status\":\"M\",\"added\":1,\"removed\":0}]",
+            ),
+            (
+                "\"MM\\u0000weird\\u0000\"",
+                "\"1\\t0\\tweird\"",
+                "[{\"path\":\"weird\",\"status\":\"M\",\"added\":1,\"removed\":0}]",
+            ),
+        ];
+        for (names, counts, files) in rows {
+            let names = text(names);
+            let counts = text(counts);
+            let expected: serde_json::Value = serde_json::from_str(files).unwrap();
+            assert_eq!(
+                serde_json::to_value(landing_files(&names, &counts)).unwrap(),
+                expected,
+                "{names:?} {counts:?}"
+            );
+        }
+    }
+
+    // Rows captured as above from the snapshot loop of `snapshotSessionWorktree` (`session-worktree.ts`) and from
+    // `parseGitStatus` filtered on `index === "?"` (`unlanded.ts`): a status, the paths stated, the untracked paths.
+    #[test]
+    fn reads_porcelain_v1_paths_as_the_typescript_did() {
+        let rows = [
+            ("\"\"", "[]", "[]"),
+            ("\"?? a\\u0000\"", "[\"a\"]", "[\"a\"]"),
+            ("\" M b\\u0000M  c\\u0000\"", "[\"b\",\"c\"]", "[]"),
+            (
+                "\"R  new\\u0000old\\u0000?? u\\u0000\"",
+                "[\"new\",\"u\"]",
+                "[\"u\"]",
+            ),
+            (
+                "\"C  cp\\u0000src\\u0000 M x\\u0000\"",
+                "[\"cp\",\"x\"]",
+                "[]",
+            ),
+            (
+                "\" R wt-renamed\\u0000wt-old\\u0000\"",
+                "[\"wt-renamed\",\"old\"]",
+                "[]",
+            ),
+            ("\"?? \\u0000\"", "[]", "[]"),
+            (
+                "\"?? a b\\u0000!! ignored\\u0000\"",
+                "[\"a b\",\"ignored\"]",
+                "[\"a b\"]",
+            ),
+            ("\"AM tab\\tname\\u0000\"", "[\"tab\\tname\"]", "[]"),
+            (
+                "\"?? nl\\nname\\u0000\"",
+                "[\"nl\\nname\"]",
+                "[\"nl\\nname\"]",
+            ),
+            ("\"MM\\u0000\"", "[]", "[]"),
+            ("\"?? π\\u0000\"", "[\"π\"]", "[\"π\"]"),
+            ("\"R  only\\u0000\"", "[\"only\"]", "[]"),
+        ];
+        for (status, stated, untracked) in rows {
+            let status = text(status);
+            let stated: Vec<String> = serde_json::from_str(stated).unwrap();
+            let untracked: Vec<String> = serde_json::from_str(untracked).unwrap();
+            assert_eq!(status_v1_paths(&status), stated, "{status:?}");
+            assert_eq!(untracked_v1(&status), untracked, "{status:?}");
+        }
+        assert_eq!(utf16_tail("??😀x", 3), "\u{fffd}x");
+        assert_eq!(utf16_tail("?? ", 3), "");
+    }
+
+    // Rows captured as above from `readOriginFacts` (`origin.ts`, `/^worktree (.+)$/m` over the listing) and
+    // `removeWorktree` (`worktree.ts`, the `worktree ` fields of `worktree list --porcelain -z`).
+    #[test]
+    fn names_listed_worktrees_as_the_typescript_did() {
+        let firsts = [
+            ("", None),
+            (
+                "worktree /a\nHEAD 1\nbranch refs/heads/main\n\nworktree /b\n",
+                Some("/a"),
+            ),
+            ("worktree C:/x y\r\nHEAD 1\r\n", Some("C:/x y")),
+            ("bare\nworktree /later\n", Some("/later")),
+            ("worktree \nworktree /second\n", Some("/second")),
+            ("worktree /a\u{2028}b\n", Some("/a")),
+            ("worktree /a\u{2029}b\n", Some("/a")),
+            ("  worktree /no\n", None),
+            ("HEAD 1\rworktree /after-cr\n", Some("/after-cr")),
+            ("worktree /tab\tpath\n", Some("/tab\tpath")),
+        ];
+        for (listing, first) in firsts {
+            assert_eq!(first_worktree(listing), first, "{listing:?}");
+        }
+        let lists: [(&str, &[&str]); 5] = [
+            ("", &[]),
+            (
+                "worktree /main\0HEAD abc\0branch refs/heads/main\0\0worktree /wt/a\0HEAD def\0detached\0\0",
+                &["/main", "/wt/a"],
+            ),
+            (
+                "worktree /main\0bare\0\0worktree /wt/nl\npath\0HEAD 1\0\0",
+                &["/main", "/wt/nl\npath"],
+            ),
+            ("worktree \0worktree /x\0", &["", "/x"]),
+            ("worktreex /no\0 worktree /no\0", &[]),
+        ];
+        for (list, paths) in lists {
+            assert_eq!(worktree_paths(list), paths, "{list:?}");
         }
     }
 }

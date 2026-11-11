@@ -1,13 +1,11 @@
 /**
- * `get_git_status`, `get_git_changes`, `get_git_fingerprint`, `get_git_diff` and the checkout root: the read side of
- * git runs in the core process (`native/ompdesk/crates/core/src/git`, methods `git.*`), and these are its typed client.
- * What stays here: the diff path's argument check (`isSafeRelativePath`, synchronous for `scm.ts` too) and
- * `primaryRoot`, which the worktree code uses; `coreGit` (`exec.ts`) holds each read to the repository-lock step it is
- * made in.
+ * `get_git_status`, `get_git_changes`, `get_git_fingerprint`, `get_git_diff`, the checkout root and the main checkout:
+ * the read side of git runs in the core process (`native/ompdesk/crates/core/src/git`, methods `git.*`), and these are
+ * its typed client. What stays here: the diff path's argument check (`isSafeRelativePath`, synchronous for `scm.ts`
+ * too); `coreGit` (`exec.ts`) holds each read to the repository-lock step it is made in.
  */
-import * as path from "node:path";
 import type { RpcGitChanges, RpcGitDiff, RpcGitFingerprint, RpcGitStatus } from "../../../shared/rpc-types";
-import { coreGit, git } from "./exec";
+import { coreGit } from "./exec";
 import { isSafeRelativePath } from "./parse";
 
 /** Worktree top-level for `cwd`, or null outside a repository. */
@@ -16,9 +14,8 @@ export function repoRoot(cwd: string): Promise<string | null> {
 }
 
 /** Main checkout root shared by every linked worktree (`--git-common-dir`'s parent), as a native path (git prints `C:/…` on Windows). */
-export async function primaryRoot(cwd: string): Promise<string> {
-	const common = path.resolve((await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
-	return path.basename(common) === ".git" ? path.dirname(common) : common;
+export function primaryRoot(cwd: string): Promise<string> {
+	return coreGit("git.primaryRoot", { cwd }, 1);
 }
 
 export function getGitStatus(cwd: string): Promise<RpcGitStatus> {

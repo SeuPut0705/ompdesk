@@ -1,6 +1,9 @@
 /**
- * `worktree_create` / `worktree_remove` over the git CLI (port of fork rpc-worktree.ts).
- * GUI naming uses stock's canonical worktree base and repo hash through the bridge.
+ * `worktree_create` / `worktree_remove` (port of fork rpc-worktree.ts). The gits and their rules (base and branch
+ * checks, `worktree add` and its branch rollback, the checks before a removal, the removal) run in the core process
+ * (`native/ompdesk/crates/core/src/git/worktree.rs`); this is their typed client, which keeps what main owns: the
+ * names (stock's canonical worktree base and repo hash through the bridge), the folder checks and `mkdir` under the
+ * repository lock on the fenced files (`fenced-fs.ts`), the removal guard on real paths and the lock itself.
  * Collisions suffix `-2..-100` on path and branch. Removal keeps the branch and
  * requires a linked checkout registered by git under the canonical root.
  * Kept over stock createSessionWorktree: GUI names/baseRef differ and never carry
@@ -11,11 +14,11 @@
 import * as path from "node:path";
 import type { RpcWorktreeCreateResult } from "../../../shared/rpc-types";
 import { worktreeBranchPrefix } from "../../../shared/worktree-branch";
+import { CoreError } from "../../core/process";
 import { fs } from "../../fenced-fs";
 import { stockHelperRequest } from "../../stock-helper";
 import { type BridgeClient, LocalCommandError } from "../types";
-import { getGitStatus, primaryRoot, repoRoot } from "./changes";
-import { DEFAULT_TIMEOUT_MS, git, gitRaw, withRepoLock } from "./exec";
+import { coreGit, DEFAULT_TIMEOUT_MS, withRepoLock } from "./exec";
 import { guiWorktreeCandidate, isInside, worktreeSlug } from "./parse";
 import { prepareWorktree, WORKTREE_PREPARE_BUDGET_MS } from "./worktree-seed";
 
@@ -38,14 +41,26 @@ export const WORKTREE_COMMAND_BUDGETS_MS = {
 	worktree_remove: 4 * DEFAULT_TIMEOUT_MS + WORKTREE_REMOVE_TIMEOUT_MS,
 } as const;
 
-/** Remote default branch (`origin/main`), or null when origin/HEAD is unset. */
-export async function defaultBranchRef(cwd: string): Promise<string | null> {
-	const result = await gitRaw(cwd, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
-	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
-}
+/** The codes the core refuses a worktree step with, which the page gets as the command's `code`. */
+const REFUSALS = new Set([
+	"not_a_repo",
+	"invalid_base",
+	"invalid_name",
+	"worktree_create_failed",
+	"not_a_worktree",
+	"worktree_dirty",
+	"worktree_remove_failed",
+]);
 
-export async function branchExists(cwd: string, branch: string): Promise<boolean> {
-	return (await gitRaw(cwd, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).code === 0;
+/** One worktree request to the core (`rounds`, `slowMs`: see `coreGit`); its refusals keep their code. */
+export async function worktreeGit<T>(method: string, params: object, rounds: number, slowMs?: number): Promise<T> {
+	try {
+		return await coreGit<T>(method, params, rounds, slowMs);
+	} catch (error) {
+		if (error instanceof CoreError && REFUSALS.has(error.code))
+			throw new LocalCommandError(error.message, error.code);
+		throw error;
+	}
 }
 
 async function pathTaken(file: string): Promise<boolean> {
@@ -96,70 +111,6 @@ export function worktreeBranchSource(value: unknown): WorktreeBranchSource | und
 	};
 }
 
-/** `git check-ref-format --branch`: the name is one git accepts for a branch (and not an option). */
-async function validBranchName(cwd: string, name: string): Promise<boolean> {
-	if (name.startsWith("-")) return false;
-	return (await gitRaw(cwd, ["check-ref-format", "--branch", name])).code === 0;
-}
-
-/** Where a branch named by the caller is checked out: a new, a local or a remote-tracking one. */
-async function addNamedWorktree(
-	primary: string,
-	baseCwd: string,
-	target: string,
-	source: WorktreeBranchSource,
-): Promise<void> {
-	const { name } = source;
-	if (!(await validBranchName(primary, name))) {
-		throw new LocalCommandError(`"${name}" is not a valid branch name.`, "invalid_name");
-	}
-	const exists = await branchExists(primary, name);
-	if (source.mode === "new") {
-		if (exists) throw new LocalCommandError(`The branch ${name} already exists.`, "worktree_create_failed");
-		await git(baseCwd, ["branch", "--no-track", name, source.from ?? "HEAD"]);
-		try {
-			await git(primary, ["worktree", "add", target, name], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
-		} catch (error) {
-			await gitRaw(primary, ["branch", "-D", name]).catch(() => undefined);
-			throw error;
-		}
-		return;
-	}
-	if (source.mode === "local") {
-		if (!exists) throw new LocalCommandError(`The branch ${name} does not exist.`, "worktree_create_failed");
-		await git(primary, ["worktree", "add", target, name], { timeoutMs: WORKTREE_ADD_TIMEOUT_MS });
-		return;
-	}
-	if (exists) throw new LocalCommandError(`The branch ${name} already exists locally.`, "worktree_create_failed");
-	const upstream = `${source.remote}/${name}`;
-	const tracked = await gitRaw(primary, ["show-ref", "--verify", "--quiet", `refs/remotes/${upstream}`]);
-	if (tracked.code !== 0) {
-		throw new LocalCommandError(`The remote branch ${upstream} does not exist.`, "worktree_create_failed");
-	}
-	await git(primary, ["worktree", "add", "--track", "-b", name, target, upstream], {
-		timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-	});
-}
-
-/**
- * The commit a new worktree branch starts at: `HEAD` (the default), `default` (the remote's default branch, else
- * HEAD), or any branch, tag or commit the repository resolves. A ref that resolves to no commit, or reads as a git
- * option, is refused before anything is created.
- */
-async function startPointOf(baseCwd: string, primary: string, baseRef: string | undefined): Promise<string> {
-	if (baseRef === undefined || baseRef === "HEAD") return "HEAD";
-	if (baseRef === "default") return (await defaultBranchRef(primary)) ?? "HEAD";
-	const resolves =
-		!baseRef.startsWith("-") &&
-		(await gitRaw(baseCwd, ["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`])).code === 0;
-	if (!resolves)
-		throw new LocalCommandError(
-			`The base "${baseRef}" is not a branch, tag or commit of ${baseCwd}. Use "HEAD" (default), "default" (the remote's default branch) or a ref the repository has.`,
-			"invalid_base",
-		);
-	return baseRef;
-}
-
 export async function createWorktree(
 	sessionCwd: string,
 	input: {
@@ -183,8 +134,12 @@ export async function createWorktree(
 		throw new LocalCommandError(`Invalid worktree branch prefix "${input.branchPrefix}".`, "invalid_name");
 	}
 	const baseCwd = input.baseCwd ?? sessionCwd;
-	if (!(await repoRoot(baseCwd))) throw new LocalCommandError(`Not a git repository: ${baseCwd}`, "not_a_repo");
-	const primary = await primaryRoot(baseCwd);
+	// The repository, its main checkout, and the commit a new branch starts at (`HEAD`, `default`, or a ref it has).
+	const { primary, startPoint } = await worktreeGit<{ primary: string; startPoint: string }>(
+		"git.worktreePlan",
+		{ cwd: baseCwd, baseRef: input.baseRef },
+		3,
+	);
 	// The main checkout as the caller spells it when it is that directory: git answers with the long form of a Windows
 	// 8.3 path (C:\Users\RUNNER~1\…), and the caller's tabs and sessions compare against the form it gave.
 	const realOf = (dir: string) =>
@@ -193,44 +148,36 @@ export async function createWorktree(
 		(await realOf(baseCwd).catch(() => null)) === (await realOf(primary).catch(() => undefined))
 			? path.resolve(baseCwd)
 			: primary;
-	const startPoint = await startPointOf(baseCwd, primary, input.baseRef);
 	const location = await stockWorktreeLocation(bridge, primary);
 
 	const made = await withRepoLock(primary, async (): Promise<RpcWorktreeCreateResult> => {
 		for (let suffix = 1; suffix <= MAX_SUFFIX; suffix++) {
 			const candidate = guiWorktreeCandidate(slug, location.hash, suffix, location.root, branchPrefix);
-			if (input.branch) {
-				// The branch name is the caller's: only the folder takes a suffix.
-				if (await pathTaken(candidate.path)) continue;
-				try {
-					await fs.mkdir(path.dirname(candidate.path), { recursive: true });
-					await addNamedWorktree(primary, baseCwd, candidate.path, input.branch);
-				} catch (error) {
-					if (error instanceof LocalCommandError) throw error;
-					throw new LocalCommandError(
-						`Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
-						"worktree_create_failed",
-					);
-				}
-				return { path: candidate.path, branch: input.branch.name, baseCwd: mainCheckout };
-			}
 			// A half-created dir (no .git yet) still makes `git worktree add` fail with "exists".
-			if ((await pathTaken(candidate.path)) || (await branchExists(primary, candidate.branch))) continue;
+			if (await pathTaken(candidate.path)) continue;
+			const add = { primary, baseCwd, path: candidate.path, addTimeoutMs: WORKTREE_ADD_TIMEOUT_MS };
 			try {
 				await fs.mkdir(path.dirname(candidate.path), { recursive: true });
-				await git(baseCwd, ["branch", "--no-track", candidate.branch, startPoint]);
-				await git(primary, ["worktree", "add", candidate.path, candidate.branch], {
-					timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
-				});
+				if (input.branch) {
+					// The branch name is the caller's: only the folder takes a suffix.
+					await worktreeGit("git.worktreeAddNamed", { ...add, source: input.branch }, 4, WORKTREE_ADD_TIMEOUT_MS);
+					return { path: candidate.path, branch: input.branch.name, baseCwd: mainCheckout };
+				}
+				// A taken branch name moves on to the next suffix; a failed add has rolled its branch back.
+				const { taken } = await worktreeGit<{ taken: boolean }>(
+					"git.worktreeAdd",
+					{ ...add, branch: candidate.branch, startPoint },
+					3,
+					WORKTREE_ADD_TIMEOUT_MS,
+				);
+				if (!taken) return { path: candidate.path, branch: candidate.branch, baseCwd: mainCheckout };
 			} catch (error) {
-				// Roll back the branch so a retry does not trip over the half-created ref.
-				await gitRaw(primary, ["branch", "-D", candidate.branch]).catch(() => undefined);
+				if (error instanceof LocalCommandError) throw error;
 				throw new LocalCommandError(
 					`Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
 					"worktree_create_failed",
 				);
 			}
-			return { path: candidate.path, branch: candidate.branch, baseCwd: mainCheckout };
 		}
 		throw new LocalCommandError(`No available worktree name after ${MAX_SUFFIX} attempts`, "worktree_create_failed");
 	});
@@ -281,39 +228,17 @@ export async function removeWorktree(
 			"worktree_outside_root",
 		);
 	}
-	const checkoutRoot = await repoRoot(worktreePath).catch(() => null);
-	if (!checkoutRoot || (await fs.realpath(checkoutRoot)) !== worktreePath) {
-		throw new LocalCommandError(`Not a git checkout root: ${worktreePath}`, "not_a_worktree");
-	}
-	const primary = await primaryRoot(worktreePath);
-	const registered = (await git(primary, ["worktree", "list", "--porcelain", "-z"]))
-		.split("\0")
-		.filter(field => field.startsWith("worktree "))
-		.map(field => field.slice("worktree ".length));
-	const linked = await Promise.all(registered.slice(1).map(file => fs.realpath(file).catch(() => null)));
-	if ((await fs.realpath(primary)) === worktreePath || !linked.includes(worktreePath)) {
-		throw new LocalCommandError(`Not a registered linked worktree: ${worktreePath}`, "not_a_worktree");
-	}
-	if (!input.force) {
-		const status = await getGitStatus(worktreePath);
-		if (status.staged > 0 || status.unstaged > 0 || status.untracked > 0) {
-			throw new LocalCommandError(
-				`Worktree has uncommitted changes: ${status.staged} staged, ${status.unstaged} unstaged, ${status.untracked} untracked.`,
-				"worktree_dirty",
-			);
-		}
-	}
-	return withRepoLock(primary, async () => {
-		const removed = await gitRaw(primary, ["worktree", "remove", "--force", worktreePath], {
-			timeoutMs: WORKTREE_REMOVE_TIMEOUT_MS,
-		});
-		if (removed.code !== 0) {
-			throw new LocalCommandError(
-				`git worktree remove failed: ${worktreePath}${removed.stderr.trim() ? ` (${removed.stderr.trim()})` : ""}`,
-				"worktree_remove_failed",
-			);
-		}
-		await gitRaw(primary, ["worktree", "prune"]);
-		return { removed: true as const };
-	});
+	const { primary } = await worktreeGit<{ primary: string }>(
+		"git.worktreeRemoval",
+		{ path: worktreePath, force: input.force === true },
+		4,
+	);
+	return withRepoLock(primary, () =>
+		worktreeGit<{ removed: true }>(
+			"git.worktreeRemove",
+			{ primary, path: worktreePath, timeoutMs: WORKTREE_REMOVE_TIMEOUT_MS },
+			1,
+			WORKTREE_REMOVE_TIMEOUT_MS,
+		),
+	);
 }

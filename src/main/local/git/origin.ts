@@ -2,13 +2,16 @@
  * The project a folder belongs to, from git alone (`shared/project-origin.ts` words it): the common git dir names
  * the main checkout, the git dir tells a linked worktree from the main one, the branch says what the worktree is
  * for. Nothing is stored; a lookup is cached per folder for a short while because a sidebar asks for every row on
- * each render pass.
+ * each render pass. The core process reads the facts (`native/ompdesk/crates/core/src/git/origin.rs`,
+ * `git.originFacts`); the cache stays here, shared by every caller of this process and deduplicating a folder's
+ * concurrent lookups, with the clock its callers pass.
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { deriveProjectOrigin, type OriginFacts, type ProjectOrigin } from "../../../shared/project-origin";
-import { gitRaw } from "./exec";
+import { coreGit } from "./exec";
 
+/** Each git's timeout; the lookup runs two of them one after another. */
 const GIT_MS = 10_000;
 /** A branch can move (a checkout inside the worktree), so a known answer is only reused briefly. */
 const KNOWN_TTL_MS = 30_000;
@@ -22,31 +25,17 @@ export function resetProjectOriginCache(): void {
 	cache.clear();
 }
 
-async function out(cwd: string, args: string[]): Promise<string | null> {
-	const result = await gitRaw(cwd, args, { timeoutMs: GIT_MS }).catch(() => null);
-	return result?.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
-}
-
-/** What git says about `cwd`'s checkout (common dir, git dir, branch, top level), uncached; null outside a repository. */
-export async function readOriginFacts(cwd: string): Promise<OriginFacts | null> {
-	const dirs = await out(cwd, ["rev-parse", "--git-common-dir", "--git-dir"]);
-	const [commonRaw, gitDirRaw] = dirs?.split(/\r?\n/) ?? [];
-	if (!commonRaw || !gitDirRaw) return null;
-	const commonDir = path.resolve(cwd, commonRaw);
-	const gitDir = path.resolve(cwd, gitDirRaw);
-	const [branch, toplevel, listing] = await Promise.all([
-		out(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]),
-		out(cwd, ["rev-parse", "--show-toplevel"]),
-		// Only a git dir that is not `<main>/.git` (bare, relocated) needs the worktree list.
-		path.basename(commonDir) === ".git" ? Promise.resolve(null) : out(cwd, ["worktree", "list", "--porcelain"]),
-	]);
-	return {
-		commonDir,
-		gitDir,
-		branch,
-		toplevel: toplevel ? path.resolve(toplevel) : null,
-		primary: listing ? (/^worktree (.+)$/m.exec(listing)?.[1] ?? null) : null,
-	};
+/**
+ * What git says about `cwd`'s checkout (common dir, git dir, branch, top level), uncached; null outside a repository,
+ * and whenever git cannot answer.
+ */
+export function readOriginFacts(cwd: string): Promise<OriginFacts | null> {
+	return coreGit<OriginFacts | null>(
+		"git.originFacts",
+		{ cwd: path.resolve(cwd), timeoutMs: GIT_MS },
+		0,
+		2 * GIT_MS,
+	).catch(() => null);
 }
 
 async function lookup(cwd: string): Promise<ProjectOrigin | null> {

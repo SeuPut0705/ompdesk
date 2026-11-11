@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
@@ -21,13 +21,28 @@ const MAX_DIFF_CHARS: usize = 200_000;
 const BINARY_SNIFF_BYTES: usize = 8192;
 
 /// A path as node's `path.resolve` spells an absolute one: separators the platform's, `.` and doubled separators
-/// dropped (git prints `C:/x` on Windows).
+/// dropped, `..` taken back lexically (git prints `C:/x` on Windows).
 fn native(path: &str) -> String {
-    Path::new(path)
-        .components()
-        .collect::<PathBuf>()
-        .to_string_lossy()
-        .into_owned()
+    let mut resolved = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved.to_string_lossy().into_owned()
+}
+
+/// node's `path.resolve(base, path)` for an absolute `base`: `path` itself when absolute, else joined to `base`.
+pub(super) fn resolve(base: &str, path: &str) -> String {
+    if is_absolute(path) {
+        native(path)
+    } else {
+        native(&Path::new(base).join(path).to_string_lossy())
+    }
 }
 
 /// `path.isAbsolute`: on Windows a leading separator or a drive with one counts too.
@@ -64,6 +79,23 @@ pub async fn repo_root(git: &Git, cwd: &str) -> Result<Option<String>, Fault> {
     Ok((!root.is_empty()).then(|| native(root)))
 }
 
+/// The main checkout every linked worktree of `cwd`'s repository shares (`--git-common-dir`'s parent, or the common
+/// dir itself when it is not a `.git`), as a native path. git's own failure is its fault (`git` threw it).
+pub async fn primary_root(git: &Git, cwd: &str) -> Result<String, Fault> {
+    let text = git
+        .text(
+            cwd,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .await?;
+    let common = native(js_trim(&text));
+    let path = Path::new(&common);
+    Ok(match (path.file_name(), path.parent()) {
+        (Some(name), Some(parent)) if name == ".git" => parent.to_string_lossy().into_owned(),
+        _ => common,
+    })
+}
+
 async fn head_sha(git: &Git, cwd: &str) -> Result<Option<String>, Fault> {
     let output = git
         .raw(cwd, &["rev-parse", "--verify", "--quiet", "HEAD"])
@@ -81,7 +113,7 @@ async fn head_sha(git: &Git, cwd: &str) -> Result<Option<String>, Fault> {
 pub struct Status {
     is_repo: bool,
     #[serde(flatten)]
-    summary: parse::Summary,
+    pub(super) summary: parse::Summary,
 }
 
 pub async fn status(git: &Git, cwd: &str) -> Result<Status, Fault> {
@@ -588,6 +620,26 @@ mod tests {
         assert_eq!(native("/a//b/./c/"), "/a/b/c");
         assert!(is_absolute("/x"));
         assert!(!is_absolute("relative/root"));
+    }
+
+    // Rows from node's `path.resolve(base, path)` (node 24, POSIX), which `origin.ts` and `changes.ts` called.
+    #[cfg(unix)]
+    #[test]
+    fn resolves_a_git_dir_as_node_did() {
+        for (base, path, resolved) in [
+            ("/a/b", "../c", "/a/c"),
+            ("/a", "/x/./y/", "/x/y"),
+            ("/a/b", ".git", "/a/b/.git"),
+            ("/a/b", "../../..", "/"),
+            (
+                "/w/repo/sub",
+                "../.git/worktrees/x",
+                "/w/repo/.git/worktrees/x",
+            ),
+            ("/", "x//y", "/x/y"),
+        ] {
+            assert_eq!(resolve(base, path), resolved, "{base} {path}");
+        }
     }
 
     #[tokio::test]
