@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.122.2] - 2026-11-11
+
+Windows에서, 그리고 메모리를 켠 채 탭을 닫거나 앱을 끝낼 때도 omp가 로그인 갱신을 저장한 뒤에 끝나요.
+
+### 고친 것
+- 0.122.1의 보호가 닿지 않던 경로를 고쳤어요. omp는 입력이 닫혀서 끝날 때 로그인 갱신 저장을 기다리지 않고 바로 끝났어요. Windows의 모든 종료와, 메모리를 켠 채 탭을 닫거나 세션을 지우거나 앱을 끝내는 경우가 여기에 해당해요. 이제 이 경로에서도 저장을 마친 뒤 끝나고, OMPdesk는 그동안(최대 130초) 강제로 끝내지 않아요.
+- 저장할 것이 없는 omp는 전과 같은 빠르기로 끝나요.
+- 아직 남은 경우가 하나 있어요. 로그인 갱신이 저장되는 바로 그 순간에 앱이 업데이트로 다시 시작되면, 새로 뜬 앱이 남아 있던 omp를 5초 뒤에 끝낼 수 있어요. 계정이 목록에서 사라지면 다시 연결하면 돼요.
+
+<!-- en -->
+
+On Windows, and when a tab closes or the app quits with Memory on, omp now saves a refreshed login before it ends.
+
+### Fixed
+- This covers the path 0.122.1 did not reach. An omp that ended because its input closed did not wait for a login refresh to be saved: every stop on Windows, and closing a tab, deleting a session or quitting with Memory on. It now finishes the save first, and OMPdesk does not kill it meanwhile (up to 130 seconds).
+- An omp with nothing to save ends as fast as before.
+- One case is left: if the app restarts for an update at the very moment a login refresh is being saved, the new app can end the leftover omp after 5 seconds. An account that drops off the list can be connected again.
+
 ## [0.122.1] - 2026-11-11
 
 omp 18.18.7의 새 설정이 한국어로 보이고, Mac에서 로그인 갱신을 저장하는 중인 omp를 OMPdesk가 강제로 끝내지 않아요.
