@@ -63,16 +63,25 @@ function within(done: Promise<void>, ms: number): Promise<boolean> {
 	return promise;
 }
 
+/** How much of the omp's latest stderr is kept to find a wait line the pipe cut in pieces (the line is under 100). */
+const HOLD_TAIL_CHARS = 256;
+
 /**
  * Until when the omp asked not to be killed, read from its stderr from now on (0: it asked for nothing). A hold never
- * reaches past `STOP_HOLD_MAX_MS` from now.
+ * reaches past `STOP_HOLD_MAX_MS` from now. The pipe frames stderr as it likes (the Windows launcher relays it), so
+ * the line is looked for in the latest text as a whole, never in one chunk; a line once read is dropped, so later
+ * output does not renew its hold.
  */
 function exitHold(child: ChildProcess, pid: number): () => number {
 	const latest = Date.now() + STOP_HOLD_MAX_MS;
 	let until = 0;
+	let tail = "";
 	const onData = (chunk: Buffer | string): void => {
-		const seconds = Number(EXIT_HOLD.exec(String(chunk))?.[1]);
-		if (!seconds) return;
+		tail = (tail + String(chunk)).slice(-HOLD_TAIL_CHARS);
+		const found = EXIT_HOLD.exec(tail);
+		const seconds = Number(found?.[1]);
+		if (!found || !seconds) return;
+		tail = tail.slice(found.index + found[0].length);
 		until = Math.min(Date.now() + seconds * 1_000 + HOLD_SLACK_MS, latest);
 		console.warn(`[omp-stop] omp ${pid} waits to save before it exits (up to ${seconds} s): its kill waits too`);
 	};
