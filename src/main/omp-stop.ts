@@ -18,7 +18,7 @@ const KILL_WAIT_MS = 2_000;
  * the account drops off the list at the next refresh (`invalid_grant`). A signal's exit prints it by itself; an exit
  * after stdin closed does once the bridge's `exit-drain.ts` made that exit wait for the same pass.
  */
-const EXIT_HOLD = /\(up to (\d+) s\)/;
+const EXIT_HOLD = /\(up to (\d+) s\)/g;
 /** Past the time an exit hold asked for, how long the omp still has to end before the kill. */
 const HOLD_SLACK_MS = 2_000;
 /** The longest a stop is held for an omp's exit hold, whatever it asks for (stock's longest is 125 s). */
@@ -63,27 +63,33 @@ function within(done: Promise<void>, ms: number): Promise<boolean> {
 	return promise;
 }
 
-/** How much of the omp's latest stderr is kept to find a wait line the pipe cut in pieces (the line is under 100). */
+/**
+ * How much stderr after the last wait line read is kept, for a line the pipe cut in pieces (a line is under 100
+ * characters). Only this unread end is bounded: what just came in is searched whole first.
+ */
 const HOLD_TAIL_CHARS = 256;
 
 /**
  * Until when the omp asked not to be killed, read from its stderr from now on (0: it asked for nothing). A hold never
  * reaches past `STOP_HOLD_MAX_MS` from now. The pipe frames stderr as it likes (the Windows launcher relays it), so
- * the line is looked for in the latest text as a whole, never in one chunk; a line once read is dropped, so later
- * output does not renew its hold.
+ * the kept end and each new chunk are searched together, never a chunk alone. Stock prints one line per thing its
+ * exit waits on: the longest wait counts, and a line once read is dropped, so later output does not renew its hold.
  */
 function exitHold(child: ChildProcess, pid: number): () => number {
 	const latest = Date.now() + STOP_HOLD_MAX_MS;
 	let until = 0;
 	let tail = "";
 	const onData = (chunk: Buffer | string): void => {
-		tail = (tail + String(chunk)).slice(-HOLD_TAIL_CHARS);
-		const found = EXIT_HOLD.exec(tail);
-		const seconds = Number(found?.[1]);
-		if (!found || !seconds) return;
-		tail = tail.slice(found.index + found[0].length);
-		until = Math.min(Date.now() + seconds * 1_000 + HOLD_SLACK_MS, latest);
-		console.warn(`[omp-stop] omp ${pid} waits to save before it exits (up to ${seconds} s): its kill waits too`);
+		const text = tail + String(chunk);
+		let read = 0;
+		for (const found of text.matchAll(EXIT_HOLD)) {
+			read = found.index + found[0].length;
+			const seconds = Number(found[1]);
+			if (!seconds) continue;
+			until = Math.max(until, Math.min(Date.now() + seconds * 1_000 + HOLD_SLACK_MS, latest));
+			console.warn(`[omp-stop] omp ${pid} waits to save before it exits (up to ${seconds} s): its kill waits too`);
+		}
+		tail = text.slice(read).slice(-HOLD_TAIL_CHARS);
 	};
 	child.stderr?.on("data", onData);
 	child.once("exit", () => child.stderr?.off("data", onData));

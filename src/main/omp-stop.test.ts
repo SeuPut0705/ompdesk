@@ -79,6 +79,10 @@ describe("stopOmp and an omp that is saving a refreshed login", () => {
 			"after 300 characters of other output, cut inside the number",
 			["x".repeat(300) + WAIT_LINE.slice(0, -8), WAIT_LINE.slice(-8)],
 		],
+		[
+			"with a shorter wait printed after it in the same chunk",
+			[`${WAIT_LINE}Waiting for something else (up to 2 s)…\n`],
+		],
 	])(
 		"reads the wait however the pipe framed the line: %s",
 		async (_name, chunks) => {
