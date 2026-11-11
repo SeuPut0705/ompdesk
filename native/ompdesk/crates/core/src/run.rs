@@ -2,11 +2,12 @@
 //! `ghRunner` in `src/main/local/git/exec.ts`): the binary, the arguments before the command's own, the whole
 //! environment (the ambient repository selectors already dropped, `PATH` the login shell's, `GIT_OPTIONAL_LOCKS=0`), the
 //! timeout and the output cap. A command names only what `execBin`'s callers named: a longer timeout, another cap,
-//! variables over the environment (`Opts`). This side spawns and supervises as `execBin` did: no shell, stdin closed,
-//! stdout kept up to the cap (the process is then asked to end), stderr up to 64 KiB, and a process past its timeout
-//! asked to end and killed 2 s later. A cancelled request (`Scope`) starts no process, and the one it runs is ended the
-//! same way. Either way `run` returns once the process exited, so what the request made for it (a body file) outlives
-//! it; the request's answer waited for that already.
+//! variables over the environment, bytes on stdin (`Opts`). This side spawns and supervises as `execBin` did: no shell,
+//! stdin closed unless the command gives input (`patch-id`), stdout kept up to the cap (the process is then asked to
+//! end), stderr up to 64 KiB, and a process past its timeout asked to end and killed 2 s later. A cancelled request
+//! (`Scope`) starts no process, and the one it runs is ended the same way. Either way `run` returns once the process
+//! exited, so what the request made for it (a body file, a scratch object store) outlives it; the request's answer
+//! waited for that already.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
@@ -15,8 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::{Child, Command};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Notify;
 
 use crate::fs::error::uv_code;
@@ -54,12 +55,14 @@ impl Output {
     }
 }
 
-/// What one process sets past the runner's own: its timeout, its output cap, variables over the environment.
+/// What one process sets past the runner's own: its timeout, its output cap, variables over the environment, and the
+/// bytes it reads on stdin (none: stdin is closed).
 #[derive(Default, Clone, Copy)]
 pub struct Opts<'a> {
     pub timeout_ms: Option<u64>,
     pub max_bytes: Option<usize>,
     pub env: &'a [(&'a str, &'a str)],
+    pub input: Option<&'a [u8]>,
 }
 
 /// The processes of one request: main's runner, held to the request's scope. `tool` names the timeout's fault code
@@ -79,6 +82,11 @@ impl Exec {
         }
     }
 
+    /// A variable of the environment main handed over (the ambient repository selectors already dropped).
+    pub fn env(&self, name: &str) -> Option<&str> {
+        self.runner.env.get(name).map(String::as_str)
+    }
+
     /// Answers whatever the exit code; fails only when the process could not run, ran past its timeout or the request
     /// was cancelled.
     pub async fn run(&self, cwd: &str, args: &[&str], opts: Opts<'_>) -> Result<Output, Fault> {
@@ -94,7 +102,11 @@ impl Exec {
             .args(args)
             .current_dir(cwd)
             .env_clear()
-            .stdin(Stdio::null())
+            .stdin(if opts.input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         runner.environment(&mut command, opts.env);
@@ -113,6 +125,8 @@ impl Exec {
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             return Err(Fault::new("internal", "the process's pipes were not open"));
         };
+        let stdin = child.stdin.take();
+        let input = opts.input.map(<[u8]>::to_vec);
         let end = Arc::new(Notify::new());
         let ending = Arc::clone(&end);
         // Its own task, holding the request's scope until the process is reaped: the request answers only once it
@@ -121,10 +135,11 @@ impl Exec {
         let mut work = tokio::spawn(async move {
             // stderr past its cap is dropped; nothing waits on this, so it never ends the process.
             let ignored = Notify::new();
-            let ((stdout, truncated), (stderr, _), code) = tokio::join!(
+            let ((stdout, truncated), (stderr, _), code, ()) = tokio::join!(
                 read_capped(stdout, max_bytes, &ending),
                 read_capped(stderr, STDERR_KEPT, &ignored),
                 supervise(child, &ending, &scope),
+                feed(stdin, input),
             );
             Output {
                 code,
@@ -216,6 +231,14 @@ async fn read_capped(
         }
     }
     (kept, truncated)
+}
+
+/// Writes `input` to the process's stdin, then closes it. A process that exits before reading all of it closes the
+/// pipe: its exit code says so, not this write (`execBin` ignored the pipe's error too).
+async fn feed(stdin: Option<ChildStdin>, input: Option<Vec<u8>>) {
+    if let (Some(mut stdin), Some(input)) = (stdin, input) {
+        let _ = stdin.write_all(&input).await;
+    }
 }
 
 /// Waits for the process; once asked to end (`end`, or its request cancelled), sends it SIGTERM and kills it after
@@ -333,6 +356,24 @@ pub(crate) mod tests {
         assert_eq!(output.stdout, b"01234");
         assert!(output.truncated);
         assert_eq!(output.code, 1);
+    }
+
+    /// More input than a pipe holds, read while the output is read (`patch-id`), and input a process never reads.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn feeds_its_input_on_stdin_and_survives_a_process_that_reads_none() {
+        let input = vec![b'x'; 1024 * 1024];
+        let opts = Opts {
+            input: Some(&input),
+            ..Opts::default()
+        };
+        let exec = exec(shell(10_000, 2 * 1024 * 1024), Scope::detached());
+        let output = exec.run("/", &["cat"], opts).await.unwrap();
+        assert_eq!(output.stdout, input);
+        let output = exec.run("/", &["exit 4"], opts).await.unwrap();
+        assert_eq!(output.code, 4);
+        let output = exec.run("/", &["wc -c"], Opts::default()).await.unwrap();
+        assert_eq!(output.text().trim(), "0");
     }
 
     #[cfg(unix)]

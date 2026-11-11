@@ -23,7 +23,7 @@ const BINARY_SNIFF_BYTES: usize = 8192;
 
 /// A path as node's `path.resolve` spells an absolute one: separators the platform's, `.` and doubled separators
 /// dropped, `..` taken back lexically (git prints `C:/x` on Windows).
-fn native(path: &str) -> String {
+pub(super) fn native(path: &str) -> String {
     let mut resolved = PathBuf::new();
     for component in Path::new(path).components() {
         match component {

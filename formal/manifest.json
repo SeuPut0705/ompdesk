@@ -130,7 +130,8 @@
 				"native/ompdesk/crates/core/src/server.rs",
 				"native/ompdesk/crates/core/src/run.rs",
 				"native/ompdesk/crates/core/src/sys.rs",
-				"native/ompdesk/crates/core/src/main.rs"
+				"native/ompdesk/crates/core/src/main.rs",
+				"native/ompdesk/crates/core/src/git/branches.rs:192-215"
 			],
 			"syncCommit": "76ed720042288fcbab99933481575a5be453cf16",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"

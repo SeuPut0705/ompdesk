@@ -3,13 +3,17 @@
 //! main checkout, the footer's status, the Changes panel's list, fingerprint and diff. The write side and the history
 //! (was `src/main/local/git/scm.ts` and `parseDecorations`, `remoteWebBase`): `scm.rs`. Worktrees and session
 //! worktrees (was the git side of `worktree.ts` and `session-worktree.ts`): `worktree.rs`; what a branch has not landed
-//! (`unlanded.ts`): `unlanded.rs`; a folder's project facts (`origin.ts`): `origin.rs`. Every request carries `git`,
-//! how main runs git (`gitRunner` in `exec.ts`: binary, environment, timeout, output cap), so this side decides none of
-//! it, and runs under the request's scope: a cancelled request starts no git and ends the one it runs. Failures are
-//! faults whose message is what the TypeScript threw (git's stderr, node's error text, `spawn <bin> ENOENT`,
-//! `-c timed out after 60000ms`); a refusal the TypeScript coded carries that code.
+//! (`unlanded.ts`): `unlanded.rs`; a folder's project facts (`origin.ts`): `origin.rs`; a session worktree's standing,
+//! merge and safe removal (`agent-control/branches.ts`): `branches.rs`; orphaned worktrees (`worktree-orphans.ts`):
+//! `orphans.rs`. Every request carries `git`, how main runs git (`gitRunner` in `exec.ts`: binary, environment,
+//! timeout, output cap), so this side decides none of it, and runs under the request's scope: a cancelled request
+//! starts no git and ends the one it runs. Failures are faults whose message is what the TypeScript threw (git's
+//! stderr, node's error text, `spawn <bin> ENOENT`, `-c timed out after 60000ms`); a refusal the TypeScript coded
+//! carries that code.
 
+mod branches;
 mod origin;
+mod orphans;
 pub(crate) mod parse;
 pub(crate) mod read;
 pub(crate) mod run;
@@ -231,6 +235,73 @@ struct SessionRemoveParams {
     target: Option<String>,
     moved: bool,
     timeout_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct WorktreeParams {
+    git: Runner,
+    worktree: branches::WorktreeRef,
+}
+
+/// `diff`: whether the caller reads the diff at all.
+#[derive(Deserialize)]
+struct EvidenceParams {
+    git: Runner,
+    worktree: branches::WorktreeRef,
+    diff: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeParams {
+    git: Runner,
+    worktree: branches::WorktreeRef,
+    base_branch: String,
+    label: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SafeRemoveParams {
+    git: Runner,
+    worktree: branches::WorktreeRef,
+    keep_branch: bool,
+}
+
+#[derive(Deserialize)]
+struct DiscardRemoveParams {
+    git: Runner,
+    worktree: branches::WorktreeRef,
+    tip: String,
+}
+
+/// `root`: the worktree root's real path, `open`: the real folders open sessions use, `only`: the one real path to
+/// keep (a removal re-reads just that one).
+#[derive(Deserialize)]
+struct CandidatesParams {
+    git: Runner,
+    primary: String,
+    root: String,
+    open: Vec<String>,
+    only: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct InspectParams {
+    git: Runner,
+    primary: String,
+    candidates: Vec<orphans::Candidate>,
+}
+
+/// `branch`: none for a detached worktree.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OrphanRemoveParams {
+    git: Runner,
+    primary: String,
+    path: String,
+    branch: Option<String>,
+    keep_branch: bool,
 }
 
 pub fn register(registry: &mut Registry) {
@@ -569,6 +640,112 @@ pub fn register(registry: &mut Registry) {
             )
             .await?;
             Reply::json(&())
+        })
+    });
+    registry.add("git.branchFacts", |call| {
+        Box::pin(async move {
+            let WorktreeParams { git, worktree } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::facts(&git, &worktree).await?)
+        })
+    });
+    registry.add("git.branchEvidence", |call| {
+        Box::pin(async move {
+            let EvidenceParams {
+                git,
+                worktree,
+                diff,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::evidence(&git, &worktree, diff).await?)
+        })
+    });
+    registry.add("git.predictMerge", |call| {
+        Box::pin(async move {
+            let WorktreeParams { git, worktree } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::predict(&git, &worktree).await?)
+        })
+    });
+    registry.add("git.landingFacts", |call| {
+        Box::pin(async move {
+            let WorktreeParams { git, worktree } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::landing_facts(&git, &worktree).await?)
+        })
+    });
+    registry.add("git.mergeBranch", |call| {
+        Box::pin(async move {
+            let MergeParams {
+                git,
+                worktree,
+                base_branch,
+                label,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::merge(&git, &worktree, &base_branch, &label).await?)
+        })
+    });
+    registry.add("git.removeSafeWorktree", |call| {
+        Box::pin(async move {
+            let SafeRemoveParams {
+                git,
+                worktree,
+                keep_branch,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::remove_safe(&git, &worktree, keep_branch).await?)
+        })
+    });
+    registry.add("git.discardCheck", |call| {
+        Box::pin(async move {
+            let WorktreeParams { git, worktree } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::discard_check(&git, &worktree).await?)
+        })
+    });
+    registry.add("git.discardRemove", |call| {
+        Box::pin(async move {
+            let DiscardRemoveParams { git, worktree, tip } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&branches::discard_remove(&git, &worktree, &tip).await?)
+        })
+    });
+    registry.add("git.orphanCandidates", |call| {
+        Box::pin(async move {
+            let CandidatesParams {
+                git,
+                primary,
+                root,
+                open,
+                only,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&orphans::candidates(&git, &primary, root, open, only).await?)
+        })
+    });
+    registry.add("git.orphanInspect", |call| {
+        Box::pin(async move {
+            let InspectParams {
+                git,
+                primary,
+                candidates,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&orphans::inspect(&git, &primary, &candidates).await?)
+        })
+    });
+    registry.add("git.removeOrphanWorktree", |call| {
+        Box::pin(async move {
+            let OrphanRemoveParams {
+                git,
+                primary,
+                path,
+                branch,
+                keep_branch,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&orphans::remove(&git, &primary, &path, branch, keep_branch).await?)
         })
     });
 }

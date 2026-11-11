@@ -9,6 +9,12 @@
  * `git worktree remove` deletes ignored files without asking, so every removal first runs the caller's `prepare`
  * (disk care's private archive of what no tool makes again, `src/main/disk/`), which may keep the worktree.
  *
+ * The git side runs in the core process (`native/ompdesk/crates/core/src/git/orphans.rs`): which listed worktrees are
+ * candidates, each one's state, and the removal's git steps. What stays here is main's: where the worktree root is
+ * (omp's `git.worktree_location`) and its real path (fenced files, under the repository lock for a removal), the
+ * folders open sessions use, the repository lock, the removal claim, the `prepare`, which states are removable and
+ * the refusals.
+ *
  * `sweepLandedWorktrees` runs the same rule over every repository with a worktree under stock's worktree root, as
  * part of disk care (`src/main/disk/care.ts`): what the Work tree view's cleanup would offer goes by itself, branch kept.
  */
@@ -21,12 +27,11 @@ import type {
 	RpcOrphanWorktreeRemoval,
 	RpcOrphanWorktrees,
 } from "../shared/rpc-types";
-import { removeLinkedWorktree, removeSafeWorktree, worktreeStanding } from "./agent-control/branches";
+import type { WorktreeRemoval } from "./agent-control/branches";
 import { KeepWorktree } from "./disk/saved-worktrees";
 import { fs } from "./fenced-fs";
 import { primaryRoot, repoRoot } from "./local/git/changes";
-import { git, withRepoLock } from "./local/git/exec";
-import { isInside } from "./local/git/parse";
+import { coreGit, withRepoLock } from "./local/git/exec";
 import { stockWorktreeLocation } from "./local/git/worktree";
 import { type BridgeClient, LocalCommandError } from "./local/types";
 import { realFolder, withRemovalClaim } from "./worktree-removals";
@@ -60,89 +65,24 @@ export function sessionOpenFolders(): readonly string[] {
 	return openFoldersSource();
 }
 
-/** What `classifyOrphan` reads of one worktree. */
-export interface OrphanFacts {
-	/** HEAD is detached: the worktree has no branch. */
-	detached: boolean;
-	/** Tracked changes plus untracked files. */
-	dirtyFiles: number;
-	/** The branch has a commit of its own (tip differs from where it was created). */
-	hasWork: boolean;
-	/** The HEAD's work is in the base's HEAD or upstream, by ancestry or by content. */
-	landed: boolean;
-	/** `landed` by content (squash merge, rebase, cherry-pick). */
-	squashed: boolean;
-	/** Commits of its own against the base (0 once landed). */
-	commitsAhead: number;
-}
-
-type Verdict = Pick<RpcOrphanWorktree, "state" | "commitsAhead"> & { squashed?: true };
-
 /**
- * First matching row wins. A detached HEAD never counts commits (`commitsAhead` 0) and has no creation point, so it
- * is never `untouched`; `untouched` needs the base to hold the tip too, so a branch whose reflog is gone (it then
- * reads as no work) cannot hide unmerged commits.
+ * Deadlines of the core requests (`coreGit`, in default-timeout gits one after another): the candidates are one
+ * `git worktree list`; reading one worktree's state is the landing judgement (`branches.ts`) with its counts.
  */
-const ORPHAN_RULES: ReadonlyArray<{ when: (facts: OrphanFacts) => boolean; verdict: (facts: OrphanFacts) => Verdict }> =
-	[
-		{
-			when: f => f.dirtyFiles > 0,
-			verdict: f => ({ state: "dirty", commitsAhead: f.detached ? 0 : f.commitsAhead }),
-		},
-		{ when: f => f.detached && !f.landed, verdict: () => ({ state: "unlanded", commitsAhead: 0 }) },
-		{ when: f => !f.detached && !f.hasWork && f.landed, verdict: () => ({ state: "untouched", commitsAhead: 0 }) },
-		{
-			when: f => f.landed,
-			verdict: f => ({ state: "landed", commitsAhead: 0, ...(f.squashed ? { squashed: true as const } : {}) }),
-		},
-		{ when: () => true, verdict: f => ({ state: "unlanded", commitsAhead: f.commitsAhead }) },
-	];
+const INSPECT_ROUNDS = 28;
+/** A removal: the landing judgement, the worktree list, `worktree remove` and `update-ref`. */
+const REMOVE_ROUNDS = 32;
 
-/** Pure: the state of an orphan from the facts git gave. Dirty wins over every other state. */
-export function classifyOrphan(facts: OrphanFacts): Verdict {
-	const rule = ORPHAN_RULES.find(candidate => candidate.when(facts));
-	// The last row matches everything.
-	return rule ? rule.verdict(facts) : { state: "unlanded", commitsAhead: facts.commitsAhead };
-}
-
-interface Listed {
+interface Candidate {
 	path: string;
 	branch: string | null;
-	locked: boolean;
-}
-
-/** `git worktree list --porcelain -z`: NUL-separated fields, a record per worktree starting at its `worktree` field. */
-function parseWorktreeList(output: string): Listed[] {
-	const records: Listed[] = [];
-	let current: Listed | null = null;
-	for (const field of output.split("\0")) {
-		if (field.startsWith("worktree ")) {
-			current = { path: field.slice("worktree ".length), branch: null, locked: false };
-			records.push(current);
-		} else if (current && field.startsWith("branch ")) {
-			current.branch = field.slice("branch ".length).replace(/^refs\/heads\//, "");
-		} else if (current && (field === "locked" || field.startsWith("locked "))) {
-			current.locked = true;
-		}
-	}
-	return records;
-}
-
-/** How many worktrees are read at once: each read is a handful of git processes. */
-const INSPECT_CONCURRENCY = 4;
-
-interface Listing {
-	primary: string;
-	root: string;
-	worktrees: RpcOrphanWorktree[];
-	/** OMPdesk's worktrees an open session uses (left out of `worktrees`). */
-	inUse: string[];
 }
 
 interface Candidates {
 	primary: string;
 	root: string;
-	candidates: { path: string; branch: string | null }[];
+	candidates: Candidate[];
+	/** OMPdesk's worktrees an open session uses. */
 	inUse: string[];
 }
 
@@ -153,71 +93,33 @@ async function candidatesOf(cwd: string, deps: OrphanDeps, only?: string): Promi
 	const location = await stockWorktreeLocation(deps.bridge, primary);
 	const root = await fs.realpath(location.root).catch(() => null);
 	if (!root) return { primary, root: location.root, candidates: [], inUse: [] };
+	const found = await coreGit<Pick<Candidates, "candidates" | "inUse">>(
+		"git.orphanCandidates",
+		{ primary, root, open: deps.openFolders().map(realFolder), only },
+		1,
+	);
+	return { primary, root, ...found };
+}
 
-	const [, ...linked] = parseWorktreeList(await git(primary, ["worktree", "list", "--porcelain", "-z"]));
-	const open = deps.openFolders().map(realFolder);
-	const candidates: { path: string; branch: string | null }[] = [];
-	const inUse: string[] = [];
-	for (const entry of linked) {
-		if (entry.locked) continue;
-		const real = await fs.realpath(entry.path).catch(() => null);
-		if (!real || !isInside(root, real) || !path.basename(real).startsWith("gui-")) continue;
-		if (only !== undefined && real !== only) continue;
-		if (open.some(folder => folder === real || isInside(real, folder))) {
-			inUse.push(real);
-			continue;
-		}
-		candidates.push({ path: real, branch: entry.branch });
-	}
-	return { primary, root, candidates, inUse };
+interface Listing {
+	root: string;
+	worktrees: RpcOrphanWorktree[];
+	/** OMPdesk's worktrees an open session uses (left out of `worktrees`). */
+	inUse: string[];
 }
 
 /** `only`: the real path of the one worktree to read (a removal re-reads just that one). */
 async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Listing> {
 	const { primary, root, candidates, inUse } = await candidatesOf(cwd, deps, only);
-	const inspected: (RpcOrphanWorktree | null)[] = new Array(candidates.length).fill(null);
-	let next = 0;
-	const worker = async (): Promise<void> => {
-		while (next < candidates.length) {
-			const index = next++;
-			const candidate = candidates[index];
-			// A worktree git cannot read (a broken checkout) is left out: nothing about it is known to be safe.
-			inspected[index] = candidate ? await inspect(primary, candidate).catch(() => null) : null;
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(INSPECT_CONCURRENCY, candidates.length) }, worker));
-	const worktrees = inspected
-		.filter((worktree): worktree is RpcOrphanWorktree => worktree !== null)
-		.sort((a, b) => b.modifiedAt - a.modifiedAt);
-	return { primary, root, worktrees, inUse };
-}
-
-async function inspect(
-	primary: string,
-	candidate: { path: string; branch: string | null },
-): Promise<RpcOrphanWorktree> {
-	const [standing, committed] = await Promise.all([
-		worktreeStanding({ path: candidate.path, branch: candidate.branch, baseCwd: primary }),
-		git(candidate.path, ["log", "-1", "--format=%ct", "HEAD"]),
-	]);
-	const verdict = classifyOrphan({
-		detached: candidate.branch === null,
-		dirtyFiles: standing.dirtyFiles,
-		hasWork: standing.hasWork,
-		landed: standing.landed,
-		squashed: standing.squashed === true,
-		commitsAhead: standing.commitsAhead,
-	});
-	return {
-		path: candidate.path,
-		branch: candidate.branch,
-		repo: primary,
-		state: verdict.state,
-		...(verdict.squashed ? { squashed: true as const } : {}),
-		commitsAhead: verdict.commitsAhead,
-		dirtyFiles: standing.dirtyFiles,
-		modifiedAt: (Number(committed.trim()) || 0) * 1000,
-	};
+	const worktrees =
+		candidates.length === 0
+			? []
+			: await coreGit<RpcOrphanWorktree[]>(
+					"git.orphanInspect",
+					{ primary, candidates },
+					candidates.length * INSPECT_ROUNDS,
+				);
+	return { root, worktrees, inUse };
 }
 
 /**
@@ -244,9 +146,9 @@ export type BeforeRemove = (worktree: RpcOrphanWorktree) => Promise<(removed: bo
 
 /**
  * Remove one orphaned worktree whose work is landed (or never begun), after reading it again: a path that is not in
- * the fresh listing is `not_orphan`, one that is not `landed` or `untouched` is `not_removable`. `removeSafeWorktree`
- * then checks landed and clean once more and deletes the branch at the tip it judged (`branch-kept` when `keepBranch`
- * asks or the branch moved meanwhile).
+ * the fresh listing is `not_orphan`, one that is not `landed` or `untouched` is `not_removable`. The core then checks
+ * landed and clean once more and deletes the branch at the tip it judged (`branch-kept` when `keepBranch` asks or the
+ * branch moved meanwhile).
  */
 export async function removeOrphanWorktree(
 	cwd: string,
@@ -285,12 +187,11 @@ export async function removeOrphanWorktree(
 					throw new LocalCommandError(`${entry.path} was kept: ${error.message}.`, "not_removable");
 				throw error;
 			}
-			const result =
-				entry.branch === null
-					? (await removeLinkedWorktree(primary, entry.path))
-						? ("removed" as const)
-						: null
-					: await removeSafeWorktree({ path: entry.path, branch: entry.branch, baseCwd: primary }, options);
+			const result = await coreGit<WorktreeRemoval>(
+				"git.removeOrphanWorktree",
+				{ primary, path: entry.path, branch: entry.branch, keepBranch: options.keepBranch === true },
+				REMOVE_ROUNDS,
+			);
 			await settle(result !== null);
 			return result;
 		});

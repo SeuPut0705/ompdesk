@@ -28,6 +28,11 @@ impl Git {
         Git(Exec::new(runner, scope, "git"))
     }
 
+    /// A variable of the environment main handed over.
+    pub fn env(&self, name: &str) -> Option<&str> {
+        self.0.env(name)
+    }
+
     /// `gitRaw`: answers whatever git's exit code; fails only when git could not run, ran past its timeout or the
     /// request was cancelled.
     pub async fn raw(&self, cwd: &str, args: &[&str]) -> Result<Output, Fault> {

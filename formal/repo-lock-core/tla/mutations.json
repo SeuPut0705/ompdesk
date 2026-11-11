@@ -73,6 +73,13 @@
 			"search": "    /\\ gits' = gits + 1 /\\ alive' = alive + 1",
 			"replace": "    /\\ gits' = gits + 1 /\\ alive' = alive + 2",
 			"breaks": "TypeOK"
+		},
+		{
+			"name": "scratch-outlives-handler",
+			"why": "the scratch store is removed after the handler returned (or never): the core answers and the lock moves on while the stopped request's folder is still on disk",
+			"search": "    /\\ scratch # \"made\"",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoScratchAfterStop"
 		}
 	]
 }

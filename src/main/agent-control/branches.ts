@@ -2,19 +2,18 @@
  * What `ompdesk_compare`, `ompdesk_merge` and the review queue know about a session's git worktree: a branch a
  * child session worked on beside the parent's checkout (`omp/agent/<slug>`, made by `worktree_create`).
  *
- * Local only (the git here runs on this computer), through the GUI's own git runner. Nothing here pushes, and a
+ * Local only (the git here runs on this computer). Its git runs in the core process
+ * (`native/ompdesk/crates/core/src/git/branches.rs`): where a branch lands and whether it landed, its facts and diff,
+ * the merge prediction, the merge's git steps and the removals, each one request through `coreGit`. What stays here:
+ * the merge hooks around the merge, the `prepare` around a discard, `mergeProblem` (a rule over facts that
+ * `service.ts` reads too) and `boundDiff` (the diff budget the compare's judge shares). Nothing here pushes, and a
  * merge that conflicts is aborted so the parent's checkout is never left half merged.
  */
-import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
 import type { WorktreeSetupReport } from "../../shared/rpc-types";
-import { fs } from "../fenced-fs";
-import { git, gitRaw } from "../local/git/exec";
+import { CoreError } from "../core/process";
+import { coreGit } from "../local/git/exec";
 import { runWorktreeHook } from "../local/git/worktree-seed";
 import type { BeforeRemove } from "../worktree-orphans";
-
-// Fenced: the worktree removals run inside the repository lock, and a holder past its bound must not touch the disk.
-const { mkdtemp, realpath, rm } = fs;
 
 /** The worktree binding of a tab (`IpcTabWorktree`): the checkout, its branch and the repo it forked from. */
 export interface WorktreeRef {
@@ -75,222 +74,34 @@ export type MergeOutcome =
 /** A precondition that stops a merge; the message says what to do. */
 export class BranchError extends Error {}
 
-const MAX_FILES = 200;
-const TIMEOUT_MS = 120_000;
-
-async function text(cwd: string, args: string[]): Promise<string> {
-	return (await git(cwd, args, { timeoutMs: TIMEOUT_MS })).trim();
-}
-
-/** `git status --porcelain` lines of tracked changes and the untracked count. */
-async function dirtiness(cwd: string): Promise<{ tracked: number; untracked: number }> {
-	const output = await text(cwd, ["status", "--porcelain=v1", "--untracked-files=all"]);
-	const lines = output.split("\n").filter(Boolean);
-	const untracked = lines.filter(line => line.startsWith("?? ")).length;
-	return { tracked: lines.length - untracked, untracked };
-}
-
-function parseNumstat(output: string): FileChange[] {
-	const rows: FileChange[] = [];
-	for (const line of output.split("\n")) {
-		const [added, removed, ...rest] = line.split("\t");
-		const file = rest.join("\t");
-		if (!file) continue;
-		// A binary file reports "-" for both counts.
-		rows.push({ path: file, added: Number(added) || 0, removed: Number(removed) || 0 });
-	}
-	return rows;
-}
-
-/** Whether `commit` is in the history of `ref` (both read in `cwd`'s repository). */
-async function contains(cwd: string, ref: string, commit: string): Promise<boolean> {
-	return (await gitRaw(cwd, ["merge-base", "--is-ancestor", commit, ref])).code === 0;
-}
-
-/** The commit `rev` names in `cwd`'s repository, or null when it names none. */
-async function resolve(cwd: string, rev: string): Promise<string | null> {
-	const result = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${rev}^{commit}`]);
-	return result.code === 0 ? result.stdout.toString("utf8").trim() || null : null;
-}
-
-/** What a child's work lands in: the parent checkout's branch and HEAD, and the upstream that branch tracks. */
-interface Base {
-	/** The parent checkout's current branch; null while its HEAD is detached. */
-	branch: string | null;
-	head: string;
-	/**
-	 * The tip of the parent branch's `@{upstream}`, else of `origin`'s default branch (`refs/remotes/origin/HEAD`) as
-	 * last fetched; null without either. Agents push there (`git push origin HEAD:main`) while the parent's own
-	 * checkout stays where it was, so only this ref knows their work landed.
-	 */
-	upstream: string | null;
-}
-
-/** Reads the parent's base refs; never fetches or moves anything. */
-async function readBase(baseCwd: string): Promise<Base> {
-	const branchResult = await gitRaw(baseCwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-	const branch = branchResult.code === 0 ? branchResult.stdout.toString("utf8").trim() || null : null;
-	const [head, tracked, remote] = await Promise.all([
-		text(baseCwd, ["rev-parse", "HEAD"]),
-		// `<branch>@{upstream}` wants the short name: `refs/heads/<branch>@{upstream}` names nothing.
-		branch ? resolve(baseCwd, `${branch}@{upstream}`) : null,
-		resolve(baseCwd, "refs/remotes/origin/HEAD"),
-	]);
-	return { branch, head, upstream: tracked ?? remote };
-}
-
-/** Verdicts of `landedByContent` per (target, tip) commit pair: both are immutable, and the review sweep asks every 10 s. */
-const contentVerdicts = new Map<string, boolean>();
-const MAX_CONTENT_VERDICTS = 256;
-
 /**
- * The tree a merge of `tip` into `target` would make is `target`'s own tree: merging adds nothing. Like
- * `predictMerge`, the merged trees go to a scratch object store with the repo's as a read-only alternate, so the
- * landing check (the orphan sweep runs it every 6 h) leaves no objects in the repository.
+ * Each request's deadline in default-timeout gits run one after another (`coreGit`; a git at the core's 120 s timeout
+ * counts two). The landing judgement: three ancestry checks at once, then for the upstream and the parent's HEAD each
+ * the content checks (object stores, merge-tree, the target's tree, cherry, merge-base, diff beside log, patch-id).
  */
-async function mergesAddNothing(cwd: string, target: string, tip: string): Promise<boolean> {
-	const scratch = await mkdtemp(join(tmpdir(), "ompdesk-merge-tree-"));
+const LANDING_ROUNDS = 1 + 2 * 11;
+/** The base refs: `symbolic-ref`, then HEAD beside the upstream's. */
+const BASE_ROUNDS = 3;
+/** Base, landing, merge-base, then the counts at once. */
+const FACTS_ROUNDS = BASE_ROUNDS + LANDING_ROUNDS + 2 + 2;
+/** The branch tip, the base beside the reflog and status, the landing. */
+const JUDGE_ROUNDS = 1 + BASE_ROUNDS + LANDING_ROUNDS;
+/** The worktree list, then `worktree remove`. */
+const REMOVE_ROUNDS = 2 + 2;
+
+/** One request to the core; a `BranchError` of its rules keeps its class. */
+async function branchGit<T>(method: string, params: object, rounds: number): Promise<T> {
 	try {
-		// Exit 0 prints the merged tree first; a conflict exits 1, and git older than 2.38 has no `--write-tree`.
-		const merged = await gitRaw(cwd, ["merge-tree", "--write-tree", target, tip], {
-			timeoutMs: TIMEOUT_MS,
-			env: { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: await objectStores(cwd) },
-		});
-		if (merged.code !== 0) return false;
-		const mergedTree = merged.stdout.toString("utf8").split("\n", 1)[0]?.trim();
-		if (!mergedTree) return false;
-		const targetTree = await gitRaw(cwd, ["rev-parse", "--verify", "-q", `${target}^{tree}`]);
-		return targetTree.code === 0 && targetTree.stdout.toString("utf8").trim() === mergedTree;
-	} finally {
-		await rm(scratch, { recursive: true, force: true });
+		return await coreGit<T>(method, params, rounds);
+	} catch (error) {
+		if (error instanceof CoreError && error.code === "branch_error") throw new BranchError(error.message);
+		throw error;
 	}
 }
 
-/** Every commit of `tip` has a patch-equivalent in `target` (`git cherry` marks each one `-`): a rebase or cherry-pick landed it. */
-async function patchesAllIn(cwd: string, target: string, tip: string): Promise<boolean> {
-	const cherry = await gitRaw(cwd, ["cherry", target, tip]);
-	if (cherry.code !== 0) return false;
-	const lines = cherry.stdout.toString("utf8").split("\n").filter(Boolean);
-	return lines.length > 0 && lines.every(line => line.startsWith("-"));
+export function branchFacts(worktree: WorktreeRef): Promise<BranchFacts> {
+	return branchGit("git.branchFacts", { worktree }, FACTS_ROUNDS);
 }
-
-/** Bytes of patch text one landing check reads; a bigger diff is not judged landed by it. */
-const PATCH_BYTES = 64 * 1024 * 1024;
-
-/** Pipes `input` through `git patch-id --stable`; the ids of its patches, first column of each output line. */
-async function patchIds(cwd: string, input: Buffer): Promise<string[] | null> {
-	const result = await gitRaw(cwd, ["patch-id", "--stable"], { input, timeoutMs: TIMEOUT_MS, maxBytes: PATCH_BYTES });
-	if (result.code !== 0) return null;
-	return result.stdout
-		.toString("utf8")
-		.split("\n")
-		.map(line => line.split(" ", 1)[0] ?? "")
-		.filter(Boolean);
-}
-
-/**
- * A squash merge: the whole change `tip` made since its merge-base with `target` has the patch-id of one commit that
- * `target` gained since. Holds after `target` edited the same lines, where the merge-tree and `git cherry` tests fail.
- * A squash whose content was altered has another patch-id and does not match.
- */
-async function squashedInto(cwd: string, target: string, tip: string): Promise<boolean> {
-	const mb = await gitRaw(cwd, ["merge-base", target, tip]);
-	if (mb.code !== 0) return false;
-	const base = mb.stdout.toString("utf8").trim();
-	if (!base) return false;
-	const [own, log] = await Promise.all([
-		gitRaw(cwd, ["diff", base, tip], { timeoutMs: TIMEOUT_MS, maxBytes: PATCH_BYTES }),
-		gitRaw(cwd, ["log", "-p", "--no-merges", "--format=commit %H", `${base}..${target}`], {
-			timeoutMs: TIMEOUT_MS,
-			maxBytes: PATCH_BYTES,
-		}),
-	]);
-	if (own.code !== 0 || log.code !== 0 || own.truncated || log.truncated || own.stdout.length === 0) return false;
-	const [mine, theirs] = await Promise.all([patchIds(cwd, own.stdout), patchIds(cwd, log.stdout)]);
-	const id = mine?.[0];
-	return id !== undefined && (theirs?.includes(id) ?? false);
-}
-
-/**
- * Whether `target` already holds what `tip` changed although `tip` is not in its history: a squash merge (merging adds
- * nothing, or its whole patch is one commit of `target`) or a rebase or cherry-pick (every commit has a patch-equivalent there). Both arguments are commit ids.
- */
-async function landedByContent(cwd: string, target: string, tip: string): Promise<boolean> {
-	const key = `${target} ${tip}`;
-	const known = contentVerdicts.get(key);
-	if (known !== undefined) return known;
-	const verdict =
-		(await mergesAddNothing(cwd, target, tip)) ||
-		(await patchesAllIn(cwd, target, tip)) ||
-		(await squashedInto(cwd, target, tip));
-	if (contentVerdicts.size >= MAX_CONTENT_VERDICTS) {
-		const oldest = contentVerdicts.keys().next();
-		if (!oldest.done) contentVerdicts.delete(oldest.value);
-	}
-	contentVerdicts.set(key, verdict);
-	return verdict;
-}
-
-interface Landing {
-	landed: boolean;
-	/** Landed by content, not by ancestry. */
-	squashed?: true;
-	diffBase: string;
-}
-
-/**
- * Where the child's own work starts: the base that already holds its tip when it landed (so only uncommitted work is
- * left), else the upstream when it holds the parent's HEAD (a stale local branch never lends the child the upstream's
- * newer commits), else the parent's HEAD. A tip that is in no base's history has still landed when a base holds its
- * changes (`landedByContent`: a squash merge, rebase or cherry-pick); the work is then measured from the tip itself.
- */
-async function landing(cwd: string, base: Base, tip: string): Promise<Landing> {
-	const { head, upstream } = base;
-	const [inUpstream, inHead, headInUpstream] = await Promise.all([
-		upstream ? contains(cwd, upstream, tip) : false,
-		contains(cwd, head, tip),
-		upstream ? contains(cwd, upstream, head) : false,
-	]);
-	if (upstream && inUpstream) return { landed: true, diffBase: upstream };
-	if (inHead) return { landed: true, diffBase: head };
-	for (const target of upstream ? [upstream, head] : [head]) {
-		if (await landedByContent(cwd, target, tip)) return { landed: true, squashed: true, diffBase: tip };
-	}
-	return { landed: false, diffBase: upstream && headInUpstream ? upstream : head };
-}
-
-/** Where a child's work starts, measured the way `branchFacts` and `branchEvidence` both read it. */
-async function measure(
-	worktree: WorktreeRef,
-): Promise<{ base: Base; tip: string; landed: boolean; mergeBase: string }> {
-	const [base, tip] = await Promise.all([readBase(worktree.baseCwd), text(worktree.path, ["rev-parse", "HEAD"])]);
-	const { landed, diffBase } = await landing(worktree.path, base, tip);
-	return { base, tip, landed, mergeBase: await text(worktree.path, ["merge-base", tip, diffBase]) };
-}
-
-export async function branchFacts(worktree: WorktreeRef): Promise<BranchFacts> {
-	const { base, tip, landed, mergeBase } = await measure(worktree);
-	const [ahead, numstat, own, parent] = await Promise.all([
-		text(worktree.path, ["rev-list", "--count", `${mergeBase}..${tip}`]),
-		text(worktree.path, ["diff", "--numstat", "--no-renames", mergeBase]),
-		dirtiness(worktree.path),
-		dirtiness(worktree.baseCwd),
-	]);
-	const files = parseNumstat(numstat);
-	return {
-		branch: worktree.branch,
-		baseBranch: base.branch,
-		commitsAhead: Number(ahead) || 0,
-		files: files.slice(0, MAX_FILES),
-		filesTruncated: files.length > MAX_FILES,
-		uncommitted: own.tracked,
-		untracked: own.untracked,
-		baseUncommitted: parent.tracked,
-		merged: landed,
-	};
-}
-
-const MAX_DIFF_BYTES = 4 * 1024 * 1024;
 
 /** The `diff --git` header's path (`--no-renames` keeps both sides the same); the header itself when it is quoted or odd. */
 function sectionPath(section: string): string {
@@ -347,63 +158,22 @@ export function boundDiff(diff: string, chars: number): { text: string; omitted:
  * counts as cut.
  */
 export async function branchEvidence(worktree: WorktreeRef, diffChars: number): Promise<BranchEvidence> {
-	const readDiff = async (): Promise<{ diff: string; diffOmitted: number }> => {
-		if (diffChars <= 0) return { diff: "", diffOmitted: 0 };
-		const { mergeBase } = await measure(worktree);
-		const raw = await gitRaw(worktree.path, ["diff", "--no-color", "--no-ext-diff", "--no-renames", mergeBase], {
-			timeoutMs: TIMEOUT_MS,
-			maxBytes: MAX_DIFF_BYTES,
-		});
-		if (raw.code !== 0) throw new BranchError(`git diff failed: ${raw.stderr.trim() || `exit ${raw.code}`}`);
-		const { text: diff, omitted } = boundDiff(raw.stdout.toString("utf8"), diffChars);
-		return { diff, diffOmitted: raw.truncated ? Math.max(omitted, 1) : omitted };
-	};
-	const [shown, merge] = await Promise.all([readDiff(), predictMerge(worktree)]);
-	return { ...shown, merge };
-}
-
-/** Folders git may read objects from besides the scratch one: the repo's own store and any it was told to borrow. */
-async function objectStores(baseCwd: string): Promise<string> {
-	const own =
-		process.env.GIT_OBJECT_DIRECTORY ??
-		join(await text(baseCwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]), "objects");
-	return [own, process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES].filter(Boolean).join(delimiter);
+	const { raw, truncated, merge } = await branchGit<{ raw: string; truncated: boolean; merge: MergePrediction }>(
+		"git.branchEvidence",
+		{ worktree, diff: diffChars > 0 },
+		FACTS_ROUNDS,
+	);
+	if (diffChars <= 0) return { diff: "", diffOmitted: 0, merge };
+	const { text: diff, omitted } = boundDiff(raw, diffChars);
+	return { diff, diffOmitted: truncated ? Math.max(omitted, 1) : omitted, merge };
 }
 
 /**
  * Whether merging the branch into the parent checkout's HEAD would conflict, asked of `git merge-tree
- * --write-tree` (idea: Orca). It writes the merged trees it builds as objects, so they go to a scratch directory
- * with the repo's store as a read-only alternate: the repo's own object store, index and refs stay as they were.
+ * --write-tree` (idea: Orca) with a scratch object store the core makes and removes in the request.
  */
-export async function predictMerge(worktree: WorktreeRef): Promise<MergePrediction> {
-	const scratch = await mkdtemp(join(tmpdir(), "ompdesk-merge-tree-"));
-	try {
-		const [ours, theirs, stores] = await Promise.all([
-			resolve(worktree.baseCwd, "HEAD"),
-			resolve(worktree.baseCwd, `refs/heads/${worktree.branch}`),
-			objectStores(worktree.baseCwd),
-		]);
-		if (!ours || !theirs) return { kind: "unknown", reason: `${ours ? worktree.branch : "HEAD"} names no commit` };
-		const result = await gitRaw(
-			worktree.baseCwd,
-			["merge-tree", "--write-tree", "--name-only", "-z", "--no-messages", ours, theirs],
-			{
-				timeoutMs: TIMEOUT_MS,
-				env: { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: stores },
-			},
-		);
-		if (result.code === 0) return { kind: "clean" };
-		if (result.code === 1) {
-			// `<tree oid>\0<name>\0<name>\0…`, a name once per conflicting stage.
-			const [, ...names] = result.stdout.toString("utf8").split("\0");
-			return { kind: "conflict", files: [...new Set(names.filter(Boolean))] };
-		}
-		return { kind: "unknown", reason: result.stderr.trim() || `git merge-tree exited ${result.code}` };
-	} catch (error) {
-		return { kind: "unknown", reason: error instanceof Error ? error.message : String(error) };
-	} finally {
-		await rm(scratch, { recursive: true, force: true });
-	}
+export function predictMerge(worktree: WorktreeRef): Promise<MergePrediction> {
+	return branchGit("git.predictMerge", { worktree }, 4);
 }
 
 export interface LandingFacts {
@@ -417,12 +187,6 @@ export interface LandingFacts {
 	clean: boolean;
 }
 
-/** The commit a branch was created at (its oldest reflog entry), or undefined without a reflog. */
-async function createdAt(baseCwd: string, branch: string): Promise<string | undefined> {
-	const reflog = await gitRaw(baseCwd, ["reflog", "show", "--format=%H", `refs/heads/${branch}`]);
-	return reflog.stdout.toString("utf8").split("\n").filter(Boolean).at(-1);
-}
-
 /**
  * Whether a child's work has landed: its branch tip is an ancestor of the parent's HEAD (a local merge, a
  * fast-forward, a rebase that kept the tip) or of the upstream the parent's branch tracks, else `origin`'s default
@@ -431,66 +195,8 @@ async function createdAt(baseCwd: string, branch: string): Promise<string | unde
  * ancestor, so `hasWork` compares the tip with the commit the branch was created at (its oldest reflog entry); without
  * a reflog nothing counts as work.
  */
-export async function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
-	return (await judgeLanding(worktree)).facts;
-}
-
-/** `landingFacts` and the branch tip it judged (null when the branch names no commit). */
-async function judgeLanding(worktree: WorktreeRef): Promise<{ facts: LandingFacts; tip: string | null }> {
-	const tip = await resolve(worktree.baseCwd, `refs/heads/${worktree.branch}`);
-	if (!tip) return { facts: { hasWork: false, landed: false, clean: false }, tip };
-	const [base, created, own] = await Promise.all([
-		readBase(worktree.baseCwd),
-		createdAt(worktree.baseCwd, worktree.branch),
-		dirtiness(worktree.path).catch(() => null),
-	]);
-	const state = await landing(worktree.baseCwd, base, tip);
-	return {
-		facts: {
-			hasWork: created !== undefined && created !== tip,
-			landed: state.landed,
-			...(state.squashed ? { squashed: true as const } : {}),
-			clean: own !== null && own.tracked === 0 && own.untracked === 0,
-		},
-		tip,
-	};
-}
-
-/** A linked worktree as a listing of worktrees no session holds sees it: its branch is null on a detached HEAD. */
-export interface StandingRef {
-	path: string;
-	branch: string | null;
-	baseCwd: string;
-}
-
-export interface WorktreeStanding {
-	/** As `LandingFacts.hasWork`; false on a detached HEAD, which was never created as a branch. */
-	hasWork: boolean;
-	/** HEAD's work is in the parent's HEAD or upstream, by ancestry or by content. */
-	landed: boolean;
-	squashed?: true;
-	/** Commits of its own against where its work would start (as `BranchFacts.commitsAhead`); 0 once landed. */
-	commitsAhead: number;
-	/** Tracked changes plus untracked files in the worktree. */
-	dirtyFiles: number;
-}
-
-/** `landingFacts` and `branchFacts` for the worktree's HEAD in one read, whether or not it has a branch. */
-export async function worktreeStanding(worktree: StandingRef): Promise<WorktreeStanding> {
-	const [base, tip] = await Promise.all([readBase(worktree.baseCwd), text(worktree.path, ["rev-parse", "HEAD"])]);
-	const [state, created, own] = await Promise.all([
-		landing(worktree.baseCwd, base, tip),
-		worktree.branch ? createdAt(worktree.baseCwd, worktree.branch) : undefined,
-		dirtiness(worktree.path),
-	]);
-	const ahead = state.landed ? "0" : await text(worktree.baseCwd, ["rev-list", "--count", tip, `^${state.diffBase}`]);
-	return {
-		hasWork: created !== undefined && created !== tip,
-		landed: state.landed,
-		...(state.squashed ? { squashed: true as const } : {}),
-		commitsAhead: Number(ahead) || 0,
-		dirtyFiles: own.tracked + own.untracked,
-	};
+export function landingFacts(worktree: WorktreeRef): Promise<LandingFacts> {
+	return branchGit("git.landingFacts", { worktree }, JUDGE_ROUNDS);
 }
 
 /**
@@ -498,24 +204,6 @@ export async function worktreeStanding(worktree: StandingRef): Promise<WorktreeS
  * its landing was judged), or nothing.
  */
 export type WorktreeRemoval = "removed" | "branch-kept" | null;
-
-/**
- * `git worktree remove` without `--force` of `worktreePath`, only when git lists it as a linked worktree of the
- * repository at `baseCwd` (the primary checkout never goes); git itself refuses one with uncommitted or untracked files
- * or locked. Returns the primary checkout's path when the worktree went, else null.
- */
-export async function removeLinkedWorktree(baseCwd: string, worktreePath: string): Promise<string | null> {
-	const listed = (await text(baseCwd, ["worktree", "list", "--porcelain"]))
-		.split("\n")
-		.filter(line => line.startsWith("worktree "))
-		.map(line => line.slice("worktree ".length));
-	const [primary, ...linked] = await Promise.all(listed.map(entry => realpath(entry).catch(() => entry)));
-	const wanted = await realpath(worktreePath).catch(() => worktreePath);
-	if (!linked.includes(wanted)) return null;
-	const main = primary ?? baseCwd;
-	const removed = await gitRaw(main, ["worktree", "remove", wanted], { timeoutMs: TIMEOUT_MS });
-	return removed.code === 0 ? main : null;
-}
 
 /**
  * Remove an agent session's worktree and its branch, losing nothing: only a registered linked worktree with no
@@ -526,17 +214,15 @@ export async function removeLinkedWorktree(baseCwd: string, worktreePath: string
  * that was not pulled, or squash-merged. A branch something moved meanwhile stays (`branch-kept`), and so does one
  * `keepBranch` asks to keep. Null when anything held it back.
  */
-export async function removeSafeWorktree(
+export function removeSafeWorktree(
 	worktree: WorktreeRef,
 	options: { keepBranch?: boolean } = {},
 ): Promise<WorktreeRemoval> {
-	const { facts, tip } = await judgeLanding(worktree);
-	if (tip === null || !facts.landed || !facts.clean) return null;
-	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
-	if (!primary) return null;
-	if (options.keepBranch) return "branch-kept";
-	const deleted = await gitRaw(primary, ["update-ref", "-d", `refs/heads/${worktree.branch}`, tip]);
-	return deleted.code === 0 ? "removed" : "branch-kept";
+	return branchGit(
+		"git.removeSafeWorktree",
+		{ worktree, keepBranch: options.keepBranch === true },
+		JUDGE_ROUNDS + REMOVE_ROUNDS + 1,
+	);
 }
 
 /**
@@ -550,22 +236,18 @@ export async function removeSafeWorktree(
  * again is archived and listed under Saved worktrees; a `prepare` that throws keeps the worktree.
  */
 export async function discardNewWorktree(worktree: WorktreeRef, prepare: BeforeRemove): Promise<WorktreeRemoval> {
-	const ref = `refs/heads/${worktree.branch}`;
-	const log = await gitRaw(worktree.baseCwd, ["reflog", "show", "--format=%H", ref]);
-	if (log.code !== 0) return null;
-	const entries = log.stdout.toString("utf8").split("\n").filter(Boolean);
-	if (entries.length !== 1) return null;
-	const tip = entries[0] as string;
-	if ((await text(worktree.path, ["rev-parse", "HEAD"]).catch(() => "")) !== tip) return null;
-	const listed = await text(worktree.baseCwd, ["worktree", "list", "--porcelain"]);
-	const repo = /^worktree (.+)$/m.exec(listed)?.[1] ?? worktree.baseCwd;
-	const path = await realpath(worktree.path).catch(() => worktree.path);
+	const found = await branchGit<{ path: string; repo: string; tip: string } | null>(
+		"git.discardCheck",
+		{ worktree },
+		5,
+	);
+	if (!found) return null;
 	let settle: (removed: boolean) => Promise<void>;
 	try {
 		settle = await prepare({
-			path,
+			path: found.path,
 			branch: worktree.branch,
-			repo,
+			repo: found.repo,
 			state: "untouched",
 			commitsAhead: 0,
 			dirtyFiles: 0,
@@ -574,11 +256,13 @@ export async function discardNewWorktree(worktree: WorktreeRef, prepare: BeforeR
 	} catch {
 		return null;
 	}
-	const primary = await removeLinkedWorktree(worktree.baseCwd, worktree.path);
-	await settle(primary !== null);
-	if (!primary) return null;
-	const deleted = await gitRaw(primary, ["update-ref", "-d", ref, tip]);
-	return deleted.code === 0 ? "removed" : "branch-kept";
+	const removal = await branchGit<WorktreeRemoval>(
+		"git.discardRemove",
+		{ worktree, tip: found.tip },
+		REMOVE_ROUNDS + 1,
+	);
+	await settle(removal !== null);
+	return removal;
 }
 
 /** Why a merge of this branch cannot go ahead (what it would lose or tangle), or null. */
@@ -613,23 +297,17 @@ export async function mergeBranch(worktree: WorktreeRef, label: string): Promise
 		cwd: worktree.path,
 	});
 	if (pre && !pre.ok) return { merged: false, reason: "hook", hook: pre };
-	const message = `Merge ${worktree.branch} into ${facts.baseBranch}${label ? ` (${label})` : ""}`;
-	const result = await gitRaw(worktree.baseCwd, ["merge", "--no-ff", "--no-edit", "-m", message, worktree.branch], {
-		timeoutMs: TIMEOUT_MS,
-	});
-	if (result.code !== 0) {
-		const conflicted = await gitRaw(worktree.baseCwd, ["diff", "--name-only", "--diff-filter=U"]);
-		const files = conflicted.stdout.toString("utf8").split("\n").filter(Boolean);
-		await gitRaw(worktree.baseCwd, ["merge", "--abort"]);
-		if (files.length > 0) return { merged: false, reason: "conflict", files, predicted: false };
-		throw new BranchError(`git merge failed: ${result.stderr.trim() || `exit ${result.code}`}`);
-	}
-	const sha = await text(worktree.baseCwd, ["rev-parse", "--short", "HEAD"]);
-	const summary = await text(worktree.baseCwd, ["diff", "--shortstat", "HEAD~1", "HEAD"]);
+	// The merge (slow), the conflicted files and the abort, then the short HEAD and its summary (slow each).
+	const outcome = await branchGit<MergeOutcome>(
+		"git.mergeBranch",
+		{ worktree, baseBranch: facts.baseBranch, label },
+		2 + 1 + 1 + 2 + 2,
+	);
+	if (!outcome.merged) return outcome;
 	const post = await runWorktreeHook("post-merge", {
 		primary: worktree.baseCwd,
 		worktree: worktree.path,
 		cwd: worktree.baseCwd,
 	});
-	return { merged: true, sha, summary, ...(post && !post.ok ? { postMerge: post } : {}) };
+	return { ...outcome, ...(post && !post.ok ? { postMerge: post } : {}) };
 }

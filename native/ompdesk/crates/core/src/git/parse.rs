@@ -192,7 +192,7 @@ pub fn branch_headers(text: &str) -> Branch {
 }
 
 /// A run of ASCII digits (`\d+`) as its number.
-fn digits(text: &str) -> Option<u64> {
+pub fn digits(text: &str) -> Option<u64> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }

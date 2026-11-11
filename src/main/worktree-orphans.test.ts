@@ -2,13 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LocalCommandError } from "./local/types";
-import {
-	classifyOrphan,
-	listOrphanWorktrees,
-	type OrphanFacts,
-	sessionOpenFolders,
-	setOpenFoldersSource,
-} from "./worktree-orphans";
+import { listOrphanWorktrees, sessionOpenFolders, setOpenFoldersSource } from "./worktree-orphans";
 
 import {
 	byBranch,
@@ -24,50 +18,7 @@ import {
 
 installOrphansRig();
 
-describe("classifyOrphan", () => {
-	const base: OrphanFacts = {
-		detached: false,
-		dirtyFiles: 0,
-		hasWork: true,
-		landed: false,
-		squashed: false,
-		commitsAhead: 3,
-	};
-	const cases: [string, Partial<OrphanFacts>, unknown][] = [
-		["dirty wins over landed", { dirtyFiles: 2, landed: true, commitsAhead: 0 }, { state: "dirty", commitsAhead: 0 }],
-		["dirty keeps its own commits", { dirtyFiles: 1 }, { state: "dirty", commitsAhead: 3 }],
-		[
-			"no commit of its own and in the base is untouched",
-			{ hasWork: false, landed: true, commitsAhead: 0 },
-			{ state: "untouched", commitsAhead: 0 },
-		],
-		[
-			"no reflog but unmerged commits is unlanded, not untouched",
-			{ hasWork: false },
-			{ state: "unlanded", commitsAhead: 3 },
-		],
-		["landed by ancestry", { landed: true, commitsAhead: 0 }, { state: "landed", commitsAhead: 0 }],
-		[
-			"landed by content says so",
-			{ landed: true, squashed: true, commitsAhead: 0 },
-			{ state: "landed", squashed: true, commitsAhead: 0 },
-		],
-		["commits nothing holds", {}, { state: "unlanded", commitsAhead: 3 }],
-		[
-			"detached outside the base never counts commits",
-			{ detached: true, hasWork: false },
-			{ state: "unlanded", commitsAhead: 0 },
-		],
-		[
-			"detached inside the base is landed",
-			{ detached: true, hasWork: false, landed: true, commitsAhead: 0 },
-			{ state: "landed", commitsAhead: 0 },
-		],
-	];
-	it.each(cases)("%s", (_name, patch, expected) => {
-		expect(classifyOrphan({ ...base, ...patch })).toEqual(expected);
-	});
-});
+// classifyOrphan moved to the core process with its cases (native/ompdesk/crates/core/src/git/orphans.rs).
 
 describe("listOrphanWorktrees", () => {
 	it(
