@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.122.1] - 2026-11-11
+
+omp 18.18.7의 새 설정이 한국어로 보이고, Mac에서 로그인 갱신을 저장하는 중인 omp를 OMPdesk가 강제로 끝내지 않아요.
+
+### 고친 것
+- omp 18.18.7이 초기화권 자동 사용 설정을 한도별(5시간, 주간, Claude Fable)로 나누면서 설정 화면에 영어로 보이던 항목을 한국어로 고쳤어요. 초기화권 확인 창의 안내도 새 설정에 맞췄어요.
+- Mac에서 탭을 다시 시작하거나 쉬는 탭을 정리할 때, omp가 로그인 갱신을 저장하는 중이라고 알리면 OMPdesk가 5초 뒤에 강제로 끝내지 않고 저장이 끝날 때까지(최대 130초) 기다려요. 저장 전에 끝난 omp는 이미 쓴 로그인 토큰을 남겨서, 그 계정이 다음 갱신 때 목록에서 사라졌어요.
+- 위 보호는 아직 Windows와, 메모리를 켠 채 탭을 닫거나 앱을 끝내는 경우에는 적용되지 않아요. 이때는 omp가 저장을 기다리지 않고 스스로 끝나요. 계정이 목록에서 사라지면 다시 연결하면 되고, 이 경로는 따로 고치고 있어요.
+
+<!-- en -->
+
+omp 18.18.7's new settings read in Korean, and on a Mac OMPdesk no longer kills an omp that is saving a refreshed login.
+
+### Fixed
+- omp 18.18.7 split the reset-pass auto-redeem setting by limit (5-hour, weekly, Claude Fable), and Settings showed the new rows in English under a Korean interface. They are Korean now, and the reset-pass confirm dialog names the settings as they are.
+- On a Mac, when a tab restarts or an idle tab is put to sleep and its omp says it is saving a refreshed login, OMPdesk no longer kills it after 5 seconds: it waits for the save, up to 130 seconds. An omp that ended before the save left a spent login token behind, and that account dropped off the list at its next refresh.
+- This protection does not yet cover Windows, or closing a tab or quitting with Memory on: there omp ends by itself without waiting for the save. An account that drops off the list can be connected again, and this path is being fixed separately.
+
 ## [0.122.0] - 2026-11-11
 
 모든 메뉴를 다시 다듬었어요. 같은 말을 두 번 하던 줄을 줄이고, 마우스를 올려야만 보이던 정보는 키보드와 터치로도 볼 수 있어요.
