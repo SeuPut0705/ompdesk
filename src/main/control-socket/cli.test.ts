@@ -90,6 +90,8 @@ describe("ompdesk CLI", () => {
 		});
 		child.on("error", reject);
 		child.on("close", code => resolve({ code, stdout, stderr }));
+		// A command that ends before it reads stdin (a usage error, a refusal) closes the pipe under this write.
+		child.stdin.on("error", () => undefined);
 		child.stdin.end(options.stdin ?? "");
 		return promise;
 	}

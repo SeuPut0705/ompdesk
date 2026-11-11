@@ -157,7 +157,9 @@ async function checkNative(context) {
 		} catch {
 			throw new Error(`${file} is missing; run \`bun run build:native\` before packaging`);
 		}
-		if (platform === "darwin" && (stat.mode & 0o111) === 0) throw new Error(`${file} is not executable`);
+		// A Windows host (a test of the darwin check there) has no execute bit; the recorded hash is checked everywhere.
+		if (platform === "darwin" && process.platform !== "win32" && (stat.mode & 0o111) === 0)
+			throw new Error(`${file} is not executable`);
 		const actual = crypto
 			.createHash("sha256")
 			.update(await fs.readFile(file))
