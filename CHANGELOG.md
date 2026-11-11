@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.123.1] - 2026-11-11
+
+초기화권이 여러 종류인 계정에서 어느 종류든 골라서 쓸 수 있어요.
+
+### 고친 것
+- 0.123.0은 초기화권 종류를 보여 주기만 하고, Claude가 다음 차례로 내주는 한 종류만 고를 수 있었어요. 이제 보이는 종류는 모두 고를 수 있고, 고른 초기화권이 쓰여요. Claude가 일시정지한 초기화권만 고를 수 없어요.
+- 다음 차례가 아닌 초기화권을 고르면 OMPdesk가 그 초기화권을 Claude에 직접 요청해요. omp는 다음 차례의 것만 쓰기 때문이에요. 이 요청은 실제 초기화권으로 시험해 보지 못했고, Claude를 흉내 낸 서버로만 확인했어요. Claude가 거절하면 "초기화권을 쓰지 못했어요"와 이유가 보여요.
+- 확인 창이 열려 있는 동안 계정 정보가 다시 읽혀 제안이 바뀌면, 창이 닫히고 바뀌었다고 알려요. 전에는 창을 열 때 본 것과 다른 종류가 쓰일 수 있었어요.
+
+<!-- en -->
+
+On an account that holds several kinds of reset pass, any kind can now be picked and spent.
+
+### Fixed
+- 0.123.0 showed the kinds of reset pass but let only the one Claude offers next be picked. Every kind shown can now be picked, and the one you pick is the one spent. Only a pass Claude has paused cannot be picked.
+- When you pick a pass that is not the next one, OMPdesk asks Claude for that pass itself, because omp spends only the next one. This request has not been tried with a real pass, only against a server that imitates Claude. If Claude refuses, you see "Reset pass not used" with the reason.
+- If the account is read again while the confirmation is open and its offer changes, the dialog closes and says so. Before, a different kind than the one shown when it opened could be spent.
+
 ## [0.123.0] - 2026-11-11
 
 초기화권이 여러 종류인 계정은 초기화권을 누르면 종류별 티켓이 보이고, 그중에서 쓸 것을 골라요.
