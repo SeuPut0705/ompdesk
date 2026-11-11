@@ -132,7 +132,7 @@
 				"native/ompdesk/crates/core/src/sys.rs",
 				"native/ompdesk/crates/core/src/main.rs"
 			],
-			"syncCommit": "0412b001e8c4fb7d4aaa2bbc0b4394039519c414",
+			"syncCommit": "76ed720042288fcbab99933481575a5be453cf16",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		}
 	]
