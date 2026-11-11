@@ -329,6 +329,94 @@ describe("a pass picked that Claude does not name next", () => {
 		expect(fourth).not.toBe(first);
 	});
 
+	describe("never claims one pass under two request ids while the first may have applied", () => {
+		const lost: ChosenSpend = { ok: false, code: "network_error", status: 0 };
+		const requestIds = (spend: { mock: { calls: unknown[][] } }) => spend.mock.calls.map(call => call[1]);
+
+		it("repeats its unanswered claim itself once the provider names that pass next: stock would send a new one", async () => {
+			const { fake, redeem, account: read, spend } = picked();
+			const claims = chosenClaims();
+			spend.mockResolvedValueOnce(lost);
+			await redeemResetPass(fake, request, claims);
+			// The provider now names the picked pass next: stock's redeem would spend it under an id of its own.
+			redeem.mockResolvedValue({ ok: true, code: "reset" });
+			read.mockResolvedValue({ offer: { nextCreditId: "g_regular", credits: [fable, regular] }, spend });
+			spend.mockResolvedValueOnce({ ok: false, code: "already_redeemed", status: 200 });
+
+			expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "already_redeemed" });
+			expect(redeem).toHaveBeenCalledTimes(1);
+			const [first, second] = requestIds(spend);
+			expect(second).toBe(first);
+			// That answer ended the claim: the next spend of the pass is stock's again.
+			expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: true, code: "reset" });
+			expect(redeem).toHaveBeenCalledTimes(2);
+			expect(spend).toHaveBeenCalledTimes(2);
+		});
+
+		it("sends nothing more when a use of the pass is gone after the unanswered claim: it applied", async () => {
+			const { fake, redeem, account: read, spend, settle } = picked();
+			const claims = chosenClaims();
+			spend.mockResolvedValueOnce(lost);
+			await redeemResetPass(fake, request, claims);
+			read.mockResolvedValue({
+				offer: { nextCreditId: "g_regular", credits: [fable, { ...regular, remainingCount: 1 }] },
+				spend,
+			});
+
+			expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "already_redeemed" });
+			expect(spend).toHaveBeenCalledTimes(1);
+			expect(redeem).toHaveBeenCalledTimes(1);
+			expect(settle).toHaveBeenCalledWith("anthropic");
+		});
+
+		it("keeps each pass's unanswered claim apart", async () => {
+			const opus: ResetCreditDetail = { id: "g_opus", remainingCount: 1, usable: false, status: "unavailable" };
+			const { fake, spend } = picked([fable, regular, opus]);
+			const claims = chosenClaims();
+			spend.mockResolvedValueOnce(lost);
+			await redeemResetPass(fake, request, claims);
+			await redeemResetPass(fake, { ...request, creditId: "g_opus" }, claims);
+			await redeemResetPass(fake, request, claims);
+			const [regularFirst, opusOnly, regularAgain] = requestIds(spend);
+			expect(regularAgain).toBe(regularFirst);
+			expect(opusOnly).not.toBe(regularFirst);
+		});
+
+		it("forgets its claim of a pass that left the offer, and says the offer changed", async () => {
+			const { fake, redeem, account: read, spend } = picked();
+			const claims = chosenClaims();
+			spend.mockResolvedValueOnce(lost);
+			await redeemResetPass(fake, request, claims);
+			read.mockResolvedValue({ offer: { nextCreditId: "g_fable", credits: [fable] }, spend });
+			expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "offer_changed" });
+			expect(spend).toHaveBeenCalledTimes(1);
+			expect(redeem).toHaveBeenCalledTimes(1);
+			expect(claims.unsettled.size).toBe(0);
+		});
+
+		it("leaves a pass alone whose claim by stock went unanswered: stock holds that claim's id", async () => {
+			const { fake, redeem, account: read, spend } = picked();
+			const claims = chosenClaims();
+			for (const unanswered of ["network_error", "malformed_response", "http_502", "unavailable"]) {
+				// Stock claimed the pass while the provider named it next, and no answer came back.
+				redeem.mockResolvedValueOnce({ ok: false, code: unanswered });
+				expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: unanswered });
+				// The provider names another pass next now: stock refuses, and this path must not claim it anew.
+				expect(await redeemResetPass(fake, request, claims)).toMatchObject({
+					ok: false,
+					code: "reset_unconfirmed",
+				});
+				// Stock's own answer to that claim frees the pass again.
+				redeem.mockResolvedValueOnce({ ok: false, code: "already_redeemed" });
+				await redeemResetPass(fake, request, claims);
+			}
+			expect(read).not.toHaveBeenCalled();
+			expect(spend).not.toHaveBeenCalled();
+			expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: true, code: "reset" });
+			expect(spend).toHaveBeenCalledTimes(1);
+		});
+	});
+
 	it("refuses a second spend on an account while one is under way, and sends it nothing", async () => {
 		const { fake, spend } = picked();
 		const claims = chosenClaims();

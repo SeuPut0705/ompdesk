@@ -44,7 +44,7 @@ const live = offer({ eligible: true, grants: [grant()], next_grant_id: "grant-li
  * An account with two kinds of pass, both usable by Claude's own word: a Fable reset, which Claude names next, and a
  * regular one. Claude Code lets a person pick either; stock omp spends only the one named next.
  */
-const kinds = (regular: Record<string, unknown> = {}) =>
+const kinds = (regular: Record<string, unknown> = {}, next = "grant-fable") =>
 	offer({
 		eligible: true,
 		grants: [
@@ -57,11 +57,23 @@ const kinds = (regular: Record<string, unknown> = {}) =>
 				...regular,
 			}),
 		],
-		next_grant_id: "grant-fable",
+		next_grant_id: next,
 	});
 const KINDS = kinds();
 /** The fake's route for the listing of that account (no redeem). */
 const LISTED = "kinds";
+
+/**
+ * A picked pass whose claim reached Claude and applied, with the answer lost on the way back (the fake answers 502
+ * and counts the claim), after which Claude names that same pass next. The person tries again. Stock's redeem would
+ * now claim it under a new request id and spend a second use; the bridge must repeat its own claim, or send nothing
+ * once it sees a use gone. Per route, what the pass's `resets_left` reads after the lost claim: unchanged (Claude has
+ * not caught up) or one less.
+ */
+const LOST: Record<string, { leftAfter: number; claims: number }> = {
+	"lost-unchanged": { leftAfter: 2, claims: 2 },
+	"lost-counted": { leftAfter: 1, claims: 1 },
+};
 
 /**
  * The same redeems through OMPdesk's bridge method (`reset_pass_redeem`, reset-passes.ts), each of a pass a person
@@ -227,9 +239,20 @@ export default function (pi) {
     const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: confirm }, env);
     picks[name] = { ok: result.ok, code: result.code, message: result.message };
    }
+   const lost = {};
+   for (const name of JSON.parse(process.env.OMPDESK_RESET_LOST)) {
+    pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/" + name });
+    const tries = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+     const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: "grant-regular" }, env);
+     tries.push({ ok: result.ok, code: result.code });
+    }
+    lost[name] = tries;
+   }
    console.error("RESET_REDEEM_PROBE=" + JSON.stringify({
     results,
     picks,
+    lost,
     listed: { count: listed?.availableCount, tickets: resetTickets(listed?.credits ?? []) },
     startupRefused: guard.blocked.slice(0, startup),
     blocked: guard.blocked.slice(startup),
@@ -263,9 +286,27 @@ function fakeClaude(received: Received[]) {
 				response.writeHead(status, { "content-type": "application/json" });
 				response.end(payload === undefined ? "" : JSON.stringify(payload));
 			};
-			const usage = name === LISTED ? KINDS : scripted?.usage;
+			const claimsBefore = received
+				.slice(0, -1)
+				.filter(entry => entry.method === "POST" && entry.path.startsWith(`/${name}/`))
+				.map(entry => String((JSON.parse(entry.body) as { request_id?: unknown }).request_id));
+			const lost = LOST[name];
+			const usage =
+				name === LISTED
+					? KINDS
+					: lost
+						? claimsBefore.length === 0
+							? KINDS
+							: kinds({ resets_left: lost.leftAfter }, "grant-regular")
+						: scripted?.usage;
 			if (usage && request.method === "GET" && route === USAGE) {
 				answer(usage.status, usage.body);
+			} else if (lost && request.method === "POST" && route === CONSUME) {
+				const requestId = String((JSON.parse(body) as { request_id?: unknown }).request_id);
+				// The first claim applies and its answer is lost; a claim repeated under the same id is the same claim,
+				// one under a new id would spend a second use.
+				if (claimsBefore.length === 0) answer(502, {});
+				else answer(200, { result: claimsBefore.includes(requestId) ? "already_used" : "reset" });
 			} else if (scripted && request.method === "POST" && route === CONSUME) {
 				answer(200, { result: "reset", cleared: ["five_hour"] });
 			} else {
@@ -298,6 +339,7 @@ function runRedeemProbe(fake: string): Promise<Record<string, unknown>> {
 		OMPDESK_RESET_FAKE: fake,
 		OMPDESK_RESET_CASES: JSON.stringify(Object.entries(CASES).map(([name, { confirm }]) => ({ name, confirm }))),
 		OMPDESK_RESET_PICKS: JSON.stringify(Object.entries(PICKS).map(([name, { confirm }]) => ({ name, confirm }))),
+		OMPDESK_RESET_LOST: JSON.stringify(Object.keys(LOST)),
 	};
 	for (const key of [
 		"ANTHROPIC_API_KEY",
@@ -367,7 +409,7 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 		// engine probes at startup).
 		const toFake = (probe.loopback as string[]).filter(url => url.startsWith(`${base}/`));
 		expect(toFake.map(url => url.slice(base.length)).sort()).toEqual(received.map(entry => entry.path).sort());
-		const routes = [...Object.keys(CASES), ...Object.keys(PICKS), LISTED];
+		const routes = [...Object.keys(CASES), ...Object.keys(PICKS), ...Object.keys(LOST), LISTED];
 		expect(received.every(entry => routes.some(name => entry.path.startsWith(`/${name}/`)))).toBe(true);
 	});
 
@@ -421,6 +463,24 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 			"reset-probe@example.invalid",
 		);
 	});
+
+	it.each(Object.entries(LOST))(
+		"through the bridge, %s: a claim whose answer was lost is never followed by a second one of the same pass",
+		(name, scripted) => {
+			const tries = (probe.lost as Record<string, Array<{ ok: boolean; code: string }>>)[name];
+			expect(tries).toEqual([
+				{ ok: false, code: "http_502" },
+				{ ok: false, code: "already_redeemed" },
+			]);
+			const claims = received
+				.filter(entry => entry.method === "POST" && entry.path.startsWith(`/${name}/`))
+				.map(entry => JSON.parse(entry.body) as { grant_id: string; request_id: string });
+			expect(claims).toHaveLength(scripted.claims);
+			expect(claims.every(claim => claim.grant_id === "grant-regular")).toBe(true);
+			// One request id is one use spent, however often it is sent.
+			expect(new Set(claims.map(claim => claim.request_id)).size).toBe(1);
+		},
+	);
 
 	it("lists two kinds of pass as two tickets, each naming the pass a pick of it spends", () => {
 		expect(probe.listed).toEqual({

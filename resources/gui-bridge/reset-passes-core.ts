@@ -222,18 +222,30 @@ export interface ChosenAccount {
 	spend(credit: ResetCreditDetail & { id: string }, requestId: string): Promise<ChosenSpend>;
 }
 
-/** What chosen spends remember between calls, per omp (reset-passes.ts holds one). */
+/** What claims of a picked pass remember between calls, per omp (reset-passes.ts holds one). */
 export interface ChosenClaims {
 	/** Accounts with a chosen spend under way: a second one is refused, never sent. */
 	running: Set<number>;
 	/**
-	 * A spend the provider never answered keeps its request id, so trying the same pass again repeats the same claim
-	 * and cannot spend a second pass (stock's own `#pendingClaudeResets` does this for the pass named next).
+	 * By pass (`claimKey`): a claim this path sent that the provider never answered, with its request id and the uses
+	 * the pass had left. Trying the same pass again repeats that claim under that id, whatever the provider names
+	 * next by then, so it cannot spend a second use (stock's `#pendingClaudeResets` does this for its own claims).
 	 */
-	unsettled: Map<number, { creditId: string; requestId: string }>;
+	unsettled: Map<string, { requestId: string; left?: number }>;
+	/**
+	 * By pass: stock's redeem sent a claim the provider never answered. Stock keeps that claim's request id to itself,
+	 * so this path never claims such a pass: a claim under a new id could spend a second use.
+	 */
+	stockUnsettled: Set<string>;
 }
 
-export const chosenClaims = (): ChosenClaims => ({ running: new Set(), unsettled: new Map() });
+export const chosenClaims = (): ChosenClaims => ({
+	running: new Set(),
+	unsettled: new Map(),
+	stockUnsettled: new Set(),
+});
+
+const claimKey = (credentialId: number, creditId: string): string => `${credentialId} ${creditId}`;
 
 /** Answers after which a claim is over: it applied, or the provider said it will not. */
 const SETTLED_CODES: Record<string, true> = {
@@ -244,14 +256,43 @@ const SETTLED_CODES: Record<string, true> = {
 };
 const SETTLED_STATUSES: Record<number, true> = { 401: true, 403: true, 429: true };
 
+/** Stock redeem answers on which stock drops a claim it held (auth/resets.ts), besides a reset that applied. */
+const STOCK_SETTLED: Record<string, true> = { already_redeemed: true, nothing_to_reset: true };
+/** Stock redeem answers that mean no claim reached the provider unanswered: none was sent, or it was refused. */
+const STOCK_NOT_APPLIED: Record<string, true> = {
+	offer_changed: true,
+	credit_list_failed: true,
+	no_account: true,
+	account_unavailable: true,
+	reset_in_progress: true,
+	reset_unconfirmed: true,
+	no_credit: true,
+	ineligible: true,
+	unsupported_provider: true,
+	cooldown: true,
+	auth_error: true,
+	rate_limited: true,
+	organization_unavailable: true,
+};
+
+/** Remembers whether stock's redeem left a claim of this pass unanswered. Any answer not known to be safe counts. */
+function noteStockAnswer(claims: ChosenClaims, key: string, outcome: ResetRedeemOutcome): void {
+	if (outcome.ok || STOCK_SETTLED[outcome.code]) claims.stockUnsettled.delete(key);
+	else if (!STOCK_NOT_APPLIED[outcome.code]) claims.stockUnsettled.add(key);
+}
+
 /**
  * Spend the pass a person picked when it is not the one the provider names next. Stock's redeem refuses that
  * (`offer_changed`: it spends only `nextCreditId`), although Claude takes any grant of the account by id, which is how
  * Claude Code spends the kind a person picks there (the owner's rule, 11 Nov 2026: every kind listed can be spent).
  * So this path reads the account's offer once and sends that one pass's claim with stock's own request.
  *
- * Undefined when the offer does not name a different pass next, or the picked one is gone, spent or paused: stock's
- * refusal then stands.
+ * A claim of the pass this path sent before and never got answered is repeated under its own request id instead,
+ * whatever the provider names next now; when a use of the pass is gone meanwhile, that claim applied and nothing
+ * more is sent.
+ *
+ * Undefined when the picked pass is gone, spent or paused, or (with no claim of it unanswered) the offer does not
+ * name a different pass next: there is nothing for this path to send.
  */
 async function spendChosenPass(
 	surface: ResetPassSurface,
@@ -263,25 +304,35 @@ async function spendChosenPass(
 	if (claims.running.has(credentialId)) return { ok: false, code: "reset_in_progress", provider };
 	claims.running.add(credentialId);
 	try {
+		const key = claimKey(credentialId, creditId);
 		const account = await surface.account(provider, credentialId);
 		if ("code" in account) return { ok: false, code: account.code, provider };
+		const identity = { provider, creditId, ...(account.email ? { email: account.email } : {}) };
 		const { offer } = account;
 		const credit = offer.credits.find(candidate => candidate.id === creditId);
-		if (!offer.nextCreditId || offer.nextCreditId === creditId || !credit || !choosable(credit)) return undefined;
-		const held = claims.unsettled.get(credentialId);
-		const requestId = held?.creditId === creditId ? held.requestId : crypto.randomUUID();
-		claims.unsettled.set(credentialId, { creditId, requestId });
+		const held = claims.unsettled.get(key);
+		if (!credit || !choosable(credit)) {
+			// A claim of a pass that left the offer can never be answered (stock drops its own the same way).
+			claims.unsettled.delete(key);
+			return undefined;
+		}
+		if (!held && (!offer.nextCreditId || offer.nextCreditId === creditId)) return undefined;
+		if (held?.left !== undefined && credit.remainingCount !== undefined && credit.remainingCount < held.left) {
+			claims.unsettled.delete(key);
+			await surface.settle(provider);
+			return { ...identity, ok: false, code: "already_redeemed" };
+		}
+		const requestId = held?.requestId ?? crypto.randomUUID();
+		const left = held ? held.left : credit.remainingCount;
+		claims.unsettled.set(key, { requestId, ...(left !== undefined ? { left } : {}) });
 		// Stock's `usable` says "the one named next"; the claim's own guard reads it as "may be sent".
 		const spend = await account.spend({ ...credit, usable: true }, requestId);
-		if (spend.ok || SETTLED_CODES[spend.code] || SETTLED_STATUSES[spend.status])
-			claims.unsettled.delete(credentialId);
+		if (spend.ok || SETTLED_CODES[spend.code] || SETTLED_STATUSES[spend.status]) claims.unsettled.delete(key);
 		if (spend.ok) await surface.settle(provider);
 		return {
+			...identity,
 			ok: spend.ok,
 			code: spend.code,
-			provider,
-			creditId,
-			...(account.email ? { email: account.email } : {}),
 			...(spend.reason ? { reason: spend.reason } : {}),
 			...(spend.cleared ? { cleared: spend.cleared } : {}),
 		};
@@ -326,24 +377,38 @@ const outcomeResult = (surface: ResetPassSurface, outcome: ResetRedeemOutcome, l
  * Spend the pass the user confirmed. Where stock's redeem checks the live offer itself, the confirmed pass goes
  * straight to it; elsewhere the offer is read here first and a changed confirmation is refused before stock redeems.
  * A confirmed pass stock refuses only because the provider names another one next is spent by `spendChosenPass`.
+ *
+ * One pass is never claimed under two request ids while an earlier claim of it may still have applied: a claim
+ * `spendChosenPass` sent and never got answered is repeated by it before stock is asked (stock would send a new one
+ * once the provider names that pass next), and a pass whose claim by stock went unanswered is never claimed here.
  */
 export async function redeemResetPass(
 	surface: ResetPassSurface,
 	request: RedeemRequest,
 	claims: ChosenClaims,
 ): Promise<RedeemResult> {
-	const { provider, credentialId } = request;
+	const { provider, credentialId, creditId } = request;
 	if (surface.verifiesOffer(provider)) {
-		const refused = await surface.redeem({
-			provider,
-			credentialId,
-			...(request.creditId ? { creditId: request.creditId } : {}),
-		});
-		const outcome =
-			refused.code === "offer_changed" && request.creditId
-				? ((await spendChosenPass(surface, claims, provider, credentialId, request.creditId)) ?? refused)
-				: refused;
-		return outcomeResult(surface, outcome, outcome.email ?? refused.email ?? `#${credentialId}`);
+		const key = creditId ? claimKey(credentialId, creditId) : undefined;
+		const result = (outcome: ResetRedeemOutcome, email?: string) =>
+			outcomeResult(surface, outcome, outcome.email ?? email ?? `#${credentialId}`);
+		if (key && creditId && claims.unsettled.has(key)) {
+			return result(
+				(await spendChosenPass(surface, claims, provider, credentialId, creditId)) ?? {
+					ok: false,
+					code: "offer_changed",
+					provider,
+				},
+			);
+		}
+		const refused = await surface.redeem({ provider, credentialId, ...(creditId ? { creditId } : {}) });
+		if (key) noteStockAnswer(claims, key, refused);
+		if (refused.code !== "offer_changed" || !key || !creditId) return result(refused);
+		if (claims.stockUnsettled.has(key)) return result({ ...refused, code: "reset_unconfirmed" });
+		return result(
+			(await spendChosenPass(surface, claims, provider, credentialId, creditId)) ?? refused,
+			refused.email,
+		);
 	}
 	const status = (await surface.list(provider)).find(candidate => candidate.credentialId === credentialId);
 	if (!status) return refusal("no_account", `Could not find the stored account #${credentialId}.`);
