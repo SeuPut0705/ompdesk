@@ -788,6 +788,10 @@ describe("release assets", () => {
 		expect(verify("mac")).toContain("agent-desktop-pin.json");
 		expect(verify("win")).toContain("agent-desktop-bin/agent-desktop.exe");
 		expect(verify("win")).toContain("agent-desktop-pin.json");
+		// OMPdesk's own Rust (bun run build:native, in .github/actions/install): the shipped CLI runs, signed on macOS.
+		expect(verify("mac")).toContain("Resources/ompdesk-bin/ompdesk");
+		expect(verify("mac")).toContain('codesign --verify --strict --verbose=2 "$CLI"');
+		expect(verify("win")).toContain("ompdesk-bin/ompdesk.exe help");
 	});
 });
 

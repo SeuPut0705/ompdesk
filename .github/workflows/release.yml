@@ -376,6 +376,11 @@ jobs:
             codesign --verify --strict --verbose=2 "$BIN"
           done
           "$ADT/agent-desktop" --version | grep -Fx "agent-desktop $(jq -r .version scripts/agent-desktop-pin.json)"
+          # OMPdesk's own Rust (native/ompdesk): the CLI carries the app's signature and runs.
+          CLI="$APP/Contents/Resources/ompdesk-bin/ompdesk"
+          test -x "$CLI"
+          codesign --verify --strict --verbose=2 "$CLI"
+          "$CLI" help | grep -F "Exit codes"
           lipo -archs "$APP/Contents/MacOS/OMPdesk" | grep -qx arm64
       - name: Install omp
         run: |
@@ -604,6 +609,8 @@ jobs:
           "$AIM" --version | grep -F "$(jq -r .version native/memory/ompdesk.json)"
           ADT=dist/win-unpacked/resources/agent-desktop-bin/agent-desktop.exe
           "$ADT" --version | grep -Fx "agent-desktop $(jq -r .version scripts/agent-desktop-pin.json)"
+          # OMPdesk's own Rust (native/ompdesk): the CLI runs.
+          dist/win-unpacked/resources/ompdesk-bin/ompdesk.exe help | grep -F "Exit codes"
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"
