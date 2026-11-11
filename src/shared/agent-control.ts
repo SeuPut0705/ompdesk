@@ -387,31 +387,43 @@ export interface AgentReviewResult {
 /**
  * A message one session's agent sends another session arrives as an ordinary stock prompt, steer or follow-up
  * wrapped in this tag, so the receiving model knows another agent wrote it and every surface that renders
- * the transcript (live, reloaded, a paired host's tab) shows it as "sent by an agent".
+ * the transcript (live, reloaded, a paired host's tab) shows it as "sent by an agent". `session` is the sender's saved
+ * id (the `<id>` of its `<time>_<id>.jsonl` file): titles repeat and tab ids differ per app and per launch, so it is
+ * the one name the receiver can answer that session by. Journals written before it hold the tag without it.
  */
 export const AGENT_MESSAGE_TAG = "ompdesk-agent-message";
 
-const WRAPPED = new RegExp(`^<${AGENT_MESSAGE_TAG} from="([^"]*)">\\n([\\s\\S]*)\\n</${AGENT_MESSAGE_TAG}>$`);
+const OPENING = `<${AGENT_MESSAGE_TAG} from="([^"]*)"(?: session="([^"]*)")?>`;
+const WRAPPED = new RegExp(`^${OPENING}\\n([\\s\\S]*)\\n</${AGENT_MESSAGE_TAG}>$`);
 
-/** The text a session receives: `body` from the session titled `from` (empty when it has no title yet). */
-export function wrapAgentMessage(body: string, from: string): string {
-	const attribute = from
+function attributeOf(value: string): string {
+	return value
 		.replaceAll(/\s+/g, " ")
 		.trim()
 		.replaceAll("&", "&amp;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("<", "&lt;")
 		.replaceAll(">", "&gt;");
+}
+
+/**
+ * The text a session receives: `body` from the session titled `from` (empty when it has no title yet), whose saved id
+ * is `session` (absent while it has no saved file).
+ */
+export function wrapAgentMessage(body: string, from: string, session?: string): string {
 	// A body cannot carry its own wrapper (an agent forging another sender, or closing this one early).
 	const safe = body
 		.replaceAll(`<${AGENT_MESSAGE_TAG}`, `<\u200b${AGENT_MESSAGE_TAG}`)
 		.replaceAll(`</${AGENT_MESSAGE_TAG}`, `</\u200b${AGENT_MESSAGE_TAG}`);
-	return `<${AGENT_MESSAGE_TAG} from="${attribute}">\n${safe}\n</${AGENT_MESSAGE_TAG}>`;
+	const id = session ? ` session="${attributeOf(session)}"` : "";
+	return `<${AGENT_MESSAGE_TAG} from="${attributeOf(from)}"${id}>\n${safe}\n</${AGENT_MESSAGE_TAG}>`;
 }
 
 export interface AgentMessage {
 	/** The sending session's title; "" when it had none. */
 	from: string;
+	/** The sending session's saved id; absent in a message written before it was carried, or by a session unsaved yet. */
+	session?: string;
 	body: string;
 }
 
@@ -420,11 +432,12 @@ function unescapeAttribute(value: string): string {
 	return value.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
 }
 
-/** The parts of a wrapped message; null for anything else (a person's own prompt). */
+/** The parts of a wrapped message, either form; null for anything else (a person's own prompt). */
 export function parseAgentMessage(text: string): AgentMessage | null {
 	const match = WRAPPED.exec(text);
 	if (!match) return null;
-	return { from: unescapeAttribute(match[1] ?? ""), body: match[2] ?? "" };
+	const session = match[2] === undefined ? undefined : unescapeAttribute(match[2]);
+	return { from: unescapeAttribute(match[1] ?? ""), ...(session ? { session } : {}), body: match[3] ?? "" };
 }
 
 /**
@@ -436,7 +449,7 @@ export function agentMessageSender(text: string): string | null {
 	return match ? unescapeAttribute(match[1] ?? "") : null;
 }
 
-const WRAPPED_START = new RegExp(`^<${AGENT_MESSAGE_TAG} from="([^"]*)">\\n`);
+const WRAPPED_START = new RegExp(`^${OPENING}\\n`);
 const WRAPPED_END = new RegExp(`\\n</${AGENT_MESSAGE_TAG}>$`);
 /** What a worker's final answer says about its own work: its last line, `Result: ok` or `Result: problem — <reason>`. */
 export type WorkerResult = { kind: "ok" } | { kind: "problem"; reason: string };

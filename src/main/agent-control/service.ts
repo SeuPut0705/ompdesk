@@ -807,6 +807,16 @@ function label(tab: ControlTab): string {
 	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
 }
 
+/**
+ * A session as a line names the one it is: its title, then its saved id (the same on every computer and across
+ * relaunches, unlike a tab id) and the computer it runs on.
+ */
+function named(tab: ControlTab): string {
+	const saved = tab.hidden ? undefined : savedIdOfPath(tab.sessionPath);
+	const facts = [saved ? `saved id ${saved}` : null, tab.deviceName ? `on ${tab.deviceName}` : null].filter(Boolean);
+	return `${label(tab)}${facts.length ? ` (${facts.join(", ")})` : ""}`;
+}
+
 /** How a fate names a close or delete the caller made with `ompdesk_session_stop`. */
 function byCaller(caller: ControlTab): string {
 	return `${caller.title ? `the session "${oneLine(caller.title, 60)}"` : "an agent's session"} (ompdesk_session_stop)`;
@@ -965,9 +975,13 @@ export function renderMessage(message: AgentMessage): string | null {
 			const text = contentText(message.content).trim();
 			if (!text) return null;
 			const wrapped = parseAgentMessage(text);
-			const head = wrapped
-				? `[user, sent by an agent${wrapped.from ? ` (${oneLine(wrapped.from, 60)})` : ""}]`
-				: "[user]";
+			// The saved id names the sender for an answer; titles repeat, and a message before it carried none.
+			const sender = wrapped
+				? [wrapped.from ? oneLine(wrapped.from, 60) : null, wrapped.session ? `saved id ${wrapped.session}` : null]
+						.filter(Boolean)
+						.join(", ")
+				: "";
+			const head = wrapped ? `[user, sent by an agent${sender ? ` (${sender})` : ""}]` : "[user]";
 			return `${head} ${cut(wrapped?.body ?? text, MESSAGE_CHARS)}`;
 		}
 		case "assistant": {
@@ -1802,10 +1816,11 @@ export class AgentControl {
 			join: true,
 		});
 		await this.#whenReady(tabId, caller.tabId);
-		return (
+		const joined =
 			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
-			fail(`"${oneLine(storedTitle(row), 80)}" was joined as ${tabId}, and that tab closed again.`)
-		);
+			fail(`"${oneLine(storedTitle(row), 80)}" was joined as ${tabId}, and that tab closed again.`);
+		// A view just attached names nothing until its omp says: it is the saved session it joined.
+		return joined.title || joined.task ? joined : { ...joined, title: storedTitle(row) };
 	}
 
 	#refuseHidden(target: ControlTab, caller: ControlTab): void {
@@ -2040,7 +2055,9 @@ export class AgentControl {
 				const todos = todoProgress(session.state?.todoPhases);
 				if (todos) parts.push(todos);
 				if (pace) parts.push(paceShort(pace));
-				const head = `- ${tab.tabId} ${label(tab)}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
+				// The saved id is the session's on every computer and across relaunches; the tab id is this app's, this launch.
+				const saved = savedIdOfPath(tab.sessionPath);
+				const head = `- ${tab.tabId} ${label(tab)}${saved ? ` (saved id ${saved})` : ""}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
 				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
 				const kind = waits(tab)
 					? "waiting"
@@ -2464,7 +2481,11 @@ export class AgentControl {
 					responseData(
 						await send({
 							type: "prompt",
-							message: wrapAgentMessage(withDispatch(args.message, this.#mailbox.dispatch(tabId)), caller.title),
+							message: wrapAgentMessage(
+								withDispatch(args.message, this.#mailbox.dispatch(tabId)),
+								caller.title,
+								savedIdOfPath(caller.sessionPath),
+							),
 							streamingBehavior: "followUp",
 						}),
 						"Sending the first message",
@@ -2584,11 +2605,20 @@ export class AgentControl {
 
 	async #deliverSend(
 		caller: ControlTab,
-		target: ControlTab,
+		found: ControlTab,
 		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
 		receiptKey: string | undefined,
 	): Promise<string> {
-		await this.#ensureStarted(target, caller.tabId);
+		await this.#ensureStarted(found, caller.tabId);
+		// The tab as it is now, never the row it was named by: one woken from asleep has its omp's title, folder, turn
+		// and asks only now, and the receipt and the delivery go by those (11 Nov 2026: an asleep tab's leftovers made the
+		// receipt read "(untitled, in work) … it was idle" for a session waiting for the user's answer).
+		const live = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === found.tabId);
+		const target = live
+			? live.title || live.task
+				? live
+				: { ...live, title: found.title || found.task || "" }
+			: found;
 		const outbox = this.#host.sendOutbox;
 		const path = target.sessionPath;
 		if (!outbox || !path) return this.#handSend(caller, target, args, receiptKey, null);
@@ -2613,13 +2643,13 @@ export class AgentControl {
 			// A resend of a message still on its way (its first send timed out, say) never runs it twice.
 			const same = kept.outbox.waiting(from, kept.path, target.device, args.message);
 			if (same)
-				return `Sent to ${label(target)}: this same message is already on its way there${same.dispatch ? ` (dispatch d${same.dispatch})` : ""} and runs once; nothing sent again.`;
+				return `Sent to ${named(target)}: this same message is already on its way there${same.dispatch ? ` (dispatch d${same.dispatch})` : ""} and runs once; nothing sent again.`;
 		}
 		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
 		// request already there, and the last dispatch it was given.
 		const marks = await this.#journalMarks(target.tabId);
 		if (args.request_id && marks.requests.has(args.request_id))
-			return `Sent to ${label(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
+			return `Sent to ${named(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
 		// Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
 		await this.#untilDraftSent(caller, target);
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
@@ -2643,7 +2673,11 @@ export class AgentControl {
 		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
 		// Every message names itself, so the receiver's journal can tell main it arrived.
 		const requestId = args.request_id ?? (dispatch || !kept ? undefined : `m-${randomBytes(4).toString("hex")}`);
-		const message = wrapAgentMessage(withDispatch(args.message, dispatch, requestId), caller.title);
+		const message = wrapAgentMessage(
+			withDispatch(args.message, dispatch, requestId),
+			caller.title,
+			savedIdOfPath(caller.sessionPath),
+		);
 		const streamingBehavior = steer ? "steer" : "followUp";
 		let entry: OutboxSend | undefined;
 		let instance = `tab:${target.tabId}`;
@@ -2681,7 +2715,7 @@ export class AgentControl {
 			if (entry) kept?.outbox.settle(entry);
 			// An omp that is not ready runs nothing there: never a success receipt.
 			fail(
-				`Not delivered to ${label(target)}: its omp refused the message (${response.error ?? "no reason given"}). Nothing runs there; nothing was sent.`,
+				`Not delivered to ${named(target)}: its omp refused the message (${response.error ?? "no reason given"}). Nothing runs there; nothing was sent.`,
 			);
 		}
 		if (entry) kept?.outbox.handed(entry, instance);
@@ -2694,12 +2728,15 @@ export class AgentControl {
 				? started
 					? "it was idle and starts on it"
 					: `it was idle, but no turn started within ${TURN_START_WAIT_MS / 1000} s: see ompdesk_session_result before sending it again`
-				: promoted
-					? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
-					: steer
-						? "delivered as steer (it reads it between steps)"
-						: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
-		const receipt = `Sent to ${label(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
+				: target.asks.length > 0
+					? // Its turn stands on a question card: a steer or a follow-up is read only after the person answers.
+						`it is ${this.#stateLine(target, { state: null, last: null, step: null, subagents: 0 })}, so it reads this only after the user answers`
+					: promoted
+						? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
+						: steer
+							? "delivered as steer (it reads it between steps)"
+							: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
+		const receipt = `Sent to ${named(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
 		return receipt;
 	}
@@ -3089,8 +3126,8 @@ export class AgentControl {
 				fail(
 					`"${name}" matches several sessions: ${matches
 						.slice(0, 6)
-						.map(tab => `${tab.tabId} ${label(tab)}`)
-						.join("; ")}. Use the full id from ompdesk_sessions.`,
+						.map(tab => `${tab.tabId} ${named(tab)}`)
+						.join("; ")}. Use the saved id of the one you mean.`,
 				);
 			return matches[0];
 		};
@@ -3133,10 +3170,37 @@ export class AgentControl {
 		const wanted = name.toLowerCase();
 		const titled = tabs.filter(entry => !entry.hidden);
 		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
+		// A session open in a tab no window of this app holds (a paired computer's window, a tab one computer runs for
+		// another) owns its title as much as a tab here does: a title both hold is ambiguous, and a tab whose title only
+		// starts with a name that session holds whole is not the one meant (12 Nov 2026: two "문의" sessions, one
+		// open on a paired computer, and every message by title went to the older tab here).
+		const away = this.#openElsewhere(tabs, undefined).map(({ summary, computer }) => {
+			const title = summary.title || summary.autoTitle || "";
+			const id = summary.sessionId ? `saved id ${summary.sessionId}, ` : "";
+			return {
+				title: title.trim().toLowerCase(),
+				text: `"${oneLine(title, 80)}" (${id}${openInText(computer, summary.openFor)})`,
+			};
+		});
+		const holders = (match: (title: string) => boolean): { tab?: ControlTab; away: boolean } => {
+			const here = titled.filter(entry => match(titleOf(entry)));
+			const there = away.filter(entry => entry.title && match(entry.title));
+			if (here.length + there.length > 1)
+				fail(
+					`"${name}" matches several sessions: ${[
+						...here.map(entry => `${entry.tabId} ${named(entry)}`),
+						...there.map(entry => entry.text),
+					]
+						.slice(0, 6)
+						.join("; ")}. Use the saved id of the one you mean.`,
+				);
+			return { ...(here[0] ? { tab: here[0] } : {}), away: there.length > 0 };
+		};
+		const exact = holders(title => title === wanted);
 		const byTitle =
-			only(titled.filter(entry => titleOf(entry) === wanted)) ??
-			(wanted.length >= TITLE_PREFIX_MIN
-				? only(titled.filter(entry => titleOf(entry).startsWith(wanted)))
+			exact.tab ??
+			(!exact.away && wanted.length >= TITLE_PREFIX_MIN
+				? holders(title => title.startsWith(wanted)).tab
 				: undefined);
 		if (byTitle) return { target: byTitle, unreached: [] };
 		// A saved id a tombstone names is listed by no index any more (and a row an earlier list printed is stale).
@@ -3242,13 +3306,11 @@ export class AgentControl {
 
 	/**
 	 * The tab that has a saved session open now. A listed row's `tabId` is only what was true when it was listed: that
-	 * tab may have closed since (the device closed it), or another tab opened the session after the list.
+	 * tab may have closed since (the device closed it), or now hold another session (a new session or a switch in it),
+	 * or another tab opened the session after the list. Only the tab holding the row's file is it.
 	 */
 	#liveTab(tabs: ControlTab[], row: StoredSession): ControlTab | undefined {
-		return (
-			(row.tabId ? tabs.find(tab => tab.tabId === row.tabId) : undefined) ??
-			tabs.find(tab => tab.sessionPath === row.path && tab.device === row.device)
-		);
+		return tabs.find(tab => tab.sessionPath === row.path && tab.device === row.device);
 	}
 
 	/** An open session, or a saved one (open in a tab: that tab). `device`: where a saved id is looked up. */

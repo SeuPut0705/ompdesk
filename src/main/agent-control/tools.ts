@@ -38,7 +38,7 @@ export const MESSAGE_MAX_CHARS = 50_000;
 const SESSION = {
 	type: "string",
 	description:
-		"The session: its id as ompdesk_sessions lists it (or a unique prefix), an id it had before OMPdesk relaunched, its saved id from scope stored (open or not), or its title (or a unique start of it).",
+		"The session: its saved id (ompdesk_sessions prints it as `saved id`, and a message from a session carries it as `session`; the same on every computer and after a relaunch), its tab id as ompdesk_sessions lists it (this app's own, different on another computer and new after a relaunch; an id it had before a relaunch still works here), a unique prefix of either, or its title (or a unique start of it; refused when several sessions hold it).",
 } as const;
 const DEVICE = {
 	type: "string",
@@ -110,7 +110,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "OMPdesk sessions",
 		description:
 			"List your open sessions, saved sessions and paired devices.\n" +
-			"List sessions: those open in this OMPdesk window (default), in every window of this app (scope app, which includes sessions running on paired devices), or the saved sessions on this computer or a paired device (scope stored: closed ones too, with text search). Each with id, title, folder, device, state (running with its current step, waiting for the user's answer, idle), subagents, todos and the start of its last answer; also the paired devices. Sessions the user hid from agents show as private. See skill://ompdesk.",
+			"List sessions: those open in this OMPdesk window (default), in every window of this app (scope app, which includes sessions running on paired devices), or the saved sessions on this computer or a paired device (scope stored: closed ones too, with text search). Each with id, title, folder, device, state (running with its current step, waiting for the user's answer, idle), subagents, todos and the start of its last answer; also the paired devices. An open session's first id is its tab id, this app's own: it differs on another computer and changes when OMPdesk relaunches. Its `saved id` is the session's id everywhere and for good: give that one to another session, and answer a message by the `session` it carries. Sessions the user hid from agents show as private. See skill://ompdesk.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -166,7 +166,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Message OMPdesk session",
 		description:
 			"Send a message to another open session.\n" +
-			"Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps, the default) or follow_up (queued until its turn ends). The session sees it as sent by you, an agent, with your session's title. It cannot answer that session's pending question: only the user does. See skill://ompdesk.",
+			'Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps, the default) or follow_up (queued until its turn ends). The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
 		parameters: {
 			type: "object",
 			properties: {
