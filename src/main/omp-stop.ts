@@ -10,6 +10,17 @@ import { setTimeout as delay } from "node:timers/promises";
 export const STOP_GRACE_MS = 5_000;
 /** After the kill, how long the stop still waits for the exit (a process in uninterruptible sleep outlasts SIGKILL). */
 const KILL_WAIT_MS = 2_000;
+/**
+ * What stock's exit writes to stderr when it waits on one thing alone (`@oh-my-pi/pi-utils` postmortem.ts: the hold's
+ * message, then "(up to N s)…"). The hold that matters is the login refresh (`pi-ai` auth/refresh.ts, up to 125 s):
+ * the provider has already swapped the refresh token, so an omp killed before it saved the new one leaves a spent
+ * token in the store every omp shares, and the account drops off the list at the next refresh (`invalid_grant`).
+ */
+const EXIT_HOLD = /\(up to (\d+) s\)…/;
+/** Past the time an exit hold asked for, how long the omp still has to end before the kill. */
+const HOLD_SLACK_MS = 2_000;
+/** The longest a stop is held for an omp's exit hold, whatever it asks for (stock's longest is 125 s). */
+export const STOP_HOLD_MAX_MS = 130_000;
 /** How often a stop of a pid this app is not the parent of looks whether it is gone. */
 const PID_POLL_MS = 100;
 
@@ -48,6 +59,34 @@ function within(done: Promise<void>, ms: number): Promise<boolean> {
 		resolve(true);
 	});
 	return promise;
+}
+
+/**
+ * Until when the omp asked not to be killed, read from its stderr from now on (0: it asked for nothing). A hold never
+ * reaches past `STOP_HOLD_MAX_MS` from now.
+ */
+function exitHold(child: ChildProcess, pid: number): () => number {
+	const latest = Date.now() + STOP_HOLD_MAX_MS;
+	let until = 0;
+	const onData = (chunk: Buffer | string): void => {
+		const seconds = Number(EXIT_HOLD.exec(String(chunk))?.[1]);
+		if (!seconds) return;
+		until = Math.min(Date.now() + seconds * 1_000 + HOLD_SLACK_MS, latest);
+		console.warn(`[omp-stop] omp ${pid} waits to save before it exits (up to ${seconds} s): its kill waits too`);
+	};
+	child.stderr?.on("data", onData);
+	child.once("exit", () => child.stderr?.off("data", onData));
+	return () => until;
+}
+
+/** True when `done` settled within `ms`, or within the hold the omp asked for meanwhile. */
+async function withinGrace(done: Promise<void>, ms: number, heldUntil: () => number): Promise<boolean> {
+	if (await within(done, ms)) return true;
+	for (;;) {
+		const left = heldUntil() - Date.now();
+		if (left <= 0) return false;
+		if (await within(done, left)) return true;
+	}
 }
 
 /** Whether `pid` names a live process (one owned by another user answers `EPERM`). */
@@ -90,7 +129,8 @@ function killTree(pid: number, fallBack: () => void): void {
  * relaunch's restore dates the stop by it (`cutByEarlierStop`, `shutdownMarks` in restart-core.ts). POSIX: SIGTERM,
  * whose handler disposes the session. Windows has no signals and a tree kill journals nothing, so its stdin ends (stock
  * disposes the session then, as on an app quit). An omp still running `STOP_GRACE_MS` later is killed with its tools
- * (`killTree`). The shim waits for the omp on Windows, so its exit means the omp is gone.
+ * (`killTree`), unless it said it waits to save (`EXIT_HOLD`): then the kill waits for the time it named, at most
+ * `STOP_HOLD_MAX_MS`. The shim waits for the omp on Windows, so its exit means the omp is gone.
  */
 export function stopOmp(child: ChildProcess, options: StopOptions = {}): Promise<void> {
 	const known = stops.get(child);
@@ -99,15 +139,16 @@ export function stopOmp(child: ChildProcess, options: StopOptions = {}): Promise
 	if (!running(child) || child.pid === undefined) return exited;
 	const pid = child.pid;
 	const stop = (async () => {
+		const heldUntil = exitHold(child, pid);
 		const stdinGrace = options.stdinGraceMs ?? 0;
 		if (stdinGrace > 0 && child.stdin) {
 			child.stdin.end();
-			if (await within(exited, stdinGrace)) return;
+			if (await withinGrace(exited, stdinGrace, heldUntil)) return;
 		}
 		if (process.platform === "win32") child.stdin?.end();
 		else child.kill("SIGTERM");
-		if (await within(exited, STOP_GRACE_MS)) return;
-		console.warn(`[omp-stop] omp ${pid} still runs ${STOP_GRACE_MS} ms after its stop: killing it`);
+		if (await withinGrace(exited, STOP_GRACE_MS, heldUntil)) return;
+		console.warn(`[omp-stop] omp ${pid} still runs after its stop's grace: killing it`);
 		killTree(pid, () => {
 			if (!running(child)) return;
 			child.stdin?.end();
