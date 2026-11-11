@@ -947,6 +947,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "프로세스 실행",
 		description: "공유되는 장기 실행 프로젝트 프로세스를 관리하는 launch 도구를 사용해요",
 	},
+	"launch.persist": {
+		label: "서비스 유지",
+		description:
+			"프로젝트의 마지막 omp 프로세스가 끝나도 그 프로젝트에서 시작한 서비스를 끄지 않아요. OMPdesk처럼 omp를 대신 실행하는 앱에서는 omp가 기본으로 켜 둬요",
+	},
 	"speechgen.enabled": {
 		label: "음성 생성",
 		description: "온디바이스(Kokoro) 또는 xAI Grok Voice로 음성 파일을 합성하는 tts 도구를 사용해요",
