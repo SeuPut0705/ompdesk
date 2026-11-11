@@ -700,9 +700,15 @@ export function elapsedText(ms: number): string {
 	return `${Math.floor(minutes / 60)} h${rest ? ` ${rest} min` : ""}`;
 }
 
+/** `text`'s first `max` UTF-16 units, one fewer when that would end on half an emoji (a lone surrogate). */
+function head(text: string, max: number): string {
+	const last = text.charCodeAt(max - 1);
+	return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
+
 function oneLine(text: string, max: number): string {
 	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+	return flat.length > max ? `${head(flat, max - 1)}…` : flat;
 }
 
 /** The id a session path carries: stock names a session file `<time>_<session id>.jsonl`. */
@@ -722,7 +728,7 @@ function idsOf(tab: ControlTab): string[] {
 }
 
 function cut(text: string, max: number): string {
-	return text.length > max ? `${text.slice(0, max)}\n… (cut at ${max} characters)` : text;
+	return text.length > max ? `${head(text, max)}\n… (cut at ${max} characters)` : text;
 }
 
 function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {

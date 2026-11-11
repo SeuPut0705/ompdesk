@@ -1330,6 +1330,13 @@ describe("ompdesk_session_read", () => {
 		expect(currentStep(messages.slice(0, 2))).toBe("running read (look at a.ts)");
 		expect(renderMessage({ role: "system" })).toBeNull();
 	});
+
+	it("never ends a shortened line on half an emoji", () => {
+		// The 160th unit is the emoji's first half: cut there, the line would carry a lone surrogate, which JSON
+		// writes as an escape a strict reader (the ompdesk CLI) refuses.
+		const line = renderMessage({ role: "bashExecution", command: `${"c".repeat(158)}😀 --flag`, exitCode: 0 });
+		expect(line).toBe(`[bash] ${"c".repeat(158)}… → exit 0`);
+	});
 });
 
 describe("ompdesk_session_answer", () => {
