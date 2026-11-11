@@ -215,6 +215,20 @@ describe("gui-bridge held stock defaults", () => {
 		expect(NATIVE_DEFAULTS).toEqual({ "astGrep.enabled": "astGrep" });
 	});
 
+	it("holds stock's saved-reset auto-redeem off for every window, so omp never asks to spend one", () => {
+		// Stock's own value is `unset`: ask before spending, on a blocked turn and when a reset nears its expiry.
+		const resets = Object.entries(GUI_THINKING_DEFAULTS).filter(([id]) => /^(codex|claude)Resets\./.test(id));
+		expect(Object.fromEntries(resets)).toEqual({
+			"codexResets.autoRedeem": "no",
+			"codexResets.autoRedeem5h": "no",
+			"codexResets.autoRedeemWeekly": "no",
+			"claudeResets.autoRedeem": "no",
+			"claudeResets.autoRedeem5h": "no",
+			"claudeResets.autoRedeemWeekly": "no",
+			"claudeResets.autoRedeemFable": "no",
+		});
+	});
+
 	it("takes over stock's protocol pin, which is no layer's value", () => {
 		const advisor = fakeAdvisor();
 		const scope = fakeSettings();

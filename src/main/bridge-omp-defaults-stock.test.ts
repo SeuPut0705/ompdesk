@@ -31,6 +31,12 @@ const HELD: Readonly<Record<string, readonly [held: unknown, written: unknown]>>
 	"advisor.enabled": [true, false],
 	"title.icons": ["boring", "emoji"],
 	"async.widgets": [false, true],
+	// Saved-reset auto-redeem (the per-window ids of omp 18.18.7 and later): stock's `unset` asks before spending.
+	"codexResets.autoRedeem5h": ["no", "yes"],
+	"codexResets.autoRedeemWeekly": ["no", "yes"],
+	"claudeResets.autoRedeem5h": ["no", "yes"],
+	"claudeResets.autoRedeemWeekly": ["no", "yes"],
+	"claudeResets.autoRedeemFable": ["no", "yes"],
 };
 const UNHELD = [
 	"telemetry.otlpExportEnabled",

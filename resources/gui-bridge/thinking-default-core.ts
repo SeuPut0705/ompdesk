@@ -18,6 +18,9 @@
  * - `computer.enabled` on (stock: off): the built-in `computer` eval prelude, except in an omp started on the
  *   agent-desktop engine (`OMP_GUI_COMPUTER_USE`, src/shared/computer-use.ts), where it is held off; that omp's
  *   fallback to the built-in prelude turns it on (`noteComputerUseFallback`, modes/computer-use.ts).
+ * - `codexResets.*` / `claudeResets.*` auto-redeem = `no` (stock: `unset`, which asks before spending whenever a
+ *   limit blocks every account or a saved reset nears its expiry): OMPdesk never suggests spending a reset (the
+ *   owner's rule); a person spends one from Settings, or turns auto-redeem on there.
  *
  * All are runtime overrides on the omp process's Settings: never written to
  * config.yml, so the omp CLI outside OMPdesk keeps stock behavior.
@@ -58,6 +61,15 @@ export const GUI_THINKING_DEFAULTS: Readonly<Record<string, unknown>> = {
 	"title.icons": "boring",
 	// Stock's live job widgets cost a model call per job the GUI's jobs poll views; the GUI never draws them.
 	"async.widgets": false,
+	// Stock's `unset` asks to spend a saved reset on a blocked turn and on every usage poll that finds one expiring.
+	// Held off, so nothing suggests it; the per-window ids are omp 18.18.7's, the two plain ones the omp before it.
+	"codexResets.autoRedeem": "no",
+	"codexResets.autoRedeem5h": "no",
+	"codexResets.autoRedeemWeekly": "no",
+	"claudeResets.autoRedeem": "no",
+	"claudeResets.autoRedeem5h": "no",
+	"claudeResets.autoRedeemWeekly": "no",
+	"claudeResets.autoRedeemFable": "no",
 };
 
 /** Settings stock soft-pins to their default for RPC hosts (`protocolDefault: ["rpc", "acp"]`). */

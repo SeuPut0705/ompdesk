@@ -9,7 +9,7 @@ globs:
 ## Rust conversion (`native/ompdesk/`)
 
 - **The owner's order (11 Nov 2026)**: convert every part of OMPdesk that can be converted to Rust, for a lighter and faster app. It is a conversion order, not a study: a part is left in TypeScript only for a reason this file states. **No release is cut for this work until the conversion is complete** (the owner's rule, 12 Nov 2026): units land on `main` one by one, each leaving a working app, with no version bump; `gh workflow run release.yml --ref main -f dry_run=true` rehearses packaging for a unit that changes it.
-- **What stays TypeScript, and why**
+- **What stays TypeScript, and why** (the owner chose both on 12 Nov 2026: the React page stays and only the main process and the shell move; omp stays the one installed on the machine, never bundled)
   - `resources/gui-bridge/**`: an omp extension, loaded by stock omp's Bun process with `-e`. omp is never forked, so its extension language is omp's.
   - The page (`src/renderer/**`, `src/shared/**` as the page uses it): the paired phone and another computer open the same UI in a browser over the web server, which only a web page can serve. The desktop window shows that same page; a second, native UI for the desktop would be a copy of 190 000 lines that the ui-parity rule forbids.
   - Tests and build scripts (`scripts/**`, `e2e/**`): tooling, not the app.
