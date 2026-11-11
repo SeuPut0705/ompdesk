@@ -1,9 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getGitChanges, getGitFingerprint } from "./changes";
-import { gitRaw } from "./exec";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StepStalledError } from "../../serial-chain";
+import { getGitChanges, getGitFingerprint, getGitStatus } from "./changes";
+import { gitRaw, REPO_LOCK_HOLD_MS, withRepoLock } from "./exec";
 import { gitSync, initRepo } from "./test-repos";
 
 let root: string;
@@ -142,5 +143,31 @@ describe("checkout fingerprint", () => {
 		} finally {
 			await fs.rm(elsewhere, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("a read in a repository-lock holder", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("never runs git once its holder was stopped, as a git the holder spawns never starts", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const release = Promise.withResolvers<void>();
+		const caught = Promise.withResolvers<unknown>();
+		const stopped = withRepoLock(root, async () => {
+			await release.promise;
+			await getGitStatus(root).catch(caught.resolve);
+		}).then(
+			() => null,
+			error => error,
+		);
+		await vi.advanceTimersByTimeAsync(REPO_LOCK_HOLD_MS);
+		expect(await stopped).toBeInstanceOf(StepStalledError);
+		const ran = await gitProcesses(async () => {
+			release.resolve();
+			expect(await caught.promise).toBeInstanceOf(StepStalledError);
+		});
+		expect(ran).toBe(0);
 	});
 });

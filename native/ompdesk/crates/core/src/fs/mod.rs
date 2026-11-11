@@ -5,12 +5,12 @@
 //! Files panel's validation and writes. A failure is a fault whose code is the app's `IpcErrorCode` (`io` when the
 //! TypeScript set none) and whose message is node's text.
 
-mod disk;
-mod error;
+pub(crate) mod disk;
+pub(crate) mod error;
 mod ignore;
 mod list;
 mod mutate;
-mod order;
+pub(crate) mod order;
 mod read;
 
 use serde_json::Value;

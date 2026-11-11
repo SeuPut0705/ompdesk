@@ -3,7 +3,9 @@
 //! any `AsyncRead`/`AsyncWrite`, so tests drive it in process; the binary serves stdio.
 
 pub mod fs;
+pub mod git;
 pub mod server;
+mod sys;
 pub mod wire;
 
 pub use server::{registry, serve};

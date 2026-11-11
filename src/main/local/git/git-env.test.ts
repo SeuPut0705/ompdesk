@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GIT_REPO_SELECTOR_ENV } from "../../../shared/git-env";
+import { getGitChanges, getGitStatus } from "./changes";
 import { gitRaw } from "./exec";
 import { gitSync, initRepo } from "./test-repos";
 
@@ -86,5 +87,29 @@ describe("git under leaked repository selectors", () => {
 		await expect(fs.stat(scratch)).resolves.toBeTruthy();
 		// The repository's own index never saw the file.
 		expect(cleanGit(repo, "diff", "--cached", "--name-only")).toBe("");
+	});
+
+	it("leaves it untouched through the core process's reads, which answer for the repository they were asked about", async () => {
+		const sacrificial = path.join(root, "sacrificial");
+		await fs.mkdir(sacrificial);
+		cleanGit(sacrificial, "init", "-q", "-b", "main");
+		await fs.writeFile(path.join(sacrificial, "kept.txt"), "kept\n");
+		cleanGit(sacrificial, "add", ".");
+		cleanGit(sacrificial, "-c", "user.email=k@example.com", "-c", "user.name=k", "commit", "-q", "-m", "kept");
+		const before = await fingerprint(sacrificial);
+		// Set before this file's first read starts the core, so the core inherits them as well.
+		process.env.GIT_DIR = path.join(sacrificial, ".git");
+		process.env.GIT_WORK_TREE = sacrificial;
+		process.env.GIT_INDEX_FILE = path.join(sacrificial, ".git", "index");
+
+		const repo = path.join(root, "repo");
+		await initRepo(repo);
+		await fs.writeFile(path.join(repo, "added.txt"), "added\n");
+		const changes = await getGitChanges(repo);
+		expect(changes.root).toBe(repo);
+		expect(changes.files).toEqual([{ path: "added.txt", status: "??" }]);
+		expect(await getGitStatus(repo)).toMatchObject({ isRepo: true, untracked: 1, staged: 0, unstaged: 0 });
+
+		expect(await fingerprint(sacrificial)).toBe(before);
 	});
 });

@@ -5,15 +5,15 @@ import {
 	guiWorktreeCandidate,
 	isInside,
 	isSafeRelativePath,
-	newFileDiff,
 	parseGitStatus,
 	parsePrUnifiedDiff,
-	parseStatusV2,
 	renderPrompt,
 	rollupChecks,
 	rollupCounts,
 	worktreeSlug,
 } from "./parse";
+
+// parseStatusV2 and newFileDiff moved to the core process with their cases (native/ompdesk/crates/core/src/git/parse.rs).
 
 describe("parseGitStatus", () => {
 	it("keeps spaces in paths and pairs renames with their origin", () => {
@@ -23,27 +23,6 @@ describe("parseGitStatus", () => {
 			{ path: "new.ts", oldPath: "old.ts", index: "R", worktree: " " },
 			{ path: "dir/x y", oldPath: undefined, index: "?", worktree: "?" },
 		]);
-	});
-});
-
-describe("parseStatusV2", () => {
-	it("counts staged, unstaged, untracked and skips rename origins", () => {
-		const text = [
-			"# branch.oid abc",
-			"# branch.head feature/x",
-			"1 M. N... 100644 100644 100644 a b staged.ts",
-			"1 .M N... 100644 100644 100644 a b unstaged.ts",
-			"1 MM N... 100644 100644 100644 a b both.ts",
-			"2 R. N... 100644 100644 100644 a b R100 new.ts",
-			"? old-looking-like-record.ts",
-			"u UU N... 1 2 3 4 a b c conflict.ts",
-			"? untracked.ts",
-		].join("\0");
-		// The record after the `2` entry is its origin path, not an untracked file.
-		expect(parseStatusV2(text)).toEqual({ branch: "feature/x", staged: 3, unstaged: 3, untracked: 1 });
-	});
-	it("reports detached HEAD as null branch", () => {
-		expect(parseStatusV2("# branch.head (detached)\0").branch).toBeNull();
 	});
 });
 
@@ -57,10 +36,6 @@ describe("path guards", () => {
 		expect(isInside("/r", "/r/a")).toBe(true);
 		expect(isInside("/r", "/r")).toBe(false);
 		expect(isInside("/r", "/rx/a")).toBe(false);
-	});
-	it("newFileDiff synthesizes an all-added hunk", () => {
-		expect(newFileDiff("a\nb\n")).toBe("@@ -0,0 +1,2 @@\n+a\n+b");
-		expect(newFileDiff("")).toBe("");
 	});
 });
 

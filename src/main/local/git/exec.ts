@@ -3,6 +3,9 @@
  * arrays only (Windows-safe); binaries resolve against the login-shell PATH
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
+ *
+ * The read side of git runs in the core process (`changes.ts`, `native/ompdesk/crates/core/src/git`); `gitRunner`
+ * hands it this file's rules (binary, environment, timeout, output cap), so both runners follow one set.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -92,6 +95,36 @@ async function gitBin(): Promise<string | null> {
 	return trampolineTarget;
 }
 
+/** What every spawn here gets: ambient repository selectors dropped, the login shell's PATH, no optional git locks. */
+async function spawnEnv(env: Record<string, string> | undefined): Promise<NodeJS.ProcessEnv> {
+	// A read-only `git status` must not take `.git/index.lock` to refresh the index: the agent's own git would fail on it.
+	// Ambient repository selectors (an OMPdesk started from a hook or `git bisect run`) are dropped, so git works on the
+	// repository `cwd` is in; a selector the caller means (disk care's scratch GIT_INDEX_FILE) comes in `env`.
+	return { ...withoutGitSelectors(process.env), PATH: await spawnPath(), GIT_OPTIONAL_LOCKS: "0", ...env };
+}
+
+/** Never page, never prompt for credentials from a headless GUI call; paths unquoted, no colour. */
+const GIT_ARGS = ["-c", "core.quotepath=false", "-c", "color.ui=false"];
+const GIT_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", LC_ALL: "C" };
+
+/** How a git runs, as the core process is told it: the core spawns `bin` with `args` first and exactly `env`. */
+export interface GitRunner {
+	bin: string;
+	args: string[];
+	env: Record<string, string>;
+	timeoutMs: number;
+	maxBytes: number;
+}
+
+/** This process's git rules for a git the core runs, read now (the PATH and the environment can change while the app runs). */
+export async function gitRunner(): Promise<GitRunner> {
+	const bin = await gitBin();
+	if (!bin) throw new Error("git is not installed or not on PATH");
+	const env: Record<string, string> = {};
+	for (const [name, value] of Object.entries(await spawnEnv(GIT_ENV))) if (value !== undefined) env[name] = value;
+	return { bin, args: GIT_ARGS, env, timeoutMs: DEFAULT_TIMEOUT_MS, maxBytes: DEFAULT_MAX_BYTES };
+}
+
 /** Ask a process to end, and end it for good when it ignores the request. */
 function endProcess(child: ChildProcess): void {
 	child.kill();
@@ -103,15 +136,12 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	// A call made in a chain step that was stopped (the repository lock's bound) never starts, and ends once it is.
 	const hold = currentStepSignal();
 	if (hold?.aborted) throw hold.reason;
-	const pathEnv = await spawnPath();
+	const env = await spawnEnv(opts.env);
 	if (hold?.aborted) throw hold.reason;
 	const { promise, resolve, reject } = Promise.withResolvers<ExecResult>();
 	const child = spawn(bin, args, {
 		cwd: opts.cwd,
-		// A read-only `git status` must not take `.git/index.lock` to refresh the index: the agent's own git would fail on it.
-		// Ambient repository selectors (an OMPdesk started from a hook or `git bisect run`) are dropped, so git works on the
-		// repository `cwd` is in; a selector the caller means (disk care's scratch GIT_INDEX_FILE) comes in `opts.env`.
-		env: { ...withoutGitSelectors(process.env), PATH: pathEnv, GIT_OPTIONAL_LOCKS: "0", ...opts.env },
+		env,
 		shell: false,
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
@@ -190,12 +220,7 @@ export async function git(cwd: string, args: string[], opts: Omit<ExecOptions, "
 export async function gitRaw(cwd: string, args: string[], opts: Omit<ExecOptions, "cwd"> = {}): Promise<ExecResult> {
 	const bin = await gitBin();
 	if (!bin) throw new Error("git is not installed or not on PATH");
-	// Never page, never prompt for credentials from a headless GUI call.
-	return execBin(bin, ["-c", "core.quotepath=false", "-c", "color.ui=false", ...args], {
-		cwd,
-		...opts,
-		env: { GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", LC_ALL: "C", ...opts.env },
-	});
+	return execBin(bin, [...GIT_ARGS, ...args], { cwd, ...opts, env: { ...GIT_ENV, ...opts.env } });
 }
 
 /** Run gh; resolves stdout text, rejects with gh's stderr on non-zero exit. */

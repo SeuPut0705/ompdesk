@@ -123,15 +123,6 @@ fn within(root: &std::path::Path, path: &std::path::Path) -> bool {
     path.starts_with(root)
 }
 
-/// A canonical path as node's `realpath` spells it (libuv drops Windows' `\\?\` prefix), for messages.
-fn spelled(path: &std::path::Path) -> String {
-    let text = path.to_string_lossy();
-    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{unc}");
-    }
-    text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Done {
@@ -222,7 +213,7 @@ pub fn mutate(call: Call) -> Result<Reply, Fault> {
             if !within(&real_root, &real_source) {
                 return Err(escapes());
             }
-            let real = spelled(&real_source);
+            let real = disk::spelled(&real_source);
             let before = std::fs::metadata(&real_source)
                 .map_err(|error| fs_fault(NodeError::new(&error, "stat", Some(&real))))?;
             if !before.is_file() {

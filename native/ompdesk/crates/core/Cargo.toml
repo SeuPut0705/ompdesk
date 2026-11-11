@@ -19,8 +19,9 @@ workspace = true
 
 [dependencies]
 # The process's base: requests run concurrently (a slow listing never holds a small read behind it); later units
-# bring sockets, child processes and timers. Only the features used.
-tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync"] }
+# bring sockets. Only the features used: `process` and `time` run git with its timeout, `macros` joins and races
+# a git's pipes, its exit and its kill.
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync", "process", "time", "macros"] }
 # The wire: one JSON object per line. `raw_value` hands a request's params to its handler unparsed.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -31,7 +32,8 @@ icu_casemap = "2"
 icu_locale_core = "2"
 
 [target.'cfg(unix)'.dependencies]
-# errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`).
+# errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a
+# git past its timeout or its output cap to end (`sys.rs`).
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]

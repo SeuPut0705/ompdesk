@@ -7,7 +7,7 @@ import { RM_TEMP } from "../../test-fake-omp";
 import type { OmpRuntime } from "../types";
 import { getGitChanges, repoRoot } from "./changes";
 import { REPO_LOCK_HOLD_MS, withRepoLock } from "./exec";
-import { isValidRefName, parseBranchHeaders, parseDecorations, remoteWebBase } from "./parse";
+import { isValidRefName, parseDecorations, remoteWebBase } from "./parse";
 import * as scm from "./scm";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 
@@ -264,18 +264,6 @@ describe("remote", () => {
 });
 
 describe("parsers", () => {
-	it("reads branch headers", () => {
-		expect(
-			parseBranchHeaders("# branch.oid abc\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -3\0"),
-		).toEqual({ branch: "main", upstream: "origin/main", ahead: 2, behind: 3 });
-		expect(parseBranchHeaders("# branch.head (detached)\0")).toEqual({
-			branch: null,
-			upstream: null,
-			ahead: 0,
-			behind: 0,
-		});
-	});
-
 	it("splits decorations into refs and tags", () => {
 		expect(parseDecorations("HEAD -> main, tag: v1.0, origin/main, origin/HEAD")).toEqual({
 			refs: ["main", "origin/main", "origin/HEAD"],

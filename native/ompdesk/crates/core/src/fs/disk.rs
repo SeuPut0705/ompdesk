@@ -35,6 +35,15 @@ pub fn realpath(path: &str) -> Result<std::path::PathBuf, NodeError> {
     fs::canonicalize(arg(path)?).map_err(|error| NodeError::new(&error, "realpath", Some(path)))
 }
 
+/// A canonical path as node's `realpath` spells it (libuv drops Windows' `\\?\` prefix).
+pub fn spelled(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{unc}");
+    }
+    text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
+}
+
 /// Fills `buffer` from the file's current position; fewer bytes only at the end of the file.
 pub fn read_into(file: &mut File, buffer: &mut [u8]) -> Result<usize, NodeError> {
     let mut filled = 0;

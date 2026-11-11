@@ -25,61 +25,6 @@ export function parseGitStatus(text: string): GitStatusEntry[] {
 	return entries;
 }
 
-export interface GitStatusSummary {
-	branch: string | null;
-	staged: number;
-	unstaged: number;
-	untracked: number;
-}
-
-/** Branch + counts from `git status --porcelain=v2 --branch -z --untracked-files=all`. */
-export function parseStatusV2(text: string): GitStatusSummary {
-	const summary: GitStatusSummary = { branch: null, staged: 0, unstaged: 0, untracked: 0 };
-	const records = text.split("\0");
-	for (let i = 0; i < records.length; i++) {
-		const record = records[i] ?? "";
-		if (record.startsWith("# branch.head ")) {
-			const head = record.slice("# branch.head ".length);
-			summary.branch = head === "(detached)" ? null : head;
-		} else if (record.startsWith("1 ") || record.startsWith("2 ")) {
-			if (record[2] !== ".") summary.staged++;
-			if (record[3] !== ".") summary.unstaged++;
-			// Rename/copy records carry the original path as the next NUL field.
-			if (record.startsWith("2 ")) i++;
-		} else if (record.startsWith("u ")) {
-			summary.unstaged++;
-		} else if (record.startsWith("? ")) {
-			summary.untracked++;
-		}
-	}
-	return summary;
-}
-
-/** Branch, upstream and ahead/behind from the `# branch.*` headers of `git status --porcelain=v2 --branch -z`. */
-export function parseBranchHeaders(text: string): {
-	branch: string | null;
-	upstream: string | null;
-	ahead: number;
-	behind: number;
-} {
-	const head = { branch: null as string | null, upstream: null as string | null, ahead: 0, behind: 0 };
-	for (const record of text.split("\0")) {
-		if (record.startsWith("# branch.head ")) {
-			const name = record.slice("# branch.head ".length);
-			head.branch = name === "(detached)" ? null : name;
-		} else if (record.startsWith("# branch.upstream ")) {
-			head.upstream = record.slice("# branch.upstream ".length);
-		} else if (record.startsWith("# branch.ab ")) {
-			const match = /^\+(\d+) -(\d+)$/.exec(record.slice("# branch.ab ".length));
-			if (match) {
-				head.ahead = Number(match[1]);
-				head.behind = Number(match[2]);
-			}
-		}
-	}
-	return head;
-}
-
 /** Branch/tag names from `git log --format=%D` (`HEAD -> main, tag: v1, origin/main`). */
 export function parseDecorations(decoration: string): { refs: string[]; tags: string[] } {
 	const refs: string[] = [];
@@ -158,25 +103,6 @@ export function isSafeRelativePath(filePath: string): boolean {
 export function isInside(root: string, child: string): boolean {
 	const relative = path.relative(root, child);
 	return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
-}
-
-/** Binary when the header has a NUL byte or is not valid UTF-8 (truncated trailing sequence tolerated). */
-export function isProbablyBinaryHeader(header: Uint8Array): boolean {
-	if (header.indexOf(0) !== -1) return true;
-	try {
-		new TextDecoder("utf-8", { fatal: true }).decode(header, { stream: true });
-		return false;
-	} catch {
-		return true;
-	}
-}
-
-/** Synthesize the all-added hunk for a new/untracked file. */
-export function newFileDiff(content: string): string {
-	if (!content) return "";
-	const lines = content.split("\n");
-	if (content.endsWith("\n")) lines.pop();
-	return `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => `+${line}`).join("\n")}`;
 }
 
 export const WORKTREE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,40}$/;

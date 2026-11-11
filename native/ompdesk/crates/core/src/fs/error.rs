@@ -110,6 +110,11 @@ fn inspect_string(text: &str) -> String {
     out
 }
 
+/// libuv's name for an OS error (`ENOENT`), as node puts it in a message such as `spawn /usr/bin/git ENOENT`.
+pub fn uv_code(error: &io::Error) -> &'static str {
+    uv_error(error).0
+}
+
 /// libuv's name and description for an OS error, as node's `getSystemErrorMap()` lists them; an error libuv does
 /// not map is node's `UNKNOWN: unknown error`.
 fn uv_error(error: &io::Error) -> (&'static str, &'static str) {
