@@ -62,7 +62,7 @@ These files look movable but fail it, so they are **not units on their own**:
 | `i18n-text.ts` 403 | data for `i18n.ts`, which imports Electron's `app` | Electron |
 | `omp-runtime.ts` pure parts (`parseOmpVersion`, `ompCandidates`, `pickOmp`, `isCompiledOmp`, `ompPathEnv`, `ompBunDefaults`, …) | ledger 4c: PATH lookup, install ownership and `parseOmpVersion` must work before any core runs; 13 files import them synchronously | 4c |
 | `setup/plans.ts` 685, `cli-tools/plans.ts` 246, `cli-tools/catalog.ts` 87 | synchronous builders of `SetupService` and `CliUpdater`, which stay; `ownerCheckCommand`, `ownerUpdateCommand`, `parseLatest`, `bunView` are named in 4c as staying | a, 4c |
-| `agent-control/mail.ts`, `app-schema.ts`, `auto-close.ts`, `tab-close.ts`, `pickup.ts`, `app-guard.ts` | rules `service.ts` and `app-control.ts` call synchronously; `tab-close.ts` is in `web-close-reports` | a |
+| `agent-control/mail.ts` (`MAIL_KINDS`, `deliveryFor`, `MailDelivery` only) | the constants main's host and the typed client read; its rules (`Mailbox`, texts) are the core's (9g) | a |
 
 Two claims a reader may meet elsewhere are wrong on the evidence. `web/host-actions.ts` importing `original-fs` is no reason for it to stay: `original-fs` exists to avoid Electron's asar patch, which a Rust process does not have (2a moved the same reads). And `sidecar-pool.ts` is not keyed by Electron windows (above).
 
@@ -94,7 +94,7 @@ From `formal/manifest.json`. A unit that changes a covered file runs `verify-all
 |---|---|
 | `turn-resume` | `turn-resume.ts`, `turn-resume-ends.ts`, `connectivity.ts`, `sidecar-run-state.ts`, `sidecar-pool.ts`, `remote/host-services.ts`, `ipc.ts` |
 | `session-listing` | `remote/host-services.ts`, `sidecar-pool.ts`, `remote/host-session-list.ts`, `remote/client.ts:722-733`, `remote/wire.ts:416-441`, `remote/devices.ts:548-564, 649-651, 957-978`, `session-list-share.ts`, `session-index.ts` (lines) |
-| `web-close-reports` | `web/file-edit-reports.ts`, `crates/core/src/web/router.rs` (`finish`, `receive`, `dispatch`; 8c), `web/ws-router.ts` (`WsRouter.connections`, `WsRouter.call`), `agent-control/tab-close.ts`, `agent-control/service.ts:3327-3339`, `agent-control/host.ts:1370-1379`, `tab-release.ts` |
+| `web-close-reports` | `web/file-edit-reports.ts`, `crates/core/src/web/router.rs` (`finish`, `receive`, `dispatch`; 8c), `web/ws-router.ts` (`WsRouter.connections`, `WsRouter.call`), `native/ompdesk/crates/core/src/agentctl/rules/tab_close.rs` (`tab_close_step`), `native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs:138-177` (`close_tab`), `agent-control/host.ts:1119-1126` (the release's re-check), `tab-release.ts` |
 | `tab-session` | `omp-launch.ts` `sessionOpen`, `sidecar.ts` `SidecarManager.restart`/`#observeResponse`/`#handleReady`/`#attemptRestart`/`#spawn` |
 | `session-processes` | `session-processes.ts`, `sidecar.ts` `SidecarManager.dispose` |
 | `repo-lock-core` | core `server.rs`, `run.rs`, `sys.rs`, `main.rs` whole, so any unit that touches those files drifts it |
@@ -180,9 +180,9 @@ All of these need the commands to be taken in the core first (§1.2). Each is si
 | **9d** The pool, part 1 | `sidecar-pool.ts` (the tab table, ownership, viewers), `sidecar-run-state.ts` 233 (≈1,600) | tabs, owners, viewers, run state | needs 9a: 67 + 60 + 52 call sites read it in the same tick | `sidecar-pool.test.ts` 4,211, `session-launch-parity.test.ts` 663 | `turn-resume`, `session-listing` | none |
 | **9e** The pool, part 2 | rest of `sidecar-pool.ts`, `tab-spawn.ts` 225, `tab-release.ts` 42, `tab-layout.ts` 288, `web/web-tab-layouts.ts` 65 (≈2,000; split again if needed) | device tabs, layouts, release, worktree bindings | | `tab-spawn.test.ts` 507, `tab-layout.test.ts` 468, `tab-release.test.ts` 73, `web-tab-layouts.test.ts` 52 | `web-close-reports` (`tab-release.ts`), `session-listing` | none |
 | **9f** Turn resume | `turn-resume.ts` 1,512, `turn-resume-ends.ts` 157, `connectivity.ts` 277 (1,946) | markers, holds, probes, scheduled retries | another session (the limit auto-resume work) is changing `turn-resume*.ts` now; this unit starts after it lands | `turn-resume.test.ts` 3,028, `turn-resume-limit.test.ts` 480, `connectivity.test.ts` 432, `turn-resume-ends.test.ts` 266, `autopilot-restart-resume.test.ts` 270 | `turn-resume` | none |
-| **9g** Agent-control journals and mail | `send-outbox.ts`, `mail-outbox.ts`, `call-journal.ts`, `session-fates.ts`, `pending-cleanups.ts`, `mail.ts`, `custody.ts`, `pickup.ts`, `auto-close.ts`, `tab-close.ts` (1,283) | with the service code that calls them synchronously (`deliverOwed`, `redeliverSends`) | | `service.test.ts` 6,347 (shared), own tests 534 | `web-close-reports` (`tab-close.ts`) | none |
+| **9g** Agent-control journals and mail | `send-outbox.ts`, `mail-outbox.ts`, `call-journal.ts`, `session-fates.ts`, `pending-cleanups.ts`, `mail.ts`, `custody.ts`, `pickup.ts`, `auto-close.ts`, `tab-close.ts` (1,283) | with the service code that calls them synchronously (`deliverOwed`, `redeliverSends`) | | `service.test.ts` 6,347 (shared), own tests 534 | `web-close-reports` (`rules/tab_close.rs`) | none |
 | **9h–9j** The agent-control service | `agent-control/service.ts` 5,173 (one class, 161 methods) in three units by tool family: sessions (open, stop, read, result), messages (send, report, answer, mail), work (compare, merge, schedule, autopilot) | `AgentControlHost`'s 24 synchronous methods become 3a's pattern: main pushes snapshots at the moment it observes a change | | `service.test.ts` 6,347, `control-socket/router.test.ts` 431, `cli.test.ts` 203 | `web-close-reports` (`service.ts:3327-3339`) | `sha2` (`service.ts:2882`) |
-| **9k** Agent-control host | `agent-control/host.ts` 1,667, `branches.ts` 313 (`mergeProblem`, `boundDiff`: they stay synchronous for the service, so they move with it) | | | `host.test.ts` 1,990, `branches*.test.ts` 737 | `web-close-reports` (`host.ts:960-969`) | none |
+| **9k** Agent-control host | `agent-control/host.ts` 1,667, `branches.ts` 313 (`mergeProblem`, `boundDiff`: they stay synchronous for the service, so they move with it) | | | `host.test.ts` 1,990, `branches*.test.ts` 737 | `web-close-reports` (`host.ts:1119-1126`) | none |
 | **9l** App control | `app-catalog.ts` 1,915, `app-settings.ts` 416, `app-control.ts` 400, `app-channels.ts` 358, `app-guard.ts` 178, `app-schema.ts` 93 (3,360: two units) | the `ompdesk_app` actions | `tools.ts` 977 (the tool definitions omp receives; `pack-drift.test.ts`, `skill-drift.test.ts` pin them against the skill) is checked for a second definition first | `app-control.test.ts` 1,454, `app-catalog.test.ts` 92 | none | none |
 | **9m–9n** Autopilot | `autopilot.ts` 2,239 + `autopilot-branches.ts`, `autopilot-approver.ts`, `autopilot-notice-route.ts` (2,469); `autopilot-ship.ts` 637, `autopilot-audit.ts` 257, `autopilot-land-check.ts` 218 (1,112) | the run, its steps, ship and audit | after 9h–9k (Autopilot drives sessions through the service) | `autopilot-branch.test.ts` 538, `autopilot-actions.test.ts` 492, `autopilot.test.ts` 337, `autopilot-cycle-end.test.ts` 288, `autopilot-approver.test.ts` 188, `autopilot-audit*.test.ts` 282, `autopilot-land-check.test.ts` 125 | `repo-lock-core` (land check's scratch store) | `sha2` |
 
@@ -300,9 +300,9 @@ The owner's call: the units above move in batches, one session per batch, checke
 | **W1 Web, cut over** | 8b, 8d, 8e | B2 | P, H1 |
 | **H1 Hubs: entry and omp** | 9a, 9b, 9c | landed 12 Nov 2026 after P passed on Windows (macOS pending) | P, W1 |
 | **H2 Hubs: pool and resume** | 9d, 9e, 9f | H1 | none (shares `ipc.ts`/`index.ts` wiring) |
-| **H3 Hubs: agent control** | 9g, 9h, 9i, 9j, 9k | H2 | H4a, W2 |
-| **H4a App control** | 9l (two units) | H2 | H3 |
-| **H4b Autopilot** | 9m, 9n | H3 | W2 |
+| **H3 Hubs: agent control** | 9g, 9h, 9i, 9j, 9k | H2; built now on branch `omp/agent/rust-batch-agent-control` (stacked on H2), lands after H2 | H4a, W2 |
+| **H4a App control** | 9l (two units) | H2; built now on the same branch as H3, lands after H2 | H3 |
+| **H4b Autopilot** | 9m, 9n | H3; built now on the same branch, lands after H3 and H4a as its own batch | W2 |
 | **W2 Remote and web, rest** | R4, R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
 | **S Shell swap** | the chosen shell, the handoff release, deletion of what §4 lists | everything above | none |
 
