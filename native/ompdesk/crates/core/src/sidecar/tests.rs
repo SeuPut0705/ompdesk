@@ -1152,7 +1152,7 @@ async fn four_tabs_start_through_a_queue_of_two_and_all_read_ready() {
 }
 
 #[tokio::test]
-async fn the_end_of_the_cores_input_ends_the_omps_through_their_stdin() {
+async fn the_end_of_the_cores_input_stops_the_omps() {
     let mut rig = Rig::new("closeall", "ok").await;
     let open = rig.open(no_queue());
     rig.tab_call("sidecar.start", json!({})).await.unwrap();
@@ -1164,7 +1164,10 @@ async fn the_end_of_the_cores_input_ends_the_omps_through_their_stdin() {
         .expect("the core did not end with its input");
     ended.unwrap().unwrap();
     assert_eq!(settle(open).await.unwrap(), json!({}));
-    // omp saw its stdin end.
-    assert!(log(&rig).contains("eof"), "{}", log(&rig));
+    // On Windows omp is asked to stop by its stdin's end, and saw it; POSIX asks with SIGTERM, which ends the
+    // stand-in before it reads anything more (the open's answer above says it exited).
+    if cfg!(windows) {
+        assert!(log(&rig).contains("eof"), "{}", log(&rig));
+    }
     let _ = std::fs::remove_dir_all(&rig.dir);
 }
