@@ -11,6 +11,7 @@ pub mod git;
 mod json;
 pub mod memory;
 pub mod procs;
+pub mod routines;
 mod run;
 pub mod server;
 pub mod sessions;

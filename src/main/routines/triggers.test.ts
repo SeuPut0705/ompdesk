@@ -8,7 +8,7 @@ import { RM_TEMP } from "../test-fake-omp";
 import type { MailPort } from "./email";
 import { FILES_DEBOUNCE_MS } from "./files";
 import type { GitPort } from "./git";
-import type { GhApi } from "./github";
+import type { GithubPort } from "./github";
 import { MemoryMarks } from "./marks";
 import type { SessionPorts } from "./sessions";
 import { fakeWatch } from "./test-context";
@@ -33,6 +33,8 @@ const NO_MAIL: MailPort = {
 		throw new Error("no mailbox in this test");
 	},
 };
+/** A GitHub read that finds nothing new. */
+const NO_NEWS = { state: null, mark: {}, lines: [], error: null };
 let gitCalls: string[];
 /** Where each trigger stood: kept across the "relaunches" a test makes with a new RoutineTriggers. */
 let marks: MemoryMarks;
@@ -56,16 +58,16 @@ beforeEach(async () => {
 		launched.push({ prompt: await readFile(files.prompt, "utf8"), finish: code => resolve({ code }) });
 		return { stop: () => resolve({ code: 130 }), done: promise };
 	};
-	const github: GhApi = async endpoint => {
-		githubCalls.push(endpoint);
-		return [];
+	const github: GithubPort = async (repo, kind) => {
+		githubCalls.push(`${repo} ${kind}`);
+		return NO_NEWS;
 	};
 	const git: GitPort = {
 		head: async (_repo, branch) => {
 			gitCalls.push(`head ${branch}`);
 			return "abc";
 		},
-		commits: async () => ({ total: 0, lines: [] }),
+		commits: async () => null,
 	};
 	const sessions: SessionPorts = {
 		observeTabs: observer => {
@@ -87,6 +89,7 @@ beforeEach(async () => {
 		github,
 		watch: watch.watch,
 		scan: watch.scan,
+		filesChanged: watch.changed,
 		marks,
 		git,
 		sessions,
@@ -145,7 +148,7 @@ describe("RoutineTriggers", () => {
 		await service.create({ ...filesDraft(), frequency: { kind: "interval", minutes: 30 } });
 		await service.create({ ...filesDraft("/off"), enabled: false });
 		await vi.advanceTimersByTimeAsync(0);
-		expect(githubCalls).toEqual(["repos/o/r/pulls?state=all&sort=created&direction=desc&per_page=20"]);
+		expect(githubCalls).toEqual(["o/r pull_request"]);
 		expect(gitCalls).toEqual(["head main"]);
 		expect(observers.size).toBe(1);
 		expect(mailAsked).toEqual(["Work"]);
@@ -204,15 +207,16 @@ describe("RoutineTriggers", () => {
 				heads.push(head);
 				return head;
 			},
-			commits: async () => ({ total: 1, lines: ["bbb change"] }),
+			commits: async () => "1 new commit on main: bbb change",
 		};
 		triggers.dispose();
 		triggers = new RoutineTriggers({
 			service,
 			log: () => undefined,
-			github: async () => [],
+			github: async () => NO_NEWS,
 			watch: watch.watch,
 			scan: watch.scan,
+			filesChanged: watch.changed,
 			marks,
 			git,
 			sessions: { observeTabs: () => () => undefined, tabs: () => [] },
@@ -247,9 +251,10 @@ describe("RoutineTriggers", () => {
 		triggers = new RoutineTriggers({
 			service,
 			log: message => logs.push(message),
-			github: async () => [],
+			github: async () => NO_NEWS,
 			watch: watch.watch,
 			scan: watch.scan,
+			filesChanged: watch.changed,
 			marks,
 			git,
 			sessions: { observeTabs: () => () => undefined, tabs: () => [] },
@@ -261,7 +266,7 @@ describe("RoutineTriggers", () => {
 	}
 	const gitAt = (head: () => string): GitPort => ({
 		head: async () => head(),
-		commits: async (_repo, from, to) => ({ total: 1, lines: [`${to} after ${from}`] }),
+		commits: async (_repo, branch, from, to) => `1 new commit on ${branch}: ${to} after ${from}`,
 	});
 
 	it("a relaunch fires a git routine once for the commits made while OMPdesk was closed", async () => {
@@ -317,7 +322,7 @@ describe("RoutineTriggers", () => {
 			head: async () => {
 				throw new Error("fatal: not a git repository");
 			},
-			commits: async () => ({ total: 0, lines: [] }),
+			commits: async () => null,
 		};
 		relaunch(failing);
 		const { id } = await service.create(draft({ source: "git", repo: dir, branch: "main" }));

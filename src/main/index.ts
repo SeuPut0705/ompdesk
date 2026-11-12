@@ -180,7 +180,7 @@ import { KeepAwakePolicy } from "./remote/keep-awake";
 import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
 import { FileMarks } from "./routines/marks";
-import { ghApi, gitPort, scanPath, sessionPorts, watchPath } from "./routines/ports";
+import { filesChanged, githubPort, gitPort, scanPath, sessionPorts, watchPath } from "./routines/ports";
 import { RoutineTriggers } from "./routines/triggers";
 import { runtimeLogPath, writeRuntimeLog } from "./runtime-log";
 import { layoutsToSave } from "./saved-layouts";
@@ -1986,9 +1986,10 @@ app.whenReady().then(() => {
 		// What a relaunch fires may open a session: sources start once the first window has loaded.
 		ready: firstWindowLoaded(),
 		log: message => writeRuntimeLog({ source: "routines", message }),
-		github: ghApi,
+		github: githubPort(),
 		watch: watchPath,
 		scan: scanPath,
+		filesChanged,
 		git: gitPort,
 		sessions: sessionPorts(sidecarPool),
 		mail: { account: name => mailbox.resolve(name), read: (id, cursor) => mailbox.read(id, cursor) },

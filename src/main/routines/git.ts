@@ -12,14 +12,17 @@
  * watches never starts itself. Commits by anyone else during that run are taken with them: known and deliberate.
  */
 import { SCHEDULE_TICK_MS } from "../schedules";
-import { describeCommits, failureReporter, type RoutineSource, type SourceContext } from "./source";
+import { failureReporter, type RoutineSource, type SourceContext } from "./source";
 
 /** The two git reads a git trigger makes; `repo` is the repository's folder. */
 export interface GitPort {
 	/** The commit `refs/heads/<branch>` names; null when the branch does not exist; rejects when git cannot read the repository. */
 	head(repo: string, branch: string): Promise<string | null>;
-	/** The commits in `from..to`: how many, and `git log --oneline` of the newest ten. */
-	commits(repo: string, from: string, to: string): Promise<{ total: number; lines: string[] }>;
+	/**
+	 * The line the routine fires with for the commits in `from..to` (`3 new commits on <branch>: …` with
+	 * `git log --oneline` of the newest ten); null when there are none.
+	 */
+	commits(repo: string, branch: string, from: string, to: string): Promise<string | null>;
 }
 
 export interface GitSourceOptions {
@@ -122,8 +125,8 @@ class GitSource implements RoutineSource {
 			return;
 		}
 		if (!before || before === head) return;
-		const { total, lines } = await this.#git.commits(this.#repo, before, head);
-		if (this.#stopped || total === 0 || this.#context.running()) return;
-		this.#context.fire(describeCommits(this.#branch, total, lines));
+		const line = await this.#git.commits(this.#repo, this.#branch, before, head);
+		if (this.#stopped || line === null || this.#context.running()) return;
+		this.#context.fire(line);
 	}
 }

@@ -1,33 +1,55 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GITHUB_POLL_MINUTES } from "../../shared/schedules";
-import { createGithubSource, type GhApi } from "./github";
-import { fakeContext } from "./test-context";
+import { createGithubSource, type GithubPort } from "./github";
+import { githubPort } from "./ports";
+import { fakeContext, fakeGh, removeFakeGhs } from "./test-context";
 
 const POLL_MS = GITHUB_POLL_MINUTES * 60_000;
 
 beforeEach(() => {
-	vi.useFakeTimers();
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
 });
-afterEach(() => {
+afterEach(async () => {
+	await settle();
 	vi.useRealTimers();
+	removeFakeGhs();
 });
 
-/** A GitHub that answers each endpoint from `answers` (a value, or a function of how many times it was asked). */
+const reads = new Set<Promise<unknown>>();
+
+/** Every read a source asked of the core has answered and the source went on as far as it can without a timer. */
+async function settle(): Promise<void> {
+	for (;;) {
+		await vi.advanceTimersByTimeAsync(0);
+		if (reads.size === 0) return;
+		while (reads.size > 0) await Promise.allSettled([...reads]);
+	}
+}
+
+/**
+ * A GitHub that answers each endpoint from `answers` (the first key it starts with; an `Error` is gh failing), read
+ * through the real core by a stand-in gh.
+ */
 function fakeGithub(answers: Record<string, unknown>) {
-	const calls: string[] = [];
-	const api: GhApi = async endpoint => {
-		calls.push(endpoint);
-		const key = Object.keys(answers).find(prefix => endpoint.startsWith(prefix));
-		if (key === undefined) throw new Error(`gh: HTTP 404: Not Found (${endpoint})`);
-		const answer = answers[key];
-		if (answer instanceof Error) throw answer;
+	const gh = fakeGh(answers);
+	const port = githubPort(gh.find);
+	const read: GithubPort = (...args) => {
+		const answer = port(...args).finally(() => reads.delete(answer));
+		reads.add(answer);
 		return answer;
 	};
-	return { api, calls, answers };
+	return {
+		read,
+		answers: gh.answers,
+		get calls() {
+			return gh.calls;
+		},
+	};
 }
 
 async function poll(): Promise<void> {
 	await vi.advanceTimersByTimeAsync(POLL_MS);
+	await settle();
 }
 
 const pull = (number: number, title: string, login: string) => ({
@@ -44,10 +66,10 @@ describe("github source across a relaunch", () => {
 		const before = createGithubSource({
 			repo: "o/r",
 			events: ["pull_request"],
-			api: github.api,
+			read: github.read,
 			context: first.context,
 		});
-		await vi.advanceTimersByTimeAsync(0);
+		await settle();
 		before.stop();
 		const mark = first.saved.at(-1);
 		expect(mark).toEqual({ seen: { pull_request: [11] } });
@@ -57,10 +79,10 @@ describe("github source across a relaunch", () => {
 		const source = createGithubSource({
 			repo: "o/r",
 			events: ["pull_request"],
-			api: github.api,
+			read: github.read,
 			context: next.context,
 		});
-		await vi.advanceTimersByTimeAsync(0);
+		await settle();
 		expect(next.fired).toEqual(['PR #12 "While closed" opened by alice: https://github.com/o/r/pull/12']);
 		source.stop();
 
@@ -68,10 +90,10 @@ describe("github source across a relaunch", () => {
 		const last = createGithubSource({
 			repo: "o/r",
 			events: ["pull_request"],
-			api: github.api,
+			read: github.read,
 			context: third.context,
 		});
-		await vi.advanceTimersByTimeAsync(0);
+		await settle();
 		expect(third.fired).toEqual([]);
 		expect(github.calls.length).toBe(3);
 		last.stop();
@@ -82,8 +104,8 @@ describe("github source", () => {
 	it("records what exists on the first poll and fires once per pull request opened after it", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": [pull(11, "Old", "bob")] });
 		const { context, fired } = fakeContext();
-		const source = createGithubSource({ repo: "o/r", events: ["pull_request"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		const source = createGithubSource({ repo: "o/r", events: ["pull_request"], read: github.read, context });
+		await settle();
 		expect(github.calls).toHaveLength(1);
 		expect(fired).toEqual([]);
 
@@ -99,8 +121,8 @@ describe("github source", () => {
 	it("tells several new pull requests oldest first, one fire each", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": [pull(1, "One", "a")] });
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["pull_request"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["pull_request"], read: github.read, context });
+		await settle();
 		github.answers["repos/o/r/pulls"] = [pull(3, "Three", "c"), pull(2, "Two", "b"), pull(1, "One", "a")];
 		await poll();
 		expect(fired.map(line => line.slice(0, 8))).toEqual(['PR #2 "T', 'PR #3 "T']);
@@ -109,8 +131,8 @@ describe("github source", () => {
 	it("follows issues and leaves the pull requests of the issues endpoint out", async () => {
 		const github = fakeGithub({ "repos/o/r/issues": [] });
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["issue"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["issue"], read: github.read, context });
+		await settle();
 		github.answers["repos/o/r/issues"] = [
 			{ ...pull(9, "A pull request", "p"), pull_request: {} },
 			{ number: 8, title: "Crash on start", user: { login: "bob" }, html_url: "https://github.com/o/r/issues/8" },
@@ -130,8 +152,8 @@ describe("github source", () => {
 		});
 		const github = fakeGithub({ "repos/o/r/actions/runs": { workflow_runs: [run(100, "main")] } });
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["ci_failure"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["ci_failure"], read: github.read, context });
+		await settle();
 		github.answers["repos/o/r/actions/runs"] = { workflow_runs: [run(101, "feature"), run(100, "main")] };
 		await poll();
 		expect(fired).toEqual([
@@ -145,8 +167,8 @@ describe("github source", () => {
 	it("fires for a release published after the baseline and never for a draft", async () => {
 		const github = fakeGithub({ "repos/o/r/releases": [{ id: 1, tag_name: "v1.0.0", html_url: "u1" }] });
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["release"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["release"], read: github.read, context });
+		await settle();
 		github.answers["repos/o/r/releases"] = [
 			{ id: 3, tag_name: "v1.2.0", draft: true, html_url: "u3" },
 			{ id: 2, tag_name: "v1.1.0", name: "Spring", author: { login: "alice" }, html_url: "u2" },
@@ -163,8 +185,8 @@ describe("github source", () => {
 			"repos/o/r": { default_branch: "main" },
 		});
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["push"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["push"], read: github.read, context });
+		await settle();
 		expect(fired).toEqual([]);
 		github.answers["repos/o/r/commits"] = [
 			commit("ccccccc3333", "Fix it"),
@@ -181,8 +203,8 @@ describe("github source", () => {
 	it("fires nothing when gh fails, tells each distinct failure once, and fires what happened meanwhile once it answers", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": [pull(1, "One", "a")] });
 		const { context, fired, warned } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["pull_request"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["pull_request"], read: github.read, context });
+		await settle();
 
 		github.answers["repos/o/r/pulls"] = new Error("gh auth login required");
 		await poll();
@@ -201,8 +223,8 @@ describe("github source", () => {
 	it("takes the baseline from its first good answer when the first poll failed", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": new Error("offline") });
 		const { context, fired } = fakeContext();
-		createGithubSource({ repo: "o/r", events: ["pull_request"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		createGithubSource({ repo: "o/r", events: ["pull_request"], read: github.read, context });
+		await settle();
 		github.answers["repos/o/r/pulls"] = [pull(5, "Existing", "a")];
 		await poll();
 		expect(fired).toEqual([]);
@@ -214,15 +236,15 @@ describe("github source", () => {
 	it("asks GitHub no more after stop, and not at all for a malformed repository", async () => {
 		const github = fakeGithub({ "repos/o/r/pulls": [] });
 		const { context, warned } = fakeContext();
-		const source = createGithubSource({ repo: "o/r", events: ["pull_request"], api: github.api, context });
-		await vi.advanceTimersByTimeAsync(0);
+		const source = createGithubSource({ repo: "o/r", events: ["pull_request"], read: github.read, context });
+		await settle();
 		source.stop();
 		await vi.advanceTimersByTimeAsync(POLL_MS * 3);
 		expect(github.calls).toHaveLength(1);
 		expect(vi.getTimerCount()).toBe(0);
 
 		const bad = fakeGithub({});
-		createGithubSource({ repo: "o/..", events: ["push"], api: bad.api, context });
+		createGithubSource({ repo: "o/..", events: ["push"], read: bad.read, context });
 		await vi.advanceTimersByTimeAsync(POLL_MS);
 		expect(bad.calls).toEqual([]);
 		expect(warned[0]).toContain("not an owner/name repository");

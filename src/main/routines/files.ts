@@ -11,6 +11,9 @@
  * burst of changes (its own writes too). A start with the last launch's listing compares the two and fires once for
  * the files added, changed or removed while OMPdesk was closed, merged with any change seen while it compared. Past
  * the cap only files both listings hold are compared, and a different set of names fires as "Something under … changed".
+ *
+ * The listing and that comparison are the core's (`routines.filesScan`, `routines.filesChanged`,
+ * `native/ompdesk/crates/core/src/routines/files.rs`); the watcher and the burst's timers stay here.
  */
 import { clip, failureReporter, type RoutineSource, type SourceContext } from "./source";
 
@@ -33,6 +36,12 @@ export interface FilesListing {
 /** Lists `path` as `FilesListing` (skipping `IGNORED_DIRS`); null when nothing is there. Rejects when it cannot read it. */
 export type ScanPath = (path: string) => Promise<FilesListing | null>;
 
+/**
+ * The names added, changed or removed between the last launch's listing (`mark`, JSON from disk) and `listing`; ""
+ * alone when only "something" can be said; null when the mark holds no listing it can read.
+ */
+export type ChangedSince = (mark: unknown, listing: FilesListing | null) => Promise<string[] | null>;
+
 export const FILES_DEBOUNCE_MS = 2_000;
 export const FILES_MAX_WAIT_MS = 10_000;
 export const FILES_RETRY_MS = 60_000;
@@ -47,6 +56,7 @@ export interface FilesSourceOptions {
 	path: string;
 	watch: WatchPath;
 	scan: ScanPath;
+	changed: ChangedSince;
 	context: SourceContext;
 }
 
@@ -58,11 +68,12 @@ class FilesSource implements RoutineSource {
 	readonly #path: string;
 	readonly #watch: WatchPath;
 	readonly #scan: ScanPath;
+	readonly #changedSince: ChangedSince;
 	readonly #context: SourceContext;
 	readonly #report: (key: string, error: unknown | null) => void;
 	readonly #changed = new Set<string>();
-	/** The last launch's listing until the first one of this launch is compared with it; undefined: none. */
-	#before: FilesListing | null | undefined;
+	/** The last launch's mark until the first listing of this launch is compared with it; undefined: none. */
+	#before: unknown;
 	#firstAt = 0;
 	#watcher: { close(): void } | null = null;
 	#flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -77,9 +88,10 @@ class FilesSource implements RoutineSource {
 		this.#path = options.path;
 		this.#watch = options.watch;
 		this.#scan = options.scan;
+		this.#changedSince = options.changed;
 		this.#context = options.context;
 		this.#report = failureReporter(message => options.context.warn(`files ${options.path}: ${message}`));
-		this.#before = parseMark(options.context.mark);
+		this.#before = options.context.mark;
 		this.#attach();
 		void this.#list();
 	}
@@ -188,8 +200,10 @@ class FilesSource implements RoutineSource {
 			const before = this.#before;
 			this.#before = undefined;
 			this.#context.saveMark({ listing: now });
-			if (before !== undefined && !this.#context.quiet())
-				for (const name of changedNames(before, now)) this.#note(name);
+			if (before === undefined) return;
+			const names = await this.#changedSince(before, now);
+			if (this.#stopped || names === null || this.#context.quiet()) return;
+			for (const name of names) this.#note(name);
 		} catch (error) {
 			if (!this.#stopped) this.#report("list", error);
 		} finally {
@@ -200,37 +214,4 @@ class FilesSource implements RoutineSource {
 			}
 		}
 	}
-}
-
-/** The last launch's listing from its mark (JSON from disk): undefined when there is none it can read. */
-function parseMark(mark: unknown): FilesListing | null | undefined {
-	if (typeof mark !== "object" || mark === null || !("listing" in mark)) return undefined;
-	const listing = (mark as { listing: unknown }).listing;
-	if (listing === null) return null;
-	const { entries, complete } = (listing ?? {}) as { entries?: unknown; complete?: unknown };
-	if (typeof entries !== "object" || entries === null || typeof complete !== "boolean") return undefined;
-	const kept: Record<string, string> = {};
-	for (const [name, stamp] of Object.entries(entries)) if (typeof stamp === "string") kept[name] = stamp;
-	return { entries: kept, complete };
-}
-
-/** Names added, changed or removed between two listings; "" alone when only "something" can be said. */
-export function changedNames(before: FilesListing | null, after: FilesListing | null): string[] {
-	if (before === null && after === null) return [];
-	if (before === null || after === null) {
-		const names = Object.keys((before ?? after)?.entries ?? {});
-		return names.length > 0 ? names.toSorted() : [""];
-	}
-	if (before.complete && after.complete) {
-		const names = new Set([...Object.keys(before.entries), ...Object.keys(after.entries)]);
-		return [...names].filter(name => before.entries[name] !== after.entries[name]).toSorted();
-	}
-	const changed = Object.keys(before.entries).filter(
-		name => name in after.entries && before.entries[name] !== after.entries[name],
-	);
-	if (changed.length > 0) return changed.toSorted();
-	const beforeNames = Object.keys(before.entries);
-	const sameNames =
-		beforeNames.length === Object.keys(after.entries).length && beforeNames.every(name => name in after.entries);
-	return sameNames ? [] : [""];
 }

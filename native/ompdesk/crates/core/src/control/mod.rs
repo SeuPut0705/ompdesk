@@ -18,7 +18,7 @@ mod conn;
 mod endpoint;
 mod events;
 mod frame;
-mod js;
+pub(crate) mod js;
 mod link;
 mod listen;
 mod router;

@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use super::run::Git;
 use crate::fs::order::js_trim;
+use crate::routines::text::describe_commits;
 use crate::run::Opts;
 use crate::server::Fault;
 
@@ -81,18 +82,15 @@ pub async fn routine_head(git: &Git, repo: &str, branch: &str) -> Result<Option<
     }
 }
 
-#[derive(Serialize)]
-pub struct Commits {
-    total: f64,
-    lines: Vec<String>,
-}
-
+/// The line a git trigger fires with for the commits in `from..to` (`git log --oneline` of the newest ten), `None`
+/// when there are none.
 pub async fn routine_commits(
     git: &Git,
     repo: &str,
+    branch: &str,
     from: &str,
     to: &str,
-) -> Result<Commits, Fault> {
+) -> Result<Option<String>, Fault> {
     let range = format!("{from}..{to}");
     let total = git
         .text(repo, &["rev-list", "--count", &range, "--"])
@@ -116,14 +114,15 @@ pub async fn routine_commits(
             ],
         )
         .await?;
-    Ok(Commits {
-        total,
-        lines: log
-            .split('\n')
-            .filter(|line| !line.is_empty())
-            .map(str::to_owned)
-            .collect(),
-    })
+    if total == 0.0 {
+        return Ok(None);
+    }
+    let lines: Vec<String> = log
+        .split('\n')
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    Ok(Some(describe_commits(branch, total, &lines)))
 }
 
 #[cfg(test)]

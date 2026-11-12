@@ -48,7 +48,7 @@ async function tick(): Promise<void> {
 
 const counting = {
 	head: (r: string, b: string) => track(gitPort.head(r, b)),
-	commits: (r: string, from: string, to: string) => track(gitPort.commits(r, from, to)),
+	commits: (r: string, b: string, from: string, to: string) => track(gitPort.commits(r, b, from, to)),
 };
 
 describe("git source on a real repository", () => {
@@ -177,7 +177,7 @@ describe("git source on a real repository", () => {
 		const source = createGitSource({
 			repo,
 			branch: "main",
-			git: { head, commits: async () => ({ total: 0, lines: [] }) },
+			git: { head, commits: async () => null },
 			context,
 		});
 		await vi.advanceTimersByTimeAsync(0);

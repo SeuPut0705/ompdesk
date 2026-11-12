@@ -21,9 +21,9 @@
 import type { Schedule, ScheduleEvent, SchedulesState } from "../../shared/schedules";
 import type { ScheduleService } from "../schedules";
 import { createEmailSource, type MailPort } from "./email";
-import { createFilesSource, type ScanPath, type WatchPath } from "./files";
+import { type ChangedSince, createFilesSource, type ScanPath, type WatchPath } from "./files";
 import { createGitSource, type GitPort } from "./git";
-import { createGithubSource, type GhApi } from "./github";
+import { createGithubSource, type GithubPort } from "./github";
 import type { TriggerMarks } from "./marks";
 import { createSessionSource, type SessionPorts } from "./sessions";
 import { ROUTINE_QUIET_MS, type RoutineSource, type SourceContext } from "./source";
@@ -36,9 +36,11 @@ export interface RoutineTriggerDeps {
 	ready?: Promise<void>;
 	/** One runtime-log line from a source (a failure told once, a path that does not exist). */
 	log: (message: string) => void;
-	github: GhApi;
+	github: GithubPort;
 	watch: WatchPath;
 	scan: ScanPath;
+	/** What changed under a files trigger's path while OMPdesk was closed. */
+	filesChanged: ChangedSince;
 	git: GitPort;
 	sessions: SessionPorts;
 	/** The owner's mail accounts, read over IMAP (an email trigger). */
@@ -172,9 +174,15 @@ export class RoutineTriggers {
 		};
 		switch (event.source) {
 			case "github":
-				return createGithubSource({ repo: event.repo, events: event.events, api: this.#deps.github, context });
+				return createGithubSource({ repo: event.repo, events: event.events, read: this.#deps.github, context });
 			case "files":
-				return createFilesSource({ path: event.path, watch: this.#deps.watch, scan: this.#deps.scan, context });
+				return createFilesSource({
+					path: event.path,
+					watch: this.#deps.watch,
+					scan: this.#deps.scan,
+					changed: this.#deps.filesChanged,
+					context,
+				});
 			case "git":
 				return createGitSource({ repo: event.repo, branch: event.branch, git: this.#deps.git, context });
 			case "session":

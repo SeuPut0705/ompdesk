@@ -50,17 +50,11 @@ export function failureReporter(warn: (message: string) => void): (key: string, 
 	};
 }
 
-const COMMAND_LINES_MAX = 10;
-const COMMAND_LINE_CHARS = 100;
-
-/** `3 new commits on main: abc1234 Fix …; def5678 …`: the newest lines (≤10) of `total` new commits. */
-export function describeCommits(where: string, total: number, lines: readonly string[]): string {
-	const shown = lines.slice(0, COMMAND_LINES_MAX).map(line => clip(line, COMMAND_LINE_CHARS));
-	const more = total - shown.length;
-	return `${total} new commit${total === 1 ? "" : "s"} on ${where}: ${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}`;
-}
-
-/** One line of at most `max` characters (code points, never half a surrogate pair), `…` marking a cut. */
+/**
+ * One line of at most `max` characters (code points, never half a surrogate pair), `…` marking a cut. The core keeps
+ * a copy for the lines it writes (`crates/core/src/routines/text.rs`); `source.test.ts` holds this one to the same
+ * captured rows.
+ */
 export function clip(text: string, max: number): string {
 	const line = text.replace(/\s+/g, " ").trim();
 	const points = [...line];

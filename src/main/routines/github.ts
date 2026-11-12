@@ -18,130 +18,30 @@
  * `EVENTS_PER_POLL` of a kind fire at once. A `gh` failure (not signed in, offline, 404, rate limit) fires nothing;
  * it is told once per distinct message (`failureReporter`: the runtime log and a failed run in the routine's
  * history) and polling goes on.
+ *
+ * Each read, its rows and lines and where the trigger stands are the core's (`routines.github`,
+ * `native/ompdesk/crates/core/src/routines/github.rs`); this source keeps the poll's timer, the order of the kinds,
+ * telling a failure once, and saving the mark before it fires.
  */
 import { GITHUB_EVENT_KINDS, GITHUB_POLL_MINUTES, GITHUB_REPO, type GithubEventKind } from "../../shared/schedules";
-import { clip, describeCommits, failureReporter, type RoutineSource, type SourceContext } from "./source";
+import { failureReporter, type RoutineSource, type SourceContext } from "./source";
 
-/** `gh api <endpoint>` as parsed JSON; rejects with a readable message when it cannot answer. */
-export type GhApi = (endpoint: string) => Promise<unknown>;
-
-const EVENTS_PER_POLL = 10;
-/** Ids remembered per kind: the endpoints list at most 20, a rerun or an edit may bring an old id back. */
-const SEEN_MAX = 200;
-const TITLE_CHARS = 120;
-
-/** Where a GitHub trigger stood: the ids seen per row kind, the default branch's newest commit. */
-interface GithubMark {
-	seen: Record<string, (string | number)[]>;
-	head?: { branch: string; sha: string };
+/** One read of one kind: the lines of what is new, where the trigger stands now and what the next launch reads. */
+export interface GithubRead {
+	/** The core's, handed back with the next read. */
+	state: unknown;
+	/** Saved as the trigger's mark after a read that did not fail. */
+	mark: unknown;
+	lines: string[];
+	/** gh's or GitHub's failure, in words without a token; `state` still moved as far as the read went. */
+	error: string | null;
 }
 
-interface Person {
-	login?: string;
-}
-interface PullRow {
-	number: number;
-	title?: string;
-	user?: Person | null;
-	html_url?: string;
-	pull_request?: unknown;
-}
-interface RunRow {
-	id: number;
-	name?: string | null;
-	display_title?: string | null;
-	head_branch?: string | null;
-	conclusion?: string | null;
-	html_url?: string;
-}
-interface ReleaseRow {
-	id: number;
-	tag_name?: string;
-	name?: string | null;
-	draft?: boolean;
-	author?: Person | null;
-	html_url?: string;
-}
-interface CommitRow {
-	sha: string;
-	commit?: { message?: string };
-}
+/** Where a read starts: the last read's `state`, or before the first answer the last launch's mark. */
+export type GithubFrom = { state: unknown } | { mark: unknown };
 
-const who = (person: Person | null | undefined): string => person?.login || "someone";
-
-/** What one kind reads and says; `id` is what tells a new row from one already seen. */
-interface RowKind<Row> {
-	endpoint: (repo: string) => string;
-	rows: (json: unknown) => Row[];
-	id: (row: Row) => string | number;
-	describe: (row: Row) => string;
-}
-
-function array(json: unknown): unknown[] {
-	if (!Array.isArray(json)) throw new Error("GitHub's answer was not a list");
-	return json;
-}
-
-const PULL_REQUESTS: RowKind<PullRow> = {
-	endpoint: repo => `repos/${repo}/pulls?state=all&sort=created&direction=desc&per_page=20`,
-	rows: json => array(json) as PullRow[],
-	id: row => row.number,
-	describe: row =>
-		`PR #${row.number} "${clip(row.title ?? "", TITLE_CHARS)}" opened by ${who(row.user)}: ${row.html_url ?? ""}`,
-};
-
-const ISSUES: RowKind<PullRow> = {
-	endpoint: repo => `repos/${repo}/issues?state=all&sort=created&direction=desc&per_page=20`,
-	rows: json => (array(json) as PullRow[]).filter(row => row.pull_request === undefined),
-	id: row => row.number,
-	describe: row =>
-		`Issue #${row.number} "${clip(row.title ?? "", TITLE_CHARS)}" opened by ${who(row.user)}: ${row.html_url ?? ""}`,
-};
-
-const CI_FAILURES: RowKind<RunRow> = {
-	endpoint: repo => `repos/${repo}/actions/runs?status=failure&per_page=20`,
-	rows: json => {
-		const runs = (json as { workflow_runs?: unknown } | null)?.workflow_runs;
-		return (array(runs) as RunRow[]).filter(row => row.conclusion === undefined || row.conclusion === "failure");
-	},
-	id: row => row.id,
-	describe: row => {
-		const title = clip(row.display_title ?? "", TITLE_CHARS);
-		return `CI failure: workflow "${clip(row.name ?? "", 80)}" on ${row.head_branch || "an unknown branch"}${title ? ` ("${title}")` : ""}: ${row.html_url ?? ""}`;
-	},
-};
-
-const RELEASES: RowKind<ReleaseRow> = {
-	endpoint: repo => `repos/${repo}/releases?per_page=10`,
-	rows: json => (array(json) as ReleaseRow[]).filter(row => row.draft !== true),
-	id: row => row.id,
-	describe: row => {
-		const tag = row.tag_name ?? "";
-		const name = clip(row.name ?? "", TITLE_CHARS);
-		return `Release ${tag}${name && name !== tag ? ` "${name}"` : ""} published by ${who(row.author)}: ${row.html_url ?? ""}`;
-	},
-};
-
-/** A kind's rows as the source reads them: each one's id and the line that tells it. */
-interface Reader {
-	endpoint: (repo: string) => string;
-	read: (json: unknown) => { id: string | number; line: string }[];
-}
-
-function reader<Row>(kind: RowKind<Row>): Reader {
-	return {
-		endpoint: kind.endpoint,
-		read: json => kind.rows(json).map(row => ({ id: kind.id(row), line: kind.describe(row) })),
-	};
-}
-
-/** The kinds read by row; `push` is read by commit order, not by id, and has its own method. */
-const READERS: Record<Exclude<GithubEventKind, "push">, Reader> = {
-	pull_request: reader(PULL_REQUESTS),
-	issue: reader(ISSUES),
-	ci_failure: reader(CI_FAILURES),
-	release: reader(RELEASES),
-};
+/** One read of `kind` in `repo` with the person's own `gh` (`routines.github`). */
+export type GithubPort = (repo: string, kind: GithubEventKind, from: GithubFrom) => Promise<GithubRead>;
 
 /** `owner/name` as GitHub spells it, and neither part a dot path (`o/..` would reach another endpoint). */
 function usableRepo(repo: string): boolean {
@@ -151,7 +51,7 @@ function usableRepo(repo: string): boolean {
 export interface GithubSourceOptions {
 	repo: string;
 	events: readonly GithubEventKind[];
-	api: GhApi;
+	read: GithubPort;
 	context: SourceContext;
 }
 
@@ -162,23 +62,20 @@ export function createGithubSource(options: GithubSourceOptions): RoutineSource 
 class GithubSource implements RoutineSource {
 	readonly #repo: string;
 	readonly #events: readonly GithubEventKind[];
-	readonly #api: GhApi;
+	readonly #read: GithubPort;
 	readonly #context: SourceContext;
 	readonly #report: (key: string, error: unknown | null) => void;
-	/** Ids seen per row kind; a kind is absent until its baseline is taken. */
-	readonly #seen = new Map<string, Set<string | number>>();
-	/** The default branch's newest commit as last seen, and the branch it was read on; absent until the baseline. */
-	#head: { branch: string; sha: string } | null = null;
+	#from: GithubFrom;
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	#stopped = false;
 
 	constructor(options: GithubSourceOptions) {
 		this.#repo = options.repo;
 		this.#events = GITHUB_EVENT_KINDS.filter(kind => options.events.includes(kind));
-		this.#api = options.api;
+		this.#read = options.read;
 		this.#context = options.context;
 		this.#report = failureReporter(message => options.context.warn(`github ${options.repo}: ${message}`));
-		this.#restore(options.context.mark);
+		this.#from = { mark: options.context.mark };
 		if (!usableRepo(options.repo)) {
 			options.context.warn(`github ${options.repo}: not an owner/name repository`);
 			this.#stopped = true;
@@ -197,11 +94,13 @@ class GithubSource implements RoutineSource {
 		for (const kind of this.#events) {
 			if (this.#stopped) return;
 			try {
-				const details = kind === "push" ? await this.#readPush() : await this.#readRows(kind);
-				this.#report(kind, null);
+				const read = await this.#read(this.#repo, kind, this.#from);
 				if (this.#stopped) return;
-				this.#context.saveMark(this.#mark());
-				for (const detail of details) this.#context.fire(detail);
+				this.#from = { state: read.state };
+				if (read.error !== null) throw new Error(read.error);
+				this.#report(kind, null);
+				this.#context.saveMark(read.mark);
+				for (const line of read.lines) this.#context.fire(line);
 			} catch (error) {
 				if (this.#stopped) return;
 				this.#report(kind, error);
@@ -210,69 +109,5 @@ class GithubSource implements RoutineSource {
 		if (this.#stopped) return;
 		this.#timer = setTimeout(() => void this.#poll(), GITHUB_POLL_MINUTES * 60_000);
 		this.#timer.unref?.();
-	}
-
-	/** What it has seen, as the next launch reads it. */
-	#mark(): GithubMark {
-		return {
-			seen: Object.fromEntries([...this.#seen].map(([kind, ids]) => [kind, [...ids]])),
-			...(this.#head ? { head: this.#head } : {}),
-		};
-	}
-
-	/** The mark of the last launch, as far as it parses (it is JSON from disk). */
-	#restore(mark: unknown): void {
-		if (typeof mark !== "object" || mark === null) return;
-		const { seen, head } = mark as { seen?: unknown; head?: unknown };
-		if (typeof seen === "object" && seen !== null)
-			for (const [kind, ids] of Object.entries(seen))
-				if (Array.isArray(ids) && kind in READERS)
-					this.#seen.set(
-						kind,
-						new Set(ids.filter((id): id is string | number => typeof id === "string" || typeof id === "number")),
-					);
-		const last = head as { branch?: unknown; sha?: unknown } | null | undefined;
-		if (typeof last?.branch === "string" && typeof last.sha === "string")
-			this.#head = { branch: last.branch, sha: last.sha };
-	}
-
-	/** The lines of the rows of `kind` not seen before, oldest first; none (and a baseline taken) on its first answer. */
-	async #readRows(kind: Exclude<GithubEventKind, "push">): Promise<string[]> {
-		const spec = READERS[kind];
-		const rows = spec.read(await this.#api(spec.endpoint(this.#repo)));
-		if (this.#stopped) return [];
-		const seen = this.#seen.get(kind);
-		if (!seen) {
-			this.#seen.set(kind, new Set(rows.map(row => row.id)));
-			return [];
-		}
-		const fresh = rows.filter(row => !seen.has(row.id));
-		for (const row of rows) seen.add(row.id);
-		while (seen.size > SEEN_MAX) seen.delete(seen.values().next().value as string | number);
-		return fresh
-			.slice(0, EVENTS_PER_POLL)
-			.reverse()
-			.map(row => row.line);
-	}
-
-	/** One line for the new commits of the default branch, or none (first answer, a new default branch, no news). */
-	async #readPush(): Promise<string[]> {
-		const info = (await this.#api(`repos/${this.#repo}`)) as { default_branch?: string } | null;
-		const branch = info?.default_branch;
-		if (!branch) throw new Error("GitHub named no default branch");
-		const commits = array(
-			await this.#api(`repos/${this.#repo}/commits?sha=${encodeURIComponent(branch)}&per_page=20`),
-		) as CommitRow[];
-		if (this.#stopped) return [];
-		const newest = commits[0]?.sha;
-		if (!newest) return [];
-		const before = this.#head;
-		this.#head = { branch, sha: newest };
-		if (!before || before.branch !== branch) return [];
-		const at = commits.findIndex(commit => commit.sha === before.sha);
-		const fresh = at === -1 ? commits : commits.slice(0, at);
-		if (fresh.length === 0) return [];
-		const lines = fresh.map(commit => `${commit.sha.slice(0, 7)} ${commit.commit?.message?.split("\n")[0] ?? ""}`);
-		return [describeCommits(`${branch} (${this.#repo})`, fresh.length, lines)];
 	}
 }

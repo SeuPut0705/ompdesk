@@ -1,10 +1,10 @@
 //! gh, the GitHub CLI. The PR Center (`pr.rs`, was the logic of `src/main/local/git/pr.ts` and of `parse.ts`'s
 //! `parsePrUnifiedDiff`, `rollupChecks`, `rollupCounts`), the GitHub center (`center.rs`, was `github.ts`'s
-//! operations) and the GitHub sign-in's gh and git runs (`auth.rs`, was `src/main/github-auth/cli.ts`) run their whole
-//! sequence of gh and git runs here, each one request. gh's other callers keep their logic in main (autopilot's
-//! release poll, the routines' GitHub source) and reach gh
-//! through the two contracts `exec.ts` had: `gh.run` (`gh()`: stdout as text, a failure on a non-zero exit or a cut
-//! output) and `gh.text` (`ghText()`: 30 s, every exit code answered).
+//! operations), the GitHub sign-in's gh and git runs (`auth.rs`, was `src/main/github-auth/cli.ts`) and a routine's
+//! GitHub reads (`routines/github.rs`) run their whole sequence of gh and git runs here, each one request. gh's other
+//! callers keep their logic in main (autopilot's release poll) and reach gh through the two contracts `exec.ts` had:
+//! `gh.run` (`gh()`: stdout as text, a failure on a non-zero exit or a cut output) and `gh.text` (`ghText()`: 30 s,
+//! every exit code answered).
 //!
 //! Main decides how gh runs (`ghRunner` in `exec.ts`: the binary `resolveBin("gh")` found, gh's non-interactive
 //! environment over the one git gets, the timeout and the output cap) and hands it over with every request, `null` when
@@ -128,7 +128,7 @@ impl Gh {
         })
     }
 
-    fn scrub(&self, mut text: String) -> String {
+    pub(crate) fn scrub(&self, mut text: String) -> String {
         for secret in &self.secrets {
             if text.contains(secret.as_str()) {
                 text = text.replace(secret.as_str(), "***");

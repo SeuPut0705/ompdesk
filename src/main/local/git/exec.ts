@@ -212,15 +212,21 @@ export function coreHeld<T>(method: string, params: object, timeoutMs: number): 
 }
 
 /**
- * A gh request to the core (`gh.*`), held as `heldRequest` says: gh as `resolveBin` finds it (`null` when it is not
- * installed, which the core refuses as `gh_missing` where the request's rules say) and git for the checkout root
- * (`null` when missing). `timeoutMs` is how long its gh and git runs may take in all.
+ * A gh request to the core (`gh.*`, `routines.github`), held as `heldRequest` says: gh as `find` finds it (`resolveBin`
+ * unless a test hands a stand-in; `null` when it is not installed, which the core refuses as `gh_missing` where the
+ * request's rules say) and git for the checkout root (`null` when missing). `timeoutMs` is how long its gh and git
+ * runs may take in all.
  */
-export function coreGh<T>(method: string, params: object, timeoutMs: number): Promise<T> {
+export function coreGh<T>(
+	method: string,
+	params: object,
+	timeoutMs: number,
+	find: () => Promise<string | null> = () => resolveBin("gh"),
+): Promise<T> {
 	return heldRequest(
 		method,
 		async () => {
-			const bin = await resolveBin("gh");
+			const bin = await find();
 			return { ...params, gh: bin ? await ghRunner(bin) : null, git: await gitRunner().catch(() => null) };
 		},
 		timeoutMs,

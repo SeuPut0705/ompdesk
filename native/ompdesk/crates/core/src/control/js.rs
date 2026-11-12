@@ -56,7 +56,7 @@ pub fn json_number(value: f64) -> String {
 }
 
 /// `String(value)` of a parsed JSON value.
-fn string_of_value(value: &Value) -> String {
+pub(crate) fn string_of_value(value: &Value) -> String {
     match value {
         Value::Null => "null".into(),
         Value::Bool(flag) => flag.to_string(),

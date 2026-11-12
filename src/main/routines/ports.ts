@@ -1,28 +1,43 @@
 /**
- * The real ports of the routine triggers (`RoutineTriggerDeps`): the person's `gh`, `original-fs`'s watcher, the git
- * exec helper and the tab pool. Kept apart from the sources so their tests need none of these.
+ * The real ports of the routine triggers (`RoutineTriggerDeps`): the core's reads (GitHub with the person's `gh`, a
+ * folder's listing, git), `original-fs`'s watcher and the tab pool. Kept apart from the sources so their tests can
+ * hand them stand-ins.
  */
 
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { promises as fs, type Stats, watch } from "original-fs";
-import { coreGit, gh, resolveBin } from "../local/git/exec";
+import { watch } from "original-fs";
+import { core } from "../core/process";
+import { coreGh, coreGit } from "../local/git/exec";
 import type { SidecarPool } from "../sidecar-pool";
-import { FILES_LISTING_MAX, type FilesListing, IGNORED_DIRS, type ScanPath, type WatchPath } from "./files";
+import {
+	type ChangedSince,
+	FILES_LISTING_MAX,
+	type FilesListing,
+	IGNORED_DIRS,
+	type ScanPath,
+	type WatchPath,
+} from "./files";
 import type { GitPort } from "./git";
-import type { GhApi } from "./github";
+import type { GithubPort, GithubRead } from "./github";
 import type { SessionPorts } from "./sessions";
 
-/** A `gh api` call that answers within this long, or fails (the exec helper's own default is a minute). */
+/** How long one `gh api` may take (the exec helper's own default is a minute); a push read makes two. */
 const GH_TIMEOUT_MS = 30_000;
 
-/** `gh api <endpoint>` with the person's own sign-in: the exec helper's environment, PATH and kill timeout. */
-export const ghApi: GhApi = async endpoint => {
-	const bin = await resolveBin("gh");
-	if (!bin) throw new Error("the GitHub CLI (gh) is not installed");
-	// An endpoint names its repository, so no repository folder is needed.
-	return JSON.parse(await gh(homedir(), bin, ["api", endpoint], { timeoutMs: GH_TIMEOUT_MS })) as unknown;
-};
+/**
+ * A GitHub trigger's read in the core (`routines.github`) with the person's own `gh` and sign-in: the exec helper's
+ * environment, PATH and kill timeout. `find` finds gh (`resolveBin`; a test's stand-in).
+ */
+export function githubPort(find?: () => Promise<string | null>): GithubPort {
+	return (repo, kind, from) =>
+		coreGh<GithubRead>(
+			"routines.github",
+			// An endpoint names its repository, so no repository folder is needed.
+			{ home: homedir(), repo, kind, timeoutMs: GH_TIMEOUT_MS, ...from },
+			2 * GH_TIMEOUT_MS,
+			find,
+		);
+}
 
 /** `original-fs`, never `fs`: Electron's patched `fs` opens and keeps every `.asar` it meets in a watched folder. */
 export const watchPath: WatchPath = (path, onChange, onError) => {
@@ -31,52 +46,26 @@ export const watchPath: WatchPath = (path, onChange, onError) => {
 	return watcher;
 };
 
-const stamp = (stats: Stats): string => `${Math.trunc(stats.mtimeMs)}:${stats.size}`;
-
 /**
- * The files under `path` in name order (`original-fs`, as the watcher), up to `FILES_LISTING_MAX`; folders it cannot
+ * The files under `path` in name order, up to `FILES_LISTING_MAX` (the core's `routines.filesScan`); folders it cannot
  * read and files gone meanwhile are passed over. Symbolic links are listed, not followed.
  */
-export const scanPath: ScanPath = async path => {
-	let top: Stats;
-	try {
-		top = await fs.lstat(path);
-	} catch (error) {
-		const code = (error as NodeJS.ErrnoException).code;
-		if (code === "ENOENT" || code === "ENOTDIR") return null;
-		throw error;
-	}
-	if (!top.isDirectory()) return { entries: { "": stamp(top) }, complete: true };
-	const listing: FilesListing = { entries: {}, complete: true };
-	let count = 0;
-	const walk = async (dir: string, prefix: string): Promise<void> => {
-		const items = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-		items.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-		for (const item of items) {
-			if (!listing.complete) return;
-			const name = prefix ? `${prefix}/${item.name}` : item.name;
-			if (item.isDirectory()) {
-				if (!IGNORED_DIRS.includes(item.name)) await walk(join(dir, item.name), name);
-				continue;
-			}
-			if (count >= FILES_LISTING_MAX) {
-				listing.complete = false;
-				return;
-			}
-			const stats = await fs.lstat(join(dir, item.name)).catch(() => null);
-			if (!stats) continue;
-			listing.entries[name] = stamp(stats);
-			count++;
-		}
-	};
-	await walk(path, "");
-	return listing;
-};
+export const scanPath: ScanPath = async path =>
+	(
+		await core().call<FilesListing | null>("routines.filesScan", {
+			path,
+			ignored: IGNORED_DIRS,
+			max: FILES_LISTING_MAX,
+		})
+	).result;
+
+/** What changed while OMPdesk was closed (the core's `routines.filesChanged`). */
+export const filesChanged: ChangedSince = async (mark, listing) =>
+	(await core().call<string[] | null>("routines.filesChanged", { mark, listing })).result;
 
 export const gitPort: GitPort = {
 	head: (repo, branch) => coreGit<string | null>("git.routineHead", { repo, branch }, 1),
-	commits: (repo, from, to) =>
-		coreGit<{ total: number; lines: string[] }>("git.routineCommits", { repo, from, to }, 2),
+	commits: (repo, branch, from, to) => coreGit<string | null>("git.routineCommits", { repo, branch, from, to }, 2),
 };
 
 /** The pool's tabs as session routines read them. */

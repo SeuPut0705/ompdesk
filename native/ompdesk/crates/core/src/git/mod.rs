@@ -320,6 +320,7 @@ struct RoutineHeadParams {
 struct RoutineCommitsParams {
     git: Runner,
     repo: String,
+    branch: String,
     from: String,
     to: String,
 }
@@ -442,12 +443,12 @@ pub fn register(registry: &mut Registry) {
             let RoutineCommitsParams {
                 git,
                 repo,
+                branch,
                 from,
                 to,
             } = call.params()?;
-            Reply::json(
-                &triggers::routine_commits(&Git::new(git, call.scope), &repo, &from, &to).await?,
-            )
+            let git = Git::new(git, call.scope);
+            Reply::json(&triggers::routine_commits(&git, &repo, &branch, &from, &to).await?)
         })
     });
     registry.add("git.autopilotBranchStatus", |call| {
