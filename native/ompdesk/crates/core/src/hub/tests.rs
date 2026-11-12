@@ -1,77 +1,5 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
-
-use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
-use tokio::sync::oneshot;
-
-use super::{Kind, Out, Outcome};
-
-thread_local! {
-    static PROBES: RefCell<HashMap<u64, Probe>> = RefCell::default();
-}
-
-struct Probe {
-    out: Out,
-    waiting: Option<oneshot::Sender<()>>,
-}
-
-pub const PROBE_KIND: Kind = Kind {
-    name: "test:probe",
-    open: |id, _, out| {
-        PROBES.with(|probes| probes.borrow_mut().insert(id, Probe { out, waiting: None }));
-        Ok(())
-    },
-    call: probe_call,
-    close: |id| {
-        PROBES.with(|probes| probes.borrow_mut().remove(&id));
-    },
-};
-
-fn out_of(id: u64) -> Out {
-    PROBES.with(|probes| probes.borrow()[&id].out)
-}
-
-fn probe_call(id: u64, method: &str, params: &RawValue) -> Outcome {
-    let params: Value = serde_json::from_str(params.get()).unwrap_or(Value::Null);
-    let out = out_of(id);
-    match method {
-        // Pushes its items, then answers.
-        "push" => {
-            out.push(&json!({"k": "n", "n": params["n"]}));
-            Outcome::ok(&params["n"])
-        }
-        // Answers once `fire` came; its continuation tells main first.
-        "wait" => {
-            let (fire, fired) = oneshot::channel();
-            PROBES.with(|probes| probes.borrow_mut().get_mut(&id).unwrap().waiting = Some(fire));
-            Outcome::Later(Box::pin(async move {
-                let _ = fired.await;
-                out.push(&json!({"k": "woke"}));
-                Ok(json!("woke"))
-            }))
-        }
-        "fire" => {
-            let waiting =
-                PROBES.with(|probes| probes.borrow_mut().get_mut(&id).unwrap().waiting.take());
-            if let Some(waiting) = waiting {
-                let _ = waiting.send(());
-            }
-            Outcome::done()
-        }
-        "mark" => {
-            out.push(&json!({"k": "mark"}));
-            Outcome::done()
-        }
-        // Asks main and answers what main said.
-        "ask" => Outcome::Later(Box::pin(async move {
-            let answer = out.ask("probe", &json!({"x": 1})).await?;
-            Ok(answer)
-        })),
-        _ => Outcome::fault("no_method", method.to_string()),
-    }
-}
 
 struct Client {
     write: WriteHalf<DuplexStream>,
@@ -84,7 +12,7 @@ impl Client {
     fn start() -> Client {
         let (client, server_io) = tokio::io::duplex(1 << 16);
         let (server_read, server_write) = tokio::io::split(server_io);
-        tokio::spawn(crate::serve(server_read, server_write, crate::registry()));
+        tokio::spawn(super::serve_conn(server_read, server_write, None));
         let (read, write) = tokio::io::split(client);
         Client {
             write,
@@ -136,7 +64,11 @@ impl Client {
 async fn an_answer_comes_after_the_items_its_request_made() {
     let mut client = Client::start();
     client
-        .send(1, "hub.open", json!({"id": 9001, "kind": "test:probe"}))
+        .send(
+            1,
+            "hub.open",
+            json!({"id": 9001, "kind": "test:probe", "opts": {}}),
+        )
         .await;
     client
         .send(
@@ -157,16 +89,32 @@ async fn an_answer_comes_after_the_items_its_request_made() {
 async fn what_a_job_woke_runs_before_the_next_job() {
     let mut client = Client::start();
     client
-        .send(1, "hub.open", json!({"id": 9002, "kind": "test:probe"}))
+        .send(
+            1,
+            "hub.open",
+            json!({"id": 9002, "kind": "test:probe", "opts": {}}),
+        )
         .await;
     client
-        .send(2, "hub.call", json!({"to": 9002, "method": "wait"}))
+        .send(
+            2,
+            "hub.call",
+            json!({"to": 9002, "method": "wait", "params": {}}),
+        )
         .await;
     client
-        .send(3, "hub.call", json!({"to": 9002, "method": "fire"}))
+        .send(
+            3,
+            "hub.call",
+            json!({"to": 9002, "method": "fire", "params": {}}),
+        )
         .await;
     client
-        .send(4, "hub.call", json!({"to": 9002, "method": "mark"}))
+        .send(
+            4,
+            "hub.call",
+            json!({"to": 9002, "method": "mark", "params": {}}),
+        )
         .await;
     client.until_answer(4).await;
     client.until_answer(2).await;
@@ -180,10 +128,18 @@ async fn what_a_job_woke_runs_before_the_next_job() {
 async fn an_ask_waits_for_mains_answer() {
     let mut client = Client::start();
     client
-        .send(1, "hub.open", json!({"id": 9003, "kind": "test:probe"}))
+        .send(
+            1,
+            "hub.open",
+            json!({"id": 9003, "kind": "test:probe", "opts": {}}),
+        )
         .await;
     client
-        .send(2, "hub.call", json!({"to": 9003, "method": "ask"}))
+        .send(
+            2,
+            "hub.call",
+            json!({"to": 9003, "method": "ask", "params": {}}),
+        )
         .await;
     let ask = loop {
         let items = client.items(9003);
@@ -196,26 +152,41 @@ async fn an_ask_waits_for_mains_answer() {
     };
     assert_eq!(ask["q"], "probe");
     assert_eq!(ask["x"], 1);
+    assert_eq!(ask["sync"], true);
     client
         .send(3, "hub.answer", json!({"ask": ask["ask"], "value": "yes"}))
         .await;
     assert_eq!(client.until_answer(2).await["result"], "yes");
+    assert_eq!(client.items(9003).last(), Some(&json!({"k": "after"})));
 }
 
 #[tokio::test]
-async fn closing_answers_the_open_and_fails_its_asks() {
+async fn closing_fails_the_instances_asks() {
     let mut client = Client::start();
     client
-        .send(1, "hub.open", json!({"id": 9004, "kind": "test:probe"}))
+        .send(
+            1,
+            "hub.open",
+            json!({"id": 9004, "kind": "test:probe", "opts": {}}),
+        )
         .await;
     client
-        .send(2, "hub.call", json!({"to": 9004, "method": "ask"}))
+        .send(
+            2,
+            "hub.call",
+            json!({"to": 9004, "method": "ask", "params": {}}),
+        )
         .await;
     client.send(3, "hub.close", json!({"id": 9004})).await;
     assert_eq!(client.until_answer(1).await["ok"], true);
+    assert_eq!(client.until_answer(2).await["error"]["code"], "closed");
     client.until_answer(3).await;
     client
-        .send(4, "hub.call", json!({"to": 9004, "method": "mark"}))
+        .send(
+            4,
+            "hub.call",
+            json!({"to": 9004, "method": "mark", "params": {}}),
+        )
         .await;
     assert_eq!(client.until_answer(4).await["error"]["code"], "no_instance");
 }

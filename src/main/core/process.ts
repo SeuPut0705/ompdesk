@@ -15,6 +15,10 @@
  * them as its last handle closes (`crates/core/src/sys.rs`).
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { setTimeout as sleep } from "node:timers/promises";
 import { nativeBinPath } from "../native-bin";
@@ -207,6 +211,9 @@ export class CoreProcess {
 	readonly #gone = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
 	readonly #listeners = new Map<string, Set<(data: unknown, bin: Uint8Array | null) => void>>();
 	#stops = 0;
+	/** Where the running core's hub listens (`hub.ts` connects there), made fresh for each start. */
+	#hub: { address: string; token: string; generation: number; folder: string | null } | null = null;
+	#starts = 0;
 	readonly #binary: () => string;
 	readonly #log: (line: string) => void;
 	readonly #timeoutMs: number;
@@ -236,6 +243,36 @@ export class CoreProcess {
 	/** How many times `stop()` ended a core: a request that fails `core_exited` after the count moved was ended on purpose. */
 	get stops(): number {
 		return this.#stops;
+	}
+
+	/**
+	 * Where the running core's hub listens, starting the core when none runs (main's synchronous calls, `hub.ts`).
+	 * `generation` changes with every start: a hub connection of an older one is gone.
+	 */
+	hubEndpoint(): { address: string; token: string; generation: number } {
+		this.#start();
+		const hub = this.#hub;
+		if (!hub) throw new CoreError("core_unavailable", "ompdesk-core has no hub");
+		return { address: hub.address, token: hub.token, generation: hub.generation };
+	}
+
+	/** The generation of the running core's hub (0 while none runs), without starting one. */
+	hubEndpointGeneration(): number {
+		return this.#child ? (this.#hub?.generation ?? 0) : 0;
+	}
+
+	/**
+	 * The running core stopped answering (a hub call passed its deadline): it is killed with what it started, as a core
+	 * that died is, so every lane and hub instance is opened again on the next one.
+	 */
+	abandon(reason: string): void {
+		const child = this.#child;
+		if (!child) return;
+		this.#log(`ompdesk-core: ${reason}; ending it`);
+		// Forgotten now, not at its exit event: main's thread may call again before that event can run, and that call
+		// must start the next core. Its exit still fails what waited on it, as a core that died does.
+		this.#child = null;
+		killTree(child);
 	}
 
 	call<T>(method: string, params: unknown = {}, options: CoreCallOptions = {}): Promise<CoreAnswer<T>> {
@@ -301,8 +338,16 @@ export class CoreProcess {
 			);
 		// Detached on POSIX: the core leads a process group of its own, which every git it starts joins. It still ends
 		// with stdin's end (main's), and it is never `unref`ed.
-		const child = spawn(this.#binary(), [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true, detached: POSIX });
+		this.#hub = hubPlace(++this.#starts);
+		const env = { ...process.env, OMPDESK_HUB: this.#hub.address, OMPDESK_HUB_TOKEN: this.#hub.token };
+		const child = spawn(this.#binary(), [], {
+			stdio: ["pipe", "pipe", "pipe"],
+			windowsHide: true,
+			detached: POSIX,
+			env,
+		});
 		this.#child = child;
+		const hubFolder = this.#hub.folder;
 		this.#answered = false;
 		const reader = new FrameReader((frame, bin) => this.#receive(child, frame, bin), this.#log);
 		child.stdout.on("data", (chunk: Buffer) => reader.push(chunk));
@@ -320,9 +365,10 @@ export class CoreProcess {
 		child.on("error", error =>
 			end(new CoreError("core_unavailable", `ompdesk-core could not run: ${error.message}`)),
 		);
-		child.on("close", (code, signal) =>
-			end(new CoreError("core_exited", `ompdesk-core exited (${signal ?? `code ${code}`})`)),
-		);
+		child.on("close", (code, signal) => {
+			if (hubFolder) rmSync(hubFolder, { recursive: true, force: true });
+			end(new CoreError("core_exited", `ompdesk-core exited (${signal ?? `code ${code}`})`));
+		});
 		return child;
 	}
 
@@ -392,6 +438,23 @@ export class CoreProcess {
 			gone();
 		});
 	}
+}
+
+/**
+ * A new place for a core's hub: on POSIX a socket in a folder only this user may open (0700, `mkdtemp`), on Windows a
+ * pipe whose name nobody can guess; with a token the connection proves either way.
+ */
+function hubPlace(generation: number): { address: string; token: string; generation: number; folder: string | null } {
+	const token = randomBytes(24).toString("hex");
+	if (!POSIX)
+		return {
+			address: `\\\\.\\pipe\\ompdesk-hub-${randomBytes(16).toString("hex")}`,
+			token,
+			generation,
+			folder: null,
+		};
+	const folder = mkdtempSync(join(tmpdir(), "ompdesk-hub-"));
+	return { address: join(folder, "h"), token, generation, folder };
 }
 
 let instance: CoreProcess | null = null;

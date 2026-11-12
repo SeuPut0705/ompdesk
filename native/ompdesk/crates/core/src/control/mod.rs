@@ -14,7 +14,7 @@
 //! news). A listener that is still up when the core's input ends is closed then (`close_all`), so the socket file and
 //! `endpoint.json` go even when main never asked.
 
-mod conn;
+pub(crate) mod conn;
 mod endpoint;
 mod events;
 mod frame;
