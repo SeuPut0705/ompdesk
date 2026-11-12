@@ -790,6 +790,44 @@ html[data-shell="phone"] [data-setting-desc] {
 	white-space: normal;
 }
 
+/* Settings › Models › Fallback models: each model's move and remove buttons, and the rows under each other, sit far
+   enough apart that each button reaches 44 px under a finger. Its reach starts inside its 1 px border, so 26 px + 18
+   apart (a phone's 22 px + 22), bounded at that gap so no reach takes a neighbour's tap. The list keeps the same
+   distance from the row's remove button above it and from the "add next model" picker below. */
+html[data-input="touch"] [data-fallback-chain] {
+	row-gap: 18px;
+	margin-top: 18px;
+}
+
+html[data-input="touch"] [data-fallback-actions] {
+	column-gap: 18px;
+	--hit-gap-x: 18px;
+	--hit-gap-y: 18px;
+}
+
+/* The "add next model" picker sits 18 px under the list (22 on a phone) with only text below it: its reach is bounded
+   by that gap, not by the tighter gap of the row around it, so it reaches 44 px as a role row's picker does. */
+html[data-input="touch"] [data-fallback-add-entry] {
+	margin-top: 18px;
+	--hit-gap-y: 18px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-fallback-chain] {
+	row-gap: 22px;
+	margin-top: 22px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-fallback-actions] {
+	column-gap: 22px;
+	--hit-gap-x: 22px;
+	--hit-gap-y: 22px;
+}
+
+html[data-shell="phone"][data-input="touch"] [data-fallback-add-entry] {
+	margin-top: 22px;
+	--hit-gap-y: 22px;
+}
+
 /* A switch (a settings row, the Mode popover, a dialog), the info glyph and the form checkboxes keep their small
    look; the touch block at the end gives each a finger-sized hit area. */
 
@@ -2126,11 +2164,11 @@ html[data-input="touch"] div:has(> [data-schedule-day]) {
 /* Settings' clusters of buttons on one line (a schedule's Stop / Run now / ⋯, Preview beside Save diagnostic bundle,
    the copy buttons of the addresses) sit 10 px apart on touch, each reach ending half way to its neighbour; a 24 px
    button reaches 7 px up and down (a 36 px target) and a cluster that wraps keeps its rows 14 px apart for that. The
-   Memory reader's actions, a section head's actions and the shortcuts toolbar (an info glyph 20 px from its button)
-   keep their own spacing. */
+   Memory reader's actions, a section head's actions, the shortcuts toolbar (an info glyph 20 px from its button) and a
+   fallback model's ↑ ↓ ✕ (44 px reaches, above) keep their own spacing. */
 html[data-input="touch"]
 	.settings-content
-	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-settings-section-head] > *):has(
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-fallback-actions], [data-settings-section-head] > *):has(
 		> button + button
 	) {
 	gap: 14px 10px;
@@ -2141,7 +2179,7 @@ html[data-input="touch"]
 /* A phone's icon buttons are 24 px (22 inside the border): 14 px apart they reach 36 across too (10 left them 32). */
 html[data-shell="phone"]
 	.settings-content
-	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-settings-section-head] > *):has(
+	:is(div, span, li).flex:not(.flex-col, [data-memory-actions], [data-hotkeys-toolbar], [data-fallback-actions], [data-settings-section-head] > *):has(
 		> button + button
 	) {
 	column-gap: 14px;

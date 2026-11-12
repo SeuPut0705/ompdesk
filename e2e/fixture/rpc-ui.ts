@@ -535,10 +535,15 @@ export function runRpcUi(): void {
 	// `OMP_GUI_TEST_OPENROUTER=1` (with OMP_GUI_TEST_MODELS) starts with OpenRouter connected by API key and
 	// offering models that read like the Anthropic subscription's (the model lists' provider groups).
 	const openRouterModels = modelsData && process.env.OMP_GUI_TEST_OPENROUTER === "1";
+	// `OMP_GUI_TEST_FALLBACK=1` (with OMP_GUI_TEST_MODELS): the owner's fallback setup of 12 Nov 2026. Default on Claude
+	// Fable 5.2, Task on Opus 5.5, ChatGPT connected with GPT-6.1 SOL, and stock's retry settings as his config.yml has
+	// them (`retry.fallbackOn: usage-limit`, one wildcard row per provider), each from the global layer.
+	const fallbackData = modelsData && process.env.OMP_GUI_TEST_FALLBACK === "1";
 	/** Long-tail providers connected through the API-key sign-in below (`login` with an `input` for the key). */
 	const apiKeyProviders = new Set<string>([
 		...(process.env.OMP_GUI_TEST_MANY_PROVIDERS === "1" ? ["deepseek", "groq", "openrouter", "acme-gateway"] : []),
 		...(openRouterModels ? ["openrouter"] : []),
+		...(fallbackData ? ["openai-codex"] : []),
 	]);
 	/** Ids a later "Add another account" sign-in hands out, after the two seeded accounts. */
 	let nextCredentialId = 3;
@@ -565,6 +570,14 @@ export function runRpcUi(): void {
 	if (worktreeLifecycle) {
 		values["worktree.onStart"] = worktreeLifecycle[1];
 		values["worktree.onExit"] = worktreeLifecycle[2];
+	}
+	if (fallbackData) {
+		values["retry.modelFallback"] = true;
+		values["retry.fallbackOn"] = "usage-limit";
+		values["retry.fallbackChains"] = {
+			"anthropic/*": ["openai-codex/gpt-6.1-sol"],
+			"openai-codex/*": ["anthropic/claude-fable-5-2"],
+		};
 	}
 	const stats = {
 		sessionId,
@@ -1154,9 +1167,22 @@ export function runRpcUi(): void {
 	};
 	// A first-time user (`OMP_GUI_TEST_SIGNED_OUT`) who signs in to Anthropic gets its models, as stock lists them.
 	const firstRunSignIn = process.env.OMP_GUI_TEST_SIGNED_OUT === "1";
+	const fallbackModels = fallbackData
+		? [
+				{
+					...model,
+					id: "claude-fable-5-2",
+					name: "Claude Fable 5.2",
+					provider: "anthropic",
+					contextWindow: 1000000,
+				},
+				{ ...model, id: "claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic", contextWindow: 1000000 },
+				{ ...model, id: "gpt-6.1-sol", name: "GPT-6.1 SOL", provider: "openai-codex", contextWindow: 400000 },
+			]
+		: [];
 	const catalogModels = () => {
 		const claude = (modelsData || firstRunSignIn) && anthropicSignedIn ? claudeModels : [];
-		if (!openRouterModels || !apiKeyProviders.has("openrouter")) return [model, ...claude];
+		if (!openRouterModels || !apiKeyProviders.has("openrouter")) return [model, ...claude, ...fallbackModels];
 		return [model, ...claude, ...routerModels, ...(claude.length > 0 ? [discoveredClaude] : [])];
 	};
 	const accountQuota: Record<
@@ -1261,6 +1287,10 @@ export function runRpcUi(): void {
 		slow: "anthropic/claude-opus-4-1",
 		commit: "fixture/local-fixture",
 	};
+	if (fallbackData) {
+		modelRoles.default = "anthropic/claude-fable-5-2";
+		modelRoles.task = "anthropic/claude-opus-5-5";
+	}
 	/**
 	 * `OMP_GUI_TEST_CONFIG_YML=1`: settings and model roles persist in `$PI_CODING_AGENT_DIR/config.yml`, as stock keeps
 	 * them: read when this omp starts (nested keys become setting paths, `modelRoles` the roles) and written on every
@@ -1322,6 +1352,9 @@ export function runRpcUi(): void {
 					].map(entry => ({ ...entry, value: values[entry.path] })),
 				}
 			: schema;
+	/** A setting set in the global layer alone, as the bridge's `provenanceReader` reports it. */
+	const globalProvenance = (path: string) =>
+		values[path] === undefined ? { layers: [] } : { layers: ["global"], globalValue: values[path] };
 	/** Like stock: the advisor runs when it is on and a model resolves (its own role, else the Thinking role). */
 	const advisorState = (settings: Record<string, unknown>) => {
 		const advisorEnabled = settings["advisor.enabled"] === true;
@@ -1333,6 +1366,7 @@ export function runRpcUi(): void {
 		{ id: "slow", name: "Thinking", tag: "SLOW", color: "accent", section: "chat" },
 		{ id: "plan", name: "Plan", tag: "PLAN", color: "info", section: "chat" },
 		{ id: "advisor", name: "Advisor", tag: "ADVISOR", color: "accent", section: "chat" },
+		...(fallbackData ? [{ id: "task", name: "Task", tag: "TASK", section: "chat" }] : []),
 		{ id: "commit", name: "Commit messages", section: "kind" },
 	];
 	const modelsPageMethods: Record<string, (params: Params, reply: Reply) => unknown> = {
@@ -1340,6 +1374,10 @@ export function runRpcUi(): void {
 			roles: ROLE_META.map(meta => ({
 				...meta,
 				...(modelRoles[meta.id] ? { model: modelRoles[meta.id] } : {}),
+				// What the bridge's role-effective.ts adds: the model a role really runs on (here its own pick).
+				...(fallbackData && modelRoles[meta.id]
+					? { effective: { model: modelRoles[meta.id], source: "configured" } }
+					: {}),
 				source: modelRoles[meta.id] ? "global" : "default",
 				candidates: catalogModels().map(entry => ({
 					provider: entry.provider,
@@ -2220,6 +2258,30 @@ export function runRpcUi(): void {
 								},
 							]
 						: []),
+					// Stock's three, each from the global layer only (provenance as the bridge's provenanceReader answers).
+					...(fallbackData
+						? [
+								{ path: "retry.modelFallback", type: "boolean", default: true },
+								{
+									path: "retry.fallbackOn",
+									type: "enum",
+									default: "any",
+									options: [
+										{ value: "any", label: "Any error" },
+										{ value: "usage-limit", label: "Usage limits only" },
+										{ value: "except-usage-limit", label: "All but usage limits" },
+									],
+								},
+								{ path: "retry.fallbackChains", type: "record", default: {} },
+							].map(entry => ({
+								...entry,
+								tab: "model",
+								group: "Retry & Fallback",
+								label: entry.path,
+								value: values[entry.path],
+								provenance: globalProvenance(entry.path),
+							}))
+						: []),
 				],
 			}),
 		settings_get: () => ({
@@ -2238,6 +2300,7 @@ export function runRpcUi(): void {
 				value: params.value,
 				savedValue: params.value,
 				...(path === "advisor.enabled" ? advisorState(values) : {}),
+				...(fallbackData && path.startsWith("retry.") ? { provenance: globalProvenance(path) } : {}),
 			};
 		},
 		models_catalog: () => ({ models: catalogModels(), discoveryStates: [], refreshPending: false, generation: 1 }),

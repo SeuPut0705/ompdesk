@@ -26,7 +26,6 @@ import {
 	ShieldCheck,
 	ShieldQuestion,
 	Shrink,
-	Shuffle,
 	Target,
 	Workflow,
 } from "lucide-react";
@@ -74,7 +73,6 @@ const CURATED_ICONS: Readonly<Record<string, LucideIcon>> = {
 	"compaction.enabled": Shrink,
 	"tui.renderMermaid": Workflow,
 	defaultThinkingLevel: Brain,
-	"retry.modelFallback": Shuffle,
 	"retry.maxRetries": RotateCw,
 	"tools.approvalMode": ShieldCheck,
 	"tools.approval": ShieldQuestion,

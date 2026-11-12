@@ -300,7 +300,7 @@ export const SETTINGS: readonly Setting[] = [
 		"사고 수준",
 		options("auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"),
 	),
-	stock("retry.modelFallback", "agent", "Model fallback on retry", "재시도 시 모델 대체"),
+	stock("retry.modelFallback", "models", "Use fallback models", "대체 모델 사용"),
 	stock("retry.maxRetries", "agent", "Max retries", "최대 재시도", { type: "integer", minimum: 0, maximum: 20 }),
 	stock("plan.enabled", "agent", "Plan mode", "계획 모드"),
 	stock("goal.enabled", "agent", "Goal mode", "목표 모드"),
@@ -392,6 +392,8 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	"secrets.enabled": { never: USER_ONLY },
 	"memory.backend": { never: USER_ONLY },
 	"compaction.modelThresholds": { never: "a structured per-model table with its own editor" },
+	"retry.fallbackChains": { covered: "omp_settings.set" },
+	"retry.fallbackOn": { covered: "omp_settings.set" },
 	disabledExtensions: { never: "extension switches change what code runs in every session" },
 	...Object.fromEntries(
 		[

@@ -18,14 +18,7 @@ import type { AgentSettingsGroup } from "./settings-catalog";
 import { useSettingsData } from "./settings-data";
 import { isSettingVisibleInGui } from "./settings-schema-utils";
 
-const MESSAGE_PATHS = [
-	"steeringMode",
-	"followUpMode",
-	"interruptMode",
-	"retry.modelFallback",
-	"retry.maxRetries",
-	"tui.renderMermaid",
-];
+const MESSAGE_PATHS = ["steeringMode", "followUpMode", "interruptMode", "retry.maxRetries", "tui.renderMermaid"];
 
 /** Agent's four groups, in order, with their heading; their stock (non-curated) rows fold under Advanced. */
 const AGENT_GROUPS: readonly { group: AgentSettingsGroup; titleKey: string }[] = [

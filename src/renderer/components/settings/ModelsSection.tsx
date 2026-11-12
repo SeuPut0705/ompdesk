@@ -1,4 +1,4 @@
-/** Providers & accounts and custom endpoints (connection), then models (setup, roles by purpose, defaults, compare); reset passes, account pools and model overrides fold under Advanced. */
+/** Providers & accounts and custom endpoints (connection), then models (setup, roles by purpose, fallback models, defaults, compare); reset passes, account pools and model overrides fold under Advanced. */
 
 import { ChevronDown } from "lucide-react";
 import { useEffect, useId, useState } from "react";
@@ -6,6 +6,7 @@ import { cx } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useUiStore } from "../../stores/ui";
 import { Button } from "../common";
+import { FallbackModelsSection } from "./FallbackModelsSection";
 import { ModelCompareSection } from "./ModelCompareSection";
 import { ModelRolesSection } from "./ModelRolesSection";
 import { ModelSetupEntry } from "./model-setup/ModelSetupEntry";
@@ -37,6 +38,7 @@ export function ModelsSection({ sub }: { sub?: string }) {
 				<>
 					<ModelSetupEntry />
 					<ModelRolesSection />
+					<FallbackModelsSection />
 					<SchemaSection
 						id="settings-models-defaults"
 						paths={DEFAULT_PATHS}

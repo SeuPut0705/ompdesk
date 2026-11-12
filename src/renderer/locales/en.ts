@@ -4487,6 +4487,58 @@ export const en: Record<string, string> = {
 	"compactionLimits.source.default": "default",
 	"compactionLimits.sourceHint": "Set by: {source}",
 
+	// Fallback models (Settings › Models & accounts; stock retry.fallbackChains / retry.fallbackOn / retry.modelFallback)
+	"fallback.title": "Fallback models",
+	"fallback.desc":
+		"When a model can't be used, omp switches to the next model in its row without asking. Another account of the same provider is tried first. Every role and subagent follows the row of the model it runs on.",
+	"fallback.revert.cooldown": "A new message sent after the main model's wait is over goes back to the main model.",
+	"fallback.revert.never": "It stays on the fallback model until you change the model yourself.",
+	"fallback.switch": "Use fallback models",
+	"fallback.off": "Fallback models are off: when a model can't be used, the error shows and nothing switches.",
+	"fallback.turnOn": "Turn on",
+	"fallback.retryOff":
+		"Automatic retries are off: a failed request shows its error and never switches. Only a model with no sign-in at all still moves to its next model.",
+	"fallback.retryOn": "Turn retries on",
+	"fallback.trigger": "When to switch",
+	"fallback.trigger.usage-limit": "Only on a usage limit",
+	"fallback.trigger.usage-limit.hint":
+		"A usage limit or spent credit switches. An outage or overload is retried on the same model, then shown; a refused sign-in is shown.",
+	"fallback.trigger.any": "On any error",
+	"fallback.trigger.any.hint":
+		"A usage limit, an outage, an overload or a refused sign-in switches to the next model.",
+	"fallback.trigger.except-usage-limit": "On errors other than limits",
+	"fallback.trigger.except-usage-limit.hint":
+		"An outage, an overload or a refused sign-in switches. A usage limit waits for its reset or shows the error.",
+	"fallback.trigger.noCredential": "A model with no sign-in at all switches whichever you pick.",
+	"fallback.otherLayer": "Set in {source}: edit it there.",
+	"fallback.overridden": "{row} is set in a project or launch config, so this change has no effect.",
+	"fallback.key.provider": "Every {provider} model",
+	"fallback.key.default": "Any other model",
+	"fallback.key.default.tip":
+		"Used when no other row matches. A model no role is set to tries the Default role's model first.",
+	"fallback.key.role": "Model of the {role} role",
+	"fallback.entry.sameModel": "Same model on {provider}",
+	"fallback.entry.missing": "Not in your models",
+	"fallback.removeRow": "Remove the fallbacks of {row}",
+	"fallback.unreadable": "omp can't read this row. Remove it, or fix it in config.yml.",
+	"fallback.chain": "Fallbacks of {row}, in order",
+	"fallback.position": "Fallback {n}",
+	"fallback.moveUp": "Move {model} up",
+	"fallback.moveDown": "Move {model} down",
+	"fallback.removeEntry": "Remove {model}",
+	"fallback.draft": "Pick the first fallback to save this row.",
+	"fallback.noEntries": "Never switches",
+	"fallback.addEntryFor": "Add the next fallback of {row}",
+	"fallback.addEntry": "Add next model",
+	"fallback.appliesTo": "Used now for {models}",
+	"fallback.followsOwn": "{model} uses its own row",
+	"fallback.follows": "{model} uses the “{row}” row",
+	"fallback.empty": "No fallback models yet",
+	"fallback.addRow": "Set fallbacks for",
+	"fallback.addRowPlaceholder": "Pick a model",
+	"fallback.add.roles": "Your roles' models",
+	"fallback.add.services": "Every model of a provider",
+
 	// Workspace panel container
 	"panel.title": "Side panel",
 	"panel.close": "Close side panel",
@@ -6251,9 +6303,6 @@ export const en: Record<string, string> = {
 	"settings.field.defaultThinkingLevel": "Default thinking level",
 	"settings.field.defaultThinkingLevel.desc":
 		"How deeply models that support thinking reason before answering. You can change it per session in the composer.",
-	"settings.field.retry.modelFallback": "Switch to a fallback model on errors",
-	"settings.field.retry.modelFallback.desc":
-		"When retries fail, continue with the fallback model configured for the role.",
 	"settings.field.retry.maxRetries": "Retry attempts",
 	"settings.field.retry.maxRetries.desc": "How many times a failed request is retried before giving up.",
 	"settings.field.tools.approvalMode": "Tool approval",

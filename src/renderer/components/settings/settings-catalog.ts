@@ -85,7 +85,6 @@ export const CURATED_SCHEMA_ROWS: Readonly<Record<string, SettingsSectionId>> = 
 	"compaction.enabled": "agent",
 	"tui.renderMermaid": "agent",
 	defaultThinkingLevel: "models",
-	"retry.modelFallback": "agent",
 	"retry.maxRetries": "agent",
 	"tools.approvalMode": "permissions",
 	"tools.approval": "permissions",
@@ -103,6 +102,9 @@ export const CUSTOM_SCHEMA_EDITORS: Readonly<
 	modelRoles: { section: "models", sub: "roles", rowId: "settings-models-roles" },
 	"task.agentAccountPools": { section: "models", sub: "account-pools", rowId: "settings-models-account-pools" },
 	"compaction.modelThresholds": { section: "agent", sub: "context", rowId: "settings-models-compaction-limits" },
+	"retry.fallbackChains": { section: "models", sub: "fallback", rowId: "settings-models-fallback" },
+	"retry.fallbackOn": { section: "models", sub: "fallback", rowId: "settings-models-fallback" },
+	"retry.modelFallback": { section: "models", sub: "fallback", rowId: "settings-models-fallback" },
 	disabledExtensions: { section: "tools", sub: "other-extensions", rowId: "settings-tools-other-extensions" },
 };
 

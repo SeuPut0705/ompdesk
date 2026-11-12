@@ -18,7 +18,7 @@ export const KO_GROUP_TITLES: Record<string, string> = {
 	Thinking: "사고",
 	Sampling: "샘플링",
 	Prompt: "프롬프트",
-	"Retry & Fallback": "재시도 및 폴백",
+	"Retry & Fallback": "재시도 및 대체 모델",
 	Advisor: "어드바이저",
 	Prewalk: "사전 탐색",
 	Vision: "비전",
@@ -96,8 +96,8 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"/btw에 추가 지시 프롬프트를 부탁하면 답변 안에 <inject> 태그로 초안을 써서 강조해 보여 줘요. Alt+I(app.btw.inject)로 메인 세션에 보내요.",
 	},
 	"retry.fallbackOn": {
-		label: "폴백 전환 조건",
-		description: "어떤 요청 실패 시 설정된 폴백 모델로 전환할지 정해요.",
+		label: "대체 모델로 바꾸는 때",
+		description: "어떤 요청 실패에 설정된 대체 모델로 바꿀지 정해요.",
 	},
 	"providers.anthropic.slowMode": { label: "Anthropic 저속 모드" },
 	"tts.localSpeed": {
@@ -476,11 +476,11 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"retry.maxDelayMs": {
 		label: "최대 재시도 지연",
 		description:
-			"재시도 사이 최대 대기 시간(ms)이에요. 프로바이더가 이보다 긴 대기를 요구하고 자격 증명이나 모델 폴백도 성공하지 못하면 대기하지 않고 바로 실패해요(예: Anthropic의 최대 3시간 속도 제한 창).",
+			"재시도 사이 최대 대기 시간(ms)이에요. 프로바이더가 이보다 긴 대기를 요구하고 다른 계정이나 대체 모델로도 바꾸지 못하면 대기하지 않고 바로 실패해요(예: Anthropic의 최대 3시간 속도 제한 창).",
 	},
 	"retry.modelFallback": {
-		label: "재시도 모델 폴백",
-		description: "재시도 복구 시 설정된 폴백 모델로 전환할 수 있게 해요",
+		label: "대체 모델 사용",
+		description: "재시도 복구 때 설정된 대체 모델로 바꿀 수 있게 해요",
 	},
 	"retry.waitForUsageReset": {
 		label: "사용량 리셋 대기",
@@ -488,9 +488,9 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 			"프로바이더가 명확한 사용량 리셋 시각을 알려 주면 최대 재시도 지연을 넘더라도 리셋 후 재시도해요. 대기는 언제든 중단할 수 있고, 서브에이전트도 함께 대기해요.",
 	},
 	"retry.usageAwareFallback": {
-		label: "사용량 인식 폴백",
+		label: "사용량 인식 대체 모델",
 		description:
-			"신뢰할 수 있는 코딩 요금제 사용량 보고를 활용해, 사용량 하드 한도에 닿기 전에 같은 프로바이더 계정을 우선 선택하고 그다음 설정된 폴백 모델을 써요. 일반 API 키는 대상이 아니에요.",
+			"신뢰할 수 있는 코딩 요금제 사용량 보고를 활용해, 사용량 하드 한도에 닿기 전에 같은 프로바이더 계정을 우선 선택하고 그다음 설정된 대체 모델을 써요. 일반 API 키는 대상이 아니에요.",
 	},
 	"retry.usageReservePct": {
 		label: "예비 여유분",
@@ -502,11 +502,14 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		description: "같은 프로바이더의 모든 코딩 요금제 계정이 예비 여유분에 들어갔을 때의 처리 방식이에요.",
 	},
 	"retry.fallbackChains": {
-		label: "재시도 폴백 체인",
+		label: "대체 모델 순서",
 		description:
-			'모델 역할, 모델 선택자("provider/model-id") 또는 프로바이더 와일드카드("provider/*")를 순서가 있는 폴백 선택자 목록에 매핑하는 JSON 객체예요. 예: {"default":["openai/gpt-4o-mini"],"google-antigravity/*":["google/*","google-vertex/*"]}. 모델 대상 키는 역할과 무관하게 해당 모델/프로바이더가 활성일 때 적용되고, "provider/*" 항목은 실패한 모델의 id를 유지한 채 프로바이더만 바꿔요. id 접두사가 붙은 와일드카드("openrouter/google/*")는 실패한 모델의 순수 id에 접두사를 다시 붙이며(google-antigravity/gemini-x -> openrouter/google/gemini-x), 키로 쓰면 해당 프로바이더의 그 접두사 아래 id에만 일치해요.',
+			'모델 역할, 모델 선택자("provider/model-id") 또는 프로바이더 와일드카드("provider/*")를 순서가 있는 대체 모델 선택자 목록에 매핑하는 JSON 객체예요. 예: {"default":["openai/gpt-4o-mini"],"google-antigravity/*":["google/*","google-vertex/*"]}. 모델 대상 키는 역할과 무관하게 해당 모델/프로바이더가 활성일 때 적용되고, "provider/*" 항목은 실패한 모델의 id를 유지한 채 프로바이더만 바꿔요. id 접두사가 붙은 와일드카드("openrouter/google/*")는 실패한 모델의 순수 id에 접두사를 다시 붙이며(google-antigravity/gemini-x -> openrouter/google/gemini-x), 키로 쓰면 해당 프로바이더의 그 접두사 아래 id에만 일치해요.',
 	},
-	"retry.fallbackRevertPolicy": { label: "폴백 복귀 정책", description: "폴백 후 언제 기본 모델로 돌아갈지예요" },
+	"retry.fallbackRevertPolicy": {
+		label: "대체 모델에서 돌아오는 때",
+		description: "대체 모델로 바꾼 뒤 언제 원래 모델로 돌아갈지예요",
+	},
 	"providers.anthropic.serverSideFallback": {
 		label: "Anthropic 서버 측 폴백(Fable 5)",
 		description:

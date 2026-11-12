@@ -311,7 +311,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // A message between sessions carries its sender's saved id (12 Nov 2026, `shared/agent-control.ts`: the wrapper's
 // pattern reads the `session` attribute and `parseAgentMessage` returns it; the transcript, which shows such a message
 // as "sent by an agent", is the first screen): measured 2,197,692 on c47f87fc by ci.yml's build, 89 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_197_692;
+// Fallback models in Settings › Models & accounts (12 Nov 2026): their strings in the English catalog, which the first
+// screen loads (the block itself is Settings', off it), less the Agent row they replace: measured 2,197,738 on the
+// working tree beside other uncommitted Settings strings, 46 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_197_738;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
