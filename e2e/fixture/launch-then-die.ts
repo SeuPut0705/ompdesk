@@ -4,7 +4,11 @@
 // does: Node 24.15's 0xC0000409 on Windows, an outer `taskkill /F`).
 import { readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
-import { launchShell } from "./shell-launch.ts";
+
+// Plain Node resolves a TypeScript file only by its extension, which `tsc` refuses in a static import.
+const { launchShell } = (await import(
+	new URL("./shell-launch.ts", import.meta.url).href
+)) as typeof import("./shell-launch");
 
 const options = JSON.parse(readFileSync(process.argv[2] ?? "", "utf8")) as {
 	args: string[];
