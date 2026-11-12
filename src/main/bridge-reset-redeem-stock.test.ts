@@ -76,6 +76,20 @@ const LOST: Record<string, { leftAfter: number; claims: number }> = {
 };
 
 /**
+ * The account as Settings' accounts list read it (the bridge's `provider_accounts`: stock's plain `/usage`, whose answer
+ * carries the offer), then a confirm of the pass it showed whose pre-spend check Claude turns away (429). Per route, what
+ * the person confirmed, the answer, and how many claims reach Claude.
+ */
+const PLAIN_USAGE = "/api/oauth/usage";
+const LISTED_USAGE = {
+	five_hour: { utilization: 100, resets_at: FUTURE },
+	cedar_ember: { eligible: true, grants: [grant()], next_grant_id: "grant-live" },
+};
+const STORED: Record<string, { confirm: string; expected: { ok: boolean; code: string }; claims: number }> = {
+	"stored-throttled": { confirm: "grant-live", expected: { ok: true, code: "reset" }, claims: 1 },
+};
+
+/**
  * The same redeems through OMPdesk's bridge method (`reset_pass_redeem`, reset-passes.ts), each of a pass a person
  * picked. The one stock refuses only because Claude names another next is the one the bridge sends itself
  * (reset-passes-core.ts `spendChosenPass`): stock's read, the bridge's read, then one claim of exactly that grant.
@@ -195,6 +209,7 @@ globalThis.fetch = guarded;
 const PROBE = `
 import { resetTickets } from "./reset-passes-core";
 import { methods } from "./reset-passes";
+import { methods as settings } from "./settings";
 export default function (pi) {
  const run = async () => {
   try {
@@ -249,10 +264,19 @@ export default function (pi) {
     }
     lost[name] = tries;
    }
+   const storedReads = {};
+   for (const { name, confirm } of JSON.parse(process.env.OMPDESK_RESET_STORED)) {
+    pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/" + name });
+    const listedAccounts = await settings.provider_accounts({ providerId: "anthropic" }, env);
+    const shown = listedAccounts.accounts.find(entry => entry.credentialId === credentialId)?.resetPasses;
+    const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: confirm }, env);
+    storedReads[name] = { shown: shown?.creditId, ok: result.ok, code: result.code };
+   }
    console.error("RESET_REDEEM_PROBE=" + JSON.stringify({
     results,
     picks,
     lost,
+    stored: storedReads,
     listed: { count: listed?.availableCount, tickets: resetTickets(listed?.credits ?? []) },
     startupRefused: guard.blocked.slice(0, startup),
     blocked: guard.blocked.slice(startup),
@@ -299,6 +323,14 @@ function fakeClaude(received: Received[]) {
 							? KINDS
 							: kinds({ resets_left: lost.leftAfter }, "grant-regular")
 						: scripted?.usage;
+			if (STORED[name]) {
+				if (request.method === "GET" && route === PLAIN_USAGE) answer(200, LISTED_USAGE);
+				else if (request.method === "GET" && route === USAGE) answer(429, {});
+				else if (request.method === "POST" && route === CONSUME)
+					answer(200, { result: "reset", cleared: ["five_hour"] });
+				else answer(404, { error: "not scripted" });
+				return;
+			}
 			if (usage && request.method === "GET" && route === USAGE) {
 				answer(usage.status, usage.body);
 			} else if (lost && request.method === "POST" && route === CONSUME) {
@@ -339,6 +371,7 @@ function runRedeemProbe(fake: string): Promise<Record<string, unknown>> {
 		OMPDESK_RESET_FAKE: fake,
 		OMPDESK_RESET_CASES: JSON.stringify(Object.entries(CASES).map(([name, { confirm }]) => ({ name, confirm }))),
 		OMPDESK_RESET_PICKS: JSON.stringify(Object.entries(PICKS).map(([name, { confirm }]) => ({ name, confirm }))),
+		OMPDESK_RESET_STORED: JSON.stringify(Object.entries(STORED).map(([name, { confirm }]) => ({ name, confirm }))),
 		OMPDESK_RESET_LOST: JSON.stringify(Object.keys(LOST)),
 	};
 	for (const key of [
@@ -409,7 +442,13 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 		// engine probes at startup).
 		const toFake = (probe.loopback as string[]).filter(url => url.startsWith(`${base}/`));
 		expect(toFake.map(url => url.slice(base.length)).sort()).toEqual(received.map(entry => entry.path).sort());
-		const routes = [...Object.keys(CASES), ...Object.keys(PICKS), ...Object.keys(LOST), LISTED];
+		const routes = [
+			...Object.keys(CASES),
+			...Object.keys(PICKS),
+			...Object.keys(LOST),
+			...Object.keys(STORED),
+			LISTED,
+		];
 		expect(received.every(entry => routes.some(name => entry.path.startsWith(`/${name}/`)))).toBe(true);
 	});
 
@@ -479,6 +518,30 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 			expect(claims.every(claim => claim.grant_id === "grant-regular")).toBe(true);
 			// One request id is one use spent, however often it is sent.
 			expect(new Set(claims.map(claim => claim.request_id)).size).toBe(1);
+		},
+	);
+
+	it.each(Object.entries(STORED))(
+		"through the bridge, %s: the pass the accounts list showed is spent from that read when the check is turned away",
+		(name, scripted) => {
+			const result = (probe.stored as Record<string, { shown?: string; ok: boolean; code: string }>)[name];
+			expect(result).toEqual({ shown: scripted.confirm, ...scripted.expected });
+			const routes = received.filter(entry => entry.path.startsWith(`/${name}/api/`));
+			// Stock's one pre-spend check, turned away; the bridge asks Claude for nothing more before it claims.
+			expect(routes.filter(entry => entry.path === `/${name}${USAGE}`).map(entry => entry.method)).toEqual(["GET"]);
+			const claims = routes
+				.filter(entry => entry.method === "POST")
+				.map(entry => ({ path: entry.path, ...(JSON.parse(entry.body) as { request_id?: unknown }) }));
+			expect(claims).toHaveLength(scripted.claims);
+			for (const claim of claims) {
+				expect(claim).toEqual({
+					path: `/${name}${CONSUME}`,
+					program: "cedar_ember",
+					grant_id: scripted.confirm,
+					request_id: expect.stringMatching(/^[A-Za-z0-9_-]{1,64}$/),
+				});
+			}
+			expect(new Set(claims.map(claim => claim.request_id)).size).toBe(Math.min(1, claims.length));
 		},
 	);
 

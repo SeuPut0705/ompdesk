@@ -462,3 +462,42 @@ describe("a provider whose stock redeem checks the live offer itself (Claude)", 
 		expect(list).not.toHaveBeenCalled();
 	});
 });
+describe("a confirmed pass whose live check the provider turns away", () => {
+	/** The pass the dialog showed, as the last usage read of the account lists it. */
+	const grant = {
+		id: "grant_1",
+		program: "cedar_ember",
+		remainingCount: 1,
+		usable: true,
+		status: "available",
+		clears: ["anthropic:5h"],
+	};
+	const request = { provider: "anthropic", credentialId: 7, creditId: "grant_1" };
+	/** Stock's redeem could not read the offer (429); the bridge holds the account's last read, `readAgo` old. */
+	function throttled(readAgo = 60_000, credits: ResetCreditDetail[] = [grant]) {
+		const world = surface(account, [status]);
+		world.redeem.mockResolvedValue({ ok: false, code: "credit_list_failed", email: "home@example.com" });
+		const spend = vi.fn(
+			async (): Promise<ChosenSpend> => ({ ok: true, code: "reset", status: 200, cleared: ["anthropic:5h"] }),
+		);
+		const stored = { nextCreditId: "grant_1", credits, storedAt: Date.now() - readAgo };
+		world.account.mockResolvedValue({ email: "home@example.com", offer: stored, spend });
+		return { ...world, spend };
+	}
+
+	it("spends exactly that pass once from the last read, with no second lookup", async () => {
+		const { fake, redeem, account: read, spend, settle } = throttled();
+		expect(await redeemResetPass(fake, request)).toEqual({
+			ok: true,
+			code: "reset",
+			message: "home@example.com: reset",
+			cleared: ["anthropic:5h"],
+		});
+		expect(redeem).toHaveBeenCalledTimes(1);
+		expect(read).toHaveBeenCalledTimes(1);
+		expect(read).toHaveBeenCalledWith("anthropic", 7, false);
+		expect(spend).toHaveBeenCalledTimes(1);
+		expect(spend).toHaveBeenCalledWith({ ...grant, usable: true }, expect.stringMatching(/^[\w-]{8,64}$/));
+		expect(settle).toHaveBeenCalledWith("anthropic");
+	});
+});
