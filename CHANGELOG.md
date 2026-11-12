@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.125.0] - 2026-11-12
+
+대체 모델을 설정에서 고를 수 있게 됐고, 눌러서 확인한 초기화권이 조회 거절 때문에 안 쓰이던 문제를 고쳤어요.
+
+### 새 기능
+- 설정 › 모델 및 계정에 "대체 모델"이 생겼어요. 모델마다 그 모델을 쓸 수 없을 때 다음에 시도할 모델을 순서대로 골라요. 예를 들어 Fable 5.2 → Opus 5.5 → GPT-6.1 SOL처럼요. 언제 바꿀지도 여기서 정해요: 한도에 걸렸을 때만, 어떤 오류든, 한도를 뺀 오류일 때. 각 선택이 장애나 로그인 거부 때 어떻게 되는지 그 자리에서 알려 줘요. omp가 이미 갖고 있던 설정(`retry.fallbackChains`, `retry.fallbackOn`)을 그대로 고치는 화면이라, 전에 적어 둔 값도 그대로 보여요.
+- 채팅의 작업 현황에 Fable 한도가 5H, 7D 옆에 나와요. 세션이 쓰는 모델의 한도를 보여 주고, 계정이 그런 한도를 알려 주지 않으면 전처럼 두 개만 나와요.
+- 계정 목록에 남은 크레딧이 나와요. 선불 잔액이나 Claude 추가 사용량의 이번 달 남은 금액을, 남은 것이 있을 때만 보여 줘요. Claude 추가 사용량은 이제 게이지가 아니라 이 금액으로 나와요.
+
+### 고친 것
+- 초기화권을 눌러 확인했는데 "이 계정의 초기화권을 읽지 못했어요"라며 안 쓰이던 문제를 고쳤어요. omp가 쓰기 직전에 조회를 한 번 더 하는데, 프로바이더가 그 조회를 거절하면 아무것도 쓰지 않았어요. 이제 그 조회가 거절돼도 화면에 보였던 그 초기화권을 그대로 써요. 최근 15분 안에 읽은 목록이 있을 때예요. 그런 목록이 없으면 쓰지 않고, 사용량이 갱신된 뒤 다시 누르라고 알려 줘요. Codex 초기화권은 쓸 때 다른 Codex 계정들까지 읽던 것을 그 계정만 읽게 줄였어요.
+
+### 바뀐 것
+- 세션 목록의 변경 감시와 메모리 측정이 Rust 코어 프로세스로 옮겨졌어요. 화면과 결과는 그대로예요. 메모리 측정 속도는 재 보니 차이가 없었어요(Windows에서 한 번에 13.8ms → 13.8ms).
+
+아직 실제로 확인하지 못한 것이 있어요. 대체 모델로 실제로 넘어가는 것은 일으켜 보지 않았고, 화면이 적어 주는 설명은 omp의 코드를 읽은 내용이에요. 초기화권은 실제 계정으로 써 보지 않았어요(가짜 프로바이더로만 확인). ChatGPT의 크레딧 잔액은 omp가 그 값을 보관하지 않아서 표시하지 못해요.
+
+<!-- en -->
+
+Fallback models can now be picked in Settings, and a reset pass you confirmed is no longer left unspent because a lookup was refused.
+
+### Added
+- Settings › Models & accounts has "Fallback models". For each model you pick, in order, the models to try when it cannot be used, for example Fable 5.2 → Opus 5.5 → GPT-6.1 SOL. You also choose when to switch: only when a limit is hit, on any error, or on every error but a limit. Each choice says what it means for an outage or a refused sign-in. It edits the settings omp already had (`retry.fallbackChains`, `retry.fallbackOn`), so values you wrote before show as they are.
+- The chat's work status shows the Fable limit beside 5H and 7D. It shows the limit of the model the session uses; an account that reports no such limit keeps two gauges.
+- The accounts list shows what an account has left to spend: a prepaid balance, or what remains of Claude's extra usage this month, only when something is left. Claude's extra usage now shows as this amount instead of a gauge.
+
+### Fixed
+- A reset pass you clicked and confirmed could end "Couldn't read this account's passes" with nothing spent. omp reads the account once more just before spending, and when the provider refused that read, nothing was spent. The pass you confirmed is now spent from the list the screen showed, when that list was read in the last 15 minutes. Without such a list nothing is spent and the message says to use the ticket again once usage has updated. Spending a Codex pass no longer reads every other Codex account first.
+
+### Changed
+- Watching the session list for changes and measuring memory moved into the Rust core process. Screens and results are the same. No speed difference was measurable for a memory sample (13.8 ms → 13.8 ms on Windows).
+
+Some of this has not been seen for real. No real switch to a fallback model was triggered, and what the screen says about each choice is read from omp's code. No reset pass was spent on a real account (a fake provider only). ChatGPT's credit balance cannot be shown, because omp does not keep that value.
+
 ## [0.124.2] - 2026-11-12
 
 켜져 있는 컴퓨터가 다른 컴퓨터에 오프라인으로 보이던 문제와, 질문 카드 때문에 자동 업데이트가 멈춰 있던 문제를 고쳤어요.
