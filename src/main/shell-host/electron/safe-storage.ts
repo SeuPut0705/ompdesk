@@ -65,7 +65,10 @@ function macCipher(password: Buffer): Cipher {
 	};
 }
 
-export function createSafeStorage(fact: SafeStorageFact, warn: (message: string) => void = console.warn): SafeStorage {
+export function createSafeStorage(
+	fact: SafeStorageFact,
+	warn: (message: string) => void = message => console.warn(`[shell-host] ${message}`),
+): SafeStorage {
 	let cipher: Cipher | null = null;
 	let reason = "";
 	if ("unavailable" in fact) {
@@ -80,7 +83,7 @@ export function createSafeStorage(fact: SafeStorageFact, warn: (message: string)
 			reason = error instanceof Error ? error.message : String(error);
 		}
 	}
-	if (!cipher) warn(`[shell-host] safeStorage is unavailable: ${reason}`);
+	if (!cipher) warn(`safeStorage is unavailable: ${reason}`);
 	const available = (action: string): Cipher => {
 		if (!cipher) throw new Error(`Error while ${action}. Encryption is not available.`);
 		return cipher;
