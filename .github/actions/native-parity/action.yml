@@ -17,6 +17,14 @@ runs:
         src/main/repo-lock-fence.test.ts
         src/main/session-index.test.ts
         src/main/memory-sampler.test.ts
+        src/main/control-socket/server.test.ts
+        src/main/control-socket/router.test.ts
+        src/main/control-socket/events.test.ts
+        src/main/control-socket/cli.test.ts
+        src/main/checkout-peers*.test.ts
+        src/main/git-fingerprints*.test.ts
+        src/main/ai-memory/freshness*.test.ts
+        src/main/routines/*.test.ts
         src/main/local/git/changes.test.ts
         src/main/local/git/scm.test.ts
         src/main/local/git/worktree.test.ts
