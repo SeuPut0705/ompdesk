@@ -1,343 +1,249 @@
-import { createCipheriv, randomBytes } from "node:crypto";
-import { connect, createServer, type Socket } from "node:net";
+/**
+ * The link the core runs (`crates/core/src/remote/link.rs`) against the link every released TypeScript build runs
+ * (`test-legacy-peer.ts`), over a real loopback socket, both ways: a computer on an older release talks to this one's
+ * core. The core's end is `remote.testLink` (keys the test chose, no handshake); main holds it as `Link`.
+ */
+import { randomBytes } from "node:crypto";
+import { createServer, type Server, type Socket } from "node:net";
 import { deflateRawSync } from "node:zlib";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-	CONTEXT_BYTES,
-	DEFLATE_MIN_BYTES,
-	encodeFrame,
-	FrameDecoder,
-	FrameOpener,
-	FrameSealer,
-	FrameTooLargeError,
-	Link,
-	MAX_FRAME_BYTES,
-	WAKE_CHECK_MS,
-	type WireMessage,
-} from "./wire";
+import { afterEach, describe, expect, it } from "vitest";
+import { core } from "../core/process";
+import { encodeFrame, FrameSealer, Link as LegacyLink, type WireMessage as LegacyMessage } from "./test-legacy-peer";
+import { FrameTooLargeError, Link, MAX_FRAME_BYTES, WAKE_CHECK_MS, type WireMessage } from "./wire";
 
-const sockets: Socket[] = [];
+const cleanups: (() => void)[] = [];
 
 afterEach(() => {
-	vi.useRealTimers();
-	for (const socket of sockets.splice(0)) socket.destroy();
+	for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-/** Both ends of a real loopback TCP connection. */
-async function socketPair(): Promise<[Socket, Socket]> {
-	const { promise: accepted, resolve: accept } = Promise.withResolvers<Socket>();
-	const server = createServer(accept);
-	const { promise: listening, resolve: ready } = Promise.withResolvers<number>();
-	server.listen(0, "127.0.0.1", () => {
-		const address = server.address();
-		ready(typeof address === "object" && address ? address.port : 0);
-	});
-	const client = connect({ host: "127.0.0.1", port: await listening });
-	const serverSide = await accepted;
-	server.close();
-	sockets.push(client, serverSide);
-	return [client, serverSide];
+interface Pair {
+	/** The core's end, as main holds it. */
+	core: Link;
+	/** A released TypeScript peer's end. */
+	peer: LegacyLink;
+	socket: Socket;
+	/** The peer's keys: what it sends under, what it opens with. */
+	keys: { send: Buffer; receive: Buffer };
 }
 
-describe("Link", () => {
-	it("switches to encrypted frames and delivers messages queued across the switch", async () => {
-		const [left, right] = await socketPair();
-		const a = new Link(left);
-		const b = new Link(right);
-		const [ab, ba] = [randomBytes(32), randomBytes(32)];
-		a.send({ t: "plain" });
-		expect(await b.receive(1_000)).toEqual({ t: "plain" });
-		a.secure(ab, ba);
-		b.secure(ba, ab);
-		a.send({ t: "secret", n: 1 });
-		a.send({ t: "secret", n: 2 });
-		const got: WireMessage[] = [];
-		const { promise: two, resolve } = Promise.withResolvers<void>();
-		b.listen(message => {
-			got.push(message);
-			if (got.length === 2) resolve();
+/** A core link dialed to a legacy peer; both sealed (`secure`) unless told otherwise. */
+async function pair(options: { secure?: boolean; liveness?: { pingMs: number; deadMs: number } } = {}): Promise<Pair> {
+	const accepted = Promise.withResolvers<Socket>();
+	const server: Server = createServer(socket => accepted.resolve(socket));
+	const listening = Promise.withResolvers<number>();
+	server.listen(0, "127.0.0.1", () => {
+		const address = server.address();
+		listening.resolve(typeof address === "object" && address ? address.port : 0);
+	});
+	const port = await listening.promise;
+	const keys = { send: randomBytes(32), receive: randomBytes(32) };
+	const secure = options.secure !== false;
+	const { result } = await core().call<{ link: number }>("remote.testLink", {
+		address: `127.0.0.1:${port}`,
+		...(secure ? { sendKey: keys.receive.toString("hex"), receiveKey: keys.send.toString("hex") } : {}),
+		...(options.liveness ? { liveness: options.liveness } : {}),
+	});
+	const socket = await accepted.promise;
+	server.close();
+	const peer = new LegacyLink(socket);
+	if (secure) peer.secure(keys.send, keys.receive);
+	const link = new Link(result.link);
+	cleanups.push(() => {
+		link.destroy();
+		peer.destroy();
+	});
+	return { core: link, peer, socket, keys };
+}
+
+function collect(link: { listen(onMessage: (message: WireMessage | LegacyMessage) => void): void }, count: number) {
+	const got: object[] = [];
+	const done = Promise.withResolvers<object[]>();
+	link.listen(message => {
+		got.push(message);
+		if (got.length === count) done.resolve(got);
+	});
+	return done.promise;
+}
+
+function closed(link: Link): Promise<string | null> {
+	const { promise, resolve } = Promise.withResolvers<string | null>();
+	link.onClose(() => resolve(link.closeReason));
+	return promise;
+}
+
+/** A live stream as a busy tab sends it: small updates that repeat what came before, then a large read. */
+function stream(): object[] {
+	const messages: object[] = [];
+	let text = "";
+	for (let n = 0; n < 60; n++) {
+		text += `token ${n} of the reply, reading src/main/remote/host-services.ts for emit( `;
+		messages.push({
+			t: "evt",
+			event: "tab.event",
+			data: { name: "events", arg: [{ type: "message_update", text }] },
 		});
-		await two;
-		expect(got).toEqual([
-			{ t: "secret", n: 1 },
-			{ t: "secret", n: 2 },
-		]);
+	}
+	messages.push({ t: "res", id: 1, ok: true, result: { page: "x".repeat(70_000), rows: [1, 2, 3] } });
+	messages.push({ t: "ping-like", n: 1 });
+	return messages;
+}
+
+describe("a core link and a released TypeScript link on one socket", () => {
+	it("opens what the other sealed, both ways, in order", async () => {
+		const { core: link, peer } = await pair();
+		const fromPeer = collect(link, 3);
+		const fromCore = collect(peer, 3);
+		for (let n = 1; n <= 3; n++) peer.send({ t: "secret", n, text: "ü ☃ 😀" });
+		for (let n = 1; n <= 3; n++) link.send({ t: "answer", n });
+		expect(await fromPeer).toEqual([1, 2, 3].map(n => ({ t: "secret", n, text: "ü ☃ 😀" })));
+		expect(await fromCore).toEqual([1, 2, 3].map(n => ({ t: "answer", n })));
 	});
 
-	it("drops a peer that stops answering pings", async () => {
-		const [left] = await socketPair();
-		// The other end never reads, so no pong ever comes back.
-		const link = new Link(left, { pingMs: 10, deadMs: 40 });
-		const { promise: closed, resolve } = Promise.withResolvers<void>();
-		link.onClose(resolve);
+	it("a stream deflated against the context crosses whole both ways", async () => {
+		const { core: link, peer } = await pair();
+		const messages = stream();
+		const toPeer = collect(peer, messages.length);
+		link.deflateSent({ context: true });
+		for (const message of messages) link.send(message);
+		expect(await toPeer).toEqual(messages);
+
+		const toCore = collect(link, messages.length);
+		peer.deflateSent({ context: true });
+		for (const message of messages) peer.send(message);
+		expect(await toCore).toEqual(messages);
+	});
+
+	it("a stream of frames each deflated alone crosses whole both ways", async () => {
+		const { core: link, peer } = await pair();
+		const messages = stream();
+		const toPeer = collect(peer, messages.length);
+		link.deflateSent();
+		for (const message of messages) link.send(message);
+		expect(await toPeer).toEqual(messages);
+		const toCore = collect(link, messages.length);
+		peer.deflateSent();
+		for (const message of messages) peer.send(message);
+		expect(await toCore).toEqual(messages);
+	});
+
+	it("answers the peer's pings, and the peer answers its own", async () => {
+		const { core: link, peer } = await pair({ liveness: { pingMs: 20, deadMs: 2_000 } });
+		peer.listen(() => {});
 		link.listen(() => {});
-		await closed;
-		expect(link.closed).toBe(true);
+		expect(await peer.check(WAKE_CHECK_MS)).toBe(true);
+		expect(await link.check(WAKE_CHECK_MS)).toBe(true);
+		expect(link.closed).toBe(false);
+	});
+
+	it("drops a peer that stops answering pings (`dead`)", async () => {
+		// The peer never listens, so no pong ever comes back.
+		const { core: link } = await pair({ liveness: { pingMs: 10, deadMs: 40 } });
+		const reason = closed(link);
+		link.listen(() => {});
+		expect(await reason).toBe("dead");
+	});
+
+	it("a check on a peer that went silent drops the link (`dead`) and answers false", async () => {
+		const { core: link } = await pair();
+		link.listen(() => {});
+		const reason = closed(link);
+		expect(await link.check(200)).toBe(false);
+		expect(await reason).toBe("dead");
 	});
 
 	it("says why it closed: the peer ended the connection", async () => {
-		const [left, right] = await socketPair();
-		const link = new Link(left);
-		const { promise: closed, resolve } = Promise.withResolvers<void>();
-		link.onClose(resolve);
+		const { core: link, peer } = await pair();
 		link.listen(() => {});
-		right.destroy();
-		await closed;
-		expect(link.closeReason).toBe("closed");
+		const reason = closed(link);
+		peer.destroy();
+		expect(await reason).toBe("closed");
 	});
 
-	it("a check on a peer that went silent drops the link when its window passes, not before", async () => {
-		const [left] = await socketPair();
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-		const link = new Link(left);
+	it("a graceful close flushes what was sent, then ends as `local`", async () => {
+		const { core: link, peer } = await pair();
+		const got = collect(peer, 1);
 		link.listen(() => {});
-
-		const answered = link.check(WAKE_CHECK_MS);
-		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS - 1);
-		expect(link.closed).toBe(false);
-		await vi.advanceTimersByTimeAsync(1);
-		expect(link.closed).toBe(true);
-		expect(link.closeReason).toBe("dead");
-		expect(await answered).toBe(false);
+		const reason = closed(link);
+		link.send({ t: "last" });
+		link.close();
+		expect(await got).toEqual([{ t: "last" }]);
+		peer.destroy();
+		expect(await reason).toBe("local");
 	});
 
-	it("a check on a live peer is answered and leaves the link open", async () => {
-		const [left, right] = await socketPair();
-		const a = new Link(left);
-		const b = new Link(right);
-		a.listen(() => {});
-		b.listen(() => {});
-		expect(await a.check(WAKE_CHECK_MS)).toBe(true);
-		expect(a.closed).toBe(false);
+	it("refuses to send a message past the frame cap and sends nothing", async () => {
+		const { core: link, peer } = await pair();
+		const got = collect(peer, 1);
+		expect(() => link.send({ t: "big", pad: "x".repeat(MAX_FRAME_BYTES) })).toThrow(FrameTooLargeError);
+		link.send({ t: "after" });
+		expect(await got).toEqual([{ t: "after" }]);
 	});
 });
 
-describe("deflated frames", () => {
-	/** A secured pair whose `a` deflates what it sends (each frame alone, or against the context), with the wire bytes of each frame `a` sent. */
-	async function deflatingPair(deflate: boolean | "context" = true) {
-		const [left, right] = await socketPair();
-		const a = new Link(left);
-		const b = new Link(right);
-		const [ab, ba] = [randomBytes(32), randomBytes(32)];
-		a.secure(ab, ba);
-		b.secure(ba, ab);
-		if (deflate) a.deflateSent({ context: deflate === "context" });
-		const sent: number[] = [];
-		a.onTraffic((direction, _message, bytes) => {
-			if (direction === "tx") sent.push(bytes);
-		});
-		const got: WireMessage[] = [];
-		b.listen(message => got.push(message));
-		return { a, b, sent, got, left, right };
+describe("what the core refuses from a peer (`protocol`)", () => {
+	async function refused(write: (pair: Pair) => void, options: { secure?: boolean } = {}): Promise<string | null> {
+		const both = await pair(options);
+		both.core.listen(() => {});
+		const reason = closed(both.core);
+		write(both);
+		return reason;
 	}
 
-	it("a large message crosses deflated and arrives as sent; a small one crosses as it is", async () => {
-		const { a, sent, got } = await deflatingPair();
-		const large = {
-			t: "evt",
-			rows: Array.from({ length: 400 }, (_, n) => ({ id: n, title: `cycle ${n}`, state: "green" })),
-		};
-		const small = { t: "evt", n: 1 };
-		a.send(large);
-		a.send(small);
-		await vi.waitFor(() => expect(got).toHaveLength(2));
-		expect(got).toEqual([large, small]);
-		const [largeBytes, smallBytes] = sent as [number, number];
-		expect(largeBytes * 3).toBeLessThan(JSON.stringify(large).length);
-		expect(JSON.stringify(small).length).toBeLessThan(DEFLATE_MIN_BYTES);
-		// Header, nonce and tag around the JSON itself: nothing was deflated.
-		expect(smallBytes).toBe(JSON.stringify(small).length + 4 + 12 + 16);
+	it("a frame whose tag fails", async () => {
+		const reason = await refused(({ socket, keys }) => {
+			const sealed = new FrameSealer(keys.send).seal(Buffer.from('{"t":"x"}'));
+			sealed[sealed.length - 1] = (sealed[sealed.length - 1] ?? 0) ^ 0xff;
+			socket.write(encodeFrame(sealed));
+		});
+		expect(reason).toBe("protocol");
 	});
 
-	it("a link whose peer never asked sends every message as JSON", async () => {
-		const { a, sent, got } = await deflatingPair(false);
-		const large = { t: "evt", pad: "x".repeat(50_000) };
-		a.send(large);
-		await vi.waitFor(() => expect(got).toHaveLength(1));
-		expect(sent[0]).toBeGreaterThan(50_000);
+	it("a counter that does not increase", async () => {
+		const reason = await refused(({ socket, keys }) => {
+			const sealer = new FrameSealer(keys.send);
+			const first = sealer.seal(Buffer.from('{"t":"x"}'));
+			socket.write(encodeFrame(first));
+			socket.write(encodeFrame(first));
+		});
+		expect(reason).toBe("protocol");
 	});
 
-	/** Frames like a live stream's: progress snapshots of four agents, a line of output added each time. */
-	function liveFrames(): object[] {
-		const output: string[][] = [[], [], [], []];
-		return Array.from({ length: 240 }, (_, n) => {
-			const agent = n % 4;
-			output[agent]?.unshift(`agent ${agent} line ${n}: reading src/main/remote/host-services.ts for emit(`);
-			return {
-				t: "evt",
-				event: "tab.event",
-				data: {
-					name: "subagentFrame",
-					arg: [
-						{
-							type: "subagent_progress",
-							payload: { id: `${agent}-Area`, durationMs: n * 150, recentOutput: output[agent]?.slice(0, 8) },
-						},
-					],
+	it("a frame header past 16 MiB", async () => {
+		const reason = await refused(({ socket }) => {
+			const header = Buffer.alloc(4);
+			header.writeUInt32BE(MAX_FRAME_BYTES + 1);
+			socket.write(header);
+		});
+		expect(reason).toBe("protocol");
+	});
+
+	it("a deflated frame that inflates past 16 MiB", async () => {
+		const reason = await refused(({ socket, keys }) => {
+			const bomb = Buffer.concat([Buffer.of(0x00), deflateRawSync(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x20))]);
+			socket.write(encodeFrame(new FrameSealer(keys.send).seal(bomb)));
+		});
+		expect(reason).toBe("protocol");
+	});
+
+	it("a deflated frame of either kind before the link is secure, never inflated", async () => {
+		for (const marker of [0x00, 0x01]) {
+			const reason = await refused(
+				({ socket }) => {
+					socket.write(encodeFrame(Buffer.concat([Buffer.of(marker), deflateRawSync(Buffer.from('{"t":"x"}'))])));
 				},
-			};
-		});
-	}
-
-	it("with the context, a live stream arrives as sent in at most half the bytes of frames deflated alone", async () => {
-		const frames = liveFrames();
-		// Beside them: one message too small to deflate and a read larger than the whole context.
-		const mixed = [
-			...frames.slice(0, 100),
-			{ t: "evt", n: 1 },
-			{ t: "res", rows: Array.from({ length: 2000 }, (_, n) => ({ id: n, title: `row ${n}` })) },
-			...frames.slice(100),
-		];
-		expect(JSON.stringify(mixed[101]).length).toBeGreaterThan(CONTEXT_BYTES);
-		const alone = await deflatingPair(true);
-		const context = await deflatingPair("context");
-		for (const message of mixed) {
-			alone.a.send(message);
-			context.a.send(message);
+				{ secure: false },
+			);
+			expect(reason).toBe("protocol");
 		}
-		await vi.waitFor(() => expect(context.got).toHaveLength(mixed.length));
-		await vi.waitFor(() => expect(alone.got).toHaveLength(mixed.length));
-		expect(context.got).toEqual(mixed);
-		const liveBytes = (sent: number[]): number =>
-			sent.reduce((total, bytes, n) => (n === 101 ? total : total + bytes), 0);
-		expect(liveBytes(context.sent) * 2).toBeLessThan(liveBytes(alone.sent));
 	});
 
-	/** A listening, secured `b` and a sealer that writes frames it decrypts; resolves `closed` when `b` drops. */
-	async function securedReceiver() {
-		const [left, right] = await socketPair();
-		const b = new Link(right);
-		const [send, receive] = [randomBytes(32), randomBytes(32)];
-		b.secure(send, receive);
-		const closed = Promise.withResolvers<void>();
-		b.onClose(() => closed.resolve());
-		b.listen(() => {});
-		return { b, left, sealer: new FrameSealer(receive), closed: closed.promise };
-	}
-
-	it("drops a peer whose deflated frame inflates past the frame cap", async () => {
-		const { b, left, sealer, closed } = await securedReceiver();
-		const bomb = deflateRawSync(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x20));
-		left.write(encodeFrame(sealer.seal(Buffer.concat([Buffer.of(0), bomb]))));
-		await closed;
-		expect(b.closeReason).toBe("protocol");
-	});
-
-	it("drops a peer whose frame deflated against the context inflates past the frame cap", async () => {
-		const { b, left, sealer, closed } = await securedReceiver();
-		const bomb = deflateRawSync(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x20));
-		left.write(encodeFrame(sealer.seal(Buffer.concat([Buffer.of(1), bomb]))));
-		await closed;
-		expect(b.closeReason).toBe("protocol");
-	});
-
-	it("before the link is secure, refuses a deflated frame of either kind without inflating it", async () => {
-		for (const marker of [0, 1]) {
-			const [left, right] = await socketPair();
-			const b = new Link(right);
-			const closed = Promise.withResolvers<void>();
-			b.onClose(() => closed.resolve());
-			const got: WireMessage[] = [];
-			b.listen(message => got.push(message));
-			// A small, valid deflated message: only the refusal drops it, never a failed inflate.
-			const packed = deflateRawSync(Buffer.from(JSON.stringify({ t: "evt", n: 1 })));
-			left.write(encodeFrame(Buffer.concat([Buffer.of(marker), packed])));
-			await closed.promise;
-			expect(b.closeReason).toBe("protocol");
-			expect(got).toEqual([]);
+	it("JSON that is no object, or an object without a string `t`", async () => {
+		for (const body of ["[1]", '{"t":1}', "not json"]) {
+			const reason = await refused(({ socket, keys }) => {
+				socket.write(encodeFrame(new FrameSealer(keys.send).seal(Buffer.from(body))));
+			});
+			expect(reason).toBe("protocol");
 		}
-		// The same message as JSON is read before `secure()`, as the handshake is.
-		const [left, right] = await socketPair();
-		const b = new Link(right);
-		const got: WireMessage[] = [];
-		b.listen(message => got.push(message));
-		left.write(encodeFrame(Buffer.from(JSON.stringify({ t: "evt", n: 1 }))));
-		await vi.waitFor(() => expect(got).toEqual([{ t: "evt", n: 1 }]));
-	});
-
-	it("with the context, a message deflate cannot shrink crosses as JSON and the frames after it still arrive", async () => {
-		const { a, sent, got } = await deflatingPair("context");
-		const blob = { t: "evt", blob: randomBytes(60).toString("base64") };
-		const json = JSON.stringify(blob);
-		expect(json.length).toBeGreaterThanOrEqual(64);
-		const frames = liveFrames().slice(0, 20);
-		a.send(blob);
-		for (const frame of frames) a.send(frame);
-		await vi.waitFor(() => expect(got).toHaveLength(frames.length + 1));
-		expect(got).toEqual([blob, ...frames]);
-		// Header, nonce and tag around the JSON itself: it crossed as it is and left the context alone.
-		expect(sent[0]).toBe(json.length + 4 + 12 + 16);
-	});
-
-	it("with the context, a send refused as too large changes nothing and the frames after it still arrive", async () => {
-		const { a, got } = await deflatingPair("context");
-		const frames = liveFrames().slice(0, 20);
-		for (const frame of frames.slice(0, 10)) a.send(frame);
-		expect(() => a.send({ t: "evt", pad: "x".repeat(MAX_FRAME_BYTES) })).toThrow(FrameTooLargeError);
-		for (const frame of frames.slice(10)) a.send(frame);
-		await vi.waitFor(() => expect(got).toHaveLength(frames.length));
-		expect(got).toEqual(frames);
-	});
-});
-
-describe("FrameDecoder", () => {
-	it("reassembles frames split across and packed into chunks", () => {
-		const a = encodeFrame(Buffer.from("first"));
-		const b = encodeFrame(Buffer.from("second"));
-		const stream = Buffer.concat([a, b]);
-		const decoder = new FrameDecoder();
-		const frames = [
-			...decoder.push(stream.subarray(0, 2)),
-			...decoder.push(stream.subarray(2, 7)),
-			...decoder.push(stream.subarray(7)),
-		];
-		expect(frames.map(frame => frame.toString())).toEqual(["first", "second"]);
-	});
-
-	it("rejects a length over the 16 MiB cap before buffering it", () => {
-		const header = Buffer.alloc(4);
-		header.writeUInt32BE(MAX_FRAME_BYTES + 1);
-		expect(() => new FrameDecoder().push(header)).toThrow(/16 MiB/);
-		expect(() => encodeFrame(Buffer.alloc(MAX_FRAME_BYTES + 1))).toThrow(/16 MiB/);
-	});
-});
-
-describe("FrameSealer / FrameOpener", () => {
-	const key = randomBytes(32);
-
-	it("round-trips and requires strictly increasing counters", () => {
-		const sealer = new FrameSealer(key);
-		const opener = new FrameOpener(key);
-		const first = sealer.seal(Buffer.from("one"));
-		const second = sealer.seal(Buffer.from("two"));
-		expect(opener.open(first).toString()).toBe("one");
-		expect(opener.open(second).toString()).toBe("two");
-		expect(() => opener.open(second)).toThrow(/counter/);
-		expect(() => opener.open(first)).toThrow(/counter/);
-	});
-
-	it("rejects a tampered frame or the wrong key", () => {
-		const frame = new FrameSealer(key).seal(Buffer.from("payload"));
-		const tampered = Buffer.from(frame);
-		tampered[14] = (tampered[14] ?? 0) ^ 1;
-		expect(() => new FrameOpener(key).open(tampered)).toThrow();
-		expect(() => new FrameOpener(randomBytes(32)).open(frame)).toThrow();
-	});
-
-	it("seals each frame as AES-256-GCM under the raw key would, and a new sealer under its own key", () => {
-		const sealer = new FrameSealer(key);
-		for (const [counter, text] of ["one", "two", "three"].entries()) {
-			const frame = sealer.seal(Buffer.from(text));
-			const iv = Buffer.alloc(12);
-			iv.writeBigUInt64BE(BigInt(counter), 4);
-			const cipher = createCipheriv("aes-256-gcm", key, iv);
-			const body = Buffer.concat([cipher.update(Buffer.from(text)), cipher.final()]);
-			expect(frame).toEqual(Buffer.concat([iv, body, cipher.getAuthTag()]));
-		}
-		// A link that secures again (its next session's keys) seals under the new key only.
-		const next = randomBytes(32);
-		const frame = new FrameSealer(next).seal(Buffer.from("later"));
-		expect(new FrameOpener(next).open(frame).toString()).toBe("later");
-		expect(() => new FrameOpener(key).open(frame)).toThrow();
 	});
 });

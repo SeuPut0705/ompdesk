@@ -18,6 +18,7 @@ pub mod memory;
 pub mod models;
 pub mod omp;
 pub mod procs;
+pub mod remote;
 pub mod routines;
 mod run;
 pub mod schedules;
@@ -31,8 +32,21 @@ pub mod supervise;
 mod sys;
 pub mod tailscale;
 pub mod upkeep;
+pub mod web;
 pub mod wire;
 
 pub use server::{registry, serve};
+
+/// Lowercase hex of a digest, as node's `digest('hex')` writes it (RustCrypto's 0.11 digests have no `LowerHex`).
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes
+        .iter()
+        .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
+}
+
 #[cfg(windows)]
 pub use sys::end_children_with_this_process;

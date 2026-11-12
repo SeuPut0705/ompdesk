@@ -301,7 +301,7 @@ fn temp(name: &str) -> PathBuf {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    crate::hex(&Sha256::digest(bytes))
 }
 
 fn listing(dir: &Path) -> Vec<String> {

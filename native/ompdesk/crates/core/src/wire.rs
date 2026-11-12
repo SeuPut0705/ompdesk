@@ -1,7 +1,8 @@
 //! Frames on the wire, both ways over stdio: one JSON object per line, UTF-8. A frame whose JSON carries
 //! `"bin": <n>` is followed by exactly `n` raw bytes after its newline, which belong to it (a file's contents,
 //! never base64). One writer task owns the output, so frames never interleave. Main also sends `{"cancel": <id>}`,
-//! which stops a request it no longer waits for.
+//! which stops a request it no longer waits for, and `{"push": <method>, "params", "bin"}`, which is never answered
+//! and is handled before the next frame is read, so pushes keep the order main sent them in (a link's messages).
 
 use std::io;
 
@@ -21,6 +22,13 @@ pub struct Request {
     pub bin: Option<Vec<u8>>,
 }
 
+/// A push from main: handled in order, never answered.
+pub struct Push {
+    pub method: String,
+    pub params: Box<RawValue>,
+    pub bin: Option<Vec<u8>>,
+}
+
 #[derive(Deserialize)]
 struct Head {
     id: Option<u64>,
@@ -28,12 +36,14 @@ struct Head {
     params: Option<Box<RawValue>>,
     bin: Option<usize>,
     cancel: Option<u64>,
+    push: Option<String>,
 }
 
-/// One line read: a request, a cancel of one, or why it was skipped.
+/// One line read: a request, a cancel of one, a push, or why it was skipped.
 pub enum Incoming {
     Request(Request),
     Cancel(u64),
+    Push(Push),
     Skipped(String),
 }
 
@@ -61,15 +71,22 @@ pub async fn read_request<R: AsyncBufRead + Unpin>(
         }
         None => None,
     };
+    let params = match head.params {
+        Some(params) => params,
+        None => RawValue::from_string("null".into()).map_err(io::Error::other)?,
+    };
+    if let Some(method) = head.push {
+        return Ok(Some(Incoming::Push(Push {
+            method,
+            params,
+            bin,
+        })));
+    }
     let (Some(id), Some(method)) = (head.id, head.method) else {
         return Ok(Some(match head.cancel {
             Some(id) => Incoming::Cancel(id),
             None => Incoming::Skipped("a frame without an integer id and a method".into()),
         }));
-    };
-    let params = match head.params {
-        Some(params) => params,
-        None => RawValue::from_string("null".into()).map_err(io::Error::other)?,
     };
     Ok(Some(Incoming::Request(Request {
         id,
@@ -123,6 +140,12 @@ fn line<T: Serialize>(value: &T) -> Vec<u8> {
 }
 
 impl Frame {
+    /// The frame's JSON line and its `bin` tail (tests).
+    #[cfg(test)]
+    pub fn parts(&self) -> (&[u8], Option<&[u8]>) {
+        (&self.head, self.bin.as_deref())
+    }
+
     pub fn event<T: Serialize>(event: &str, data: &T) -> Frame {
         Frame {
             head: line(&EventHead {
@@ -204,6 +227,9 @@ mod tests {
             out.push(match incoming {
                 Incoming::Request(r) => Ok((r.id, r.method, r.params.get().to_owned(), r.bin)),
                 Incoming::Cancel(id) => Err(format!("cancel {id}")),
+                Incoming::Push(p) => {
+                    Err(format!("push {} {} {:?}", p.method, p.params.get(), p.bin))
+                }
                 Incoming::Skipped(reason) => Err(reason),
             });
         }
@@ -239,6 +265,19 @@ mod tests {
         assert!(matches!(&frames[1], Err(reason) if reason.starts_with("malformed line")));
     }
 
+    #[tokio::test]
+    async fn reads_a_push_and_its_bin_tail() {
+        let frames = read_all(
+            b"{\"push\":\"remote.send\",\"params\":{\"link\":3},\"bin\":2}\n{}{\"push\":\"x\"}\n",
+        )
+        .await;
+        assert_eq!(
+            frames[0],
+            Err("push remote.send {\"link\":3} Some([123, 125])".into())
+        );
+        assert_eq!(frames[1], Err("push x null None".into()));
+    }
+
     #[test]
     fn writes_an_event_with_a_bin_tail() {
         let frame = Frame::event_bin(
@@ -267,6 +306,11 @@ mod tests {
         assert_eq!(
             frame.head,
             b"{\"id\":8,\"ok\":false,\"error\":{\"code\":\"unknown_method\",\"message\":\"Unknown method \\\"x\\\"\"}}\n"
+        );
+        let frame = Frame::event_bin("remote.message", &serde_json::json!({"link": 1}), vec![9]);
+        assert_eq!(
+            frame.head,
+            b"{\"event\":\"remote.message\",\"data\":{\"link\":1},\"bin\":1}\n"
         );
     }
 }

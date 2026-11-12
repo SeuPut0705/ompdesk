@@ -102,6 +102,23 @@ impl Events {
         }
     }
 
+    /// Events a test reads as frames (the channel's receiver), as the output's writer would get them.
+    #[cfg(test)]
+    pub fn capture() -> (
+        Events,
+        mpsc::UnboundedSender<Frame>,
+        mpsc::UnboundedReceiver<Frame>,
+    ) {
+        let (frames, receiver) = mpsc::unbounded_channel();
+        (
+            Events {
+                frames: frames.downgrade(),
+            },
+            frames,
+            receiver,
+        )
+    }
+
     /// Whether this sends to a live output that is not `other`'s: what one `serve` left running is none of another's.
     pub fn reaches_another(&self, other: &Events) -> bool {
         match (self.frames.upgrade(), other.frames.upgrade()) {
@@ -150,16 +167,31 @@ impl Reply {
 pub type Answer = Pin<Box<dyn Future<Output = Result<Reply, Fault>> + Send>>;
 pub type Handler = fn(Call) -> Answer;
 
+/// What a push handler is given: it runs on the read loop, so it must only hand the work on (a channel's send).
+pub struct PushCall {
+    pub params: Box<RawValue>,
+    pub bin: Option<Vec<u8>>,
+    pub events: Events,
+}
+
+pub type PushHandler = fn(PushCall);
+
 /// Method name → handler.
 #[derive(Default)]
 pub struct Registry {
     methods: HashMap<&'static str, Handler>,
+    pushes: HashMap<&'static str, PushHandler>,
 }
 
 impl Registry {
     pub fn add(&mut self, name: &'static str, handler: Handler) {
         let previous = self.methods.insert(name, handler);
         assert!(previous.is_none(), "method {name} registered twice");
+    }
+
+    pub fn add_push(&mut self, name: &'static str, handler: PushHandler) {
+        let previous = self.pushes.insert(name, handler);
+        assert!(previous.is_none(), "push {name} registered twice");
     }
 
     fn get(&self, name: &str) -> Option<Handler> {
@@ -182,6 +214,7 @@ pub fn registry() -> Registry {
     crate::models::register(&mut registry);
     crate::omp::register(&mut registry);
     crate::procs::register(&mut registry);
+    crate::remote::register(&mut registry);
     crate::routines::register(&mut registry);
     crate::schedules::register(&mut registry);
     crate::sessions::register(&mut registry);
@@ -244,6 +277,16 @@ where
                     cancel.send_replace(true);
                 }
             }
+            Ok(Some(Incoming::Push(push))) => match registry.pushes.get(push.method.as_str()) {
+                Some(handler) => handler(PushCall {
+                    params: push.params,
+                    bin: push.bin,
+                    events: Events {
+                        frames: frames.downgrade(),
+                    },
+                }),
+                None => eprintln!("ompdesk-core: skipped an unknown push {:?}", push.method),
+            },
             Ok(Some(Incoming::Request(request))) => {
                 let frames = frames.clone();
                 let requests = Arc::clone(&requests);

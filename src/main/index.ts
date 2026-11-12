@@ -172,6 +172,7 @@ import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { HOST_TAB_GRACE_MS, LocalHostServices } from "./remote/host-services";
+import { type Identity, loadIdentity } from "./remote/identity";
 import { KeepAwakePolicy } from "./remote/keep-awake";
 import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
@@ -788,7 +789,7 @@ function spawnWindow(
 	return win;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
 	installMainRuntimeLogging();
 	markStartup("app-ready");
 	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
@@ -823,6 +824,16 @@ app.whenReady().then(() => {
 	configureNativeBin({
 		packaged: app.isPackaged,
 		resourcesPath: app.isPackaged ? process.resourcesPath : devResourcesDir,
+	});
+	// The core keeps this computer's remote identity (its key never leaves it); the device id is read synchronously
+	// from here on, so it is loaded now, beside the rest of the launch, and awaited where the devices are made.
+	const remoteIdentity = loadIdentity(app.getPath("userData")).catch((error: unknown): Identity => {
+		writeRuntimeLog({
+			source: "remote",
+			message: "identity-failed",
+			details: { error: error instanceof Error ? error.message : String(error) },
+		});
+		return { deviceId: "", publicKey: "" };
 	});
 	// The CLI the app ships (bun run build:native stages it for an unpacked run).
 	installCliLaunchers({
@@ -1307,6 +1318,7 @@ app.whenReady().then(() => {
 	};
 	const devices = new RemoteDevices({
 		userData: app.getPath("userData"),
+		identity: await remoteIdentity,
 		appVersion: app.getVersion(),
 		prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 		broadcast: (channel, data) => {

@@ -8,8 +8,7 @@
  */
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, it, vi } from "vitest";
-import { closeSessions, type DeviceKind, openSession } from "./link-traffic-test-rig";
-import { Link, type TrafficHandler } from "./wire";
+import { closeSessions, type DeviceKind, onHostLinkTraffic, openSession } from "./link-traffic-test-rig";
 
 const MEASURE = process.env.OMP_GUI_LINK_TRAFFIC === "1";
 
@@ -27,21 +26,17 @@ interface Wire {
 /** Counts what each host link sends, as its traffic line would. */
 function countHostWire(): Wire {
 	const wire: Wire = { tx: 0, frames: 0, kinds: new Map() };
-	const original = Link.prototype.onTraffic;
-	vi.spyOn(Link.prototype, "onTraffic").mockImplementation(function (this: Link, handler: TrafficHandler) {
-		original.call(this, (direction, message, bytes) => {
-			if (direction === "tx") {
-				const { t, event, data } = message as { t: string; event?: string; data?: { name?: string } };
-				const kind = t === "evt" ? `${event} ${data?.name ?? ""}` : t;
-				const row = wire.kinds.get(kind) ?? { frames: 0, bytes: 0 };
-				row.frames++;
-				row.bytes += bytes;
-				wire.kinds.set(kind, row);
-				wire.tx += bytes;
-				wire.frames++;
-			}
-			handler(direction, message, bytes);
-		});
+	onHostLinkTraffic((direction, message, bytes) => {
+		if (direction === "tx") {
+			const { t, event, data } = message as { t: string; event?: string; data?: { name?: string } };
+			const kind = t === "evt" ? `${event} ${data?.name ?? ""}` : t;
+			const row = wire.kinds.get(kind) ?? { frames: 0, bytes: 0 };
+			row.frames++;
+			row.bytes += bytes;
+			wire.kinds.set(kind, row);
+			wire.tx += bytes;
+			wire.frames++;
+		}
 	});
 	return wire;
 }

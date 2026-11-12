@@ -3,29 +3,16 @@
  * lets this device in (it shows the host before any connection); `connectFirst` runs the handshake once with a
  * host this device never connected to and pins the host's key; a `RemoteClient` per known host keeps one
  * authenticated link up (reconnecting with 1 s → 30 s backoff over the host's current addresses) and carries
- * requests and pushed events.
+ * requests and pushed events. The dial, the probe and the handshake run in the core (`crates/core/src/remote`);
+ * the reconnect loop and every request on the link are main's.
  */
 import { EventEmitter } from "node:events";
-import { connect, type Socket } from "node:net";
-import { formatAddress, type HostPort, parseAddress } from "./address";
-import { authKeys, dh, generateKeyPair } from "./crypto";
+import { core } from "../core/process";
 import type { HostHello } from "./host-server";
 import type { HostStore, PairedHost } from "./hosts-store";
 import type { Identity } from "./identity";
-import {
-	AuthReply,
-	authTranscriptOf,
-	HANDSHAKE_VERSION,
-	HelloVersion,
-	HostHelloMessage,
-	PROTOCOL_VERSION,
-	ProbeReply,
-	type TabHolder,
-	tabHolderOf,
-	WireEvent,
-	WireResponse,
-} from "./protocol";
-import { Link, WAKE_CHECK_MS, type WireMessage } from "./wire";
+import { type TabHolder, tabHolderOf, WireEvent, WireResponse } from "./protocol";
+import { Link, type Liveness, WAKE_CHECK_MS, type WireMessage } from "./wire";
 
 export type LinkState = "connecting" | "online" | "offline";
 
@@ -50,9 +37,6 @@ export const RECONNECT_MAX_MS = 30_000;
  */
 export const REFUSED_RETRY_WINDOW_MS = 60_000;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const CONNECT_TIMEOUT_MS = 5_000;
-const PROBE_TIMEOUT_MS = 3_000;
-const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** An address step older than this when the host's computer connects here is stuck, not slow: a live host answers in tens of ms. */
 const STALE_STEP_MS = 1_000;
 
@@ -77,106 +61,65 @@ export class RemoteError extends Error {
 	}
 }
 
-function dial(target: HostPort, timeoutMs = CONNECT_TIMEOUT_MS, signal?: AbortSignal): Promise<Socket> {
-	const socket = connect({ host: target.host, port: target.port });
-	const { promise, resolve, reject } = Promise.withResolvers<Socket>();
-	const cancelled = () => fail(new Error("dial cancelled"));
-	const fail = (error: Error) => {
-		signal?.removeEventListener("abort", cancelled);
-		socket.destroy();
-		const refused = "code" in error && (error.code === "ECONNREFUSED" || error.code === "ECONNRESET");
-		reject(new RemoteError("unreachable", `${formatAddress(target)}: ${error.message}`, refused));
-	};
-	socket.setTimeout(timeoutMs, () => fail(new Error("connect timed out")));
-	socket.once("error", fail);
-	socket.once("connect", () => {
-		signal?.removeEventListener("abort", cancelled);
-		socket.setTimeout(0);
-		socket.off("error", fail);
-		resolve(socket);
-	});
-	if (signal?.aborted) cancelled();
-	else signal?.addEventListener("abort", cancelled, { once: true });
-	return promise;
+/**
+ * What this device can read beyond whole frames, sent in its hello (`ClientHello`, protocol.ts): every capability
+ * this build has. An older host ignores the ones it does not know.
+ */
+const HELLO_CAPABILITIES = {
+	slimEvents: true,
+	slimProgress: true,
+	slimAutopilot: true,
+	slimEnds: true,
+	slimReadGroups: true,
+	slimToolResults: true,
+	slimEndFields: true,
+	slimAutopilotReads: true,
+	slimListReads: true,
+	slimShiftedReads: true,
+	slimSettingsReads: true,
+	slimRosterReads: true,
+	slimJobsReads: true,
+	slimToolOutputs: true,
+	slimToolArgs: true,
+	deflate: true,
+	deflateContext: true,
+	slimSessionLists: true,
+};
+
+/** A failure the core answered for a dial, a probe or a handshake. */
+interface Failed {
+	failed: { code: string; message: string; refused: boolean };
 }
 
-/** RemoteErrors pass through; anything else (closed, timed out) means the host is out of reach. */
+function failure(answer: Failed): RemoteError {
+	return new RemoteError(answer.failed.code, answer.failed.message, answer.failed.refused);
+}
+
+/** RemoteErrors pass through; anything else (the core gone, a timeout) means the host is out of reach. */
 function asRemoteError(error: unknown): RemoteError {
 	if (error instanceof RemoteError) return error;
 	return new RemoteError("unreachable", error instanceof Error ? error.message : String(error));
-}
-
-async function dialAddress(address: string, timeoutMs?: number, signal?: AbortSignal): Promise<Link> {
-	const target = parseAddress(address);
-	if (!target) throw new RemoteError("unreachable", `invalid address: ${address}`);
-	return new Link(await dial(target, timeoutMs, signal));
 }
 
 /** A dial to a port no answer has come from yet starts this long after the one before it (or as soon as that one fails). */
 export const DIAL_STAGGER_MS = 250;
 
 /**
- * The first of `addresses` (a host's candidate ports, best first) whose TCP connect succeeds. Dials start
- * `DIAL_STAGGER_MS` apart, the next at once when the latest fails, so a port that answers nothing (a firewall that
- * drops it, a stale remembered port) costs a quarter second, never its whole timeout, and an earlier port that answers
- * in time still wins. The others are closed. Rejects `unreachable` once every one failed, `refused` when every one
- * was refused (the computer is up and nothing listens).
+ * The first of `addresses` (a host's candidate ports, best first) whose TCP connect succeeds, dialed by the core
+ * `DIAL_STAGGER_MS` apart. Rejects `unreachable` once every one failed, `refused` when every one was refused (the
+ * computer is up and nothing listens). The socket waits in the core for its handshake.
  */
-export function firstToConnect(
+async function firstToConnect(
 	addresses: readonly string[],
-	timeoutMs = CONNECT_TIMEOUT_MS,
 	signal?: AbortSignal,
-): Promise<{ address: string; link: Link }> {
-	const { promise, resolve, reject } = Promise.withResolvers<{ address: string; link: Link }>();
-	if (addresses.length === 0) {
-		reject(new RemoteError("unreachable", "no address to dial"));
-		return promise;
-	}
-	const others = new AbortController();
-	const abort = () => others.abort();
-	signal?.addEventListener("abort", abort, { once: true });
-	let next = 0;
-	let pending = 0;
-	let done = false;
-	let allRefused = true;
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const finish = () => {
-		done = true;
-		clearTimeout(timer);
-		signal?.removeEventListener("abort", abort);
-	};
-	const start = () => {
-		clearTimeout(timer);
-		if (done || next >= addresses.length) return;
-		const address = addresses[next++] as string;
-		pending += 1;
-		dialAddress(address, timeoutMs, others.signal).then(
-			link => {
-				pending -= 1;
-				if (done) {
-					link.destroy();
-					return;
-				}
-				finish();
-				others.abort();
-				resolve({ address, link });
-			},
-			error => {
-				pending -= 1;
-				if (done) return;
-				const failure = asRemoteError(error);
-				allRefused &&= failure.refused;
-				if (next < addresses.length) start();
-				else if (pending === 0) {
-					finish();
-					reject(new RemoteError(failure.code, failure.message, allRefused));
-				}
-			},
-		);
-		if (next < addresses.length) timer = setTimeout(start, DIAL_STAGGER_MS);
-	};
-	start();
-	return promise;
+): Promise<{ address: string; conn: number }> {
+	const { result } = await core()
+		.call<Failed | { address: string; conn: number }>("remote.connect", { addresses }, { signal, timeoutMs: 60_000 })
+		.catch(error => {
+			throw asRemoteError(error);
+		});
+	if ("failed" in result) throw failure(result);
+	return result;
 }
 
 /** What a probe found at an address: a host that lets this device in, or one that refuses it (and why). */
@@ -189,53 +132,30 @@ export type ProbeResult =
  * when nothing (or something else) answers there.
  */
 export async function probeHost(address: string): Promise<ProbeResult> {
-	return probeOn(address, await dialAddress(address, PROBE_TIMEOUT_MS));
+	const { result } = await core()
+		.call<Failed | { probe: ProbeResult }>("remote.probeHost", { address })
+		.catch(error => {
+			throw asRemoteError(error);
+		});
+	if ("failed" in result) throw failure(result);
+	return result.probe;
 }
 
 /**
- * Where a computer's host answers: the first of `addresses` that connects (`firstToConnect`) and answers a probe that
- * `skip` does not set aside (this computer itself, in a test's two apps on one address). `address` null: none did;
- * `probe` then holds the last refusal heard, else `unreachable`.
+ * Where a computer's host answers: the first of `addresses` that connects and answers a probe from another device
+ * than `skip` (this computer itself, in a test's two apps on one address). `address` null: none did; `probe` then
+ * holds the last refusal heard, else `unreachable`.
  */
 export async function probeAny(
 	addresses: readonly string[],
-	skip: (probe: ProbeResult) => boolean = () => false,
+	skip?: string,
 ): Promise<{ address: string | null; probe: ProbeResult }> {
-	let probe: ProbeResult = { ok: false, code: "unreachable" };
-	let remaining = [...addresses];
-	while (remaining.length > 0) {
-		let connected: { address: string; link: Link };
-		try {
-			connected = await firstToConnect(remaining, PROBE_TIMEOUT_MS);
-		} catch {
-			break;
-		}
-		remaining = remaining.filter(address => address !== connected.address);
-		let answer: ProbeResult;
-		try {
-			answer = await probeOn(connected.address, connected.link);
-		} catch {
-			continue;
-		}
-		probe = answer;
-		if (skip(answer)) continue;
-		return { address: connected.address, probe: answer };
-	}
-	return { address: null, probe };
-}
-
-async function probeOn(address: string, link: Link): Promise<ProbeResult> {
-	try {
-		link.send({ t: "probe", v: HANDSHAKE_VERSION });
-		const reply = ProbeReply.safeParse(await link.receive(PROBE_TIMEOUT_MS));
-		if (!reply.success) throw new RemoteError("unreachable", `${address} is not an OMPdesk host`);
-		if (reply.data.t === "error") return { ok: false, code: reply.data.code };
-		return { ok: true, deviceId: reply.data.deviceId, name: reply.data.name, appVersion: reply.data.appVersion };
-	} catch (error) {
-		throw asRemoteError(error);
-	} finally {
-		link.close();
-	}
+	const { result } = await core().call<{ address: string | null; probe: ProbeResult }>(
+		"remote.probe",
+		{ addresses, skip },
+		{ timeoutMs: 60_000 + addresses.length * 6_000 },
+	);
+	return result;
 }
 
 interface HandshakeOptions {
@@ -244,8 +164,9 @@ interface HandshakeOptions {
 	appVersion: string;
 	/** The host this device pinned: its id and key must answer. Null on first contact (the key is pinned then). */
 	expected: { deviceId: string; staticPub: string } | null;
-	/** Ends the dial or the handshake under way (`unreachable`). */
+	/** Ends the handshake under way (`unreachable`). */
 	signal?: AbortSignal;
+	liveness?: Liveness;
 }
 
 interface Handshake {
@@ -255,91 +176,30 @@ interface Handshake {
 }
 
 /**
- * Auth, client side: both static keys and both ephemeral keys go into the session keys (DH(eA,eB) ‖ DH(sA,eB) ‖
- * DH(eA,sB)), so only the holder of the host key this device pinned can read or answer the link.
+ * Auth, client side, on a socket the core connected: both static and both ephemeral keys go into the session keys
+ * (DH(eA,eB) ‖ DH(sA,eB) ‖ DH(eA,sB)), so only the holder of the host key this device pinned can read or answer the
+ * link. The link delivers nothing until `listen`.
  */
-async function handshake(address: string, opts: HandshakeOptions): Promise<Handshake> {
-	return handshakeOn(address, await dialAddress(address, undefined, opts.signal), opts);
-}
-
-async function handshakeOn(address: string, link: Link, opts: HandshakeOptions): Promise<Handshake> {
-	const cancelled = () => link.destroy();
-	opts.signal?.addEventListener("abort", cancelled, { once: true });
-	try {
-		const { identity } = opts;
-		const eph = generateKeyPair();
-		link.send({
-			t: "auth-init",
-			v: HANDSHAKE_VERSION,
-			deviceId: identity.deviceId,
-			name: opts.name,
-			ephPub: eph.publicKey,
-			staticPub: identity.publicKey,
+async function handshakeOn(address: string, conn: number, opts: HandshakeOptions): Promise<Handshake> {
+	const params = {
+		identity: opts.identity.deviceId,
+		conn,
+		address,
+		expected: opts.expected,
+		name: opts.name,
+		appVersion: opts.appVersion,
+		capabilities: HELLO_CAPABILITIES,
+		...(opts.liveness ? { liveness: opts.liveness } : {}),
+	};
+	const { result } = await core()
+		.call<Failed | { link: number; hello: HostHello; host: Handshake["host"] }>("remote.handshake", params, {
+			signal: opts.signal,
+		})
+		.catch(error => {
+			throw asRemoteError(error);
 		});
-		const reply = AuthReply.safeParse(await link.receive(HANDSHAKE_TIMEOUT_MS));
-		if (!reply.success) throw new RemoteError("protocol", "malformed auth reply");
-		if (reply.data.t !== "auth-resp") throw new RemoteError(reply.data.code);
-		const answer = reply.data;
-		if (opts.expected) {
-			// Another device now answers at this address.
-			if (answer.deviceId !== opts.expected.deviceId) {
-				throw new RemoteError("unreachable", `${address} is another device`);
-			}
-			if (answer.staticPub !== opts.expected.staticPub) {
-				throw new RemoteError("key_mismatch", `${address} answers with another key than the one pinned`);
-			}
-		}
-		const ikm = Buffer.concat([
-			dh(eph.privateKey, answer.ephPub),
-			dh(identity.privateKey, answer.ephPub),
-			dh(eph.privateKey, answer.staticPub),
-		]);
-		const keys = authKeys(
-			ikm,
-			authTranscriptOf(
-				{ deviceId: identity.deviceId, ephPub: eph.publicKey, staticPub: identity.publicKey },
-				{ deviceId: answer.deviceId, ephPub: answer.ephPub, staticPub: answer.staticPub },
-			),
-		);
-		link.secure(keys.ab, keys.ba);
-		link.send({
-			t: "hello",
-			protocol: PROTOCOL_VERSION,
-			appVersion: opts.appVersion,
-			name: opts.name,
-			slimEvents: true,
-			slimProgress: true,
-			slimAutopilot: true,
-			slimEnds: true,
-			slimReadGroups: true,
-			slimToolResults: true,
-			slimEndFields: true,
-			slimAutopilotReads: true,
-			slimListReads: true,
-			slimShiftedReads: true,
-			slimSettingsReads: true,
-			slimRosterReads: true,
-			slimJobsReads: true,
-			slimToolOutputs: true,
-			slimToolArgs: true,
-			deflate: true,
-			deflateContext: true,
-			slimSessionLists: true,
-		});
-		const message = await link.receive(HANDSHAKE_TIMEOUT_MS);
-		if (message.t === "error") throw new RemoteError(String(message.code ?? "protocol"));
-		const version = HelloVersion.safeParse(message);
-		if (!version.success || version.data.protocol !== PROTOCOL_VERSION) {
-			throw new RemoteError("protocol", `host protocol ${String(message.protocol)}, ours ${PROTOCOL_VERSION}`);
-		}
-		const hello = HostHelloMessage.safeParse(message);
-		if (!hello.success) throw new RemoteError("protocol", "malformed host hello");
-		const { t: _t, ...info } = hello.data;
-		return { link, hello: info, host: { deviceId: answer.deviceId, name: info.name, staticPub: answer.staticPub } };
-	} catch (error) {
-		link.destroy();
-		throw asRemoteError(error);
-	}
+	if ("failed" in result) throw failure(result);
+	return { link: new Link(result.link), hello: result.hello, host: result.host };
 }
 
 export interface FirstContactOptions {
@@ -358,7 +218,8 @@ export interface FirstContactOptions {
  */
 export async function connectFirst(opts: FirstContactOptions): Promise<PairedHost> {
 	const pinned = opts.hosts.byNode(opts.nodeId);
-	const { link, host } = await handshake(opts.address, {
+	const { conn } = await firstToConnect([opts.address]);
+	const { link, host } = await handshakeOn(opts.address, conn, {
 		identity: opts.identity,
 		name: opts.name,
 		appVersion: opts.appVersion,
@@ -392,6 +253,8 @@ export interface RemoteClientOptions {
 	addresses?: (host: PairedHost) => Promise<string[]>;
 	/** The link's transitions for the runtime log (`remote-link`): `down`, each `attempt`, `up`. No addresses or keys. */
 	log?: (event: "down" | "attempt" | "up", details: Record<string, unknown>) => void;
+	/** The link's ping and dead timers (tests shorten them). */
+	liveness?: Liveness;
 }
 
 /** One stretch without a link: from the drop (or the first attempt of a launch) until it is online again. */
@@ -580,9 +443,9 @@ export class RemoteClient {
 			if (!this.#running || cancel.signal.aborted) break;
 			this.#step += 1;
 			this.#stepAt = Date.now();
-			let connected: { address: string; link: Link };
+			let connected: { address: string; conn: number };
 			try {
-				connected = await firstToConnect(remaining, CONNECT_TIMEOUT_MS, cancel.signal);
+				connected = await firstToConnect(remaining, cancel.signal);
 			} catch (error) {
 				failure = asRemoteError(error);
 				refused &&= failure.refused;
@@ -593,12 +456,13 @@ export class RemoteClient {
 			// Something listens there: the attempt was not refused everywhere.
 			refused = false;
 			try {
-				const { link, hello } = await handshakeOn(address, connected.link, {
+				const { link, hello } = await handshakeOn(address, connected.conn, {
 					identity: this.#opts.identity,
 					name: this.#opts.name(),
 					appVersion: this.#opts.appVersion,
 					expected: { deviceId: this.deviceId, staticPub: this.#host.staticPub },
 					signal: cancel.signal,
+					liveness: this.#opts.liveness,
 				});
 				if (!this.#running) {
 					link.destroy();

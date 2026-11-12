@@ -19,8 +19,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { transcriptPageMessages } from "../../../resources/gui-bridge/transcript-page";
 import { createSubagentTranscripts } from "../../renderer/stores/subagent-transcripts";
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../shared/rpc-types";
-import { closeSessions, openSession } from "./link-traffic-test-rig";
-import { Link, type TrafficHandler } from "./wire";
+import { closeSessions, onHostLinkTraffic, openSession } from "./link-traffic-test-rig";
 
 const PRINT = process.env.OMP_GUI_LINK_TRAFFIC === "1";
 const AGENTS = ["Scout1", "Scout2", "Scout3", "Scout4"];
@@ -107,13 +106,9 @@ async function writeJournals(workDir: string, turns: number): Promise<void> {
 /** Counts what the host's links send, and the requests they answer, as its traffic line would. */
 function countHostWire() {
 	const wire = { tx: 0, requests: 0 };
-	const original = Link.prototype.onTraffic;
-	vi.spyOn(Link.prototype, "onTraffic").mockImplementation(function (this: Link, handler: TrafficHandler) {
-		original.call(this, (direction, message, bytes) => {
-			if (direction === "tx") wire.tx += bytes;
-			else if ("t" in message && message.t === "req") wire.requests++;
-			handler(direction, message, bytes);
-		});
+	onHostLinkTraffic((direction, message, bytes) => {
+		if (direction === "tx") wire.tx += bytes;
+		else if ("t" in message && message.t === "req") wire.requests++;
 	});
 	return wire;
 }

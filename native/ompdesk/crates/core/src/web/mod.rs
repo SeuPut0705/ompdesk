@@ -10,19 +10,10 @@ pub mod refusal;
 pub mod server;
 pub mod ws;
 
+pub(crate) use crate::hex;
+
 #[cfg(test)]
 mod ws_wire;
-
-/// Lowercase hex of a digest, as `digest('hex')` writes it.
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes
-        .iter()
-        .fold(String::with_capacity(bytes.len() * 2), |mut out, byte| {
-            let _ = write!(out, "{byte:02x}");
-            out
-        })
-}
 
 #[cfg(test)]
 mod matrix_replay;

@@ -1,8 +1,8 @@
 /**
  * The rig the link traffic tests share: two RemoteDevices over real loopback sockets, the host running a real
  * LocalHostServices and a real SidecarManager over the scripted fake omp (`test-traffic-omp.ts`), the device a
- * RemoteSidecar. Every `Link.send` is counted at the moment it is serialized (wire bytes = JSON + 4-byte header +
- * 12-byte nonce + 16-byte tag). The spy is on `Link.prototype`, so one test file runs one session at a time; the tests
+ * RemoteSidecar. Every `Link.send` is counted at the moment main hands it to the core (wire bytes = JSON + 4-byte
+ * header + 12-byte nonce + 16-byte tag, as if nothing were deflated). The spy is on `Link.prototype`, so one test file runs one session at a time; the tests
  * are split over files (`link-traffic-*.test.ts`) so their sessions run side by side.
  */
 import { readFileSync } from "node:fs";
@@ -12,15 +12,17 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { type MockInstance, vi } from "vitest";
 import type { AgentSessionEvent, SubagentFrame } from "../../shared/rpc-types";
+import { type CoreCallOptions, CoreProcess } from "../core/process";
 import type { MachineServices } from "../machine-services";
 import type { OmpResolution } from "../omp-runtime";
 import { SidecarManager } from "../sidecar";
 import type { SidecarLike } from "../sidecar-types";
 import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
+import { type HostAsk, RemoteHost } from "./host-server";
 import { LocalHostServices } from "./host-services";
 import type { RemoteSidecar } from "./remote-sidecar";
 import { type Computer, DevicesRig } from "./test-devices";
-import { Link } from "./wire";
+import { Link, type TrafficHandler } from "./wire";
 
 const FRAME_OVERHEAD = 32;
 
@@ -41,68 +43,107 @@ interface Row {
  */
 export type DeviceKind = "current" | "noDeflateContext" | "noDeflate" | "noListReads" | "slimEventsOnly" | "older";
 
+const sendOriginal = Link.prototype.send;
+
+/**
+ * Taps each link a host takes from now on with `handler`: every frame it sends or receives, as the core counts its
+ * wire bytes (deflated and sealed), as the host's traffic line counts them.
+ */
+export function onHostLinkTraffic(handler: TrafficHandler): void {
+	const answer = RemoteHost.prototype.answerAsk;
+	let opening: number | null = null;
+	vi.spyOn(RemoteHost.prototype, "answerAsk").mockImplementation(async function (this: RemoteHost, ask: HostAsk) {
+		if (ask.kind !== "open") return answer.call(this, ask);
+		opening = ask.link;
+		try {
+			return await answer.call(this, ask);
+		} finally {
+			opening = null;
+		}
+	});
+	const listen = Link.prototype.listen;
+	vi.spyOn(Link.prototype, "listen").mockImplementation(function (this: Link, onMessage) {
+		if (this.id === opening) this.onTraffic(handler);
+		return listen.call(this, onMessage);
+	});
+}
+
+/** The device's hello capabilities as the build `device` sent them. */
+function earlierHello(hello: object, device: DeviceKind): object {
+	if (device === "current") return hello;
+	// Every build before the current one predates frames deflated against the context, most also deflated ones.
+	const { deflateContext: _context, ...noContext } = hello as { deflateContext?: unknown };
+	if (device === "noDeflateContext") return noContext;
+	const { deflate: _deflate, ...noDeflate } = noContext as { deflate?: unknown };
+	if (device === "noDeflate") return noDeflate;
+	if (device === "noListReads") {
+		const {
+			slimListReads: _lists,
+			slimShiftedReads: _shifts,
+			...earlier
+		} = noDeflate as {
+			slimListReads?: unknown;
+			slimShiftedReads?: unknown;
+		};
+		return earlier;
+	}
+	const {
+		slimEvents,
+		slimProgress: _progress,
+		slimAutopilot: _autopilot,
+		slimEnds: _ends,
+		slimReadGroups: _reads,
+		slimToolResults: _tools,
+		...older
+	} = noDeflate as {
+		slimEvents: unknown;
+		slimProgress?: unknown;
+		slimAutopilot?: unknown;
+		slimEnds?: unknown;
+		slimReadGroups?: unknown;
+		slimToolResults?: unknown;
+	};
+	return device === "older" ? older : { ...older, slimEvents };
+}
+
 /** Counts every message a Link sends, split the way the report reads it. */
 export class LinkRecorder {
 	readonly links = new Map<string, Row>();
 	readonly inner = new Map<string, Row>();
 	readonly #methods = new Map<number, string>();
 	#spy: MockInstance | null = null;
+	#helloSpy: MockInstance | null = null;
 
 	/** The hello goes out as the build `device` sent it; the host answers with the frames that build can read. */
 	start(device: DeviceKind = "current"): void {
-		const original = Link.prototype.send;
 		const record = (message: object): void => this.#record(message as { t: string } & Record<string, unknown>);
-		this.#spy = vi.spyOn(Link.prototype, "send").mockImplementation(function (this: Link, sent: object) {
+		this.#spy = vi.spyOn(Link.prototype, "send");
+		this.#spy.mockImplementation(function (this: Link, sent: object) {
 			record(sent);
-			// Every build before the current one predates frames deflated against the context, most also deflated ones.
-			let message = sent;
-			if (device !== "current" && "deflateContext" in message) {
-				const { deflateContext: _context, ...earlier } = message as { deflateContext?: unknown };
-				if (device === "noDeflateContext") return original.call(this, earlier);
-				message = earlier;
-			}
-			if (device !== "current" && "deflate" in message) {
-				const { deflate: _deflate, ...earlier } = message as { deflate?: unknown };
-				if (device === "noDeflate") return original.call(this, earlier);
-				message = earlier;
-			}
-			if (device === "noListReads" && "slimEvents" in message) {
-				const {
-					slimListReads: _lists,
-					slimShiftedReads: _shifts,
-					...earlier
-				} = message as {
-					slimListReads?: unknown;
-					slimShiftedReads?: unknown;
-				};
-				return original.call(this, earlier);
-			}
-			if (device !== "current" && "slimEvents" in message) {
-				const {
-					slimEvents,
-					slimProgress: _progress,
-					slimAutopilot: _autopilot,
-					slimEnds: _ends,
-					slimReadGroups: _reads,
-					slimToolResults: _tools,
-					...older
-				} = message as {
-					slimEvents: unknown;
-					slimProgress?: unknown;
-					slimAutopilot?: unknown;
-					slimEnds?: unknown;
-					slimReadGroups?: unknown;
-					slimToolResults?: unknown;
-				};
-				return original.call(this, device === "older" ? older : { ...older, slimEvents });
-			}
-			return original.call(this, message);
+			return sendOriginal.call(this, sent);
 		});
+		// The core builds the hello from the capabilities main hands its handshake.
+		const call = CoreProcess.prototype.call;
+		this.#helloSpy = vi.spyOn(CoreProcess.prototype, "call").mockImplementation(function (
+			this: CoreProcess,
+			method: string,
+			params?: unknown,
+			options?: CoreCallOptions,
+		) {
+			const handshake = params as { capabilities?: object } | undefined;
+			const next =
+				method === "remote.handshake" && handshake?.capabilities
+					? { ...handshake, capabilities: earlierHello(handshake.capabilities, device) }
+					: params;
+			return call.call(this, method, next, options);
+		} as CoreProcess["call"]);
 	}
 
 	stop(): void {
 		this.#spy?.mockRestore();
 		this.#spy = null;
+		this.#helloSpy?.mockRestore();
+		this.#helloSpy = null;
 	}
 
 	reset(): void {
