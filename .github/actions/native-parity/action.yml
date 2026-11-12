@@ -26,13 +26,22 @@ runs:
         src/main/tailscale/locate.test.ts
         src/main/tailscale/service.test.ts
         src/main/tailscale/tailnet.test.ts
+        src/main/ssh/*.test.ts
+        src/main/ext-update/mcp.test.ts
+        src/main/ext-update/classify.test.ts
+        src/main/ext-update/running.test.ts
+        src/main/ext-update/mcp-owner.test.ts
+        src/main/ext-update/mcp-plans.test.ts
+        src/main/ext-update/updater.test.ts
         src/main/checkout-peers*.test.ts
         src/main/git-fingerprints*.test.ts
         src/main/ai-memory/freshness*.test.ts
         src/main/routines/*.test.ts
+        src/main/local/autopilot*.test.ts
         src/main/local/git/changes.test.ts
         src/main/local/git/scm.test.ts
         src/main/local/git/worktree.test.ts
+        src/main/local/git/worktree-seed.test.ts
         src/main/local/git/exec-gh.test.ts
         src/main/workspace-fs*.test.ts
         src/main/disk/*.test.ts
