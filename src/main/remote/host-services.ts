@@ -364,7 +364,10 @@ interface HostTab extends RunTracking {
 	prompted?: number;
 	/** Times this tab's omp died and its manager started another (`restarting`): `ResumeFact.exits`. */
 	exits?: number;
-	/** A view of a window's tab: the retry this computer scheduled for that tab's failed turn (turn-resume.ts). */
+	/**
+	 * The retry this computer scheduled for the tab's failed turn (turn-resume.ts): this tab's own wait for a provider's
+	 * limit, or for a view the retry of the window's tab it shows.
+	 */
 	scheduledRetry?: IpcScheduledRetry;
 	/** Provider ids of the `login` commands running on this tab (a device's sign-in, even if its link dropped). */
 	signIns?: string[];
@@ -820,6 +823,16 @@ export class LocalHostServices implements HostServices {
 		this.#emit(tab, "awaitingConnection", awaiting);
 		for (const view of tab.views) view.emit("awaitingConnection", awaiting);
 		this.workChanged();
+	}
+
+	/** Show (or with `undefined` clear) the hosted tab's wait for a provider's limit; its device counts it down and may cancel it. */
+	setScheduledRetry(id: string, retry: IpcScheduledRetry | undefined): void {
+		const tab = this.#byResumeId(id);
+		if (!tab || tab.scheduledRetry === retry) return;
+		if (retry) tab.scheduledRetry = retry;
+		else delete tab.scheduledRetry;
+		this.#emit(tab, "scheduledRetry", scheduledRetryArg(retry));
+		for (const view of tab.views) view.emit("scheduledRetry", retry);
 	}
 
 	/** The omps here that run for paired devices, for idle release: pid and title. */
@@ -1626,15 +1639,15 @@ export class LocalHostServices implements HostServices {
 	/**
 	 * The device is away: a grace period that runs out on an idle tab closes it. One that runs out during a
 	 * turn (a revived one, continued after this computer's crash or quit, included), a hold for this
-	 * computer's connection or while a window here shows the tab starts another, so none loses its work,
-	 * its resume marker or the person working in it at this computer to the timer.
+	 * computer's connection or a provider's limit, or while a window here shows the tab starts another, so none
+	 * loses its work, its resume marker or the person working in it at this computer to the timer.
 	 */
 	#startGrace(tab: HostTab): void {
 		tab.conn = null;
 		clearTimeout(tab.graceTimer);
 		tab.graceTimer = setTimeout(() => {
 			// A view's wait is the tab's it shows, which holds it there: the view has nothing to keep.
-			const waiting = tab.awaitingConnection === true && !tab.viewing;
+			const waiting = (tab.awaitingConnection === true || tab.scheduledRetry !== undefined) && !tab.viewing;
 			if (runBusy(tab.run) || waiting || tab.views.size > 0) this.#startGrace(tab);
 			else this.#closeTab(this.#key(tab.peerId, tab.rtab));
 		}, this.#graceMs);
@@ -1990,8 +2003,8 @@ export class LocalHostServices implements HostServices {
 				case "awaitingConnection":
 				case "scheduledRetry":
 				case "openAsks":
-					// Not the sidecar's: this computer's resume coordinator sets the wait, only a view's window tab has a
-					// scheduled retry (a view forwards its window tab's, #createTab), and `tab.open` sends the asks.
+					// Not the sidecar's: this computer's resume coordinator sets the wait and the tab's scheduled retry
+					// (`setScheduledRetry`; a view forwards its window tab's, #createTab), and `tab.open` sends the asks.
 					break;
 				default:
 					sidecar.on(name, (arg: unknown) => this.#emit(tab, name, arg));
@@ -2685,7 +2698,11 @@ function listingSignature(openers: ReadonlyMap<string, string>, held: ReadonlySe
 /** A scheduled retry as the device gets it: what is left of the wait, since the two computers share no clock. */
 function scheduledRetryArg(retry: IpcScheduledRetry | undefined): TabScheduledRetryArg {
 	if (!retry) return null;
-	return { remainingMs: Math.max(0, retry.at - Date.now()), attempt: retry.attempt };
+	return {
+		remainingMs: Math.max(0, retry.at - Date.now()),
+		attempt: retry.attempt,
+		...(retry.limit ? { limit: true as const } : {}),
+	};
 }
 
 /** Why a tab left in its grace period is worth bringing back to its device (`tabs.kept`); null when it is idle. */
@@ -2693,7 +2710,8 @@ function keptState(tab: HostTab): KeptTab["state"] | null {
 	if (tab.asks.size > 0) return "asking";
 	if (runSettling(tab.run)) return "settling";
 	if (runBusy(tab.run)) return "running";
-	return tab.awaitingConnection ? "waiting" : null;
+	// Held for this computer's connection, or for a provider's limit: its turn goes on by itself.
+	return tab.awaitingConnection || tab.scheduledRetry ? "waiting" : null;
 }
 
 /** The benchmark and research slot of a paired device on this machine (windows here use `window:<id>`). */

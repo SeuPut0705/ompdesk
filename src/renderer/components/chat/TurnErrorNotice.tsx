@@ -3,15 +3,13 @@ import { useMemo, useState } from "react";
 import { quotaResetAt } from "../../../shared/quota-reset";
 import { hydrateSession, hydrateTabSession } from "../../hooks/use-rpc-events";
 import { useUsageReports } from "../../hooks/use-usage-reports";
-import { formatClock, formatDuration } from "../../lib/format";
+import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { describeTurnError, retryLastTurn, runManualMaintenance, type TurnErrorAction } from "../../lib/messages";
 import { useNowTick } from "../../lib/now-tick";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { isLiveAutopilot, useAutopilotStore } from "../../stores/autopilot";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
-import { useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
 import { sessionRuntime, useRuntimeTabId } from "../../stores/session-runtime-context";
 import { useAwaitingConnection, useScheduledRetry } from "../../stores/tabs";
@@ -32,8 +30,10 @@ const ACTION_LABEL_KEYS: Record<TurnErrorAction, string> = {
  * an inline danger card that says what happened and what to do, in the user's
  * language, with the recovery actions that fit (retry, change model, open
  * providers, compact context); the raw provider text stays behind a disclosure.
- * The session's latest turn stopped by a usage limit also names when the
- * provider's limit resets and can book the turn to resume then.
+ * The session's latest failure says when main tries the turn again by itself
+ * (turn-resume.ts: the backoff retry's countdown, or for a provider's limit
+ * the time it is expected gone), with Retry now and Cancel; a limit nobody
+ * waits for names when the provider's limit resets.
  */
 export function TurnErrorNotice({
 	errorMessage,
@@ -74,21 +74,18 @@ export function TurnErrorNotice({
 	});
 	const quota = description.kind === "rateLimit" && latest;
 	const provider = useModelStore(state => state.model?.provider);
-	const sessionId = useSessionStore(state => state.sessionId);
-	const booked = useQuotaResumeStore(state => (sessionId ? state.reservations[sessionId] : undefined));
-	// An Autopilot run waits for the quota on its own (main's `waiting_quota`): no second booking to offer.
-	const autopilotRun = useAutopilotStore(isLiveAutopilot);
-	// Best effort: without a usage report the card keeps its plain guidance. The reset moves when another
-	// account frees up or a reset pass is spent, so it follows the tab's live usage.
-	const reports = useUsageReports(quota);
+	// main's retry of this failed turn (turn-resume.ts): shown on the card of the latest failure only.
+	const scheduled = useScheduledRetry();
+	const retryArmed = scheduled !== null && latest;
+	// Best effort, for a limit main does not wait for (Cancel, stock's retry off, an Autopilot run's own wait): without
+	// a usage report the card keeps its plain guidance. The reset moves when another account frees up or a reset pass
+	// is spent, so it follows the tab's live usage.
+	const reports = useUsageReports(quota && !retryArmed);
 	const resetAt = useMemo(
 		() => (reports ? quotaResetAt(reports, provider, Date.now()) : undefined),
 		[reports, provider],
 	);
-	// main's backoff retry of this failed turn (turn-resume.ts): counted down on the card of the latest failure only.
-	const scheduled = useScheduledRetry();
-	const retryArmed = scheduled !== null && latest;
-	const now = useNowTick((quota && (resetAt !== undefined || booked !== undefined)) || retryArmed);
+	const now = useNowTick((quota && resetAt !== undefined) || retryArmed);
 
 	if (description.kind === "aborted") {
 		return (
@@ -152,8 +149,7 @@ export function TurnErrorNotice({
 		}
 	};
 
-	const resumeAt = booked ?? resetAt;
-	const showReset = quota && resumeAt !== undefined && resumeAt > now;
+	const showReset = quota && !retryArmed && resetAt !== undefined && resetAt > now;
 	// "Retry now" stands in for "Try again" while main waits to retry on its own.
 	const actions = retryArmed ? description.actions.filter(action => action !== "retry") : description.actions;
 	const retrySeconds = scheduled ? Math.max(0, Math.ceil((scheduled.at - now) / 1000)) : 0;
@@ -203,30 +199,20 @@ export function TurnErrorNotice({
 						{t(ACTION_LABEL_KEYS[action])}
 					</Button>
 				)),
-				showReset && sessionId && !autopilotRun ? (
-					<Button
-						data-quota-resume={booked !== undefined ? "booked" : "offer"}
-						key="resume"
-						onClick={() =>
-							booked !== undefined
-								? useQuotaResumeStore.getState().cancel(sessionId)
-								: useQuotaResumeStore.getState().reserve(sessionId, resumeAt)
-						}
-						size="sm"
-						variant="ghost"
-					>
-						{booked !== undefined
-							? t("turnError.resume.cancel")
-							: t("turnError.resume.book", { time: formatClock(resumeAt) })}
-					</Button>
-				) : null,
 			]}
 			className="omp-message-error mt-3 flex-wrap"
 			title={t(description.titleKey)}
 			variant="danger"
 		>
 			<p>{t(description.guidanceKey)}</p>
-			{retryArmed && scheduled ? (
+			{retryArmed && scheduled?.limit ? (
+				<p className="omp-scheduled-retry tabular-nums" data-limit-wait data-scheduled-retry>
+					{t("turnError.limitWait", {
+						time: formatClock(scheduled.at),
+						countdown: formatSpan(scheduled.at - now),
+					})}
+				</p>
+			) : retryArmed && scheduled ? (
 				<p className="omp-scheduled-retry tabular-nums" data-scheduled-retry>
 					{t("turnError.scheduled.countdown", {
 						countdown: `${Math.floor(retrySeconds / 60)}:${String(retrySeconds % 60).padStart(2, "0")}`,
@@ -239,9 +225,9 @@ export function TurnErrorNotice({
 			) : null}
 			{showReset ? (
 				<p className="omp-quota-reset tabular-nums" data-quota-reset>
-					{t(booked !== undefined ? "turnError.resume.booked" : "turnError.resume.resetsAt", {
-						time: formatClock(resumeAt),
-						countdown: formatDuration(resumeAt - now),
+					{t("turnError.resume.resetsAt", {
+						time: formatClock(resetAt),
+						countdown: formatSpan(resetAt - now),
 					})}
 				</p>
 			) : null}

@@ -2,13 +2,11 @@ import { parseHTML } from "linkedom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { quotaResetAt } from "../../../shared/quota-reset";
 import type { UsageReport } from "../../../shared/rpc-types";
 import { formatClock } from "../../lib/format";
 import { I18nProvider } from "../../lib/i18n";
 import { useMessagesStore } from "../../stores/messages";
 import { useModelStore } from "../../stores/model";
-import { useQuotaResumeStore } from "../../stores/quota-resume";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
 import { TurnErrorNotice } from "./TurnErrorNotice";
@@ -71,39 +69,20 @@ beforeEach(() => {
 
 afterEach(async () => {
 	await unmount();
-	useQuotaResumeStore.getState().reset();
 	useMessagesStore.setState({ messages: [] });
 	useSessionStore.setState({ sessionId: null, status: "starting" } as never);
 	useModelStore.setState({ model: null });
 	vi.clearAllMocks();
 });
 
-describe("quotaResetAt", () => {
-	it("is the first of the provider's accounts to reset, once every account is limited", () => {
-		const now = 1_000;
-		expect(quotaResetAt([report("anthropic", 9_000), report("anthropic", 5_000)], "anthropic", now)).toBe(5_000);
-		expect(quotaResetAt([report("anthropic", 9_000), report("anthropic")], "anthropic", now)).toBeUndefined();
-		expect(quotaResetAt([report("openai", 9_000)], "anthropic", now)).toBeUndefined();
-		expect(quotaResetAt([report("anthropic", 500)], "anthropic", now)).toBeUndefined();
-	});
-});
-
 describe("TurnErrorNotice usage limit", () => {
-	it("names the reset and books the turn to resume then; cancel drops the booking", async () => {
+	it("names the provider's reset when nothing waits for the limit, and offers no booking", async () => {
 		const resetAt = reports[0]?.resetAt ?? 0;
 		await mount(7);
 		expect(container.querySelector("[data-quota-reset]")?.textContent).toContain(formatClock(resetAt));
-		const book = container.querySelector<HTMLButtonElement>('[data-quota-resume="offer"]');
-		expect(book?.textContent).toBe(`Resume at ${formatClock(resetAt)}`);
-
-		await act(async () => book?.click());
-		expect(useQuotaResumeStore.getState().reservations).toEqual({ "session-1": resetAt });
-		expect(prefs.set).toHaveBeenLastCalledWith("quotaResume", { "session-1": resetAt });
-		expect(container.querySelector("[data-quota-reset]")?.textContent).toContain("Resumes on its own");
-
-		await act(async () => container.querySelector<HTMLButtonElement>('[data-quota-resume="booked"]')?.click());
-		expect(useQuotaResumeStore.getState().reservations).toEqual({});
-		expect(prefs.set).toHaveBeenLastCalledWith("quotaResume", undefined);
+		expect(container.querySelector("[data-quota-resume]")).toBeNull();
+		expect(container.querySelector("[data-scheduled-retry]")).toBeNull();
+		expect(prefs.set).not.toHaveBeenCalled();
 	});
 
 	it("stays plain on an older turn and while another account still has room", async () => {
@@ -194,7 +173,7 @@ describe("TurnErrorNotice scheduled retry", () => {
 	const cancelWait = vi.fn(async () => {});
 	const prompt = vi.fn(async () => ({ success: true }));
 
-	function arm(patch: { at?: number; attempt?: number } = {}): void {
+	function arm(patch: { at?: number; attempt?: number; limit?: true } = {}): void {
 		useTabsStore.setState({
 			activeTabId: "t1",
 			tabs: [
@@ -267,6 +246,34 @@ describe("TurnErrorNotice scheduled retry", () => {
 		expect(line).toContain("Attempt 12");
 		expect(line).not.toMatch(/\bof\b/);
 	});
+
+	it.each([
+		["en", "Tries again by itself at", "Retry now", "Cancel"],
+		["ko", "에 스스로 다시 시도해요", "지금 다시 시도", "취소"],
+	])(
+		"says when main tries a turn a provider's limit stopped again in %s, with Retry now and Cancel, and offers no booking",
+		async (lang, sentence, now, cancel) => {
+			vi.stubGlobal("localStorage", { getItem: () => lang, setItem: vi.fn() });
+			const at = Date.now() + 88.5 * HOUR;
+			arm({ at, limit: true });
+			await mount(2, LIMIT);
+			const line = container.querySelector("[data-limit-wait]");
+			expect(line?.textContent).toContain(sentence);
+			expect(line?.textContent).toContain(formatClock(at));
+			// A wait of days reads in days and hours, never as thousands of minutes.
+			expect(line?.textContent).toContain(lang === "en" ? "3d 16h" : "3일 16시간");
+			const labels = [...container.querySelectorAll("button")].map(button => button.textContent);
+			expect(labels).toContain(now);
+			expect(labels).toContain(cancel);
+			expect(container.querySelector("[data-quota-resume]")).toBeNull();
+			// The wait is main's: the card neither names a second time nor asks the provider's usage for one.
+			expect(container.querySelector("[data-quota-reset]")).toBeNull();
+			expect(window.omp.rpc.getUsage).not.toHaveBeenCalled();
+
+			await act(async () => container.querySelector<HTMLButtonElement>("[data-scheduled-retry-cancel]")?.click());
+			expect(cancelWait).toHaveBeenCalledWith("t1");
+		},
+	);
 
 	it("Cancel asks main to call the retry off", async () => {
 		arm();

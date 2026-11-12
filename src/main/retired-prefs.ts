@@ -60,6 +60,10 @@ export const RETIRED_PREFS: readonly { key: string; why: string }[] = [
 		why: "The scheduled retry follows stock `retry.enabled` alone (turn-resume.ts); the switch is gone.",
 	},
 	{
+		key: "quotaResume",
+		why: "The windows' click-to-book resume of a turn a usage limit stopped is gone: main waits for every limit by itself (turn-resume.ts).",
+	},
+	{
 		key: "autopilotShip",
 		why: "Autopilot shipping nobody picked is decided per repository at each start (src/main/autopilot.ts); other levels are picked per run in the start sheet.",
 	},

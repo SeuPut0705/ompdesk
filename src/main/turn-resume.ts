@@ -1,7 +1,8 @@
 /**
  * Interrupted turns that continue on their own: after the network comes back
  * (a turn that ended in a network-class error while offline or just after a
- * wake) and after a relaunch (quit, crash, update). The continuation is stock's:
+ * wake), after a relaunch (quit, crash, update), and once a provider's limit
+ * that ended a turn lets it run again. The continuation is stock's:
  * `retry` (`/retry`) for a failed turn, `restore_interrupted` (the bridge's call
  * of stock `restoreSession`, what `omp --restore` runs) for a turn cut off
  * mid-run, then `retry` when omp had closed that turn itself before it exited.
@@ -16,7 +17,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseAgentMessage } from "../shared/agent-control";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
-import type { RpcResponse } from "../shared/rpc-types";
+import {
+	isBillingCap,
+	isLimitWording,
+	LIMIT_LOOK_MS,
+	quotaResetAt,
+	quotaWaitUntil,
+	retryAfterMs,
+} from "../shared/quota-reset";
+import type { RpcResponse, UsageReport } from "../shared/rpc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
 import { deletedSessions } from "./deleted-sessions";
@@ -31,7 +40,9 @@ export type ResumeReason =
 	/** The turn was blocked on an ask or an approval; resuming reopens that card. */
 	| "asking"
 	/** The turn ended in a network error and was waiting for the connection. */
-	| "network";
+	| "network"
+	/** The turn ended at a provider's limit and was waiting for it to lift. */
+	| "limit";
 
 export interface ResumeMarker {
 	/** The window (webContents id) that held the tab. Informational: windows are rebuilt from the saved layout. */
@@ -109,14 +120,16 @@ export interface ResumeFact {
 
 /**
  * Which tabs are worth resuming and why. A tab the user stopped is never one; a
- * turn blocked on a person is kept (as "asking") so it reopens its card, and a
+ * turn blocked on a person is kept (as "asking") so it reopens its card, a
  * turn waiting for the connection is kept so a crash during the wait still
- * resumes. `startedAt` survives a reason change within one run.
+ * resumes, and so is one waiting for a provider's limit (`limited`: the tabs
+ * holding such a wait). `startedAt` survives a reason change within one run.
  */
 export function deriveMarkers(
 	facts: readonly ResumeFact[],
 	previous: readonly ResumeMarker[],
 	now: number,
+	limited?: ReadonlySet<string>,
 ): ResumeMarker[] {
 	const markers: ResumeMarker[] = [];
 	for (const fact of facts) {
@@ -126,6 +139,7 @@ export function deriveMarkers(
 		else if (fact.stopped) reason = null;
 		else if (fact.awaitingUi) reason = "asking";
 		else if (fact.running) reason = "running";
+		else if (limited?.has(fact.tabId)) reason = "limit";
 		if (!reason) continue;
 		const before = previous.find(marker => marker.tab === fact.tabId && marker.sessionPath === fact.sessionFile);
 		const marker: ResumeMarker = {
@@ -154,9 +168,9 @@ export type GoalSettlement = "resumed" | "none" | "cancelled";
 /** How a tab whose omp came up again goes on (`TurnResume.relaunchContinuation`). */
 export type RelaunchContinuation = "after_restore" | "now" | "off";
 
-/** What a launch does with a marker. */
+/** What a launch does with a marker: a turn that waited for the connection or a limit had failed, so stock retries it. */
 export function launchAction(marker: ResumeMarker): ResumeAction {
-	if (marker.reason === "network") return "retry";
+	if (marker.reason === "network" || marker.reason === "limit") return "retry";
 	return marker.background ? "revive" : "restore";
 }
 
@@ -290,25 +304,35 @@ export function connectFailureHost(message: string | undefined): string | null {
 /**
  * Stock's `RETRYABLE_PROVIDER_ERROR_PATTERN` (`extensibility/legacy-pi-ai-shim.ts`, ported from pi-ai
  * `utils/retry.ts`; not exported, and a stock function would need a live session) with its rate-limit
- * wordings removed (those are {@link NOT_TRANSIENT}) and the bare status codes word-bounded, so
+ * wordings removed (those are never transient: `isLimitWording`) and the bare status codes word-bounded, so
  * "500000 tokens" never reads as an HTTP 500.
  */
 const RETRYABLE_ERROR =
 	/overloaded|\b(?:500|502|503|504|520|524|529)\b|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|upstream.?connect|reset before headers|socket hang up|socket connection was closed|timed? out|timeout|terminated|websocket.?closed|websocket.?error|ended without|stream ended before message_stop|stream ended before a terminal response event|http2 request did not get a response|retry delay|you can retry your request|try your request again|please retry your request/i;
 
 /**
- * Failures that waiting never fixes or that other paths own: sign-in and permission, quota and rate
- * limits (stock's `NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN` plus the renderer's quota-resume, which books
- * the reset), a request the provider rejected, a context that does not fit, certificates. The
- * wordings follow the renderer's `describeTurnError` (lib/messages.ts).
+ * Failures no retry of ours fixes: sign-in and permission, a request the provider rejected, a context that does not
+ * fit, certificates. The wordings follow the renderer's `describeTurnError` (lib/messages.ts).
  */
-const NOT_TRANSIENT =
-	/\b(?:401|403|429|400)\b|invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|\bforbidden\b|authenticat|not logged in|log ?in required|no api key|token (?:has )?expired|rate[ _.-]?limit|too many requests|quota|usage limit|GoUsageLimitError|FreeUsageLimitError|available balance|out of budget|billing|insufficient|ResourceExhausted|bad request|invalid[ _-]?request|prompt is too long|context[ _-](?:length|window)|maximum context|too many tokens|context_length_exceeded|input is too long|exceeds? the (?:model'?s? )?(?:context|maximum)|certificate|self[- ]signed|unable to verify the first|unable_to_(?:verify|get)_issuer|\bssl\b|\btls\b|err_tls|cert_has_expired|depth_zero_self_signed|err_cert/i;
+const NEVER_RETRIED =
+	/\b(?:401|403|400)\b|invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|\bforbidden\b|authenticat|not logged in|log ?in required|no api key|token (?:has )?expired|bad request|invalid[ _-]?request|prompt is too long|context[ _-](?:length|window)|maximum context|too many tokens|context_length_exceeded|input is too long|exceeds? the (?:model'?s? )?(?:context|maximum)|certificate|self[- ]signed|unable to verify the first|unable_to_(?:verify|get)_issuer|\bssl\b|\btls\b|err_tls|cert_has_expired|depth_zero_self_signed|err_cert/i;
 
-/** A failure that stock's own retries gave up on but that a later attempt may well clear: server errors, overload, timeouts, dropped connections. */
+/**
+ * A failure that stock's own retries gave up on but that a later attempt may well clear: server errors, overload,
+ * timeouts, dropped connections. Never a limit (the limit wait owns those: {@link isLimitError}) nor an account out
+ * of money.
+ */
 export function isTransientError(message: string | undefined): boolean {
-	if (!message || NOT_TRANSIENT.test(message)) return false;
+	if (!message || NEVER_RETRIED.test(message) || isLimitWording(message) || isBillingCap(message)) return false;
 	return RETRYABLE_ERROR.test(message) || isNetworkError(message);
+}
+
+/**
+ * A provider's rate limit or usage limit that passes with time (quota-reset.ts): the turn is tried again once it is
+ * expected gone. Never an account out of money (stock's billing cap), nor a failure of {@link NEVER_RETRIED}.
+ */
+export function isLimitError(message: string | undefined): boolean {
+	return isLimitWording(message) && !isBillingCap(message) && !NEVER_RETRIED.test(message ?? "");
 }
 
 /** The wait before each scheduled retry, in order: 30 s, 2 min, 10 min; the last one repeats for as long as the failure stays transient. */
@@ -318,6 +342,12 @@ export const SCHEDULED_RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 60
 export function retryDelays(raw: string | undefined): readonly number[] {
 	const parsed = (raw ?? "").split(",").map(part => Number(part.trim()));
 	return parsed.length > 0 && parsed.every(ms => Number.isFinite(ms) && ms > 0) ? parsed : SCHEDULED_RETRY_DELAYS_MS;
+}
+
+/** `OMP_GUI_LIMIT_LOOK_MS` (milliseconds, e2e runs) as the pace of a limit wait's looks; anything unusable keeps the default. */
+export function limitLook(raw: string | undefined): { limitLookMs?: number } {
+	const ms = Number(raw);
+	return raw !== undefined && Number.isFinite(ms) && ms > 0 ? { limitLookMs: ms } : {};
 }
 
 /**
@@ -374,7 +404,7 @@ function sanitizeMarker(value: unknown): ResumeMarker | null {
 		typeof cwd !== "string" ||
 		(kind !== "agent" && kind !== "chat") ||
 		typeof startedAt !== "number" ||
-		(reason !== "running" && reason !== "asking" && reason !== "network") ||
+		(reason !== "running" && reason !== "asking" && reason !== "network" && reason !== "limit") ||
 		// Written by a client before its host owned the resume: the host has its own marker.
 		device !== undefined
 	)
@@ -417,13 +447,23 @@ export interface ResumeDeps {
 	enabled(): boolean;
 	/** A quit is underway: the pool is being torn down and must not rewrite the markers. */
 	frozen(): boolean;
-	/** The backoff retry after transient errors; stock `retry.enabled` (Settings › Agent behavior) turns it on and off. */
+	/**
+	 * The retries main schedules: the backoff after transient errors and the wait for a provider's limit; stock
+	 * `retry.enabled` (Settings › Agent behavior) turns both on and off.
+	 */
 	scheduledRetry: {
 		/** Waits before each attempt, in order; once they run out the last one repeats, with no limit. */
 		delays: readonly number[];
+		/** How often, at most, a limit wait looks whether the limit lifted early; default {@link LIMIT_LOOK_MS}. */
+		limitLookMs?: number;
 		/** Run `run` after `ms`; the returned function cancels it. */
 		schedule(run: () => void, ms: number): () => void;
 	};
+	/**
+	 * Someone else waits out this tab's limits, so no limit wait is armed for it: a live Autopilot run's session, whose
+	 * coordinator holds its own quota wait (`waiting_quota`).
+	 */
+	limitHeldElsewhere?: (tabId: string) => boolean;
 	now(): number;
 	/**
 	 * Open a tab for a marked session that has none (the layout was not saved in time), or for a
@@ -443,10 +483,10 @@ export interface ResumeDeps {
 	 */
 	goalSettled?: (tabId: string, outcome: GoalSettlement) => void;
 	/**
-	 * One line of the runtime log (`gui-runtime.jsonl`, source `turn-resume`): each relaunch decision, so a
-	 * turn that did not continue can be explained afterwards from the user's own files.
+	 * One line of the runtime log (`gui-runtime.jsonl`, source `turn-resume`): each relaunch decision and each limit
+	 * wait's start and try, so a turn that did not continue can be explained afterwards from the user's own files.
 	 */
-	log?: (message: "launch" | "marker" | "continue", details: ResumeLogDetails) => void;
+	log?: (message: "launch" | "marker" | "continue" | "limit", details: ResumeLogDetails) => void;
 }
 
 export type ResumeLogDetails = Record<string, string | number | boolean>;
@@ -495,6 +535,19 @@ interface ArmedRetry extends IpcScheduledRetry {
 	sessionFile: string;
 	touched: number;
 	cancelTimer: () => void;
+	/** A limit wait: what the session ran on when it began ({@link LimitReading.setup}); a change is worth a try. */
+	setup?: string;
+}
+
+/** What a limit wait reads from its tab's omp, with no request to a provider's model. */
+interface LimitReading {
+	/** Stock's `retry.enabled`. */
+	on: boolean;
+	/** The session's model and stock's fallback chains, as one comparable string; absent when either could not be read. */
+	setup?: string;
+	provider: string | undefined;
+	/** Stock's cached usage reports (`get_usage`); undefined when they could not be read. */
+	reports: UsageReport[] | undefined;
 }
 
 /** A tab's held continuation: what runs once online, and what it was held for. */
@@ -560,6 +613,7 @@ export class TurnResume {
 	 * Every run-state change in the pool: wait on a network error, then rewrite the marker file.
 	 * A paired host's tab (`device`) is not this computer's: the host writes its marker, judges
 	 * the wait by its own connection and continues it, and this tab only shows that wait.
+	 * A tab whose turn waits for a provider's limit keeps a `limit` marker, so a relaunch takes the turn up again.
 	 */
 	sync(): void {
 		if (!this.#launched || this.#deps.frozen()) return;
@@ -587,7 +641,8 @@ export class TurnResume {
 			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
 		const exited = this.#exited(current);
 		this.#settleRetries();
-		const live = deriveMarkers(current, this.#previous, this.#deps.now()).filter(
+		const limited = new Set([...this.#scheduled].flatMap(([tabId, armed]) => (armed.limit ? [tabId] : [])));
+		const live = deriveMarkers(current, this.#previous, this.#deps.now(), limited).filter(
 			marker => !this.#pending.has(marker.tab),
 		);
 		const kept = this.#deps.enabled() ? [...this.#pending.values(), ...live] : [];
@@ -603,9 +658,9 @@ export class TurnResume {
 	/**
 	 * Tabs whose omp died under their work since the last look (`exits` moved; its manager starts the next one): the pool
 	 * already ended the run, so the marker the tab had goes on as a launch marker, continued once the next omp is up, as
-	 * a relaunch continues it. A network marker is not one: its wait and marker outlive the omp. Nor is a tab whose launch
-	 * continuation still waits offline: it runs on whatever omp is up then. A continuation already on its way is
-	 * superseded: its commands went to the omp that died, and it sends nothing more.
+	 * a relaunch continues it. A network or limit marker is not one: its wait and marker outlive the omp. Nor is a tab
+	 * whose launch continuation still waits offline: it runs on whatever omp is up then. A continuation already on its
+	 * way is superseded: its commands went to the omp that died, and it sends nothing more.
 	 */
 	#exited(current: readonly ResumeFact[]): Array<{ tabId: string; action: ResumeAction; since: HeldFor }> {
 		const exited: Array<{ tabId: string; action: ResumeAction; since: HeldFor }> = [];
@@ -615,7 +670,7 @@ export class TurnResume {
 			this.#exits.set(fact.tabId, exits);
 			if (exits <= seen || !this.#deps.enabled() || this.#waiting.has(fact.tabId)) continue;
 			const marker = this.#previous.find(entry => entry.tab === fact.tabId);
-			if (!marker || marker.reason === "network") continue;
+			if (!marker || marker.reason === "network" || marker.reason === "limit") continue;
 			const before = this.#pending.get(fact.tabId);
 			if (before) {
 				this.#superseded.add(before);
@@ -753,8 +808,10 @@ export class TurnResume {
 	}
 
 	/** The scheduled retry this failure would arm now, held for the tab as it is: may it exist (`armed`)? */
-	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): boolean {
-		return this.#ends("armed", { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 }, fact) === null;
+	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome, limit: boolean): boolean {
+		const since: HeldFor = { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 };
+		if (limit) since.limit = true;
+		return this.#ends("armed", since, fact) === null;
 	}
 
 	#factFor(tabId: string): ResumeFact | undefined {
@@ -776,40 +833,175 @@ export class TurnResume {
 		}
 	}
 
-	/** The tab's failed turn ended: arm the next backoff attempt when the failure is transient and nothing says no. */
+	/**
+	 * What a limit wait reads from its tab's omp, none of it a request to a provider's model: stock's retry switch and
+	 * fallback chains, the session's model, and stock's cached usage reports (a report older than stock's own five
+	 * minutes is read again from the provider's usage endpoint, at most once per account). Null when the tab is gone.
+	 */
+	async #readLimit(tabId: string): Promise<LimitReading | null> {
+		const client = this.#deps.pool.startTab(tabId)?.rpcClient;
+		if (!client) return null;
+		const read = async (
+			command: Parameters<typeof client.command>[0],
+		): Promise<Record<string, unknown> | undefined> => {
+			try {
+				const response = await client.command(command);
+				const data: unknown = response.success ? response.data : undefined;
+				return typeof data === "object" && data !== null ? { ...data } : undefined;
+			} catch {
+				return undefined;
+			}
+		};
+		const [settings, state, usage] = await Promise.all([
+			read({ type: "get_settings", paths: ["retry.enabled", "retry.fallbackChains"] }),
+			read({ type: "get_state", brief: true }),
+			read({ type: "get_usage" }),
+		]);
+		const values = (settings?.values ?? {}) as Record<string, unknown>;
+		const model = (state?.model ?? {}) as { provider?: unknown; id?: unknown };
+		const reading: LimitReading = {
+			on: values["retry.enabled"] === true,
+			provider: typeof model.provider === "string" ? model.provider : undefined,
+			reports: Array.isArray(usage?.reports) ? (usage.reports as UsageReport[]) : undefined,
+		};
+		// A read that failed says nothing about the setup: never a change.
+		if (settings && state) reading.setup = JSON.stringify([model.provider, model.id, values["retry.fallbackChains"]]);
+		return reading;
+	}
+
+	/**
+	 * The tab's failed turn ended: arm the next backoff attempt when the failure is transient, or the wait for a
+	 * provider's limit (never one another owner waits out), and nothing says no.
+	 */
 	#planRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): void {
 		const tabId = fact.tabId;
-		if (!isTransientError(outcome.errorMessage)) {
+		const limit = isLimitError(outcome.errorMessage) && this.#deps.limitHeldElsewhere?.(tabId) !== true;
+		if (!limit && !isTransientError(outcome.errorMessage)) {
 			this.#attempts.delete(tabId);
 			return;
 		}
 		const used = this.#attempts.get(tabId) ?? 0;
-		if (!this.#mayRetry(fact, outcome)) return;
+		if (!this.#mayRetry(fact, outcome, limit)) return;
 		const generation = this.#cancels.get(tabId) ?? 0;
-		void this.#stockRetryOn(tabId).then(on => {
+		const failedAt = this.#deps.now();
+		/** The tab as it is once stock answered, if the retry may still be armed for it. */
+		const stillOwed = (on: boolean): ResumeFact | undefined => {
 			const current = this.#factFor(tabId);
-			if (!on || !current || (this.#cancels.get(tabId) ?? 0) !== generation) return;
-			if (this.#scheduled.has(tabId) || !this.#mayRetry(current, outcome)) return;
-			this.#arm(current, outcome, used);
+			if (!on || !current || (this.#cancels.get(tabId) ?? 0) !== generation) return undefined;
+			return this.#scheduled.has(tabId) || !this.#mayRetry(current, outcome, limit) ? undefined : current;
+		};
+		if (!limit) {
+			void this.#stockRetryOn(tabId).then(on => {
+				const current = stillOwed(on);
+				if (current) this.#arm(current, outcome, used);
+			});
+			return;
+		}
+		void this.#readLimit(tabId).then(reading => {
+			const current = stillOwed(reading?.on === true);
+			if (!current || !reading) return;
+			// The wait the provider named counts from the failure; without one, its first reset, else a short fallback.
+			const hinted = retryAfterMs(outcome.errorMessage);
+			const now = this.#deps.now();
+			const reset = quotaResetAt(reading.reports ?? [], reading.provider, now);
+			const at =
+				hinted !== undefined ? failedAt + hinted : quotaWaitUntil(reading.reports ?? [], reading.provider, now);
+			if (!this.#arm(current, outcome, used, { at, setup: reading.setup })) return;
+			this.#deps.log?.("limit", {
+				tab: tabId,
+				session: current.sessionFile ?? "",
+				wait: "armed",
+				by: hinted !== undefined ? "retry-after" : reset !== undefined ? "usage" : "fallback",
+				ms: Math.max(0, at - failedAt),
+				...(current.peer ? { peer: current.peer } : {}),
+			});
+			// The marker says `limit` now, so a relaunch during the wait takes the turn up again.
+			this.sync();
 		});
 	}
 
-	#arm(fact: ResumeFact, outcome: IpcTabRunOutcome, used: number): void {
+	/**
+	 * Arm the tab's retry: the next backoff step, or with `limit` the wait until a provider's limit is expected gone,
+	 * which looks earlier at {@link LIMIT_LOOK_MS} whether it lifted (`#look`). False when the tab has no session file.
+	 */
+	#arm(
+		fact: ResumeFact,
+		outcome: IpcTabRunOutcome,
+		used: number,
+		limit?: { at: number; setup: string | undefined },
+	): boolean {
 		// Past the last listed wait the last one repeats (10 min): no attempt is the final one.
 		const delay = this.#deps.scheduledRetry.delays[Math.min(used, this.#deps.scheduledRetry.delays.length - 1)];
-		if (delay === undefined || fact.sessionFile === undefined) return;
-		const at = this.#deps.now() + delay;
+		if (delay === undefined || fact.sessionFile === undefined) return false;
+		const tabId = fact.tabId;
 		const armed: ArmedRetry = {
-			at,
+			at: limit?.at ?? this.#deps.now() + delay,
 			attempt: used + 1,
 			outcome,
 			sessionFile: fact.sessionFile,
 			touched: fact.touched ?? 0,
 			cancelTimer: () => undefined,
 		};
-		armed.cancelTimer = this.#deps.scheduledRetry.schedule(() => void this.#fire(fact.tabId, armed), delay);
-		this.#scheduled.set(fact.tabId, armed);
-		this.#deps.pool.setScheduledRetry(fact.tabId, { at, attempt: armed.attempt });
+		if (limit) {
+			armed.limit = true;
+			if (limit.setup !== undefined) armed.setup = limit.setup;
+			this.#awaitLook(tabId, armed);
+		} else armed.cancelTimer = this.#deps.scheduledRetry.schedule(() => void this.#fire(tabId, armed), delay);
+		this.#scheduled.set(tabId, armed);
+		this.#deps.pool.setScheduledRetry(tabId, {
+			at: armed.at,
+			attempt: armed.attempt,
+			...(limit ? { limit: true as const } : {}),
+		});
+		return true;
+	}
+
+	/** A limit wait's timer: its time when that is near, else the next look. */
+	#awaitLook(tabId: string, armed: ArmedRetry): void {
+		const pace = this.#deps.scheduledRetry.limitLookMs ?? LIMIT_LOOK_MS;
+		armed.cancelTimer = this.#deps.scheduledRetry.schedule(
+			() => void this.#look(tabId, armed),
+			Math.min(Math.max(0, armed.at - this.#deps.now()), pace),
+		);
+	}
+
+	/**
+	 * A limit wait's timer ran. At its time the retry fires. Before it this is a look: the tab's omp is read
+	 * (`#readLimit`), and the retry fires early when stock's usage reports no longer say the provider is limited (a reset
+	 * pass was spent, another account is free) or the session's model or fallback chains changed (a chain that now holds
+	 * a model the conversation fits). Otherwise nothing changes but the timer: the wait holds on, and a request goes to
+	 * the provider only once something says it may be taken.
+	 */
+	async #look(tabId: string, armed: ArmedRetry): Promise<void> {
+		if (this.#scheduled.get(tabId) !== armed) return;
+		// What ends the wait without a sync of its own (another session file on an idle tab) ends it at the next look.
+		this.sync();
+		if (this.#scheduled.get(tabId) !== armed) return;
+		let why: "due" | "usage" | "setup" = "due";
+		if (this.#deps.now() < armed.at) {
+			const reading = await this.#readLimit(tabId);
+			// Called off while the omp answered: whoever ended the wait also ended its timer.
+			if (this.#scheduled.get(tabId) !== armed) return;
+			if (armed.setup === undefined && reading?.setup !== undefined) armed.setup = reading.setup;
+			// Only a read that names the session's provider can say its limit is gone.
+			const lifted =
+				reading?.reports !== undefined &&
+				reading.provider !== undefined &&
+				quotaResetAt(reading.reports, reading.provider, this.#deps.now()) === undefined;
+			if (reading?.setup !== undefined && reading.setup !== armed.setup) why = "setup";
+			else if (lifted) why = "usage";
+			else {
+				this.#awaitLook(tabId, armed);
+				return;
+			}
+		}
+		this.#deps.log?.("limit", {
+			tab: tabId,
+			session: armed.sessionFile,
+			wait: why === "due" ? "due" : "lifted",
+			...(why === "due" ? {} : { by: why }),
+		});
+		await this.#fire(tabId, armed);
 	}
 
 	/** Every call-off of an armed retry (turn-resume-ends.ts `armed`); the person's new run also starts its chain over. */
@@ -827,7 +1019,11 @@ export class TurnResume {
 		if (this.#scheduled.get(tabId) !== armed) return;
 		await this.#deps.pool.movesSettled(tabId);
 		if (!stillHolds() || !(await this.#stockRetryOn(tabId)) || !stillHolds()) {
-			if (this.#scheduled.get(tabId) === armed) this.#dropScheduled(tabId);
+			if (this.#scheduled.get(tabId) === armed) {
+				this.#dropScheduled(tabId);
+				// A limit wait's marker goes with it: the relaunch must not retry a turn that was let go.
+				if (armed.limit) this.sync();
+			}
 			return;
 		}
 		this.#releaseScheduled(tabId);

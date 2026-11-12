@@ -37,6 +37,8 @@ export interface HeldFor {
 	prompted?: number;
 	/** The failed run the hold is for (a probe, a scheduled retry). */
 	outcome?: IpcTabRunOutcome;
+	/** The hold is a scheduled retry's wait for a provider's limit (turn-resume.ts `#look`). */
+	limit?: true;
 }
 
 export interface HoldContext {
@@ -118,12 +120,16 @@ export const HOLD_ENDS = {
 		checks: ["probeAnswer", "armed", "firing"],
 		ends: (fact, since) => fact?.lastRun !== since.outcome,
 	},
-	/** The tab's retry is not this computer's to make, or the connection wait holds it. */
+	/**
+	 * The tab's retry is not this computer's to make, or the connection wait holds it. A tab this computer hosts for a
+	 * paired device gets no backoff retry (requests nobody at either computer asked for), but its wait for a provider's
+	 * limit holds: the device shows the wait with its Cancel, and nothing is sent before the limit lifts.
+	 */
 	notRetryable: {
 		checks: ["armed", "firing"],
-		ends: fact =>
+		ends: (fact, since) =>
 			fact !== undefined &&
-			(fact.peer !== undefined ||
+			((fact.peer !== undefined && since.limit !== true) ||
 				fact.device !== undefined ||
 				fact.sessionFile === undefined ||
 				fact.awaitingConnection),

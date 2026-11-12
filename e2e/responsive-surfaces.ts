@@ -79,7 +79,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "reply" | "steer";
+export type ParitySession = "work" | "reply" | "steer" | "limit";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -1583,6 +1583,20 @@ export const SURFACES: readonly Surface[] = [
 		ready: "[data-ask-context] [data-figure-row] figure:nth-child(3) img",
 		when: () => false,
 		parity: { session: "work", after: closeOverlay },
+	},
+	{
+		id: "turn-limit-wait",
+		area: "A",
+		title: "Error card of a turn a provider's limit ended: when main tries it again by itself, with Retry now and Cancel",
+		// The host's fake omp ended the session's turn at a limit (e2e/fixture/rpc-ui.ts "fixture rate limit") and the
+		// host's resume rules wait for it (e2e/parity.e2e.ts `limitSession`): every view only shows that session.
+		open: async page => {
+			await page.waitForSelector("[data-transcript-kind]", { timeout: 15_000 });
+		},
+		ready: ".omp-message-error [data-limit-wait]",
+		// The wait is main's: the audits' harness page has no resume rules behind it.
+		when: () => false,
+		parity: { session: "limit", inView: "[data-limit-wait]" },
 	},
 	{
 		id: "card-approval",

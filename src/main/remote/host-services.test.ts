@@ -2089,6 +2089,51 @@ describe("LocalHostServices", () => {
 		expect(sidecars[1]?.disposed).toBe(false);
 	});
 
+	// 12 Nov 2026: a tab hosted for the paired desktop ended its turns at the model's weekly limit and sat there. Its
+	// wait is this computer's (turn-resume.ts), and the device is where a person sees and cancels it.
+	it("shows a hosted tab's wait for a provider's limit on its device, takes the device's Cancel, and keeps the tab while the device is away", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(100_000);
+		const { services, sidecars } = setup(1_000);
+		const cancelWait = vi.fn();
+		services.attachResume({ sync: vi.fn(), cancelWait, relaunchContinuation: vi.fn() });
+		const x = new FakeConnection(peer("device-x"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(x.peer, "tab.start", { rtab: "t1" }, x);
+		sidecars[0]?.setStatus("ready");
+		const id = services.resumeFacts()[0]?.tabId ?? "";
+
+		// The resume rules armed the wait: what is left of it, never this computer's clock.
+		services.setScheduledRetry(id, { at: 100_000 + 3_600_000, attempt: 1, limit: true });
+		expect(x.tabEvents().at(-1)).toEqual({
+			rtab: "t1",
+			name: "scheduledRetry",
+			arg: { remainingMs: 3_600_000, attempt: 1, limit: true },
+		});
+		await services.call(x.peer, "tab.cancelWait", { rtab: "t1" }, x);
+		expect(cancelWait).toHaveBeenCalledWith(id);
+
+		// The device is gone for five grace periods: the waiting tab and its omp stay, and the device reads the wait
+		// again when it is back.
+		services.disconnected(x.peer, x);
+		vi.advanceTimersByTime(5_000);
+		expect(sidecars[0]?.disposed).toBe(false);
+		const back = new FakeConnection(peer("device-x"));
+		await services.call(back.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, back);
+		expect(back.tabEvents().at(-1)).toEqual({
+			rtab: "t1",
+			name: "scheduledRetry",
+			arg: { remainingMs: 3_595_000, attempt: 1, limit: true },
+		});
+
+		// The wait is over (the retry went out, or it was called off): an idle tab is the grace's again.
+		services.setScheduledRetry(id, undefined);
+		expect(back.tabEvents().at(-1)).toEqual({ rtab: "t1", name: "scheduledRetry", arg: null });
+		services.disconnected(back.peer, back);
+		vi.advanceTimersByTime(1_000);
+		expect(sidecars[0]?.disposed).toBe(true);
+	});
+
 	it("tells the resume rules when a device tab's omp dies under its background work, so this computer continues it", async () => {
 		const { services, sidecars } = setup();
 		const resume = { sync: vi.fn(), cancelWait: vi.fn(), relaunchContinuation: vi.fn() };

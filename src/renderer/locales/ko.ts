@@ -5740,10 +5740,7 @@ export const ko: Record<string, string> = {
 	"turnError.rateLimit.guidance":
 		"프로바이더의 요청 한도나 할당량에 도달했어요. 잠시 후 다시 시도하거나 다른 모델을 쓰세요.",
 	"turnError.resume.resetsAt": "{time}에 한도가 초기화돼요 · {countdown} 남음.",
-	"turnError.resume.book": "{time}에 이어서 하기",
-	"turnError.resume.booked": "{time}에 자동으로 이어서 해요 · {countdown} 남음.",
-	"turnError.resume.cancel": "자동 재개 취소",
-	"turnError.resume.started": "사용 한도가 초기화돼서 멈춘 턴을 다시 실행해요.",
+	"turnError.limitWait": "{time}에 스스로 다시 시도해요 · {countdown} 남음. 한도가 먼저 풀리면 바로 이어가요.",
 	"turnError.overloaded.title": "프로바이더 혼잡",
 	"turnError.overloaded.guidance":
 		"프로바이더가 일시적으로 과부하 상태예요. 잠시 후 다시 시도하거나 다른 모델을 쓰세요.",

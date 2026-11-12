@@ -86,6 +86,11 @@ const HOLDS: Record<string, Hold> = {
 		enter: [prompt, { type: "end", kind: "transient" }, settle],
 		heal: [{ type: "fire" }],
 	},
+	"an armed limit wait": {
+		start: {},
+		enter: [prompt, { type: "end", kind: "limit" }, settle],
+		heal: [{ type: "fire" }],
+	},
 	"a fired scheduled retry whose omp starts": {
 		start: {},
 		enter: [prompt, { type: "end", kind: "transient" }, settle, { type: "sleep" }, { type: "fire" }],
@@ -147,6 +152,14 @@ const EXPECTED: Record<string, Record<string, "ends" | "ends at its answer" | "h
 		"a move that counts": "ends",
 		"a move that was cancelled": "holds",
 		// An idle tab's file move reaches the rules only when the timer fires (SidecarPool syncs a running tab or a held wait).
+		"another session file": "ends at its answer",
+		Cancel: "ends",
+	},
+	// Called off exactly as the scheduled retry is.
+	"an armed limit wait": {
+		"the person's prompt": "ends",
+		"a move that counts": "ends",
+		"a move that was cancelled": "holds",
 		"another session file": "ends at its answer",
 		Cancel: "ends",
 	},

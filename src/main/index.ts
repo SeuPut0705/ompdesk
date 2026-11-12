@@ -213,7 +213,7 @@ import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { exitWithLauncher } from "./test-launcher-exit";
 import { createTray, destroyTray, hasTray } from "./tray";
-import { InterruptedTurnStore, retryDelays, TurnResume } from "./turn-resume";
+import { InterruptedTurnStore, limitLook, retryDelays, TurnResume } from "./turn-resume";
 import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
 import {
 	appAutoUpdatePrefChanged,
@@ -2080,8 +2080,11 @@ app.whenReady().then(() => {
 			// Only this computer's own tabs show the row: a paired device's tab mirrors its host's turn.
 			setResuming: (tabId, resuming) => sidecarPool.setResuming(tabId, resuming),
 			resumeRank: tabId => sidecarPool.resumeRank(tabId),
-			// Only this computer's own tabs are ever scheduled: a hosted tab's retry would be invisible spend.
-			setScheduledRetry: (tabId, retry) => sidecarPool.setScheduledRetry(tabId, retry),
+			// A window's tab shows its retry; a hosted tab's wait for a provider's limit goes to its device.
+			setScheduledRetry: (tabId, retry) => {
+				sidecarPool.setScheduledRetry(tabId, retry);
+				hostServices.setScheduledRetry(tabId, retry);
+			},
 			startTab: tabId => sidecarPool.startTab(tabId) ?? hostServices.startTab(tabId),
 			tabForSession: (sessionPath, peer) =>
 				peer ? hostServices.tabForSession(sessionPath, peer) : sidecarPool.tabForSession(sessionPath),
@@ -2103,13 +2106,17 @@ app.whenReady().then(() => {
 		},
 		enabled: () => prefs.get(RESUME_INTERRUPTED_PREF) !== false,
 		scheduledRetry: {
-			// OMP_GUI_RETRY_DELAYS_MS (comma list of ms) shortens the waits for e2e runs.
+			// OMP_GUI_RETRY_DELAYS_MS (comma list of ms) shortens the waits for e2e runs, OMP_GUI_LIMIT_LOOK_MS the pace
+			// at which a limit wait looks whether the limit lifted early.
 			delays: retryDelays(process.env.OMP_GUI_RETRY_DELAYS_MS),
+			...limitLook(process.env.OMP_GUI_LIMIT_LOOK_MS),
 			schedule: (run, ms) => {
 				const timer = setTimeout(run, ms);
 				return () => clearTimeout(timer);
 			},
 		},
+		// A live Autopilot run waits out its own limits (`waiting_quota`): never a second wait beside it.
+		limitHeldElsewhere: tabId => autopilotRef.current?.holdsLimitWait(tabId) === true,
 		// A quit tears every tab down: that must not read as the turns ending.
 		frozen: () => quitApproved(),
 		now: Date.now,

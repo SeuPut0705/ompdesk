@@ -287,11 +287,11 @@ test("a usage limit waits for the quota in main, wakes at the reset and retries 
 	try {
 		const { tabId } = await startFromSheet(page, "en");
 		// The turn of cycle 2 ends on the limit: no record for it; main journals the wait with the reset it wakes at,
-		// and no renderer booking exists (main owns the wake).
+		// and the run's wait is the only one: TurnResume arms no retry of its own beside it.
 		const waiting = await waitForStatus(page, tabId, s => s.state === "waiting_quota", "the quota wait", 30_000);
 		expect(waiting.quotaResetAt).toBeGreaterThan(Date.now() - 60_000);
 		expect(waiting.cycles?.length).toBe(1);
-		expect(await page.evaluate(() => window.omp.prefs.get("quotaResume"))).toBeFalsy();
+		expect((await page.evaluate(() => window.omp.tabs.list())).some(tab => tab.scheduledRetry)).toBe(false);
 		await showRun(page);
 		await expect(page.locator("[data-run-settings-trigger]")).toContainText(/quota|until|\d{2}:\d{2}/i);
 		await capture(page, "quota-wait");

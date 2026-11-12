@@ -18,6 +18,8 @@
  *   where it was in its scroller (the re-read adds a "from Host B" line to every earlier prompt, since A's prompt
  *   was the session's second device), and once the link is back the finished reply is there within about one
  *   round trip (no blank page, no reload of the whole transcript); the times go to the test's annotations.
+ * - A turn of A's tab that a provider's limit ended on B: B waits for the limit (its marker says `limit` with the
+ *   device), A's error card says when it is tried again, and the turn goes on by itself once B reads the limit lifted.
  * Captures in the test output directory.
  */
 import { execFileSync } from "node:child_process";
@@ -861,6 +863,60 @@ test("a device quitting mid-turn leaves the turn running on the host, and its re
 		await expect(a.getByRole("button", { name: "Stop", exact: true })).toBeVisible({ timeout: 30_000 });
 		if (process.platform !== "win32") expect(ompPids(hostProfile).length).toBe(omps);
 		await a.getByRole("button", { name: "Stop", exact: true }).click();
+		await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
+		expect(client.errors).toEqual([]);
+	} finally {
+		if (client) await exitApp(client.app);
+		if (host) await exitApp(host.app);
+		await fs.rm(parent, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+	}
+});
+
+// 12 Nov 2026: a tab the owner's MacBook hosted for the paired desktop ended three turns at the model's weekly limit
+// (`retry-after-ms=319918000`) and sat for 37 minutes: the scheduled retry never held for a hosted tab, and the only
+// resume was a booking a person had to click.
+test("a host's tab whose turn ended at a provider's limit waits on the host, shows the wait on the device, and goes on once the limit lifts", async () => {
+	test.setTimeout(300_000);
+	const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-remote-limit-")));
+	let host: RemoteInstance | null = null;
+	let client: RemoteInstance | null = null;
+	try {
+		// The provider names an hour; its usage report (a reset pass, here the fixture's clock) frees the account after
+		// ten seconds, and the host looks every second and a half.
+		const hostProfile = await makeRemoteProfile(parent, "b", {
+			language: "en",
+			theme: "light",
+			port: await freePort(),
+			env: {
+				OMP_GUI_TEST_RETRY_AFTER_MS: "3600000",
+				OMP_GUI_TEST_USAGE_RESET_MS: "10000",
+				OMP_GUI_LIMIT_LOOK_MS: "1500",
+			},
+		});
+		const clientProfile = await makeRemoteProfile(parent, "a", {
+			language: "en",
+			theme: "light",
+			port: hostProfile.port,
+		});
+		host = await launchRemote(hostProfile);
+		client = await launchRemote(clientProfile);
+		const a = client.page;
+		const deviceId = await connectHost(host.page, a, "Host B");
+		await openHostFolder(a, deviceId, hostProfile.project);
+		expect((await a.evaluate(() => window.omp.rpc.setSetting("retry.enabled", true))).success).toBe(true);
+		await send(a, "fixture rate limit");
+
+		// The device's card says when the host tries again; the host holds the wait and its marker.
+		await expect(a.locator("[data-limit-wait]")).toContainText("Tries again by itself at", { timeout: 30_000 });
+		await expect(a.locator("[data-scheduled-retry-cancel]")).toBeVisible();
+		await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toMatchObject([{ reason: "limit" }]);
+		expect((await markers(hostProfile))[0]?.peer).toBeTruthy();
+
+		// No click: the turn goes on, and the one failure is the only one (nothing was sent while the limit held).
+		await expect(a.getByText("Resumed after the usage limit reset.")).toBeVisible({ timeout: 60_000 });
+		await expect(a.locator("[data-limit-wait]")).toHaveCount(0);
+		await expect(a.locator("[data-turn-retried]")).toHaveCount(1);
+		await expect(a.locator(".omp-message-error")).toHaveCount(0);
 		await expect.poll(() => markers(hostProfile), { timeout: 15_000 }).toEqual([]);
 		expect(client.errors).toEqual([]);
 	} finally {

@@ -64,7 +64,7 @@ import {
 } from "../shared/autopilot-branch";
 import { autopilotLogTitle, formatAutopilotLog } from "../shared/autopilot-log";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult } from "../shared/ipc-types";
-import { QUOTA_FALLBACK_MS, quotaResetAt } from "../shared/quota-reset";
+import { isLimitWording, quotaWaitUntil } from "../shared/quota-reset";
 import type {
 	ExtensionUIResponse,
 	RpcCommand,
@@ -105,8 +105,6 @@ const KEEP_STALLS = 5;
 /** A failed retry after a quota wake is tried again after this, doubling, never longer than {@link QUOTA_RETRY_MAX_MS}. */
 const QUOTA_RETRY_MIN_MS = 30_000;
 const QUOTA_RETRY_MAX_MS = 10 * 60_000;
-/** A usage-limit stop (the renderer's `messages.ts` "rateLimit" kind): the renderer books the reservation that resumes it. */
-const QUOTA_ERROR = /\b429\b|rate[ _-]?limit|too many requests|quota|usage limit|insufficient_quota/i;
 
 function afterMs(run: () => void, ms: number): () => void {
 	const timer = setTimeout(run, ms);
@@ -531,7 +529,7 @@ export class Autopilot {
 		const run = this.#runs.get(activity.tabId);
 		const message = activity.outcome.errorMessage ?? "";
 		if (!run) return;
-		if (QUOTA_ERROR.test(message)) {
+		if (isLimitWording(message)) {
 			// Stock's own auto-retry may still take it: look once it has had the chance, as for any other failure.
 			(this.#deps.after ?? afterMs)(
 				() => this.#enqueue(run, () => this.#waitForQuota(run), "quota wait"),
@@ -1040,6 +1038,14 @@ export class Autopilot {
 		const parent = this.#childRuns.get(tabId)?.parentTab ?? tabId;
 		return this.#runs.get(parent)?.root;
 	}
+
+	/**
+	 * The tab is a run's own: a turn of it that a provider's limit ended waits here (`#waitForQuota`), so TurnResume
+	 * arms no wait of its own beside it.
+	 */
+	holdsLimitWait(tabId: string): boolean {
+		return this.#runs.has(tabId);
+	}
 	async #resume(run: Run): Promise<void> {
 		run.stopping = false;
 		run.cancelQuotaWake?.();
@@ -1522,7 +1528,7 @@ export class Autopilot {
 
 	/**
 	 * A turn ended on the account's usage limit and stock's auto-retry let it go: the run waits until the provider's
-	 * first account resets (its usage reports; {@link QUOTA_FALLBACK_MS} when none names a reset), journaled as
+	 * first account resets (its usage reports; a short fallback when none names a reset: `quotaWaitUntil`), journaled as
 	 * `waiting_quota` with that time so every window, a paired device and a relaunch see it. Main owns the wake: it
 	 * fires with no window open. Never a pause.
 	 */
@@ -1538,7 +1544,7 @@ export class Autopilot {
 		const usage = await this.#stock<{ reports?: UsageReport[] }>(run.tabId, { type: "get_usage" }).catch(() => null);
 		const now = this.#now();
 		const reports = Array.isArray(usage?.reports) ? usage.reports : [];
-		const resetAt = quotaResetAt(reports, state?.model?.provider ?? undefined, now) ?? now + QUOTA_FALLBACK_MS;
+		const resetAt = quotaWaitUntil(reports, state?.model?.provider ?? undefined, now);
 		run.quotaRetries = 0;
 		await this.#setState(run, { state: "waiting_quota", quotaResetAt: resetAt });
 		this.#armQuotaWake(run, resetAt, false);

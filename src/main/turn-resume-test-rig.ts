@@ -19,13 +19,18 @@ import {
 	TurnResume,
 } from "./turn-resume";
 
-/** How a run ends: the model's kinds (`dns` a failed lookup, `net` a dropped socket, `transient` a server error) and success. */
-export type EndKind = "dns" | "net" | "transient" | "fatal" | "ok";
+/**
+ * How a run ends: the model's kinds (`dns` a failed lookup, `net` a dropped socket, `transient` a server error),
+ * `limit` (a provider's limit: armed like `transient`, the model's same state, with another rule for when it fires)
+ * and success.
+ */
+export type EndKind = "dns" | "net" | "transient" | "limit" | "fatal" | "ok";
 
 const END_OUTCOMES: Record<EndKind, IpcTabRunOutcome> = {
 	dns: { stopReason: "error", errorMessage: "Couldn't reach api.example.com (getaddrinfo ENOTFOUND)" },
 	net: { stopReason: "error", errorMessage: "socket hang up" },
 	transient: { stopReason: "error", errorMessage: "503 Service unavailable" },
+	limit: { stopReason: "error", errorMessage: "429 rate limit exceeded" },
 	fatal: { stopReason: "error", errorMessage: "401 unauthorized" },
 	ok: { stopReason: "stop" },
 };
@@ -411,6 +416,11 @@ export class TurnResumeWorld {
 		switch (command.type) {
 			case "get_settings":
 				return ok("get_settings", { values: { "retry.enabled": true } });
+			// No report says the provider is limited: a limit wait's look is a try, as a timer of the model fires at any time.
+			case "get_state":
+				return ok("get_state", { model: { provider: "fixture", id: "local-fixture" } });
+			case "get_usage":
+				return ok("get_usage", { reports: [] });
 			case "retry": {
 				const { promise, resolve } = Promise.withResolvers<RpcResponse>();
 				this.#retries.push(resolve);

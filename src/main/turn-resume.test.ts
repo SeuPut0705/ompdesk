@@ -109,6 +109,14 @@ describe("deriveMarkers", () => {
 		expect(waiting?.reason).toBe("network");
 	});
 
+	it("keeps a turn waiting for a provider's limit, so a relaunch takes it up again; a run or a Stop on the tab comes first", () => {
+		const limited = new Set(["t1"]);
+		expect(deriveMarkers([fact()], [], 500, limited)[0]?.reason).toBe("limit");
+		expect(deriveMarkers([fact({ running: true })], [], 500, limited)[0]?.reason).toBe("running");
+		expect(deriveMarkers([fact({ stopped: true })], [], 500, limited)).toEqual([]);
+		expect(deriveMarkers([fact()], [], 500, new Set(["other"]))).toEqual([]);
+	});
+
 	it("ignores a tab without a session file", () => {
 		expect(deriveMarkers([fact({ running: true, sessionFile: undefined })], [], 500)).toEqual([]);
 	});
@@ -131,9 +139,10 @@ describe("deriveMarkers", () => {
 });
 
 describe("launch rules", () => {
-	it("restores a cut-off turn, retries one that waited for the network, reopens an ask through stock restore", () => {
+	it("restores a cut-off turn, retries one that waited for the network or a provider's limit, reopens an ask through stock restore", () => {
 		expect(launchAction(marker({ reason: "running" }))).toBe("restore");
 		expect(launchAction(marker({ reason: "network" }))).toBe("retry");
+		expect(launchAction(marker({ reason: "limit" }))).toBe("retry");
 		expect(launchAction(marker({ reason: "asking" }))).toBe("restore");
 		expect(launchAction(marker({ background: true }))).toBe("revive");
 	});
@@ -171,8 +180,11 @@ describe("InterruptedTurnStore", () => {
 	it("round-trips markers and replaces the file atomically (no temp file left)", () => {
 		const file = join(dir, "interrupted-turns.json");
 		const store = new InterruptedTurnStore(file);
-		store.write([marker()]);
-		expect(new InterruptedTurnStore(file).read()).toEqual([marker()]);
+		store.write([marker(), marker({ tab: "t2", reason: "limit", peer: "device-a" })]);
+		expect(new InterruptedTurnStore(file).read()).toEqual([
+			marker(),
+			marker({ tab: "t2", reason: "limit", peer: "device-a" }),
+		]);
 		expect(() => readFileSync(`${file}.tmp`)).toThrow();
 	});
 
@@ -1835,7 +1847,7 @@ describe("isTransientError", () => {
 		"Unauthorized",
 		"Authentication failed: token has expired",
 		"Not logged in · Please run /login",
-		// quota, billing and rate limits (the quota-resume path owns these)
+		// quota and rate limits (the limit wait owns these: turn-resume-limit.test.ts), and an account out of money
 		"429 usage limit reached for this account",
 		"Rate limit exceeded, 503 try later",
 		"429 Too Many Requests",
@@ -1965,8 +1977,7 @@ describe("TurnResume scheduled retry", () => {
 	it.each([
 		"401 invalid x-api-key",
 		"403 Forbidden",
-		"429 usage limit reached for this account",
-		"Rate limit exceeded",
+		"429 insufficient_quota",
 		"400 Bad Request",
 		"prompt is too long: 215000 tokens > 200000 maximum",
 		"context length exceeded",
@@ -1978,6 +1989,15 @@ describe("TurnResume scheduled retry", () => {
 		expect(h.retries).toEqual([]);
 		expect(h.commands).toEqual([]);
 	});
+
+	it.each(["429 usage limit reached for this account", "Rate limit exceeded"])(
+		"leaves %s to the limit wait: no backoff attempt, one wait for the limit",
+		async message => {
+			await failed({}, { stopReason: "error", errorMessage: message });
+			expect(h.retries).toEqual([expect.objectContaining({ attempt: 1, limit: true })]);
+			expect(retrySent()).toBe(0);
+		},
+	);
 
 	it("does not schedule after a turn that was aborted or succeeded", async () => {
 		await failed({}, { stopReason: "aborted", errorMessage: "503 Service unavailable" });

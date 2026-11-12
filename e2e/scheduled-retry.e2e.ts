@@ -173,7 +173,7 @@ test("a refused connection while the computer reads online waits for the connect
 test("a turn stock gave up on at a rate limit is tried again by itself once the limit is expected gone", async () => {
 	test.setTimeout(120_000);
 	const profile = await makeProfile("en", "4000,4000,4000");
-	Object.assign(profile.env, { OMP_GUI_TEST_RETRY_AFTER_MS: "6000", OMP_GUI_TEST_USAGE_RESET_MS: "6000" });
+	Object.assign(profile.env, { OMP_GUI_TEST_RETRY_AFTER_MS: "6000", OMP_GUI_TEST_USAGE_RESET_MS: "4000" });
 	let current: ElectronApplication | undefined;
 	try {
 		const { app, page } = await launch(profile);

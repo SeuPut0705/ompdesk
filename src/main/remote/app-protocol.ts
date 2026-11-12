@@ -596,14 +596,16 @@ export const TabSignInArg = z.object({
 export type TabSignInArg = z.infer<typeof TabSignInArg>;
 
 /**
- * `scheduledRetry` event argument: the retry the host's TurnResume armed for a failed turn of the window's tab a device
- * views, or null when none holds. Time left, not the host's clock (no clock between the two computers is shared): the
- * device puts it on its own (`at` = its now + `remainingMs`).
+ * `scheduledRetry` event argument: the retry the host's TurnResume armed for a failed turn of the tab (the device's own
+ * tab there: its wait for a provider's limit; a view: the window's tab it shows), or null when none holds. Time left,
+ * not the host's clock (no clock between the two computers is shared): the device puts it on its own (`at` = its now +
+ * `remainingMs`). `limit`: the wait is for a provider's limit (an older device reads it as a plain countdown).
  */
 export const TabScheduledRetryArg = z
 	.object({
 		remainingMs: z.number().nonnegative(),
 		attempt: z.number().int().positive(),
+		limit: z.literal(true).optional(),
 	})
 	.nullable();
 export type TabScheduledRetryArg = z.infer<typeof TabScheduledRetryArg>;

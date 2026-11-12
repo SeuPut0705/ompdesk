@@ -55,7 +55,7 @@ The `@code path:lines` tags in `tla/TurnResume.tla` are the machine-checked half
 | `firing` | `#fire`'s `stillHolds` | `FireStart`, `FireResume` (`Ends_firing`) | the `armed` rows but `personsRun`, plus `busy` |
 | `continuing` | `#run`'s `stale()` | `RunGo`, `RestoreDone`, `FlushStep` (`Ends_continuing`) | `moved` (ends every hold: `#dropWait`), `personsPrompt` (ends this continuation: `pk`, `rk`) |
 
-Rows the model keeps constant, each a place a bug could hide: `gone` (tab close, SCOPE.md), `frozen` (the quit freeze, SCOPE.md), `fileWritten` (one file per session in the model; only the probe's answer counts a first file written after it), and the `peer`/`device`/no-file parts of `notRetryable`.
+Rows the model keeps constant, each a place a bug could hide: `gone` (tab close, SCOPE.md), `frozen` (the quit freeze, SCOPE.md), `fileWritten` (one file per session in the model; only the probe's answer counts a first file written after it), and the `peer`/`device`/no-file parts of `notRetryable` (a `peer` tab's limit wait holds, its backoff retry does not: `HeldFor.limit`, 12 Nov 2026).
 
 Known differences between checks, kept as the code had them and visible in the table: a move ends a held wait and a scheduled retry when `sync()` sees it, a probe only when it answers (`probe` lacks `moved`, `probeAnswer` has it); a first file written after a hold ends a probe at its answer and no held wait (`fileWritten`); Stop ends a probe and a scheduled retry and no held wait (a held wait's tab runs only stock's taken-over retry saga, out of scope).
 
@@ -78,6 +78,7 @@ Each is a place a bug could hide.
 - A12: a move command's send leaves `touched` (`sg`) alone; only its answer counts (`trackMove`), a timed-out command as a move (outcome unknown). Every continuation that looks at `touched` first waits for the moves in flight (`movesSettled`): `FireStart`, `FireResume`, `FlushStep`, `Boot`/`RunGo`, `RestoreDone` are disabled or deferred while `Moving(t)`.
 - A13 (assumption, not code, unchecked): no second `#run` of a tab starts while one waits for its omp or a move, or its restore runs: `EndRun` needs `runWait[t] < 0` and `~restoring[t]`, so the person's run, whose failure would arm a scheduled retry, ends after the continuation. The code runs both; SCOPE.md.
 - A14 (30 Oct 2026): the re-probe is one atomic step: its answer is the world (`link /\ (defOK \/ hostOK)`) as the step runs. The code's `#answers` asks the resolver and ignores the link flag (`net.isOnline()`), so it also goes online when the flag lies; the model's single `link` cannot tell the two apart and so checks the case where flag and resolver agree. A probe answered a moment before the network dropped again is a stale answer in the code and the model alike: the next failure takes the state offline once more.
+- A15 (12 Nov 2026): a limit wait is the model's armed retry of a `transient` failure (SCOPE.md › The limit wait). Its look (`#look`: a `sync()`, an `await` on reads of the tab's omp, then the timer again or `#fire`) changes nothing the model has before `#fire` runs, which checks everything again; the `limit` marker and the launch that retries it are not modeled.
 
 ## Granularity
 

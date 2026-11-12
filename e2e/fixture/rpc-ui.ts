@@ -418,9 +418,10 @@ export function runRpcUi(): void {
 	/** `fixture socket drop`: stock's auto-retry saga in flight (its timer and attempt), until it gives up or `abort_retry`. */
 	let socketRetry: { timer: NodeJS.Timeout; attempt: number; failed: AgentMessage } | undefined;
 	const SOCKET_CLOSED = "The socket connection was closed unexpectedly before the response completed";
-	/** A reply refused at an account limit as stock journals it; `OMP_GUI_TEST_RETRY_AFTER_MS` is the wait the provider names. */
-	const rateLimitError = (): string =>
-		`429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."},"request_id":"req_fixture"} retry-after-ms=${Number(process.env.OMP_GUI_TEST_RETRY_AFTER_MS ?? 319_918_000)}`;
+	/** The wait the provider names for `fixture rate limit` (`OMP_GUI_TEST_RETRY_AFTER_MS`; default a model's weekly limit). */
+	const RETRY_AFTER_MS = Number(process.env.OMP_GUI_TEST_RETRY_AFTER_MS ?? 319_918_000);
+	/** A reply refused at an account limit as stock journals it: the provider's body, then the wait its header named. */
+	const RATE_LIMIT_ERROR = `429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."},"request_id":"req_fixture"} retry-after-ms=${RETRY_AFTER_MS}`;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
@@ -5431,9 +5432,11 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 		} else if (message === "fixture usage limit" || message === "fixture rate limit") {
 			// The provider's quota stops the turn; the limit resets a few seconds later. `rate limit` is the failed reply
 			// stock leaves when the provider names a wait past `retry.maxDelayMs` and no fallback model fits (it ends the turn
-			// at once, turn-recovery.ts `exceedsDelayCap`): the provider's body, then the wait its header named.
+			// at once, turn-recovery.ts `exceedsDelayCap`): the provider's body, then the wait its header named, which its
+			// usage report holds for as long unless `OMP_GUI_TEST_USAGE_RESET_MS` lifts it sooner.
 			rateLimited = message === "fixture rate limit";
-			usageLimitResetAt = Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? 90_000);
+			usageLimitResetAt =
+				Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? (rateLimited ? RETRY_AFTER_MS : 90_000));
 			const answer: AgentMessage = {
 				role: "assistant",
 				content: [],
@@ -5441,7 +5444,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				provider: model.provider,
 				model: model.id,
 				stopReason: "error",
-				errorMessage: rateLimited ? rateLimitError() : "429 usage limit reached for this account",
+				errorMessage: rateLimited ? RATE_LIMIT_ERROR : "429 usage limit reached for this account",
 			};
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
@@ -6982,7 +6985,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 							provider: model.provider,
 							model: model.id,
 							stopReason: "error",
-							errorMessage: rateLimitError(),
+							errorMessage: RATE_LIMIT_ERROR,
 						};
 						appendMessage(again);
 						write({ type: "message_end", message: again });

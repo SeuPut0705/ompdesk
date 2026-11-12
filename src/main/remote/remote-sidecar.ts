@@ -413,7 +413,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 			case "awaitingConnection":
 				if (typeof message.arg === "boolean") this.emit("awaitingConnection", message.arg);
 				return;
-			// The host's retry of the failed turn of the window's tab this one views: put on this computer's clock.
+			// The host's retry of this tab's failed turn (a view: of the window's tab it shows): put on this computer's clock.
 			case "scheduledRetry": {
 				const parsed = TabScheduledRetryArg.safeParse(message.arg);
 				if (!parsed.success) return;
@@ -425,6 +425,7 @@ export class RemoteSidecar extends EventEmitter implements SidecarLike {
 						: ({
 								at: Date.now() + retry.remainingMs,
 								attempt: retry.attempt,
+								...(retry.limit ? { limit: true as const } : {}),
 							} satisfies IpcScheduledRetry),
 				);
 				return;

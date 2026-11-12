@@ -16,7 +16,6 @@ import type {
 import type { RpcResponse } from "../../../../shared/rpc-types";
 import { I18nProvider, translate } from "../../../lib/i18n";
 import { useAutopilotStore } from "../../../stores/autopilot";
-import { useQuotaResumeStore } from "../../../stores/quota-resume";
 import { useSessionStore } from "../../../stores/session";
 import { setFocusedSessionRuntime } from "../../../stores/session-runtime-context";
 import { useTabsStore } from "../../../stores/tabs";
@@ -110,7 +109,6 @@ afterEach(async () => {
 	document.body.innerHTML = "";
 	useSessionStore.getState().reset();
 	useAutopilotStore.getState().reset();
-	useQuotaResumeStore.setState({ reservations: {} });
 	useUiStore.setState({ modesOpen: false, modesTab: "plan", panelVisible: false, panelTab: "diff" });
 });
 

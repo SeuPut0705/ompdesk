@@ -23,7 +23,6 @@ import { useIdleCompactionDraft } from "./hooks/use-idle-compaction-draft";
 import { useInterruptedWork } from "./hooks/use-interrupted-work";
 import { useOutputStyle } from "./hooks/use-output-style";
 import { usePlanApproval } from "./hooks/use-plan-approval";
-import { useQuotaResume } from "./hooks/use-quota-resume";
 import { useRpcEvents } from "./hooks/use-rpc-events";
 import { useSessionAttention } from "./hooks/use-session-attention";
 import { newSessionNow, requestSessionSwitch } from "./hooks/use-session-switch";
@@ -157,12 +156,6 @@ function FocusedSessionEffects() {
 		document.documentElement.dataset.density = compactDensity ? "tight" : "comfortable";
 		document.documentElement.dataset.colorblind = colorBlindMode ? "true" : "false";
 	}, [compactDensity, colorBlindMode]);
-	return null;
-}
-
-/** Usage-limit resume bookings; its own component so tab updates never re-render App. */
-function QuotaResumeEffects() {
-	useQuotaResume();
 	return null;
 }
 
@@ -893,7 +886,6 @@ export function App() {
 		<div className="omp-app-root flex h-screen w-screen overflow-hidden text-(--sc-text)">
 			<div className="contents" inert={setupTakeover}>
 				{activeTabId && <FocusedSessionEffects />}
-				<QuotaResumeEffects />
 				<DesktopSlotEffects />
 				<InterruptedWorkEffects />
 				<OutputStyleEffects />

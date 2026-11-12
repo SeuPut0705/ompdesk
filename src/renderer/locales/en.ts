@@ -5746,10 +5746,7 @@ export const en: Record<string, string> = {
 	"turnError.rateLimit.guidance":
 		"You've hit the provider's rate limit or quota. Try again in a moment or switch to another model.",
 	"turnError.resume.resetsAt": "The limit resets at {time} · in {countdown}.",
-	"turnError.resume.book": "Resume at {time}",
-	"turnError.resume.booked": "Resumes on its own at {time} · in {countdown}.",
-	"turnError.resume.cancel": "Cancel resume",
-	"turnError.resume.started": "The usage limit reset, so the stopped turn runs again.",
+	"turnError.limitWait": "Tries again by itself at {time} · in {countdown}, or sooner once the limit lifts.",
 	"turnError.overloaded.title": "Provider busy",
 	"turnError.overloaded.guidance":
 		"The provider is temporarily overloaded. Try again in a moment or switch to another model.",

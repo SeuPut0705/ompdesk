@@ -1622,10 +1622,18 @@ export type IpcWorktreeNotice =
 	| { kind: "kept-running"; path: string }
 	| { kind: "remove-failed"; path: string; message: string };
 
-/** A retry main scheduled for a tab's failed turn (turn-resume.ts): when it fires (epoch ms) and which attempt it is; never "of how many", the chain has no end. */
+/**
+ * A retry main scheduled for a tab's failed turn (turn-resume.ts): when it fires (epoch ms) and which attempt it is;
+ * never "of how many", the chain has no end.
+ */
 export interface IpcScheduledRetry {
 	at: number;
 	attempt: number;
+	/**
+	 * The turn waits for a provider's limit: `at` is when the limit is expected gone, and main tries sooner once it
+	 * reads the limit lifted. Absent: the backoff retry of a transient failure.
+	 */
+	limit?: true;
 }
 
 /**

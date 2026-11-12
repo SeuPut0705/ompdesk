@@ -256,11 +256,8 @@ if (dir) {
 					)
 					.toBe(sessionPath);
 			};
-			/** B's sessions of answered turns, each made the first time a surface shows it, by title. */
-			const answered = new Map<string, HostSession>();
-			const answeredSession = async (title: string, turns: ReadonlyArray<readonly [string, string]>) => {
-				const made = answered.get(title);
-				if (made) return made;
+			/** A tab of B's on a session of its own, named `title` once its omp is up. */
+			const titledTab = async (title: string): Promise<string> => {
 				const tabId = (await b.evaluate(cwd => window.omp.tabs.spawn({ cwd }), work.cwd))?.tabId ?? "";
 				if (!tabId) throw new Error(`B opened no tab for ${title}`);
 				await expect
@@ -273,6 +270,14 @@ if (dir) {
 					tabId,
 					`fixture:title:${title}`,
 				] as const);
+				return tabId;
+			};
+			/** B's sessions of answered turns, each made the first time a surface shows it, by title. */
+			const answered = new Map<string, HostSession>();
+			const answeredSession = async (title: string, turns: ReadonlyArray<readonly [string, string]>) => {
+				const made = answered.get(title);
+				if (made) return made;
+				const tabId = await titledTab(title);
 				let sessionPath = "";
 				for (const [message, answer] of turns) {
 					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, { type: "prompt", message: sent }), [
@@ -318,9 +323,44 @@ if (dir) {
 			// A session of its own: one more turn in the reply session put its first turns past what a phone's view
 			// reaches in time (10 Nov 2026).
 			const steerSession = () => answeredSession("Parity steer", [["fixture steered", "Steered run finished."]]);
+			/**
+			 * A session of its own whose one turn a provider's limit ended (`fixture rate limit`: the wait the provider
+			 * names is days away and its usage report says so too), with stock's retry switch on in its omp: B's resume
+			 * rules wait for the limit (turn-resume.ts) for the rest of the run.
+			 */
+			const limitSession = async (): Promise<HostSession> => {
+				const made = answered.get("Parity limit wait");
+				if (made) return made;
+				const tabId = await titledTab("Parity limit wait");
+				for (const command of [
+					{ type: "set_setting", path: "retry.enabled", value: true },
+					{ type: "prompt", message: "fixture rate limit" },
+				] as const)
+					await b.evaluate(([id, sent]) => window.omp.rpc.commandForTab(id, sent), [tabId, command] as const);
+				let sessionPath = "";
+				await expect
+					.poll(
+						async () => {
+							const tab = (await b.evaluate(() => window.omp.tabs.list())).find(entry => entry.tabId === tabId);
+							sessionPath = tab?.scheduledRetry?.limit ? (tab.sessionPath ?? "") : "";
+							return sessionPath;
+						},
+						{ timeout: 30_000 },
+					)
+					.not.toBe("");
+				const session = { path: sessionPath, cwd: work.cwd };
+				answered.set("Parity limit wait", session);
+				return session;
+			};
 			/** B's `session` as it is when a view shows it. */
 			const hostSession = async (session: ParitySession): Promise<HostSession> =>
-				session === "work" ? work : session === "reply" ? replySession() : steerSession();
+				session === "work"
+					? work
+					: session === "reply"
+						? replySession()
+						: session === "steer"
+							? steerSession()
+							: limitSession();
 			/** Put `view` on B's `session`, with nothing left open from the surface before. */
 			const show: Record<View, (session: ParitySession) => Promise<void>> = {
 				local: async session => {
