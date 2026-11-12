@@ -177,6 +177,8 @@ export interface HubStats {
 	/** Every wait's duration in microseconds, in order (kept only while measuring). */
 	waitsUs: number[];
 	totalUs: number;
+	/** Calls per method (kept only while measuring). */
+	methods: Map<string, number>;
 }
 
 class Connection {
@@ -203,7 +205,7 @@ export class Hub {
 	#sequence = 0;
 	/** Calls main waits for now (nested ones count): a question answered inside one must not wait itself. */
 	#depth = 0;
-	readonly stats: HubStats = { calls: 0, waitsUs: [], totalUs: 0 };
+	readonly stats: HubStats = { calls: 0, waitsUs: [], totalUs: 0, methods: new Map() };
 	measuring = process.env.OMP_GUI_HUB_STATS === "1";
 
 	/** A new instance id, unique in this process (the core keys instances by it); the instance is opened with {@link open}. */
@@ -227,8 +229,18 @@ export class Hub {
 		this.#write({ id: ++this.#sequence, method: "hub.close", params: { id } });
 	}
 
+	/**
+	 * Returns once main has handled everything the core told it before now: a rule's continuation that already ran in
+	 * the core (its check passed, its command written) reaches main first. A path that acts on omp by itself, with no
+	 * call into the core, calls this before it acts, as the TypeScript's continuation ran to its send in one tick.
+	 */
+	barrier(): void {
+		this.#call("hub.sync", {});
+	}
+
 	/** A synchronous call of instance `to`'s `method`: its value, after every item it made was handled. */
 	call<T>(to: number, method: string, params: unknown = {}): T {
+		if (this.measuring) this.stats.methods.set(method, (this.stats.methods.get(method) ?? 0) + 1);
 		return this.#call("hub.call", { to, method, params }) as T;
 	}
 
@@ -472,6 +484,8 @@ export interface HubMinute {
 	p99Us: number;
 	maxUs: number;
 	totalMs: number;
+	/** The five most called methods, `name:count`. */
+	top: string;
 }
 
 /** The waits recorded since the last read, summarized; they are dropped. Null when nothing was measured. */
@@ -479,6 +493,12 @@ export function takeHubMinute(): HubMinute | null {
 	const { stats } = hub();
 	const waits = stats.waitsUs.splice(0).sort((a, b) => a - b);
 	const calls = stats.calls;
+	const top = [...stats.methods]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 5)
+		.map(([name, count]) => `${name}:${count}`)
+		.join(" ");
+	stats.methods.clear();
 	stats.calls = 0;
 	stats.totalUs = 0;
 	if (waits.length === 0) return null;
@@ -490,5 +510,6 @@ export function takeHubMinute(): HubMinute | null {
 		p99Us: at(0.99),
 		maxUs: waits.at(-1) ?? 0,
 		totalMs: Math.round(waits.reduce((sum, us) => sum + us, 0) / 100) / 10,
+		top,
 	};
 }

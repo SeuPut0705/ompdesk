@@ -409,6 +409,24 @@ fn dispatch(ctx: Ctx, method: &str, p: P) -> Outcome {
         // ---- what other parts of main read ----
         "resumeFacts" => later(async move { ctx.resume_facts().await }),
         "summarySources" => now(ctx.summary_sources()),
+        "summaryFactsAll" => later(async move {
+            let sources: Vec<(String, Option<String>)> =
+                p.0.get("sources")
+                    .and_then(Value::as_array)
+                    .map(|sources| {
+                        sources
+                            .iter()
+                            .map(|source| {
+                                (
+                                    source["tab"].as_str().unwrap_or("").to_string(),
+                                    source["ask"].as_str().map(str::to_string),
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            ctx.summary_facts_all(&sources).await
+        }),
         "summaryFacts" => later(async move {
             ctx.summary_facts(&p.s("tab")?, p.os("ask").as_deref())
                 .await

@@ -25,7 +25,7 @@
 //! opened it and closes with it.
 //!
 //! Requests (one JSON object per line): `hub.open {id, kind, opts}`, `hub.call {to, method, params}`,
-//! `hub.close {id}`, `hub.answer {ask, value?, error?}`.
+//! `hub.close {id}`, `hub.answer {ask, value?, error?}`, `hub.sync {}` (a barrier).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -540,6 +540,8 @@ fn handle(conn: ConnId, request: Request) {
             }
             Value::Null
         })),
+        // A barrier: answered once every job before it ran, so main has handled all they told it when it returns.
+        "hub.sync" => Outcome::done(),
         other => Outcome::fault("no_method", format!("The hub has no method {other}")),
     };
     match outcome {

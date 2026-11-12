@@ -591,7 +591,41 @@ impl Ctx {
             return Ok(Value::Null);
         }
         let cwd = self.cwd_of(tab).await?;
-        Ok(self.with(|pool| {
+        Ok(self.summary_facts_with(tab, ask, &cwd))
+    }
+
+    /// The facts of every source `summarySources` named (`[{tab, ask}]`), in one question for their folders: what the
+    /// summary builder reads of each tab when it rebuilds, in one call. A tab that is gone reads null.
+    pub(super) async fn summary_facts_all(&self, sources: &[(String, Option<String>)]) -> R<Value> {
+        let live: Vec<String> = self.with(|pool| {
+            sources
+                .iter()
+                .filter(|(tab, _)| pool.has(tab))
+                .map(|(tab, _)| tab.clone())
+                .collect()
+        });
+        let facts = if live.is_empty() {
+            Value::Null
+        } else {
+            self.facts(&live).await?
+        };
+        Ok(Value::Array(
+            sources
+                .iter()
+                .map(|(tab, ask)| match facts.get(tab.as_str()) {
+                    Some(fact) if self.with(|pool| pool.has(tab)) => {
+                        let cwd = fact["cwd"].as_str().unwrap_or("").to_string();
+                        self.summary_facts_with(tab, ask.as_deref(), &cwd)
+                    }
+                    _ => Value::Null,
+                })
+                .collect(),
+        ))
+    }
+
+    fn summary_facts_with(&self, tab: &str, ask: Option<&str>, cwd: &str) -> Value {
+        let cwd = cwd.to_string();
+        self.with(|pool| {
             let Some(entry) = pool.entry(tab) else {
                 return Value::Null;
             };
@@ -642,7 +676,7 @@ impl Ctx {
                 facts.insert("autoTitle".into(), Value::from(title));
             }
             Value::Object(facts)
-        }))
+        })
     }
 
     /// Who opened what in this computer's windows: child session file → its opener's file.

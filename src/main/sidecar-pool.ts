@@ -265,6 +265,9 @@ interface SidecarFacts {
 /** What `projectEvents` leaves of one agent event: only what the core's run rules read. */
 type ProjectedEvent = Record<string, unknown>;
 
+/** A tab's summary facts as the core answers them: no session file yet is null (the caller names the unsaved key). */
+type CoreSummaryFacts = Omit<SummaryFacts, "sessionPath"> & { sessionPath: string | null };
+
 /** The text a user message carries (a string, or its text blocks; attachments are not text). */
 function messageText(message: AgentMessage): string {
 	const { content } = message;
@@ -393,6 +396,8 @@ export class SidecarPool {
 		{ resolve: (value: unknown) => void; reject: (error: unknown) => void; timer?: NodeJS.Timeout }
 	>();
 	#token = 0;
+	/** The summary facts read last (`#summaryFacts`), while nothing has changed since. */
+	#summaryRead: object | null = null;
 	/** The paired devices' views by the id the core knows them by. */
 	readonly #viewIds = new WeakMap<HostedTabView, number>();
 	#nextView = 0;
@@ -454,6 +459,8 @@ export class SidecarPool {
 	 * answering) is opened again here, and the pool is seeded with the tabs main still holds (`#reseed`).
 	 */
 	#call<T>(method: string, params: object = {}): T {
+		// Whatever this call changes, the facts read for the summaries before it no longer stand.
+		this.#summaryRead = null;
 		const instance = () => {
 			this.#ensureOpen();
 			return this.#id;
@@ -571,6 +578,7 @@ export class SidecarPool {
 	// ---- what the core tells main -------------------------------------------------------------------------------
 
 	#item(item: HubItem): void {
+		this.#summaryRead = null;
 		switch (item.k) {
 			case "send": {
 				const channel = IPC_EVENTS[item.channel as keyof typeof IPC_EVENTS];
@@ -683,6 +691,7 @@ export class SidecarPool {
 
 	/** The core asks about something only main can answer (the handles and collaborators), and waits for the value. */
 	#ask(q: string, item: HubItem): unknown {
+		this.#summaryRead = null;
 		const tab = item.tab as string;
 		switch (q) {
 			case "blocked": {
@@ -1650,23 +1659,43 @@ export class SidecarPool {
 	 * say those.
 	 */
 	summarySources(): SummarySource[] {
-		return this.#call<Array<{ tabId: string; ask: "approval" | "input" | null }>>("summarySources").flatMap(
-			({ tabId, ask }) => {
-				const sidecar = this.#live(tabId)?.sidecar;
-				if (!sidecar) return [];
-				return [
-					{
-						sidecar,
-						facts: (): SummaryFacts | null => {
-							const facts = this.#call<
-								(Omit<SummaryFacts, "sessionPath"> & { sessionPath: string | null }) | null
-							>("summaryFacts", { tab: tabId, ask });
-							return facts ? { ...facts, sessionPath: facts.sessionPath ?? unsavedSessionKey(tabId) } : null;
-						},
+		const sources = this.#call<Array<{ tabId: string; ask: "approval" | "input" | null }>>("summarySources");
+		const read = { sources, facts: null as Map<string, CoreSummaryFacts | null> | null };
+		return sources.flatMap(({ tabId }) => {
+			const sidecar = this.#live(tabId)?.sidecar;
+			if (!sidecar) return [];
+			return [
+				{
+					sidecar,
+					facts: (): SummaryFacts | null => {
+						const facts = this.#summaryFacts(read).get(tabId) ?? null;
+						return facts ? { ...facts, sessionPath: facts.sessionPath ?? unsavedSessionKey(tabId) } : null;
 					},
-				];
-			},
-		);
+				},
+			];
+		});
+	}
+
+	/**
+	 * The facts of every source of one `summarySources`, read in one call when the summary builder asks for the first
+	 * of them, and kept until anything could change them: the next call of the pool, anything the core tells main, or
+	 * the end of this tick. The builder reads every source in one go; a read per tab was most of main's waits on the
+	 * hub (9 500 a minute with 20 tabs).
+	 */
+	#summaryFacts(read: {
+		sources: Array<{ tabId: string; ask: "approval" | "input" | null }>;
+		facts: Map<string, CoreSummaryFacts | null> | null;
+	}): Map<string, CoreSummaryFacts | null> {
+		if (read.facts && this.#summaryRead === read) return read.facts;
+		const answers = this.#call<Array<CoreSummaryFacts | null>>("summaryFactsAll", {
+			sources: read.sources.map(({ tabId, ask }) => ({ tab: tabId, ask })),
+		});
+		read.facts = new Map(read.sources.map(({ tabId }, index) => [tabId, answers[index] ?? null]));
+		this.#summaryRead = read;
+		queueMicrotask(() => {
+			if (this.#summaryRead === read) this.#summaryRead = null;
+		});
+		return read.facts;
 	}
 
 	/**
@@ -1735,6 +1764,9 @@ export class SidecarPool {
 
 	/** A command that may move this tab (`TOUCH_COMMANDS`) goes out; call the result once its answer was counted (`trackMove`). */
 	beginMove(tabId: string): () => void {
+		// A continuation whose check found no move on its way and whose command the core already wrote is sent first
+		// (formal/turn-resume P9 `NoSendWhileMoveInFlight`, CORRESPONDENCE A18): the move's command goes after it.
+		this.#hub.barrier();
 		return this.#moves.begin(tabId);
 	}
 
