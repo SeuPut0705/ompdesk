@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.124.2] - 2026-11-12
+
+켜져 있는 컴퓨터가 다른 컴퓨터에 오프라인으로 보이던 문제와, 질문 카드 때문에 자동 업데이트가 멈춰 있던 문제를 고쳤어요.
+
+### 고친 것
+- 켜져 있고 앱도 돌고 있는 컴퓨터가 다른 컴퓨터의 연결을 계속 거절해서 오프라인으로 보이던 문제를 고쳤어요. 컴퓨터의 Tailscale 주소가 바뀌거나 한 번 읽히지 않으면 연결을 받는 쪽이 닫혔는데, 이미 연결된 기기가 하나라도 있으면 다시 열리지 못하고 앱을 다시 켤 때까지 그대로였어요. 이제 바로 닫고 다음 확인(최대 15초) 때 다시 열어요. 이미 이어진 연결은 끊기지 않아요.
+- 질문 카드나 승인 카드가 열려 있으면 자동 업데이트가 기한 없이 기다리던 것을 바꿨어요. 카드가 열린 채 10분 동안 그 컴퓨터에 아무 입력이 없으면 60초 카운트다운 뒤 재시작하고, 다시 켜진 뒤 같은 카드가 다시 떠요. 누가 입력하고 있으면 계속 기다려요. 계획 제안 카드와 진행 중인 압축은 전처럼 끝날 때까지 기다려요. "중단된 작업 이어서 하기"가 꺼져 있으면 달라지는 것이 없어요.
+- 다른 세션의 에이전트가 보낸 메시지가 받는 세션의 "후속 메시지" 대기열에 남아 턴이 끝날 때까지 읽히지 않던 문제를 고쳤어요. 이제 다음 단계에서 바로 읽혀요. 받는 세션에 질문 카드가 열려 있을 때만 전처럼 답한 뒤에 읽혀요(바로 넣으면 카드가 닫히기 때문이에요). 자기가 연 세션에 다음 작업을 줄 때는 전처럼 턴 뒤에 이어져요.
+- 업데이트를 직접 눌러 설치한 뒤에 업데이트 기록에 카운트다운 줄이 더 남던 것을 고쳤어요.
+
+### 바뀐 것
+- 연결 기록이 연결을 받는 쪽의 상태(받는 중인지, 포트, 이어진 기기 수)를 남겨요. 주소는 남기지 않아요.
+- 워크트리 만들기와 지우기, PR 센터와 GitHub 센터, 세션 브랜치의 병합과 정리가 Rust 코어 프로세스로 옮겨졌어요. 화면과 결과는 그대로예요. 속도는 재지 않았어요.
+
+카드 위로 재시작한 뒤 질문 카드와 승인 카드가 다시 뜨는 것은 실제 omp로 확인했어요. 설치된 앱에서 업데이트까지 이어서 해 본 것은 아니에요. 카드 안에 적어 두고 보내지 않은 답은 재시작으로 사라져요. 오프라인 문제는 테스트로 재현해 고쳤고, Windows에서 같은 포트로 다시 여는 것은 확인하지 못했어요.
+
+<!-- en -->
+
+A computer that was on no longer looks offline to your other computers, and an open question card no longer holds the automatic update for ever.
+
+### Fixed
+- A computer that was on, with the app running, could refuse every connection from your other computers and so look offline. When its Tailscale addresses changed, or one read of them failed, the side that accepts connections closed and, with even one device still connected, never opened again until the app was restarted. It now closes at once and opens again at the next check (15 seconds at most). Connections already open stay.
+- An open question or approval card used to hold the automatic update with no limit. Now, once a card has been open for 10 minutes with no input on that computer, a 60 second countdown runs and the app restarts; the same card comes back afterwards. While someone is giving input it keeps waiting. A plan proposal and a compaction in progress still hold until they end. Nothing changes when "Continue interrupted work" is off.
+- A message sent by another session's agent could stay in the receiving session's follow-up queue, unread until its turn ended. It is now read at the next step. Only while a question card is open in the receiving session does it wait for the answer as before (delivering at once would close the card). Giving the next task to a session you opened still follows its turn.
+- After an update you installed by clicking, the update log no longer gains countdown lines.
+
+### Changed
+- The link log records the state of the accepting side (listening or not, the port, how many devices are connected), never an address.
+- Creating and removing worktrees, the PR Center and the GitHub center, and merging and clearing session branches moved into the Rust core process. Screens and results are the same. Speed was not measured.
+
+That question and approval cards come back after a restart over them was confirmed on a real omp, not through a whole update of the installed app. An answer typed into a card but not sent is lost in the restart. The offline fault was reproduced and fixed in tests; listening again on the same port was not confirmed on Windows.
+
 ## [0.124.1] - 2026-11-12
 
 omp 18.18.9에서 컨텍스트 검사기가 열리지 않던 문제를 고쳤고, 이 버전부터 omp 18.18.9 이상이 필요해요.
