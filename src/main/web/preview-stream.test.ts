@@ -143,6 +143,50 @@ describe("PageStream", () => {
 		expect(FakeImage.encodes).toBe(1);
 	});
 
+	/** An image whose encode waits for `release()`: the shell is still working on it. */
+	class SlowImage extends FakeImage {
+		readonly release: () => void;
+		readonly #gate: Promise<void>;
+		constructor(width: number, height: number) {
+			super(width, height);
+			const { promise, resolve } = Promise.withResolvers<void>();
+			this.#gate = promise;
+			this.release = resolve;
+		}
+		override async jpeg(options: { quality: number; width?: number }) {
+			await this.#gate;
+			return super.jpeg(options);
+		}
+	}
+
+	it("drops a frame whose page navigated while the shell was encoding it", async () => {
+		const { page, stream } = setup();
+		const stale = new SlowImage(780, 1688);
+		page.listener?.(stale);
+		const poll = stream.poll({ ack: null, wait: 5000 });
+		await vi.advanceTimersByTimeAsync(10);
+		stream.refresh();
+		stale.release();
+		await vi.advanceTimersByTimeAsync(10);
+		page.paint(390, 844);
+		await vi.advanceTimersByTimeAsync(100);
+		const { frame } = await poll;
+		expect(frame).toMatchObject({ seq: 1, width: 390, height: 844 });
+	});
+
+	it("keeps a frame whose poll left while it was being encoded for the next poll", async () => {
+		const { page, stream } = setup();
+		const image = new SlowImage(780, 1688);
+		page.listener?.(image);
+		const first = stream.poll({ ack: null, wait: 50 });
+		await vi.advanceTimersByTimeAsync(60);
+		expect(await first).toEqual({ frame: null, dialogs: [] });
+		image.release();
+		await vi.advanceTimersByTimeAsync(10);
+		const next = await stream.poll({ ack: null, wait: 50 });
+		expect(next.frame).toMatchObject({ seq: 1, width: 780 });
+	});
+
 	it("sends the next paint once the poll names the last frame", async () => {
 		const { page, stream } = setup();
 		page.paint();
