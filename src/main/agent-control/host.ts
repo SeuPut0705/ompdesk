@@ -116,7 +116,6 @@ import {
 	type ToolOutcome,
 	type Tuning,
 } from "./service";
-import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
 export const CARD_TIMEOUT_MS = 10 * 60_000;
@@ -1120,13 +1119,10 @@ export class AgentControlRuntime {
 			release: async (_callerTabId, tabId) => {
 				const win = deps.pool.windowOfTab(tabId);
 				if (!win || !isWebWindow(win.webContents.id)) return false;
-				// The page's word may change while the release awaits: the one rule decides again on what it says then.
+				// The page's word may change while the release awaits: the core's rule (`rules/tab_close.rs`) released a
+				// page's tab only while its page held no unsaved Files edits, and that is asked again on the store now.
 				const id = win.webContents.id;
-				return deps.releaseTab(
-					win,
-					tabId,
-					() => tabCloseStep({ webEdits: deps.fileEdits.edits(id, tabId) }).action === "release",
-				);
+				return deps.releaseTab(win, tabId, () => deps.fileEdits.edits(id, tabId) !== "dirty");
 			},
 			view: (callerTabId, event: AgentControlViewEvent) => {
 				// The window that holds the session (another window's tab closes or shows there), else the caller's.

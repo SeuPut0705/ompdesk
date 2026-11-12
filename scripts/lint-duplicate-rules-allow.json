@@ -25,22 +25,6 @@
 		"reason": "Known duplicate: ompdesk_schedule's daily_at check in agent-control/tools.ts restates src/shared/schedules.ts TIME; merge by importing it."
 	},
 	{
-		"rule": "/^(\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)/",
-		"files": [
-			"src/renderer/components/agents/github/GithubRepos.tsx",
-			"src/renderer/components/chat/dock/PlanDockCard.tsx"
-		],
-		"reason": "Known duplicate: the absolute-path test (POSIX, drive, UNC) in GithubRepos.tsx and PlanDockCard.tsx (the agent-control copy moved into the Rust core); merge into one src/shared export."
-	},
-	{
-		"rule": "/^(Autopilot|오토파일럿) · /",
-		"files": [
-			"src/main/autopilot.ts",
-			"src/renderer/lib/session-title.ts"
-		],
-		"reason": "Known duplicate: the title prefix earlier builds gave an Autopilot run, stripped in main/autopilot.ts and renderer/lib/session-title.ts; merge into one src/shared export."
-	},
-	{
 		"rule": "/^[a-z0-9][a-z0-9-]{0,40}$/",
 		"files": [
 			"src/main/local/git/parse.ts",

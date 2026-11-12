@@ -10,7 +10,8 @@ import {
 } from "../../shared/sidebar-projects";
 import { core } from "../core/process";
 import { SidebarProjects } from "../sidebar-projects";
-import { AppControl, type AppPorts, AppRefusal, type ScriptedAction } from "./app-control";
+import { AppControl, AppRefusal, type ScriptedAction } from "./app-control-test-rig";
+import type { AppPorts } from "./service";
 
 /** The core's tables, read the way the tests need them. */
 const { actions } = (
