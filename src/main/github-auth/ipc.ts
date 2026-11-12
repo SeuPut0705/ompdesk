@@ -8,7 +8,7 @@ import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import type { GithubAuthState } from "../../shared/github-auth";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
-import { ghText, resolveBin } from "../local/git/exec";
+import { ghRunner, resolveBin } from "../local/git/exec";
 import { spawnPath } from "../shell-env";
 import type { IpcRegistry } from "../web/ipc-registry";
 import { stockPtyLauncher } from "./pty";
@@ -53,7 +53,7 @@ export function createGithubAuthService(
 		resolveGh: () => resolveBin("gh"),
 		resolveGit: usableGit,
 		...install,
-		run: (bin, args) => ghText(homedir(), bin, args),
+		runner: ghRunner,
 		pty: stockPtyLauncher,
 		loginEnv,
 		home: homedir(),

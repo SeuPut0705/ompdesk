@@ -44,6 +44,12 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const [group, verb] = args;
 const state = load();
+// $FAKE_GH_LEAK=1: every call but the version and the status fails, quoting $GH_TOKEN on both streams.
+if (process.env.FAKE_GH_LEAK === "1" && group !== "--version" && !(group === "auth" && verb === "status")) {
+	console.log("token " + process.env.GH_TOKEN);
+	console.error("HTTP 401: Bad credentials " + process.env.GH_TOKEN);
+	process.exit(1);
+}
 if (group === "--version") { console.log("gh version " + (old ? "2.30.0" : "2.62.0") + " (2024-11-14)"); process.exit(0); }
 if (group === "auth" && verb === "status") {
 	if (args.includes("--active") && old) { console.error("unknown flag: --active"); process.exit(1); }

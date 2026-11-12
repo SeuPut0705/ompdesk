@@ -1,0 +1,4887 @@
+{
+	"commit": "b0c90dd3",
+	"logins": [
+		{
+			"output": "✓ Logged in to github.com account octocat (keyring)",
+			"login": "octocat"
+		},
+		{
+			"output": "✓ Logged in to github.com as hubot (oauth_token)",
+			"login": "hubot"
+		},
+		{
+			"output": "",
+			"login": null
+		},
+		{
+			"output": "You are not logged into any GitHub hosts.",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account ",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account\n  - Active account: true",
+			"login": "-"
+		},
+		{
+			"output": "Logged in to  github.com account x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com\taccount x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account\tx",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com account   x  y",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com accountx",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com accounts x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account x",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com account x",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com account　x　y",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com account﻿x",
+			"login": "x"
+		},
+		{
+			"output": "Logged in to github.com accountx",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account​x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account᠎x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account 😀 (keyring)",
+			"login": "😀"
+		},
+		{
+			"output": "Logged in to 깃허브 account 한글",
+			"login": "한글"
+		},
+		{
+			"output": "Logged in to a as b\nLogged in to c account d",
+			"login": "d"
+		},
+		{
+			"output": "Logged in to a account b Logged in to c account d",
+			"login": "b"
+		},
+		{
+			"output": "Logged in to a as\nLogged in to c as d",
+			"login": "d"
+		},
+		{
+			"output": "Logged in to a b account c\nLogged in to e account f",
+			"login": "f"
+		},
+		{
+			"output": "logged in to github.com account lower",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com account octo\r\n",
+			"login": "octo"
+		},
+		{
+			"output": "Logged in to github.com account octo\r",
+			"login": "octo"
+		},
+		{
+			"output": "Logged in to github.com as  x",
+			"login": null
+		},
+		{
+			"output": "Logged in to github.com as\tx",
+			"login": null
+		},
+		{
+			"output": "Logged in to x account y as z",
+			"login": "y"
+		},
+		{
+			"output": "Logged in to Logged in to a account b",
+			"login": "b"
+		},
+		{
+			"output": "Logged in to github.com account octo)",
+			"login": "octo)"
+		}
+	],
+	"accounts": [
+		{
+			"output": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+			"accounts": [
+				{
+					"login": "octocat",
+					"active": true
+				},
+				{
+					"login": "hubot",
+					"active": false
+				},
+				{
+					"login": "hubot",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "github.com\r\n  ✓ Logged in to github.com account octocat (keyring)\r\n  - Active account: true\r\n  X Failed to log in to github.com account stale (keyring)\r\n  - Active account: false\r\n  ✓ Logged in to github.com account hubot (keyring)\r\n  - Active account: false\r\n  ✓ Logged in to github.com account hubot (oauth_token)\r\n  - Active account: false\r\n",
+			"accounts": [
+				{
+					"login": "octocat",
+					"active": true
+				},
+				{
+					"login": "hubot",
+					"active": false
+				},
+				{
+					"login": "hubot",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "github.com\r  ✓ Logged in to github.com account octocat (keyring)\r  - Active account: true\r  X Failed to log in to github.com account stale (keyring)\r  - Active account: false\r  ✓ Logged in to github.com account hubot (keyring)\r  - Active account: false\r  ✓ Logged in to github.com account hubot (oauth_token)\r  - Active account: false\r",
+			"accounts": [
+				{
+					"login": "octocat",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account: TRUE",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - active ACCOUNT:true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account:\ttrue",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account: 　true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account: truey",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account: false",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  - Active account : true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "  - Active account: true\n  ✓ Logged in to github.com account a (keyring)",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a (keyring)\n  X Failed to log in to github.com account b\n  - Active account: true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a Failed to log in\n  - Active account: true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  Logged in to github.com account a (keyring)",
+			"accounts": []
+		},
+		{
+			"output": "  ✓  Logged in to github.com account a (keyring)",
+			"accounts": []
+		},
+		{
+			"output": "✓ Logged in to github.com as a (oauth_token)",
+			"accounts": []
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a\n  ✓ Logged in to github.com account a\n  - Active account: true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				},
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a\n  - Active account: true\n  - Active account: false",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a\n  - Active account: true Active account: true\n",
+			"accounts": [
+				{
+					"login": "a",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account\n  - Active account: true",
+			"accounts": []
+		},
+		{
+			"output": "  ✓ Logged in to ghe.example account 한 (keyring)\n  - Active account: true",
+			"accounts": [
+				{
+					"login": "한",
+					"active": true
+				}
+			]
+		},
+		{
+			"output": "  ✓ Logged in to github.com account a\n  - ActivK account: true",
+			"accounts": [
+				{
+					"login": "a",
+					"active": false
+				}
+			]
+		},
+		{
+			"output": "",
+			"accounts": []
+		}
+	],
+	"flows": [
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0 (2024-11-14)\nhttps://github.com/cli/cli/releases/tag/v2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "You are not logged into any GitHub hosts. To log in, run: gh auth login\n"
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0 (2024-11-14)\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 1,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "  The Octocat \n",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": "The Octocat",
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": "octocat",
+					"otherAccounts": [
+						"hubot"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.30.0 (2023-05-10)\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "unknown flag: --active\n\nUsage: ..."
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": "github.com\n  ✓ Logged in to github.com as octocat (oauth_token)\n"
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "A\n",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "a@b\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": "A",
+					"email": "a@b"
+				},
+				"status": {
+					"installed": true,
+					"version": "2.30.0",
+					"authenticated": true,
+					"login": "octocat",
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.30.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 1,
+					"stdout": "Unknown Flag --ACTIVE",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "You are not logged into any GitHub hosts."
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.30.0",
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.30.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 1,
+					"stdout": "unknown flag:  --active",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "Logged in to github.com as x",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.30.0",
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.30.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "unKnown flag: --active"
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "Logged in to github.com as x",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.30.0",
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 1,
+					"stdout": "gh version 2.62.0",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  - no login line\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": null,
+					"authenticated": true,
+					"login": null,
+					"otherAccounts": [
+						"octocat",
+						"hubot"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "",
+					"stderr": "gh version 2.62.0"
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "",
+					"stderr": "github.com\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n"
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n"
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": null,
+					"authenticated": true,
+					"login": "hubot",
+					"otherAccounts": [
+						"octocat"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"reject": "gh timed out after 30000ms"
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "gh timed out after 30000ms",
+			"jsonError": false
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"reject": "spawn gh ENOENT"
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "spawn gh ENOENT",
+			"jsonError": false
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"reject": "spawn git ENOENT"
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "spawn git ENOENT",
+			"jsonError": false
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": false,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": null,
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": "octocat",
+					"otherAccounts": [
+						"hubot"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": false,
+			"git": true,
+			"script": {
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "N\n",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": "N",
+					"email": null
+				},
+				"status": {
+					"installed": false,
+					"version": null,
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": false,
+			"git": false,
+			"script": {},
+			"calls": [],
+			"result": {
+				"identity": null,
+				"status": {
+					"installed": false,
+					"version": null,
+					"authenticated": false,
+					"login": null,
+					"otherAccounts": []
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account stale (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n  X Failed to log in to github.com account stale (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (keyring)\n  - Active account: false\n  ✓ Logged in to github.com account hubot (oauth_token)\n  - Active account: false\n",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "﻿ 　",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "  e@x ",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": "e@x"
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": "stale",
+					"otherAccounts": [
+						"octocat",
+						"hubot"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "github.com\n  ✓ Logged in to github.com account a (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "  ✓ Logged in to github.com account b\n  ✓ Logged in to github.com account a\n  ✓ Logged in to github.com account b\n  ✓ Logged in to github.com account c\n",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 128,
+					"stdout": "",
+					"stderr": "error"
+				},
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "x",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": "x"
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": "a",
+					"otherAccounts": [
+						"b",
+						"c"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 0,
+					"stdout": "ok but nothing",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": {
+					"code": 0,
+					"stdout": "  ✓ Logged in to github.com account b\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": null,
+					"otherAccounts": [
+						"b"
+					]
+				}
+			}
+		},
+		{
+			"op": "check",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh --version": {
+					"code": 0,
+					"stdout": "gh version 2.62.0\n",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com --active": {
+					"code": 2,
+					"stdout": "unknown flag: --active",
+					"stderr": ""
+				},
+				"gh auth status --hostname github.com": [
+					{
+						"code": 0,
+						"stdout": "github.com\n  ✓ Logged in to github.com account z (keyring)\n  - Active account: true\n  - Git operations protocol: https\n  - Token: gho_************************************\n",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"stdout": "  ✓ Logged in to github.com account z\n  ✓ Logged in to github.com account y\n",
+						"stderr": ""
+					}
+				]
+			},
+			"calls": [
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"gh",
+					"--version"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com",
+					"--active"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"status",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": {
+				"identity": {
+					"name": null,
+					"email": null
+				},
+				"status": {
+					"installed": true,
+					"version": "2.62.0",
+					"authenticated": true,
+					"login": "z",
+					"otherAccounts": [
+						"y"
+					]
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"octocat\",\"id\":583231,\"name\":\"The Octocat\",\"email\":null}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": [
+					{
+						"code": 1,
+						"stdout": "",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"stdout": "The Octocat\n",
+						"stderr": ""
+					}
+				],
+				"git config --global --get user.email": [
+					{
+						"code": 1,
+						"stdout": "",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"stdout": "583231+octocat@users.noreply.github.com\n",
+						"stderr": ""
+					}
+				],
+				"git config --global user.name The Octocat": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 583231+octocat@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"The Octocat"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"583231+octocat@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": "The Octocat",
+					"email": "583231+octocat@users.noreply.github.com"
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"octocat\",\"id\":583231,\"name\":\"The Octocat\",\"email\":\"octo@example.com\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "Kept\n",
+					"stderr": ""
+				},
+				"git config --global --get user.email": [
+					{
+						"code": 1,
+						"stdout": "",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"stdout": "octo@example.com\n",
+						"stderr": ""
+					}
+				],
+				"git config --global user.email octo@example.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"octo@example.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"email"
+				],
+				"identity": {
+					"name": "Kept",
+					"email": "octo@example.com"
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"octocat\",\"id\":583231,\"name\":\" \",\"email\":\" \"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": [
+					{
+						"code": 1,
+						"stdout": "",
+						"stderr": ""
+					},
+					{
+						"code": 0,
+						"stdout": "octocat\n",
+						"stderr": ""
+					}
+				],
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "kept@x\n",
+					"stderr": ""
+				},
+				"git config --global user.name octocat": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"octocat"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name"
+				],
+				"identity": {
+					"name": "octocat",
+					"email": "kept@x"
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"octocat\",\"id\":1,\"name\":\"N\",\"email\":\"e\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "Kept\n",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 0,
+					"stdout": "kept@x\n",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [],
+				"identity": {
+					"name": "Kept",
+					"email": "kept@x"
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1.0}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 1+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"1+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1e3}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 1000+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"1000+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":-5}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email -5+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"-5+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":-0}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 0+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"0+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":9007199254740991}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 9007199254740991+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"9007199254740991+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":9007199254740992}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1.5}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":\"7\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":null}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":true}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":2,\"name\":\"  Spaced  Name \\t\",\"email\":\"\\u00a0m@x\\u3000\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name Spaced  Name": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email m@x": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"Spaced  Name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"m@x"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":2,\"name\":\"\\ufeff\",\"email\":\"\\u0085\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email ": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					""
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":2,\"name\":5,\"email\":[\"x\"]}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 2+a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"2+a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\" a \",\"id\":3}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name  a ": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 3+ a @users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					" a "
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"3+ a @users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1,\"login\":\"b\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name b": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 1+b@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"b"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"1+b@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": " \n{\"login\":\"한글\",\"id\":4,\"name\":\"이름\"}\n",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name 이름": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 4+한글@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"이름"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"4+한글@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1e400}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email a@users.noreply.github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"a@users.noreply.github.com"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"result": {
+				"identityFilled": [
+					"name",
+					"email"
+				],
+				"identity": {
+					"name": null,
+					"email": null
+				}
+			}
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "JSON Parse error: Unexpected EOF",
+			"jsonError": true
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "not json",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "JSON Parse error: Unexpected identifier \"not\"",
+			"jsonError": true
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "JSON Parse error: Expected '}'",
+			"jsonError": true
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "null",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no account",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "[]",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no login",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "\"s\"",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no account",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "5",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no account",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "true",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no account",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"id\":1}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no login",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no login",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":5}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user returned no login",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\"}x",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "JSON Parse error: Unable to parse JSON string",
+			"jsonError": true
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "﻿{\"login\":\"a\"}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "JSON Parse error: Unrecognized token '﻿'",
+			"jsonError": true
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 1,
+					"stdout": "out",
+					"stderr": " HTTP 401: Bad credentials \n"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "HTTP 401: Bad credentials",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 1,
+					"stdout": " only stdout ",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "only stdout",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user failed",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 1,
+					"stdout": "　",
+					"stderr": "﻿"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh api user failed",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"reject": "gh timed out after 30000ms"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				]
+			],
+			"error": "gh timed out after 30000ms",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.name a": {
+					"code": 255,
+					"stdout": "",
+					"stderr": "error: could not lock config file\n"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.name",
+					"a"
+				]
+			],
+			"error": "error: could not lock config file",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"code": 0,
+					"stdout": "N",
+					"stderr": ""
+				},
+				"git config --global --get user.email": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				},
+				"git config --global user.email 1+a@users.noreply.github.com": {
+					"code": 255,
+					"stdout": "out",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"user.email",
+					"1+a@users.noreply.github.com"
+				]
+			],
+			"error": "git config user.email failed",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": true,
+			"script": {
+				"gh api user": {
+					"code": 0,
+					"stdout": "{\"login\":\"a\",\"id\":1}",
+					"stderr": ""
+				},
+				"git config --global --get user.name": {
+					"reject": "spawn git ENOENT"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.name"
+				],
+				[
+					"git",
+					"config",
+					"--global",
+					"--get",
+					"user.email"
+				]
+			],
+			"error": "spawn git ENOENT",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": false,
+			"git": true,
+			"script": {},
+			"calls": [],
+			"error": "GitHub CLI (gh) is not installed",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": false,
+			"git": false,
+			"script": {},
+			"calls": [],
+			"error": "GitHub CLI (gh) is not installed",
+			"jsonError": false
+		},
+		{
+			"op": "identity",
+			"gh": true,
+			"git": false,
+			"script": {},
+			"calls": [],
+			"error": "git is not installed",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": null,
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": null
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"result": null
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "multiple accounts"
+				},
+				"gh auth logout --hostname github.com --user octocat": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com",
+					"--user",
+					"octocat"
+				]
+			],
+			"result": null
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "multiple accounts"
+				},
+				"gh auth logout --hostname github.com --user octocat": {
+					"code": 1,
+					"stdout": "",
+					"stderr": " not logged in \n"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com",
+					"--user",
+					"octocat"
+				]
+			],
+			"error": "not logged in",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "multiple accounts"
+				},
+				"gh auth logout --hostname github.com --user octocat": {
+					"code": 1,
+					"stdout": " out ",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com",
+					"--user",
+					"octocat"
+				]
+			],
+			"error": "out",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "multiple accounts"
+				},
+				"gh auth logout --hostname github.com --user octocat": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				],
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com",
+					"--user",
+					"octocat"
+				]
+			],
+			"error": "gh auth logout failed",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": null,
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "multiple accounts; specify --user"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "multiple accounts; specify --user",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"code": 1,
+					"stdout": "x",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "x",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": true,
+			"login": "octocat",
+			"script": {
+				"gh auth logout --hostname github.com": {
+					"reject": "spawn gh ENOENT"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"logout",
+					"--hostname",
+					"github.com"
+				]
+			],
+			"error": "spawn gh ENOENT",
+			"jsonError": false
+		},
+		{
+			"op": "logout",
+			"gh": false,
+			"login": "x",
+			"script": {},
+			"calls": [],
+			"error": "GitHub CLI (gh) is not installed",
+			"jsonError": false
+		},
+		{
+			"op": "switch",
+			"gh": true,
+			"login": "hubot",
+			"script": {
+				"gh auth switch --hostname github.com --user hubot": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"switch",
+					"--hostname",
+					"github.com",
+					"--user",
+					"hubot"
+				]
+			],
+			"result": null
+		},
+		{
+			"op": "switch",
+			"gh": true,
+			"login": "hubot",
+			"script": {
+				"gh auth switch --hostname github.com --user hubot": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "not logged in as hubot\n"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"switch",
+					"--hostname",
+					"github.com",
+					"--user",
+					"hubot"
+				]
+			],
+			"error": "not logged in as hubot",
+			"jsonError": false
+		},
+		{
+			"op": "switch",
+			"gh": true,
+			"login": "hubot",
+			"script": {
+				"gh auth switch --hostname github.com --user hubot": {
+					"code": 1,
+					"stdout": "o",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"switch",
+					"--hostname",
+					"github.com",
+					"--user",
+					"hubot"
+				]
+			],
+			"error": "o",
+			"jsonError": false
+		},
+		{
+			"op": "switch",
+			"gh": true,
+			"login": "hubot",
+			"script": {
+				"gh auth switch --hostname github.com --user hubot": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"switch",
+					"--hostname",
+					"github.com",
+					"--user",
+					"hubot"
+				]
+			],
+			"error": "gh auth switch failed",
+			"jsonError": false
+		},
+		{
+			"op": "switch",
+			"gh": true,
+			"login": "hubot",
+			"script": {
+				"gh auth switch --hostname github.com --user hubot": {
+					"reject": "gh timed out after 30000ms"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"auth",
+					"switch",
+					"--hostname",
+					"github.com",
+					"--user",
+					"hubot"
+				]
+			],
+			"error": "gh timed out after 30000ms",
+			"jsonError": false
+		},
+		{
+			"op": "switch",
+			"gh": false,
+			"login": "x",
+			"script": {},
+			"calls": [],
+			"error": "GitHub CLI (gh) is not installed",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": true,
+			"script": {
+				"gh api --method PUT user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"--method",
+					"PUT",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": true
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": true,
+			"script": {
+				"gh api --method PUT user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "HTTP 401"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"--method",
+					"PUT",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "HTTP 401",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": true,
+			"script": {
+				"gh api --method PUT user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"--method",
+					"PUT",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "gh api star failed",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 0,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": true
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "gh: Not Found (HTTP 404)"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "not found",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "http 404"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "HTTP 4040"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"result": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "HTTP 403: rate limit"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "HTTP 403: rate limit",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": ""
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "gh api user/starred failed",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"code": 1,
+					"stdout": "",
+					"stderr": "NOT FOUNK"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "NOT FOUNK",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": true,
+			"repo": "SeuPut0705/ompdesk",
+			"star": false,
+			"script": {
+				"gh api user/starred/SeuPut0705/ompdesk --silent": {
+					"reject": "spawn gh ENOENT"
+				}
+			},
+			"calls": [
+				[
+					"gh",
+					"api",
+					"user/starred/SeuPut0705/ompdesk",
+					"--silent"
+				]
+			],
+			"error": "spawn gh ENOENT",
+			"jsonError": false
+		},
+		{
+			"op": "star",
+			"gh": false,
+			"repo": "SeuPut0705/ompdesk",
+			"star": true,
+			"script": {},
+			"calls": [],
+			"error": "GitHub CLI (gh) is not installed",
+			"jsonError": false
+		}
+	]
+}

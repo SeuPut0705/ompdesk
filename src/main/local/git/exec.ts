@@ -144,7 +144,7 @@ export async function gitRunner(): Promise<CoreRunner> {
 const GH_ENV = { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1" };
 
 /** This process's rules for the gh (or, for the sign-in's git calls, the git) at `bin` that the core runs, read now. */
-async function ghRunner(bin: string): Promise<CoreRunner> {
+export async function ghRunner(bin: string): Promise<CoreRunner> {
 	return { bin, args: [], env: await runnerEnv(GH_ENV), timeoutMs: DEFAULT_TIMEOUT_MS, maxBytes: DEFAULT_MAX_BYTES };
 }
 
@@ -202,7 +202,8 @@ export function coreGitAnswer<T>(method: string, params: object, rounds: number,
 }
 
 /**
- * A request to the core that runs no git (disk care's walks, copies and removals), held as `heldRequest` says: a
+ * A request to the core whose params already carry what it runs (disk care's walks, copies and removals, which run no
+ * process; the GitHub sign-in's requests, with the gh and git runners `ghRunner` built), held as `heldRequest` says: a
  * stopped step cancels it and the lock's next holder waits until the core is done with it. `timeoutMs` is how long its
  * work may take.
  */

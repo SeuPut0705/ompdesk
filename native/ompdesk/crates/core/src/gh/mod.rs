@@ -1,7 +1,8 @@
 //! gh, the GitHub CLI. The PR Center (`pr.rs`, was the logic of `src/main/local/git/pr.ts` and of `parse.ts`'s
-//! `parsePrUnifiedDiff`, `rollupChecks`, `rollupCounts`) and the GitHub center (`center.rs`, was `github.ts`'s
-//! operations) run their whole sequence of gh and git runs here, each one request. gh's other callers keep their logic
-//! in main (the sign-in service's state machine, autopilot's release poll, the routines' GitHub source) and reach gh
+//! `parsePrUnifiedDiff`, `rollupChecks`, `rollupCounts`), the GitHub center (`center.rs`, was `github.ts`'s
+//! operations) and the GitHub sign-in's gh and git runs (`auth.rs`, was `src/main/github-auth/cli.ts`) run their whole
+//! sequence of gh and git runs here, each one request. gh's other callers keep their logic in main (autopilot's
+//! release poll, the routines' GitHub source) and reach gh
 //! through the two contracts `exec.ts` had: `gh.run` (`gh()`: stdout as text, a failure on a non-zero exit or a cut
 //! output) and `gh.text` (`ghText()`: 30 s, every exit code answered).
 //!
@@ -15,6 +16,7 @@
 //! replaced by `***` in every fault this module answers and in the stderr `gh.text` answers (stdout is data its callers
 //! read, and passes as gh printed it). Nothing here logs a request or its environment.
 
+mod auth;
 mod center;
 mod json;
 mod pr;
@@ -351,6 +353,7 @@ struct CenterParams {
 }
 
 pub fn register(registry: &mut Registry) {
+    auth::register(registry);
     registry.add("gh.run", |call| {
         Box::pin(async move {
             let RunParams {

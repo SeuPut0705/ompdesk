@@ -17,18 +17,8 @@ import {
 	githubLoginLive,
 } from "../../shared/github-auth";
 import type { SetupItemState } from "../../shared/setup";
-import {
-	fillGitIdentity,
-	type GhRunner,
-	ghAccountIdentity,
-	ghAuthStatus,
-	ghLogout,
-	ghRepoStarred,
-	ghStarRepo,
-	ghSwitch,
-	ghVersion,
-	gitIdentity,
-} from "./cli";
+import type { CoreRunner } from "../local/git/exec";
+import { type AuthTools, authCheck, authFillIdentity, authLogout, authSwitch, repoStar } from "./cli";
 import type { PtyChunk, PtyHandle, PtyLauncher } from "./pty";
 
 export interface GithubAuthDeps {
@@ -43,7 +33,8 @@ export interface GithubAuthDeps {
 	installGh?(): Promise<SetupItemState>;
 	/** The user cancelled the sign-in while gh installed for it: stop that install. */
 	cancelGhInstall?(): void;
-	run: GhRunner;
+	/** How gh (or, for git's identity, git) at `bin` runs in the core: `ghRunner` in production. */
+	runner(bin: string): Promise<CoreRunner>;
 	pty: PtyLauncher;
 	/** The whole environment `gh auth login` runs with. */
 	loginEnv(): Promise<Record<string, string>>;
@@ -117,23 +108,24 @@ export class GithubAuthService {
 	async #runCheck(): Promise<void> {
 		this.#set({ checking: true });
 		try {
-			const { run } = this.#deps;
 			const [gh, git] = await Promise.all([this.#deps.resolveGh(), this.#deps.resolveGit()]);
-			const [identity, version, auth] = await Promise.all([
-				git ? gitIdentity(run, git) : null,
-				gh ? ghVersion(run, gh) : null,
-				gh ? ghAuthStatus(run, gh) : { authenticated: false, login: null, otherAccounts: [] },
-			]);
+			const { identity, status } = await authCheck(await this.#tools(gh, git));
 			this.#checkedAt = Date.now();
 			this.#set({
 				checking: false,
 				identity,
-				status: { installed: gh !== null, version, ...auth },
+				status,
 				error: this.#state.error?.action === "check" ? null : this.#state.error,
 			});
 		} catch (error) {
 			this.#set({ checking: false, error: { action: "check", message: message(error) } });
 		}
+	}
+
+	/** The request's gh and git (null for one not found), run in the home folder. */
+	async #tools(gh: string | null, git: string | null): Promise<AuthTools> {
+		const [ghRunner, gitRunner] = await Promise.all([gh, git].map(bin => (bin ? this.#deps.runner(bin) : null)));
+		return { gh: ghRunner, git: gitRunner, cwd: this.#deps.home };
 	}
 
 	async startLogin(): Promise<GithubAuthState> {
@@ -313,27 +305,18 @@ export class GithubAuthService {
 		return this.#state;
 	}
 
-	async #gh(): Promise<string> {
-		const gh = await this.#deps.resolveGh();
-		if (!gh) throw new Error("GitHub CLI (gh) is not installed");
-		return gh;
-	}
-
 	/** Set git's `user.name` / `user.email` from the signed-in account, each only while empty. */
 	fillIdentity(): Promise<GithubAuthState> {
 		return this.#act("identity", async () => {
-			const [gh, git] = await Promise.all([this.#gh(), this.#deps.resolveGit()]);
-			if (!git) throw new Error("git is not installed");
-			const account = await ghAccountIdentity(this.#deps.run, gh);
-			const identityFilled = await fillGitIdentity(this.#deps.run, git, account);
-			this.#set({ identityFilled, identity: await gitIdentity(this.#deps.run, git) });
+			const [gh, git] = await Promise.all([this.#deps.resolveGh(), this.#deps.resolveGit()]);
+			this.#set(await authFillIdentity(await this.#tools(gh, git)));
 		});
 	}
 
 	logout(): Promise<GithubAuthState> {
 		this.cancelLogin();
 		return this.#act("logout", async () => {
-			await ghLogout(this.#deps.run, await this.#gh(), this.#state.status?.login ?? null);
+			await authLogout(await this.#tools(await this.#deps.resolveGh(), null), this.#state.status?.login ?? null);
 			this.#set({ flow: null, identityFilled: [] });
 			await this.refresh(true);
 		});
@@ -345,7 +328,7 @@ export class GithubAuthService {
 			if (typeof login !== "string" || !this.#state.status?.otherAccounts.includes(login))
 				throw new Error(`Not a signed-in GitHub account: ${String(login)}`);
 			this.cancelLogin();
-			await ghSwitch(this.#deps.run, await this.#gh(), login);
+			await authSwitch(await this.#tools(await this.#deps.resolveGh(), null), login);
 			this.#set({ flow: null, identityFilled: [] });
 			await this.refresh(true);
 		});
@@ -358,8 +341,7 @@ export class GithubAuthService {
 		if (!this.#state.status?.authenticated) await this.refresh(false);
 		if (!this.#state.status?.authenticated) return { starred: null, error: "not_signed_in" };
 		try {
-			if (star) await ghStarRepo(this.#deps.run, gh, PRODUCT_REPO);
-			return { starred: star || (await ghRepoStarred(this.#deps.run, gh, PRODUCT_REPO)), error: null };
+			return { starred: await repoStar(await this.#tools(gh, null), PRODUCT_REPO, star), error: null };
 		} catch (cause) {
 			return { starred: null, error: "failed", message: message(cause) };
 		}

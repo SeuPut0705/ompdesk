@@ -1,35 +1,39 @@
 /**
  * GitHub sign-in against a fake gh (a bun script with gh's output and prompts)
  * and the real git on a temp HOME / GIT_CONFIG_GLOBAL, so the user's own gh
- * login and git config are never read or written. The PTY is a plain pipe
- * here; the stock PtySession path runs in e2e/github-sign-in.e2e.ts.
+ * login and git config are never read or written. Status, identity, sign-out,
+ * switch and star run in the real core process (`gh.auth*`, `gh.star`), which
+ * starts the fake as any gh (a `.cmd` shim on Windows). The PTY is a plain
+ * pipe here; the stock PtySession path runs in e2e/github-sign-in.e2e.ts.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GithubAuthState } from "../../shared/github-auth";
 import type { SetupItemState } from "../../shared/setup";
+import type { CoreRunner } from "../local/git/exec";
 import { RM_TEMP } from "../test-fake-omp";
-import { accountsFromAuthOutput, loginFromAuthOutput, type RunResult } from "./cli";
 import type { PtyChunk, PtyLauncher } from "./pty";
 import { GithubAuthService, LOGIN_ARGS } from "./service";
 import { type FakeGhAccount, seedFakeGh, writeFakeGh } from "./test-fake-gh";
 
-/** The fake gh runs as `bun <script>` (no shebangs on Windows); git is the real one. */
+/** The pipe PTY runs the fake gh as `bun <script>`; git is the real one. */
 function argv(bin: string, args: string[]): [string, string[]] {
-	return bin === gh ? ["bun", [gh, ...args]] : [bin, args];
+	return bin === gh ? ["bun", [script, ...args]] : [bin, args];
 }
 let root: string;
+/** The fake's bun script, and the executable the core starts (the script itself on POSIX, a `.cmd` on Windows). */
+let script: string;
 let gh: string;
 let env: Record<string, string>;
 const states: GithubAuthState[] = [];
 const services: GithubAuthService[] = [];
 
-function run(bin: string, args: string[]): Promise<RunResult> {
-	const { promise, resolve, reject } = Promise.withResolvers<RunResult>();
+function run(bin: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+	const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
 	const [command, commandArgs] = argv(bin, args);
 	const child = spawn(command, commandArgs, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
 	let stdout = "";
@@ -75,12 +79,17 @@ const pipePty: PtyLauncher = async ({ application, args, cwd, env: spawnEnv }) =
 	};
 };
 
+/** gh and git as the core runs them, with the test's environment as it is when the request goes out. */
+async function runner(bin: string): Promise<CoreRunner> {
+	return { bin, args: [], env: { ...env }, timeoutMs: 60_000, maxBytes: 8 * 1024 * 1024 };
+}
+
 function service(extra: Record<string, string> = {}, loginTimeoutMs?: number): GithubAuthService {
 	Object.assign(env, extra);
 	const created = new GithubAuthService({
 		resolveGh: async () => gh,
 		resolveGit: async () => "git",
-		run,
+		runner,
 		pty: pipePty,
 		loginEnv: async () => env,
 		home: root,
@@ -99,7 +108,12 @@ const gitConfig = async (key: string) => (await run("git", ["config", "--global"
 
 beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), "ompdesk-github-auth-"));
-	gh = await writeFakeGh(root);
+	script = await writeFakeGh(root);
+	gh = script;
+	if (process.platform === "win32") {
+		gh = join(dirname(script), "gh.cmd");
+		await writeFile(gh, `@bun "${script}" %*\r\n`);
+	}
 	env = {
 		PATH: process.env.PATH ?? "",
 		...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
@@ -118,29 +132,6 @@ afterEach(async () => {
 	for (const created of services) created.dispose();
 	services.length = 0;
 	await rm(root, RM_TEMP);
-});
-
-describe("gh auth status parsing", () => {
-	it("reads the login in both gh formats and leaves failed accounts out", () => {
-		expect(loginFromAuthOutput("✓ Logged in to github.com account octocat (keyring)")).toBe("octocat");
-		expect(loginFromAuthOutput("✓ Logged in to github.com as hubot (oauth_token)")).toBe("hubot");
-		expect(
-			accountsFromAuthOutput(
-				[
-					"github.com",
-					"  ✓ Logged in to github.com account octocat (keyring)",
-					"  - Active account: true",
-					"  X Failed to log in to github.com account stale (keyring)",
-					"  - Active account: false",
-					"  ✓ Logged in to github.com account hubot (keyring)",
-					"  - Active account: false",
-				].join("\n"),
-			),
-		).toEqual([
-			{ login: "octocat", active: true },
-			{ login: "hubot", active: false },
-		]);
-	});
 });
 
 describe("GithubAuthService", () => {
@@ -166,7 +157,7 @@ describe("GithubAuthService", () => {
 		const created = new GithubAuthService({
 			resolveGh: async () => null,
 			resolveGit: async () => "git",
-			run,
+			runner,
 			pty: pipePty,
 			loginEnv: async () => env,
 			home: root,
@@ -207,7 +198,7 @@ describe("GithubAuthService", () => {
 					return install;
 				},
 				cancelGhInstall,
-				run,
+				runner,
 				pty: pipePty,
 				loginEnv: async () => env,
 				home: root,
@@ -363,7 +354,7 @@ describe("GithubAuthService", () => {
 		const noGh = new GithubAuthService({
 			resolveGh: async () => null,
 			resolveGit: async () => "git",
-			run,
+			runner,
 			pty: pipePty,
 			loginEnv: async () => env,
 			home: root,
@@ -371,5 +362,24 @@ describe("GithubAuthService", () => {
 		});
 		services.push(noGh);
 		expect(await noGh.productStar(true)).toEqual({ starred: null, error: "gh_missing" });
+	});
+
+	it("reports nothing of a token a failing gh prints", async () => {
+		const token = "ghp_Z9y8Z9y8Z9y8Z9y8Z9y8Z9y8Z9y8Z9y8Z9y8";
+		await seed([
+			{ login: "octocat", id: 1, name: null, email: null },
+			{ login: "hubot", id: 2, name: null, email: null },
+		]);
+		const auth = service({ GH_TOKEN: token, FAKE_GH_LEAK: "1" });
+		expect((await auth.refresh(true)).status).toMatchObject({ authenticated: true, login: "octocat" });
+		const messages = [
+			(await auth.logout()).error?.message,
+			(await auth.switchAccount("hubot")).error?.message,
+			(await auth.fillIdentity()).error?.message,
+			(await auth.productStar(true)).message,
+			(await auth.productStar(false)).message,
+		];
+		expect(messages).toEqual(Array(5).fill("HTTP 401: Bad credentials ***"));
+		expect(JSON.stringify(states)).not.toContain(token);
 	});
 });
