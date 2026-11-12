@@ -23,6 +23,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterAll, expect } from "vitest";
 import { newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { configDirName, OMP_COMMAND } from "./test-bridge-probe";
+import { RM_TEMP } from "./test-fake-omp";
 
 export type Frame = {
 	type: string;
@@ -163,7 +164,8 @@ export async function startOmp(options: {
 }): Promise<Omp> {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "ompdesk-todo-stock-repo-")));
 	execFileSync("git", ["init", "--quiet"], { cwd: root });
-	cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+	// Windows: the omp under the launcher (and what it started) keeps this folder open a moment past the launcher's exit.
+	cleanups.push(() => rmSync(root, RM_TEMP));
 	const address = newBridgeAddress();
 	const env: Record<string, string | undefined> = {
 		...process.env,
