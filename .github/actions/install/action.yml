@@ -117,14 +117,7 @@ runs:
         key: ompdesk-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ompdesk/**', 'scripts/build-native.ts', 'scripts/cargo.ts') }}
 
     - if: (inputs.native || inputs.electron) == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-      uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
-      with:
-        toolchain: "1.95"
-
-    - if: (inputs.native || inputs.electron) == 'true' && steps.native-cache.outputs.cache-hit != 'true'
-      uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-      with:
-        workspaces: native/ompdesk
+      uses: ./.github/actions/native-toolchain
 
     - name: Build OMPdesk's native binaries
       if: (inputs.native || inputs.electron) == 'true' && steps.native-cache.outputs.cache-hit != 'true'

@@ -1,0 +1,24 @@
+# The vitest files that run main's moved code through the real ompdesk-core binary (the parity suites of
+# native-rust's ledger), for macOS: no other job runs vitest there, so the core's macOS paths (spawn, the process
+# group's kill, git and gh from the core, `sysctl` and `ps`) ran nowhere before a release. The one list
+# ci.yml's and release.yml's `mac-native` jobs share. Run it after the install action (it stages the binary) and omp
+# (session-index.test.ts reads stock omp's storage).
+name: Native parity tests
+description: vitest over the files that drive the real ompdesk-core binary.
+
+runs:
+  using: composite
+  steps:
+    - name: vitest over the real core
+      shell: bash
+      run: >-
+        bunx vitest run --project=node
+        src/main/core/process.test.ts
+        src/main/repo-lock-fence.test.ts
+        src/main/session-index.test.ts
+        src/main/memory-sampler.test.ts
+        src/main/local/git/changes.test.ts
+        src/main/local/git/scm.test.ts
+        src/main/local/git/worktree.test.ts
+        src/main/local/git/exec-gh.test.ts
+        src/main/disk/*.test.ts

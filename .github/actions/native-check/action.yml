@@ -1,0 +1,30 @@
+# The checks of OMPdesk's own Rust workspace (native/ompdesk), the same commands on every OS: ci.yml's and release.yml's
+# `native` jobs run it on Linux, Windows and macOS arm64, because much of the core is platform code (sys.rs, spawn and
+# kill, paths, file events) that only that OS compiles and runs. Formatting does not depend on the OS, so it runs on
+# Linux alone. clippy and the tests each run even when the step before them failed, so one red step never hides another.
+name: Check OMPdesk's Rust
+description: cargo fmt (Linux), clippy with warnings denied and the workspace's tests, in native/ompdesk.
+
+runs:
+  using: composite
+  steps:
+    - id: toolchain
+      uses: ./.github/actions/native-toolchain
+
+    - name: cargo fmt
+      if: runner.os == 'Linux'
+      shell: bash
+      working-directory: native/ompdesk
+      run: cargo fmt --all --check
+
+    - name: cargo clippy
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: native/ompdesk
+      run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+    - name: cargo test
+      if: ${{ !cancelled() && steps.toolchain.outcome == 'success' }}
+      shell: bash
+      working-directory: native/ompdesk
+      run: cargo test --locked --workspace

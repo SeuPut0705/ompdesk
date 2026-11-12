@@ -1,0 +1,30 @@
+# The Rust toolchain for OMPdesk's own workspace (native/ompdesk), installed one way for every job that compiles it:
+# the install action on a native-binaries cache miss and the native-check action. The channel is the one
+# native/ompdesk/rust-toolchain.toml pins, so a toolchain bump there is the only edit; rustfmt and clippy come with it,
+# and Swatinem/rust-cache keeps the workspace's build per job, OS and toolchain.
+name: OMPdesk's Rust toolchain
+description: The toolchain native/ompdesk/rust-toolchain.toml pins, with rustfmt and clippy, and the workspace's cargo cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Rust channel from native/ompdesk/rust-toolchain.toml
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        channel=$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' native/ompdesk/rust-toolchain.toml)
+        if [ -z "$channel" ]; then
+          echo "::error file=native/ompdesk/rust-toolchain.toml::no channel; update .github/actions/native-toolchain"
+          exit 1
+        fi
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+    - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+      with:
+        toolchain: ${{ steps.pin.outputs.channel }}
+        components: rustfmt, clippy
+
+    - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      with:
+        workspaces: native/ompdesk

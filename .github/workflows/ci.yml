@@ -1,9 +1,10 @@
 # Pre-flight on every push to main (the blocking checks release.yml runs:
-# types, biome, surface policy, vitest, the build, Windows `test:platform` and
-# macOS @smoke, all in parallel), so a release finds nothing red that a push
+# types, biome, surface policy, vitest, the build, Windows `test:platform`,
+# macOS @smoke, OMPdesk's Rust on Linux, Windows and macOS and its parity
+# vitest on macOS, all in parallel), so a release finds nothing red that a push
 # did not already show; a pull request (and a manual run) runs the Linux jobs
-# alone. Windows packaging, the real-omp e2e and the NSIS/DMG packages stay
-# in release.yml.
+# alone, `native`'s Linux leg among them. Windows packaging, the real-omp e2e
+# and the NSIS/DMG packages stay in release.yml.
 #
 # Pull requests (including from forks) run only the Linux jobs with a read-only
 # token and no secrets; no job here uses `pull_request_target`. Every other job
@@ -79,8 +80,9 @@ permissions:
 
 jobs:
   # Pre-flight: the same blocking checks release.yml runs (types, biome, surface
-  # policy, vitest, Windows `test:platform`, macOS @smoke), in parallel on every
-  # push to main, so a release finds nothing red that a push did not already
+  # policy, vitest, Windows `test:platform`, macOS @smoke, `native` and
+  # `mac-native`), in parallel on every push to main, so a release finds
+  # nothing red that a push did not already
   # show. A `release: vX.Y.Z` push also starts release.yml, which runs them
   # again before packaging, so the push run would only repeat them. A failed
   # job writes its first error lines to its job summary (scripts/ci-failure.sh).
@@ -196,6 +198,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  # OMPdesk's own Rust (native/ompdesk): fmt (Linux), clippy and `cargo test` on
+  # every OS it ships or tests on, as release.yml's `native`. A pull request
+  # (and a manual run) runs the Linux leg alone; a push to main all three (the
+  # job `if` cannot read the matrix, so the list itself depends on the event).
+  native:
+    name: native (${{ matrix.name }})
+    if: "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v')"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-latest","name":"linux"},{"os":"windows-latest","name":"windows"},{"os":"macos-latest","name":"macos arm64"}]' || '[{"os":"ubuntu-latest","name":"linux"}]') }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/native-check
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   # release.yml's `win` pre-flight half: the tests outside src/renderer on
   # Windows (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes),
   # in three shards as release.yml's `win-platform`.
@@ -271,6 +298,35 @@ jobs:
       - name: Playwright browsers
         run: bunx playwright install chromium
       - run: bunx playwright test --grep "@smoke"
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The vitest files that drive the real ompdesk-core binary, on macOS, as
+  # release.yml's `mac-native`. Pushes to main only.
+  mac-native:
+    if: "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')"
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read # the failure report reads this run's jobs
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      # Stages resources/ompdesk-bin (built on a cache miss), which the tests' core process runs.
+      - uses: ./.github/actions/install
+      # session-index.test.ts reads stock omp's session storage.
+      - name: Install omp
+        run: |
+          # --minimum-release-age 0: the runner wants the newest omp, not bunfig.toml's 3-day hold.
+          bun install -g --minimum-release-age 0 @oh-my-pi/pi-coding-agent
+          echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+          "$HOME/.bun/bin/omp" --version
+      - uses: ./.github/actions/native-parity
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:
