@@ -16,6 +16,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import { checkKinds } from "../../resources/gui-bridge/command-verdict-core";
 import { createPollTracker, waitWindowElapsed } from "../../resources/gui-bridge/waste-guards-core";
 
 const IDLE_S = 600;
@@ -31,6 +32,17 @@ export const WASTE_MIN_TOOL_CALLS = 10;
 /** Reads of one file from which the session should have kept what it read. */
 export const WASTE_READS = 10;
 
+/** A command that waits for a CI run's verdict: `gh run watch`, this repository's `scripts/watch-run.ts`. */
+const CI_WATCH = /\bgh\s+run\s+watch\b|\bwatch-run\.ts\b/;
+
+/**
+ * Whether a shell command runs a check: a test, type check, lint or build as the work card names them (`checkKinds`,
+ * the one owner of that rule), or a wait for a CI run's verdict.
+ */
+export function checkRun(command: string): boolean {
+	return checkKinds(command, true).length > 0 || CI_WATCH.test(command);
+}
+
 interface Entry {
 	type?: string;
 	customType?: string;
@@ -44,13 +56,24 @@ interface Entry {
 		isError?: boolean;
 		usage?: { output?: number };
 		content?: unknown;
-		details?: unknown;
+		details?: { async?: { jobId?: string }; jobs?: JobSnapshot[] };
 		useless?: boolean;
 	};
 }
 
+/** A background job as a `wait` result lists it. */
+interface JobSnapshot {
+	id?: string;
+	type?: string;
+	/** How long it has run, or ran. */
+	durationMs?: number;
+	/** Absent while it runs. */
+	settledAtMs?: number;
+}
+
 interface ToolCallPart {
 	type?: string;
+	id?: string;
 	name?: string;
 	arguments?: { path?: unknown; command?: unknown; async?: unknown };
 }
@@ -81,6 +104,14 @@ export interface Pace {
 	 * `wait` calls that came back with nothing (stock's window ran out while the jobs ran on).
 	 */
 	polls: number;
+	/** `polls` by kind (`sleep`, `gh-run`, `pgrep`, `tail-f`, `proc`, and `wait` for one that came back with nothing). */
+	pollKinds?: Record<string, number>;
+	/**
+	 * Checks (`checkRun`): how many were started, and the time inside tool calls while one ran: a check's own call, and
+	 * a `wait` for as long as a backgrounded check it lists was running. Part of `toolS`. Absent without a check, and
+	 * in a paired host's answer from before this field.
+	 */
+	checks?: { runs: number; seconds: number };
 }
 
 function seconds(entry: Entry): number | undefined {
@@ -122,7 +153,16 @@ export function pace(lines: Iterable<string>): Pace {
 	let modelCalls = 0;
 	let outputTokens = 0;
 	let polls = 0;
+	const pollKinds: Record<string, number> = {};
+	const polled = (kind: string): void => {
+		polls++;
+		pollKinds[kind] = (pollKinds[kind] ?? 0) + 1;
+	};
 	const pollTracker = createPollTracker();
+	/** Calls that run a check, the background jobs that are one (a job id comes back after an omp restart). */
+	const checkCalls = new Set<string>();
+	const checkJobs = new Set<string>();
+	const checkIntervals: [number, number][] = [];
 	let prev: number | undefined;
 	const gaps: [number, number][] = [];
 	for (const line of lines) {
@@ -152,25 +192,45 @@ export function pace(lines: Iterable<string>): Pace {
 				for (const part of entry.message.content as ToolCallPart[]) {
 					const target = readTarget(part);
 					if (target !== undefined) reads.set(target, (reads.get(target) ?? 0) + 1);
+					if (part.type !== "toolCall" || !part.name || !part.arguments) continue;
+					const kind = pollTracker.observe(part.name, part.arguments)[0];
+					if (kind) polled(kind);
 					if (
-						part.type === "toolCall" &&
-						part.name &&
-						part.arguments &&
-						pollTracker.observe(part.name, part.arguments).length > 0
+						part.name === "bash" &&
+						part.id &&
+						typeof part.arguments.command === "string" &&
+						checkRun(part.arguments.command)
 					)
-						polls++;
+						checkCalls.add(part.id);
 				}
 		} else if (role === "toolResult") {
 			const name = entry.message.toolName ?? "?";
 			const row = tools[name] ?? { seconds: 0, calls: 0, errors: 0 };
-			const began = entry.message.toolCallId ? starts.get(entry.message.toolCallId) : undefined;
+			const id = entry.message.toolCallId;
+			const began = id ? starts.get(id) : undefined;
 			if (began !== undefined) {
 				row.seconds += at - began;
 				intervals.push([began, at]);
 			}
 			row.calls++;
 			if (entry.message.isError) row.errors++;
-			if (name === "wait" && waitWindowElapsed(entry.message)) polls++;
+			const details = entry.message.details;
+			if (name === "bash" && id) {
+				const check = checkCalls.has(id);
+				if (check && began !== undefined) checkIntervals.push([began, at]);
+				const job = details?.async?.jobId;
+				if (job && check) checkJobs.add(job);
+				else if (job) checkJobs.delete(job);
+			}
+			if (name === "wait") {
+				if (waitWindowElapsed(entry.message)) polled("wait");
+				for (const job of began !== undefined && Array.isArray(details?.jobs) ? details.jobs : []) {
+					if (job.type !== "bash" || !job.id || !checkJobs.has(job.id)) continue;
+					const end = Math.min(at, typeof job.settledAtMs === "number" ? job.settledAtMs / 1000 : at);
+					const from = Math.max(began ?? at, end - (job.durationMs ?? 0) / 1000);
+					if (end > from) checkIntervals.push([from, end]);
+				}
+			}
 			tools[name] = row;
 		}
 	}
@@ -191,6 +251,8 @@ export function pace(lines: Iterable<string>): Pace {
 		thinkGaps,
 		polls,
 		...(repeatRead ? { repeatRead } : {}),
+		...(polls > 0 ? { pollKinds } : {}),
+		...(checkCalls.size > 0 ? { checks: { runs: checkCalls.size, seconds: unionSeconds(checkIntervals) } } : {}),
 	};
 }
 
@@ -226,19 +288,33 @@ export function waste(result: Pace): string | undefined {
 	const calls = toolCalls(result);
 	if (calls >= WASTE_MIN_TOOL_CALLS && result.modelCalls / calls >= WASTE_CALL_RATIO)
 		parts.push(`${(result.modelCalls / calls).toFixed(1)} model calls per tool call`);
-	if (result.polls >= WASTE_POLLS) parts.push(`polled ×${result.polls}`);
+	if (result.polls >= WASTE_POLLS) {
+		const kinds = Object.entries(result.pollKinds ?? {})
+			.sort((a, b) => b[1] - a[1])
+			.map(([kind, count]) => `${kind} ×${count}`);
+		parts.push(`polled ×${result.polls}${kinds.length > 0 ? ` (${kinds.join(", ")})` : ""}`);
+	}
 	return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
 const span = (s: number): string => (s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
 
-/** The one line a done report ends with: `Pace: wall 22 min · model+between-calls 20 min (156 calls, median 4.0 s) · tools 2 min · errors 6`. */
+/** `checks ×46 31 min (82% of tools)`: the checks started, the tool time one ran through, and its share of tool time. */
+function checksPart(result: Pace): string | undefined {
+	if (!result.checks) return undefined;
+	const share = result.toolS > 0 ? Math.round((result.checks.seconds / result.toolS) * 100) : 0;
+	return `checks ×${result.checks.runs} ${span(result.checks.seconds)} (${share}% of tools)`;
+}
+
+/** The one line a done report ends with: `Pace: wall 22 min · model+between-calls 20 min (156 calls, median 4.0 s) · tools 2 min · checks ×3 61 s (51% of tools) · errors 6`. */
 export function paceLine(result: Pace): string {
 	const parts = [
 		`wall ${span(result.wallS)}`,
 		`model+between-calls ${span(result.modelS)} (${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s)`,
 		`tools ${span(result.toolS)}`,
 	];
+	const checks = checksPart(result);
+	if (checks) parts.push(checks);
 	if (result.idleS > 0) parts.push(`idle ${span(result.idleS)}`);
 	parts.push(`errors ${toolErrors(result)}`);
 	const cut = waste(result);
@@ -246,10 +322,11 @@ export function paceLine(result: Pace): string {
 	return `Pace: ${parts.join(" · ")}`;
 }
 
-/** The short form a session row carries: `pace 22 min, 156 calls, median 4.0 s[, waste: …]`. */
+/** The short form a session row carries: `pace 22 min, 156 calls, median 4.0 s[, checks ×3 61 s (51% of tools)][, waste: …]`. */
 export function paceShort(result: Pace): string {
+	const checks = checksPart(result);
 	const cut = waste(result);
-	return `pace ${span(result.wallS)}, ${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s${cut ? `, waste: ${cut}` : ""}`;
+	return `pace ${span(result.wallS)}, ${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s${checks ? `, ${checks}` : ""}${cut ? `, waste: ${cut}` : ""}`;
 }
 
 const cache = new Map<string, { size: number; mtimeMs: number; pace: Pace }>();

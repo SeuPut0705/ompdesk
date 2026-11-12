@@ -222,7 +222,84 @@ describe("session-pace", () => {
 				),
 			);
 			expect(five.polls).toBe(5);
-			expect(waste(five)).toBe("polled ×5");
+			expect(waste(five)).toBe("polled ×5 (sleep ×2, gh-run ×1, proc ×1, tail-f ×1)");
+		});
+	});
+
+	describe("checks", () => {
+		const call = (atS: number, id: string, name: string, args: Record<string, unknown>) => [
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					timestamp: T0 + atS * 1000,
+					usage: { output: 1 },
+					content: [{ type: "toolCall", id, name, arguments: args }],
+				},
+			}),
+			start(atS, id),
+		];
+		const done = (atS: number, id: string, toolName: string, details: Record<string, unknown>) =>
+			JSON.stringify({
+				type: "message",
+				message: { role: "toolResult", timestamp: T0 + atS * 1000, toolCallId: id, toolName, details },
+			});
+
+		it("counts a check's own call and a wait for a CI run's verdict, and no other command", () => {
+			const p = pace([
+				user(0),
+				...call(5, "a", "bash", { command: "bunx vitest run src/a.test.ts 2>&1 | tail -5" }),
+				result(35, "a"),
+				...call(40, "b", "bash", { command: "git status --short" }),
+				result(50, "b"),
+				...call(55, "c", "bash", { command: "bun scripts/watch-run.ts 43150951448" }),
+				result(75, "c"),
+			]);
+			expect(p.toolS).toBe(60);
+			expect(p.checks).toEqual({ runs: 2, seconds: 50 });
+			expect(paceLine(p)).toContain(" · tools 60 s · checks ×2 50 s (83% of tools) · errors 0");
+			expect(paceShort(p)).toMatch(/median [\d.]+ s, checks ×2 50 s \(83% of tools\)$/);
+		});
+
+		it("counts a wait for as long as a backgrounded check ran through it, not another job or a subagent", () => {
+			const lines = [
+				user(0),
+				...call(5, "a", "bash", { command: "bun run check:changed --no-e2e", async: true }),
+				done(6, "a", "bash", { async: { jobId: "bg_1" } }),
+				...call(10, "b", "bash", { command: "bun scripts/parity.ts --help", async: true }),
+				done(11, "b", "bash", { async: { jobId: "bg_2" } }),
+				...call(15, "w", "wait", {}),
+				done(115, "w", "wait", {
+					op: "wait",
+					jobs: [
+						// Started at 5, ended at 75: 60 of the wait's 100 seconds.
+						{ id: "bg_1", type: "bash", status: "completed", durationMs: 70_000, settledAtMs: T0 + 75_000 },
+						{ id: "bg_2", type: "bash", status: "running", durationMs: 105_000 },
+						{ id: "Scout", type: "task", status: "running", durationMs: 100_000 },
+					],
+				}),
+			];
+			expect(pace(lines).checks).toEqual({ runs: 1, seconds: 61 });
+			// A restarted omp numbers its jobs from one again: bg_1 is no check any more.
+			lines.push(
+				...call(120, "c", "bash", { command: "bun scripts/parity.ts --help", async: true }),
+				done(121, "c", "bash", { async: { jobId: "bg_1" } }),
+				...call(125, "x", "wait", {}),
+				done(225, "x", "wait", {
+					op: "wait",
+					jobs: [{ id: "bg_1", type: "bash", status: "running", durationMs: 104_000 }],
+				}),
+			);
+			const p = pace(lines);
+			expect(p.checks).toEqual({ runs: 1, seconds: 61 });
+			expect(paceLine(p)).toContain(" · tools 3 min · checks ×1 61 s (30% of tools) · ");
+		});
+
+		it("says nothing of checks in a session that ran none", () => {
+			const p = pace(steady(3));
+			expect(p.checks).toBeUndefined();
+			expect(paceLine(p)).not.toContain("checks");
+			expect(paceShort(p)).not.toContain("checks");
 		});
 	});
 
