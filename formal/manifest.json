@@ -86,7 +86,7 @@
 				"native/ompdesk/crates/core/src/sidecar/launch.rs",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "b9f1a17e431963c09b93256044b8c9d9fa50cf9d",
+			"syncCommit": "a47ec4eb5131f49ffa3f9d89f048d54ab681849f",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
 		},
 		{
@@ -133,7 +133,7 @@
 				"native/ompdesk/crates/core/src/disk/tree.rs#live",
 				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
-			"syncCommit": "6f5f8709ab40dbff9dcc76a6d41d78dbc8065c1e",
+			"syncCommit": "a47ec4eb5131f49ffa3f9d89f048d54ab681849f",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		},
 		{
@@ -148,7 +148,7 @@
 				"src/main/session-processes.ts",
 				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
-			"syncCommit": "b351ec34c0e40ec1e352774a7d67633d7a6e3d05",
+			"syncCommit": "a47ec4eb5131f49ffa3f9d89f048d54ab681849f",
 			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"
 		},
 		{
