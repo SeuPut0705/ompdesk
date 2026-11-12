@@ -32,7 +32,7 @@ use crate::git::read::blocking;
 use crate::git::run::Git;
 use crate::ports::Port;
 use crate::run::Opts;
-use crate::server::Fault;
+use crate::server::{Fault, Scope};
 
 /// A check that runs this long is stopped and counts as failed (the candidate is not landed).
 pub const LAND_CHECK_TIMEOUT_MS: u64 = 30 * 60_000;
@@ -318,7 +318,7 @@ struct Setup {
 }
 
 /// The shell and environment the check runs in, and the supervisor that holds it (`landShell`).
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct Shell {
     env: BTreeMap<String, String>,
     file: String,
@@ -374,9 +374,35 @@ fn collect(
     })
 }
 
-/// Runs `command` in `cwd` under the supervisor, as `run` of the TypeScript did: past `timeout` the supervisor's stdin
-/// closes (it ends the check's tree), and a check still running `stop_grace` later is killed and given up.
-async fn run_command(shell: &Shell, cwd: &str, timeout: Duration, stop_grace: Duration) -> Outcome {
+/// Runs `command` in `cwd` under the supervisor, as `run` of the TypeScript did: past `timeout` (or once `scope` is
+/// cancelled: the step that asked was stopped) the supervisor's stdin closes (it ends the check's tree), and a check still
+/// running `stop_grace` later is killed and given up. The run is a task of its own that holds `scope` and `hold` until the
+/// supervisor exited, so a step aborted meanwhile still ends the check, and its folder goes only after it.
+async fn run_command(
+    shell: &Shell,
+    cwd: &str,
+    timeout: Duration,
+    stop_grace: Duration,
+    scope: Scope,
+    hold: Option<Arc<Scratch>>,
+) -> Outcome {
+    let (shell, cwd) = (shell.clone(), cwd.to_owned());
+    tokio::spawn(async move {
+        let outcome = supervised(&shell, &cwd, timeout, stop_grace, &scope).await;
+        drop(hold);
+        outcome
+    })
+    .await
+    .unwrap_or_else(|error| Outcome::failed(error.to_string()))
+}
+
+async fn supervised(
+    shell: &Shell,
+    cwd: &str,
+    timeout: Duration,
+    stop_grace: Duration,
+    scope: &Scope,
+) -> Outcome {
     let spec = SupervisorSpec {
         file: &shell.file,
         args: &shell.args,
@@ -420,10 +446,14 @@ async fn run_command(shell: &Shell, cwd: &str, timeout: Duration, stop_grace: Du
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     };
-    let exited = tokio::time::timeout(timeout, child.wait()).await;
+    let exited = tokio::select! {
+        status = child.wait() => Some(status),
+        () = tokio::time::sleep(timeout) => None,
+        () = scope.on_cancel() => None,
+    };
     let (code, timed_out, error) = match exited {
-        Ok(status) => (status.ok().and_then(|status| status.code()), false, None),
-        Err(_) => {
+        Some(status) => (status.ok().and_then(|status| status.code()), false, None),
+        None => {
             // The supervisor ends the check's tree when its stdin closes.
             drop(stdin.take());
             match tokio::time::timeout(stop_grace, child.wait()).await {
@@ -533,6 +563,7 @@ pub async fn check_candidate(
     port: &Port<()>,
     input: &Input,
     stop_grace: Duration,
+    scope: &Scope,
 ) -> LandCheck {
     let started = Instant::now();
     let finished = |outcome: Outcome| LandCheck {
@@ -543,7 +574,7 @@ pub async fn check_candidate(
         tail: outcome.tail,
     };
     let scratch = match Scratch::new().await {
-        Ok(scratch) => scratch,
+        Ok(scratch) => Arc::new(scratch),
         Err(fault) => return finished(Outcome::failed(fault.message)),
     };
     let outcome = async {
@@ -556,7 +587,15 @@ pub async fn check_candidate(
             .await
             .map_err(Fault::from)?;
         let timeout = Duration::from_millis(input.timeout_ms.unwrap_or(LAND_CHECK_TIMEOUT_MS));
-        Ok(run_command(&shell, &tree, timeout, stop_grace).await)
+        Ok(run_command(
+            &shell,
+            &tree,
+            timeout,
+            stop_grace,
+            scope.clone(),
+            Some(scratch.clone()),
+        )
+        .await)
     }
     .await
     .unwrap_or_else(|fault| Outcome::failed(fault.message));
@@ -617,5 +656,56 @@ mod tests {
         assert!(!stopped.ok && stopped.exit_code.is_none());
         let passed = finish(b"fine", None, Some(0), false);
         assert!(passed.ok && passed.exit_code == Some(0) && passed.tail == "fine");
+    }
+
+    /// A cancelled check is ended (the supervisor's stdin closes) and the run returns only once it exited.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancelled_check_has_ended_when_its_run_returns() {
+        use std::os::unix::fs::PermissionsExt;
+        let base =
+            std::env::temp_dir().join(format!("ompdesk-core-land-stop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let (up, exited) = (base.join("up"), base.join("exited"));
+        // The stand-in supervisor ends when its stdin closes, and says so.
+        let supervisor = base.join("supervisor");
+        std::fs::write(
+            &supervisor,
+            format!(
+                "#!/bin/sh\n: > \"{}\"\nwhile read -r _; do :; done\nsleep 0.2\necho ended > \"{}\"\n",
+                up.display(),
+                exited.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&supervisor, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let shell = Shell {
+            env: BTreeMap::new(),
+            file: "unused".into(),
+            args: Vec::new(),
+            supervisor: supervisor.to_string_lossy().into_owned(),
+        };
+        let scope = Scope::detached();
+        let hold = Arc::new(Scratch(base.join("held")));
+        let (outcome, ()) = tokio::join!(
+            run_command(
+                &shell,
+                "/",
+                Duration::from_secs(60),
+                Duration::from_secs(5),
+                scope.clone(),
+                Some(hold),
+            ),
+            async {
+                while !up.exists() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                scope.cancel();
+            }
+        );
+        assert!(outcome.timed_out && !outcome.ok);
+        assert!(exited.exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

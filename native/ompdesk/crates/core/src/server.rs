@@ -74,9 +74,32 @@ impl Scope {
         }
     }
 
-    /// Cancels the scope as a request's `cancel` frame would.
+    /// A detached scope with the means to wait for the work it was handed to end: `Gone` resolves once every clone of the
+    /// scope is dropped, which a process being ended after its cancel holds off until it exited.
+    pub fn watched() -> (Scope, Gone) {
+        let (alive, gone) = mpsc::channel(1);
+        (
+            Scope {
+                cancel: Arc::new(watch::channel(false).0),
+                _alive: alive,
+            },
+            Gone(gone),
+        )
+    }
+
+    /// Cancels the scope as a `cancel` frame cancels its request (tests, and work that ends what it ran).
     pub fn cancel(&self) {
         self.cancel.send_replace(true);
+    }
+}
+
+/// The end of a `Scope::watched` scope's last clone.
+pub struct Gone(mpsc::Receiver<()>);
+
+impl Gone {
+    pub async fn wait(mut self) {
+        // Nothing is ever sent: `recv` answers `None` once the last sender (a clone of the scope) is gone.
+        while self.0.recv().await.is_some() {}
     }
 }
 

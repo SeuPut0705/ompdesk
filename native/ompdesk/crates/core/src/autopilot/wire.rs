@@ -296,13 +296,14 @@ pub fn register(registry: &mut Registry) {
     registry.add("autopilot.landCheck", |call| {
         serve(call, |params: LandParams, call| async move {
             let port: MainPort = Port::open_raw(&call.events, params.port, &params.state)?;
-            let git = Git::new(params.git, call.scope);
+            let git = Git::new(params.git, call.scope.clone());
             let grace = params.stop_grace_ms.unwrap_or(land_check::STOP_GRACE_MS);
             let checked = land_check::check_candidate(
                 &git,
                 &port,
                 &params.input,
                 Duration::from_millis(grace),
+                &call.scope,
             )
             .await;
             port.close();

@@ -4,15 +4,75 @@
 //! aborted, so it ends at its next await and acts on nothing after it: the fence the TypeScript spelled
 //! `throwIfStepStalled`), fails its own caller with `Stalled`, `on_stall` hears of it, and the next step starts.
 //!
-//! What this leaves out of the TypeScript chain: a stopped step's child processes (`trackEffect`) are not waited for
-//! before the next step starts. A git of a stopped step ends by its own timeout; the land check's folder is removed by
-//! the guard that owns it.
+//! Every step has its own `Scope` (`step_scope`, a task-local): the gits and the land check a step runs are handed it, and
+//! a step nested in another (the ship queue's drain inside a cycle end) is cancelled with it, as `SerialChain` composed
+//! its signals. A stopped step cancels its scope first, then aborts its task, and reports the stall only once every
+//! process it ran exited (`trackEffect`'s wait), so the next step never starts beside a process of the one stopped.
 
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::{AbortHandle, JoinHandle};
+
+use crate::server::{Gone, Scope};
+
+tokio::task_local! {
+    static STEP: Scope;
+}
+
+/// The scope of the step this code runs in; a detached one outside any step.
+pub fn step_scope() -> Scope {
+    STEP.try_with(Clone::clone)
+        .unwrap_or_else(|_| Scope::detached())
+}
+
+/// A nested step's tie to the step it was started from: its watcher cancels the nested scope when the parent's is, and the
+/// parent's scope stays held until the nested step ended, so the parent's stop waits for the nested step's processes too.
+struct Link {
+    watcher: Option<JoinHandle<()>>,
+    _parent: Option<Scope>,
+}
+
+impl Link {
+    fn to(parent: Option<Scope>, child: &Scope) -> Link {
+        let watcher = parent.clone().map(|parent| {
+            let child = child.clone();
+            tokio::spawn(async move {
+                parent.on_cancel().await;
+                child.cancel();
+            })
+        });
+        Link {
+            watcher,
+            _parent: parent,
+        }
+    }
+
+    /// Stops watching: the watcher holds a clone of the nested scope, which the wait for its processes must not wait on.
+    fn unwatch(&mut self) {
+        if let Some(watcher) = self.watcher.take() {
+            watcher.abort();
+        }
+    }
+}
+
+impl Drop for Link {
+    fn drop(&mut self) {
+        self.unwatch();
+    }
+}
+
+/// Stops a step: its scope is cancelled (every process it ran is ended), then its task aborted, and this returns once the
+/// last process exited.
+async fn stop(scope: Scope, gone: Gone, mut link: Link, task: &AbortHandle) {
+    scope.cancel();
+    task.abort();
+    link.unwatch();
+    drop(scope);
+    gone.wait().await;
+}
 
 /// A step ran past its bound and was stopped; the chain went on without it.
 #[derive(Debug, Clone, PartialEq)]
@@ -105,6 +165,8 @@ impl Steps {
         let (chain, step) = (self.name.clone(), step.to_owned());
         let on_stall = self.on_stall.clone();
         let pending = self.pending.clone();
+        // A step started from inside another is cancelled with it.
+        let parent = STEP.try_with(Clone::clone).ok();
         pending.send_modify(|count| *count += 1);
         let job: Job = Box::pin(async move {
             let mut reply = reply;
@@ -113,14 +175,16 @@ impl Steps {
                 pending.send_modify(|count| *count -= 1);
                 return;
             }
-            let mut task = tokio::spawn(work);
+            let (scope, gone) = Scope::watched();
+            let link = Link::to(parent, &scope);
+            let mut task = tokio::spawn(STEP.scope(scope.clone(), work));
             let abort = task.abort_handle();
             let ended = tokio::select! {
                 ended = tokio::time::timeout(bound, &mut task) => match ended {
                     Ok(Ok(value)) => Ended::Done(value),
                     Ok(Err(error)) => Ended::Failed(error.to_string()),
                     Err(_) => {
-                        abort.abort();
+                        stop(scope, gone, link, &abort).await;
                         let stall = Stalled {
                             chain,
                             step,
@@ -134,7 +198,7 @@ impl Steps {
                 },
                 // The caller was stopped while the step ran: it is fenced to its caller, so it ends with it.
                 () = reply.closed() => {
-                    abort.abort();
+                    stop(scope, gone, link, &abort).await;
                     pending.send_modify(|count| *count -= 1);
                     return;
                 }
@@ -256,5 +320,120 @@ mod tests {
             steps.run("ok", None, async { 1 }).await,
             Ended::Done(1)
         ));
+    }
+
+    /// A stand-in for a git that traps SIGTERM: it writes `<marker>.exited` only when it is ended, so the file is there
+    /// once the process exited, never before.
+    #[cfg(unix)]
+    fn hung_git(marker: &std::path::Path) -> String {
+        format!(
+            "trap 'echo ended > \"{m}.exited\"; exit 1' TERM; touch \"{m}.up\"; while :; do sleep 0.05; done",
+            m = marker.display()
+        )
+    }
+
+    #[cfg(unix)]
+    fn marker(name: &str) -> std::path::PathBuf {
+        let marker =
+            std::env::temp_dir().join(format!("ompdesk-core-{name}-{}", std::process::id()));
+        for end in ["exited", "up"] {
+            let _ = std::fs::remove_file(format!("{}.{end}", marker.display()));
+        }
+        marker
+    }
+
+    /// What the stall callback saw: whether the stand-in had exited when the stall was reported.
+    #[cfg(unix)]
+    fn reporting(marker: &std::path::Path) -> (OnStall, Arc<std::sync::Mutex<Option<bool>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(None));
+        let exited = format!("{}.exited", marker.display());
+        let into = seen.clone();
+        let on_stall: OnStall = Arc::new(move |_| {
+            *into.lock().unwrap() = Some(std::path::Path::new(&exited).exists());
+        });
+        (on_stall, seen)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stalled_step_s_child_has_exited_when_the_stall_is_reported() {
+        use crate::git::run::Git;
+        use crate::run::tests::shell;
+        let marker = marker("stalled-step");
+        let (on_stall, seen) = reporting(&marker);
+        let steps = Steps::new("c", Duration::from_secs(30), Some(on_stall));
+        let script = hung_git(&marker);
+        let stalled = steps
+            .run("hung", Some(Duration::from_millis(1_500)), async move {
+                let git = Git::new(shell(60_000, 1024), step_scope());
+                let _ = git.raw("/", &[script.as_str()]).await;
+            })
+            .await;
+        assert!(matches!(stalled, Ended::Stalled(_)));
+        assert_eq!(*seen.lock().unwrap(), Some(true));
+        // The next step starts once it exited.
+        assert!(matches!(
+            steps.run("next", None, async { 1 }).await,
+            Ended::Done(1)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_step_nested_in_a_stalled_one_ends_with_it() {
+        use crate::git::run::Git;
+        use crate::run::tests::shell;
+        let marker = marker("nested-step");
+        let (on_stall, seen) = reporting(&marker);
+        let outer = Steps::new("outer", Duration::from_secs(30), Some(on_stall));
+        let inner = Arc::new(Steps::new("inner", Duration::from_secs(30), None));
+        let script = hung_git(&marker);
+        let stalled = outer
+            .run(
+                "cycle end",
+                Some(Duration::from_millis(1_500)),
+                async move {
+                    inner
+                        .run("drain", None, async move {
+                            let git = Git::new(shell(60_000, 1024), step_scope());
+                            let _ = git.raw("/", &[script.as_str()]).await;
+                        })
+                        .await;
+                },
+            )
+            .await;
+        assert!(matches!(stalled, Ended::Stalled(_)));
+        assert_eq!(*seen.lock().unwrap(), Some(true));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_step_whose_caller_was_stopped_ends_its_child_before_the_next_starts() {
+        use crate::git::run::Git;
+        use crate::run::tests::shell;
+        let marker = marker("caller-stopped");
+        let steps = Arc::new(Steps::new("c", Duration::from_secs(30), None));
+        let script = hung_git(&marker);
+        let running = steps.run("hung", None, async move {
+            let git = Git::new(shell(60_000, 1024), step_scope());
+            let _ = git.raw("/", &[script.as_str()]).await;
+        });
+        let up = format!("{}.up", marker.display());
+        let waiting = async {
+            while !std::path::Path::new(&up).exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        // The caller is dropped once the process runs.
+        tokio::select! {
+            _ = running => panic!("the step does not end by itself"),
+            () = waiting => {}
+        }
+        let exited = format!("{}.exited", marker.display());
+        assert!(matches!(
+            steps.run("next", None, async { 1 }).await,
+            Ended::Done(1)
+        ));
+        assert!(std::path::Path::new(&exited).exists());
     }
 }

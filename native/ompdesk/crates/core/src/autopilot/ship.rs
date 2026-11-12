@@ -932,8 +932,14 @@ impl ShipRunner {
                     let checked = match self.hooks.check_candidate(&input) {
                         Some(custom) => custom.await,
                         None => {
-                            land_check::check_candidate(git, &self.port, &input, self.stop_grace)
-                                .await
+                            land_check::check_candidate(
+                                git,
+                                &self.port,
+                                &input,
+                                self.stop_grace,
+                                &super::steps::step_scope(),
+                            )
+                            .await
                         }
                     };
                     if !checked.ok {

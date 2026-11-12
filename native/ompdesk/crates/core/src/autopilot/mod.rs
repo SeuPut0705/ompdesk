@@ -35,7 +35,7 @@ use serde::Deserialize;
 use crate::git::run::Git;
 use crate::ports::Port;
 use crate::run::Runner;
-use crate::server::{Fault, Registry, Scope};
+use crate::server::{Fault, Registry};
 
 pub use coordinator::register as register_coordinator;
 
@@ -90,7 +90,8 @@ impl Default for Tuning {
 /// A git as main runs it now (`gitRunner`: the binary, the login shell's PATH, the environment), outside any request.
 pub(crate) async fn git_from(port: &Port<()>) -> Result<Git, Fault> {
     let runner: Runner = port.ask("gitRunner", &()).await.map_err(Fault::from)?;
-    Ok(Git::new(runner, Scope::detached()))
+    // The scope of the step it is made in: a stopped step ends the gits it ran (`steps::step_scope`).
+    Ok(Git::new(runner, steps::step_scope()))
 }
 
 pub(crate) fn now_ms() -> i64 {
