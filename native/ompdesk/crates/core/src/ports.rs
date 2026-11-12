@@ -19,7 +19,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::server::{Call, Events, Fault, Registry, Reply};
 
@@ -78,6 +78,8 @@ struct Inner<S> {
     state: Arc<S>,
     seq: u64,
     closed: bool,
+    /// Every waiter that reads each snapshot main pushes, in order (`changes`).
+    watchers: Vec<mpsc::UnboundedSender<Arc<S>>>,
 }
 
 /// One port to main: its asks, its tells and main's latest state `S`.
@@ -110,6 +112,7 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Port<S> {
                 state: Arc::new(state),
                 seq: 0,
                 closed: false,
+                watchers: Vec::new(),
             }),
             closed: watch::channel(false).0,
         });
@@ -144,6 +147,18 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Port<S> {
     /// Main's state as main last said it.
     pub fn state(&self) -> Arc<S> {
         self.lock().state.clone()
+    }
+
+    /// Every snapshot main sends from now on, in the order main took them, also one replaced a moment later: a wait
+    /// that looks for a state sees it even when it held only between two of main's steps (3a's `Glance`). The stream
+    /// ends when the port closes.
+    pub fn changes(&self) -> mpsc::UnboundedReceiver<Arc<S>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut inner = self.lock();
+        if !inner.closed {
+            inner.watchers.push(tx);
+        }
+        rx
     }
 
     /// Main's state now: one ask, answered with the state.
@@ -237,8 +252,12 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Sink for Port<S> {
         })?;
         let mut inner = self.lock();
         if seq > inner.seq {
+            let state = Arc::new(state);
             inner.seq = seq;
-            inner.state = Arc::new(state);
+            inner.state = state.clone();
+            inner
+                .watchers
+                .retain(|watcher| watcher.send(state.clone()).is_ok());
         }
         Ok(())
     }
@@ -247,6 +266,7 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Sink for Port<S> {
         let pending = {
             let mut inner = self.lock();
             inner.closed = true;
+            inner.watchers.clear();
             std::mem::take(&mut inner.pending)
         };
         for (_, waiter) in pending {
@@ -265,6 +285,35 @@ impl<S> Drop for Port<S> {
     fn drop(&mut self) {
         self.closed.send_replace(true);
     }
+}
+
+/// Applies a snapshot as `ports.push` would: what a test of a subsystem uses to play main.
+#[cfg(test)]
+pub(crate) fn apply_state<S: DeserializeOwned + Send + Sync + 'static>(
+    port: &Port<S>,
+    seq: u64,
+    state: &str,
+) -> Result<(), Fault> {
+    let state = RawValue::from_string(state.to_owned())
+        .map_err(|error| Fault::new("invalid_params", error.to_string()))?;
+    Sink::state(port, seq, &state)
+}
+
+/// Answers ask `ask` as `ports.answer` would: `Ok(json)` or `Err((message, code))`.
+#[cfg(test)]
+pub(crate) fn apply_answer<S: DeserializeOwned + Send + Sync + 'static>(
+    port: &Port<S>,
+    ask: u64,
+    result: Result<&str, (&str, Option<&str>)>,
+) {
+    let result = match result {
+        Ok(json) => Ok(RawValue::from_string(json.to_owned()).expect("an answer is JSON")),
+        Err((message, code)) => Err(PortError {
+            message: message.to_owned(),
+            code: code.map(str::to_owned),
+        }),
+    };
+    Sink::answer(port, ask, result);
 }
 
 pub fn register(registry: &mut Registry) {
@@ -379,6 +428,21 @@ mod tests {
         Sink::state(&*port, 1, &raw(r#"{"n":1}"#)).unwrap();
         assert_eq!(port.state().n, 2);
         port.close();
+    }
+
+    #[tokio::test]
+    async fn a_watcher_sees_every_snapshot_in_order_also_one_replaced_at_once() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let events = crate::server::test_events(&tx);
+        let port: Arc<Port<State>> = Port::open(&events, 9_003, State::default()).unwrap();
+        let mut changes = port.changes();
+        Sink::state(&*port, 1, &raw(r#"{"n":1}"#)).unwrap();
+        Sink::state(&*port, 2, &raw(r#"{"n":2}"#)).unwrap();
+        Sink::state(&*port, 2, &raw(r#"{"n":9}"#)).unwrap();
+        assert_eq!(changes.recv().await.unwrap().n, 1);
+        assert_eq!(changes.recv().await.unwrap().n, 2);
+        port.close();
+        assert!(changes.recv().await.is_none());
     }
 
     #[tokio::test]
