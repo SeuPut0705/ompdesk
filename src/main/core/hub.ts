@@ -287,7 +287,10 @@ export class Hub {
 				if (connection.dead) throw connection.dead;
 				if (answer) {
 					// What the call's own promise continuations made runs as they did: in microtasks after the caller's code.
-					if (after.length > 0) queueMicrotask(() => after.forEach(line => this.#handle(line)));
+					if (after.length > 0)
+						queueMicrotask(() => {
+							for (const line of after) this.#handle(line);
+						});
 					if (answer.ok) return answer.result;
 					throw new CoreError(answer.error?.code ?? "hub_error", answer.error?.message ?? "the hub failed");
 				}
