@@ -115,7 +115,8 @@ impl Default for Tuning {
 /// A listening control socket, by the number main gave it.
 struct Server {
     link: Arc<Link>,
-    listening: Listening,
+    /// None while it binds: the server is registered first, so a push for a connection it already took finds it.
+    listening: Option<Listening>,
     path: String,
     /// The folder `endpoint.json` was published in.
     published: Option<String>,
@@ -283,18 +284,34 @@ async fn listen(call: Call) -> Result<Reply, Fault> {
             .unwrap_or(defaults.event_poll_ms)
             .max(1),
     };
-    if servers().contains_key(&params.server) {
-        return Err(Fault::new(
-            "invalid_params",
-            format!("control server {} already listens", params.server),
-        ));
-    }
     let events = call.events.clone();
     let server = params.server;
     let link = Link::new(tuning, {
         let events = events.clone();
         move |ask| events.send("control", &ask_event(server, &ask))
     });
+    // Registered before the bind: a connection can ask main something as soon as the listener takes it, and main's
+    // push answering it must find this link, or it is dropped with its number and every later push waits for it.
+    {
+        let mut servers = servers();
+        if servers.contains_key(&server) {
+            return Err(Fault::new(
+                "invalid_params",
+                format!("control server {server} already listens"),
+            ));
+        }
+        servers.insert(
+            server,
+            Server {
+                link: Arc::clone(&link),
+                listening: None,
+                path: params.path.clone(),
+                published: None,
+                events,
+                closed: Arc::new(watch::channel(false).0),
+            },
+        );
+    }
     let serving = conn::Serving {
         link: Arc::clone(&link),
         token: params.token.into(),
@@ -304,34 +321,75 @@ async fn listen(call: Call) -> Result<Reply, Fault> {
         max_in_flight: tuning.max_in_flight,
         half_close: cfg!(unix),
     };
-    let listening = listen::listen(&params.path, serving, tuning.max_connections).await?;
+    let ours = |entry: &Server| Arc::ptr_eq(&entry.link, &link);
+    let listening = match listen::listen(&params.path, serving, tuning.max_connections).await {
+        Ok(listening) => listening,
+        Err(fault) => {
+            let mut servers = servers();
+            if servers.get(&server).is_some_and(ours) {
+                servers.remove(&server);
+            }
+            drop(servers);
+            link.close();
+            return Err(fault);
+        }
+    };
     let mut published = None;
     if let Some(publish) = params.publish {
         let dir = publish.dir.clone();
         let written =
             blocking(move || endpoint::write_endpoint(&publish.dir, publish.endpoint.get())).await;
         if let Err(fault) = written {
+            let entry = {
+                let mut servers = servers();
+                if servers.get(&server).is_some_and(ours) {
+                    servers.remove(&server)
+                } else {
+                    None
+                }
+            };
             listening.close().await;
+            if let Some(entry) = entry {
+                close_server(entry).await;
+            }
             return Err(fault);
         }
         published = Some(dir);
     }
-    servers().insert(
-        params.server,
-        Server {
+    let unclaimed = {
+        let mut servers = servers();
+        match servers.get_mut(&server).filter(|entry| ours(entry)) {
+            Some(entry) => {
+                entry.listening = Some(listening);
+                entry.published = published;
+                None
+            }
+            None => Some((listening, published)),
+        }
+    };
+    // Closed while it bound (the core's input ended): what it made goes too.
+    if let Some((listening, published)) = unclaimed {
+        close_server(Server {
             link,
-            listening,
+            listening: Some(listening),
             path: params.path,
             published,
-            events,
+            events: call.events.clone(),
             closed: Arc::new(watch::channel(false).0),
-        },
-    );
+        })
+        .await;
+        return Err(Fault::new(
+            "closed",
+            format!("control server {server} closed while it started"),
+        ));
+    }
     Reply::json(&serde_json::Map::new())
 }
 
 async fn close_server(server: Server) {
-    server.listening.close().await;
+    if let Some(listening) = server.listening {
+        listening.close().await;
+    }
     server.link.close();
     if let Some(dir) = server.published {
         // Only while it still names this socket: a newer OMPdesk's file is not ours to delete.
