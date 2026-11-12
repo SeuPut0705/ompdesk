@@ -1405,7 +1405,8 @@ describe("SidecarManager", () => {
 		type OnTerm = "exit" | "exit-late" | "ignore";
 		/**
 		 * A fake omp that logs `spawn <pid> <ms>` and `exit <pid> <ms>` lines, takes SIGTERM as `onTerm` says, and answers
-		 * commands: always, never (`silent`), or once `gate` exists (each command waits for it).
+		 * commands: always, never (`silent`), or once `gate` exists (each command waits for it, and a `fixture_held`
+		 * frame names it first).
 		 */
 		async function loggedOmp(options: { onTerm: OnTerm; answers: "always" | "never" | { gate: string } }) {
 			const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-life-"));
@@ -1432,6 +1433,7 @@ describe("SidecarManager", () => {
 					'\tconst answer = () => process.stdout.write(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data: {} }) + "\\n");',
 					'\tif (config.answers === "never") return;',
 					'\tif (config.answers === "always") return answer();',
+					'\tprocess.stdout.write(JSON.stringify({ type: "fixture_held", command: command.type }) + "\\n");',
 					"\tconst wait = setInterval(() => { if (fs.existsSync(config.answers.gate)) { clearInterval(wait); answer(); } }, 20);",
 					"});",
 					"setInterval(() => {}, 1000);",
@@ -1446,6 +1448,30 @@ describe("SidecarManager", () => {
 						return { word, pid: Number(pid), at: Number(at) };
 					});
 			return { tempDir, binaryPath, lines };
+		}
+
+		/** Resolves once the gated fake omp of `sidecar` says it holds `command`, which is after it printed `ready`. */
+		function holds(sidecar: SidecarManager, command: string): Promise<void> {
+			const held = Promise.withResolvers<void>();
+			const onFrame = (frame: { type?: unknown; command?: unknown }) => {
+				if (frame.type !== "fixture_held" || frame.command !== command) return;
+				sidecar.off("frame", onFrame);
+				held.resolve();
+			};
+			sidecar.on("frame", onFrame);
+			return held.promise;
+		}
+
+		/** Resolves at the first status of `sidecar` that `matches`. */
+		function statusThat(sidecar: SidecarManager, matches: (payload: SidecarStatusPayload) => boolean): Promise<void> {
+			const seen = Promise.withResolvers<void>();
+			const onStatus = (payload: SidecarStatusPayload) => {
+				if (!matches(payload)) return;
+				sidecar.off("status", onStatus);
+				seen.resolve();
+			};
+			sidecar.on("status", onStatus);
+			return seen.promise;
 		}
 
 		const alive = (pid: number) => {
@@ -1540,9 +1566,17 @@ describe("SidecarManager", () => {
 			}
 			try {
 				const ready = Promise.all(tabs.map(tab => waitForReady(tab)));
+				const twoUp = Promise.withResolvers<void>();
+				let up = 0;
+				for (const tab of tabs) {
+					void holds(tab, "get_state").then(() => {
+						if (++up === 2) twoUp.resolve();
+					});
+				}
 				for (const tab of tabs) tab.start();
 				// Two omps are up and waiting for their first answer: the other two have not been started.
-				await vi.waitFor(async () => expect((await lines()).filter(line => line.word === "spawn")).toHaveLength(2));
+				await twoUp.promise;
+				expect((await lines()).filter(line => line.word === "spawn")).toHaveLength(2);
 				expect(most).toBe(2);
 				await fs.writeFile(gate, "");
 				await ready;
@@ -1572,11 +1606,25 @@ describe("SidecarManager", () => {
 			const statuses: SidecarStatusPayload[] = [];
 			late.on("status", (payload: SidecarStatusPayload) => statuses.push(payload));
 			try {
-				late.start();
-				await vi.waitFor(async () => expect((await slow.lines()).map(line => line.word)).toEqual(["spawn"]));
+				const lateHeld = holds(late, "get_state");
+				const lateSlow = statusThat(late, payload => payload.slow === true);
+				const nextQueued = statusThat(next, payload => payload.queued === true);
 				const nextReady = waitForReady(next);
-				next.start();
+				// The slow bound runs on a clock the test moves: the second tab waits until the test lets it pass.
+				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+				try {
+					late.start();
+					await lateHeld;
+					next.start();
+					await nextQueued;
+					vi.advanceTimersByTime(999);
+					expect(next.statusPayload).toMatchObject({ status: "starting", queued: true });
+					vi.advanceTimersByTime(1);
+				} finally {
+					vi.useRealTimers();
+				}
 				await nextReady;
+				await lateSlow;
 				// The second tab is up and the first omp still runs, waited for: one spawn, its tab slow.
 				expect((await slow.lines()).map(line => line.word)).toEqual(["spawn"]);
 				expect(late.statusPayload).toMatchObject({ status: "starting", slow: true });
@@ -1613,10 +1661,23 @@ describe("SidecarManager", () => {
 				reportSlowStart: report => reports.push(report),
 			});
 			try {
-				sidecar.start();
-				await vi.waitFor(() => expect(sidecar.statusPayload).toMatchObject({ status: "starting", slow: true }));
+				const held = holds(sidecar, "get_state");
+				const slowShown = statusThat(sidecar, payload => payload.slow === true);
+				// The slow bound runs on a clock the test moves, so it passes only once the omp printed ready and holds
+				// get_state, however long the omp took to start.
+				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+				try {
+					sidecar.start();
+					await held;
+					vi.advanceTimersByTime(299);
+					expect(asked).toEqual([]);
+					vi.advanceTimersByTime(1);
+				} finally {
+					vi.useRealTimers();
+				}
 				// The spawned process's pid: on Windows the fake runs behind a `.cmd` shell, so it is not the fake's own.
 				expect(asked).toEqual([sidecar.pid]);
+				await slowShown;
 				expect(sidecar.statusPayload.message).toBe(logLine);
 				expect(reports).toEqual([
 					{
@@ -1649,11 +1710,13 @@ describe("SidecarManager", () => {
 			const seen: SidecarStatusPayload[] = [];
 			second.on("status", (payload: SidecarStatusPayload) => seen.push(payload));
 			try {
+				const firstHeld = holds(first, "get_state");
 				first.start();
-				await vi.waitFor(async () => expect((await held.lines()).map(line => line.word)).toEqual(["spawn"]));
+				await firstHeld;
 				const ready = waitForReady(second);
+				const queued = statusThat(second, payload => payload.queued === true);
 				second.start();
-				await vi.waitFor(() => expect(second.statusPayload).toMatchObject({ status: "starting", queued: true }));
+				await queued;
 				await fs.writeFile(gate, "");
 				await ready;
 				expect(seen.map(payload => [payload.status, payload.queued === true])).toEqual([
