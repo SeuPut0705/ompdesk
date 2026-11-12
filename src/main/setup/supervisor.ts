@@ -1,209 +1,31 @@
 /**
- * Installers (curl | bash, PowerShell, winget, brew) neither watch stdin nor
- * die with the app. Each one therefore runs under a tiny supervisor: this
- * script, run by the app's own binary as Node (`ELECTRON_RUN_AS_NODE=1`; the
- * plain `node`/`bun` binary in tests and scripts). It starts the installer in
- * its own process group, passes its output through, and kills the installer's
- * whole tree when its stdin closes — a cancel (main ends stdin), an app quit,
- * or a crash of the app that skips every quit handler.
+ * Installers (curl | bash, PowerShell, winget, brew) neither watch stdin nor die with the app. Each one therefore
+ * runs under a supervisor: OMPdesk's own core binary in its `--supervise` mode (`native/ompdesk/crates/core/src/
+ * supervise.rs`), started directly, with no running core needed. It starts the command with its whole tree held (a
+ * process group of its own on POSIX, a job of its own on Windows), passes its output through, and ends that tree when
+ * its stdin closes: a cancel (main ends stdin), an app quit, or a crash of the app that skips every quit handler. It
+ * then exits `SUPERVISOR_STOPPED_CODE`, otherwise with the command's code, 127 when the command could not start. On
+ * Windows the tree also ends with the supervisor, however it ends, except an isolated command's.
  *
- * The installer command comes from `OMPDESK_SETUP_SPEC` (`{file, args, shell,
- * inputFile?, log?}` JSON), never from argv, so runtimes that parse argv differently
- * agree. `inputFile` becomes the child's stdin (else it gets none). `log` is the
- * output file of an isolated command (`SpawnSpec.isolated`, see `isolatedLaunch`):
- * with `redirect` the supervisor hands it to the child as stdout/stderr; either
- * way its text becomes the supervisor's own output once the child exited.
+ * The command comes from `OMPDESK_SETUP_SPEC` (`{file, args, shell, inputFile?, log?, isolated?}` JSON), never from
+ * argv. `inputFile` becomes the child's stdin (else it gets none). `log` is the output file of an isolated command
+ * (`SpawnSpec.isolated`, see `isolatedLaunch`): with `redirect` the supervisor hands it to the child as stdout/stderr;
+ * either way its bytes become the supervisor's own output once the child exited.
  */
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, win32 } from "node:path";
+import { nativeBinPath } from "../native-bin";
 import { findOnPath } from "../spawn";
 import { bunInstallDir } from "./paths";
 import type { SpawnSpec } from "./plans";
 
-export const SUPERVISOR_SPEC_ENV = "OMPDESK_SETUP_SPEC";
+/** Where the command reaches the supervisor (`SPEC_ENV` in `supervise.rs`). */
+const SUPERVISOR_SPEC_ENV = "OMPDESK_SETUP_SPEC";
 
-/** Exit code the supervisor reports after it killed the installer for a stdin close. */
+/** Exit code the supervisor reports after it ended the command's tree for a stdin close (`STOPPED` in `supervise.rs`). */
 export const SUPERVISOR_STOPPED_CODE = 130;
-
-/**
- * Ends a process and everything that descends from it on Windows, which has no process group: Toolhelp's process
- * snapshot names each process's parent (no WMI, which answers "call cancelled" when the machine is loaded, and then
- * `taskkill /T` kills nothing). `ROOT_PID` is the pid and `STOPPED_AT` the FILETIME the stop was asked at.
- *
- * One pass lists the tree and ends it, so a process a member of the tree starts between the listing and its own
- * end is missed (`taskkill /T` has the same window, hundreds of ms on a loaded machine: a `.cmd` shim's `bun` lived
- * on with its working folder held, 1 of 40 scheduled-run stops). The walk therefore repeats until two passes in
- * a row find nothing new. A child of an ended member stays reachable through the parent pid it carries, and a
- * process is only taken for a member when it was born after its parent (pids are reused). The root counts only
- * when it was born before the stop was asked for: nothing born later can be it.
- *
- * P/Invoke through a dynamic assembly (no `Add-Type`, whose C# compile costs 1 to 3 s a run) with pointers only,
- * so a `PROCESSENTRY32W` is read at its offsets (pid 8, parent 32). A failure exits non-zero and the caller falls
- * back to taskkill.
- */
-const TREE_SWEEP_SCRIPT = [
-	"$ErrorActionPreference = 'Stop'",
-	"$ProgressPreference = 'SilentlyContinue'",
-	"$root = ROOT_PID",
-	"$stoppedAt = STOPPED_AT",
-	"$builder = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'Sweep'), [Reflection.Emit.AssemblyBuilderAccess]::Run)",
-	"$type = $builder.DefineDynamicModule('Sweep').DefineType('Native', 'Public,Class')",
-	"function Import($name, $result, $parameters) {",
-	"  $method = $type.DefinePInvokeMethod($name, 'kernel32.dll', 'Public,Static,PinvokeImpl', 'Standard', $result, $parameters, 'Winapi', 'Auto')",
-	"  $method.SetImplementationFlags('PreserveSig')",
-	"}",
-	"$time = [long].MakeByRefType()",
-	"Import CreateToolhelp32Snapshot ([IntPtr]) @([uint32], [uint32])",
-	"Import Process32FirstW ([bool]) @([IntPtr], [IntPtr])",
-	"Import Process32NextW ([bool]) @([IntPtr], [IntPtr])",
-	"Import OpenProcess ([IntPtr]) @([uint32], [bool], [uint32])",
-	"Import GetProcessTimes ([bool]) @([IntPtr], $time, $time, $time, $time)",
-	"Import TerminateProcess ([bool]) @([IntPtr], [uint32])",
-	"Import CloseHandle ([bool]) @([IntPtr])",
-	"$native = $type.CreateType()",
-	"$marshal = [Runtime.InteropServices.Marshal]",
-	"$entry = $marshal::AllocHGlobal(568)",
-	"function Parents {",
-	"  $parents = @{}",
-	"  $snapshot = $native::CreateToolhelp32Snapshot(2, 0)",
-	"  $marshal::WriteInt32($entry, 0, 568)",
-	"  for ($more = $native::Process32FirstW($snapshot, $entry); $more; $more = $native::Process32NextW($snapshot, $entry)) {",
-	"    $parents[$marshal::ReadInt32($entry, 8)] = $marshal::ReadInt32($entry, 32)",
-	"  }",
-	"  [void]$native::CloseHandle($snapshot)",
-	"  $parents",
-	"}",
-	"function Born($id) {",
-	"  $handle = $native::OpenProcess(0x1000, $false, $id)",
-	"  if ($handle -eq [IntPtr]::Zero) { return $null }",
-	"  $born = 0L; $other = 0L",
-	"  $ok = $native::GetProcessTimes($handle, [ref]$born, [ref]$other, [ref]$other, [ref]$other)",
-	"  [void]$native::CloseHandle($handle)",
-	"  if ($ok) { $born }",
-	"}",
-	"$rootBorn = Born $root",
-	"if ($null -eq $rootBorn -or $rootBorn -ge $stoppedAt) { exit 0 }",
-	"$members = @{ $root = $rootBorn }",
-	"$next = @($root)",
-	"$clock = [Diagnostics.Stopwatch]::StartNew()",
-	"$quiet = 0",
-	"while ($quiet -lt 2 -and $clock.Elapsed.TotalSeconds -lt 15) {",
-	"  foreach ($id in $next) {",
-	"    $handle = $native::OpenProcess(1, $false, $id)",
-	"    if ($handle -ne [IntPtr]::Zero) { [void]$native::TerminateProcess($handle, 1); [void]$native::CloseHandle($handle) }",
-	"  }",
-	"  Start-Sleep -Milliseconds 50",
-	"  $parents = Parents",
-	"  $next = @()",
-	"  do {",
-	"    $grew = $false",
-	"    foreach ($id in @($parents.Keys)) {",
-	"      if ($members.ContainsKey($id) -or -not $members.ContainsKey($parents[$id])) { continue }",
-	"      $born = Born $id",
-	"      if ($null -eq $born -or $born -lt $members[$parents[$id]]) { continue }",
-	"      $holder = Born $parents[$id]",
-	"      if ($null -ne $holder -and $holder -ne $members[$parents[$id]] -and $born -gt $holder) { continue }",
-	"      $members[$id] = $born",
-	"      $next += $id",
-	"      $grew = $true",
-	"    }",
-	"  } while ($grew)",
-	"  if ($next.Count -eq 0) { $quiet++ } else { $quiet = 0 }",
-	"}",
-	"exit 0",
-].join("\n");
-
-export const SUPERVISOR_SOURCE = `
-const { spawn } = require("node:child_process");
-const TREE_SWEEP_SCRIPT = ${JSON.stringify(TREE_SWEEP_SCRIPT)};
-const fs = require("node:fs");
-const spec = JSON.parse(process.env.${SUPERVISOR_SPEC_ENV});
-delete process.env.${SUPERVISOR_SPEC_ENV};
-delete process.env.ELECTRON_RUN_AS_NODE;
-const windows = process.platform === "win32";
-const log = spec.log || null;
-let stopping = false;
-let exited = false;
-let child;
-function dropLog() {
-	if (log) try { fs.unlinkSync(log.path); } catch {}
-}
-try {
-	const output = log && log.redirect ? fs.openSync(log.path, "w") : "inherit";
-	child = spawn(spec.file, spec.args, {
-		stdio: [spec.inputFile ? fs.openSync(spec.inputFile, "r") : "ignore", output, output],
-		detached: !windows,
-		shell: spec.shell === true,
-		windowsHide: true,
-	});
-} catch (error) {
-	dropLog();
-	process.stderr.write(String(error && error.message ? error.message : error) + "\\n");
-	process.exit(127);
-}
-let sweeping = null;
-function sweepTree() {
-	const stoppedAt = (BigInt(Date.now()) * 10000n + 116444736000000000n).toString();
-	const script = TREE_SWEEP_SCRIPT.replace("ROOT_PID", String(child.pid)).replace("STOPPED_AT", stoppedAt);
-	const encoded = Buffer.from(script, "utf16le").toString("base64");
-	const { promise, resolve: done } = Promise.withResolvers();
-	sweeping = promise;
-	// Without PowerShell's reflection (a locked-down machine) or its start, taskkill walks the tree through WMI, and
-	// with WMI down it exits 1 and kills nothing: the shim dies at best and the omp under it runs on, holding its
-	// folder. That is the last resort, so a failed taskkill ends the shim itself.
-	const fallBack = () => {
-		if (exited) return done();
-		const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		killer.on("error", () => { child.kill(); done(); });
-		killer.on("exit", code => { if (code !== 0) child.kill(); done(); });
-	};
-	const walker = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { stdio: "ignore", windowsHide: true });
-	const hung = setTimeout(() => walker.kill(), 20000);
-	walker.on("error", () => { clearTimeout(hung); fallBack(); });
-	walker.on("exit", code => { clearTimeout(hung); if (code === 0) done(); else fallBack(); });
-}
-function killTree(signal) {
-	if (!child.pid) return;
-	if (windows) {
-		if (!exited && !sweeping) sweepTree();
-		return;
-	}
-	try { process.kill(-child.pid, signal); } catch {}
-}
-function stop() {
-	if (stopping) return;
-	stopping = true;
-	killTree("SIGTERM");
-	setTimeout(() => killTree("SIGKILL"), 2000).unref();
-}
-process.stdin.on("end", stop);
-process.stdin.on("close", stop);
-process.stdin.on("error", stop);
-process.stdin.resume();
-process.on("SIGTERM", stop);
-process.on("SIGINT", stop);
-child.on("error", error => {
-	dropLog();
-	process.stderr.write(error.message + "\\n");
-	process.exit(127);
-});
-child.on("exit", (code, signal) => {
-	exited = true;
-	// A descendant that outlived the installer goes with its group.
-	if (!windows) killTree("SIGKILL");
-	const status = stopping ? ${SUPERVISOR_STOPPED_CODE} : code === null ? 1 : code;
-	let text = "";
-	if (log) try { text = fs.readFileSync(log.path, "utf8"); } catch {}
-	dropLog();
-	// The shim ending is not the tree ending: what it started may still be going, and the sweep goes on until the tree is gone.
-	Promise.resolve(sweeping).then(() => {
-		if (text) process.stdout.write(text, () => process.exit(status));
-		else process.exit(status);
-	});
-});
-`;
 
 /**
  * Quote one argument for a Windows command line so the C runtime's parser (every `.exe` OMPdesk starts) reads it back
@@ -229,13 +51,13 @@ export function quoteWindowsArg(arg: string): string {
  * Windows' isolated launch, run by Bun (`bun -e`, `bun:ffi` calling kernel32; no compiler, no PowerShell): it starts
  * the command with `CreateProcessW` and an explicit handle list (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`), so it inherits
  * NUL and the log file and nothing else, with no window (`CREATE_NO_WINDOW`) and the environment it was given, then
- * waits and exits with its code (127 when it could not start). A plain spawn cannot do this: libuv (Node's `spawn`)
- * creates every child with `bInheritHandles`, so it inherits every inheritable handle of its parent, and Electron keeps
- * its main process's stdio inheritable — a launcher's pipes (Playwright's, a script's) reach the supervisor as stray
- * handles no API names, and through it any command it starts. A descendant that outlives the app (ai-memory's service
- * host, started by `setup` with Rust's `Command`, also `bInheritHandles`) would hold them, and the app's own pipes to
- * the supervisor, open for as long as it runs. The command comes from `OMPDESK_ISOLATED` (`{application,
- * commandLine, log}` JSON), which the command's own environment leaves out.
+ * waits and exits with its code (127 when it could not start). A plain spawn cannot do this: libuv (Node's `spawn`) and
+ * Rust's `Command` (the supervisor's) create every child with `bInheritHandles`, so it inherits every inheritable
+ * handle of its parent, and Electron keeps its main process's stdio inheritable — a launcher's pipes (Playwright's, a
+ * script's) reach the supervisor as stray handles no API names, and through it any command it starts. A descendant
+ * that outlives the app (ai-memory's service host, started by `setup` with Rust's `Command`, also `bInheritHandles`)
+ * would hold them, and the app's own pipes to the supervisor, open for as long as it runs. The command comes from
+ * `OMPDESK_ISOLATED` (`{application, commandLine, log}` JSON), which the command's own environment leaves out.
  */
 const ISOLATED_LAUNCHER = `
 const { writeSync } = require("node:fs");
@@ -353,7 +175,13 @@ export function isolatedLaunch(spec: SpawnSpec, env: NodeJS.ProcessEnv, options:
 		? [win32.join(systemRoot, "System32", "cmd.exe"), `cmd.exe /d /s /c "${[spec.file, ...spec.args].join(" ")}"`]
 		: [spec.file, [spec.file, ...spec.args].map(quoteWindowsArg).join(" ")];
 	return {
-		spec: { file: bun, args: ["-e", ISOLATED_LAUNCHER], shell: false, log: { path: log, redirect: false } },
+		spec: {
+			file: bun,
+			args: ["-e", ISOLATED_LAUNCHER],
+			shell: false,
+			isolated: true,
+			log: { path: log, redirect: false },
+		},
 		env: { ...env, OMPDESK_ISOLATED: JSON.stringify({ application, commandLine, log }) },
 	};
 }
@@ -361,8 +189,8 @@ export function isolatedLaunch(spec: SpawnSpec, env: NodeJS.ProcessEnv, options:
 /** Start `spec` under the supervisor with `env` (in `cwd`, else main's); stdin stays open until a cancel. */
 export function spawnSupervised(spec: SpawnSpec, env: NodeJS.ProcessEnv, cwd?: string): ChildProcess {
 	const launch = spec.isolated ? isolatedLaunch(spec, env) : { spec, env };
-	return spawn(process.execPath, ["-e", SUPERVISOR_SOURCE], {
-		env: { ...launch.env, ELECTRON_RUN_AS_NODE: "1", [SUPERVISOR_SPEC_ENV]: JSON.stringify(launch.spec) },
+	return spawn(nativeBinPath("ompdesk-core"), ["--supervise"], {
+		env: { ...launch.env, [SUPERVISOR_SPEC_ENV]: JSON.stringify(launch.spec) },
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,
 		...(cwd ? { cwd } : {}),

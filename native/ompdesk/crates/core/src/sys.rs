@@ -1,7 +1,8 @@
 //! The only unsafe code: asking a child process to end with SIGTERM, a file's clone (macOS, Linux) and (Windows) the
-//! job object that ends its children with it and the one that ends an ssh with its whole tree, physical memory and
-//! process reads, a junction, reading and ending other processes (their environment and command line, `WM_CLOSE`,
-//! SIGKILL), `ReadDirectoryChangesW`, and the system random generator.
+//! job object that ends its children with it and the one that ends an ssh or a supervised command with its whole
+//! tree, physical memory and process reads, a junction, reading and ending other processes (their environment and
+//! command line, `WM_CLOSE`, SIGKILL), `ReadDirectoryChangesW`, the system random generator, and (POSIX) a supervised
+//! command's session and process group and the stop signals its supervisor waits for.
 #![allow(unsafe_code)]
 
 /// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
@@ -47,6 +48,81 @@ pub fn signal(pid: u32, force: bool) -> bool {
     let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
     // SAFETY: kill only reads its two integer arguments; `pid` is one process's id, never a group's.
     unsafe { libc::kill(pid, signal) == 0 }
+}
+
+/// Sends SIGTERM, or with `force` SIGKILL, to every process of the group `group` leads (a child started as the leader
+/// of a group of its own); whether one was there to receive it. Never group 0 or 1, which `kill` reads as this
+/// process's own group and as every process.
+#[cfg(unix)]
+pub fn signal_group(group: u32, force: bool) -> bool {
+    let Ok(group) = libc::pid_t::try_from(group) else {
+        return false;
+    };
+    if group <= 1 {
+        return false;
+    }
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+    // SAFETY: kill only reads its two integer arguments; `-group` names one process group, never every process.
+    unsafe { libc::kill(-group, signal) == 0 }
+}
+
+/// SIGTERM and SIGINT, held for `wait` instead of ending this process.
+#[cfg(unix)]
+pub struct StopSignals(libc::sigset_t);
+
+#[cfg(unix)]
+impl StopSignals {
+    /// Blocks SIGTERM and SIGINT in the calling thread and every thread it starts afterwards, so call it before
+    /// starting any. A child inherits the mask; `new_session` empties it again, so the signals still end the command.
+    pub fn block() -> std::io::Result<StopSignals> {
+        let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+        // SAFETY: `sigemptyset` initializes the set before `sigaddset` reads it, and `pthread_sigmask` only reads it;
+        // the old mask is not asked for (null).
+        let blocked = unsafe {
+            libc::sigemptyset(set.as_mut_ptr());
+            libc::sigaddset(set.as_mut_ptr(), libc::SIGTERM);
+            libc::sigaddset(set.as_mut_ptr(), libc::SIGINT);
+            libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), std::ptr::null_mut())
+        };
+        if blocked != 0 {
+            return Err(std::io::Error::from_raw_os_error(blocked));
+        }
+        // SAFETY: `sigemptyset` initialized it above.
+        Ok(StopSignals(unsafe { set.assume_init() }))
+    }
+
+    /// Waits until SIGTERM or SIGINT arrives.
+    pub fn wait(&self) {
+        let mut received = 0;
+        // SAFETY: the set is initialized and only read; `received` is written during the call.
+        while unsafe { libc::sigwait(&raw const self.0, &raw mut received) } != 0 {}
+    }
+}
+
+/// Starts `command`'s process in a session and process group of its own (`setsid`), as node's `detached: true` does,
+/// so `signal_group` with its pid reaches it and everything it starts that stays in its group. Its signal mask is
+/// emptied, as libuv's spawn empties it: the supervisor blocks SIGTERM and SIGINT (`StopSignals`), and std passes a
+/// thread's mask on to the child (`SigBlk` read 0x4002 before this).
+#[cfg(unix)]
+pub fn new_session(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: the closure runs in the forked child before exec and calls only `setsid`, `sigemptyset` and
+    // `pthread_sigmask`, which are async-signal-safe; the set is initialized by `sigemptyset` before it is read.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let mut empty = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            libc::sigemptyset(empty.as_mut_ptr());
+            let set =
+                libc::pthread_sigmask(libc::SIG_SETMASK, empty.as_ptr(), std::ptr::null_mut());
+            if set != 0 {
+                return Err(std::io::Error::from_raw_os_error(set));
+            }
+            Ok(())
+        });
+    }
 }
 
 /// `KERN_ARGMAX`: the most bytes a process's arguments and environment take, the size `procargs` needs.
@@ -223,11 +299,7 @@ mod job {
 
     /// A new, empty job object that kills every process in it once its last handle closes.
     pub fn kill_on_close() -> io::Result<Handle> {
-        // SAFETY: both pointers may be null (default security, no name); the call returns a new handle or null.
-        let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
-        if job.is_null() {
-            return Err(io::Error::last_os_error());
-        }
+        let job = new_job()?;
         let mut limits = ExtendedLimits::default();
         limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap_or(u32::MAX);
@@ -250,9 +322,19 @@ mod job {
         Ok(job)
     }
 
-    /// One process and everything it starts from now on (an ssh with its ProxyJump hops and its askpass helper), in a
-    /// job of their own inside this process's: `end` ends them all at once, as does dropping it. A process leaves a
-    /// tree only by ending.
+    /// A new, empty job object with no limits.
+    fn new_job() -> io::Result<Handle> {
+        // SAFETY: both pointers may be null (default security, no name); the call returns a new handle or null.
+        let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+        if job.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(job)
+    }
+
+    /// One process and everything it starts from now on (an ssh with its ProxyJump hops and its askpass helper, an
+    /// installer with what it runs), in a job of their own inside this process's: `end` ends them all at once. A process
+    /// leaves a tree only by ending.
     pub struct ProcessTree(Handle);
 
     // SAFETY: a job handle names a kernel object; the calls made on it here are safe from any thread.
@@ -261,10 +343,23 @@ mod job {
     unsafe impl Sync for ProcessTree {}
 
     impl ProcessTree {
-        /// `process` is a live process handle (a child that was just started).
+        /// `process` is a live process handle (a child that was just started). Dropping the tree ends what is left of it.
         pub fn of(process: std::os::windows::io::RawHandle) -> io::Result<ProcessTree> {
-            let tree = ProcessTree(kill_on_close()?);
-            // SAFETY: the job is the live handle `tree` owns; `process` is a live handle by this function's contract.
+            ProcessTree::holding(kill_on_close()?, process)
+        }
+
+        /// As `of`, but dropping the tree (this process ending) leaves what still runs: a setup command's service
+        /// host is meant to outlive it, and only `end` ends the tree.
+        pub fn outliving(process: std::os::windows::io::RawHandle) -> io::Result<ProcessTree> {
+            ProcessTree::holding(new_job()?, process)
+        }
+
+        fn holding(
+            job: Handle,
+            process: std::os::windows::io::RawHandle,
+        ) -> io::Result<ProcessTree> {
+            let tree = ProcessTree(job);
+            // SAFETY: the job is the live handle `tree` owns; `process` is a live handle by the callers' contract.
             if unsafe { AssignProcessToJobObject(tree.0, process) } == 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -301,7 +396,8 @@ mod job {
 
     impl Drop for ProcessTree {
         fn drop(&mut self) {
-            // SAFETY: the job is the live handle `self` owns, closed once; closing it ends what is left of the tree.
+            // SAFETY: the job is the live handle `self` owns, closed once; closing a kill-on-close job ends what is
+            // left of the tree.
             unsafe {
                 CloseHandle(self.0);
             }
@@ -512,7 +608,7 @@ pub fn physical_memory() -> std::io::Result<(u64, u64)> {
 }
 
 #[cfg(windows)]
-pub use process_list::{Process, ask_to_close, processes};
+pub use process_list::{Process, ask_to_close, processes, resume_process};
 
 /// This computer's processes: a Toolhelp32 snapshot with each one's working set (`memory.processes`) and, for
 /// `procs.*`, its start and a handle to read its environment and command line and to end it.
@@ -582,14 +678,30 @@ mod process_list {
         parent_process_id: usize,
     }
 
+    /// `THREADENTRY32`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct ThreadEntry {
+        size: u32,
+        usage: u32,
+        thread_id: u32,
+        owner_process_id: u32,
+        base_priority: i32,
+        delta_priority: i32,
+        flags: u32,
+    }
+
     const _: () = assert!(
         size_of::<Entry>() == 568
             && size_of::<Counters>() == 72
             && size_of::<FileTime>() == 8
             && size_of::<BasicInformation>() == 48
+            && size_of::<ThreadEntry>() == 28
     );
 
     const TH32CS_SNAPPROCESS: u32 = 0x2;
+    const TH32CS_SNAPTHREAD: u32 = 0x4;
+    const THREAD_SUSPEND_RESUME: u32 = 0x0002;
     const PROCESS_TERMINATE: u32 = 0x0001;
     const PROCESS_VM_READ: u32 = 0x0010;
     const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
@@ -643,6 +755,10 @@ mod process_list {
         ) -> i32;
         fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
         fn TerminateProcess(process: Handle, exit_code: u32) -> i32;
+        fn Thread32First(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn Thread32Next(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn OpenThread(access: u32, inherit: i32, thread_id: u32) -> Handle;
+        fn ResumeThread(thread: Handle) -> u32;
     }
 
     #[link(name = "ntdll")]
@@ -920,6 +1036,53 @@ mod process_list {
             more = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) };
         }
         Ok(entries)
+    }
+
+    /// Resumes every thread of `pid`, a child started suspended (`CREATE_SUSPENDED`: its one thread), so it runs only
+    /// once the caller put it in a job. std keeps the child's thread handle to itself, so the thread is found by its
+    /// owner in a Toolhelp32 snapshot.
+    pub fn resume_process(pid: u32) -> io::Result<()> {
+        // SAFETY: the call takes two integers and returns a new handle or `INVALID_HANDLE_VALUE`.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snapshot == INVALID_HANDLE {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `snapshot` is the open handle CreateToolhelp32Snapshot just returned; nothing else owns it.
+        let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
+        let mut entry = ThreadEntry {
+            size: u32::try_from(size_of::<ThreadEntry>()).unwrap_or(u32::MAX),
+            ..ThreadEntry::default()
+        };
+        let mut resumed = false;
+        // SAFETY: `snapshot` is the open handle above; `entry` is a `THREADENTRY32` laid out as C lays it out
+        // (`repr(C)`, size checked above) with its `dwSize` set, written only during the call.
+        let mut more = unsafe { Thread32First(snapshot.as_raw_handle(), &raw mut entry) };
+        while more != 0 {
+            if entry.owner_process_id == pid {
+                // SAFETY: the call takes three integers and returns a new handle or null.
+                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.thread_id) };
+                if thread.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: `thread` is the open handle OpenThread just returned; nothing else owns it.
+                let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
+                // SAFETY: the handle is open with THREAD_SUSPEND_RESUME.
+                if unsafe { ResumeThread(thread.as_raw_handle()) } == u32::MAX {
+                    return Err(io::Error::last_os_error());
+                }
+                resumed = true;
+            }
+            // SAFETY: as for `Thread32First` above.
+            more = unsafe { Thread32Next(snapshot.as_raw_handle(), &raw mut entry) };
+        }
+        if resumed {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the process has no thread",
+            ))
+        }
     }
 
     /// Posts `WM_CLOSE` to every top-level window of these processes, as `taskkill` without `/f` asks a program to

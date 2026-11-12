@@ -191,7 +191,7 @@ function handleReport(service: WinProcess[]): string | null {
 /**
  * Quit the app the way `how` says, and wait until its process is closed: Playwright (like any parent reading the
  * app's output) waits for the app's stdio pipes to close, so a descendant that inherited them keeps it waiting.
- * Then nothing OMPdesk started may still run — the setup supervisor (the app's own binary as Node), an `ai-memory`
+ * Then nothing OMPdesk started may still run — the setup supervisor (`ompdesk-core --supervise`), an `ai-memory`
  * command it ran, omp — while ai-memory's own per-user service may, since it is designed to outlive the app. What the
  * app started is what descends from its main process: an unpackaged run is `node_modules/electron/dist/electron.exe`
  * for every spec's app, and a worker killed mid-test leaves its app running, so the binary names no process of this one.

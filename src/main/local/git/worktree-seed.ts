@@ -15,10 +15,11 @@
  * `runWorktreeHook` also runs `.ompdesk/worktree-pre-merge` (in the worktree, before `ompdesk_merge` starts git) and
  * `.ompdesk/worktree-post-merge` (in the parent checkout, after the merge landed), found and logged the same way.
  *
- * The script runs here and not in the core. A hook is a shell whose children (`bun install`) must end with it at its
- * timeout, and it must never outlive the app. The core's processes end with a dead core because they stay in its
- * process group, so on POSIX it cannot give a hook a group of its own to kill; the setup supervisor runs a process
- * beside each command that does both, and it moves to the core with the rest of `src/main/setup`.
+ * The script runs under the core binary's supervise mode (`ompdesk-core --supervise`, `spawnSupervised`), not as a
+ * request of the running core. A hook is a shell whose children (`bun install`) must end with it at its timeout, and
+ * it must never outlive the app. The running core's processes end with a dead core because they stay in its process
+ * group, so on POSIX it cannot give a hook a group of its own to kill, and a hook in it would end with every restart
+ * of the core; the supervisor is a process beside each command that does both.
  *
  * Stock omp (18.12.1) has neither: no `worktreeinclude` and no worktree hook in its sources, and worktree creation
  * here is OMPdesk's own (`worktree.ts`), so nothing of stock is duplicated.

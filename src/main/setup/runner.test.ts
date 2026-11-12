@@ -1,7 +1,7 @@
 import { EventEmitter, once } from "node:events";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { DIES_WITH_TEST, RM_TEMP } from "../test-fake-omp";
@@ -164,37 +164,65 @@ async function cancelKillsGrandchild(env: NodeJS.ProcessEnv): Promise<void> {
 }
 
 /**
- * `taskkill /T` lists the tree and then ends it, and a process started in between lives on: in the trace of a
- * scheduled run's Stop the `cmd` shim's `bun` was born 200 ms before taskkill returned, with the shim ended and the
- * `bun` not (taskkill 546 ms after the Stop, exit 0), and held the run's folder. This `taskkill` makes that gap
- * 800 ms: it lists what the installer started (the pid file stands in for its WMI query), waits, then ends that
- * list and the root. The installer starts a `ping` every 50 ms, so ~16 are born in the gap and none may outlive the
- * cancel. A node.exe under taskkill's name, told by `NODE_OPTIONS` to run this before it looks for a script. The
- * `ping`s are detached: one sharing the installer's console dies with it (and so hides the miss).
+ * Main's libuv puts the supervisor in its kill-on-close job, so an app that crashes ends the supervisor before it reads
+ * its stdin's end: the installer and a detached grandchild (out of the installer's own libuv job) must end with it.
  */
-async function cancelWhileTaskkillIsSlow(): Promise<void> {
+async function supervisorEndKillsTree(): Promise<void> {
 	const dir = await mkdtemp(join(tmpdir(), "ompdesk-supervisor-"));
-	const fakeBin = join(dir, "bin");
+	const pidFile = join(dir, "tree.pids");
+	let pids: number[] = [];
+	const alive = (pid: number) => {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	try {
+		const installer = [
+			"const { spawn } = require('node:child_process');",
+			"const grandchild = spawn('ping', ['-n', '300', '127.0.0.1'], { stdio: 'ignore', detached: true });",
+			`require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, process.pid + ' ' + grandchild.pid);`,
+			"setInterval(() => {}, 1000);",
+		].join("\n");
+		const supervisor = spawnSupervised(
+			{ file: process.execPath, args: ["-e", installer], shell: false },
+			{
+				...process.env,
+			},
+		);
+		await vi.waitFor(async () => expect(await readFile(pidFile, "utf8")).toMatch(/^\d+ \d+$/), {
+			timeout: 15_000,
+			interval: 50,
+		});
+		pids = (await readFile(pidFile, "utf8")).split(" ").map(Number);
+		expect(pids.filter(alive)).toEqual(pids);
+		const exited = once(supervisor, "exit");
+		supervisor.kill();
+		await exited;
+		await vi.waitFor(() => expect(pids.filter(alive)).toEqual([]), { timeout: 10_000, interval: 50 });
+	} finally {
+		for (const pid of pids) {
+			try {
+				process.kill(pid);
+			} catch {}
+		}
+		await rm(dir, RM_TEMP);
+	}
+}
+
+/**
+ * A stop must end what the installer starts while it is being stopped: `taskkill /T` once listed the tree and then
+ * ended it, and a `bun` a `.cmd` shim started in between lived on with the run's folder held. The installer starts a
+ * detached `ping` every 50 ms (detached, so none dies with the installer's console and hides a miss); none may outlive
+ * the cancel.
+ */
+async function cancelWhileTheTreeGrows(): Promise<void> {
+	const dir = await mkdtemp(join(tmpdir(), "ompdesk-supervisor-"));
 	const started: number[] = [];
 	try {
-		await mkdir(fakeBin);
-		await copyFile(process.execPath, join(fakeBin, "taskkill.exe"));
 		const pidFile = join(dir, "children.pids");
-		const slowTaskkill = join(dir, "slow-taskkill.cjs");
-		await writeFile(
-			slowTaskkill,
-			[
-				"if (require('node:path').basename(process.execPath).toLowerCase() === 'taskkill.exe') {",
-				"  const fs = require('node:fs');",
-				`  const listed = fs.readFileSync(${JSON.stringify(pidFile)}, 'utf8').split('\\n').filter(Boolean).map(Number);`,
-				"  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 800);",
-				"  for (const pid of [...listed, Number(process.argv[2])]) {",
-				"    try { process.kill(pid); } catch {}",
-				"  }",
-				"  process.exit(0);",
-				"}",
-			].join("\n"),
-		);
 		const installer = [
 			"const { spawn } = require('node:child_process');",
 			"const fs = require('node:fs');",
@@ -208,11 +236,7 @@ async function cancelWhileTaskkillIsSlow(): Promise<void> {
 		const runner = new SetupRunner(spawnSupervised);
 		const run = runner.run(
 			{ file: process.execPath, args: ["-e", installer], shell: false },
-			{
-				...process.env,
-				PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
-				NODE_OPTIONS: `--require=${JSON.stringify(slowTaskkill.replaceAll("\\", "/"))}`,
-			},
+			{ ...process.env },
 			() => {},
 		);
 		await vi.waitFor(async () => expect((await listed()).length).toBeGreaterThan(5), {
@@ -221,18 +245,16 @@ async function cancelWhileTaskkillIsSlow(): Promise<void> {
 		});
 		expect(runner.cancel()).toBe(true);
 		await expect(run).resolves.toEqual({ kind: "cancelled" });
-		const alive = async () => {
-			started.splice(0, started.length, ...(await listed()));
-			return started.filter(pid => {
-				try {
-					process.kill(pid, 0);
-					return true;
-				} catch {
-					return false;
-				}
-			});
-		};
-		await vi.waitFor(async () => expect(await alive()).toEqual([]), { timeout: 15_000, interval: 100 });
+		started.splice(0, started.length, ...(await listed()));
+		const alive = started.filter(pid => {
+			try {
+				process.kill(pid, 0);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		expect(alive).toEqual([]);
 	} finally {
 		for (const pid of started) {
 			try {
@@ -260,38 +282,51 @@ describe("supervisor", () => {
 		expect(output.join("")).toContain("hello");
 	});
 
-	// The supervisor gives PowerShell's tree sweep up to 20 s before it falls back to taskkill (supervisor.ts
-	// `sweepTree`), and the first sweep of a run starts a cold PowerShell: on a loaded windows-latest runner that
-	// took the whole 20 s of vitest's default (ci run 39764722935, 20039 ms), which the supervisor survives by design.
-	it("kills the installer's whole tree when its stdin closes", { timeout: 45_000 }, async () => {
+	it("kills the installer's whole tree when its stdin closes", async () => {
 		await cancelKillsGrandchild({ ...process.env });
 	});
 
 	it.skipIf(process.platform !== "win32")(
-		"kills a child started in the gap between taskkill listing the tree and ending it",
-		cancelWhileTaskkillIsSlow,
+		"kills what the installer starts while it is being stopped",
+		cancelWhileTheTreeGrows,
 	);
 
-	// ping.exe under another tool's name: its arguments are bad options for it, so it exits 1 and does nothing.
-	const cancelWithBrokenTool = async (tool: "taskkill.exe" | "powershell.exe") => {
-		const fakeBin = await mkdtemp(join(tmpdir(), "ompdesk-broken-tool-"));
+	it.skipIf(process.platform !== "win32")(
+		"ends the installer's whole tree with the supervisor, however the supervisor ends",
+		supervisorEndKillsTree,
+	);
+
+	// The supervisor blocks SIGTERM for itself; the installer must still get it, and so the chance to clean up, before
+	// the SIGKILL 2 s later.
+	it.skipIf(process.platform === "win32")("asks a stopped installer to end with SIGTERM first", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "ompdesk-supervisor-"));
 		try {
-			await copyFile(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "ping.exe"), join(fakeBin, tool));
-			await cancelKillsGrandchild({ ...process.env, PATH: `${fakeBin}${delimiter}${process.env.PATH}` });
+			const marker = join(dir, "terminated");
+			const installer = [
+				"process.on('SIGTERM', () => {",
+				`  require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'SIGTERM');`,
+				"  process.exit(0);",
+				"});",
+				"process.stdout.write('started\\n');",
+				"setInterval(() => {}, 1000);",
+			].join("\n");
+			const runner = new SetupRunner(spawnSupervised);
+			const { promise: started, resolve } = Promise.withResolvers<void>();
+			const run = runner.run(
+				{ file: process.execPath, args: ["-e", installer], shell: false },
+				{ ...process.env },
+				chunk => {
+					if (chunk.includes("started")) resolve();
+				},
+			);
+			await started;
+			expect(runner.cancel()).toBe(true);
+			await expect(run).resolves.toEqual({ kind: "cancelled" });
+			expect(await readFile(marker, "utf8")).toBe("SIGTERM");
 		} finally {
-			await rm(fakeBin, RM_TEMP);
+			await rm(dir, RM_TEMP);
 		}
-	};
-
-	it.skipIf(process.platform !== "win32")(
-		"kills the whole tree without taskkill, which finds it through WMI and kills nothing while WMI is down",
-		() => cancelWithBrokenTool("taskkill.exe"),
-	);
-
-	it.skipIf(process.platform !== "win32")(
-		"falls back to taskkill when PowerShell cannot walk the tree (a locked-down machine)",
-		() => cancelWithBrokenTool("powershell.exe"),
-	);
+	});
 });
 
 describe("isolated commands", () => {

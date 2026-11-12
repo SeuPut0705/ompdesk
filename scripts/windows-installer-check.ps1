@@ -197,8 +197,8 @@ function Stop-App {
 	Wait-Until { -not (Get-Process OMPdesk -ErrorAction SilentlyContinue) } 30 'OMPdesk to exit'
 }
 
-# Electron's main process: an OMPdesk.exe whose parent is no OMPdesk.exe. Its children include OMPdesk.exe run as
-# Node (ELECTRON_RUN_AS_NODE: the setup supervisor, helpers) with no `--type=` switch, so that alone is not enough.
+# Electron's main process: an OMPdesk.exe whose parent is no OMPdesk.exe and with no `--type=` switch. The switch alone
+# is not enough: an OMPdesk.exe that main starts without one (once the setup supervisor, run as Node) is no main.
 function Get-MainPids {
 	$all = @(Get-CimInstance Win32_Process -Filter "Name = 'OMPdesk.exe'" -ErrorAction SilentlyContinue)
 	$ids = @($all | ForEach-Object { $_.ProcessId })

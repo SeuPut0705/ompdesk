@@ -16,6 +16,7 @@ mod run;
 pub mod server;
 pub mod sessions;
 pub mod ssh;
+pub mod supervise;
 mod sys;
 pub mod tailscale;
 pub mod wire;
