@@ -39,6 +39,7 @@ runs:
         src/main/github-auth/service.test.ts
         src/main/checkout-peers*.test.ts
         src/main/git-fingerprints*.test.ts
+        src/main/ai-memory/client.test.ts
         src/main/ai-memory/freshness*.test.ts
         src/main/routines/*.test.ts
         src/main/local/autopilot*.test.ts
