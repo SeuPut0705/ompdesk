@@ -277,40 +277,6 @@ impl Tracking {
 /// Characters of a finished reply's text kept for the completion banner (UTF-16 units, as `slice` counts them).
 const RUN_REPLY_PREVIEW_CHARS: usize = 4000;
 
-/// JavaScript's `String.prototype.trim` set: Rust's `White_Space` has U+0085 and lacks U+FEFF.
-fn is_js_space(c: char) -> bool {
-    matches!(
-        c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200a}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202f}'
-                | '\u{205f}'
-                | '\u{3000}'
-                | '\u{feff}'
-    )
-}
-
-/// `text.slice(0, 4000)` over UTF-16 units; a pair cut in two leaves its first half, which cannot be a Rust string:
-/// it reads U+FFFD, as the page shows a lone surrogate.
-fn slice_utf16(text: &str, units: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0;
-    for c in text.chars() {
-        let width = c.len_utf16();
-        if used + width > units {
-            if width == 2 && used < units {
-                out.push('\u{fffd}');
-            }
-            break;
-        }
-        out.push(c);
-        used += width;
-    }
-    out
-}
-
 /// What `Array.prototype.join` makes of one element: a string as it is, nothing (`undefined`, `null`) as empty, a number
 /// or boolean as JavaScript prints it.
 fn js_join_text(value: Option<&Value>) -> String {
@@ -351,11 +317,11 @@ fn run_outcome(messages: Option<&Value>) -> Value {
             .join("\n"),
         _ => String::new(),
     };
-    let text = text.trim_matches(is_js_space);
+    let text = crate::fs::order::js_trim(&text);
     if text.is_empty() {
         json!({"stopReason": stop_reason})
     } else {
-        json!({"stopReason": stop_reason, "reply": slice_utf16(text, RUN_REPLY_PREVIEW_CHARS)})
+        json!({"stopReason": stop_reason, "reply": crate::json::utf16_prefix(text, RUN_REPLY_PREVIEW_CHARS)})
     }
 }
 
