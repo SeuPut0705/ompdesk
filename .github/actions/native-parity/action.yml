@@ -61,4 +61,7 @@ runs:
         src/main/remote/transport.test.ts
         src/main/remote/crypto.test.ts
         src/main/remote/devices.test.ts
+        src/main/remote/devices-rename.test.ts
+        src/main/remote/keep-awake.test.ts
+        src/main/remote/store.test.ts
         src/main/web/web-edge-matrix.test.ts
