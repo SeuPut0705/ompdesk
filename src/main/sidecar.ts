@@ -953,13 +953,15 @@ export class SidecarManager extends EventEmitter {
 			answered.resolve(response as unknown as RpcResponse);
 		});
 		const finite = Number.isFinite(timeoutMs);
+		const call = core().call(
+			"sidecar.command",
+			{ tab: this.#tab, seq, command, ...(finite ? { timeoutMs } : {}) },
+			{ timeoutMs: finite ? timeoutMs : NO_DEADLINE_MS },
+		);
 		try {
-			await core().call(
-				"sidecar.command",
-				{ tab: this.#tab, seq, command, ...(finite ? { timeoutMs } : {}) },
-				{ timeoutMs: finite ? timeoutMs : NO_DEADLINE_MS },
-			);
-			return await answered.promise;
+			// Settled by the answer event, in its place among the frames: the request's own reply comes from another task
+			// of the core and may overtake a later command's answer.
+			return await Promise.race([answered.promise, call.then(() => answered.promise)]);
 		} catch (error) {
 			if (!(error instanceof CoreError)) throw error;
 			if (error.code === "timeout") throw new RpcTimeoutError(timeoutMs, command.type);
@@ -973,9 +975,14 @@ export class SidecarManager extends EventEmitter {
 	/** Resolves once every frame omp sent before now, an `agent_end` held for its entry ids and its tail included, was delivered. */
 	async #barrier(): Promise<void> {
 		const seq = ++this.#seq;
-		this.#answers.set(seq, () => this.#flushBeforeResponse());
+		const released = Promise.withResolvers<void>();
+		this.#answers.set(seq, () => {
+			this.#flushBeforeResponse();
+			released.resolve();
+		});
+		const call = core().call("sidecar.barrier", { tab: this.#tab, seq }, { timeoutMs: NO_DEADLINE_MS });
 		try {
-			await core().call("sidecar.barrier", { tab: this.#tab, seq }, { timeoutMs: NO_DEADLINE_MS });
+			await Promise.race([released.promise, call]);
 		} catch {
 			this.#flushBeforeResponse();
 		} finally {
