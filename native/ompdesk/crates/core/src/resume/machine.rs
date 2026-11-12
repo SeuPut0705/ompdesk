@@ -858,12 +858,12 @@ impl Inst {
         let env = self.look(Some(&tab), ALL).await?;
         self.stretch(env, |me| {
             // Cancel, a new run or another failure since: whoever ended this probe also cleared its row.
-            if !me
+            if me
                 .st
                 .borrow()
                 .probing
                 .get(&tab)
-                .is_some_and(|probe| probe.serial == serial)
+                .is_none_or(|probe| probe.serial != serial)
             {
                 return;
             }
