@@ -38,6 +38,7 @@ import inception from "../../../assets/provider-marks/inception.svg?raw";
 import kagi from "../../../assets/provider-marks/kagi.svg?raw";
 import kilocode from "../../../assets/provider-marks/kilocode.svg?raw";
 import kimi from "../../../assets/provider-marks/kimi.svg?raw";
+import liquid from "../../../assets/provider-marks/liquid.svg?raw";
 import lmstudio from "../../../assets/provider-marks/lmstudio.svg?raw";
 import meta from "../../../assets/provider-marks/meta.svg?raw";
 import minimax from "../../../assets/provider-marks/minimax.svg?raw";
@@ -97,6 +98,7 @@ export const MARK_SOURCES = {
 	kagi,
 	kilocode,
 	kimi,
+	liquid,
 	lmstudio,
 	meta,
 	minimax,
@@ -191,6 +193,7 @@ export const PROVIDER_BRANDS: Readonly<Record<string, Brand>> = {
 	inception: brand("inception", "Inception"),
 	kagi: brand("kagi", "Kagi"),
 	kilo: brand("kilocode", "Kilo Code"),
+	liquid: brand("liquid", "Liquid AI"),
 	meta: brand("meta", "Meta"),
 	minimax: brand("minimax", "MiniMax"),
 	mistral: brand("mistral", "Mistral AI"),

@@ -60,6 +60,7 @@ const STOCK_PROVIDER_IDS: readonly string[] = [
 	"kagi",
 	"kilo",
 	"kimi-code",
+	"liquid",
 	"litellm",
 	"llama.cpp",
 	"lm-studio",
