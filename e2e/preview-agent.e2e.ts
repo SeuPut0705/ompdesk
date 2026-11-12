@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
-import { exitApp, fixtureOmp, pressShortcutUntilVisible, variants } from "./harness";
+import { exitApp, fixtureOmp, launchApp, pressShortcutUntilVisible, variants } from "./harness";
 import {
 	connectRelay,
 	fixtureSite,
@@ -165,23 +165,30 @@ for (const [language, theme] of variants([
 	});
 }
 
-// Why the relay refuses Input.dispatchDragEvent with files. Finding (Electron 36, observed Oct 2026): the per-page
-// debugger honours `data.files`: a synthetic drop hands the page a real File read from the local path (name and size
-// of the file, `types` = ["Files"]). A bare window is probed here, not the relay (which refuses the command). If a
-// future Electron stops honouring it, this fails; the relay's refusal can stay regardless.
-test("Electron's per-page debugger turns Input.dispatchDragEvent files into a dropped local File", async () => {
+// The probes below run in the app's own main (the shell runs only that: no bare `electron main.js`), in a window of
+// their own beside the app's.
+function launchProbeApp(dir: string) {
+	const [project, desktop, agent] = ["project", "desktop", "agent"].map(name => path.join(dir, name)) as [
+		string,
+		string,
+		string,
+	];
+	return Promise.all([project, desktop, agent].map(folder => fs.mkdir(folder))).then(() =>
+		launchApp({ project, desktop, agent, profile: dir }),
+	);
+}
+
+// Why the relay refuses Input.dispatchDragEvent with files. Finding (Electron 36, observed Oct 2026; probed on the
+// shell's CEF through the shim's `webContents.debugger` since the swap): the per-page debugger honours `data.files`:
+// a synthetic drop hands the page a real File read from the local path (name and size of the file, `types` =
+// ["Files"]). A bare window is probed here, not the relay (which refuses the command). If a future CEF stops
+// honouring it, this fails; the relay's refusal can stay regardless.
+test("the shell's per-page debugger turns Input.dispatchDragEvent files into a dropped local File", async () => {
 	test.setTimeout(60_000);
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-drag-probe-"));
-	const main = path.join(dir, "main.js");
 	const secret = path.join(dir, "secret.txt");
-	await fs.writeFile(
-		main,
-		'const { app } = require("electron");\napp.on("window-all-closed", () => {});\napp.whenReady();\n',
-	);
 	await fs.writeFile(secret, "local file contents");
-	const env = { ...process.env, OMP_GUI_HEADLESS: "1" };
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({ args: [main], env });
+	const app = await launchProbeApp(dir);
 	try {
 		const result = await app.evaluate(async ({ BrowserWindow }, file) => {
 			const win = new BrowserWindow({ show: true, width: 400, height: 400, webPreferences: { sandbox: true } });
@@ -221,16 +228,11 @@ test("Electron's per-page debugger turns Input.dispatchDragEvent files into a dr
 // Network.loadNetworkResource and file: URLs. Finding (Electron 36, observed Oct 2026): the per-page debugger refuses a
 // `file:` URL with "Unsupported URL scheme", so the agent cannot read a local file through it plus IO.read; the relay's
 // http(s)-only rule for the method is defence in depth. A bare window on an http page is probed here, not the relay.
-// If a future Electron reads the file, this fails.
-test("Electron's per-page debugger refuses a file: URL in Network.loadNetworkResource", async () => {
+// If a future CEF reads the file, this fails.
+test("the shell's per-page debugger refuses a file: URL in Network.loadNetworkResource", async () => {
 	test.setTimeout(60_000);
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-load-probe-"));
-	const main = path.join(dir, "main.js");
 	const secret = path.join(dir, "secret.txt");
-	await fs.writeFile(
-		main,
-		'const { app } = require("electron");\napp.on("window-all-closed", () => {});\napp.whenReady();\n',
-	);
 	await fs.writeFile(secret, "local file contents");
 	const server = createServer((_request, response) => {
 		response.writeHead(200, { "Content-Type": "text/html" });
@@ -239,9 +241,7 @@ test("Electron's per-page debugger refuses a file: URL in Network.loadNetworkRes
 	await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
 	const address = server.address();
 	if (!address || typeof address === "string") throw new Error("expected a TCP address");
-	const env = { ...process.env, OMP_GUI_HEADLESS: "1" };
-	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const app = await electron.launch({ args: [main], env });
+	const app = await launchProbeApp(dir);
 	try {
 		const result = await app.evaluate(
 			async ({ BrowserWindow }, { site, file }) => {

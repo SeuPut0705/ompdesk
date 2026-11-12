@@ -222,7 +222,7 @@ test("@smoke Windows: the Mica backdrop is on where the build has it, and closin
 		expect((await page.evaluate(() => window.omp.sidecar.getStatus())).status).toBe("ready");
 
 		// A second launch from the Start menu hands over to this instance and brings the window back.
-		const executable = await app.evaluate(() => process.execPath);
+		const executable = await app.evaluate(({ app }) => app.getPath("exe"));
 		const second = spawn(
 			executable,
 			[path.resolve(process.env.OMP_GUI_E2E_OUT ?? "out", "main/index.js"), `--user-data-dir=${launched.desktop}`],

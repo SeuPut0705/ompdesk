@@ -18,12 +18,16 @@ import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright-core";
-import { processesBelow, waitForProcessesToExit } from "../process-tree";
 
 /** How long a running main process gets to act on a quit before it is killed. */
 export const EXIT_GRACE_MS = 10_000;
 /** Default bound on a launch: the shell, CEF's context, Node's inspector and the CDP connection. */
 const LAUNCH_TIMEOUT_MS = 60_000;
+/**
+ * The process-tree helpers, loaded where they are used: `launch-then-die.ts` runs this file under plain Node, which
+ * cannot resolve an extensionless TypeScript import, and never reaches a place that needs them.
+ */
+const processTree = () => import("../process-tree");
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
 /** `resources/ompdesk-shell/<platform>-<arch>/ompdesk-shell(.exe)`, where `bun run build:shell` stages it. */
@@ -299,8 +303,11 @@ export class ShellApplication extends EventEmitter {
 		await exitShellApp(this);
 	}
 
-	/** @internal Drops the connections once the process is gone. */
-	async dispose(): Promise<void> {
+	/**
+	 * Drops the inspector and CDP connections. Node, started with `--inspect`, waits at its exit for an attached
+	 * debugger to disconnect ("Waiting for the debugger to disconnect…"), so the quit lets go of it before it waits.
+	 */
+	async disconnect(): Promise<void> {
 		this.#inspector.close();
 		await this.#browser.close().catch(() => undefined);
 	}
@@ -325,7 +332,7 @@ const isAppPage = (page: Page) => page.url().startsWith("app://ompdesk/");
  * below the launcher are listed before the exit and waited for after it; one still running after the grace
  * period is killed.
  */
-export async function exitShellApp(app: Pick<ShellApplication, "process" | "evaluate">): Promise<void> {
+export async function exitShellApp(app: Pick<ShellApplication, "process" | "evaluate" | "disconnect">): Promise<void> {
 	// A killed app (a spec's crash) has closed its connections: `process()` then throws, and a `finally`
 	// that cleans up after it would replace the test's own error with that one (nightly 39510409009).
 	let child: ChildProcess;
@@ -335,6 +342,7 @@ export async function exitShellApp(app: Pick<ShellApplication, "process" | "eval
 		return;
 	}
 	if (!child || child.exitCode !== null || child.signalCode !== null) return;
+	const { processesBelow, waitForProcessesToExit } = await processTree();
 	const owned = child.pid === undefined ? [] : processesBelow(child.pid);
 	const exited = Promise.withResolvers<void>();
 	child.once("exit", () => exited.resolve());
@@ -355,6 +363,7 @@ export async function exitShellApp(app: Pick<ShellApplication, "process" | "eval
 	} finally {
 		clearTimeout(timer);
 	}
+	await app.disconnect();
 	// `app.exit(0)` was asked and answered, yet the app can stay: nightly 41931516185's judge-preview-check finished every
 	// assertion in 2.3 s and then waited here until the 90 s test timeout (its trace ends at exitApp's evaluate). The wait
 	// is bounded like the ask above: a late app is killed and the spec goes on, with a line saying so.
@@ -367,7 +376,6 @@ export async function exitShellApp(app: Pick<ShellApplication, "process" | "eval
 	}
 	clearTimeout(lateTimer);
 	await waitForProcessesToExit(owned, EXIT_GRACE_MS);
-	if (app instanceof ShellApplication) await app.dispose();
 }
 
 /** The last bytes of what the shell wrote, for the message of a launch that failed. */
@@ -409,10 +417,14 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 	const child = spawn(executable, args, { env, cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
 	let tail = "";
 	let stderr = "";
-	const remember = (chunk: Buffer, keepForUrl: boolean) => {
+	let inspector: Inspector | undefined;
+	const remember = (chunk: Buffer, isStderr: boolean) => {
 		const text = chunk.toString();
 		tail = (tail + text).slice(-TAIL_BYTES);
-		if (keepForUrl) stderr += text;
+		if (!isStderr) return;
+		stderr = (stderr + text).slice(-TAIL_BYTES);
+		// The app quit by itself (its own `app.quit()`): Node now waits for the attached debugger, so let go of it.
+		if (inspector && stderr.includes("Waiting for the debugger to disconnect")) inspector.close();
 	};
 	child.stdout?.on("data", (chunk: Buffer) => remember(chunk, false));
 	child.stderr?.on("data", (chunk: Buffer) => remember(chunk, true));
@@ -435,7 +447,6 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 		}
 	};
 
-	let inspector: Inspector | undefined;
 	let browser: Browser | undefined;
 	try {
 		const url = await until("Node's inspector did not report its URL", () => inspectorUrl(stderr));
@@ -456,6 +467,7 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 	} catch (error) {
 		inspector?.close();
 		await browser?.close().catch(() => undefined);
+		const { processesBelow, waitForProcessesToExit } = await processTree();
 		const owned = child.pid === undefined ? [] : processesBelow(child.pid);
 		child.kill("SIGKILL");
 		await waitForProcessesToExit(owned, EXIT_GRACE_MS);
