@@ -2,7 +2,8 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { serveMemoryStore } from "./memory-store-test-rig";
 import { RecallTermsIndex } from "./recall-terms";
 import type { ConclusionPage } from "./sync";
 
@@ -48,11 +49,18 @@ function fakeStore(streams: { native: string[]; synced: string[] }, state = { st
 
 const read = async (file: string) => JSON.parse(await readFile(file, "utf8"));
 
+/** The fake store as the core's client reaches it: a memory server on 127.0.0.1. */
+async function serve(store: ReturnType<typeof fakeStore>["store"]) {
+	const served = await serveMemoryStore(() => store);
+	onTestFinished(() => served.close());
+	return () => served.server;
+}
+
 describe("RecallTermsIndex", () => {
 	it("adds only new rows on a later refresh and writes nothing when unchanged", async () => {
 		const file = join(dir, "recall-terms.json");
 		const fake = fakeStore({ native: ["memory server"], synced: ["memory prompt"] });
-		const index = new RecallTermsIndex({ store: fake.store, file });
+		const index = new RecallTermsIndex({ server: await serve(fake.store), file });
 		await index.refresh();
 		expect(await read(file)).toMatchObject({
 			v: 1,
@@ -78,13 +86,14 @@ describe("RecallTermsIndex", () => {
 	it("rebuilds from zero when the store changes or a cursor is past last", async () => {
 		const file = join(dir, "recall-terms.json");
 		const fake = fakeStore({ native: ["alpha beta", "alpha gamma"], synced: [] });
-		await new RecallTermsIndex({ store: fake.store, file }).refresh();
+		const server = await serve(fake.store);
+		await new RecallTermsIndex({ server, file }).refresh();
 		fake.state.store = "db2";
 		fake.streams.native.splice(0, 2, "delta epsilon");
-		await new RecallTermsIndex({ store: fake.store, file }).refresh();
+		await new RecallTermsIndex({ server, file }).refresh();
 		expect(await read(file)).toMatchObject({ store: "db2", n: 1, df: { delta: 1, epsilon: 1 } });
 		fake.streams.native.splice(0, 1, "zeta eta", "zeta theta");
-		const index = new RecallTermsIndex({ store: fake.store, file });
+		const index = new RecallTermsIndex({ server, file });
 		await index.refresh();
 		expect(await read(file)).toMatchObject({ native: 2, n: 2 });
 		fake.streams.native.length = 0;
@@ -97,7 +106,7 @@ describe("RecallTermsIndex", () => {
 		const file = join(dir, "recall-terms.json");
 		const fake = fakeStore({ native: ["memory server"], synced: [] });
 		const logs: string[] = [];
-		const index = new RecallTermsIndex({ store: fake.store, file, log: message => logs.push(message) });
+		const index = new RecallTermsIndex({ server: await serve(fake.store), file, log: message => logs.push(message) });
 		await index.refresh();
 		const before = await readFile(file, "utf8");
 		fake.state.fail = true;

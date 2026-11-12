@@ -96,14 +96,14 @@ pub struct Status {
 pub struct Project {
     pub workspace: String,
     pub project: String,
-    pages: Number,
-    last_updated: Option<String>,
+    pub(crate) pages: Number,
+    pub(crate) last_updated: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
+    pub(crate) id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    identity: Option<String>,
+    pub(crate) identity: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    identity_source: Option<String>,
+    pub(crate) identity_source: Option<String>,
 }
 
 impl Project {
@@ -118,14 +118,14 @@ impl Project {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageRef {
-    workspace: String,
-    project: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
     pub path: String,
-    title: String,
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: Option<String>,
-    updated_at: Option<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: Option<String>,
+    pub(crate) updated_at: Option<String>,
 }
 
 impl PageRef {
@@ -319,49 +319,49 @@ pub struct Page {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageCopy {
-    workspace: String,
-    project: String,
-    path: String,
-    title: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: String,
-    body: String,
-    tags: Vec<String>,
-    pinned: bool,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: String,
+    pub(crate) body: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) pinned: bool,
     /// The write path's own frontmatter fields: `entities`, `abstract`, `relations`, `applies_to`, `enforced_by`.
-    metadata: Map<String, Value>,
+    pub(crate) metadata: Map<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    origin: Option<String>,
+    pub(crate) origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    expires_at: Option<String>,
+    pub(crate) expires_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    updated_at: Option<String>,
+    pub(crate) id: Option<String>,
+    pub(crate) updated_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Conclusions {
-    rows: Vec<Conclusion>,
-    next: Number,
-    more: bool,
-    store: String,
-    last: Number,
+    pub(crate) rows: Vec<Conclusion>,
+    pub(crate) next: Number,
+    pub(crate) more: bool,
+    pub(crate) store: String,
+    pub(crate) last: Number,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Conclusion {
-    seq: Number,
-    workspace: String,
-    project: String,
-    id: String,
-    session_id: String,
-    title: String,
-    body: String,
-    at: String,
+pub struct Conclusion {
+    pub(crate) seq: Number,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) id: String,
+    pub(crate) session_id: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    origin: Option<String>,
+    pub(crate) origin: Option<String>,
 }
 
 /// What the Memory page's editor saves.
@@ -423,10 +423,10 @@ pub struct RetireInput {
 }
 
 /// The repository identity a project was claimed by, as the server lists it.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Repository {
-    identity: String,
-    source: String,
+    pub(crate) identity: String,
+    pub(crate) source: String,
 }
 
 impl Repository {
@@ -442,28 +442,28 @@ impl Repository {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyInput {
-    title: String,
+    pub(crate) title: String,
     #[serde(default)]
-    kind: Option<String>,
-    tier: String,
-    body: String,
-    tags: Vec<String>,
-    pinned: bool,
-    metadata: Map<String, Value>,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: String,
+    pub(crate) body: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) pinned: bool,
+    pub(crate) metadata: Map<String, Value>,
     #[serde(default)]
-    expires_at: Option<String>,
+    pub(crate) expires_at: Option<String>,
     #[serde(default)]
-    repository: Option<Repository>,
+    pub(crate) repository: Option<Repository>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConclusionInput {
-    id: String,
-    session_id: String,
-    title: String,
-    body: String,
-    at: String,
+    pub(crate) id: String,
+    pub(crate) session_id: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) at: String,
 }
 
 /// JavaScript's truthy string: present and not empty.
