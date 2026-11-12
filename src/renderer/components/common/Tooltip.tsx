@@ -60,12 +60,15 @@ export interface TooltipBubbleProps {
 	style?: HTMLAttributes<HTMLDivElement>["style"];
 }
 
-/** The tooltip surface itself (inverted, compact). Tooltip positions it; the style guide renders it inline. */
+/**
+ * The tooltip surface itself (inverted, compact). Tooltip positions it; the style guide renders it inline. A line
+ * break in the text is kept (a settings row's info lists one figure per line).
+ */
 export function TooltipBubble({ id, content, shortcut, className, style }: TooltipBubbleProps) {
 	return (
 		<div
 			className={cx(
-				"pointer-events-none w-max max-w-[min(18rem,calc(100vw-1rem))] rounded-(--sc-radius-sm) bg-(--sc-text) px-2 py-1 text-sc-xs font-medium break-words text-(--sc-bg) shadow-(--sc-shadow-md)",
+				"pointer-events-none w-max max-w-[min(18rem,calc(100vw-1rem))] rounded-(--sc-radius-sm) bg-(--sc-text) px-2 py-1 text-sc-xs font-medium break-words whitespace-pre-line text-(--sc-bg) shadow-(--sc-shadow-md)",
 				className,
 			)}
 			id={id}
