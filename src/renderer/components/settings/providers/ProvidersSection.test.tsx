@@ -1492,9 +1492,16 @@ describe("ProviderAccounts", () => {
 					{ id: "openai-codex:5h", label: "5 Hour", windowId: "5h", usedFraction: 0.12 },
 					{ id: "openai-codex:7d", label: "7 Day", windowId: "7d", usedFraction: 0.2 },
 				],
-				credits: { kind: "balance", limitId: "factory-droid:extra-balance", remaining: 1200, unit: "credits" },
+				credits: { kind: "balance", limitId: "openai-codex:credits", remaining: 1234.5, unit: "credits" },
 			},
-			{ ...accounts[1], credentialId: 22, label: "team@example.org", limits: [] },
+			{
+				...accounts[1],
+				credentialId: 22,
+				label: "team@example.org",
+				limits: [],
+				credits: { kind: "unlimited", limitId: "openai-codex:credits" },
+			},
+			{ ...accounts[1], credentialId: 23, label: "free@example.org", limits: [] },
 		];
 		getProviders.mockResolvedValue(
 			providersResponse(
@@ -1520,9 +1527,13 @@ describe("ProviderAccounts", () => {
 		// Dollars as dollars, a provider's own credits as a number in the UI language.
 		expect(slot(7)?.textContent).toBe(`${translate("providers.accounts.credits")}$35.20`);
 		expect(slot(7)?.querySelector("[data-account-credits]")?.getAttribute("data-account-credits")).toBe("monthlyCap");
-		expect(slot(21)?.textContent).toBe(`${translate("providers.accounts.credits")}1,200`);
+		expect(slot(21)?.textContent).toBe(`${translate("providers.accounts.credits")}1,234.5`);
+		// Credits the provider does not count have no amount: the word says so.
+		expect(slot(22)?.textContent).toBe(
+			`${translate("providers.accounts.credits")}${translate("providers.accounts.creditsUnlimited")}`,
+		);
 		// Every other row keeps the slot, empty, so the ticket and ⋯ stand where they stand in the rows above.
-		for (const id of [9, 22]) {
+		for (const id of [9, 23]) {
 			expect(slot(id)).not.toBeNull();
 			expect(slot(id)?.childElementCount).toBe(0);
 		}

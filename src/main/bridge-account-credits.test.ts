@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accountCredits, creditKind } from "../../resources/gui-bridge/account-credits";
+import { accountCredits, creditKind, creditsInRaw, rawCredits } from "../../resources/gui-bridge/account-credits";
 
 const window5h = { id: "anthropic:5h", amount: { used: 20, limit: 100, remaining: 80, unit: "percent" } };
 
@@ -76,5 +76,35 @@ describe("account credits from stock's usage limits", () => {
 			amount: { used: 10, limit: 100, remaining: 90, unit: "credits" },
 		};
 		expect(accountCredits([spendCap])).toBeUndefined();
+	});
+
+	it("reads ChatGPT's balance from the answer stock keeps as the report's raw, as the Codex CLI shows it", () => {
+		expect(creditsInRaw("openai-codex")).toBe(true);
+		expect(creditsInRaw("anthropic")).toBe(false);
+		expect(creditsInRaw("toString")).toBe(false);
+		const balance = { kind: "balance", limitId: "openai-codex:credits", remaining: 1234.5, unit: "credits" };
+		// The provider sends the balance as a string.
+		expect(
+			rawCredits("openai-codex", { credits: { has_credits: true, unlimited: false, balance: "1234.5" } }),
+		).toEqual(balance);
+		expect(rawCredits("openai-codex", { credits: { has_credits: true, balance: 1234.5 } })).toEqual(balance);
+		expect(rawCredits("openai-codex", { credits: { has_credits: true, unlimited: true, balance: "0" } })).toEqual({
+			kind: "unlimited",
+			limitId: "openai-codex:credits",
+		});
+		for (const credits of [
+			{ has_credits: false, balance: "50" },
+			{ has_credits: true, balance: "0" },
+			{ has_credits: true, balance: "" },
+			{ has_credits: true, balance: "soon" },
+			{ has_credits: true },
+			null,
+		]) {
+			expect(rawCredits("openai-codex", { credits })).toBeUndefined();
+		}
+		expect(rawCredits("openai-codex", {})).toBeUndefined();
+		expect(rawCredits("openai-codex", null)).toBeUndefined();
+		// Another provider's raw is never read, whatever it holds.
+		expect(rawCredits("anthropic", { credits: { has_credits: true, balance: "5" } })).toBeUndefined();
 	});
 });

@@ -57,7 +57,8 @@ export default function(pi) {
 /**
  * Each shape of credits stock reports (pi-ai usage/*.ts), as made-up reports from a runtime usage provider of made-up
  * API-key providers (stock `UsageService.setProvider`: no request leaves the process), read back through the bridge's
- * `provider_accounts` and `usage`.
+ * `provider_accounts` and `usage`. Then ChatGPT's, whose balance is only in the `raw` of a fetch: stock fetches the
+ * account first (as a turn or another omp does), so its cache answers the bridge with no `raw`.
  */
 const CREDITS_PROBE = `
 import { methods } from "./settings";
@@ -86,7 +87,18 @@ export default function(pi) {
    }
    const factory = (await methods.usage({}, env)).reports.find(report => report.provider === "ompdesk-credits-factory")?.limits.find(limit => limit.id === "factory-droid:extra-balance");
    const balanceShare = factory ? {usedFraction: factory.usedFraction ?? null, used: factory.used ?? null} : "missing";
-   console.error("CREDITS_PROBE=" + JSON.stringify({accounts, balanceShare}));
+   const codex = "openai-codex";
+   let fetches = 0;
+   auth.usage.setProvider(codex, {id: codex, supports: () => true, fetchUsage: async () => { fetches += 1; return {provider: codex, fetchedAt: Date.now(), limits: [window5h(codex)], raw: {credits: {has_credits: true, unlimited: false, balance: "1234.5"}}}; }});
+   await auth.credentials.upsert(codex, {type: "api_key", key: "throwaway-not-a-real-key"});
+   const [row] = auth.credentials.list(codex);
+   const cached = await auth.usage.report(codex, row.credential, {baseUrl: session.modelRegistry.getProviderBaseUrl(codex)});
+   const again = await auth.usage.report(codex, row.credential, {baseUrl: session.modelRegistry.getProviderBaseUrl(codex)});
+   const stockKeepsRaw = {fetched: cached?.raw !== undefined, cached: again?.raw !== undefined, fetches};
+   const listed = async () => (await methods.provider_accounts({providerId: codex}, env)).accounts[0]?.credits ?? null;
+   const first = {credits: await listed(), fetches};
+   const second = {credits: await listed(), fetches};
+   console.error("CREDITS_PROBE=" + JSON.stringify({accounts, balanceShare, chatgpt: {stockKeepsRaw, first, second}}));
    process.exit(0);
   } catch (error) {
    console.error("CREDITS_PROBE=" + JSON.stringify({ error: String((error && error.stack) || error) }));
@@ -124,6 +136,19 @@ describe.skipIf(!existsSync(omp))("stock account selectors and listing, with no 
 				"ompdesk-credits-none": { credits: null, limits: ["ompdesk-credits-none:5h"] },
 			},
 			balanceShare: { usedFraction: null, used: null },
+			chatgpt: {
+				// What makes the bridge fetch for itself: stock hands `raw` to the caller of a fetch and caches none.
+				stockKeepsRaw: { fetched: true, cached: false, fetches: 1 },
+				// One fetch through the bridge reads the balance; the next list answers from it with no fetch.
+				first: {
+					credits: { kind: "balance", limitId: "openai-codex:credits", remaining: 1234.5, unit: "credits" },
+					fetches: 2,
+				},
+				second: {
+					credits: { kind: "balance", limitId: "openai-codex:credits", remaining: 1234.5, unit: "credits" },
+					fetches: 2,
+				},
+			},
 		});
 	}, 120_000);
 });

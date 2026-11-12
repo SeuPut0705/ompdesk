@@ -1329,6 +1329,8 @@ export const ko: Record<string, string> = {
 	"providers.accounts.credits": "크레딧",
 	"providers.accounts.creditsBalance": "남은 선불 크레딧: {left}",
 	"providers.accounts.creditsMonthlyCap": "이번 달 남은 추가 사용량: {limit} 중 {left}",
+	"providers.accounts.creditsUnlimited": "무제한",
+	"providers.accounts.creditsUnlimitedWhat": "이 계정은 크레딧을 제한 없이 써요.",
 	"providers.accounts.windowLeft": "{window} {percent}% 사용",
 	"providers.accounts.quotaUnavailable": "지금은 한도를 읽지 못했어요.",
 	"providers.accounts.loadFailed": "계정 목록을 불러오지 못했어요",

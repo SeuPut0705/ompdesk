@@ -222,15 +222,20 @@ function AccountBadges({ account }: { account: ProviderAccount }) {
 
 /**
  * What the account has left to spend, one quiet labelled figure ("Credits $35.20"); its tooltip says what it is: the
- * month's extra usage left of its cap, or prepaid credits.
+ * month's extra usage left of its cap, prepaid credits, or credits the provider does not count ("Credits Unlimited").
  */
 function CreditsFigure({ credits }: { credits: AccountCredits }) {
 	const t = useT();
-	const left = formatCredits(credits.remaining, credits.unit);
+	const left =
+		credits.kind === "unlimited"
+			? t("providers.accounts.creditsUnlimited")
+			: formatCredits(credits.remaining, credits.unit);
 	const what =
 		credits.kind === "monthlyCap"
 			? t("providers.accounts.creditsMonthlyCap", { left, limit: formatCredits(credits.limit, credits.unit) })
-			: t("providers.accounts.creditsBalance", { left });
+			: credits.kind === "unlimited"
+				? t("providers.accounts.creditsUnlimitedWhat")
+				: t("providers.accounts.creditsBalance", { left });
 	return (
 		<Tooltip content={what}>
 			<Badge data-account-credits={credits.kind} size="xs" variant="muted">

@@ -1340,6 +1340,8 @@ export const en: Record<string, string> = {
 	"providers.accounts.credits": "Credits",
 	"providers.accounts.creditsBalance": "Prepaid credits left: {left}",
 	"providers.accounts.creditsMonthlyCap": "Extra usage left this month: {left} of {limit}",
+	"providers.accounts.creditsUnlimited": "Unlimited",
+	"providers.accounts.creditsUnlimitedWhat": "This account's credits are not limited.",
 	"providers.accounts.windowLeft": "{window} {percent}% used",
 	"providers.accounts.quotaUnavailable": "Couldn't read the quotas right now.",
 	"providers.accounts.loadFailed": "Couldn't list the accounts",

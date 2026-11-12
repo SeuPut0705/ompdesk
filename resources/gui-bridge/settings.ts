@@ -36,11 +36,11 @@ import {
 import { listLogoutAccounts, logoutCredential } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/logout";
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
-import { accountCredits, creditKind } from "./account-credits";
+import { accountCredits, creditKind, creditsInRaw } from "./account-credits";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
-import { lastReports, showReport } from "./last-reports";
+import { lastFetchedCredits, lastReports, showReport } from "./last-reports";
 import { compactModelRoles } from "./model-role-contracts";
 import { releaseDelegationForWrite } from "./modes/delegation";
 import { OMPDESK_ROLES } from "./ompdesk-role-contracts";
@@ -661,6 +661,9 @@ interface CredentialUsageReporter {
 	report(provider: string, credential: unknown, options?: { baseUrl?: string }): Promise<UsageReport | null>;
 }
 
+/** When providerAccounts last fetched a provider for the credits of its `raw`, per provider. */
+const creditsFetchedAt = new Map<string, number>();
+
 type IdentityKeyResolver = (provider: string, credential: { type: string }) => string | null;
 
 /**
@@ -713,15 +716,27 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 	const reporter = authStorage.usage as unknown as CredentialUsageReporter;
 	const read = async (row: (typeof rows)[number]) =>
 		showReport(provider, row.id, await reporter.report(provider, row.credential, { baseUrl }).catch(() => null));
-	// `refresh`, as usage() explains: only when a report is older than REFRESH_FRESH_MS.
+	// `refresh`, as usage() explains: only when a report is older than REFRESH_FRESH_MS. A provider whose credits are
+	// only in a fetch's `raw` (ChatGPT) is fetched whatever `refresh` says while no fetch of one of its accounts
+	// passed through this bridge (stock's cache, filled by a turn or another omp, answered), at most once per
+	// REFRESH_FRESH_MS: its credits would otherwise wait for the next refresh that finds an old report.
 	const now = Date.now();
-	if (
-		refresh &&
-		(await Promise.all(rows.map(read))).some(report => report && now - report.fetchedAt >= REFRESH_FRESH_MS)
-	) {
-		await authStorage.usage.invalidate(provider);
-		// Stock's aggregate read probes an invalidated provider's accounts one after another.
-		await session.fetchUsageReports();
+	const viaRaw = creditsInRaw(provider);
+	if (refresh || viaRaw) {
+		const reports = await Promise.all(rows.map(read));
+		const stale = refresh && reports.some(report => report && now - report.fetchedAt >= REFRESH_FRESH_MS);
+		// An account with no report has nothing to read credits from.
+		const unread =
+			viaRaw &&
+			rows.some((row, index) => reports[index] && lastFetchedCredits(provider, row.id) === undefined) &&
+			now - (creditsFetchedAt.get(provider) ?? 0) >= REFRESH_FRESH_MS;
+		if (stale || unread) {
+			creditsFetchedAt.set(provider, now);
+			await authStorage.usage.invalidate(provider);
+			// One after another, as stock's aggregate read probes an invalidated provider, and each through `read`:
+			// only the caller of a fetch gets its `raw`.
+			for (const row of rows) await read(row);
+		}
 	}
 	const health = await authStorage.health
 		.model(provider, {
@@ -740,7 +755,9 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 			const accountHealth = healthById.get(row.id);
 			// The credits are said once, as `credits`, never as a quota window.
 			const limits = report ? report.limits.filter(limit => !creditKind(limit.id)).map(shapeLimit) : [];
-			const credits = report ? accountCredits(report.limits) : undefined;
+			const credits = report
+				? (accountCredits(report.limits) ?? lastFetchedCredits(provider, row.id) ?? undefined)
+				: undefined;
 			const stored = authStorage.oauth
 				.accounts(provider, sessionId)
 				.find(account => account.credentialId === row.id);

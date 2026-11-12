@@ -2405,11 +2405,13 @@ export type AccountUsageState = "healthy" | "reserve" | "depleted" | "unknown";
 /**
  * What an account has left to spend beyond its plan windows, read from stock's usage report
  * (resources/gui-bridge/account-credits.ts); present only while something is left. `balance`: prepaid credits or
- * dollars (Factory, Charm Hyper, Command Code). `monthlyCap`: what is left of the month's cap on extra usage (Claude).
+ * dollars (Factory, Charm Hyper, Command Code, ChatGPT). `monthlyCap`: what is left of the month's cap on extra usage
+ * (Claude). `unlimited`: credits the provider does not count (a ChatGPT workspace).
  */
 export type AccountCredits =
 	| { kind: "balance"; limitId: string; remaining: number; unit: "usd" | "credits" }
-	| { kind: "monthlyCap"; limitId: string; remaining: number; limit: number; unit: "usd" | "credits" };
+	| { kind: "monthlyCap"; limitId: string; remaining: number; limit: number; unit: "usd" | "credits" }
+	| { kind: "unlimited"; limitId: string };
 
 export interface ProviderAccount {
 	credentialId: number;
