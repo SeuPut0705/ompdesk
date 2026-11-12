@@ -71,8 +71,11 @@ on:
         type: string
         default: v0.26.0
 
+# A push to main keeps its own run to the end (its group is the commit): sessions land side by side, and with one
+# group for the branch each push cancelled the run before it, so no commit ever got a verdict while pushes kept coming.
+# Any other ref still replaces its older run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: true
 
 permissions:
