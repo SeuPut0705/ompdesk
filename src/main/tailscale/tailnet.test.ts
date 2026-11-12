@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTailnetAddress, STATUS_CACHE_MS, Tailnet, WHOIS_CACHE_MAX, WHOIS_CACHE_MS } from "./tailnet";
+import { STATUS_CACHE_MS, Tailnet, WHOIS_CACHE_MAX, WHOIS_CACHE_MS } from "./tailnet";
 import { defaultTailscaleScenario, fakeTailscaleCli } from "./test-fake-tailscale";
 
 /** A test says "Tailscale is installed" with this; the CLI the core process runs is the fake's own. */
@@ -17,17 +17,6 @@ function rig(patch: Parameters<typeof defaultTailscaleScenario>[0] = {}) {
 	});
 	return { tailnet, scenario, calls, clock, located };
 }
-
-describe("isTailnetAddress", () => {
-	it("is the tailnet's CGNAT range and IPv6 prefix only", () => {
-		for (const ip of ["100.64.0.1", "100.127.255.254", "::ffff:100.100.1.2", "fd7a:115c:a1e0:ab12::1"]) {
-			expect(isTailnetAddress(ip), ip).toBe(true);
-		}
-		for (const ip of ["100.63.255.255", "100.128.0.1", "127.0.0.1", "192.168.1.2", "fd12::1", "::1", "x"]) {
-			expect(isTailnetAddress(ip), ip).toBe(false);
-		}
-	});
-});
 
 describe("Tailnet", () => {
 	it("caches a whois answer for a minute, asks again after, and starts over when the cache is full", async () => {

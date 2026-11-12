@@ -4,8 +4,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
-import { HostStore } from "../src/main/remote/hosts-store";
-import { PeerStore } from "../src/main/remote/peers-store";
 import { writeLegacyIdentity } from "../src/main/remote/test-legacy-peer";
 import { exitApp, fixtureOmp, launchApp, readRecords, walkRemotePicker } from "./harness";
 import {
@@ -17,6 +15,17 @@ import {
 	type RemoteInstance,
 	remoteTailscale,
 } from "./remote-harness";
+
+/** `remote-peers.json` / `remote-hosts.json` as an older OMPdesk wrote them (owner only, tab-indented). */
+async function writeRemoteRecords(userData: string, kind: "peers" | "hosts", records: object[]): Promise<void> {
+	const file = path.join(userData, `remote-${kind}.json`);
+	await fs.writeFile(file, `${JSON.stringify({ v: 1, [kind]: records }, null, "\t")}\n`, { mode: 0o600 });
+}
+
+async function readRemoteRecords(userData: string, kind: "peers" | "hosts"): Promise<Array<Record<string, unknown>>> {
+	const stored = JSON.parse(await fs.readFile(path.join(userData, `remote-${kind}.json`), "utf8"));
+	return stored[kind];
+}
 
 // Two OMPdesk instances on the fake omp and a fake Tailscale each: B shares itself, A finds it among the
 // computers of its tailnet in Settings › Devices & connections and connects with no code, opens a session on B
@@ -311,18 +320,21 @@ test("refuses a login the host does not allow and a blocked node, finds a host o
 		// Both identities exist before launch, so each side can hold a record an older release paired by code.
 		const hostIdentity = await writeLegacyIdentity(hostProfile.desktop);
 		const clientIdentity = await writeLegacyIdentity(clientProfile.desktop);
-		new PeerStore(hostProfile.desktop).put({
-			deviceId: clientIdentity.deviceId,
-			name: "Laptop A",
-			staticPub: clientIdentity.publicKey,
-			nodeId: null,
-			login: null,
-			pairedAt: 1,
-		});
+		await writeRemoteRecords(hostProfile.desktop, "peers", [
+			{
+				deviceId: clientIdentity.deviceId,
+				name: "Laptop A",
+				staticPub: clientIdentity.publicKey,
+				nodeId: null,
+				login: null,
+				pairedAt: 1,
+			},
+		]);
 		const legacy = { staticPub: hostIdentity.publicKey, nodeId: null, pairedAt: 1 };
-		const hosts = new HostStore(clientProfile.desktop);
-		hosts.put({ ...legacy, deviceId: hostIdentity.deviceId, name: "Host B", addresses: [`127.0.0.1:${base}`] });
-		hosts.put({ ...legacy, deviceId: "gone", name: "Old desk", addresses: ["192.0.2.1:47821"] });
+		await writeRemoteRecords(clientProfile.desktop, "hosts", [
+			{ deviceId: hostIdentity.deviceId, name: "Host B", ...legacy, addresses: [`127.0.0.1:${base}`] },
+			{ deviceId: "gone", name: "Old desk", ...legacy, addresses: ["192.0.2.1:47821"] },
+		]);
 
 		host = await launchRemote(hostProfile);
 		const b = host.page;
@@ -339,7 +351,10 @@ test("refuses a login the host does not allow and a blocked node, finds a host o
 		await expect
 			.poll(async () => (await a.evaluate(() => window.omp.remote.getState())).forgotten)
 			.toEqual(["Old desk"]);
-		expect(new HostStore(clientProfile.desktop).get(hostIdentity.deviceId)?.nodeId).toBe("n-peer-a");
+		expect(
+			(await readRemoteRecords(clientProfile.desktop, "hosts")).find(h => h.deviceId === hostIdentity.deviceId)
+				?.nodeId,
+		).toBe("n-peer-a");
 		// …but B does not allow A's Tailscale account: A sees why, and connecting is refused.
 		await expect
 			.poll(async () => (await a.evaluate(() => window.omp.remote.watchTailnet(true)))[0]?.refusal, {

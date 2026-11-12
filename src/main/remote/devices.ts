@@ -1,15 +1,15 @@
 /**
- * Remote devices in the main process: both roles of this computer, over Tailscale only.
+ * Remote devices in the main process: both roles of this computer, over Tailscale only. The records, Tailscale's
+ * side, the host's listener, rebind and gate, each known host's reconnecting client and the host's keep-awake run in
+ * the core's devices instance (`crates/core/src/remote/devices/`, `sharing.ts` is its client); main mirrors its state
+ * for the synchronous readers here and keeps what only it can say or do.
  *
- * Host (B): when prefs `remote.hostEnabled` is on, a RemoteHost listens on this computer's tailnet addresses (never
- * LAN or 0.0.0.0) and lets in the devices Tailscale vouches for: `tailscale whois` of the connection's address
- * must name a node of an allowed login (the list Mobile web uses) that is not blocked (Mobile web's blocks, by
- * node). Each device is pinned to its node and key on first contact; "approve new devices" asks first. While a
- * device is connected or one of its tabs still runs a turn, this computer is kept awake (General's one keep-awake
- * switch, `KEEP_AWAKE_WORKING_PREF`, default on; see keep-awake.ts).
+ * Host (B): when prefs `remote.hostEnabled` is on, the core listens on this computer's tailnet addresses and lets in
+ * the devices Tailscale vouches for (an allowed login, a node Mobile web's blocks do not hold, approved first when
+ * "approve new devices" is on); `RemoteHost` here serves each device link's requests through `LocalHostServices`.
  *
  * Client (A): the computers of the tailnet are probed while a view watches them; Connect pins one and keeps a
- * RemoteClient to it, reconnecting on its own at its node's current tailnet address. Tabs on a host are
+ * RemoteClient to it, which the core reconnects at its node's current tailnet address. Tabs on a host are
  * RemoteSidecars created through `createSidecar` (the pool's factory calls it for a tab with a `device`); each
  * client's `tab.event`s are routed to its tabs by rtab, and its link state becomes their status. A host's
  * `sessions.changed`, and every link coming online, make the renderer refetch the session lists.
@@ -17,7 +17,6 @@
  * The whole picture goes to every window as `remote:state` on each change.
  */
 
-import { isIP, isIPv4 } from "node:net";
 import { hostname } from "node:os";
 import path from "node:path";
 import { z } from "zod";
@@ -32,7 +31,6 @@ import {
 	type RemoteDirListing,
 	type RemoteOpenedTab,
 	type RemoteState,
-	type RemoteTailnetPhase,
 	type SessionInfo,
 	type TailnetComputer,
 } from "../../shared/ipc-types";
@@ -50,12 +48,8 @@ import {
 	SIDEBAR_PROJECTS_STATE,
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
-import { core } from "../core/process";
 import type { ModelWaitTracker } from "../model-wait-count";
 import type { RelaySocket } from "../preview/relay-socket";
-import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
-import { isTailnetAddress } from "../tailscale/tailnet";
-import type { TailnetPeer } from "../tailscale/whois";
 import type { ResumeMarker } from "../turn-resume";
 import type { WebBlocks } from "../web/blocks-store";
 import {
@@ -98,19 +92,19 @@ import {
 	TabEventMessage,
 	VersionedSummariesSchema,
 } from "./app-protocol";
-import { connectFirst, type ProbeResult, probeAny, RemoteClient, RemoteError, type WakeTrigger } from "./client";
-import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor } from "./host-server";
+import { HELLO_CAPABILITIES, RemoteClient, RemoteError, type WakeTrigger } from "./client";
+import { type HostMachineInfo, RemoteHost } from "./host-server";
 import type { LocalHostServices } from "./host-services";
 import { HostSessionList } from "./host-session-list";
-import { HostStore, type PairedHost } from "./hosts-store";
 import type { Identity } from "./identity";
 import { ImageBlobCache } from "./image-blob-cache";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { LinkRelaySocket } from "./link-relay-socket";
-import { PeerQuota, type QuotaReservation } from "./peer-quota";
-import { PeerStore } from "./peers-store";
+import { PeerQuota, type QuotaRecord, type QuotaReservation, type QuotaStore } from "./peer-quota";
+import type { PeerInfo } from "./peers-store";
 import { REFUSAL_CODES } from "./protocol";
 import { PendingTabCloses, RemoteSidecar, type RemoteSidecarOptions } from "./remote-sidecar";
+import { SharingCore, type SharingSnapshot, type TailnetAccess } from "./sharing";
 import { TranscriptCache } from "./transcript-cache";
 
 const ModelWaitCountsSchema = z.object({ counts: z.record(z.string(), z.number().int().nonnegative()) });
@@ -122,13 +116,6 @@ const PeerLimitsPayload = z.object({
 	deviceId: z.string().min(1),
 	limits: z.object({ requestsPerDay: Limit, tokensPerDay: Limit }),
 });
-/** Tailscale's side (up, signed in, this computer's addresses) is read this often; also when a view watches. */
-export const TAILNET_POLL_MS = 15_000;
-/** The tailnet's computers are probed this often while a view shows them. */
-export const TAILNET_SCAN_MS = 5_000;
-const PROBE_CONCURRENCY = 8;
-/** A device paired by code that never connected again is forgotten this long after the switch to Tailscale. */
-export const LEGACY_PEER_GRACE_MS = 30 * 24 * 60 * 60_000;
 
 const HOST_ENABLED_KEY = "remote.hostEnabled";
 const DEVICE_NAME_KEY = "remote.deviceName";
@@ -139,21 +126,11 @@ const MIGRATED_KEY = "remote.tailnetMigratedAt";
 /** Names of code-paired hosts that were not found on the tailnet and were forgotten (until the user read it). */
 const FORGOTTEN_KEY = "remote.forgottenHosts";
 
-/** Phones and tablets run no OMPdesk: never probed. */
-const MOBILE_OS = /^(ios|ipados|android)$/i;
-
 /** A refusal (or this side's verdict) as the error code the renderer localizes. */
 function remoteErrorCode(code: string): IpcErrorCode {
 	const mapped = `remote_${code}`;
 	if ((REFUSAL_CODES as readonly string[]).includes(code) && isIpcErrorCode(mapped)) return mapped;
 	return code === "unreachable" ? "remote_unreachable" : "remote_protocol";
-}
-
-/** The parts of the Tailscale side computer sharing reads (src/main/tailscale/tailnet.ts). */
-export interface TailnetAccess {
-	status(): Promise<TailscaleStatus | null>;
-	phase(): Promise<RemoteTailnetPhase>;
-	whois(ip: string): Promise<TailnetPeer | null>;
 }
 
 export interface RemoteDevicesDeps {
@@ -205,7 +182,6 @@ export interface RemoteDevicesDeps {
 	log?: (event: string, details: Record<string, unknown>) => void;
 	/** A host link's transitions and the host role's connections (`remote-link`; no addresses or keys). */
 	logLink?: (event: string, details: Record<string, unknown>) => void;
-	now?: () => number;
 }
 
 /** A host whose link is down: no summaries of it, so its rows show no live state rather than stale state. */
@@ -229,14 +205,59 @@ interface HostLink {
 	relays: Map<string, LinkRelaySocket>;
 }
 
+/**
+ * The device records as main reads them in the same tick (the quota's `reserve`, the device lists): the core's last
+ * state with main's own quota writes over it until the core says it applied them (`patched`). Main is the only
+ * writer of `limits` and `usage`, so its latest write of a field is the record's.
+ */
+class PeerMirror implements QuotaStore {
+	#peers = new Map<string, PeerInfo>();
+	readonly #written = new Map<string, { seq: number; patch: Partial<Pick<PeerInfo, "limits" | "usage">> }>();
+	#seq = 0;
+	readonly #send: (seq: number, deviceId: string, patch: Record<string, unknown>) => void;
+
+	constructor(send: (seq: number, deviceId: string, patch: Record<string, unknown>) => void) {
+		this.#send = send;
+	}
+
+	told(snapshot: SharingSnapshot): void {
+		this.#peers = new Map(snapshot.peers.map(peer => [peer.deviceId, peer]));
+		for (const [deviceId, written] of this.#written)
+			if (written.seq <= snapshot.patched) this.#written.delete(deviceId);
+	}
+
+	list(): PeerInfo[] {
+		return [...this.#peers.keys()].flatMap(deviceId => this.get(deviceId) ?? []);
+	}
+
+	get(deviceId: string): PeerInfo | undefined {
+		const peer = this.#peers.get(deviceId);
+		if (!peer) return undefined;
+		const written = this.#written.get(deviceId)?.patch ?? {};
+		const merged: PeerInfo = { ...peer, ...written };
+		if ("limits" in written && written.limits === undefined) delete merged.limits;
+		return merged;
+	}
+
+	update(deviceId: string, patch: Pick<QuotaRecord, "limits" | "usage">): PeerInfo | undefined {
+		if (!this.#peers.has(deviceId)) return undefined;
+		const seq = ++this.#seq;
+		const written = { ...this.#written.get(deviceId)?.patch, ...patch };
+		this.#written.set(deviceId, { seq, patch: written });
+		const wire: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(patch)) wire[key] = value ?? null;
+		this.#send(seq, deviceId, wire);
+		return this.get(deviceId);
+	}
+}
+
 export class RemoteDevices {
 	readonly #deps: RemoteDevicesDeps;
-	readonly #now: () => number;
 	readonly #identity: Identity;
-	/** The code-paired hosts' migration under way: one at a time, as two polls may overlap. */
-	#migrating: Promise<void> | null = null;
-	readonly #peers: PeerStore;
-	readonly #hosts: HostStore;
+	readonly #sharing: Promise<SharingCore>;
+	/** The core's devices instance once open; its snapshot is what the synchronous readers here read. */
+	#core: SharingCore | null = null;
+	readonly #peers: PeerMirror;
 	/** Every host's subagent pictures this device read, by content address: one folder for all tabs and hosts. */
 	readonly #imageBlobs: ImageBlobCache;
 	/** Every host's transcripts this device read (subagent journals, tail pages): one folder for all tabs and hosts. */
@@ -248,19 +269,8 @@ export class RemoteDevices {
 	readonly #unwatchRunning: () => void;
 	readonly #quota: PeerQuota;
 	#quotaTimer: NodeJS.Timeout | undefined;
-	#phase: RemoteTailnetPhase = "not-running";
-	#pollTimer: NodeJS.Timeout | undefined;
-	/** Views watching the tailnet's computers (a window id each). */
-	readonly #watchers = new Set<number>();
-	#scanTimer: NodeJS.Timeout | undefined;
-	#scanning: Promise<TailnetComputer[]> | null = null;
-	#computers: TailnetComputer[] = [];
-	/** Where each node's host answered last (`ip:port`). */
-	readonly #found = new Map<string, string>();
-	/** Whether each known host's node was online in the last Tailscale poll. */
-	readonly #nodeOnline = new Map<string, boolean>();
-	/** This computer's name on the tailnet: the device name until the user picks one. */
-	#tailnetName: string | null = null;
+	/** The device name the core was told last. */
+	#toldName: string;
 	readonly #hostOnline = new Set<(deviceId: string) => void>();
 	readonly #autopilotNotices = new Set<(hostId: string, notice: AutopilotNoticeEvent) => void>();
 	readonly #hostProjects = new Set<(hostId: string, state: SidebarProjectsState) => void>();
@@ -268,30 +278,73 @@ export class RemoteDevices {
 
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
-		this.#now = deps.now ?? Date.now;
 		this.#identity = deps.identity;
-		this.#peers = new PeerStore(deps.userData);
-		this.#hosts = new HostStore(deps.userData);
 		this.#imageBlobs = new ImageBlobCache(path.join(deps.userData, "remote-image-blobs"));
 		this.#transcripts = new TranscriptCache(path.join(deps.userData, "remote-transcripts"));
 		this.#keepAwake = new KeepAwakePolicy({
 			blocker: deps.powerSaveBlocker,
 			onChange: () => this.#broadcastState(),
 		});
-		this.#unwatchRunning = deps.services.onRunningChange(() => this.#broadcastState());
+		this.#toldName = this.deviceName();
+		this.#sharing = SharingCore.open({
+			identity: deps.identity,
+			userData: deps.userData,
+			appVersion: deps.appVersion,
+			name: this.#toldName,
+			tailnet: deps.tailnet,
+			policy: who => ({
+				allowedUsers: deps.allowedUsers(),
+				blocked: Boolean(deps.blocks()?.check(who)),
+			}),
+			admit: (visitor, name) =>
+				deps.prefs.get(CONFIRM_KEY) !== true
+					? Promise.resolve(true)
+					: deps.confirm({ name, login: visitor.login, ip: visitor.ip, nodeName: visitor.nodeName }),
+			loopback: deps.loopback === true,
+			traffic: deps.logLink !== undefined,
+			keepAwake: this.#keepAwake.policyId(),
+			keepAwakeEnabled: this.#keepAwakeEnabled(),
+			migratedAt: typeof deps.prefs.get(MIGRATED_KEY) === "number" ? (deps.prefs.get(MIGRATED_KEY) as number) : null,
+			...(deps.log ? { log: deps.log } : {}),
+			onState: snapshot => this.#told(snapshot),
+			onComputers: computers => this.#deps.broadcast(IPC_EVENTS.REMOTE_TAILNET, computers),
+			onAdoptLogin: login => this.#deps.adoptLogin(login),
+			onMigrated: migration => this.#migrated(migration),
+		}).then(sharing => {
+			this.#core = sharing;
+			this.#told(sharing.snapshot);
+			return sharing;
+		});
+		this.#peers = new PeerMirror((seq, deviceId, patch) => {
+			void this.#sharing.then(sharing => sharing.peerPatch(seq, deviceId, patch)).catch(() => undefined);
+		});
+		this.#unwatchRunning = deps.services.onRunningChange(() => {
+			this.#core?.configure({ running: this.#deps.services.runningPeers().length > 0 });
+			this.#broadcastState();
+		});
 		// Usage is written per assistant message; the Settings view needs only a settled count.
 		this.#quota = new PeerQuota(this.#peers, () => this.#quotaChanged());
 		deps.services.attachQuota(this.#quota);
 	}
 
+	/** Resolves once the core's devices instance is open and its records are mirrored here. */
+	async ready(): Promise<void> {
+		await this.#sharing;
+	}
+
 	/** Launch: the host role per prefs, a link to every known host, and the Tailscale poll. */
 	start(): void {
+		const sharing = this.#core;
+		const failed = (error: unknown) =>
+			console.warn(`[remote] devices failed to start: ${error instanceof Error ? error.message : String(error)}`);
+		if (!sharing) {
+			void this.#sharing.then(() => this.start(), failed);
+			return;
+		}
+		if (this.#disposed) return;
 		if (this.#deps.prefs.get(HOST_ENABLED_KEY) === true) void this.#startHost();
-		for (const host of this.#hosts.list()) this.#link(host.deviceId);
-		this.#forgetStaleLegacyPeers();
-		void this.#poll();
-		this.#pollTimer = setInterval(() => void this.#poll(), TAILNET_POLL_MS);
-		this.#pollTimer.unref?.();
+		for (const host of sharing.snapshot.hosts) this.#link(host.deviceId);
+		sharing.start().catch(failed);
 	}
 
 	/**
@@ -302,6 +355,35 @@ export class RemoteDevices {
 		for (const link of this.#links.values()) link.client.wake(trigger);
 	}
 
+	#keepAwakeEnabled(): boolean {
+		return this.#deps.prefs.get(KEEP_AWAKE_WORKING_PREF) !== false;
+	}
+
+	/** The core told what changed: the mirror follows, the windows are told, a new tailnet name is passed on. */
+	#told(snapshot: SharingSnapshot): void {
+		this.#peers.told(snapshot);
+		const name = this.deviceName();
+		if (this.#core && name !== this.#toldName) {
+			this.#toldName = name;
+			this.#core?.configure({ name });
+		}
+		this.#broadcastState();
+	}
+
+	/** Code-paired hosts were matched to nodes once: remembered, and the ones not found named once. */
+	#migrated(migration: { at: number; forgotten: string[]; removed: string[] }): void {
+		for (const deviceId of migration.removed) this.#unlink(deviceId);
+		this.#deps.prefs.set(MIGRATED_KEY, migration.at);
+		if (migration.forgotten.length > 0) {
+			this.#deps.prefs.set(FORGOTTEN_KEY, migration.forgotten);
+			this.#deps.log?.("migration", { forgotten: migration.forgotten.length });
+		}
+	}
+
+	#snapshot(): SharingSnapshot | null {
+		return this.#core?.snapshot ?? null;
+	}
+
 	state(): RemoteState {
 		const host = this.#host;
 		const versions = new Map((host?.connections() ?? []).map(peer => [peer.deviceId, peer.appVersion]));
@@ -310,7 +392,7 @@ export class RemoteDevices {
 		const peers = this.#peers.list();
 		const forgotten = this.#deps.prefs.get(FORGOTTEN_KEY);
 		return {
-			tailnet: this.#phase,
+			tailnet: this.#snapshot()?.phase ?? "not-running",
 			host: {
 				enabled: this.#deps.prefs.get(HOST_ENABLED_KEY) === true,
 				name: this.deviceName(),
@@ -331,9 +413,9 @@ export class RemoteDevices {
 				keepingAwake: this.#keepAwake.held,
 				usedBy: peers.filter(peer => using.has(peer.deviceId)).map(peer => peer.name),
 			},
-			hosts: this.#hosts
-				.list()
-				.map(paired => this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name)),
+			hosts: (this.#snapshot()?.hosts ?? []).map(
+				paired => this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name),
+			),
 			forgotten: Array.isArray(forgotten) ? forgotten.filter(name => typeof name === "string") : [],
 			appVersion: this.#deps.appVersion,
 		};
@@ -342,7 +424,7 @@ export class RemoteDevices {
 	deviceName(): string {
 		const stored = this.#deps.prefs.get(DEVICE_NAME_KEY);
 		if (typeof stored === "string" && stored.trim()) return stored;
-		return this.#tailnetName ?? hostname().replace(/\.local$/i, "");
+		return this.#snapshot()?.tailnetName ?? hostname().replace(/\.local$/i, "");
 	}
 
 	/** This computer's OMPdesk device id (what the computers it shares with know it by). */
@@ -397,6 +479,8 @@ export class RemoteDevices {
 		const next = parsed.data;
 		if (next !== this.deviceName()) {
 			this.#deps.prefs.set(DEVICE_NAME_KEY, next);
+			this.#toldName = next;
+			this.#core?.configure({ name: next });
 			this.#host?.announceName();
 			for (const link of this.#links.values()) {
 				if (link.client.state === "online") {
@@ -427,6 +511,7 @@ export class RemoteDevices {
 
 	/** General's keep-awake switch changed: the host's blocker follows it at once. */
 	keepAwakeChanged(): void {
+		this.#core?.configure({ keepAwakeEnabled: this.#keepAwakeEnabled() });
 		this.#broadcastState();
 	}
 
@@ -434,7 +519,7 @@ export class RemoteDevices {
 	async revokePeer(deviceId: unknown): Promise<RemoteState> {
 		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
 		if (this.#host) await this.#host.revoke(deviceId);
-		else this.#peers.remove(deviceId);
+		else await (await this.#sharing).revoke(deviceId);
 		this.#deps.services.dropPeer(deviceId);
 		return this.#broadcastState();
 	}
@@ -471,61 +556,31 @@ export class RemoteDevices {
 
 	/** A view shows (`true`) or stops showing the tailnet's computers; resolves with what is known now. */
 	async watchTailnet(watcher: number, on: unknown): Promise<TailnetComputer[]> {
-		if (on === true) {
-			this.#watchers.add(watcher);
-			if (!this.#scanTimer) {
-				this.#scanTimer = setInterval(() => void this.#scan(), TAILNET_SCAN_MS);
-				this.#scanTimer.unref?.();
-			}
-			return this.#scan();
-		}
-		this.#watchers.delete(watcher);
-		if (this.#watchers.size === 0) {
-			clearInterval(this.#scanTimer);
-			this.#scanTimer = undefined;
-		}
-		return this.#computers.map(computer => ({ ...computer }));
+		return (await this.#sharing).watch(watcher, on === true);
 	}
 
 	/** Connect to a computer of the tailnet by its Tailscale node; pins its key (`key_mismatch` for another one). */
 	async connect(nodeId: unknown): Promise<HostView> {
 		if (typeof nodeId !== "string" || !nodeId) throw codedError("remote_unreachable", "Missing computer");
-		const status = await this.#deps.tailnet.status();
-		if (status?.backend !== "running") throw codedError("remote_tailscale_off", "Tailscale is not running");
-		const node = status.peers.find(peer => peer.nodeId === nodeId);
-		if (!node) throw codedError("remote_unreachable", "That computer is not on the tailnet");
-		const found = await this.#probeNode(node);
-		if (!found.address) throw codedError("remote_unreachable", "OMPdesk does not answer on that computer");
-		if (!found.probe.ok) throw codedError(remoteErrorCode(found.probe.code), found.probe.code);
-		let paired: PairedHost;
-		try {
-			paired = await connectFirst({
-				identity: this.#identity,
-				address: found.address,
-				name: this.deviceName(),
-				appVersion: this.#deps.appVersion,
-				nodeId,
-				hosts: this.#hosts,
-			});
-		} catch (error) {
-			const code = error instanceof RemoteError ? error.code : "protocol";
-			throw codedError(remoteErrorCode(code), error instanceof Error ? error.message : String(error));
+		const answer = await (await this.#sharing).connect(nodeId, HELLO_CAPABILITIES);
+		if ("failed" in answer) {
+			const { code, message } = answer.failed;
+			throw codedError(code === "tailscale_off" ? "remote_tailscale_off" : remoteErrorCode(code), message);
 		}
-		this.#found.set(nodeId, found.address);
+		const paired = answer.host;
 		// Its open tabs go on over the new link: left on the closed one they read "offline" while the host is online.
 		const old = this.#links.get(paired.deviceId)?.tabs;
 		const tabs = old ? [...old] : [];
 		// Taken off the old link first, so its close does not show them offline for the moment of the swap.
 		old?.clear();
 		this.#unlink(paired.deviceId);
-		this.#link(paired.deviceId);
+		this.#link(paired.deviceId, paired);
 		const link = this.#links.get(paired.deviceId);
 		if (link)
 			for (const [rtab, tab] of tabs) {
 				link.tabs.set(rtab, tab);
 				tab.relink(link.client);
 			}
-		this.#markComputers();
 		this.#broadcastState();
 		return this.#hostView(paired.deviceId) ?? toHostView(paired.deviceId, paired.name);
 	}
@@ -533,7 +588,7 @@ export class RemoteDevices {
 	async tailscaleAction(action: unknown): Promise<RemoteState> {
 		if (action !== "install" && action !== "start-app") throw new Error("Unknown Tailscale action");
 		await this.#deps.tailscaleAction(action);
-		await this.#poll();
+		await (await this.#sharing).poll();
 		return this.state();
 	}
 
@@ -542,11 +597,10 @@ export class RemoteDevices {
 		return this.#broadcastState();
 	}
 
-	removeHost(deviceId: unknown): RemoteState {
+	async removeHost(deviceId: unknown): Promise<RemoteState> {
 		if (typeof deviceId !== "string") throw codedError("remote_unknown_device", "Unknown device");
 		this.#unlink(deviceId);
-		this.#hosts.remove(deviceId);
-		this.#markComputers();
+		await (await this.#sharing).removeHost(deviceId);
 		this.#deps.broadcast(IPC_EVENTS.SESSIONS_CHANGED, { device: deviceId } satisfies IpcSessionsChanged);
 		return this.#broadcastState();
 	}
@@ -802,159 +856,31 @@ export class RemoteDevices {
 		this.#disposed = true;
 		this.#unwatchRunning();
 		clearTimeout(this.#quotaTimer);
-		clearInterval(this.#pollTimer);
-		clearInterval(this.#scanTimer);
 		this.#keepAwake.dispose();
 		for (const deviceId of [...this.#links.keys()]) this.#unlink(deviceId);
 		this.#deps.services.disposeAll();
 		await this.#host?.stop();
 		this.#host = null;
-	}
-
-	/** Read Tailscale's side: phase, this computer's login, the host's addresses, the code-paired hosts. */
-	async #poll(): Promise<void> {
-		if (this.#disposed) return;
-		const phase = await this.#deps.tailnet.phase().catch((): RemoteTailnetPhase => "not-running");
-		const status = phase === "ready" ? await this.#deps.tailnet.status() : null;
-		if (status?.login) this.#deps.adoptLogin(status.login);
-		if (status?.selfName) this.#tailnetName = status.selfName;
-		if (status) {
-			this.#migrating ??= this.#migrateHosts(status)
-				.catch(error =>
-					console.warn(
-						`[remote] host migration failed: ${error instanceof Error ? error.message : String(error)}`,
-					),
-				)
-				.finally(() => {
-					this.#migrating = null;
-				});
-			await this.#migrating;
-		}
-		if (status) this.#wakeReturnedHosts(status);
-		await this.#host?.rebind();
-		if (phase !== this.#phase) {
-			this.#phase = phase;
-			// Back on the tailnet: known hosts are reachable at their nodes again.
-			if (phase === "ready") this.wake("tailnet");
-		}
-		this.#broadcastState();
-	}
-
-	/** A host whose node was offline in the last poll and is online now: its link checks or retries at once. */
-	#wakeReturnedHosts(status: TailscaleStatus): void {
-		for (const host of this.#hosts.list()) {
-			if (!host.nodeId) continue;
-			const online = status.peers.find(peer => peer.nodeId === host.nodeId)?.online === true;
-			const was = this.#nodeOnline.get(host.nodeId);
-			this.#nodeOnline.set(host.nodeId, online);
-			if (online && was === false) this.#links.get(host.deviceId)?.client.wake("tailnet");
-		}
-	}
-
-	/**
-	 * Hosts an older release paired by code have no node. Each is matched to a tailnet node by, in order: a stored
-	 * address that is one of the node's tailnet addresses; a stored address that is one of its endpoints (`CurAddr`/
-	 * `Addrs`: code pairing stored LAN addresses, which Tailscale reports only as the node's endpoint); its announced
-	 * name equal to the node's (case aside). A match is kept and verified at its first connection (the client pins
-	 * the node, the host its key: a different key is refused); the rest are forgotten (named once in Settings). Runs
-	 * once Tailscale is up.
-	 */
-	async #migrateHosts(status: TailscaleStatus): Promise<void> {
-		if (typeof this.#deps.prefs.get(MIGRATED_KEY) === "number") return;
-		const forgotten: string[] = [];
-		const candidates = status.peers.filter(peer => peer.login !== null);
-		for (const host of this.#hosts.list()) {
-			if (host.nodeId !== null) continue;
-			const { result: storedHosts } = await core().call<Array<string | null>>("remote.hostsOf", {
-				addresses: host.addresses,
-			});
-			const stored = new Set(storedHosts.filter(Boolean));
-			const name = host.name.trim().toLowerCase();
-			const node =
-				candidates.find(peer => peer.ips.some(ip => stored.has(ip))) ??
-				candidates.find(peer => peer.endpoints.some(endpoint => stored.has(endpoint))) ??
-				candidates.find(peer => peer.name.trim().toLowerCase() === name);
-			if (node) {
-				// Its stored addresses (LAN, old ports) are of no use any more: the node's tailnet address is.
-				this.#hosts.update(host.deviceId, { nodeId: node.nodeId, addresses: [] });
-				this.#links.get(host.deviceId)?.client.connect();
-				continue;
-			}
-			this.#unlink(host.deviceId);
-			this.#hosts.remove(host.deviceId);
-			forgotten.push(host.name);
-		}
-		this.#deps.prefs.set(MIGRATED_KEY, this.#now());
-		if (forgotten.length > 0) {
-			this.#deps.prefs.set(FORGOTTEN_KEY, forgotten);
-			this.#deps.log?.("migration", { forgotten: forgotten.length });
-		}
-	}
-
-	/** A device an older release paired by code that never connected over Tailscale goes after the grace period. */
-	#forgetStaleLegacyPeers(): void {
-		const migratedAt = this.#deps.prefs.get(MIGRATED_KEY);
-		if (typeof migratedAt !== "number" || this.#now() - migratedAt < LEGACY_PEER_GRACE_MS) return;
-		for (const peer of this.#peers.list()) {
-			if (peer.nodeId === null) this.#peers.remove(peer.deviceId);
-		}
-	}
-
-	/** Who may connect, from Tailscale: a tailnet address, a node of an allowed login, not blocked. */
-	async #gate(ip: string): Promise<GateResult> {
-		const loopback = this.#deps.loopback === true && (ip === "127.0.0.1" || ip === "::1");
-		if (!isTailnetAddress(ip) && !loopback) return { ok: false, code: "not_tailnet" };
-		const peer = await this.#deps.tailnet.whois(ip);
-		if (!peer?.nodeId || !peer.login) return { ok: false, code: "no_identity" };
-		const login = peer.login.trim().toLowerCase();
-		// Unset list: this computer's own account, as Mobile web reads it (its poll may not have stored it yet).
-		const listed = this.#deps.allowedUsers();
-		const users = listed.length > 0 ? listed : [(await this.#deps.tailnet.status())?.login ?? ""];
-		const allowed = users.map(user => user.trim().toLowerCase()).filter(Boolean);
-		if (!allowed.includes(login)) return { ok: false, code: "not_allowed" };
-		const blocked = this.#deps.blocks()?.check({ nodeId: peer.nodeId, login: peer.login });
-		if (blocked) return { ok: false, code: "blocked" };
-		return { ok: true, visitor: { nodeId: peer.nodeId, login: peer.login, nodeName: peer.nodeName, ip } };
-	}
-
-	async #admit(visitor: TailnetVisitor, name: string): Promise<boolean> {
-		if (this.#deps.prefs.get(CONFIRM_KEY) !== true) return true;
-		return this.#deps
-			.confirm({ name, login: visitor.login, ip: visitor.ip, nodeName: visitor.nodeName })
-			.catch(() => false);
-	}
-
-	/** This computer's tailnet addresses: the only ones the host listens on. */
-	async #bindHosts(): Promise<string[]> {
-		const status = await this.#deps.tailnet.status();
-		if (status?.backend !== "running") return [];
-		const loopback = (ip: string) => this.#deps.loopback === true && (ip === "127.0.0.1" || ip === "::1");
-		return status.selfIps.filter(ip => isTailnetAddress(ip) || loopback(ip));
+		await (await this.#sharing.catch(() => null))?.dispose();
 	}
 
 	async #startHost(): Promise<void> {
+		const sharing = await this.#sharing;
 		if (this.#disposed) return;
 		if (!this.#host) {
 			const host = new RemoteHost({
-				identity: this.#identity,
-				peers: this.#peers,
+				sharing,
 				services: this.#deps.services,
 				name: () => this.deviceName(),
 				appVersion: this.#deps.appVersion,
 				hello: this.#deps.machineInfo,
-				bindHosts: () => this.#bindHosts(),
-				gate: ip => this.#gate(ip),
-				admit: (visitor, name) => this.#admit(visitor, name),
-				log: this.#deps.log,
 				logLink: this.#deps.logLink,
-				// The computer that just connected may be one this device uses as a host: it is up, so dial it now.
-				peerOpened: deviceId => this.#links.get(deviceId)?.client.wake("peer"),
 				renameSelf: (name, by) => {
 					console.info(`[remote] ${by.name} (${by.deviceId}) renamed this computer to "${name}"`);
 					this.setDeviceName(name);
 				},
 			});
-			for (const event of ["peersChanged", "connectionsChanged", "listenChanged"] as const) {
+			for (const event of ["peersChanged", "connectionsChanged"] as const) {
 				host.on(event, () => this.#broadcastState());
 			}
 			this.#host = host;
@@ -974,101 +900,16 @@ export class RemoteDevices {
 		await host?.stop();
 	}
 
-	/** Where a node's host answers: the first candidate port that answers a probe, on the node's address. */
-	async #probeNode(node: TailnetNode): Promise<{ address: string | null; probe: ProbeResult }> {
-		const ip = node.ips.find(candidate => isIPv4(candidate)) ?? node.ips.find(candidate => isIP(candidate) !== 0);
-		if (!ip) return { address: null, probe: { ok: false, code: "unreachable" } };
-		const last = this.#found.get(node.nodeId);
-		const { result: addresses } = await core().call<string[]>("remote.addresses", {
-			ip,
-			first: last,
-			portSetting: process.env.OMP_GUI_REMOTE_PORT,
-		});
-		// This computer itself (a test's two apps on one address) is passed over.
-		const found = await probeAny(addresses, this.#identity.deviceId);
-		if (found.address) this.#found.set(node.nodeId, found.address);
-		else this.#found.delete(node.nodeId);
-		return found;
-	}
-
-	/** Probe every computer of the tailnet (not phones) and push the list while views watch it. */
-	#scan(): Promise<TailnetComputer[]> {
-		this.#scanning ??= this.#scanOnce().finally(() => {
-			this.#scanning = null;
-		});
-		return this.#scanning;
-	}
-
-	async #scanOnce(): Promise<TailnetComputer[]> {
-		const status = await this.#deps.tailnet.status();
-		const nodes =
-			status?.backend === "running"
-				? status.peers.filter(peer => peer.online && !(peer.os && MOBILE_OS.test(peer.os)))
-				: [];
-		const results: TailnetComputer[] = new Array(nodes.length);
-		let next = 0;
-		const worker = async (): Promise<void> => {
-			while (next < nodes.length) {
-				const index = next++;
-				const node = nodes[index];
-				if (!node) continue;
-				const { probe, address } = await this.#probeNode(node);
-				results[index] = {
-					nodeId: node.nodeId,
-					name: probe.ok ? probe.name : node.name,
-					login: node.login,
-					state: address === null ? "absent" : probe.ok ? "available" : "refused",
-					refusal: address !== null && !probe.ok ? probe.code : null,
-					deviceId: probe.ok ? probe.deviceId : null,
-					connected: false,
-				};
-			}
-		};
-		await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, nodes.length) }, worker));
-		this.#computers = results.filter(Boolean);
-		this.#markComputers();
-		return this.#computers.map(computer => ({ ...computer }));
-	}
-
-	/** Mark the computers this device already uses, and push the list. */
-	#markComputers(): void {
-		for (const computer of this.#computers) {
-			computer.connected = this.#hosts.byNode(computer.nodeId) !== undefined;
-		}
-		this.#deps.broadcast(IPC_EVENTS.REMOTE_TAILNET, this.#computers);
-	}
-
-	/**
-	 * A known host's addresses now: its node's current tailnet address on the port it answered on in this run, then
-	 * on every candidate port. Stored addresses and ports are never dialed: a reboot moves the port, code pairing
-	 * stored LAN addresses, and a host now listens on its tailnet address only. A host with no node yet (code-paired,
-	 * not migrated) has nothing to dial until the migration finds its node.
-	 */
-	async #hostAddresses(host: PairedHost): Promise<string[]> {
-		if (!host.nodeId) return [];
-		const status = await this.#deps.tailnet.status();
-		const node = status?.peers.find(peer => peer.nodeId === host.nodeId);
-		const ip = node?.ips.find(candidate => isIPv4(candidate)) ?? node?.ips[0];
-		if (!ip) return [];
-		const found = this.#found.get(host.nodeId);
-		const { result } = await core().call<string[]>("remote.addresses", {
-			ip,
-			first: found,
-			portSetting: process.env.OMP_GUI_REMOTE_PORT,
-		});
-		return result;
-	}
-
-	#link(deviceId: string): void {
-		const paired = this.#hosts.get(deviceId);
-		if (!paired || this.#links.has(deviceId) || this.#disposed) return;
+	/** A link to a known host (`paired`: its record as Connect just wrote it, else the core's last word). */
+	#link(deviceId: string, paired = this.#snapshot()?.hosts.find(host => host.deviceId === deviceId)): void {
+		const sharing = this.#core;
+		if (!paired || !sharing || this.#links.has(deviceId) || this.#disposed) return;
 		const client = new RemoteClient({
 			identity: this.#identity,
 			host: paired,
 			appVersion: this.#deps.appVersion,
 			name: () => this.deviceName(),
-			hosts: this.#hosts,
-			addresses: host => this.#hostAddresses(host),
+			sharing,
 			log: this.#deps.logLink,
 		});
 		const link: HostLink = {
@@ -1293,17 +1134,7 @@ export class RemoteDevices {
 		return view;
 	}
 
-	/** Every change lands here, so this is also where the keep-awake policy sees it. */
 	#broadcastState(): RemoteState {
-		const host = this.#host;
-		this.#keepAwake.update({
-			enabled:
-				!this.#disposed &&
-				this.#deps.prefs.get(HOST_ENABLED_KEY) === true &&
-				this.#deps.prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
-			connected: (host?.connections().length ?? 0) > 0,
-			running: this.#deps.services.runningPeers().length > 0,
-		});
 		const state = this.state();
 		this.#deps.broadcast(IPC_EVENTS.REMOTE_STATE, state);
 		return state;
