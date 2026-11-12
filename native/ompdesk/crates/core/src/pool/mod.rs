@@ -27,6 +27,8 @@ mod routes;
 mod run;
 mod split;
 mod state;
+#[cfg(test)]
+mod tests;
 mod windows;
 
 use std::cell::RefCell;

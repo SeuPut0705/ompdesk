@@ -598,7 +598,7 @@ export class SidecarPool {
 				this.#handles
 					.get(item.tab as string)
 					?.views.get(item.view as number)
-					?.emit(item.event as string, item.arg);
+					?.emit(item.event as string, item.arg ?? undefined);
 				return;
 			case "settleWatch": {
 				const tab = item.tab as string;
