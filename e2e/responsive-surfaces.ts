@@ -450,6 +450,34 @@ async function openSettingsComputerUse(page: Page, look: Look): Promise<void> {
 	await row.scrollIntoViewIfNeeded();
 }
 
+/**
+ * Settings › Updates & about, the Disk row with its breakdown open. A test launch cleans only on request, so the row
+ * is measured first with its own Clean up button: the breakdown then lists every part.
+ */
+async function openSettingsDiskCare(page: Page, look: Look): Promise<void> {
+	await openDrawer(page, look);
+	await page.locator('[data-destination="settings"]').first().click();
+	const nav = page.locator('[data-settings-section="updates"]');
+	await nav.waitFor({ state: "visible", timeout: 15_000 });
+	await nav.click();
+	const row = page.locator("[data-settings-page] #setting-disk-care");
+	await row.waitFor({ state: "visible", timeout: 30_000 });
+	await row.scrollIntoViewIfNeeded();
+	const measured = row.locator("[data-testid='disk-care-status']").filter({ hasText: "in use" });
+	if ((await measured.count()) === 0) await row.locator("[data-testid='disk-care-clean']").click();
+	await measured.waitFor({ state: "visible", timeout: 180_000 });
+	await row.locator("[data-testid='disk-care-clean']:not([disabled])").waitFor({ timeout: 180_000 });
+	// A pointer opens the row's (i) by resting on it, a finger by pressing it.
+	const info = row.locator("[data-setting-info]");
+	await info.hover();
+	const shown = page.locator("[role='tooltip']").first();
+	const hovered = await shown.waitFor({ state: "visible", timeout: 2_000 }).then(
+		() => true,
+		() => false,
+	);
+	if (!hovered) await info.click();
+}
+
 async function openSettingsGeneral(page: Page, look: Look): Promise<void> {
 	await openDrawer(page, look);
 	await page.locator('[data-destination="settings"]').first().click();
@@ -1247,6 +1275,17 @@ export const SURFACES: readonly Surface[] = [
 				process.env.OMP_GUI_TEST_MODELS === "1" &&
 				process.env.OMP_GUI_TEST_RESET_TICKETS === "1",
 		},
+	},
+	{
+		id: "settings-disk-care",
+		area: "B",
+		title: "Settings › Updates & about, the Disk row after a cleanup with its breakdown open",
+		open: openSettingsDiskCare,
+		ready: "[role='tooltip']",
+		settle: 600,
+		// Parity only: the audits' harness page has no disk care to run.
+		when: () => false,
+		parity: { session: "work", after: closeOverlay },
 	},
 	{
 		id: "settings-computer-use",
