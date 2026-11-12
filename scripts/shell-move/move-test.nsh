@@ -1,0 +1,47 @@
+; The test seams of scripts/shell-move (the dry run of the update from v0.127.0), built into the NEW setup of that run
+; only. scripts/shell-move/build-setups.ts copies this file next to a copy of resources/installer.nsh and includes that
+; copy from here; a release build never has OMP_MOVE_TEST defined (resources/installer.nsh says what it switches).
+
+!define OMP_MOVE_TEST
+
+; Before the new folder is checked: log what the setup saw of its environment (the old app's updater started it with its
+; own environment: what it passed through is what the setup logs) and, with OMP_MOVE_FAIL=swap, make the unpack
+; incomplete on purpose by deleting CEF's library, so the check fails and the old app must come back.
+!macro ompMoveTestBeforeCheck
+  ReadEnvStr $R9 OMP_MOVE_LOG
+  ${if} $R9 != ""
+    ReadEnvStr $R7 OMP_GUI_TEST_USER_DATA_DIR
+    ReadEnvStr $R6 OMP_GUI_HEADLESS
+    ReadEnvStr $R5 OMP_MOVE_FAIL
+    FileOpen $R8 "$R9" a
+    FileSeek $R8 0 END
+    FileWrite $R8 "setup-env instdir=$INSTDIR backup=$ompBackupMode userData=$R7 headless=$R6 fail=$R5$\r$\n"
+    FileClose $R8
+  ${endif}
+  ReadEnvStr $R5 OMP_MOVE_FAIL
+  ${if} $R5 == "swap"
+    Delete "$INSTDIR\libcef.dll"
+  ${endif}
+!macroend
+
+; After the new folder passed: the setup starts the app through Explorer (StdUtils.ExecShellAsUser on a link), which has
+; none of the setup's environment, so the link is a launcher that sets the test profile and the isolated home first.
+; Without both in the setup's environment the launcher starts nothing: the new app must never read the person's profile.
+; The launcher also opens CEF's debugging port (OMP_MOVE_DEBUG_PORT) so the run can read the page's Local Storage.
+!macro ompMoveTestAfterInstall
+  ReadEnvStr $R9 OMP_GUI_TEST_USER_DATA_DIR
+  ReadEnvStr $R7 OMP_MOVE_HOME
+  ReadEnvStr $R6 OMP_MOVE_DEBUG_PORT
+  FileOpen $R8 "$INSTDIR\ompdesk-move-test.cmd" w
+  ${if} $R9 == ""
+  ${orIf} $R7 == ""
+    FileWrite $R8 "@echo off$\r$\nexit /b 1$\r$\n"
+  ${else}
+    FileWrite $R8 "@echo off$\r$\nset $\"OMP_GUI_HEADLESS=1$\"$\r$\nset $\"OMP_GUI_TEST_USER_DATA_DIR=$R9$\"$\r$\nset $\"USERPROFILE=$R7$\"$\r$\nset $\"HOME=$R7$\"$\r$\nset $\"APPDATA=$R7\AppData\Roaming$\"$\r$\nset $\"LOCALAPPDATA=$R7\AppData\Local$\"$\r$\nstart $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --remote-debugging-port=$R6 %*$\r$\n"
+  ${endif}
+  FileClose $R8
+  StrCpy $launchLink "$INSTDIR\ompdesk-move-test.cmd"
+!macroend
+
+; The seams above come first, then the file a release builds (its copy sits beside this one).
+!include "installer-under-test.nsh"

@@ -92,6 +92,9 @@ jobs:
         run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
       # Tests import electron and e2e launches it: the shared install fetches the binary.
       - uses: ./.github/actions/install
+      # An e2e spec launches the CEF shell and the pinned Node (the shell action: a cached build).
+      - if: endsWith(inputs.spec, '.e2e.ts')
+        uses: ./.github/actions/shell
       # As ci.yml's check: the stock suites skip without omp, real-core launches it.
       - name: Install omp
         run: |

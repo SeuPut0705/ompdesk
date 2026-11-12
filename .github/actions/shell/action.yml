@@ -1,0 +1,75 @@
+# The CEF shell, Node and CEF's licence files, staged where the packaging and the e2e harness read them. Run it after
+# `./.github/actions/install` (and oven-sh/setup-bun) in every job that packages or launches the shell.
+#
+#   resources/ompdesk-shell/<platform>-<arch>/   `bun run build:shell`: the shell executable, CEF's runtime and the
+#                                               build record (native/ompdesk/crates/shell; cargo, CEF's archive)
+#   resources/node/<platform>-<arch>/            `bun run build:node`: the pinned Node 24 LTS (scripts/node-runtime-pin.json)
+#   resources/shell-licenses/<platform>-<arch>/  `bun run stage:cef-licenses` (packaging jobs only): CEF's CREDITS.html
+#                                               as LICENSES.chromium.html, and its LICENSE
+#
+# The staged shell is restored from `actions/cache` keyed on OS, architecture and everything that decides its bytes
+# (the shell's sources and Cargo.lock, cef-pin.json, scripts/build-shell.ts and scripts/cargo.ts; the CEF archive is
+# pinned by its hash inside cef-pin.json): a hit installs no Rust, fetches no CEF, and only holds the staged bytes to
+# their record and the record to the sources (`--check`); a miss builds with the toolchain action and saves right away,
+# so a job that fails later still leaves the build for the next one. Node is a 30 MB download checked against its pinned
+# SHA-256; the licences are a 5 MB cache of their own.
+name: OMPdesk's CEF shell, Node and licences
+description: The staged shell (cached build), the pinned Node and, for a packaging job, CEF's licence files.
+
+inputs:
+  licenses:
+    description: "'true' for a job that packages the app: also stage CEF's licence files (bun run stage:cef-licenses)."
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Restore the staged shell
+      id: shell-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: resources/ompdesk-shell
+        key: ompdesk-shell-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ompdesk/crates/shell/**', '!native/ompdesk/crates/shell/target/**', 'scripts/build-shell.ts', 'scripts/cargo.ts') }}
+
+    - if: steps.shell-cache.outputs.cache-hit != 'true'
+      uses: ./.github/actions/shell-toolchain
+
+    - name: Build the shell
+      if: steps.shell-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bun run build:shell
+
+    - if: steps.shell-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: resources/ompdesk-shell
+        key: ${{ steps.shell-cache.outputs.cache-primary-key }}
+
+    - name: Check the cached shell
+      if: steps.shell-cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: bun run build:shell -- --check
+
+    - name: Fetch the pinned Node
+      shell: bash
+      run: bun run build:node
+
+    - name: Restore CEF's licence files
+      id: licenses-cache
+      if: inputs.licenses == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: resources/shell-licenses
+        key: shell-licenses-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/ompdesk/crates/shell/cef-pin.json', 'scripts/stage-cef-licenses.ts') }}
+
+    # A miss reads the CEF archive: the build's cache, or a fresh download checked against its pinned SHA-256.
+    - name: Stage CEF's licence files
+      if: inputs.licenses == 'true' && steps.licenses-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: bun run stage:cef-licenses
+
+    - if: inputs.licenses == 'true' && steps.licenses-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: resources/shell-licenses
+        key: ${{ steps.licenses-cache.outputs.cache-primary-key }}
