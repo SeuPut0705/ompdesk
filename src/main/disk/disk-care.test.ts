@@ -1,12 +1,29 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CoreError, CoreProcess } from "../core/process";
 import { gitSync } from "../local/git/test-repos";
+import { DISK_CARE_FIRST_DELAY_MS, DISK_CARE_INTERVAL_MS } from "./care";
 import { DAY_MS, diskCareWorld, exists, SLOW, write } from "./disk-care-fixture";
 import { listSavedWorktrees, restoreSavedWorktree } from "./saved-worktrees";
 import { TreeSizes } from "./tree-sizes";
 
 const w = diskCareWorld();
+
+afterEach(() => {
+	vi.useRealTimers();
+	vi.restoreAllMocks();
+});
+
+/** A core that cannot answer `methods` (it died, rests after failed starts, or ran out of time); others pass. */
+function coreRefuses(...methods: string[]): void {
+	const real = CoreProcess.prototype.call;
+	vi.spyOn(CoreProcess.prototype, "call").mockImplementation(function (this: CoreProcess, method, ...rest) {
+		if (methods.includes(method))
+			return Promise.reject(new CoreError("core_unavailable", "ompdesk-core could not run"));
+		return real.call(this, method, ...rest);
+	});
+}
 
 describe("disk care", () => {
 	it(
@@ -161,4 +178,51 @@ describe("disk care", () => {
 		},
 		SLOW,
 	);
+
+	it(
+		"keeps every worktree and still records the run when the core cannot list the running processes",
+		async () => {
+			const dir = await w.busyWorktree("no-process-list");
+			coreRefuses("disk.processFolders");
+			const state = await w.care(undefined, { processFolders: undefined }).run("user");
+			expect(state.lastRun?.trigger).toBe("user");
+			expect(w.logs.some(([message]) => message === "run")).toBe(true);
+			expect(await exists(path.join(w.userData, "disk-care", "state.json"))).toBe(true);
+			expect(w.listed()).toContain(dir);
+			expect(await exists(path.join(dir, "node_modules"))).toBe(true);
+			const kept = w.logs.filter(([message]) => message === "kept").map(([, details]) => details.reason);
+			expect(kept).toContain("process check unavailable");
+		},
+		SLOW,
+	);
+
+	it(
+		"measures by full walks and records the run when the core cannot open the kept measurement",
+		async () => {
+			coreRefuses("disk.sizesOpen");
+			const state = await w.care().run("user");
+			expect(state.usage?.parts.length).toBeGreaterThan(0);
+			expect(w.logs.filter(([message]) => message === "usage").map(([, details]) => details.reused)).toEqual([
+				false,
+			]);
+			expect(w.logs.some(([message]) => message === "run")).toBe(true);
+			expect(await exists(path.join(w.userData, "disk-care", "state.json"))).toBe(true);
+		},
+		SLOW,
+	);
+
+	it("comes due again the next day after a run that failed", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const care = w.care(undefined, { automatic: true });
+		const run = vi
+			.spyOn(care, "run")
+			.mockRejectedValueOnce(new CoreError("timeout", "ompdesk-core did not answer in time"))
+			.mockResolvedValue(care.state());
+		await care.start();
+		await vi.advanceTimersByTimeAsync(DISK_CARE_FIRST_DELAY_MS);
+		expect(run).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(DISK_CARE_INTERVAL_MS);
+		expect(run).toHaveBeenCalledTimes(2);
+		care.stop();
+	});
 });

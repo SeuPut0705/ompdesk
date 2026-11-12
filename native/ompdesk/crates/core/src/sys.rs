@@ -109,3 +109,44 @@ pub fn end_children_with_this_process() -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// What `lstat` reports on Windows that std keeps unstable: the volume, the file's index on it and its hard links
+/// (libuv's `st_dev`, `st_ino`, `st_nlink`), read from a handle the caller opened on the entry itself.
+#[cfg(windows)]
+pub fn file_identity(file: &std::fs::File) -> std::io::Result<(u32, u64, u32)> {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+
+    /// `BY_HANDLE_FILE_INFORMATION`: the three `FILETIME`s are two `u32` each.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Information {
+        attributes: u32,
+        times: [u32; 6],
+        volume_serial: u32,
+        size_high: u32,
+        size_low: u32,
+        links: u32,
+        index_high: u32,
+        index_low: u32,
+    }
+
+    const _: () = assert!(size_of::<Information>() == 52);
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(file: *mut c_void, information: *mut Information) -> i32;
+    }
+
+    let mut information = Information::default();
+    // SAFETY: the handle is the open file's and outlives the call; `information` is a `BY_HANDLE_FILE_INFORMATION`
+    // laid out as C lays it out (`repr(C)`, size checked above) that the call only writes.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &raw mut information) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok((
+        information.volume_serial,
+        (u64::from(information.index_high) << 32) | u64::from(information.index_low),
+        information.links,
+    ))
+}

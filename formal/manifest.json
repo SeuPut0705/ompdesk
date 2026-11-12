@@ -123,7 +123,10 @@
 			"mutations": "mutations.json",
 			"covers": [
 				"src/main/local/git/exec.ts#heldRequest",
+				"src/main/local/git/exec.ts#heldAnswer",
 				"src/main/local/git/exec.ts#coreGit",
+				"src/main/local/git/exec.ts#coreGitAnswer",
+				"src/main/local/git/exec.ts#coreHeld",
 				"src/main/local/git/scm.ts#mutate",
 				"src/main/core/process.ts",
 				"src/main/serial-chain.ts",
@@ -131,7 +134,9 @@
 				"native/ompdesk/crates/core/src/run.rs",
 				"native/ompdesk/crates/core/src/sys.rs",
 				"native/ompdesk/crates/core/src/main.rs",
-				"native/ompdesk/crates/core/src/git/branches.rs:192-215"
+				"native/ompdesk/crates/core/src/git/branches.rs:192-215",
+				"native/ompdesk/crates/core/src/disk/tree.rs#live",
+				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
 			"syncCommit": "ee3528c5826c5b812df0a5dca9c4400b8cefdda2",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"

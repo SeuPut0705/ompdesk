@@ -4,7 +4,7 @@
  *
  * 1. Build output and dependencies of idle worktrees: an orphaned worktree (no open tab on any device) that no one
  *    changed for `DISK_CARE_ARTIFACT_IDLE_DAYS` and no running process works in loses every ignored entry its project
- *    makes again (`regenerable.ts`). This is most of `~/.omp/wt`.
+ *    makes again (the core's rule table, `crates/core/src/disk/regenerable.rs`). This is most of `~/.omp/wt`.
  * 2. Landed worktrees: the Work tree view's rule (`sweepLandedWorktrees`), branch kept, now with the private archive
  *    of what no tool makes again first (git's removal deletes ignored files).
  * 3. Idle worktrees with unlanded work: untouched for `DISK_CARE_REMOVE_IDLE_DAYS`, no process inside, no half-done
@@ -33,7 +33,7 @@ import {
 } from "../../shared/disk-care";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
 import type { RpcOrphanWorktree } from "../../shared/rpc-types";
-import { git, withRepoLock } from "../local/git/exec";
+import { withRepoLock } from "../local/git/exec";
 import type { IpcRegistry } from "../web/ipc-registry";
 import {
 	listAllOrphans,
@@ -60,6 +60,7 @@ import {
 	processWorkingFolders,
 	readWorktreeFiles,
 	type WorktreeFiles,
+	worktreeHead,
 } from "./worktree-facts";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -190,7 +191,9 @@ export class DiskCare {
 		clearTimeout(this.#timer);
 		if (this.#stopped) return;
 		this.#timer = setTimeout(() => {
-			void this.run(trigger).then(() => this.#schedule(DISK_CARE_INTERVAL_MS, "daily"));
+			// The next run is due whatever became of this one.
+			const next = () => this.#schedule(DISK_CARE_INTERVAL_MS, "daily");
+			this.run(trigger).then(next, next);
 		}, ms);
 		this.#timer.unref?.();
 	}
@@ -377,7 +380,7 @@ export class DiskCare {
 						const stamp = await lastActivity(orphan.path, fresh);
 						if ((this.#now() - stamp) / DAY_MS < DISK_CARE_REMOVE_IDLE_DAYS)
 							throw new KeepWorktree("it changed since it was judged idle");
-						const head = (await git(orphan.path, ["rev-parse", "HEAD"])).trim();
+						const head = await worktreeHead(orphan.path);
 						// Right before the folder goes: the same status, HEAD and operation state, no process inside, and
 						// no file (tracked, untracked or an archived ignored one), index, reflog or session written since
 						// the save read it. The status alone misses a second edit of an already modified file.
@@ -386,7 +389,7 @@ export class DiskCare {
 							if (processInside(orphan.path, await (this.#deps.processFolders ?? processWorkingFolders)()))
 								return false;
 							if ((await inProgressOperation(orphan.path)) !== null) return false;
-							if ((await git(orphan.path, ["rev-parse", "HEAD"])).trim() !== head) return false;
+							if ((await worktreeHead(orphan.path)) !== head) return false;
 							const now = await readWorktreeFiles(orphan.path);
 							return now.fingerprint === fresh.fingerprint && (await lastActivity(orphan.path, now)) <= stamp;
 						};

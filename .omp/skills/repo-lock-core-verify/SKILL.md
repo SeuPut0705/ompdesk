@@ -13,13 +13,13 @@ A holder of `withRepoLock` that runs past its bound fails its caller at once; th
 
 | Check id | Tool | Covers | Model |
 |---|---|---|---|
-| `repo-lock-core` | TLC 1.8.0 | `heldRequest` and `coreGit` (`exec.ts`), `mutate` (`scm.ts`), `process.ts`, `serial-chain.ts`, `server.rs`, `run.rs`, `sys.rs`, `main.rs`, the scratch object store of `git/branches.rs` (`Scratch`) | `formal/repo-lock-core/tla/RepoLockCore.tla`, `@code` tags on each action |
+| `repo-lock-core` | TLC 1.8.0 | `heldRequest`, `heldAnswer`, `coreGit`, `coreGitAnswer` and `coreHeld` (`exec.ts`), `mutate` (`scm.ts`), `process.ts`, `serial-chain.ts`, `server.rs`, `run.rs`, `sys.rs`, `main.rs`, the scratch object store of `git/branches.rs` (`Scratch`), disk care's file system calls (`disk/tree.rs` `live`, `git/read.rs` `blocking`) | `formal/repo-lock-core/tla/RepoLockCore.tla`, `@code` tags on each action |
 
 Sync commit: see `syncCommit` of `repo-lock-core` in `formal/manifest.json` (the manifest wins).
 
 ## Bounds and assumptions
 
-- One holder and one next holder, the core free to die at any step; one request of 2 gits one at a time (1 752 states) and of 3 gits two at a time (2 777 states), each with one scratch store the request may make and remove.
+- One holder and one next holder, the core free to die at any step; one request of 2 gits one at a time (6 088 states) and of 3 gits two at a time (9 923 states), each with one scratch store the request may make and remove and up to 2 file system calls of its own.
 - Assumptions: frames FIFO both ways; the core registers a request's cancel flag before it reads the next frame; an answered id leaves `in_flight` before its frame is queued; a killed git counts as an exited one; on Windows the job ended the gits by the time main sees the core's `close` (main has no group to poll there; not verified on Windows). Full table: `formal/repo-lock-core/CORRESPONDENCE.md`.
 - Known limits, in `SCOPE.md`: a git may start between the stop and the cancel's arrival (then ended at once; `git-starts-before-cancel-arrives`); a git that outlives SIGKILL past `GROUP_GONE_MS` is settled past with an error that names it (`group-outlives-its-bound`); a core that dies while a request holds its scratch store leaves that temp folder (`scratch-left-by-a-dead-core`).
 
@@ -31,7 +31,7 @@ Sync commit: see `syncCommit` of `repo-lock-core` in `formal/manifest.json` (the
 bun <tools-dir>/scripts/verify-all.ts formal --only repo-lock-core
 ```
 
-A few seconds (7 runs, 11 mutations). `PASS` (exit 0): no counterexample within the bounds, not "the code is correct". `FAIL` (exit 1): a property broke, a mutation was MISSED or an `@code` tag no longer resolves. `DRIFT:`: covered code changed since the sync commit. `NOT CHECKED` (exit 3): report "not checked", never a pass.
+A few seconds (7 runs, 13 mutations). `PASS` (exit 0): no counterexample within the bounds, not "the code is correct". `FAIL` (exit 1): a property broke, a mutation was MISSED or an `@code` tag no longer resolves. `DRIFT:`: covered code changed since the sync commit. `NOT CHECKED` (exit 3): report "not checked", never a pass.
 
 ## A failure: real bug or modeling error?
 

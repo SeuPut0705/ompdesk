@@ -1,19 +1,34 @@
 /**
  * What disk care reads of one worktree before it touches it: its files split by what git and the project say about
- * them, when anyone last changed anything in it, whether a git operation is half done, and which running processes
- * sit inside it. Read-only.
+ * them, when anyone last changed anything in it, whether a git operation is half done, its HEAD, and which running
+ * processes sit inside it. Read-only. The reads run in the core process (`native/ompdesk/crates/core/src/disk/facts.rs`
+ * and `regenerable.rs`, the rule table of what a project makes again); what stays here is main's: where stock omp keeps
+ * a folder's sessions, whether a process folder is inside a worktree (real paths, `realFolder`), and the secret check,
+ * which reads the central redactor.
  */
-import { execFile } from "node:child_process";
 import * as os from "node:os";
 import * as path from "node:path";
 import { redactDiagnosticsText } from "../../../resources/gui-bridge/redactor";
 import { agentDir } from "../agent-paths";
 import { fs } from "../fenced-fs";
-import { git, gitRaw } from "../local/git/exec";
+import { coreGit, coreHeld } from "../local/git/exec";
 import { isInside } from "../local/git/parse";
-import { currentStepSignal, throwIfStepStalled, trackEffect } from "../serial-chain";
+import { stepStalled } from "../serial-chain";
 import { realFolder } from "../worktree-removals";
-import { classifyIgnored, type IgnoredVerdict, readEvidence } from "./regenerable";
+
+export type RegenerableReason =
+	| "cachedir-tag"
+	| "lockfile-dependencies"
+	| "python-bytecode"
+	| "build-tool-output"
+	| "gitignore-build-section";
+
+export interface IgnoredVerdict {
+	/** Relative to the worktree, `/`-separated; a directory ends with `/` (as `git status` prints it). */
+	path: string;
+	/** Null: no evidence the project makes it again. */
+	regenerable: { reason: RegenerableReason; evidence: string } | null;
+}
 
 /** A worktree's files outside its HEAD, relative and `/`-separated (a directory ends with `/`). */
 export interface WorktreeFiles {
@@ -31,85 +46,28 @@ export interface WorktreeFiles {
 	fingerprint: string;
 }
 
-/** `git status --porcelain=v1 -z` split by kind. A rename prints its old path as one more NUL field. */
-function parseStatus(output: string): { ignored: string[]; untracked: string[]; changed: string[] } {
-	const parsed = { ignored: [] as string[], untracked: [] as string[], changed: [] as string[] };
-	const fields = output.split("\0");
-	for (let index = 0; index < fields.length; index++) {
-		const field = fields[index] ?? "";
-		if (field.length < 4) continue;
-		const code = field.slice(0, 2);
-		const file = field.slice(3);
-		if (code === "!!") parsed.ignored.push(file);
-		else if (code === "??") parsed.untracked.push(file);
-		else {
-			parsed.changed.push(file);
-			if (code.includes("R") || code.includes("C")) index++;
-		}
-	}
-	return parsed;
-}
-
-export async function readWorktreeFiles(worktree: string): Promise<WorktreeFiles> {
-	const [status, others] = await Promise.all([
-		gitRaw(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=traditional"], {
-			maxBytes: 64 * 1024 * 1024,
-		}),
-		gitRaw(worktree, ["ls-files", "--others", "--exclude-standard", "-z"], { maxBytes: 64 * 1024 * 1024 }),
-	]);
-	if (status.code !== 0 || status.truncated) throw new Error(`git status failed in ${worktree}`);
-	if (others.code !== 0 || others.truncated) throw new Error(`git ls-files failed in ${worktree}`);
-	const fingerprint = status.stdout.toString("utf8");
-	const parsed = parseStatus(fingerprint);
-	const evidence = await readEvidence(worktree, parsed.ignored);
-	return {
-		ignored: await classifyIgnored(parsed.ignored, evidence),
-		untracked: await classifyIgnored(parsed.untracked, evidence),
-		untrackedFiles: others.stdout.toString("utf8").split("\0").filter(Boolean),
-		changed: parsed.changed,
-		tracked: [...evidence.tracked],
-		fingerprint,
-	};
-}
-
-/** Markers git leaves while a rebase, merge, cherry-pick, revert or bisect waits to be finished. */
-const IN_PROGRESS = ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG"];
-
 /**
- * The worktree's git dir, as `git rev-parse --git-dir` names it, read from its `.git`: the folder itself, or the file a
- * linked worktree has (`gitdir: <path>`, absolute or relative to the worktree). Git itself when neither is there.
+ * Deadlines of the core requests, in default-timeout gits one after another: the files are status and the untracked
+ * list, then the tracked list and `check-ignore`, then the rules' reads; the activity is the HEAD commit and the git
+ * dir, then the stamps and the walk of what no tool makes again.
  */
-export async function gitDirOf(worktree: string): Promise<string> {
-	const dotGit = path.join(worktree, ".git");
-	const stat = await fs.stat(dotGit).catch(() => null);
-	if (stat?.isDirectory()) return dotGit;
-	const named = stat?.isFile() ? /^gitdir: (.+)$/m.exec(await fs.readFile(dotGit, "utf8"))?.[1]?.trim() : undefined;
-	if (named) return path.resolve(worktree, named);
-	return path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-dir"])).trim());
+const FILES_ROUNDS = 3;
+const ACTIVITY_ROUNDS = 3;
+/** `lsof` over every process. */
+const PROCESS_LIST_MS = 30_000;
+
+export function readWorktreeFiles(worktree: string): Promise<WorktreeFiles> {
+	return coreGit("disk.worktreeFiles", { worktree }, FILES_ROUNDS);
 }
 
-/** The half-done git operation in the worktree, or null. */
-export async function inProgressOperation(worktree: string): Promise<string | null> {
-	const gitDir = await gitDirOf(worktree);
-	for (const marker of IN_PROGRESS) {
-		if (await fs.stat(path.join(gitDir, marker)).catch(() => null)) return marker;
-	}
-	return null;
+/** The half-done git operation in the worktree (a rebase, merge, cherry-pick, revert or bisect marker), or null. */
+export function inProgressOperation(worktree: string): Promise<string | null> {
+	return coreGit("disk.inProgress", { worktree }, 2);
 }
 
-/** Entries an activity walk reads before it gives up and calls the worktree active (fail closed). */
-const ACTIVITY_WALK_LIMIT = 20_000;
-
-async function newestUnder(target: string, budget: { left: number }): Promise<number> {
-	const stat = await fs.lstat(target).catch(() => null);
-	if (!stat) return 0;
-	let newest = stat.mtimeMs;
-	if (!stat.isDirectory()) return newest;
-	for (const name of await fs.readdir(target).catch(() => [] as string[])) {
-		if (--budget.left < 0) return Number.POSITIVE_INFINITY;
-		newest = Math.max(newest, await newestUnder(path.join(target, name), budget));
-	}
-	return newest;
+/** The worktree's HEAD commit. */
+export function worktreeHead(worktree: string): Promise<string> {
+	return coreGit("disk.head", { worktree }, 1);
 }
 
 /** stock omp's session folder for a cwd under the home folder: `-` plus the path from home with `/` as `-`. */
@@ -125,85 +83,29 @@ function sessionFolder(worktree: string): string {
  * `Infinity` when an ignored tree is too big to read.
  */
 export async function lastActivity(worktree: string, files: WorktreeFiles): Promise<number> {
-	const [committed, gitDir] = await Promise.all([
-		git(worktree, ["log", "-1", "--format=%ct", "HEAD"]).catch(() => "0"),
-		gitDirOf(worktree),
-	]);
-	let newest = (Number(committed.trim()) || 0) * 1000;
-	const stamps = [
-		worktree,
-		path.join(gitDir, "HEAD"),
-		path.join(gitDir, "index"),
-		path.join(gitDir, "logs", "HEAD"),
-		...files.tracked,
-		...files.untrackedFiles,
-	];
-	for (const stamp of stamps) {
-		const stat = await fs.lstat(path.resolve(worktree, stamp)).catch(() => null);
-		if (stat) newest = Math.max(newest, stat.mtimeMs);
-	}
-	const budget = { left: ACTIVITY_WALK_LIMIT };
-	for (const entry of files.ignored) {
-		if (entry.regenerable) continue;
-		newest = Math.max(newest, await newestUnder(path.join(worktree, entry.path), budget));
-	}
-	const sessions = sessionFolder(worktree);
-	for (const name of await fs.readdir(sessions).catch(() => [] as string[])) {
-		const stat = await fs.stat(path.join(sessions, name)).catch(() => null);
-		if (stat) newest = Math.max(newest, stat.mtimeMs);
-	}
-	return newest;
-}
-
-function run(command: string, args: string[]): Promise<string | null> {
-	// Inside a repository lock step that was stopped it never starts, and it ends once the step is stopped.
-	throwIfStepStalled();
-	const hold = currentStepSignal();
-	const { promise, resolve, reject } = Promise.withResolvers<string | null>();
-	const exited = Promise.withResolvers<void>();
-	const child = execFile(command, args, { timeout: 30_000, maxBuffer: 64 * 1024 * 1024 }, (error, stdout) => {
-		hold?.removeEventListener("abort", stop);
-		resolve(error && !stdout ? null : String(stdout));
-		exited.resolve();
-	});
-	// The repository lock waits for the killed child to exit before its next holder runs.
-	trackEffect(command, exited.promise);
-	function stop(): void {
-		child.kill("SIGKILL");
-		reject(hold?.reason);
-	}
-	hold?.addEventListener("abort", stop, { once: true });
-	return promise.then(output => {
-		throwIfStepStalled();
-		return output;
-	});
+	const newest = await coreGit<number | null>(
+		"disk.lastActivity",
+		{
+			worktree,
+			stamps: [...files.tracked, ...files.untrackedFiles],
+			ignored: files.ignored.filter(entry => !entry.regenerable).map(entry => entry.path),
+			sessions: sessionFolder(worktree),
+		},
+		ACTIVITY_ROUNDS,
+	);
+	return newest ?? Number.POSITIVE_INFINITY;
 }
 
 /**
  * The working folders of this user's running processes, as real paths; null when this platform cannot tell
  * (Windows), and every caller then keeps what it would have touched.
  */
-export async function processWorkingFolders(): Promise<string[] | null> {
-	if (process.platform === "darwin") {
-		// `lsof -d cwd` over every process: lines `p<pid>` then `n<path>`. A non-zero exit with output is lsof
-		// complaining about processes it may not read (other users'); the ones it lists are the ones that count.
-		const output = await run("lsof", ["-a", "-d", "cwd", "-Fn", "-w"]);
-		if (output === null) return null;
-		return output
-			.split("\n")
-			.filter(line => line.startsWith("n/"))
-			.map(line => line.slice(1));
-	}
-	if (process.platform === "linux") {
-		const folders: string[] = [];
-		for (const pid of await fs.readdir("/proc").catch(() => [] as string[])) {
-			if (!/^\d+$/.test(pid)) continue;
-			const cwd = await fs.readlink(`/proc/${pid}/cwd`).catch(() => null);
-			if (cwd) folders.push(cwd);
-		}
-		return folders;
-	}
-	return null;
+export function processWorkingFolders(): Promise<string[] | null> {
+	// A core that cannot answer cannot tell either; a stopped lock step still hears of its stop.
+	return coreHeld<string[] | null>("disk.processFolders", {}, PROCESS_LIST_MS).catch((error: unknown) => {
+		if (stepStalled()) throw error;
+		return null;
+	});
 }
 
 /** Whether a process works in the worktree; null (unknown) counts as yes for every caller. */
