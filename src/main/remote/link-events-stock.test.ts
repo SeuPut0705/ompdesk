@@ -4,12 +4,18 @@ import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
 import { withoutFrameBookkeeping } from "../frame-bookkeeping";
 import { completeRunMessages } from "../run-messages";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "../test-bridge-probe";
 import { createLinkEventDecoder, createLinkEventEncoder } from "./link-events";
+import { writeCaptured } from "./link-events-capture";
+
+vi.mock("./link-events", async importOriginal =>
+	(await import("./link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("link-events-stock"));
 
 /**
  * One run of the installed omp (a scripted loopback provider: a reply that reads a file, then the answer) through what
