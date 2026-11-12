@@ -254,7 +254,24 @@ function dechunk(data: Buffer): Buffer {
 	}
 }
 
-function send(port: number, request: Request, extra: Header[]): Promise<Raw> {
+/**
+ * A server that answers a body it will not read (413) and closes sends the client a reset, which on some stacks (macOS CI,
+ * sometimes Windows) discards the answer still unread in the client's buffer. Only those rows can see it (a body over the
+ * 32 KiB the routes read), they are single answers with no side effect the answer depends on, so one that met a reset
+ * before any response head is asked again.
+ */
+async function send(port: number, request: Request, extra: Header[]): Promise<Raw> {
+	const large = request.body !== null && request.body.length >= 30_000;
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await sendOnce(port, request, extra);
+		} catch (error) {
+			if (!large || attempt >= 5) throw error;
+		}
+	}
+}
+
+function sendOnce(port: number, request: Request, extra: Header[]): Promise<Raw> {
 	return new Promise((resolveRaw, reject) => {
 		const body = request.body === null ? null : Buffer.from(request.body);
 		const headers = [...request.headers, ...extra];
@@ -264,11 +281,16 @@ function send(port: number, request: Request, extra: Header[]): Promise<Raw> {
 		const socket = net.connect(port, "127.0.0.1");
 		const chunks: Buffer[] = [];
 		socket.on("data", chunk => chunks.push(chunk));
-		socket.on("error", reject);
+		// The server may answer and close before it has read a large body; the reset that follows ends the exchange. A
+		// reset before any response head arrived is still a failure.
+		let failure: Error | null = null;
+		socket.on("error", error => {
+			failure = error;
+		});
 		socket.on("close", () => {
 			const data = Buffer.concat(chunks);
 			const end = data.indexOf("\r\n\r\n");
-			if (end === -1) return reject(new Error(`no response: ${data.toString()}`));
+			if (end === -1) return reject(failure ?? new Error(`no response: ${data.toString()}`));
 			const lines = data.subarray(0, end).toString("latin1").split("\r\n");
 			const [, status, ...reason] = (lines[0] ?? "").split(" ");
 			const parsed: Header[] = lines.slice(1).map(line => {
@@ -279,6 +301,8 @@ function send(port: number, request: Request, extra: Header[]): Promise<Raw> {
 			const chunked = parsed.some(([k, v]) => k.toLowerCase() === "transfer-encoding" && /chunked/i.test(v));
 			if (request.method === "HEAD") rest = Buffer.alloc(0);
 			else if (chunked) rest = dechunk(rest);
+			const declared = parsed.find(([k]) => k.toLowerCase() === "content-length")?.[1];
+			if (failure && declared !== undefined && rest.length < Number(declared)) return reject(failure);
 			resolveRaw({ status: Number(status), reason: reason.join(" "), headers: parsed, body: rest });
 		});
 		socket.write(head);
@@ -441,10 +465,6 @@ interface Spec {
 type Apply = (spec: Spec) => void;
 type Dimension = [string, [string, Apply][]];
 
-const JSON_HEADERS: Header[] = [
-	["content-type", "application/json"],
-	["user-agent", "TestBrowser/1.0"],
-];
 const set =
 	(name: string, value: string | null): Apply =>
 	spec => {
@@ -807,11 +827,6 @@ const GOOD: Record<string, string> = {
 	encoding: "none",
 	language: "none",
 };
-const valueOf = (dim: string, name: string) =>
-	dimensions()
-		.find(([d]) => d === dim)?.[1]
-		.find(([v]) => v === name)?.[1] as Apply;
-
 /** Each wall's failing value on a request that otherwise passes, in the order `checkRequest` runs them. */
 const WALLS: [string, string][] = [
 	["funnel", "present"],
@@ -1111,14 +1126,15 @@ function sequences(): Omit<Row, "answers" | "effects">[] {
 				? {
 						...r,
 						headers: r.headers
-							.filter(([k, v], i, all) =>
-								k !== "host" ||
-								i ===
-									all.findIndex(
-										([kk]) => kk === "host" && v === (all.find(([a]) => a === "host") as Header)[1],
-									)
-									? true
-									: false,
+							.filter(
+								([k, v], i, all) =>
+									!!(
+										k !== "host" ||
+										i ===
+											all.findIndex(
+												([kk]) => kk === "host" && v === (all.find(([a]) => a === "host") as Header)[1],
+											)
+									),
 							)
 							.slice(0, 0)
 							.concat(
@@ -1177,7 +1193,6 @@ async function generate(): Promise<{ rows: Row[]; fixtures: unknown }> {
 	};
 }
 
-void valueOf;
 void existsSync;
 void statSync;
 
