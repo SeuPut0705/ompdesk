@@ -82,6 +82,7 @@ runs:
         src/main/remote/crypto.test.ts
         src/main/remote/devices.test.ts
         src/main/web/server.test.ts
+        src/main/web/ws-router.test.ts
         src/main/web/push.test.ts
         src/main/web/vapid-store.test.ts
         src/main/web/web-push-notifier.test.ts
