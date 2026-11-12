@@ -304,7 +304,7 @@ The owner's call: the units above move in batches, one session per batch, checke
 | **W2 Remote and web, rest** | R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
 | **S Shell swap** | the chosen shell, the handoff release, deletion of what §4 lists | everything above | none |
 
-Eleven batches; at most two hub batches at once, as before.
+Eleven batches. From 12 Nov 2026 23:0x (the owner: "병렬로 작업을 다 해야하는데 왜 놀고있는거야"), every batch whose predecessor is on a pushed branch is built at once on a branch stacked on it (W1 on B2, H2 on H1, H3 and H4a on H2, W2's Rust side on B2); they still land in the order of this table, each after its own batch gate, rebased on what landed before.
 
 ## 4. What cannot move until the shell is swapped
 
