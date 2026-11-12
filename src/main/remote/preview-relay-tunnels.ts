@@ -2,22 +2,44 @@
  * Agent browsing for a paired device's Preview page (`host.previewRelay.*`, app-protocol.ts). The tab's omp runs on this
  * computer, so stock's browser relay (`browser_relay_start`) listens on THIS computer's loopback, out of the device's
  * reach. The device's page is the one the agent drives, so the relay's extension socket is carried over the link: this
- * file remembers what each tab's bridge answered and dials exactly that, never an address a device names.
+ * file remembers what each tab's bridge answered and dials exactly that, never an address a device names. The socket
+ * itself is the core's (`remotebytes/relay.rs`); which tab holds which socket, and for which link connection, stays
+ * here, because `RemoteHostServices` reads it in the same tick (`has`, `dropConnection`).
  */
 import { codedError } from "../../shared/ipc-error-codes";
+import { core } from "../core/process";
 import { relayExtensionUrl } from "../preview/agent-relay";
 import type { PreviewRelayEvent } from "./app-protocol";
+
+/** What the core says of an open socket: a frame the relay sent, or the socket's end. */
+type SocketEvent = { kind: "message"; data: string } | { kind: "close" };
 
 interface Tunnel {
 	/** The relay's extension endpoint (`ws://127.0.0.1:<port>/ext?token=…`), as the tab's own bridge answered it. */
 	target: string;
-	socket?: WebSocket;
+	/** The core's socket to it, while one is open or opening. */
+	socket?: number;
+	/** Whether that socket finished opening (a frame sent before is refused, as on a connecting WebSocket). */
+	open?: boolean;
 	/** The link connection the open socket's frames go to. */
 	owner?: object;
 }
 
 /** Sends an event to the connection that opened the tunnel; false when it did not go out (a frame over the cap). */
 export type RelayPush = (event: PreviewRelayEvent) => boolean;
+
+const sockets = new Map<number, (event: SocketEvent) => void>();
+let nextSocket = 0;
+let routed = false;
+
+function route(): void {
+	if (routed) return;
+	routed = true;
+	core().on("remotebytes.relay", data => {
+		const { socket, ...event } = data as { socket: number } & SocketEvent;
+		sockets.get(socket)?.(event);
+	});
+}
 
 export class PreviewRelayTunnels {
 	readonly #tunnels = new Map<string, Tunnel>();
@@ -49,47 +71,55 @@ export class PreviewRelayTunnels {
 		const tunnel = this.#tunnels.get(key);
 		if (!tunnel) throw codedError("relay_unavailable", "This tab has no browser relay running");
 		this.close(key);
-		const socket = new WebSocket(tunnel.target);
+		route();
+		const socket = ++nextSocket;
 		tunnel.socket = socket;
 		tunnel.owner = owner;
-		const { promise, resolve, reject } = Promise.withResolvers<void>();
-		const failed = () => reject(codedError("relay_unavailable", "The browser relay did not answer"));
-		socket.addEventListener("open", () => resolve(), { once: true });
-		socket.addEventListener("error", failed, { once: true });
-		socket.addEventListener("close", failed, { once: true });
+		// What the core says before this call is answered waits for it, as a WebSocket's events wait for its `open`.
+		const early: SocketEvent[] = [];
+		let waiting = true;
+		const receive = (event: SocketEvent) => {
+			if (waiting) {
+				early.push(event);
+				return;
+			}
+			if (tunnel.socket !== socket) return;
+			if (event.kind === "close") {
+				sockets.delete(socket);
+				tunnel.socket = tunnel.owner = tunnel.open = undefined;
+				push({ kind: "close", rtab });
+				// A frame the link cannot carry would leave the agent waiting for its answer: end the tunnel instead.
+			} else if (!push({ kind: "message", rtab, data: event.data })) this.close(key, push, rtab);
+		};
+		sockets.set(socket, receive);
 		try {
-			await promise;
-		} catch (error) {
+			await core().call("remotebytes.relayOpen", { socket, target: tunnel.target });
+		} catch {
+			sockets.delete(socket);
 			if (tunnel.socket === socket) tunnel.socket = tunnel.owner = undefined;
-			throw error;
+			throw codedError("relay_unavailable", "The browser relay did not answer");
 		}
-		socket.addEventListener("message", message => {
-			if (tunnel.socket !== socket) return;
-			// A frame the link cannot carry would leave the agent waiting for its answer: end the tunnel instead.
-			if (!push({ kind: "message", rtab, data: String(message.data) })) this.close(key, push, rtab);
-		});
-		socket.addEventListener("close", () => {
-			if (tunnel.socket !== socket) return;
-			tunnel.socket = tunnel.owner = undefined;
-			push({ kind: "close", rtab });
-		});
+		waiting = false;
+		if (tunnel.socket === socket) tunnel.open = true;
+		for (const event of early.splice(0)) receive(event);
 	}
 
 	/** One text frame from the device's extension to the relay. */
 	send(key: string, data: string): void {
-		const socket = this.#tunnels.get(key)?.socket;
-		if (!socket || socket.readyState !== WebSocket.OPEN)
+		const tunnel = this.#tunnels.get(key);
+		if (tunnel?.socket === undefined || !tunnel.open)
 			throw codedError("relay_unavailable", "The browser relay is not open");
-		socket.send(data);
+		core().push("remotebytes.relaySend", { socket: tunnel.socket, data });
 	}
 
 	/** Close the open socket (the endpoint stays remembered while the tab's relay runs); `push` tells the device. */
 	close(key: string, push?: RelayPush, rtab?: string): void {
 		const tunnel = this.#tunnels.get(key);
 		const socket = tunnel?.socket;
-		if (!tunnel || !socket) return;
-		tunnel.socket = tunnel.owner = undefined;
-		socket.close();
+		if (!tunnel || socket === undefined) return;
+		tunnel.socket = tunnel.owner = tunnel.open = undefined;
+		sockets.delete(socket);
+		core().push("remotebytes.relayClose", { socket });
 		if (push && rtab) push({ kind: "close", rtab });
 	}
 
@@ -97,7 +127,7 @@ export class PreviewRelayTunnels {
 	dropConnection(owner: object): string[] {
 		const dropped: string[] = [];
 		for (const [key, tunnel] of this.#tunnels) {
-			if (tunnel.owner !== owner || !tunnel.socket) continue;
+			if (tunnel.owner !== owner || tunnel.socket === undefined) continue;
 			this.close(key);
 			dropped.push(key);
 		}

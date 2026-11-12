@@ -1,0 +1,707 @@
+{
+	"transcripts": {
+		"journalKey": "host\u0000/s.jsonl\u0000subagent\u0000Scout",
+		"pageKey": "host\u0000/s.jsonl\u0000tail(",
+		"steps": [
+			{
+				"asked": [
+					{
+						"fromByte": 0
+					}
+				],
+				"answers": [
+					"{\"data\":{\"sessionFile\":\"/host/Scout.jsonl\",\"fromByte\":0,\"nextByte\":74,\"reset\":false,\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}],\"tail\":\"t:74\"}}"
+				],
+				"files": {
+					"j-316025cc164fe3399adc621005d0c2eb18f1c3b1": "{\"from\":0,\"next\":74,\"tail\":\"t:74\",\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}]}\n"
+				},
+				"messages": [
+					{
+						"role": "user",
+						"content": "first",
+						"odd": {
+							"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+							"numbers": [
+								1.5,
+								0,
+								1e+21,
+								123456789012345680000,
+								0.30000000000000004,
+								5e-324,
+								-1e-7
+							],
+							"nested": {
+								"a": [
+									null,
+									true,
+									false,
+									{}
+								],
+								"ключ": "z"
+							}
+						}
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "two"
+							}
+						]
+					}
+				]
+			},
+			{
+				"asked": [
+					{
+						"fromByte": 74,
+						"knownTail": "t:74"
+					}
+				],
+				"answers": [
+					"{\"data\":{\"sessionFile\":\"/host/Scout.jsonl\",\"fromByte\":74,\"nextByte\":111,\"reset\":false,\"messages\":[{\"role\":\"toolResult\",\"content\":[{\"type\":\"image\",\"data\":\"blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\"}]}],\"tail\":\"t:111\"}}"
+				],
+				"files": {
+					"j-316025cc164fe3399adc621005d0c2eb18f1c3b1": "{\"from\":0,\"next\":74,\"tail\":\"t:74\",\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}]}\n{\"from\":74,\"next\":111,\"tail\":\"t:111\",\"messages\":[{\"role\":\"toolResult\",\"content\":[{\"type\":\"image\",\"data\":\"blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\"}]}]}\n"
+				},
+				"messages": [
+					{
+						"role": "user",
+						"content": "first",
+						"odd": {
+							"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+							"numbers": [
+								1.5,
+								0,
+								1e+21,
+								123456789012345680000,
+								0.30000000000000004,
+								5e-324,
+								-1e-7
+							],
+							"nested": {
+								"a": [
+									null,
+									true,
+									false,
+									{}
+								],
+								"ключ": "z"
+							}
+						}
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "two"
+							}
+						]
+					},
+					{
+						"role": "toolResult",
+						"content": [
+							{
+								"type": "image",
+								"data": "blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+								"mimeType": "image/png"
+							}
+						]
+					}
+				]
+			},
+			{
+				"asked": [
+					{
+						"fromByte": 111,
+						"knownTail": "t:111"
+					}
+				],
+				"answers": [
+					"{\"data\":{\"sessionFile\":\"/host/Scout.jsonl\",\"fromByte\":111,\"nextByte\":111,\"reset\":false,\"messages\":[],\"tail\":\"t:111\"}}"
+				],
+				"files": {
+					"j-316025cc164fe3399adc621005d0c2eb18f1c3b1": "{\"from\":0,\"next\":74,\"tail\":\"t:74\",\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}]}\n{\"from\":74,\"next\":111,\"tail\":\"t:111\",\"messages\":[{\"role\":\"toolResult\",\"content\":[{\"type\":\"image\",\"data\":\"blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\"}]}]}\n"
+				},
+				"messages": [
+					{
+						"role": "user",
+						"content": "first",
+						"odd": {
+							"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+							"numbers": [
+								1.5,
+								0,
+								1e+21,
+								123456789012345680000,
+								0.30000000000000004,
+								5e-324,
+								-1e-7
+							],
+							"nested": {
+								"a": [
+									null,
+									true,
+									false,
+									{}
+								],
+								"ключ": "z"
+							}
+						}
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "two"
+							}
+						]
+					},
+					{
+						"role": "toolResult",
+						"content": [
+							{
+								"type": "image",
+								"data": "blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+								"mimeType": "image/png"
+							}
+						]
+					}
+				]
+			},
+			{
+				"asked": [
+					{
+						"fromByte": 111,
+						"knownTail": "t:111"
+					}
+				],
+				"answers": [
+					"{\"data\":{\"sessionFile\":\"/host/Scout.jsonl\",\"fromByte\":111,\"nextByte\":148,\"reset\":false,\"messages\":[{\"role\":\"user\",\"content\":\"after nothing\"}],\"tail\":\"t:148\"}}"
+				],
+				"files": {
+					"j-316025cc164fe3399adc621005d0c2eb18f1c3b1": "{\"from\":0,\"next\":74,\"tail\":\"t:74\",\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}]}\n{\"from\":74,\"next\":111,\"tail\":\"t:111\",\"messages\":[{\"role\":\"toolResult\",\"content\":[{\"type\":\"image\",\"data\":\"blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\"}]}]}\n{\"from\":111,\"next\":148,\"tail\":\"t:148\",\"messages\":[{\"role\":\"user\",\"content\":\"after nothing\"}]}\n"
+				},
+				"messages": [
+					{
+						"role": "user",
+						"content": "first",
+						"odd": {
+							"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+							"numbers": [
+								1.5,
+								0,
+								1e+21,
+								123456789012345680000,
+								0.30000000000000004,
+								5e-324,
+								-1e-7
+							],
+							"nested": {
+								"a": [
+									null,
+									true,
+									false,
+									{}
+								],
+								"ключ": "z"
+							}
+						}
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": "two"
+							}
+						]
+					},
+					{
+						"role": "toolResult",
+						"content": [
+							{
+								"type": "image",
+								"data": "blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+								"mimeType": "image/png"
+							}
+						]
+					},
+					{
+						"role": "user",
+						"content": "after nothing"
+					}
+				]
+			}
+		],
+		"files": {
+			"j-316025cc164fe3399adc621005d0c2eb18f1c3b1": "{\"from\":0,\"next\":74,\"tail\":\"t:74\",\"messages\":[{\"role\":\"user\",\"content\":\"first\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"two\"}]}]}\n{\"from\":74,\"next\":111,\"tail\":\"t:111\",\"messages\":[{\"role\":\"toolResult\",\"content\":[{\"type\":\"image\",\"data\":\"blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"mimeType\":\"image/png\"}]}]}\n{\"from\":111,\"next\":148,\"tail\":\"t:148\",\"messages\":[{\"role\":\"user\",\"content\":\"after nothing\"}]}\n",
+			"p-08e44791a7a3a474beac0acf6998940e7ab42883": "{\"version\":\"v7\",\"page\":{\"messages\":[{\"role\":\"user\",\"content\":\"x\",\"odd\":{\"text\":\"한글 😀   </script> \\u0001 \\\"q\\\" \\\\ /\",\"numbers\":[1.5,0,1e+21,123456789012345680000,0.30000000000000004,5e-324,-1e-7],\"nested\":{\"a\":[null,true,false,{}],\"ключ\":\"z\"}}}],\"totalMessages\":1,\"version\":\"v7\"}}"
+		},
+		"page": {
+			"version": "v7",
+			"page": {
+				"messages": [
+					{
+						"role": "user",
+						"content": "x",
+						"odd": {
+							"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+							"numbers": [
+								1.5,
+								0,
+								1e+21,
+								123456789012345680000,
+								0.30000000000000004,
+								5e-324,
+								-1e-7
+							],
+							"nested": {
+								"a": [
+									null,
+									true,
+									false,
+									{}
+								],
+								"ключ": "z"
+							}
+						}
+					}
+				],
+				"totalMessages": 1,
+				"version": "v7"
+			}
+		},
+		"held": [
+			{
+				"role": "user",
+				"content": "first",
+				"odd": {
+					"text": "한글 😀   </script> \u0001 \"q\" \\ /",
+					"numbers": [
+						1.5,
+						0,
+						1e+21,
+						123456789012345680000,
+						0.30000000000000004,
+						5e-324,
+						-1e-7
+					],
+					"nested": {
+						"a": [
+							null,
+							true,
+							false,
+							{}
+						],
+						"ключ": "z"
+					}
+				}
+			},
+			{
+				"role": "assistant",
+				"content": [
+					{
+						"type": "text",
+						"text": "two"
+					}
+				]
+			},
+			{
+				"role": "toolResult",
+				"content": [
+					{
+						"type": "image",
+						"data": "blob:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+						"mimeType": "image/png"
+					}
+				]
+			},
+			{
+				"role": "user",
+				"content": "after nothing"
+			}
+		],
+		"next": 148
+	},
+	"blobs": {
+		"refs": [
+			"blob:sha256:b607c6ac77151fa20ee97a9be8c205ddcdd46166fc992edd5947c10475db8c7e",
+			"blob:sha256:d787e4772c919b0294034463352567b1ffa57c04c6611115382c5afbda7c3789"
+		],
+		"files": {
+			"b607c6ac77151fa20ee97a9be8c205ddcdd46166fc992edd5947c10475db8c7e": "b25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25lb25l",
+			"d787e4772c919b0294034463352567b1ffa57c04c6611115382c5afbda7c3789": "dHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdvdHdv"
+		}
+	},
+	"base64": [
+		{
+			"input": "aGVsbG8=",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "aGVsbG8",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "aGVs bG8=",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "aGVsbG8-_w",
+			"hex": "68656c6c6f3eff"
+		},
+		{
+			"input": "aGVsbG8+/w==",
+			"hex": "68656c6c6f3eff"
+		},
+		{
+			"input": "aGV\nsbG8=",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "a",
+			"hex": ""
+		},
+		{
+			"input": "ab",
+			"hex": "69"
+		},
+		{
+			"input": "abc",
+			"hex": "69b7"
+		},
+		{
+			"input": "abc=",
+			"hex": "69b7"
+		},
+		{
+			"input": "====",
+			"hex": ""
+		},
+		{
+			"input": "aGVsbG8=extra",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "aGVsbG8=d29ybGQ=",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "!!aGVsbG8",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "aGVsbG8==",
+			"hex": "68656c6c6f"
+		},
+		{
+			"input": "a=b",
+			"hex": ""
+		},
+		{
+			"input": "=aGVs",
+			"hex": ""
+		},
+		{
+			"input": "\taGVs\r\n",
+			"hex": "68656c"
+		},
+		{
+			"input": "",
+			"hex": ""
+		},
+		{
+			"input": "Zm9vYmFy",
+			"hex": "666f6f626172"
+		},
+		{
+			"input": "Zm9vYmE",
+			"hex": "666f6f6261"
+		},
+		{
+			"input": "Zm9vYg",
+			"hex": "666f6f62"
+		},
+		{
+			"input": "Zm9vY",
+			"hex": "666f6f"
+		},
+		{
+			"input": "-_-_",
+			"hex": "fbffbf"
+		},
+		{
+			"input": "+/+/",
+			"hex": "fbffbf"
+		},
+		{
+			"input": "Zm9véYmFy",
+			"hex": "666f6f626172"
+		},
+		{
+			"input": "Zm9v.YmFy",
+			"hex": "666f6f626172"
+		},
+		{
+			"input": "Zm9v=YmFy",
+			"hex": "666f6f"
+		}
+	],
+	"hosts": [
+		{
+			"header": "localhost:1234",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "LOCALHOST",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "127.1",
+			"hostname": "127.0.0.1",
+			"loopback": true
+		},
+		{
+			"header": "0x7f.0.0.1",
+			"hostname": "127.0.0.1",
+			"loopback": true
+		},
+		{
+			"header": "[::1]:5",
+			"hostname": "[::1]",
+			"loopback": true
+		},
+		{
+			"header": "[0:0::1]",
+			"hostname": "[::1]",
+			"loopback": true
+		},
+		{
+			"header": "user@localhost",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "localhost.",
+			"hostname": "localhost.",
+			"loopback": false
+		},
+		{
+			"header": "evil.com",
+			"hostname": "evil.com",
+			"loopback": false
+		},
+		{
+			"header": "127.0.0.1:99999",
+			"hostname": "",
+			"loopback": false
+		},
+		{
+			"header": "",
+			"hostname": "",
+			"loopback": false
+		},
+		{
+			"header": "a b",
+			"hostname": "",
+			"loopback": false
+		},
+		{
+			"header": "127.0.0.1",
+			"hostname": "127.0.0.1",
+			"loopback": true
+		},
+		{
+			"header": "[::1]",
+			"hostname": "[::1]",
+			"loopback": true
+		},
+		{
+			"header": "localhost:",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "2130706433",
+			"hostname": "127.0.0.1",
+			"loopback": true
+		},
+		{
+			"header": "127.0.0.1.",
+			"hostname": "127.0.0.1",
+			"loopback": true
+		},
+		{
+			"header": "localhost:80/x",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "loc%61lhost",
+			"hostname": "localhost",
+			"loopback": true
+		},
+		{
+			"header": "xn--localhost",
+			"hostname": "",
+			"loopback": false
+		}
+	],
+	"targets": [
+		{
+			"input": "/callback?code=a&state=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "code=a&state=s"
+		},
+		{
+			"input": "/callback?state=s%20x",
+			"pathname": "/callback",
+			"state": "s x",
+			"query": "state=s%20x"
+		},
+		{
+			"input": "/callback/?state=s",
+			"pathname": "/callback/",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "//callback?state=s",
+			"pathname": "/",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "/a/../callback?state=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "http://evil/callback?state=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "/callback?state=s&state=t",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "state=s&state=t"
+		},
+		{
+			"input": "/callback?code=a b&state=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "code=a%20b&state=s"
+		},
+		{
+			"input": "/callback?st%61te=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "st%61te=s"
+		},
+		{
+			"input": "/callback?",
+			"pathname": "/callback",
+			"state": null,
+			"query": ""
+		},
+		{
+			"input": "/%63allback?state=s",
+			"pathname": "/%63allback",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "*",
+			"pathname": "/*",
+			"state": null,
+			"query": ""
+		},
+		{
+			"input": "/callback?state=s#frag",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "/callback?state=a+b",
+			"pathname": "/callback",
+			"state": "a b",
+			"query": "state=a+b"
+		},
+		{
+			"input": "/callback?state=%E2%82%AC",
+			"pathname": "/callback",
+			"state": "€",
+			"query": "state=%E2%82%AC"
+		},
+		{
+			"input": "/callback?state=%ZZ",
+			"pathname": "/callback",
+			"state": "%ZZ",
+			"query": "state=%ZZ"
+		},
+		{
+			"input": "/callback?state",
+			"pathname": "/callback",
+			"state": "",
+			"query": "state"
+		},
+		{
+			"input": "/callback?=x&state=",
+			"pathname": "/callback",
+			"state": "",
+			"query": "=x&state="
+		},
+		{
+			"input": "/CALLBACK?state=s",
+			"pathname": "/CALLBACK",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "/callback?state=\"<'>`",
+			"pathname": "/callback",
+			"state": "\"<'>`",
+			"query": "state=%22%3C%27%3E`"
+		},
+		{
+			"input": "/callback\\x?state=s",
+			"pathname": "/callback/x",
+			"state": "s",
+			"query": "state=s"
+		},
+		{
+			"input": "/callback?code=%00&state=s",
+			"pathname": "/callback",
+			"state": "s",
+			"query": "code=%00&state=s"
+		}
+	],
+	"failurePages": [
+		{
+			"title": "Sign-in",
+			"message": "Paste the address",
+			"html": "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>Sign-in</title></head><body style=\"font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem\"><h1 style=\"font-size:1.25rem\">Sign-in</h1><p>Paste the address</p></body></html>"
+		},
+		{
+			"title": "<b>&\"'</b>",
+			"message": "a < b > c & d \" e ' f",
+			"html": "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;</title></head><body style=\"font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem\"><h1 style=\"font-size:1.25rem\">&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;</h1><p>a &lt; b &gt; c &amp; d &quot; e &#39; f</p></body></html>"
+		},
+		{
+			"title": "로그인",
+			"message": "주소를 붙여 넣으세요 😀",
+			"html": "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><title>로그인</title></head><body style=\"font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:4rem auto;padding:0 1rem\"><h1 style=\"font-size:1.25rem\">로그인</h1><p>주소를 붙여 넣으세요 😀</p></body></html>"
+		}
+	]
+}
