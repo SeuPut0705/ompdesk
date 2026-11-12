@@ -55,11 +55,15 @@ export class AiMemoryClient {
 		this.#dataDir = deps.dataDir;
 	}
 
+	/** Where the server is now: what every `aimemory.*` request carries, and what the core's own upkeep requests carry. */
+	server(): { url: string | null; dataDir: string | null } {
+		return { url: this.#url(), dataDir: this.#dataDir() };
+	}
+
 	async #ask<T>(operation: string, params: Record<string, unknown> = {}): Promise<T> {
-		const server = { url: this.#url(), dataDir: this.#dataDir() };
 		const answer = await core().call<T>(
 			`aimemory.${operation}`,
-			{ server, ...params },
+			{ server: this.server(), ...params },
 			{ timeoutMs: CORE_TIMEOUT_MS },
 		);
 		return answer.result;

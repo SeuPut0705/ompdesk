@@ -27,6 +27,7 @@ pub mod stock;
 pub mod supervise;
 mod sys;
 pub mod tailscale;
+pub mod upkeep;
 pub mod wire;
 
 pub use server::{registry, serve};

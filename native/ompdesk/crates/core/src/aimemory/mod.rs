@@ -17,10 +17,10 @@
 //!
 //! Names: `memory.*` is this computer's RAM (`memory/`), so the memory server's methods are `aimemory.*`.
 
-mod client;
-mod ops;
+pub(crate) mod client;
+pub(crate) mod ops;
 pub(crate) mod service;
-mod value;
+pub(crate) mod value;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -268,7 +268,7 @@ pub fn register(registry: &mut Registry) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -315,14 +315,14 @@ mod tests {
         (format!("{method} {path}"), record)
     }
 
-    struct Fake {
-        url: String,
-        requests: Arc<Mutex<Vec<Value>>>,
+    pub(crate) struct Fake {
+        pub(crate) url: String,
+        pub(crate) requests: Arc<Mutex<Vec<Value>>>,
     }
 
     /// A server on 127.0.0.1 that answers `routes` (`"GET /path"` → `{status?, json? | text?}`) and ends the
     /// connection of any other request without a word, as the capture's `fetch` threw for one.
-    async fn fake(routes: Value) -> Fake {
+    pub(crate) async fn fake(routes: Value) -> Fake {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -360,7 +360,7 @@ mod tests {
     }
 
     /// A data folder with `token` as its root token file (none: no file).
-    fn data_dir(token: Option<&str>) -> PathBuf {
+    pub(crate) fn data_dir(token: Option<&str>) -> PathBuf {
         let dir = make_temp_dir("ompdesk-core-aimemory-").unwrap();
         if let Some(token) = token {
             std::fs::create_dir(dir.join("auth-tokens")).unwrap();

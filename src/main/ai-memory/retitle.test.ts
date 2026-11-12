@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { wrapAgentMessage } from "../../shared/agent-control";
 import type { AiMemoryHandoff, AiMemoryObservation, AiMemoryPage, AiMemoryPageRef } from "../../shared/ai-memory";
-import { isChildHandoff, type RetitleClient, retitleMarkdown, retitleSessionPages } from "./retitle";
+import { type RetitleClient, retitleSessionPages } from "./retitle";
+
+/**
+ * `isChildHandoff` and `retitleMarkdown` moved to Rust with the repair (`upkeep/retitle.rs`:
+ * `child_handoff_reads_the_summarys_subject_only_for_an_open_handoff`,
+ * `retitle_markdown_only_rewrites_where_the_page_prints_a_title`,
+ * `retitle_markdown_matches_a_prompt_title_the_page_cut_with_an_ellipsis_when_only_one_can_be_meant`, and the rows
+ * captured from the TypeScript). `retitleSessionPages` is the core's request now: these cases run it against the real
+ * core, which asks this file's fake client for every read and write and the stock helper for the prompt facts.
+ */
 
 const PROJECT = { workspace: "default", project: "ompdesk" };
 const WRAPPED_TITLE = '<ompdesk-agent-message from="병렬 세션 자동 정리">';
@@ -293,60 +302,5 @@ describe("retitleSessionPages", () => {
 		const report = await retitleSessionPages(server.client, { dryRun: false });
 		expect(server.cancelled).toEqual(["child-1", "child-2"]);
 		expect(report).toMatchObject({ openHandoffs: 3, childHandoffs: 2 });
-	});
-});
-
-describe("isChildHandoff", () => {
-	it("reads the summary's subject, only for an open handoff", () => {
-		expect(isChildHandoff(handoff("a", `Started: ${WRAPPED_TITLE}\nTitle: x`))).toBe(true);
-		expect(isChildHandoff(handoff("a", "Session focused on: Complete assignment thoroughly:\n\nTitle: x"))).toBe(
-			true,
-		);
-		expect(isChildHandoff(handoff("a", "Session focused on: 고쳐줘"))).toBe(false);
-		expect(isChildHandoff(handoff("a", "no lead-in"))).toBe(false);
-		expect(isChildHandoff(handoff("a", `Started: ${WRAPPED_TITLE}`, "expired"))).toBe(false);
-	});
-});
-
-describe("retitleMarkdown", () => {
-	it("only rewrites where the page prints a title: the heading, the prompt list, the raw prompt lines", () => {
-		const text = [
-			`# ${WRAPPED_TITLE}`,
-			"",
-			"## Prompts",
-			"",
-			`1. ${WRAPPED_TITLE}`,
-			"",
-			"## Notes",
-			"",
-			`1. ${WRAPPED_TITLE}`,
-			`mentions ${WRAPPED_TITLE} in prose`,
-			"",
-		].join("\n");
-		const out = retitleMarkdown(text, WRAPPED_TITLE, "새 제목", new Map([[WRAPPED_TITLE, "새 제목"]]));
-		expect(out.split("\n")).toEqual([
-			"# 새 제목",
-			"",
-			"## Prompts",
-			"",
-			"1. 새 제목",
-			"",
-			"## Notes",
-			"",
-			`1. ${WRAPPED_TITLE}`,
-			`mentions ${WRAPPED_TITLE} in prose`,
-			"",
-		]);
-	});
-
-	it("matches a prompt title the page cut with an ellipsis, when only one title can be meant", () => {
-		const long = `${"가".repeat(30)}긴 제목`;
-		const out = retitleMarkdown(
-			`# x\n\n## Prompts\n\n1. ${long.slice(0, 20)}…\n`,
-			"x",
-			"y",
-			new Map([[long, "짧은"]]),
-		);
-		expect(out).toContain("1. 짧은");
 	});
 });

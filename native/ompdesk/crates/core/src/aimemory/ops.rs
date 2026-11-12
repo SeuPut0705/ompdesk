@@ -81,7 +81,7 @@ impl From<PageAtWire> for PageAt {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub(crate) version: Option<String>,
@@ -91,19 +91,19 @@ pub struct Status {
     pub(crate) disk_bytes: Number,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub workspace: String,
     pub project: String,
-    pages: Number,
-    last_updated: Option<String>,
+    pub(crate) pages: Number,
+    pub(crate) last_updated: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
+    pub(crate) id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    identity: Option<String>,
+    pub(crate) identity: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    identity_source: Option<String>,
+    pub(crate) identity_source: Option<String>,
 }
 
 impl Project {
@@ -115,17 +115,17 @@ impl Project {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageRef {
-    workspace: String,
-    project: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
     pub path: String,
-    title: String,
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: Option<String>,
-    updated_at: Option<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: Option<String>,
+    pub(crate) updated_at: Option<String>,
 }
 
 impl PageRef {
@@ -142,59 +142,59 @@ impl PageRef {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hit {
-    workspace: String,
-    project: String,
-    path: String,
-    title: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: Option<String>,
-    updated_at: Option<String>,
-    snippet: String,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: Option<String>,
+    pub(crate) updated_at: Option<String>,
+    pub(crate) snippet: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
-    pages: Number,
-    sessions: Number,
-    observations: Number,
-    last_capture_at: Option<String>,
-    open_handoffs: Number,
+    pub(crate) pages: Number,
+    pub(crate) sessions: Number,
+    pub(crate) observations: Number,
+    pub(crate) last_capture_at: Option<String>,
+    pub(crate) open_handoffs: Number,
     #[serde(rename = "activity7d")]
-    activity: Activity,
-    health: Health,
+    pub(crate) activity: Activity,
+    pub(crate) health: Health,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Activity {
-    sessions: Number,
-    observations: Number,
-    pages_updated: Number,
+pub(crate) struct Activity {
+    pub(crate) sessions: Number,
+    pub(crate) observations: Number,
+    pub(crate) pages_updated: Number,
 }
 
-#[derive(Debug, Serialize)]
-struct Health {
-    stale: Number,
-    duplicates: Number,
-    contradictions: Number,
-    orphans: Number,
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct Health {
+    pub(crate) stale: Number,
+    pub(crate) duplicates: Number,
+    pub(crate) contradictions: Number,
+    pub(crate) orphans: Number,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    id: String,
-    cwd: String,
-    agent: String,
-    started_at: Option<String>,
-    ended_at: Option<String>,
-    observations: Number,
-    consolidation: Option<String>,
+    pub(crate) id: String,
+    pub(crate) cwd: String,
+    pub(crate) agent: String,
+    pub(crate) started_at: Option<String>,
+    pub(crate) ended_at: Option<String>,
+    pub(crate) observations: Number,
+    pub(crate) consolidation: Option<String>,
 }
 
 impl Session {
@@ -211,157 +211,157 @@ impl Session {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Observations {
-    session: Session,
-    observations: Vec<Observation>,
-    total: Number,
-    offset: Number,
+    pub(crate) session: Session,
+    pub(crate) observations: Vec<Observation>,
+    pub(crate) total: Number,
+    pub(crate) offset: Number,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Observation {
-    id: String,
-    kind: String,
-    title: String,
-    body: String,
-    created_at: Option<String>,
+pub(crate) struct Observation {
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) created_at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
-    enabled: bool,
-    injected: bool,
-    digest_bytes: Number,
-    scope: Option<ProjectRef>,
-    entries: Vec<ProfileEntry>,
+    pub(crate) enabled: bool,
+    pub(crate) injected: bool,
+    pub(crate) digest_bytes: Number,
+    pub(crate) scope: Option<ProjectRef>,
+    pub(crate) entries: Vec<ProfileEntry>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ProfileEntry {
-    path: String,
-    category: String,
-    statement: String,
-    applies_to: Vec<String>,
-    enforced_by: Option<String>,
+pub(crate) struct ProfileEntry {
+    pub(crate) path: String,
+    pub(crate) category: String,
+    pub(crate) statement: String,
+    pub(crate) applies_to: Vec<String>,
+    pub(crate) enforced_by: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Finding {
-    kind: String,
-    severity: String,
-    message: String,
-    pages: Vec<String>,
+    pub(crate) kind: String,
+    pub(crate) severity: String,
+    pub(crate) message: String,
+    pub(crate) pages: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sweep {
-    dry_run: bool,
-    evaluated: Number,
-    evicted: Number,
-    compacted: Number,
-    merged: Number,
-    expired: Number,
-    observations_pruned: Number,
+    pub(crate) dry_run: bool,
+    pub(crate) evaluated: Number,
+    pub(crate) evicted: Number,
+    pub(crate) compacted: Number,
+    pub(crate) merged: Number,
+    pub(crate) expired: Number,
+    pub(crate) observations_pruned: Number,
 }
 
 /// What Restore needs of a deleted page.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Deleted {
-    workspace: String,
-    project: String,
-    path: String,
-    title: String,
-    rev: String,
-    deleted_at: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
+    pub(crate) rev: String,
+    pub(crate) deleted_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Handoff {
-    workspace: String,
-    project: String,
-    id: String,
-    agent: String,
-    created_at: Option<String>,
-    summary: String,
-    open_questions: Vec<String>,
-    next_steps: Vec<String>,
-    state: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) id: String,
+    pub(crate) agent: String,
+    pub(crate) created_at: Option<String>,
+    pub(crate) summary: String,
+    pub(crate) open_questions: Vec<String>,
+    pub(crate) next_steps: Vec<String>,
+    pub(crate) state: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
-    workspace: String,
-    project: String,
-    path: String,
-    title: String,
-    updated_at: Option<String>,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
+    pub(crate) updated_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: Option<String>,
-    markdown: String,
-    id: String,
-    pinned: bool,
-    created_at: Option<String>,
-    tags: Vec<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: Option<String>,
+    pub(crate) markdown: String,
+    pub(crate) id: String,
+    pub(crate) pinned: bool,
+    pub(crate) created_at: Option<String>,
+    pub(crate) tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    summary: Option<String>,
+    pub(crate) summary: Option<String>,
 }
 
 /// A page whole, as a copy on another of the person's computers needs it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageCopy {
-    workspace: String,
-    project: String,
-    path: String,
-    title: String,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) path: String,
+    pub(crate) title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
-    tier: String,
-    body: String,
-    tags: Vec<String>,
-    pinned: bool,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: String,
+    pub(crate) body: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) pinned: bool,
     /// The write path's own frontmatter fields: `entities`, `abstract`, `relations`, `applies_to`, `enforced_by`.
-    metadata: Map<String, Value>,
+    pub(crate) metadata: Map<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    origin: Option<String>,
+    pub(crate) origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    expires_at: Option<String>,
+    pub(crate) expires_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    updated_at: Option<String>,
+    pub(crate) id: Option<String>,
+    pub(crate) updated_at: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Conclusions {
-    rows: Vec<Conclusion>,
-    next: Number,
-    more: bool,
-    store: String,
-    last: Number,
+    pub(crate) rows: Vec<Conclusion>,
+    pub(crate) next: Number,
+    pub(crate) more: bool,
+    pub(crate) store: String,
+    pub(crate) last: Number,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Conclusion {
-    seq: Number,
-    workspace: String,
-    project: String,
-    id: String,
-    session_id: String,
-    title: String,
-    body: String,
-    at: String,
+pub(crate) struct Conclusion {
+    pub(crate) seq: Number,
+    pub(crate) workspace: String,
+    pub(crate) project: String,
+    pub(crate) id: String,
+    pub(crate) session_id: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    origin: Option<String>,
+    pub(crate) origin: Option<String>,
 }
 
 /// What the Memory page's editor saves.
@@ -380,26 +380,26 @@ pub struct WriteInput {
     pinned: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionPageInput {
-    session_id: String,
-    body: String,
-    expected_page_id: String,
-    #[serde(default)]
-    tier: Option<String>,
-    #[serde(default)]
-    r#abstract: Option<String>,
+    pub(crate) session_id: String,
+    pub(crate) body: String,
+    pub(crate) expected_page_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) r#abstract: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateInput {
-    body: String,
-    tier: String,
-    kind: String,
-    #[serde(default)]
-    session_id: Option<String>,
+    pub(crate) body: String,
+    pub(crate) tier: String,
+    pub(crate) kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -408,18 +408,18 @@ pub struct DeleteInput {
     title: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RetireInput {
     /// The moment the page expires, as `Date.toISOString()` spells it.
     #[serde(rename = "at")]
-    when: String,
-    #[serde(default)]
-    expected_page_id: Option<String>,
-    #[serde(default)]
-    successor: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
+    pub(crate) when: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) expected_page_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) successor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reason: Option<String>,
 }
 
 /// The repository identity a project was claimed by, as the server lists it.
@@ -456,14 +456,14 @@ pub struct CopyInput {
     repository: Option<Repository>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConclusionInput {
-    id: String,
-    session_id: String,
-    title: String,
-    body: String,
-    at: String,
+    pub(crate) id: String,
+    pub(crate) session_id: String,
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) at: String,
 }
 
 /// JavaScript's truthy string: present and not empty.

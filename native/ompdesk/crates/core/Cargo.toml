@@ -37,6 +37,8 @@ icu_locale_core = "2"
 # A shared checkout's claimed paths compare with git's listing in NFC, as `String.prototype.normalize` did
 # (`git/checkout.rs`); already linked through `icu_collator`.
 icu_normalizer = "2"
+# Memory upkeep reads `\p{L}`, `\p{N}` and `\p{Script=…}` as JavaScript's regexes do (`upkeep/`); already linked through `icu_collator`.
+icu_properties = "2"
 # The history's commit links read a remote's URL as node's `URL` does: the WHATWG URL standard (host, IDNA, path).
 url = "2"
 # The core's HTTP stack, chosen once (`http.rs`; native-rust ledger 5d): hyper's HTTP/1 connection for the client of

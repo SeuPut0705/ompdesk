@@ -97,6 +97,7 @@ import { lowerAgentPriority } from "./agent-priority";
 import { MemoryCare } from "./ai-memory/care";
 import { careUnits } from "./ai-memory/care-units";
 import { AiMemoryClient } from "./ai-memory/client";
+import { ompLaunch } from "./ai-memory/core-asks";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { chainJudges, jevJudge, type PairJudge, smolJudge } from "./ai-memory/memory-judge";
@@ -1754,11 +1755,8 @@ app.whenReady().then(() => {
 	});
 	aiMemoryUpkeep = new MemoryUpkeep({
 		client: memoryClient,
-		model: async message => {
-			const omp = await systemOmp();
-			if (!omp.ok) throw new Error(omp.error);
-			return runSmol(omp.runtime, message, join(app.getPath("temp"), "ompdesk-memory-upkeep"));
-		},
+		omp: ompLaunch,
+		modelCwd: join(app.getPath("temp"), "ompdesk-memory-upkeep"),
 		stateFile: join(app.getPath("userData"), "ai-memory", "upkeep.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message: `upkeep-${message}`, details }),
 	});
@@ -1779,7 +1777,7 @@ app.whenReady().then(() => {
 			}),
 		];
 		// The cheap model reads stored pages to the provider, as learning reads conversations.
-		judges.push(smolJudge({ model: message => runSmol(omp.runtime, message, upkeepCwd) }));
+		judges.push(smolJudge({ model: async message => runSmol(await ompLaunch(), message, upkeepCwd) }));
 		return chainJudges(...judges)(pairs, rules);
 	};
 	aiMemoryCare = new MemoryCare({
