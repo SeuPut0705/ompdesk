@@ -11,6 +11,7 @@ import { afterEach, beforeEach } from "vitest";
 import { gitSync, initRepo } from "../local/git/test-repos";
 import { setOpenFoldersSource } from "../worktree-orphans";
 import { realFolder } from "../worktree-removals";
+import type { CacheTools } from "./caches";
 import { DiskCare, type DiskCareDeps } from "./care";
 import { SavedWorktreeStore } from "./saved-worktrees";
 
@@ -29,6 +30,8 @@ export interface DiskCareWorld {
 	/** Working folders of running processes; null when they cannot be told. */
 	processes: string[] | null;
 	logs: [string, Record<string, unknown>][];
+	/** The tools the cache step asks; by default none is installed and no process runs. */
+	tools: CacheTools;
 	/** Disk care as of `now` (a month from now: every worktree idle). */
 	care(now?: number, extra?: Partial<DiskCareDeps>): DiskCare;
 	worktree(name: string): Promise<string>;
@@ -38,6 +41,13 @@ export interface DiskCareWorld {
 	listed(): string[];
 	savedRefs(): string[];
 }
+
+const noTools = (): CacheTools => ({
+	env: async () => process.env,
+	find: async () => null,
+	run: async () => null,
+	processes: async () => "",
+});
 
 /** Registers the per-test setup and teardown; the returned world's fields are fresh in every test. */
 export function diskCareWorld(): DiskCareWorld {
@@ -57,6 +67,7 @@ export function diskCareWorld(): DiskCareWorld {
 		open: [],
 		processes: [],
 		logs: [],
+		tools: noTools(),
 		care: (now = Date.now() + MONTH_MS, extra = {}) =>
 			new DiskCare({
 				bridge,
@@ -64,7 +75,7 @@ export function diskCareWorld(): DiskCareWorld {
 				userData: world.userData,
 				saved: world.saved,
 				clearHttpCache: async () => {},
-				bunBin: () => null,
+				cacheTools: world.tools,
 				worktrees: true,
 				log: (message, details) => world.logs.push([message, details]),
 				broadcast: () => {},
@@ -124,6 +135,7 @@ export function diskCareWorld(): DiskCareWorld {
 		world.open = [];
 		world.processes = [];
 		world.logs = [];
+		world.tools = noTools();
 		await initRepo(world.repo);
 		// Disk care keeps any worktree whose repo converts line endings (Git for Windows' default core.autocrlf=true), so
 		// the tests that save and remove one need plain bytes: `initRepo` sets core.autocrlf=false; the eol tests turn

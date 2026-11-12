@@ -570,7 +570,8 @@ export type RuntimeErrorSource =
 	| "ai-memory"
 	/**
 	 * Disk care (src/main/disk/care.ts): `message` is run (a summary), artifacts, worktree-landed, worktree-saved,
-	 * kept (`details.reason`), http-cache, bun-cache or failed; `details` names the path and the bytes it took.
+	 * kept (`details.reason`), http-cache, bun-cache, bun-transpiler-cache, npm-cache or failed; `details` names the
+	 * path and the bytes it took.
 	 */
 	| "disk-care"
 	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */

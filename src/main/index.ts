@@ -128,6 +128,7 @@ import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
 import { poolTabFor, registerDiagnosticBundleIpc } from "./diagnostic-bundle";
 import { currentDiagnosticsReport, type DiagnosticsDeps, registerDiagnosticsIpc } from "./diagnostics";
+import { systemCacheTools } from "./disk/caches";
 import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
@@ -2174,7 +2175,8 @@ app.whenReady().then(() => {
 		log: details => writeRuntimeLog({ source: "settle-watch", message: "still settling", details }),
 	});
 	hostServices.attachResume(turnResume);
-	// Disk care: idle worktrees' build output, landed and long-idle worktrees (saved first), the HTTP and Bun caches.
+	// Disk care: idle worktrees' build output, landed and long-idle worktrees (saved first), the HTTP cache and the
+	// tools' caches.
 	// Automatic only in the packaged app outside a test run: a dev or test instance sees none of the real app's open
 	// sessions, so their worktrees would look unused to it. The button runs it anywhere.
 	const diskCareDir = join(app.getPath("userData"), "disk-care");
@@ -2190,7 +2192,7 @@ app.whenReady().then(() => {
 		userData: app.getPath("userData"),
 		saved: savedWorktrees,
 		clearHttpCache: () => session.defaultSession.clearCache(),
-		bunBin: () => findBun(process.env),
+		cacheTools: systemCacheTools(),
 		automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
 		worktrees:
 			(app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") ||

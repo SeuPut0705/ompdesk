@@ -11,7 +11,15 @@ export const DISK_CARE_ARTIFACT_IDLE_DAYS = 3;
 export const DISK_CARE_REMOVE_IDLE_DAYS = 14;
 
 /** Where OMPdesk's disk goes, measured in allocated blocks (a copy-on-write clone counts in full). */
-export type DiskPartId = "worktrees" | "sessions" | "ompLogs" | "stats" | "appData" | "bunCache";
+export type DiskPartId =
+	| "worktrees"
+	| "sessions"
+	| "ompLogs"
+	| "stats"
+	| "appData"
+	| "bunCache"
+	| "bunTranspilerCache"
+	| "npmCache";
 
 export interface DiskUsagePart {
 	id: DiskPartId;
@@ -31,9 +39,18 @@ export interface DiskUsage {
  * - `worktree-landed`: a worktree whose work is landed (or never begun) removed, branch kept;
  * - `worktree-saved`: an idle worktree with unlanded work saved to a branch and a private archive, then removed;
  * - `http-cache`: the app's own HTTP cache cleared past its size bound;
- * - `bun-cache`: Bun's install cache cleared past its size bound while no Bun process ran.
+ * - `bun-cache`: Bun's install cache cleared past its size bound while no install ran;
+ * - `bun-transpiler-cache`: Bun's runtime transpiler cache cleared past its size bound;
+ * - `npm-cache`: npm's cache cleared past its size bound while no npm ran.
  */
-export type DiskCareActionKind = "artifacts" | "worktree-landed" | "worktree-saved" | "http-cache" | "bun-cache";
+export type DiskCareActionKind =
+	| "artifacts"
+	| "worktree-landed"
+	| "worktree-saved"
+	| "http-cache"
+	| "bun-cache"
+	| "bun-transpiler-cache"
+	| "npm-cache";
 
 export type DiskCareTrigger = "launch" | "daily" | "user" | "agent";
 
@@ -51,7 +68,7 @@ export interface DiskCareRunSummary {
 	/** Sum of `actions[].bytes`. */
 	freedBytes: number;
 	actions: DiskCareActionTotal[];
-	/** Idle worktrees left in place this run, each with its reason in the runtime log. */
+	/** Idle worktrees and caches past their bound left in place this run, each with its reason in the runtime log. */
 	kept: number;
 	failed: number;
 }

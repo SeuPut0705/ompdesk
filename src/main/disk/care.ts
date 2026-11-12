@@ -11,15 +11,14 @@
  *    rebase or merge, not locked: saved to a branch and the private archive, then the folder goes
  *    (`saveAndRemoveWorktree`); the Work tree view restores it.
  * 4. The app's HTTP cache past `HTTP_CACHE_MAX_BYTES` (update downloads filled it) is cleared through Electron.
- * 5. Bun's install cache past `BUN_CACHE_MAX_BYTES` is cleared with `bun pm cache rm` (Bun has no age option) while no
- *    install runs.
+ * 5. The tools' caches (`caches.ts`, one table: Bun's install cache, Bun's runtime transpiler cache, npm's cache), each
+ *    cleared past its own bound while no process that needs it runs.
  *
  * Left to stock or alone, by measurement (AGENTS.md › Disk care): omp logs (stock prunes to one per process and day
  * over five days), sessions (never deleted, stock has no compressed form), the stats database (stock has no
  * retention). Where this platform cannot tell which processes work in a folder (Windows), steps 1 and 3 keep
  * everything. Every action is one `disk-care` line in gui-runtime.jsonl.
  */
-import { execFile } from "node:child_process";
 import * as path from "node:path";
 import { promises as fs } from "original-fs";
 import {
@@ -44,6 +43,7 @@ import {
 	sweepLandedWorktrees,
 } from "../worktree-orphans";
 import { withRemovalClaim } from "../worktree-removals";
+import { type CacheTools, type LocatedCache, locateCaches, REGENERABLE_CACHES, type RegenerableCache } from "./caches";
 import {
 	archiveBeforeRemove,
 	dropArtifacts,
@@ -52,7 +52,7 @@ import {
 	saveAndRemoveWorktree,
 } from "./saved-worktrees";
 import { TreeSizes } from "./tree-sizes";
-import { bunCacheDir, diskBytes, measureDiskUsage } from "./usage";
+import { diskBytes, measureDiskUsage } from "./usage";
 import {
 	inProgressOperation,
 	lastActivity,
@@ -69,16 +69,15 @@ export const DISK_CARE_INTERVAL_MS = DAY_MS;
 /** A launch within this long of the last run's end does not run again; the daily timer comes due instead. */
 const LAUNCH_THROTTLE_MS = 20 * 60 * 60_000;
 export const HTTP_CACHE_MAX_BYTES = 256 * 1024 * 1024;
-export const BUN_CACHE_MAX_BYTES = 2 * 1024 * 1024 * 1024;
-/** A Bun or bunx process that reads or writes the install cache. */
-const BUN_INSTALLING = /(?:^|\/)(?:bun(?:\.exe)?\s+(?:install|i|add|update|remove|rm|pm|x|create|link)\b|bunx\b)/m;
 
 export interface DiskCareDeps extends OrphanDeps {
 	userData: string;
 	saved: SavedWorktreeStore;
 	clearHttpCache(): Promise<void>;
-	/** Absolute path to bun, or null. */
-	bunBin(): string | null;
+	/** How the cache step finds, asks and runs the tools whose caches it bounds. */
+	cacheTools: CacheTools;
+	/** The caches bounded (default `REGENERABLE_CACHES`; a test lowers the bounds). */
+	caches?: readonly RegenerableCache[];
 	log(message: string, details: Record<string, unknown>): void;
 	broadcast(state: DiskCareState): void;
 	/** Runs by itself (a packaged app outside tests); the button and agent work either way. */
@@ -91,15 +90,6 @@ export interface DiskCareDeps extends OrphanDeps {
 	now?: () => number;
 	/** Test seams. */
 	processFolders?: () => Promise<string[] | null>;
-	processList?: () => Promise<string | null>;
-}
-
-function runText(command: string, args: string[]): Promise<string | null> {
-	const { promise, resolve } = Promise.withResolvers<string | null>();
-	execFile(command, args, { timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }, (error, stdout) =>
-		resolve(error ? null : String(stdout)),
-	);
-	return promise;
 }
 
 /** What the artifacts step read of a worktree before any claim. */
@@ -227,13 +217,18 @@ export class DiskCare {
 		const sizes = new TreeSizes(path.join(this.#deps.userData, "disk-care", "sizes.json"), this.#now);
 		await sizes.load();
 		await step("http-cache", () => this.#httpCache(sizes, tally));
-		await step("bun-cache", () => this.#bunCache(sizes, tally));
+		let caches: LocatedCache[] = [];
+		await step("caches", async () => {
+			caches = await locateCaches(this.#deps.caches ?? REGENERABLE_CACHES, this.#deps.cacheTools);
+			await this.#caches(caches, sizes, tally);
+		});
 		await step("usage", async () => {
 			const started = performance.now();
 			this.#usage = await measureDiskUsage(
 				{
 					userData: this.#deps.userData,
 					worktreeRoot: worktreeRoot ?? path.join(this.#deps.userData, "no-worktrees"),
+					caches,
 				},
 				sizes,
 			);
@@ -264,9 +259,10 @@ export class DiskCare {
 		return { ...this.state(), running: false };
 	}
 
-	#kept(tally: RunTally, worktree: string, reason: string): void {
+	/** A worktree or a cache that would have gone stays: counted in the run's summary, its reason in the log. */
+	#kept(tally: RunTally, target: string, reason: string): void {
 		tally.kept++;
-		this.#deps.log("kept", { path: worktree, reason });
+		this.#deps.log("kept", { path: target, reason });
 	}
 
 	/** Days since anyone changed anything in the worktree. */
@@ -435,27 +431,31 @@ export class DiskCare {
 		this.#deps.log("http-cache", { bytes });
 	}
 
-	async #bunCache(sizes: TreeSizes, tally: RunTally): Promise<void> {
-		const dir = bunCacheDir();
-		const bytes = await sizes.bytes(dir);
-		if (bytes <= BUN_CACHE_MAX_BYTES) return;
-		const bun = this.#deps.bunBin();
-		if (!bun) return;
-		// Windows lists no process arguments, so an install cannot be told apart: the cache stays there.
-		const processes =
-			process.platform === "win32"
-				? null
-				: await (this.#deps.processList ?? (() => runText("ps", ["-axo", "command="])))();
-		if (processes === null || BUN_INSTALLING.test(processes)) {
-			this.#deps.log("kept", {
-				path: dir,
-				reason: processes === null ? "process check unavailable" : "an install runs",
-			});
-			return;
+	/** Each cache past its bound is cleared, unless a process that needs it runs; one that fails stops no other. */
+	async #caches(caches: readonly LocatedCache[], sizes: TreeSizes, tally: RunTally): Promise<void> {
+		// Listed once, and only when a cache past its bound asks.
+		let listed: Promise<string | null> | undefined;
+		for (const { cache, dir } of caches) {
+			try {
+				const bytes = await sizes.bytes(dir);
+				if (bytes <= cache.maxBytes) continue;
+				if (cache.inUse) listed ??= this.#deps.cacheTools.processes();
+				const reason =
+					(cache.inUse && listed ? cache.inUse(await listed) : null) ??
+					(await cache.clear(dir, this.#deps.cacheTools));
+				if (reason !== null) {
+					this.#kept(tally, dir, reason);
+					continue;
+				}
+				// What a running process held open stayed: the bytes that went, not the bytes there were.
+				const freed = Math.max(0, bytes - (await diskBytes(dir)));
+				tally.add(cache.action, freed);
+				this.#deps.log(cache.action, { path: dir, bytes: freed });
+			} catch (error) {
+				tally.failed++;
+				this.#deps.log("failed", { step: cache.action, path: dir, error: errorText(error) });
+			}
 		}
-		if ((await runText(bun, ["pm", "cache", "rm"])) === null) throw new Error("bun pm cache rm failed");
-		tally.add("bun-cache", bytes);
-		this.#deps.log("bun-cache", { bytes });
 	}
 }
 
