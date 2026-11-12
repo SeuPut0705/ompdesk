@@ -73,7 +73,7 @@
 				"src/main/web/ws-router.ts#WsRouter.call",
 				"native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs:138-177",
 				"src/main/tab-release.ts#closeWindowTab",
-				"src/main/agent-control/host.ts:HOSTRANGE"
+				"src/main/agent-control/host.ts:1119-1126"
 			],
 			"syncCommit": "609d618d33bcc2adc4bcc0371a06fb41326bb467",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
