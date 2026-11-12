@@ -36,6 +36,12 @@ export const PARALLEL = "PARALLEL-MARK run";
 /** A prompt whose turn starts a background shell job (`sleep 300`, `async: true`) and then `wait`s on it. */
 export const WAIT = "WAIT-MARK run";
 
+/** A prompt whose turn takes three steps, one shell call each (`sleep 2`), then replies. */
+export const STEPS = "STEPS-MARK run";
+
+/** A prompt whose turn asks the person one question (stock `ask`: a `select` card), then replies. */
+export const CARD = "CARD-MARK run";
+
 export type Frame = {
 	type: string;
 	toolCallId?: string;
@@ -43,6 +49,14 @@ export type Frame = {
 	isError?: boolean;
 	result?: unknown;
 	message?: { role?: string; customType?: string; details?: { id?: string } };
+	/** `queue_update`: the chip texts of stock's two queues, as the composer's queue shows them. */
+	steering?: string[];
+	followUp?: string[];
+	/** `extension_ui_request`: a card (`select`, …), or a `cancel` whose `targetId` names the card; an answer names `id`. */
+	id?: string;
+	method?: string;
+	options?: string[];
+	targetId?: string;
 };
 
 function sse(text: string): string {
@@ -137,6 +151,17 @@ export async function startProvider(): Promise<Provider> {
 				return;
 			}
 			const wait = toolNamed("wait");
+			if (shell && body.includes(STEPS) && results < 3) {
+				reply([{ id: `call_s${results + 1}`, name: shell, args: { command: "sleep 2" } }]);
+				return;
+			}
+			// `toolNamed("ask")` would also match `task`.
+			if (main && body.includes(CARD) && results === 0) {
+				const html =
+					'<form><label>Which one? <select name="pick"><option value="a">A</option><option value="b">B</option></select></label></form>';
+				reply([{ id: "call_ask", name: "ask", args: { html } }]);
+				return;
+			}
 			if (shell && wait && body.includes(WAIT) && results < 2) {
 				reply(
 					results === 0
@@ -183,6 +208,8 @@ export interface Omp {
 	/** SIGKILL, as a crash or a force-quit ends it: stock disposes nothing. */
 	kill(): Promise<void>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
+	/** Writes one frame that stock answers with nothing (an `extension_ui_response` to a card). */
+	write(frame: Record<string, unknown>): void;
 }
 
 /** A fresh omp, or (`again`) a second process on the folders and session file an earlier one left, as a relaunch is. */
@@ -296,6 +323,9 @@ export async function startOmp(
 			});
 			child.stdin.write(`${JSON.stringify({ id, ...command })}\n`);
 			return promise;
+		},
+		write: frame => {
+			child.stdin.write(`${JSON.stringify(frame)}\n`);
 		},
 	};
 }

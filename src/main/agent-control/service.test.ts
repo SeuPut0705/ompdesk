@@ -6239,6 +6239,58 @@ describe("one id per session: a message names its sender and reaches the session
 });
 
 /**
+ * 11 Nov 2026 16:01 UTC: 메인 answered "문의", the person's own session on SeuPut that it did not open, with
+ * `delivery: "follow_up"` while 문의 was mid-turn. Stock held the answer in 문의's follow-up queue until that turn ended,
+ * where the person saw it waiting and had to press 지금 추가 지시. A follow-up waits behind the turn only of a session
+ * the sender opened (its next task); whatever reaches any other running session is read between its steps, unless a
+ * card of the person's is open there (stock closes it for a steer: `bridge-agent-send-stock.test.ts`).
+ */
+describe("a message to a running session the sender did not open is read between its steps", () => {
+	const MAIN = "01a1c4ad-72b6-75db-9140-8a896455855b";
+	const ASK = "01a1c9f4-8354-70aa-91a9-473beaf7e427";
+	const askFile = `/Users/seuput/.omp/agent/sessions/-Desktop-GitHub-yuyu-mos/2026-11-11T09-33-27-252Z_${ASK}.jsonl`;
+	const mainFile = `/Users/u/.omp/agent/sessions/-Volumes-BACKUP-github-ompdesk--/2026-11-10T08-57-43-862Z_${MAIN}.jsonl`;
+	const seuput: ControlDevice = { id: "seuput", name: "SeuPut", state: "online" };
+	const behaviors = (host: FakeHost, tabId: string) =>
+		host.sent.flatMap(entry =>
+			entry.tabId === tabId && entry.command.type === "prompt" ? [entry.command.streamingBehavior] : [],
+		);
+	const world = (asks: ControlAsk[]) => {
+		const host = new FakeHost(
+			{ tabId: "main0001", title: "메인", sessionPath: mainFile },
+			{
+				tabId: "15ca089d159bfde0",
+				title: "문의",
+				sessionPath: askFile,
+				device: seuput.id,
+				deviceName: seuput.name,
+				busy: true,
+				busySince: 1,
+				asks,
+			},
+		);
+		host.deviceList = [seuput];
+		return host;
+	};
+	const answer = { session: ASK, message: "결과: 재현했고 고쳤다", delivery: "follow_up" };
+
+	it("steers a follow-up asked for a session it did not open", async () => {
+		const host = world([]);
+		const result = await control(host).run("main0001", T.send, answer);
+		expect(behaviors(host, "15ca089d159bfde0")).toEqual(["steer"]);
+		expect(result.text).toContain("delivered as steer");
+		expect(result.text).not.toContain("queued as a follow-up");
+	});
+
+	it("keeps it a follow-up while that session shows the person a card, which a steer would close", async () => {
+		const host = world([select("판단에 필요한 사실", ["가", "나"])]);
+		const result = await control(host).run("main0001", T.send, answer);
+		expect(behaviors(host, "15ca089d159bfde0")).toEqual(["followUp"]);
+		expect(result.text).toContain(`waiting for the user's answer: "판단에 필요한 사실"`);
+	});
+});
+
+/**
  * The three sends of 11 Nov 2026 (UTC) by the saved id of "문의", whose omp ran on SeuPut for a paired device's tab:
  * at 09:55 and 09:57 this computer's saved-session list could not be read (omp's packages out of step under the stock
  * helper), and the agent got the reader's own error; at 10:26, 39 s after SeuPut relaunched, no tab it could see held
