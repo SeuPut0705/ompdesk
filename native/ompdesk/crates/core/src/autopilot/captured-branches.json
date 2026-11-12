@@ -1,0 +1,2690 @@
+{
+ "entries": [
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "out": [
+    {
+     "name": "main",
+     "local": true,
+     "remote": true,
+     "default": true,
+     "current": false
+    },
+    {
+     "name": "dev",
+     "local": true,
+     "remote": false,
+     "default": false,
+     "current": true,
+     "checkedOutAt": "/work/app"
+    },
+    {
+     "name": "feature/login",
+     "local": true,
+     "remote": true,
+     "default": false,
+     "current": false
+    },
+    {
+     "name": "release/1",
+     "local": true,
+     "remote": false,
+     "default": false,
+     "current": false,
+     "checkedOutAt": "/wt/gui-r"
+    },
+    {
+     "name": "hotfix",
+     "local": false,
+     "remote": true,
+     "default": false,
+     "current": false
+    }
+   ]
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "out": []
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "out": [
+    {
+     "name": "trunk",
+     "local": true,
+     "remote": true,
+     "default": true,
+     "current": false,
+     "checkedOutAt": "/a"
+    },
+    {
+     "name": "x",
+     "local": false,
+     "remote": true,
+     "default": false,
+     "current": false
+    }
+   ]
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "out": [
+    {
+     "name": "c",
+     "local": true,
+     "remote": true,
+     "default": false,
+     "current": true
+    },
+    {
+     "name": "a",
+     "local": true,
+     "remote": false,
+     "default": false,
+     "current": false
+    },
+    {
+     "name": "b",
+     "local": true,
+     "remote": false,
+     "default": false,
+     "current": false
+    },
+    {
+     "name": "d",
+     "local": false,
+     "remote": true,
+     "default": false,
+     "current": false
+    }
+   ]
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "out": [
+    {
+     "name": "b",
+     "local": true,
+     "remote": true,
+     "default": true,
+     "current": true,
+     "checkedOutAt": "/q"
+    },
+    {
+     "name": "a",
+     "local": true,
+     "remote": false,
+     "default": false,
+     "current": false,
+     "checkedOutAt": "/p"
+    }
+   ]
+  }
+ ],
+ "problems": [
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "autopilot/x"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "dev"
+   },
+   "problem": {
+    "code": "exists"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "hotfix"
+   },
+   "problem": {
+    "code": "exists"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "bad name"
+   },
+   "problem": {
+    "code": "invalid_name"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "main"
+   },
+   "problem": {
+    "code": "exists"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "problem": null,
+   "default": false,
+   "via": "dev",
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "release/1"
+   },
+   "problem": null,
+   "default": false,
+   "via": "release/1",
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "feature/login"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "local"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "hotfix"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "main"
+   },
+   "problem": null,
+   "default": true,
+   "via": null,
+   "mode": "local"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "nope"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "trunk"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "d"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "a"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "feature/login",
+     "dev",
+     "main",
+     "release/1"
+    ],
+    "remotes": [
+     "main",
+     "hotfix",
+     "feature/login"
+    ],
+    "worktrees": {
+     "dev": "/work/app",
+     "release/1": "/wt/gui-r"
+    },
+    "current": "dev",
+    "defaultBranch": "main"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "b"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new",
+    "name": "autopilot/x"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new",
+    "name": "dev"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new",
+    "name": "hotfix"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new",
+    "name": "bad name"
+   },
+   "problem": {
+    "code": "invalid_name"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "new",
+    "name": "main"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "release/1"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "feature/login"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "hotfix"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "main"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "nope"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "trunk"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "d"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "a"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [],
+    "remotes": [],
+    "worktrees": {},
+    "current": null,
+    "defaultBranch": null
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "b"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "autopilot/x"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "dev"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "hotfix"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "bad name"
+   },
+   "problem": {
+    "code": "invalid_name"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "main"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "release/1"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "feature/login"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "hotfix"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "main"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "nope"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "trunk"
+   },
+   "problem": null,
+   "default": true,
+   "via": "trunk",
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "d"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "a"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "trunk",
+     "HEAD"
+    ],
+    "remotes": [
+     "HEAD",
+     "trunk",
+     "x"
+    ],
+    "worktrees": {
+     "trunk": "/a"
+    },
+    "current": null,
+    "defaultBranch": "trunk"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "b"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "autopilot/x"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "dev"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "hotfix"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "bad name"
+   },
+   "problem": {
+    "code": "invalid_name"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "main"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "release/1"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "feature/login"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "hotfix"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "main"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "nope"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "trunk"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "d"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "a"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "local"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b",
+     "c"
+    ],
+    "remotes": [
+     "c",
+     "d"
+    ],
+    "worktrees": {},
+    "current": "c",
+    "defaultBranch": "z"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "b"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "local"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "autopilot/x"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "dev"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "hotfix"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "bad name"
+   },
+   "problem": {
+    "code": "invalid_name"
+   },
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "new",
+    "name": "main"
+   },
+   "problem": null,
+   "default": false,
+   "via": null,
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "release/1"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "feature/login"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "hotfix"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "main"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "nope"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "trunk"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "d"
+   },
+   "problem": {
+    "code": "missing"
+   },
+   "default": false,
+   "via": null,
+   "mode": "remote"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "a"
+   },
+   "problem": null,
+   "default": false,
+   "via": "a",
+   "mode": "new"
+  },
+  {
+   "facts": {
+    "locals": [
+     "a",
+     "b"
+    ],
+    "remotes": [
+     "b"
+    ],
+    "worktrees": {
+     "a": "/p",
+     "b": "/q"
+    },
+    "current": "b",
+    "defaultBranch": "b"
+   },
+   "choice": {
+    "kind": "existing",
+    "name": "b"
+   },
+   "problem": null,
+   "default": true,
+   "via": "b",
+   "mode": "new"
+  }
+ ],
+ "valid": [
+  {
+   "name": "main",
+   "ok": true
+  },
+  {
+   "name": "feature/login",
+   "ok": true
+  },
+  {
+   "name": "autopilot/2026-10-18",
+   "ok": true
+  },
+  {
+   "name": "a.b",
+   "ok": true
+  },
+  {
+   "name": "v1.2",
+   "ok": true
+  },
+  {
+   "name": "",
+   "ok": false
+  },
+  {
+   "name": "-x",
+   "ok": false
+  },
+  {
+   "name": "a b",
+   "ok": false
+  },
+  {
+   "name": "a..b",
+   "ok": false
+  },
+  {
+   "name": "a~1",
+   "ok": false
+  },
+  {
+   "name": "a^",
+   "ok": false
+  },
+  {
+   "name": "a:b",
+   "ok": false
+  },
+  {
+   "name": "a?",
+   "ok": false
+  },
+  {
+   "name": "a*",
+   "ok": false
+  },
+  {
+   "name": "a[",
+   "ok": false
+  },
+  {
+   "name": "a\\b",
+   "ok": false
+  },
+  {
+   "name": "/a",
+   "ok": false
+  },
+  {
+   "name": "a/",
+   "ok": false
+  },
+  {
+   "name": "a//b",
+   "ok": false
+  },
+  {
+   "name": "a.lock",
+   "ok": false
+  },
+  {
+   "name": "a.",
+   "ok": false
+  },
+  {
+   "name": "@",
+   "ok": false
+  },
+  {
+   "name": "a@{b",
+   "ok": false
+  },
+  {
+   "name": ".a",
+   "ok": false
+  },
+  {
+   "name": "a/.b",
+   "ok": false
+  },
+  {
+   "name": "a/b.lock/c",
+   "ok": false
+  },
+  {
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "ok": true
+  },
+  {
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "ok": false
+  },
+  {
+   "name": "한글/브랜치",
+   "ok": true
+  },
+  {
+   "name": "a\tb",
+   "ok": false
+  },
+  {
+   "name": "ab",
+   "ok": false
+  },
+  {
+   "name": "a b",
+   "ok": false
+  },
+  {
+   "name": "a　b",
+   "ok": false
+  },
+  {
+   "name": "a﻿b",
+   "ok": false
+  },
+  {
+   "name": "é",
+   "ok": true
+  },
+  {
+   "name": "a/b/c",
+   "ok": true
+  },
+  {
+   "name": "a.b.c",
+   "ok": true
+  },
+  {
+   "name": "a@b",
+   "ok": true
+  }
+ ],
+ "suggest": [
+  {
+   "date": "2026-10-18",
+   "taken": [],
+   "out": "autopilot/2026-10-18"
+  },
+  {
+   "date": "2026-10-18",
+   "taken": [
+    "autopilot/2026-10-18"
+   ],
+   "out": "autopilot/2026-10-18-2"
+  },
+  {
+   "date": "2026-10-18",
+   "taken": [
+    "autopilot/2026-10-18",
+    "autopilot/2026-10-18-2"
+   ],
+   "out": "autopilot/2026-10-18-3"
+  },
+  {
+   "date": "2026-10-18",
+   "taken": [
+    "autopilot/2026-10-18-3"
+   ],
+   "out": "autopilot/2026-10-18"
+  }
+ ],
+ "slug": [
+  {
+   "branch": "feature/Login Page",
+   "fallback": "2026-10-18",
+   "out": "feature-login-page"
+  },
+  {
+   "branch": "한글",
+   "fallback": "2026-10-18",
+   "out": "2026-10-18"
+  },
+  {
+   "branch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "fallback": "x",
+   "out": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "branch": "  --x--  ",
+   "fallback": "f",
+   "out": "x"
+  },
+  {
+   "branch": "Ünï/cödé",
+   "fallback": "f",
+   "out": "n-c-d"
+  },
+  {
+   "branch": "a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-",
+   "fallback": "f",
+   "out": "a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a-a"
+  },
+  {
+   "branch": "",
+   "fallback": "f",
+   "out": "f"
+  },
+  {
+   "branch": "İstanbul",
+   "fallback": "f",
+   "out": "i-stanbul"
+  },
+  {
+   "branch": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-yy",
+   "fallback": "f",
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "branch": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-y",
+   "fallback": "f",
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }
+ ],
+ "runId": [
+  {
+   "branch": "autopilot/2026-10-18-2",
+   "date": "d",
+   "out": "2026-10-18-2"
+  },
+  {
+   "branch": "autopilot/team/x",
+   "date": "d",
+   "out": "team-x"
+  },
+  {
+   "branch": "main",
+   "date": "2026-10-18",
+   "out": "2026-10-18"
+  },
+  {
+   "branch": "feature/login",
+   "date": "2026-10-18",
+   "out": "2026-10-18"
+  },
+  {
+   "branch": "autopilot/",
+   "date": "d",
+   "out": "d"
+  },
+  {
+   "branch": "autopilot//a//b/",
+   "date": "d",
+   "out": "a-b"
+  },
+  {
+   "branch": "autopilot/-x-",
+   "date": "d",
+   "out": "x"
+  },
+  {
+   "branch": "autopilot/---",
+   "date": "d",
+   "out": "d"
+  }
+ ],
+ "choice": [
+  {
+   "value": {
+    "kind": "existing",
+    "name": "dev"
+   },
+   "out": {
+    "kind": "existing",
+    "name": "dev"
+   }
+  },
+  {
+   "value": {
+    "kind": "new"
+   },
+   "out": {
+    "kind": "new"
+   }
+  },
+  {
+   "value": {
+    "kind": "existing",
+    "name": ""
+   },
+   "out": null
+  },
+  {
+   "value": {
+    "kind": "nope"
+   },
+   "out": null
+  },
+  {
+   "value": "dev",
+   "out": null
+  },
+  {
+   "value": null,
+   "out": null
+  },
+  {
+   "value": "__undefined__",
+   "out": null
+  },
+  {
+   "value": 3,
+   "out": null
+  },
+  {
+   "value": {
+    "kind": "new",
+    "name": ""
+   },
+   "out": {
+    "kind": "new"
+   }
+  },
+  {
+   "value": {
+    "kind": "new",
+    "name": "x"
+   },
+   "out": {
+    "kind": "new",
+    "name": "x"
+   }
+  },
+  {
+   "value": {
+    "kind": "new",
+    "name": 4
+   },
+   "out": {
+    "kind": "new"
+   }
+  },
+  {
+   "value": {
+    "kind": "existing",
+    "name": "a",
+    "remote": "up"
+   },
+   "out": {
+    "kind": "existing",
+    "name": "a",
+    "remote": "up"
+   }
+  },
+  {
+   "value": {
+    "kind": "existing",
+    "name": "a",
+    "remote": ""
+   },
+   "out": {
+    "kind": "existing",
+    "name": "a"
+   }
+  },
+  {
+   "value": {
+    "kind": "existing",
+    "name": "a",
+    "remote": 3
+   },
+   "out": {
+    "kind": "existing",
+    "name": "a"
+   }
+  },
+  {
+   "value": {
+    "kind": "existing"
+   },
+   "out": null
+  },
+  {
+   "value": [],
+   "out": null
+  }
+ ],
+ "porcelain": [
+  {
+   "input": "worktree /work/app\nHEAD aaa\nbranch refs/heads/dev\n\nworktree /wt/gui-r\nHEAD bbb\nbranch refs/heads/release/1\n\nworktree /wt/detached\nHEAD ccc\ndetached\n\n",
+   "out": {
+    "dev": "/work/app",
+    "release/1": "/wt/gui-r"
+   }
+  },
+  {
+   "input": "",
+   "out": {}
+  },
+  {
+   "input": "worktree /a\nbranch refs/heads/x\nworktree /b\nbranch refs/heads/y\n",
+   "out": {
+    "x": "/a",
+    "y": "/b"
+   }
+  },
+  {
+   "input": "branch refs/heads/orphan\nworktree /c\nbranch refs/heads/z/w\n\nbranch refs/heads/after\n",
+   "out": {
+    "z/w": "/c"
+   }
+  },
+  {
+   "input": "worktree /bare\nbare\n\nworktree /m\nHEAD 1\nbranch refs/remotes/origin/not-a-head\n",
+   "out": {}
+  }
+ ],
+ "defaults": [
+  {
+   "remoteHead": "trunk",
+   "names": [
+    "main"
+   ],
+   "out": "trunk"
+  },
+  {
+   "remoteHead": null,
+   "names": [
+    "x",
+    "master",
+    "main"
+   ],
+   "out": "main"
+  },
+  {
+   "remoteHead": null,
+   "names": [
+    "x",
+    "master"
+   ],
+   "out": "master"
+  },
+  {
+   "remoteHead": null,
+   "names": [
+    "x"
+   ],
+   "out": null
+  },
+  {
+   "remoteHead": null,
+   "names": [],
+   "out": null
+  },
+  {
+   "remoteHead": "",
+   "names": [
+    "main"
+   ],
+   "out": "main"
+  }
+ ]
+}

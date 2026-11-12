@@ -1,27 +1,23 @@
 /**
- * Autopilot's coordinator (main process). Autopilot is a stock Goal with a marker: the bridge keeps the cycle
- * ledger in the session journal and enforces the protocol inside the agent (modes/autopilot.ts); this class
- * does what only main can:
+ * Autopilot's coordinator, main process side. Autopilot is a stock Goal with a marker: the bridge keeps the cycle ledger
+ * in the session journal and enforces the protocol inside the agent (modes/autopilot.ts); the run's state machine (start,
+ * stop, each cycle's end with the children, the git audit and the ShipRunner, the nudge, the quota wait, the restart
+ * resume, the release run, the summary) is the core's (`native/ompdesk/crates/core/src/autopilot/`; docs/rust-remaining-
+ * units.md §2.4, units 9m and 9n). This class is its typed client:
  *
- * - start: preflight, a new worktree as a new tab on the branch the user picked (a new `autopilot/<date>` by default;
- *   an existing local or remote branch, refused when another worktree has it; the default branch only when picked),
- *   arm the bridge, then stock
- *   `set_goal create` (the arm comes first: stock keeps the tool set at that moment for pause/resume);
- * - stop: pause the goal, tell the bridge `stopping`, empty the children's queues, and when the last turn has
- *   settled close the children, drop the goal and disarm. ■ aborts the running children too;
- * - each cycle's end (`autopilot_cycle_end`): fold the children's usage in and close them, audit git,
- *   run the ShipRunner (push after green, the screen's queue), follow a release run;
- * - the stop rules the bridge reports (`autopilot_stop_requested`) become a stock pause, errors/quota stay
- *   with TurnResume and the renderer, a restart resumes the run (after TurnResume's restore of the cut-off turn);
- * - answers the approval cards of autopilot tabs (autopilot-approver.ts), overlays children and the ship
- *   queue on the bridge's `autopilot_update`, notifies.
+ * - it keeps the public methods its callers use (`ipc.ts`, the pool, the sidecar factory, TurnResume, the control tools)
+ *   and turns each into a call or an event for the core, applied in the order main sent them;
+ * - it answers what the core asks of main through one port (`core/ports.ts`): a tab's omp (stock commands and the
+ *   bridge), the pool's facts, the windows (`dispatch`, `spawnTab`), the notice and the log, text, and the rules that stay
+ *   here because the page, the bridge or turn-resume share them (the approval rules, the log's Markdown, the quota wait,
+ *   the release procedure);
+ * - it keeps a mirror of what its synchronous callers read (`isStopping`, `runRootOf`, `holdsLimitWait`, the status
+ *   overlay and the approver's view of a run), written only from the core's `mirror` and `childRun` events.
  *
- * Everything the coordinator knows about a run is rebuilt from the bridge's journal (`modes.autopilot_status`);
- * what it keeps in memory (ship queue, children, audit baseline) is only what the journal cannot hold.
+ * What the TypeScript read synchronously is read from that mirror, so a read made right after a command sees the run as it
+ * was when the core answered that command (the events come before the answer), and a status frame the overlay saw reaches
+ * the core's copy a moment later (`status` event) instead of in the same tick.
  */
-import { randomUUID } from "node:crypto";
-import { access, readFile, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	AUTOPILOT_CHILD_TAG,
@@ -29,92 +25,43 @@ import {
 	AUTOPILOT_GUIDE_FILE,
 	AUTOPILOT_OBJECTIVE,
 	type AutopilotAction,
-	type AutopilotArea,
-	type AutopilotArmParams,
-	type AutopilotBranchChoice,
-	type AutopilotBranchEntry,
 	type AutopilotChildLive,
-	type AutopilotCycleRecord,
-	type AutopilotEndReason,
-	type AutopilotEnsuredGuide,
-	type AutopilotNudgeReason,
-	type AutopilotPauseReason,
 	type AutopilotReleaseProcedure,
-	type AutopilotSettings,
 	type AutopilotShipPolicy,
 	type AutopilotShipState,
 	type AutopilotStall,
-	type AutopilotStartOptions,
 	type AutopilotStatus,
-	type AutopilotStopRequest,
 	DEFAULT_SHIP_POLICY,
 	NO_LIMITS,
 	type ShipQueueItem,
 	shipPolicyForPreset,
 	withRecentCycles,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	branchProblem,
-	branchSlug,
-	parseChoice,
-	runIdFor,
-	suggestBranchName,
-	viaWorkBranch,
-	worktreeModeFor,
-} from "../shared/autopilot-branch";
 import { autopilotLogTitle, formatAutopilotLog } from "../shared/autopilot-log";
+import { withoutGitSelectors } from "../shared/git-env";
 import type { IpcSpawnTabPayload, IpcSpawnTabResult } from "../shared/ipc-types";
 import { isLimitWording, quotaWaitUntil } from "../shared/quota-reset";
-import type {
-	ExtensionUIResponse,
-	RpcCommand,
-	RpcResponse,
-	RpcWorktreeCreateResult,
-	UsageReport,
-} from "../shared/rpc-types";
+import type { RpcCommand, RpcResponse, UsageReport } from "../shared/rpc-types";
 import { type ApproverRun, AutopilotApprover } from "./autopilot-approver";
-import { type AuditScope, type AuditSnapshot, type AuditViolation, auditCycle, takeSnapshot } from "./autopilot-audit";
-import { readBranchEntries, readBranchInfo } from "./autopilot-branches";
-import { type ShipResult, ShipRunner, type ShipTarget } from "./autopilot-ship";
+import { CorePort } from "./core/ports";
+import { type CoreAnswer, core } from "./core/process";
 import type { MainTextKey } from "./i18n-text";
-import { ghText, gitRaw, resolveBin } from "./local/git/exec";
+import { ghText, gitRunner, resolveBin } from "./local/git/exec";
 import { prCreate } from "./local/git/pr";
-import type { WorktreeBranchSource } from "./local/git/worktree";
+import { prepareWorktree } from "./local/git/worktree-seed";
+import { nativeBinPath } from "./native-bin";
 import { detectReleaseProcedure } from "./release-detect";
-import { SerialChain, StepStalledError, throwIfStepStalled } from "./serial-chain";
+import { findGitBash } from "./setup/paths";
+import { shellSpawnEnv } from "./shell-env";
 import type { TabActivity } from "./sidecar-pool";
 import type { SidecarLike } from "./sidecar-types";
+import { findOnPath } from "./spawn";
 import type { GoalSettlement, RelaunchContinuation } from "./turn-resume";
 import { recordTurnStop } from "./turn-stop-log";
 import type { ClientWindow } from "./web/client-window";
 
-const RELEASE_POLL_MS = 15_000;
-const RELEASE_CACHE_MS = 60_000;
-const GIT_MS = 30_000;
-const WORKTREE_MS = 960_000;
-/** Start's guide is at most one model request (the bridge gives it 20 s, plus reading the repo and gh): longer than the default 8 s RPC wait. */
-const GUIDE_MS = 45_000;
-/** TurnResume arms its scheduled retry a beat after a failed turn is reported; a failure still standing after this is final. */
-const ERROR_GRACE_MS = 3_000;
-/** The longest one ordinary step of a run's pipeline (a nudge, a stop, a quota wake) runs before it is stopped. */
-const STEP_MAX_MS = 15 * 60_000;
-/** A cycle's end holds the ship queue's drain (3 h, `SHIP_DRAIN_MAX_MS`): the drain's own bound fires first. */
-const CYCLE_END_MAX_MS = 4 * 60 * 60_000;
-/** Stopped steps the run's status keeps. */
-const KEEP_STALLS = 5;
-/** A failed retry after a quota wake is tried again after this, doubling, never longer than {@link QUOTA_RETRY_MAX_MS}. */
-const QUOTA_RETRY_MIN_MS = 30_000;
-const QUOTA_RETRY_MAX_MS = 10 * 60_000;
-
-function afterMs(run: () => void, ms: number): () => void {
-	const timer = setTimeout(run, ms);
-	timer.unref?.();
-	return () => clearTimeout(timer);
-}
-
-/** The message a "Release" button press sends as the user's own words (the bridge's `ship` checks a real user message). */
-export const RELEASE_NOW_MESSAGE =
-	"Release now: finish the item in progress, start nothing new, then run this repository's release procedure.";
+/** The wire has no deadline of its own for a command: a start waits for its tab's omp for as long as it takes. */
+const NO_DEADLINE_MS = 2 ** 31 - 1;
 
 /** What the coordinator needs of the sidecar pool (the real one satisfies it). */
 export interface AutopilotPool {
@@ -130,9 +77,8 @@ export interface AutopilotPool {
 	routeSideChannel(id: string, frame: object, tabId?: string): Promise<boolean>;
 }
 
-/** DeskTools' side (`AgentControl`): who a tab opened, and emptying a child's queue without aborting it. */
+/** DeskTools' side (`AgentControl`): emptying a child's queue without aborting it. */
 export interface AutopilotControl {
-	childrenOf(callerTabId: string): string[] | Promise<string[]>;
 	clearQueue(tabId: string): Promise<void>;
 }
 
@@ -140,6 +86,25 @@ export interface AutopilotNotice {
 	kind: "completion" | "error";
 	title: string;
 	body: string;
+}
+
+/**
+ * The core's clock runs its own timers, so the durations a parity suite cannot wait out are `tuning` (all in ms; the
+ * core's own defaults when absent): see `Tuning` in `crates/core/src/autopilot/mod.rs`.
+ */
+export interface AutopilotTuning {
+	releasePollMs?: number;
+	releaseCacheMs?: number;
+	errorGraceMs?: number;
+	stepMaxMs?: number;
+	cycleEndMaxMs?: number;
+	shipDrainMaxMs?: number;
+	nudgeMs?: number;
+	errorNudgeMs?: number;
+	quotaRetryMinMs?: number;
+	quotaRetryMaxMs?: number;
+	repoRecheckMs?: number;
+	landStopGraceMs?: number;
 }
 
 export interface AutopilotDeps {
@@ -153,7 +118,6 @@ export interface AutopilotDeps {
 		timeoutMs?: number,
 	): Promise<RpcResponse>;
 	spawnTab(win: ClientWindow, payload: IpcSpawnTabPayload): Promise<IpcSpawnTabResult | null>;
-	prefs: { get(key: string): unknown };
 	/** An OS notification about a tab (batched by notification-batch.ts); the coordinator applies the user's mode. */
 	notify(tabId: string, notice: AutopilotNotice): void;
 	text(key: MainTextKey, params?: Record<string, string | number>): string;
@@ -171,251 +135,18 @@ export interface AutopilotDeps {
 	 * launch continuation (`resumeGoal` or `resumeSettled` follows), at once, or not (Continue interrupted work is off).
 	 */
 	relaunchContinuation(tabId: string): RelaunchContinuation;
-	/** Test seams; defaults are the clock, the local date, a timer and the repository's rules files. */
-	now?: () => number;
+	/** Test seams; defaults are the local date and the repository's rules files. */
 	today?: () => string;
-	setTimer?: (run: () => void, ms: number) => () => void;
-	/** One-shot timer (default `setTimeout`); returns its cancel. */
-	after?: (run: () => void, ms: number) => () => void;
 	detectRelease?: (root: string) => Promise<AutopilotReleaseProcedure | null>;
-	/** Default: {@link probeRepo}. */
-	probeRepo?: (root: string) => Promise<RepoProbe>;
+	/** A stand-in for the core's look at a run's folder; absent: the core looks itself. */
+	probeRepo?: (root: string) => Promise<"present" | "gone" | "unknown">;
 	log?: (message: string) => void;
 	/**
 	 * The run's summary, written when it ends or pauses (gui-runtime.jsonl, source `autopilot`): it outlives the run's
 	 * session, which a person may delete.
 	 */
 	runLog?: (message: string, details: Record<string, string | number | boolean>) => void;
-}
-
-/**
- * What git says of a run's worktree: `present`, `gone` (the folder is missing, or git answers it is no repository) or
- * `unknown` (git did not answer: a timeout, a lock, a spawn failure, any other error).
- */
-export type RepoProbe = "present" | "gone" | "unknown";
-
-/** How long a probe that said `gone` waits before it is asked again. */
-const REPO_RECHECK_MS = 1_500;
-
-export async function probeRepo(root: string): Promise<RepoProbe> {
-	// Only "no such file or folder" is absence; a refused, busy or out-of-handles check says nothing.
-	const missing = await access(root).then(
-		() => false,
-		(error: NodeJS.ErrnoException) => (error.code === "ENOENT" || error.code === "ENOTDIR" ? true : null),
-	);
-	if (missing === null) return "unknown";
-	if (missing) return "gone";
-	const result = await gitRaw(root, ["rev-parse", "--git-dir"], { timeoutMs: GIT_MS }).catch(() => null);
-	if (result?.code === 0) return "present";
-	return result && /not a git repository/i.test(result.stderr) ? "gone" : "unknown";
-}
-
-/** A command failure whose message is readable as it is (shown in a toast). */
-export class AutopilotError extends Error {
-	constructor(
-		message: string,
-		readonly code = "autopilot_failed",
-	) {
-		super(message);
-		this.name = "AutopilotError";
-	}
-}
-
-interface ChildState {
-	tabId: string;
-	branch?: string;
-	worktree?: string;
-	area?: string;
-}
-
-/** What the next cycle's `begin` hands the agent when the person chooses "ship, then stop" (English, like every note). */
-export const STOP_AFTER_SHIP_NOTE =
-	"The person chose to ship, then stop: finish this cycle's item and commit it (a green cycle lands as usual). Then call autopilot propose_release; if a release is due, run the release procedure in this cycle. End the cycle with `end` as usual: the run stops after it.";
-const STOP_AFTER_SHIP_CANCELLED = "The person cancelled 'ship, then stop': the run goes on as before.";
-
-/**
- * Why a cycle's work did not ship, or null when it did: green with a commit, and every push or land this cycle queued
- * went through (a land the default branch refused for a pull request counts: that pull request is where it ships).
- * With nothing queued (no remote), the green commit is all there is to ship.
- */
-export function shipGap(
-	record: Pick<AutopilotCycleRecord, "verify" | "commit">,
-	results: readonly ShipResult[],
-	own: ReadonlySet<string>,
-): string | null {
-	if (record.verify !== "green") return `its check was ${record.verify}`;
-	if (!record.commit) return "it made no commit";
-	for (const id of own) {
-		const result = results.find(entry => entry.item.id === id);
-		if (!result) return "its push did not run";
-		if (result.item.kind === "land") {
-			const kind = result.land?.kind;
-			if (kind !== "landed" && kind !== "pr") return `its land did not go through (${kind ?? result.item.state})`;
-		} else if (result.item.state !== "done") return `its ${result.item.kind} failed`;
-	}
-	return null;
-}
-
-interface Run {
-	tabId: string;
-	win: ClientWindow | null;
-	run: string;
-	root: string;
-	branch: string;
-	baseBranch: string;
-	/** The user's default checkout of the repository (where a merge lands). */
-	checkoutRoot: string;
-	/** Where Push pushes (`HEAD:<target>`) when the run works on a branch of its own off a target another worktree holds. */
-	target?: string;
-	settings: AutopilotSettings;
-	status: AutopilotStatus | null;
-	ship: ShipRunner;
-	snapshot: AuditSnapshot | null;
-	/** Ref moves the ShipRunner journaled since the snapshot, for the audit. */
-	expectedRefs: string[];
-	checkoutMayMove: boolean;
-	configMayChange: boolean;
-	/** A verified user request to release was seen: the audit's release scope is open for this cycle. */
-	releaseRequested: boolean;
-	releaseProcedure?: AutopilotReleaseProcedure;
-	releaseBlocked?: string;
-	/** The project's default branch green cycles land on (Automatic shipping). */
-	landTo?: string;
-	/** Landing fell back to a pull request (a protected default branch): told once, shown in the status. */
-	landing?: { via: "pr"; url?: string; reason: string };
-	/** Cycles whose commit the default branch got this launch (the end summary also asks git). */
-	landedCount: number;
-	/**
-	 * When the person chose "ship, then stop" (epoch ms): the first cycle that begins after it carries the note to ship,
-	 * and the run ends once that cycle has ended and its work shipped. In memory only: a relaunch carries on running.
-	 */
-	endAfterShip?: number;
-	/** "Ship, then stop": the cycle's work shipped and its release run is still going; the run ends when it succeeds. */
-	shipStopWaitsRelease?: true;
-	/** "Ship, then stop": a release since the choice failed; the run ends only after a later one succeeds. */
-	releaseOwed?: true;
-	children: Map<string, ChildState>;
-	childBranches: Set<string>;
-	stopping: boolean;
-	/** The earliest time the next nudge may go out. */
-	nextNudgeAt: number;
-	/** A nudge that came inside the window is asked again when the window passes (one at a time). */
-	nudgeLater: boolean;
-	/** Cancels the wake armed for the end of a quota wait (`waiting_quota`). */
-	cancelQuotaWake: (() => void) | null;
-	/** The cycle-end pipeline of one run is sequential, and every step of it has a bound ({@link RunStep}). */
-	steps: SerialChain;
-	/** The newest queued step's end: what {@link Autopilot.idle} waits for. */
-	chain: Promise<unknown>;
-	/** Steps the pipeline stopped for running past their bound (newest {@link KEEP_STALLS}); shown in the run's status. */
-	stalls: AutopilotStall[];
-	/** Failed retries since the quota wait began: the backoff's exponent. */
-	quotaRetries: number;
-	refreshing: boolean;
-	/** The title this run gave its session (`runSessionTitle`), and the cycle item it last named it after. */
-	title?: { name: string; item: string | null };
-	/** Renames go one after another, each checking the name the one before it set. */
-	titling?: Promise<void>;
-	refreshAgain: boolean;
-	stopPolling: (() => void) | null;
-	releaseItem?: string;
-	/** `#start` is still arming this new run: its first readiness is no restart. */
-	starting: boolean;
-}
-
-interface ChildRun {
-	parentTab: string;
-	root: string;
-	branch: string;
-	area?: string;
-}
-
-const REASON_TEXT: Partial<Record<AutopilotPauseReason | AutopilotEndReason, MainTextKey>> = {
-	ban_violation: "autopilot.reason.ban_violation",
-	repo_gone: "autopilot.reason.repo_gone",
-	budget: "autopilot.reason.budget",
-	time: "autopilot.reason.time",
-	cycles: "autopilot.reason.cycles",
-	cost: "autopilot.reason.cost",
-	app_closed: "autopilot.reason.app_closed",
-	agent_done: "autopilot.reason.agent_done",
-	user: "autopilot.reason.user",
-	user_pause: "autopilot.reason.user_pause",
-	user_abort: "autopilot.reason.user_abort",
-	tab_closed: "autopilot.reason.tab_closed",
-};
-
-/**
- * What a nudge asks the quiet run for, by why it went quiet: the agent is told the reason, so a run whose items are all
- * blocked picks another instead of waiting on them again. Idea after OpenRig's reason-tagged wake messages.
- */
-export const NUDGE_MESSAGES: Record<AutopilotNudgeReason | "error", string> = {
-	no_progress: "Autopilot: no cycle is running. Call `autopilot begin` and continue with the next cycle.",
-	plan: "Autopilot: plan mode stopped the run and is off now; nobody approves plans here. Call `autopilot begin` and continue with the next cycle.",
-	blocked:
-		"Autopilot: every todo item is blocked, so the run stopped. If a cycle is open, end it with each blocker as a follow-up; then call `autopilot begin` and pick an item that is not blocked.",
-	error: "Autopilot: the last turn failed and nothing retried it. Call `autopilot begin` and continue; repeat the failed step only if the failure looks transient, otherwise record it as a follow-up and pick another item.",
-};
-/** The least time between two nudges of a run, and after a failed model turn. */
-const NUDGE_MS = 20_000;
-const ERROR_NUDGE_MS = 60_000;
-
-/** Pauses that are the user's own doing, or a state the screen already shows: no notification. */
-const SILENT_REASONS: ReadonlySet<string> = new Set(["user_pause", "user_abort", "app_closed", "tab_closed"]);
-/** Pauses that are an outcome the user asked for (a ceiling they set) rather than a failure. */
-const COMPLETION_REASONS: ReadonlySet<string> = new Set(["budget", "time", "cycles", "cost", "agent_done", "user"]);
-
-/** `YYYY-MM-DD` in local time: the run id and the branch suffix. */
-export function localDate(date: Date): string {
-	const pad = (value: number) => String(value).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-const TITLE_ITEM_MAX = 40;
-
-/**
- * The run's session title: the repository's folder name from the moment the run starts, then the item of the cycle at
- * work, renamed as each cycle picks its own. No "Autopilot" word: the row's rocket mark and the title bar's say it is a
- * run (the user's call, 23 Oct 2026). Stock's auto title names a session from the user's first message, and a run has
- * none, so without this the run's row read "Untitled".
- */
-export function runSessionTitle(what: string): string {
-	const text = what.replace(/\s+/g, " ").trim();
-	return text.length > TITLE_ITEM_MAX ? `${text.slice(0, TITLE_ITEM_MAX - 1).trimEnd()}…` : text;
-}
-
-/** The names earlier builds gave a run's session: "Autopilot · …" / "오토파일럿 · …". */
-const OLD_RUN_TITLE = /^(?:Autopilot|오토파일럿) · /;
-
-/**
- * Whether a run this process adopts (a relaunch) may go on naming its session: the name is one the run gave it (its
- * folder, a cycle's item, an earlier build's "Autopilot · …") or none. A name the person typed is theirs: never this.
- */
-export function runOwnsTitle(name: string, folders: readonly string[], items: readonly string[]): boolean {
-	const shown = name.trim();
-	if (!shown || OLD_RUN_TITLE.test(shown)) return true;
-	return [...folders, ...items].some(what => what.trim() !== "" && runSessionTitle(what) === shown);
-}
-
-/**
- * The settings of a start: defaults, then what the start sent. Nothing is stored between runs: shipping nobody chose is
- * decided per repository at the start (`#start`), notifications are the stops a person must know of.
- */
-export function startSettings(options: AutopilotStartOptions): AutopilotSettings {
-	const remote = options.ship?.remote ?? DEFAULT_SHIP_POLICY.remote;
-	const preset: AutopilotShipPolicy = options.preset
-		? shipPolicyForPreset(options.preset, remote)
-		: DEFAULT_SHIP_POLICY;
-	const ship: AutopilotShipPolicy = {
-		autoPush: options.ship?.autoPush ?? preset.autoPush,
-		autoRelease: options.ship?.autoRelease ?? preset.autoRelease,
-		remote,
-	};
-	return {
-		focus: options.focus ?? [],
-		ship,
-		limits: { ...NO_LIMITS, ...options.limits },
-	};
+	tuning?: AutopilotTuning;
 }
 
 /** `gh run view <url> --json status,conclusion` of the installed gh; null when gh is missing or answers oddly. */
@@ -443,34 +174,88 @@ export type AutopilotCommand =
 	| { type: "get_autopilot"; allCycles?: boolean }
 	| ({ type: "set_autopilot" } & AutopilotAction);
 
+/** `YYYY-MM-DD` in local time: the run id and the branch suffix. */
+export function localDate(date: Date): string {
+	const pad = (value: number) => String(value).padStart(2, "0");
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** The shell the agent's bash tool would run it in: bash (with pipefail, so `cmd | tail` fails when cmd does), else sh. */
+function shellFor(command: string, env: NodeJS.ProcessEnv): { file: string; args: string[] } {
+	if (process.platform === "win32") {
+		const bash = findGitBash(env);
+		if (bash) return { file: bash, args: ["-o", "pipefail", "-c", command] };
+		return { file: env.ComSpec ?? "cmd.exe", args: ["/d", "/s", "/c", command] };
+	}
+	const bash = findOnPath(["bash"], env.PATH ?? "", process.platform === "darwin" ? "darwin" : "linux", ["/bin/bash"]);
+	return bash ? { file: bash, args: ["-o", "pipefail", "-c", command] } : { file: "/bin/sh", args: ["-c", command] };
+}
+
+/**
+ * The shell and environment a land check's command runs in, and the supervisor that holds it: the login shell's PATH and
+ * exports under the app's own (`shellSpawnEnv`, as `SidecarManager` spawns). A Finder-launched app's own PATH is launchd's
+ * bare one, where the cycle's `bun run check` was "command not found" and no green cycle ever landed over a moved default
+ * branch.
+ */
+export async function landShell(command: string): Promise<{
+	env: Record<string, string>;
+	file: string;
+	args: string[];
+	supervisor: string;
+}> {
+	const merged = withoutGitSelectors({ ...process.env, ...(await shellSpawnEnv()) });
+	const env: Record<string, string> = {};
+	for (const [name, value] of Object.entries(merged)) if (value !== undefined) env[name] = value;
+	return { env, ...shellFor(command, merged), supervisor: nativeBinPath("ompdesk-core") };
+}
+
+/** What the core mirrors of a run for the callers that read it synchronously (`Run`'s `mirror` in `run.rs`). */
+interface RunMirror {
+	tab: string;
+	root: string;
+	baseBranch: string;
+	stopping: boolean;
+	oneShotRelease: boolean;
+	children: Array<{ tabId: string; area?: string; branch?: string }>;
+	queue: ShipQueueItem[];
+	policy: AutopilotShipPolicy;
+	releaseProcedure?: AutopilotReleaseProcedure;
+	releaseBlocked?: string;
+	landing?: { via: "pr"; url?: string; reason: string };
+	endAfterShip: boolean;
+	stalls: AutopilotStall[];
+}
+
+type MirrorEvent = RunMirror | { tab: string; gone: true };
+
+/** What the core answers a command with (`status_answer` and the failure in `coordinator.rs`). */
+type CommandAnswer =
+	| { ok: true; status: AutopilotStatus; overlay: boolean; tabId?: string }
+	| { ok: false; error: string; code?: string };
+
 export class Autopilot {
 	readonly #deps: AutopilotDeps;
-	readonly #runs = new Map<string, Run>();
-	readonly #childRuns = new Map<string, ChildRun>();
-	/**
-	 * A run's start waiting for its new tab's omp (`#ready`), by tab: it ends the wait with an error when the tab is
-	 * released or the user stops the run. No deadline: a slow omp is waited for, and `SidecarManager.dispose` drops the
-	 * listeners without a status, so the pool's release is what ends a wait on a closed tab.
-	 */
-	readonly #startWaits = new Map<string, (error: Error) => void>();
-	readonly #tabOf = new WeakMap<object, string>();
+	readonly #port: CorePort;
 	readonly #approver: AutopilotApprover;
-	readonly #releaseCache = new Map<string, { at: number; value: AutopilotReleaseProcedure | null }>();
-	/** Tabs whose restart waits for TurnResume's `resumeGoal`. */
-	readonly #awaitingResume = new Set<string>();
-	/** Fire-and-forget steps in flight (a restart's check, a re-emit, a release poll), so `idle()` can wait for them. */
-	readonly #background = new Set<Promise<unknown>>();
-	/** Tabs `resumeGoal` already armed and resumed this launch: `#onReady` must not pause them as closed. */
-	readonly #resumedOnLaunch = new Set<string>();
-	/** Tabs `#onReady` continued at once: a later TurnResume `resumeGoal` for that readiness has nothing left to do. */
-	readonly #continuedOnReady = new Set<string>();
+	readonly #tabOf = new WeakMap<object, string>();
+	/** What the core says of each run and of each child tab of a run. */
+	readonly #mirror = new Map<string, RunMirror>();
+	readonly #childRuns = new Map<string, { parentTab: string; root: string }>();
+	/** The window and tab a command in flight came from (`dispatch` and `spawnTab` of its start need them). */
+	readonly #calls = new Map<number, { win: ClientWindow; sidecar: SidecarLike }>();
+	/** A start's wait for its new tab's omp, by tab: calls it off when the core ends the wait. */
+	readonly #readyCancels = new Map<string, () => void>();
+	#callSeq = 0;
 	#control: AutopilotControl | null = null;
+	/** The core this was opened on: another process id is a core that started again, which lost the runs it held. */
+	#pid: number | null = null;
 
 	constructor(deps: AutopilotDeps) {
 		this.#deps = deps;
+		this.#port = new CorePort(this.#handlers());
 		this.#approver = new AutopilotApprover({
 			runOf: tabId => this.#approverRun(tabId),
-			answer: async (tabId, response: ExtensionUIResponse) => {
+			answer: async (tabId, response) => {
 				await deps.pool.routeSideChannel(response.id, response, tabId);
 			},
 			denied: (tabId, reason) => this.#log(`denied a card in ${tabId}: ${reason}`),
@@ -483,6 +268,61 @@ export class Autopilot {
 	}
 
 	// ----------------------------------------------------------------------------------------
+	// The core
+	// ----------------------------------------------------------------------------------------
+
+	/**
+	 * Opens the coordinator in the core on first use, and again when the core started anew. Every call after it is made in
+	 * the same tick, so the core applies them in the order this side made them.
+	 */
+	#open(): void {
+		const pid = core().pid;
+		if (this.#pid !== null && pid === this.#pid) return;
+		this.#mirror.clear();
+		this.#childRuns.clear();
+		const tuning = this.#deps.tuning ?? {};
+		core()
+			.call("autopilot.open", {
+				port: this.#port.id,
+				...this.#port.first(),
+				contracts: {
+					bridge: AUTOPILOT_BRIDGE_METHODS,
+					objective: AUTOPILOT_OBJECTIVE,
+					guideFile: AUTOPILOT_GUIDE_FILE,
+					guideCommitMaxBytes: AUTOPILOT_GUIDE_COMMIT_MAX_BYTES,
+					childTag: AUTOPILOT_CHILD_TAG,
+					defaultShipPolicy: DEFAULT_SHIP_POLICY,
+					noLimits: NO_LIMITS,
+					presets: Object.fromEntries(
+						(["local", "push", "release"] as const).map(preset => [preset, shipPolicyForPreset(preset)]),
+					),
+				},
+				tuning,
+				probeOverride: this.#deps.probeRepo !== undefined,
+			})
+			.catch(error => this.#log(`autopilot.open: ${String(error)}`));
+		this.#pid = core().pid;
+	}
+
+	/** An event for the core: applied in the order it was sent. */
+	#tell(method: string, params: Record<string, unknown>): void {
+		this.#open();
+		core()
+			.call(`autopilot.${method}`, { port: this.#port.id, ...params })
+			.catch(error => this.#log(`autopilot.${method}: ${String(error)}`));
+	}
+
+	async #ask<T>(method: string, params: Record<string, unknown>): Promise<T> {
+		this.#open();
+		const answer: CoreAnswer<T> = await core().call<T>(
+			`autopilot.${method}`,
+			{ port: this.#port.id, ...params },
+			{ timeoutMs: NO_DEADLINE_MS },
+		);
+		return answer.result;
+	}
+
+	// ----------------------------------------------------------------------------------------
 	// Wiring from the pool and the sidecar factory
 	// ----------------------------------------------------------------------------------------
 
@@ -492,33 +332,19 @@ export class Autopilot {
 		this.#tabOf.set(sidecar, tabId);
 		sidecar.on("extensionUi", request => this.#approver.handle(tabId, request));
 		sidecar.on("status", (payload: { status: string }) => {
-			if (payload.status === "ready") {
-				this.#track(this.#onReady(tabId).catch(error => this.#log(`ready: ${String(error)}`)));
-			}
+			if (payload.status === "ready") this.#tell("ready", { tab: tabId });
 		});
 	}
 
 	/** The pool released the tab (closed by the user, or by us). */
 	tabReleased(tabId: string): void {
-		this.#startWaits.get(tabId)?.(new Error("The Autopilot tab is gone."));
-		this.#childRuns.delete(tabId);
-		this.#awaitingResume.delete(tabId);
-		this.#continuedOnReady.delete(tabId);
-		const run = this.#runs.get(tabId);
-		if (!run) return;
-		this.#runs.delete(tabId);
-		run.stopPolling?.();
-		run.cancelQuotaWake?.();
-		for (const child of run.children.keys()) {
-			this.#childRuns.delete(child);
-			this.#track(this.#deps.pool.releaseTabWhenExited(child).catch(() => undefined));
-		}
+		this.#tell("released", { tab: tabId });
 	}
 
 	/**
-	 * The pool's tab activity (`observeTabs`): a released tab ends its run; a failed turn that neither stock's
-	 * auto-retry nor TurnResume's scheduled retries will take up (they are spent) gets a nudge for the next cycle, never a
-	 * pause. A usage limit waits here (`#waitForQuota`): journaled `waiting_quota` with its reset, woken at it.
+	 * The pool's tab activity (`observeTabs`): a released tab ends its run; a failed turn that neither stock's auto-retry
+	 * nor TurnResume's scheduled retries will take up (they are spent) gets a nudge for the next cycle, never a pause. A
+	 * usage limit waits in the core: journaled `waiting_quota` with its reset, woken at it.
 	 */
 	observeActivity(activity: TabActivity): void {
 		if (activity.type === "released") {
@@ -526,76 +352,36 @@ export class Autopilot {
 			return;
 		}
 		if (activity.type !== "idle" || activity.outcome?.stopReason !== "error") return;
-		const run = this.#runs.get(activity.tabId);
-		const message = activity.outcome.errorMessage ?? "";
-		if (!run) return;
-		if (isLimitWording(message)) {
-			// Stock's own auto-retry may still take it: look once it has had the chance, as for any other failure.
-			(this.#deps.after ?? afterMs)(
-				() => this.#enqueue(run, () => this.#waitForQuota(run), "quota wait"),
-				ERROR_GRACE_MS,
-			);
-			return;
-		}
-		// TurnResume arms its retry a moment after the failure is reported: look again once it has had the chance (the
-		// nudge itself asks nothing while a retry, a turn or the connection wait holds the run).
-		(this.#deps.after ?? afterMs)(() => this.#enqueue(run, () => this.#nudge(run, "error"), "nudge"), ERROR_GRACE_MS);
-	}
-
-	/**
-	 * The run is still this tab's, running, and nothing else holds its next turn: no turn going, no stock auto-retry, no
-	 * retry TurnResume armed, no wait for the connection. `#nudge` asks it right before it prompts.
-	 */
-	async #quietAndRunning(run: Run): Promise<boolean> {
-		if (this.#runs.get(run.tabId) !== run || run.stopping) return false;
-		const facts = this.#deps.pool.tabFacts(run.tabId);
-		if (!facts || facts.busy || facts.awaitingConnection || facts.retrying || facts.scheduledRetry) return false;
-		const status = await this.#fetchStatus(run).catch(() => null);
-		return status?.state === "running";
+		if (!this.#mirror.has(activity.tabId)) return;
+		const kind = isLimitWording(activity.outcome.errorMessage ?? "") ? "limit" : "error";
+		this.#tell("activity", { tab: activity.tabId, kind });
 	}
 
 	/** The sidecar factory's `frameTransform` for `autopilot_update`: the status plus what only main knows. */
 	overlay(sidecar: object, frame: Record<string, unknown>): Record<string, unknown> {
 		const tabId = this.#tabOf.get(sidecar);
-		const run = tabId ? this.#runs.get(tabId) : undefined;
+		const run = tabId ? this.#mirror.get(tabId) : undefined;
 		const status = frame.status as AutopilotStatus | undefined;
-		if (!status?.active) return frame;
+		if (!tabId || !status?.active) return frame;
 		if (!run) {
 			const recent = withRecentCycles(status);
 			return recent === status ? frame : { ...frame, status: recent };
 		}
-		run.status = status;
-		if (status.settings) run.settings = status.settings;
-		this.#titleByItem(run, status.now?.title);
+		this.#tell("status", { tab: tabId, status });
 		return { ...frame, status: withRecentCycles(this.#overlaid(run, status)) };
-	}
-
-	/** The run's title follows the cycle at work: its `pick`, else (a cycle that picked nothing) its record's title. */
-	#titleByItem(run: Run, item: string | undefined): void {
-		if (!item?.trim() || !run.title || run.title.item === item) return;
-		run.title = { ...run.title, item };
-		run.titling = (run.titling ?? Promise.resolve()).then(() => this.#retitle(run, item));
 	}
 
 	/** The bridge's cycle end, stop request and settled frames. */
 	frame(sidecar: object, frame: Record<string, unknown>): void {
 		const tabId = this.#tabOf.get(sidecar);
-		const run = tabId ? this.#runs.get(tabId) : undefined;
-		if (!run) return;
-		if (frame.type === "autopilot_cycle_end") {
-			const record = frame.record as AutopilotCycleRecord;
-			const receivedAt = this.#now();
-			this.#titleByItem(run, record.title);
-			this.#enqueue(run, () => this.#cycleEnd(run, record, receivedAt), "cycle end", CYCLE_END_MAX_MS);
-		} else if (frame.type === "autopilot_nudge") {
-			const reason = frame.reason as AutopilotNudgeReason;
-			this.#enqueue(run, () => this.#nudge(run, reason), "nudge");
-		} else if (frame.type === "autopilot_stop_requested") {
-			const request = frame as unknown as AutopilotStopRequest;
-			this.#enqueue(run, () => this.#stopRequested(run, request), "stop");
-		} else if (frame.type === "autopilot_settled") {
-			const reason = frame.reason as AutopilotPauseReason | AutopilotEndReason;
-			this.#enqueue(run, () => this.#settled(run, reason), "settle");
+		if (!tabId) return;
+		if (
+			frame.type === "autopilot_cycle_end" ||
+			frame.type === "autopilot_nudge" ||
+			frame.type === "autopilot_stop_requested" ||
+			frame.type === "autopilot_settled"
+		) {
+			this.#tell("frame", { tab: tabId, frame });
 		}
 	}
 
@@ -610,11 +396,31 @@ export class Autopilot {
 		command: AutopilotCommand,
 		id: string | undefined,
 	): Promise<RpcResponse> {
+		const call = ++this.#callSeq;
+		this.#calls.set(call, { win, sidecar });
 		try {
-			const data =
-				command.type === "get_autopilot"
-					? await this.status(sidecar, tabId, command.allCycles === true)
-					: await this.#action(win, sidecar, tabId, command);
+			const answer = await this.#ask<CommandAnswer>("command", {
+				call,
+				tab: tabId,
+				command,
+				source: { device: Boolean(sidecar.device), cwd: sidecar.cwd },
+				today: this.#deps.today?.() ?? localDate(new Date()),
+			});
+			if (!answer.ok) {
+				return {
+					id,
+					type: "response",
+					command: command.type,
+					success: false,
+					error: answer.error,
+					...(answer.code ? { code: answer.code } : {}),
+				} as RpcResponse;
+			}
+			const allCycles = command.type === "get_autopilot" && command.allCycles === true;
+			const run = answer.overlay ? this.#mirror.get(answer.tabId ?? tabId) : undefined;
+			const status = run ? this.#overlaid(run, answer.status) : answer.status;
+			const shown = allCycles ? status : withRecentCycles(status);
+			const data = answer.tabId === undefined ? shown : { ...shown, tabId: answer.tabId };
 			return { id, type: "response", command: command.type, success: true, data } as RpcResponse;
 		} catch (error) {
 			return {
@@ -623,350 +429,26 @@ export class Autopilot {
 				command: command.type,
 				success: false,
 				error: error instanceof Error ? error.message : String(error),
-				...(error instanceof AutopilotError ? { code: error.code } : {}),
 			} as RpcResponse;
+		} finally {
+			this.#calls.delete(call);
 		}
 	}
 
 	/**
-	 * `get_autopilot`: a run's status with its newest cycles (`allCycles`: every one), or for any other tab what the
-	 * start sheet needs.
+	 * `get_autopilot`: a run's status with its newest cycles (`allCycles`: every one), or for any other tab what the start
+	 * sheet needs.
 	 */
 	async status(sidecar: SidecarLike, tabId: string, allCycles = false): Promise<AutopilotStatus> {
-		const shown = (status: AutopilotStatus) => (allCycles ? status : withRecentCycles(status));
-		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
-		if (run) return shown(this.#overlaid(run, await this.#fetchStatus(run)));
-		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
-		if (status?.active) return shown(status);
-		return this.#idleStatus(sidecar);
-	}
-
-	async #action(
-		win: ClientWindow,
-		sidecar: SidecarLike,
-		tabId: string,
-		action: AutopilotAction,
-	): Promise<AutopilotStatus & { tabId?: string }> {
-		if (action.action === "start") return this.#start(win, sidecar, tabId, action);
-		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
-		if (!run) throw new AutopilotError(this.#deps.text("autopilot.err.noRun"), "autopilot_no_run");
-		switch (action.action) {
-			case "stop":
-				if (run.starting) {
-					const endWait = this.#startWaits.get(tabId);
-					// The start is still waiting for the tab's omp: nothing is armed to stop yet, the start ends.
-					if (endWait) {
-						endWait(new Error("Autopilot's start was stopped."));
-						return this.#idleStatus(sidecar);
-					}
-				}
-				await this.#beginStop(run, "user");
-				break;
-			case "stop_after_ship":
-				await this.#stopAfterShip(run, action.enabled);
-				break;
-			case "abort":
-				this.#deps.pool.noteStopped(tabId);
-				recordTurnStop({ command: "abort", tab: tabId, by: "autopilot", surface: "stop-now" });
-				await this.#stock(tabId, { type: "abort" }).catch(() => undefined);
-				await this.aborted(tabId);
-				break;
-			case "pause":
-				await this.#stock(tabId, { type: "set_goal", action: "pause" });
-				await this.#setState(run, { state: "paused", reason: "user_pause" });
-				break;
-			case "resume":
-				await this.#resume(run);
-				break;
-			case "configure": {
-				const { action: _action, ...changes } = action;
-				await this.#configure(run, changes);
-				break;
-			}
-			case "note":
-				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: action.text });
-				break;
-			case "followup_dismiss":
-				await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.dismiss, { text: action.text });
-				break;
-			case "ship":
-				await this.#shipAction(run, action);
-				break;
-			case "cancel_ship":
-				run.ship.cancel(action.id);
-				break;
-		}
-		return withRecentCycles(this.#overlaid(run, await this.#fetchStatus(run)));
-	}
-
-	// ----------------------------------------------------------------------------------------
-	// Start
-	// ----------------------------------------------------------------------------------------
-
-	async #start(
-		win: ClientWindow,
-		sidecar: SidecarLike,
-		tabId: string,
-		options: AutopilotStartOptions,
-	): Promise<AutopilotStatus & { tabId: string }> {
-		const text = this.#deps.text;
-		if (sidecar.device) throw new AutopilotError(text("autopilot.err.device"), "autopilot_device");
-		const existing = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
-		if (existing) throw new AutopilotError(text("autopilot.err.running"), "autopilot_running");
-		const cwd = sidecar.cwd;
-		const toplevel = await this.#gitText(cwd, ["rev-parse", "--show-toplevel"]);
-		if (!toplevel || !(await this.#gitText(cwd, ["rev-parse", "--verify", "-q", "HEAD"]))) {
-			throw new AutopilotError(text("autopilot.err.notRepo"), "autopilot_not_repo");
-		}
-		const checkoutBranch = await this.#gitText(cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-		if (!checkoutBranch) throw new AutopilotError(text("autopilot.err.detached"), "autopilot_detached");
-		const remoteChosen = options.ship?.remote ?? (await this.#detectRemote(cwd));
-		const shipUndecided =
-			options.preset === undefined &&
-			options.ship?.autoPush === undefined &&
-			options.ship?.autoRelease === undefined;
-		let settings = startSettings({ ...options, ship: { ...options.ship, remote: remoteChosen } });
-		const checkoutRelease = await this.#releaseFor(toplevel);
-		if ((settings.ship.autoRelease.on || options.preset === "release") && !checkoutRelease.procedure) {
-			throw new AutopilotError(text("autopilot.err.noRelease"), "autopilot_no_release");
-		}
-		// The app owns the guide: the repo's own (an agent's text first), a Release section added from the project's facts
-		// when it has none, or a whole one built from them. Built while the worktree is made; committed into it below.
-		const guideWork = this.#guideToCommit(tabId, toplevel, checkoutRelease.procedure, options.guide);
-
-		// The branch is checked now, from git's own state: the sheet's list may be old.
-		const date = this.#deps.today?.() ?? localDate(new Date());
-		const choice: AutopilotBranchChoice | null =
-			options.branch === undefined ? { kind: "new" } : parseChoice(options.branch);
-		if (!choice) {
-			throw new AutopilotError(text("autopilot.err.branchInvalid", { branch: "" }), "autopilot_branch_invalid");
-		}
-		const { entries, defaultBranch } = await readBranchEntries(cwd, settings.ship.remote);
-		this.#refuseBranch(choice, entries);
-		const target = viaWorkBranch(choice, entries);
-		// Nobody chose a level: land every green cycle with a commit on the project's default branch (ShipRunner's
-		// fast-forward push, never the agent's, never forced; a protected branch gets one pull request instead) when the
-		// repository has a remote. Without a known default branch the run's own branch is pushed; without a remote, nothing.
-		// Releasing is decided below, from the procedure.
-		const hasRemote = shipUndecided && (await this.#gitText(cwd, ["remote"])).trim() !== "";
-		if (shipUndecided) {
-			const land = hasRemote && defaultBranch !== null;
-			settings = {
-				...settings,
-				ship: { ...settings.ship, automatic: true, autoPush: hasRemote && !land, ...(land ? { land: true } : {}) },
-			};
-		}
-		const mode = worktreeModeFor(choice, entries);
-		const taken = new Set(entries.map(entry => entry.name));
-		// A target another worktree holds (main in the user's folder): work on a branch of our own cut from it.
-		const source: WorktreeBranchSource | null = target
-			? {
-					name: suggestBranchName(date, taken),
-					mode: "new",
-					from: entries.find(entry => entry.name === target)?.local ? target : `${settings.ship.remote}/${target}`,
-				}
-			: choice.kind === "existing"
-				? { name: choice.name, mode, ...(mode === "remote" ? { remote: settings.ship.remote } : {}) }
-				: choice.name
-					? { name: choice.name, mode }
-					: null;
-		const created = await this.#deps.dispatch(
-			win,
+		const response = await this.handleCommand(
+			{} as ClientWindow,
 			sidecar,
 			tabId,
-			{
-				type: "worktree_create",
-				name: source ? branchSlug(source.name, date) : date,
-				baseCwd: cwd,
-				baseRef: "HEAD",
-				branchPrefix: "autopilot/",
-				...(source ? { branch: source } : {}),
-			},
-			WORKTREE_MS,
+			{ type: "get_autopilot", ...(allCycles ? { allCycles } : {}) },
+			undefined,
 		);
-		if (!created.success) throw new AutopilotError(created.error ?? "Creating the worktree failed.");
-		const made = created.data as RpcWorktreeCreateResult;
-		const guide = await guideWork;
-		if (guide) await this.#commitGuide(made.path, guide.text);
-		// The run's own checkout holds the guide now, so its Release section counts when no rules file names a procedure.
-		const release = await this.#releaseFor(made.path);
-		// Nobody chose a level and a procedure says the project releases: the agent releases by it, when it judges the
-		// changes worth one (cadence `agent`). No remote: nothing to release to.
-		if (shipUndecided && hasRemote && release.procedure) {
-			settings = {
-				...settings,
-				ship: { ...settings.ship, autoRelease: { ...settings.ship.autoRelease, on: true } },
-			};
-		}
-		this.#deps.log?.(
-			`autopilot: guide ${guide ? `${guide.source}, release ${guide.release}, releases ${guide.releases}` : "unavailable"}; ship ${settings.ship.land ? `land on ${defaultBranch}` : `push ${settings.ship.autoPush}`}, release ${settings.ship.autoRelease.on}${release.procedure ? ` (${release.procedure.file})` : ""}`,
-		);
-		// The run's own base: the folder's branch, or, on the default branch itself, that branch (a release pushes it).
-		const baseBranch = (target ?? made.branch) === defaultBranch ? (target ?? made.branch) : checkoutBranch;
-		const runId = runIdFor(made.branch, date);
-		const spawned = await this.#deps.spawnTab(win, {
-			cwd: made.path,
-			worktree: { name: runId, branch: made.branch, baseCwd: made.baseCwd, path: made.path },
-		});
-		if (!spawned?.tabId) throw new AutopilotError("The Autopilot tab could not be opened.");
-		const newTab = spawned.tabId;
-		const run = this.#newRun(newTab, win, {
-			run: runId,
-			root: made.path,
-			branch: made.branch,
-			baseBranch,
-			...(target ? { target } : {}),
-			...(settings.ship.land ? { landTo: defaultBranch } : {}),
-			checkoutRoot: made.baseCwd,
-			settings,
-			release,
-		});
-		run.starting = true;
-		try {
-			await this.#ready(newTab);
-			await this.#retitle(run, basename(toplevel));
-			const arm: AutopilotArmParams = {
-				role: "parent",
-				root: made.path,
-				run: runId,
-				branch: made.branch,
-				baseBranch,
-				...(target ? { target } : {}),
-				settings,
-				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
-				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
-			};
-			run.status = await this.#bridge<AutopilotStatus>(newTab, AUTOPILOT_BRIDGE_METHODS.arm, arm);
-			run.snapshot = await takeSnapshot(made.path, made.baseCwd).catch(() => null);
-			const tokenBudget = settings.limits.tokens;
-			const goalResponse = await this.#stockResponse(newTab, {
-				type: "set_goal",
-				objective: AUTOPILOT_OBJECTIVE,
-				...(tokenBudget ? { tokenBudget } : {}),
-			});
-			if (!goalResponse.success) throw new Error(goalResponse.error ?? "The goal could not be created.");
-		} catch (error) {
-			// The tab stays (its worktree has nothing in it yet); the run does not.
-			await this.#bridge(newTab, AUTOPILOT_BRIDGE_METHODS.disarm, {}).catch(() => undefined);
-			this.#runs.delete(newTab);
-			throw error instanceof AutopilotError
-				? error
-				: new AutopilotError(error instanceof Error ? error.message : String(error));
-		} finally {
-			run.starting = false;
-		}
-		return { ...withRecentCycles(this.#overlaid(run, await this.#fetchStatus(run))), tabId: newTab };
-	}
-
-	#newRun(
-		tabId: string,
-		win: ClientWindow | null,
-		info: {
-			run: string;
-			root: string;
-			branch: string;
-			baseBranch: string;
-			checkoutRoot: string;
-			target?: string;
-			landTo?: string | null;
-			settings: AutopilotSettings;
-			release: { procedure: AutopilotReleaseProcedure | null; blocked?: string };
-		},
-	): Run {
-		const run: Run = {
-			tabId,
-			win,
-			run: info.run,
-			root: info.root,
-			branch: info.branch,
-			baseBranch: info.baseBranch,
-			...(info.target ? { target: info.target } : {}),
-			...(info.landTo ? { landTo: info.landTo } : {}),
-			landedCount: 0,
-			checkoutRoot: info.checkoutRoot,
-			settings: info.settings,
-			status: null,
-			ship: new ShipRunner({
-				journal: async action => {
-					run.expectedRefs.push(...action.refs);
-					if (action.kind === "merge") run.checkoutMayMove = true;
-					if (action.kind === "push") run.configMayChange = true;
-					await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.shipAction, action);
-				},
-				changed: () => this.#track(this.#refresh(run)),
-				reverted: async cycle => {
-					await this.#bridge(tabId, AUTOPILOT_BRIDGE_METHODS.markReverted, { cycle });
-				},
-				prText: async () => {
-					const cycles = run.status?.cycles ?? [];
-					return {
-						title: autopilotLogTitle(run.branch, cycles.length),
-						body: formatAutopilotLog({ branch: run.branch, cycles }),
-					};
-				},
-				prCreate: (cwd, input) => (this.#deps.prCreate ?? prCreate)(cwd, input),
-				now: () => this.#now(),
-				id: () => `ship-${randomUUID().slice(0, 8)}`,
-			}),
-			snapshot: null,
-			expectedRefs: [],
-			checkoutMayMove: false,
-			configMayChange: false,
-			releaseRequested: false,
-			...(info.release.procedure ? { releaseProcedure: info.release.procedure } : {}),
-			...(info.release.blocked ? { releaseBlocked: info.release.blocked } : {}),
-			children: new Map(),
-			childBranches: new Set(),
-			stopping: false,
-			starting: false,
-			nextNudgeAt: 0,
-			nudgeLater: false,
-			cancelQuotaWake: null,
-			steps: this.#stepsOf(tabId),
-			chain: Promise.resolve(),
-			stalls: [],
-			quotaRetries: 0,
-			refreshing: false,
-			refreshAgain: false,
-			stopPolling: null,
-		};
-		this.#runs.set(tabId, run);
-		return run;
-	}
-
-	/** A run the journal knows but this process does not (relaunch, a tab opened from the sidebar). */
-	async #adopt(tabId: string): Promise<Run | null> {
-		const existing = this.#runs.get(tabId);
-		if (existing) return existing;
-		const sidecar = this.#deps.pool.sidecarOf(tabId);
-		if (!sidecar || sidecar.device || sidecar.status !== "ready" || this.#childRuns.has(tabId)) return null;
-		const status = await this.#bridge<AutopilotStatus>(tabId, AUTOPILOT_BRIDGE_METHODS.status, {}).catch(() => null);
-		if (!status?.active || status.role === "child" || !status.root || !status.branch || !status.settings) return null;
-		if (status.state === "ended") return null;
-		const raced = this.#runs.get(tabId);
-		if (raced) return raced;
-		const checkoutRoot = (await this.#commonCheckout(status.root)) ?? status.root;
-		const release = await this.#releaseFor(status.root);
-		const run = this.#newRun(tabId, null, {
-			run: status.run ?? status.branch,
-			root: status.root,
-			branch: status.branch,
-			...(status.target ? { target: status.target } : {}),
-			landTo: status.settings.ship.land
-				? (await readBranchEntries(status.root, status.settings.ship.remote).catch(() => null))?.defaultBranch
-				: null,
-			baseBranch: status.baseBranch ?? "main",
-			checkoutRoot,
-			settings: status.settings,
-			release,
-		});
-		run.status = status;
-		await this.#adoptTitle(run, status, [checkoutRoot, status.root]);
-		run.snapshot = await takeSnapshot(status.root, checkoutRoot).catch(() => null);
-		if (status.ship?.release?.state === "pending" && status.ship.release.runUrl) {
-			this.#pollRelease(run, status.ship.release.version, status.ship.release.runUrl);
-		}
-		return run;
+		if (!response.success) throw new Error(response.error);
+		return response.data as AutopilotStatus;
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -975,104 +457,26 @@ export class Autopilot {
 
 	/** ■ (`STOP_COMMANDS` in ipc.ts): the running children stop with the parent; the run shows paused. */
 	async aborted(tabId: string): Promise<void> {
-		const run = this.#runs.get(tabId);
-		if (!run) return;
-		await Promise.all(
-			[...run.children.keys()].map(async child => {
-				if (!this.#deps.pool.tabFacts(child)?.busy) return;
-				this.#deps.pool.noteStopped(child);
-				recordTurnStop({ command: "abort", tab: child, by: "autopilot", surface: "run-stopped", caller: tabId });
-				await this.#stock(child, { type: "abort" }).catch(() => undefined);
-			}),
-		);
-		if (run.stopping) return;
-		await this.#setState(run, { state: "paused", reason: "user_abort" }).catch(error =>
-			this.#log(`abort state: ${String(error)}`),
-		);
-	}
-
-	/** "Stop" (the user ends the run) or an end the bridge asked for: finish the turn, then wind down. */
-	async #beginStop(run: Run, reason: AutopilotEndReason): Promise<void> {
-		if (run.stopping) return;
-		run.stopping = true;
-		await this.#stock(run.tabId, { type: "set_goal", action: "pause" }).catch(() => undefined);
-		await this.#setState(run, { state: "stopping", reason });
-		const control = this.#control;
-		if (control) {
-			await Promise.all([...run.children.keys()].map(child => control.clearQueue(child).catch(() => undefined)));
-		}
-		// No turn in flight: no `agent_end` will bring `autopilot_settled`.
-		if (!this.#deps.pool.tabFacts(run.tabId)?.busy) this.#enqueue(run, () => this.#settled(run, reason), "settle");
-	}
-
-	/**
-	 * "Ship, then stop": the next cycle that begins is told to land its work and release when a release is due, and the
-	 * run ends after that cycle (`#cycleEnd`). A paused run resumes for it; a second press cancels it.
-	 */
-	async #stopAfterShip(run: Run, enabled: boolean): Promise<void> {
-		if (run.stopping) return;
-		if (!enabled) {
-			if (run.endAfterShip === undefined) return;
-			run.endAfterShip = undefined;
-			run.shipStopWaitsRelease = undefined;
-			run.releaseOwed = undefined;
-			await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: STOP_AFTER_SHIP_CANCELLED }).catch(
-				() => undefined,
-			);
-			return;
-		}
-		if (run.endAfterShip !== undefined) return;
-		run.endAfterShip = Date.now();
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text: STOP_AFTER_SHIP_NOTE });
-		const status = await this.#fetchStatus(run).catch(() => null);
-		if (status?.state === "paused") await this.#resume(run);
+		await this.#ask("aborted", { tab: tabId });
 	}
 
 	/** DeskTools: a stopping run opens and sends nothing new. */
 	isStopping(callerTabId: string): boolean {
-		return this.#runs.get(callerTabId)?.stopping === true;
+		return this.#mirror.get(callerTabId)?.stopping === true;
 	}
 
 	/** The worktree of the run `tabId` is, or whose child it is; undefined for any other tab. */
 	runRootOf(tabId: string): string | undefined {
 		const parent = this.#childRuns.get(tabId)?.parentTab ?? tabId;
-		return this.#runs.get(parent)?.root;
+		return this.#mirror.get(parent)?.root;
 	}
 
 	/**
-	 * The tab is a run's own: a turn of it that a provider's limit ended waits here (`#waitForQuota`), so TurnResume
+	 * The tab is a run's own: a turn of it that a provider's limit ended waits in the run (its quota wait), so TurnResume
 	 * arms no wait of its own beside it.
 	 */
 	holdsLimitWait(tabId: string): boolean {
-		return this.#runs.has(tabId);
-	}
-	async #resume(run: Run): Promise<void> {
-		run.stopping = false;
-		run.cancelQuotaWake?.();
-		run.cancelQuotaWake = null;
-		const status = await this.#fetchStatus(run);
-		await this.#arm(run, status, true);
-		const response = await this.#stockResponse(run.tabId, { type: "set_goal", action: "resume" });
-		if (!response.success) throw new AutopilotError(response.error ?? "The goal could not be resumed.");
-	}
-
-	async #arm(run: Run, status: AutopilotStatus, resume: boolean): Promise<void> {
-		const settings = status.settings ?? run.settings;
-		const procedure = await this.#releaseFor(run.root);
-		const arm: AutopilotArmParams = {
-			role: "parent",
-			root: run.root,
-			run: run.run,
-			branch: run.branch,
-			baseBranch: run.baseBranch,
-			...(run.target ? { target: run.target } : {}),
-			settings,
-			resume,
-			...(procedure.procedure ? { releaseProcedure: procedure.procedure } : {}),
-			...(procedure.blocked ? { releaseBlocked: procedure.blocked } : {}),
-		};
-		run.status = await this.#bridge<AutopilotStatus>(run.tabId, AUTOPILOT_BRIDGE_METHODS.arm, arm);
-		run.snapshot = await takeSnapshot(run.root, run.checkoutRoot).catch(() => run.snapshot);
+		return this.#mirror.has(tabId);
 	}
 
 	/**
@@ -1080,29 +484,8 @@ export class Autopilot {
 	 * (overrides, tools and guard before the goal), any other tab gets stock's own resume.
 	 */
 	async resumeGoal(tabId: string): Promise<void> {
-		// TurnResume's restore/retry chain is shorter than `#onReady`'s adoption: adopt here, not through `#awaitingResume`.
-		const run = this.#runs.get(tabId) ?? (await this.#adopt(tabId));
-		const status = run ? await this.#fetchStatus(run).catch(() => null) : null;
-		if (run && status?.state === "running") {
-			// `#onReady` already continued this readiness (TurnResume's marker was not in place yet when it judged).
-			if (this.#continuedOnReady.delete(tabId)) return;
-			// `#onReady` has not judged this readiness yet when it is not waiting on us: it must not resume it again.
-			if (!this.#awaitingResume.delete(tabId)) this.#resumedOnLaunch.add(tabId);
-			try {
-				await this.#continueAfterRestart(run);
-			} catch (error) {
-				// Shown paused with Resume; TurnResume drops the marker, so the next launch does not resume it unarmed.
-				await this.#closedQuietly(run);
-				throw error;
-			}
-			return;
-		}
-		// A resume without an arm leaves the run on the startup tool set: say why, so a missing arm explains itself.
-		this.#log(
-			`resumeGoal ${tabId}: plain stock resume (run ${run ? "adopted" : "none"}, state ${status?.state ?? "unread"})`,
-		);
-		const response = await this.#stockResponse(tabId, { type: "set_goal", action: "resume" });
-		if (!response.success) throw new Error(response.error ?? "the tab is gone");
+		const answer = await this.#ask<{ ok: true } | { ok: false; error: string }>("resumeGoal", { tab: tabId });
+		if (!answer.ok) throw new Error(answer.error);
 	}
 
 	/**
@@ -1111,531 +494,7 @@ export class Autopilot {
 	 * toast leaves it paused.
 	 */
 	resumeSettled(tabId: string, outcome: GoalSettlement): void {
-		if (outcome === "resumed" || !this.#awaitingResume.delete(tabId)) return;
-		const run = this.#runs.get(tabId);
-		if (!run) return;
-		this.#track(outcome === "cancelled" ? this.#closedQuietly(run) : this.#continueOrPause(run));
-	}
-
-	async #onReady(tabId: string): Promise<void> {
-		if (this.#childRuns.has(tabId)) return;
-		const run = await this.#adopt(tabId);
-		if (!run || run.starting || this.#resumedOnLaunch.delete(tabId)) return;
-		const status = await this.#fetchStatus(run);
-		if (status.state === "waiting_quota") {
-			// A wait the last process journaled: stock paused the goal at startup, so the wake resumes it like a restart.
-			this.#armQuotaWake(run, status.quotaResetAt ?? this.#now(), true);
-			return;
-		}
-		if (status.state !== "running" || this.#resumedOnLaunch.delete(tabId)) return;
-		// The process came up with the run `running` in its journal (a relaunch, or its omp restarted): stock paused
-		// the goal at startup. The run goes on after any restart; with a launch marker, after TurnResume's restore.
-		const continuation = this.#deps.relaunchContinuation(tabId);
-		if (continuation === "after_restore") this.#awaitingResume.add(tabId);
-		else if (continuation === "now") {
-			this.#continuedOnReady.add(tabId);
-			await this.#continueOrPause(run);
-		} else await this.#appClosed(run);
-	}
-
-	/** The run goes on after a restart; if stock cannot resume its goal, it shows paused with Resume. */
-	async #continueOrPause(run: Run): Promise<void> {
-		try {
-			await this.#continueAfterRestart(run);
-		} catch (error) {
-			this.#log(`resume after restart: ${String(error)}`);
-			await this.#closedQuietly(run);
-		}
-	}
-
-	/**
-	 * Arm and resume a run whose omp came up again. Stock reattached the goal paused at startup and remembered the
-	 * tool set of that moment (ask, eval, debug and no `autopilot`); its `goal resume` would put that set back over
-	 * the armed one. Its `goal pause` drops what it remembered (stock restores it and forgets it), so the arm comes
-	 * after the pause and the resume keeps the armed set, as it does for a run the user resumes.
-	 */
-	async #continueAfterRestart(run: Run): Promise<void> {
-		const paused = await this.#stockResponse(run.tabId, { type: "set_goal", action: "pause" });
-		if (!paused.success) throw new AutopilotError(paused.error ?? "The goal could not be paused.");
-		await this.#resume(run);
-	}
-
-	async #closedQuietly(run: Run): Promise<void> {
-		await this.#appClosed(run).catch(error => this.#log(`app_closed: ${String(error)}`));
-	}
-
-	async #appClosed(run: Run): Promise<void> {
-		await this.#stock(run.tabId, { type: "set_goal", action: "pause" }).catch(() => undefined);
-		await this.#setState(run, { state: "paused", reason: "app_closed" });
-	}
-
-	// ----------------------------------------------------------------------------------------
-	// Configure and ship actions
-	// ----------------------------------------------------------------------------------------
-
-	async #configure(
-		run: Run,
-		changes: {
-			focus?: AutopilotArea[];
-			ship?: Partial<AutopilotShipPolicy>;
-			limits?: Partial<AutopilotSettings["limits"]>;
-		},
-	): Promise<void> {
-		if (changes.ship?.autoRelease?.on === true && !(await this.#releaseFor(run.root)).procedure) {
-			throw new AutopilotError(this.#deps.text("autopilot.err.noRelease"), "autopilot_no_release");
-		}
-		const status = await this.#bridge<AutopilotStatus>(run.tabId, AUTOPILOT_BRIDGE_METHODS.configure, changes);
-		if (status.settings) run.settings = status.settings;
-	}
-
-	async #shipAction(run: Run, action: Extract<AutopilotAction, { action: "ship" }>): Promise<void> {
-		const kind = action.kind;
-		if (kind === "auto_release") {
-			const current = run.settings.ship;
-			await this.#configure(run, { ship: { autoRelease: { ...current.autoRelease, on: action.enabled === true } } });
-			return;
-		}
-		if (kind === "release") {
-			const procedure = (await this.#releaseFor(run.root)).procedure;
-			if (!procedure) throw new AutopilotError(this.#deps.text("autopilot.err.noRelease"), "autopilot_no_release");
-			run.releaseItem = run.ship.track({ kind: "release", detail: "requested" }).id;
-			await this.#stockResponse(run.tabId, {
-				type: "prompt",
-				message: RELEASE_NOW_MESSAGE,
-				streamingBehavior: "followUp",
-			});
-			return;
-		}
-		// Merge lands the run's own branch on the base; a PR is opened from the branch Push moves (the target, when there is one).
-		const nothingToShip =
-			kind === "merge"
-				? run.branch === run.baseBranch
-				: kind === "pr" && (run.target ?? run.branch) === run.baseBranch;
-		if (nothingToShip) throw new AutopilotError(this.#deps.text("autopilot.err.onBase"), "autopilot_on_base");
-		if (kind === "revert") {
-			const cycle = (run.status?.cycles ?? []).find(entry => entry.n === action.cycle);
-			if (!cycle?.commit) throw new AutopilotError(this.#deps.text("autopilot.err.noCommit"), "autopilot_no_commit");
-			run.ship.enqueue({ kind: "revert", cycle: cycle.n, sha: cycle.commit });
-		} else {
-			run.ship.enqueue({ kind, ...(action.mode ? { mode: action.mode } : {}) });
-		}
-		// Between turns it runs now; inside one, at that turn's end (`#cycleEnd`). The pool's busy flag can lag a turn's
-		// start, so a cycle the journal shows in flight (`begin` called, no record yet) holds the queue too.
-		const status = await this.#fetchStatus(run).catch(() => null);
-		const cycleInFlight = status?.now !== undefined && (status.state === "running" || status.state === "stopping");
-		if (!this.#deps.pool.tabFacts(run.tabId)?.busy && !cycleInFlight)
-			this.#enqueue(run, async () => void (await this.#drain(run)), "ship queue", CYCLE_END_MAX_MS);
-	}
-
-	// ----------------------------------------------------------------------------------------
-	// A cycle's end: children, audit, ship
-	// ----------------------------------------------------------------------------------------
-
-	/**
-	 * Queue one step of the run's pipeline. Each ends for real: past its bound ({@link STEP_MAX_MS}, or `maxMs`) it is
-	 * stopped, written to the runtime log (`chain-stall`) and shown in the run's status, and the next step starts.
-	 */
-	#enqueue(run: Run, work: () => Promise<void>, step = "step", maxMs?: number): void {
-		run.chain = run.steps.run(work, step, maxMs).catch(error => {
-			if (!(error instanceof StepStalledError)) this.#log(`${run.tabId}: ${String(error)}`);
-		});
-	}
-
-	#stepsOf(tabId: string): SerialChain {
-		return new SerialChain({
-			name: `autopilot ${tabId}`,
-			maxStepMs: STEP_MAX_MS,
-			onStall: stall => {
-				const run = this.#runs.get(tabId);
-				if (!run) return;
-				this.#log(`${tabId}: ${stall.message}`);
-				// A stop the step began and never finished is abandoned with it: the person's next Stop starts it again.
-				if (stall.step === "stop") run.stopping = false;
-				run.stalls = [...run.stalls, { step: stall.step, at: this.#now(), ms: stall.ms }].slice(-KEEP_STALLS);
-				this.#track(this.#refresh(run));
-			},
-		});
-	}
-
-	async #cycleEnd(run: Run, record: AutopilotCycleRecord, receivedAt: number): Promise<void> {
-		// The repository vanishing is one of the few stops left: nothing can be committed or audited without it. Only a
-		// confirmed loss pauses; a git that cannot answer this time (a lock, a timeout, a load spike) skips this cycle's
-		// audit and shipping, and the next cycle end checks again against the same snapshot.
-		const repo = await this.#repoState(run.root);
-		if (repo === "gone") {
-			await this.#pause(run, "repo_gone", run.root);
-			return;
-		}
-		if (repo === "unknown") {
-			this.#log(
-				`${run.tabId}: git did not answer at cycle ${record.n}'s end; its audit and shipping wait for the next`,
-			);
-			return;
-		}
-		await this.#closeChildren(run, record.n);
-		let requests: Array<{ kind: "push" | "release" }> = [];
-		try {
-			requests = (
-				await this.#bridge<{ requests: Array<{ kind: "push" | "release" }> }>(
-					run.tabId,
-					AUTOPILOT_BRIDGE_METHODS.takeShipRequests,
-					{},
-				)
-			).requests;
-		} catch (error) {
-			throwIfStepStalled();
-			this.#log(`ship requests: ${String(error)}`);
-		}
-		if (requests.some(request => request.kind === "release")) run.releaseRequested = true;
-		const violations = await this.#audit(run);
-		if (violations.length > 0) {
-			await this.#violation(run, violations);
-			return;
-		}
-		run.releaseRequested = false;
-		if (record.ship) await this.#releaseReported(run, record.ship);
-		const wantsPush = requests.some(request => request.kind === "push");
-		const green = record.verify === "green";
-		const autoPush = run.settings.ship.autoPush && green;
-		const queued = (kind: "push" | "land") =>
-			run.ship.queue().some(item => item.kind === kind && item.state === "queued");
-		const own = new Set<string>();
-		if ((wantsPush || autoPush) && !queued("push")) {
-			// Pinned to the cycle's own commit: this push may run after a later turn has moved HEAD.
-			own.add(run.ship.enqueue({ kind: "push", ...(record.commit ? { sha: record.commit } : {}) }).id);
-		}
-		// Automatic shipping: only a green cycle with a commit of its own lands; a red one or one without a commit never.
-		// Its check command goes along: a default branch that moved on is merged and that merge checked before it lands.
-		if (run.settings.ship.land && green && record.commit && !queued("land")) {
-			own.add(
-				run.ship.enqueue({
-					kind: "land",
-					sha: record.commit,
-					...(record.checkCommand ? { check: record.checkCommand } : {}),
-				}).id,
-			);
-		}
-		// This pipeline can outlive the next cycle's start: what the user queued after the frame arrived waits for that
-		// turn's end; everything queued before it, and this cycle's own push and land, go now.
-		const results = await this.#drain(run, item => own.has(item.id) || item.at <= receivedAt);
-		throwIfStepStalled();
-		// "Ship, then stop": a cycle that began after the choice ends the run only once its work shipped. One that did not
-		// (red, no commit, a refused push, a land the default branch did not take) leaves the choice on, and the next cycle
-		// is told to repair and ship it.
-		if (run.endAfterShip !== undefined && record.startedAt >= run.endAfterShip) {
-			const unshipped = shipGap(record, results, own);
-			if (unshipped === null && run.releaseItem !== undefined) {
-				// Its release run is still going: the run ends once it succeeds (`#checkRelease`).
-				run.shipStopWaitsRelease = true;
-			} else if (unshipped === null && run.releaseOwed) {
-				await this.#tellAgent(
-					run,
-					"Ship, then stop is still on: the release since the choice failed. Fix it and release again in the next cycle; the run stops once a release has succeeded.",
-				);
-			} else if (unshipped === null) {
-				run.endAfterShip = undefined;
-				await this.#beginStop(run, "user");
-			} else {
-				await this.#tellAgent(
-					run,
-					`Ship, then stop is still on: this cycle did not ship (${unshipped}). Repair it in the next cycle, commit, and end it green; the run stops once that work has landed.`,
-				);
-			}
-		}
-	}
-
-	async #audit(run: Run): Promise<AuditViolation[]> {
-		if (!run.snapshot) {
-			run.snapshot = await takeSnapshot(run.root, run.checkoutRoot).catch(() => null);
-			return [];
-		}
-		const after = await takeSnapshot(run.root, run.checkoutRoot).catch(() => null);
-		throwIfStepStalled();
-		if (!after) return [];
-		const scope: AuditScope = {
-			branch: run.branch,
-			childBranches: [...run.childBranches],
-			remote: run.settings.ship.remote,
-			defaultBranch: run.baseBranch,
-			release:
-				run.settings.ship.autoRelease.on || run.releaseRequested || run.status?.ship?.inFlight?.kind === "release",
-			expectedRefs: run.expectedRefs,
-			checkoutMayMove: run.checkoutMayMove,
-			configMayChange: run.configMayChange,
-		};
-		const violations = await auditCycle(run.root, run.snapshot, after, scope);
-		throwIfStepStalled();
-		run.snapshot = after;
-		run.expectedRefs = [];
-		run.checkoutMayMove = false;
-		run.configMayChange = false;
-		return violations;
-	}
-
-	async #violation(run: Run, violations: AuditViolation[]): Promise<void> {
-		const detail = violations.map(violation => violation.detail).join("; ");
-		this.#log(`ban violation in ${run.tabId}: ${detail}`);
-		await this.#pause(run, "ban_violation", detail);
-	}
-
-	/** Run the ShipRunner's queue; a refused or repeatedly unreachable push stops the run. */
-	async #drain(run: Run, accept?: (item: ShipQueueItem) => boolean): Promise<ShipResult[]> {
-		const waiting = run.ship.queue().filter(item => item.state === "queued" && (accept?.(item) ?? true));
-		if (waiting.length === 0) return [];
-		const pushing = waiting.some(item => item.kind === "push" || item.kind === "pr" || item.kind === "land");
-		if (pushing) {
-			await this.#setState(run, { inFlight: { kind: "push", startedAt: this.#now() } }).catch(() => undefined);
-		}
-		const target: ShipTarget = {
-			root: run.root,
-			checkoutRoot: run.checkoutRoot,
-			branch: run.branch,
-			...(run.target ? { pushTo: run.target } : {}),
-			baseBranch: run.baseBranch,
-			remote: run.settings.ship.remote,
-			...(run.landTo ? { landTo: run.landTo } : {}),
-		};
-		const results = await run.ship.drain(target, accept);
-		throwIfStepStalled();
-		if (pushing) await this.#setState(run, { inFlight: null }).catch(() => undefined);
-		// What the ShipRunner moved is now part of the baseline.
-		run.snapshot = await takeSnapshot(run.root, run.checkoutRoot).catch(() => run.snapshot);
-		run.expectedRefs = [];
-		run.checkoutMayMove = false;
-		run.configMayChange = false;
-		for (const result of results) {
-			if (result.item.kind === "land") {
-				await this.#landed(run, result);
-				continue;
-			}
-			if (result.item.kind !== "push" && result.item.kind !== "pr") continue;
-			if (result.item.state === "done") continue;
-			// A rejected or unreachable push is reported (the queue item keeps its reason, the agent gets a note) and
-			// the next cycle repairs it: merge the remote branch, never force. The run is not paused for it.
-			await this.#tellAgent(
-				run,
-				`The push of ${run.branch} failed: ${result.item.detail ?? "unknown reason"}. Autopilot never forces a push: run git fetch, merge ${run.settings.ship.remote}/${run.branch} into the branch, check again, and the next green cycle pushes it.`,
-			);
-		}
-		return results;
-	}
-
-	/**
-	 * What a land did, told where it matters: a default branch that moved (or a merge that would conflict) is a note to
-	 * the next cycle, never a stop; the first fallback to a pull request is said once (status line, notification, note).
-	 */
-	async #landed(run: Run, result: ShipResult): Promise<void> {
-		const outcome = result.land;
-		const remote = run.settings.ship.remote;
-		const dest = run.landTo ?? run.baseBranch;
-		if (outcome?.kind === "landed") {
-			run.landedCount++;
-			const merge = outcome.merge;
-			if (merge) {
-				this.#log(
-					`${run.tabId}: landed ${outcome.sha.slice(0, 9)} on ${remote}/${dest}: the merge of ${merge.onto.slice(0, 9)}, checked with ${merge.check}`,
-				);
-				await this.#tellAgent(
-					run,
-					merge.advanced
-						? `Landed on ${remote}/${dest} as a merge with the commits it had gained (${outcome.sha.slice(0, 9)}), after your check passed on that merge. ${run.branch} was fast-forwarded to it, so your worktree now has them too.`
-						: `Landed on ${remote}/${dest} as a merge with the commits it had gained (${outcome.sha.slice(0, 9)}), after your check passed on that merge. ${run.branch} moved on meanwhile, so run git fetch ${remote} && git merge ${remote}/${dest} before your next commit.`,
-				);
-			}
-			return;
-		}
-		if (outcome?.kind === "red") {
-			const why = outcome.timedOut ? "timed out" : `exit ${outcome.exitCode ?? "unknown"}`;
-			const tail = outcome.tail.trim();
-			await this.#tellAgent(
-				run,
-				`Not landed: ${remote}/${dest} moved on; it merges with this cycle's commit without conflicts, but your check (${outcome.check}) fails on that merge (${why}). Run git fetch ${remote} && git merge ${remote}/${dest}, fix what the merge broke, run the check, and commit; the next green cycle lands it.${tail ? `\nWhat the check printed (its first error, then its end):\n${tail}` : ""}`,
-			);
-			return;
-		}
-		if (outcome?.kind === "behind") {
-			const conflicts = outcome.conflicts ?? [];
-			const merge = `git fetch ${remote} && git merge ${remote}/${dest}`;
-			await this.#tellAgent(
-				run,
-				conflicts.length > 0
-					? `Not landed: ${remote}/${dest} moved on, and merging it conflicts in ${conflicts.join(", ")}. Run ${merge}, resolve the conflicts keeping both sides' intent, run the check, and commit; the next green cycle lands it.`
-					: `Not landed: ${remote}/${dest} has commits this run lacks. Run ${merge}, run the check, and commit; the next green cycle lands it. Never force anything.`,
-			);
-			return;
-		}
-		if (outcome?.kind === "pr") {
-			if (run.landing) return;
-			run.landing = { via: "pr", ...(outcome.url ? { url: outcome.url } : {}), reason: outcome.reason };
-			this.#log(
-				`${run.tabId}: ${remote}/${dest} refused the land (${outcome.reason}); lands go to ${outcome.url ?? "a pull request"}`,
-			);
-			this.#notify(run, {
-				kind: "error",
-				title: this.#deps.text("autopilot.land.prTitle"),
-				body: this.#deps.text("autopilot.land.prBody", { branch: dest, url: outcome.url ?? run.branch }),
-			});
-			await this.#tellAgent(
-				run,
-				`${remote}/${dest} refused a direct push (${outcome.reason}). Green cycles now update ${run.branch} and its pull request ${outcome.url ?? ""} instead; keep working as before.`,
-			);
-			await this.#refresh(run);
-			return;
-		}
-		await this.#tellAgent(
-			run,
-			`Landing on ${remote}/${dest} failed: ${result.item.detail ?? "unknown reason"}. Nothing was forced; the next green cycle tries again.`,
-		);
-	}
-
-	/** A note the next `begin` hands the agent (what only main saw: a failed push, a failed release run). */
-	async #tellAgent(run: Run, text: string): Promise<void> {
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.note, { text }).catch(error =>
-			this.#log(`note: ${String(error)}`),
-		);
-	}
-
-	/**
-	 * The run went quiet (plan mode, every todo blocked, no turn started, a failed turn nobody retries): leave plan mode and
-	 * ask for the next cycle. Never a pause; at most one ask per {@link NUDGE_MS}. An ask inside that window is asked again
-	 * once it passes, never dropped: a failed turn reports its failure once, so nothing else would wake the run. The run is
-	 * checked right before the ask, since it runs from the cycle-end queue and the user may pause or stop meanwhile.
-	 */
-	async #nudge(run: Run, reason: AutopilotNudgeReason | "error"): Promise<void> {
-		const now = this.#now();
-		if (run.stopping) return;
-		if (now < run.nextNudgeAt) {
-			if (run.nudgeLater) return;
-			run.nudgeLater = true;
-			(this.#deps.after ?? afterMs)(() => {
-				run.nudgeLater = false;
-				this.#enqueue(run, () => this.#nudge(run, reason), "nudge");
-			}, run.nextNudgeAt - now);
-			return;
-		}
-		if (!(await this.#quietAndRunning(run))) return;
-		run.nextNudgeAt = now + (reason === "error" ? ERROR_NUDGE_MS : NUDGE_MS);
-		if (reason === "plan") {
-			await this.#stock(run.tabId, { type: "set_plan_mode", enabled: false }).catch(() => undefined);
-			if (!(await this.#quietAndRunning(run))) return;
-		}
-		await this.#stockResponse(run.tabId, {
-			type: "prompt",
-			message: NUDGE_MESSAGES[reason],
-			streamingBehavior: "followUp",
-		}).catch(error => this.#log(`nudge: ${String(error)}`));
-	}
-
-	/**
-	 * A turn ended on the account's usage limit and stock's auto-retry let it go: the run waits until the provider's
-	 * first account resets (its usage reports; a short fallback when none names a reset: `quotaWaitUntil`), journaled as
-	 * `waiting_quota` with that time so every window, a paired device and a relaunch see it. Main owns the wake: it
-	 * fires with no window open. Never a pause.
-	 */
-	async #waitForQuota(run: Run): Promise<void> {
-		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
-		const facts = this.#deps.pool.tabFacts(run.tabId);
-		if (!facts || facts.busy || facts.retrying) return;
-		const status = await this.#fetchStatus(run).catch(() => null);
-		if (status?.state !== "running") return;
-		const state = await this.#stock<{ model?: { provider?: string } | null }>(run.tabId, { type: "get_state" }).catch(
-			() => null,
-		);
-		const usage = await this.#stock<{ reports?: UsageReport[] }>(run.tabId, { type: "get_usage" }).catch(() => null);
-		const now = this.#now();
-		const reports = Array.isArray(usage?.reports) ? usage.reports : [];
-		const resetAt = quotaWaitUntil(reports, state?.model?.provider ?? undefined, now);
-		run.quotaRetries = 0;
-		await this.#setState(run, { state: "waiting_quota", quotaResetAt: resetAt });
-		this.#armQuotaWake(run, resetAt, false);
-	}
-
-	#armQuotaWake(run: Run, at: number, restarted: boolean): void {
-		run.cancelQuotaWake?.();
-		run.cancelQuotaWake = (this.#deps.after ?? afterMs)(
-			() => {
-				run.cancelQuotaWake = null;
-				this.#enqueue(run, () => this.#quotaWake(run, restarted), "quota wake");
-			},
-			Math.max(0, at - this.#now()),
-		);
-	}
-
-	/**
-	 * The reset came: a run still waiting (not paused, stopped or resumed meanwhile) goes on. In this process stock's
-	 * `retry` takes the failed turn up again; after a relaunch stock paused the goal at startup, so it resumes as a
-	 * restart does.
-	 */
-	async #quotaWake(run: Run, restarted: boolean): Promise<void> {
-		if (this.#runs.get(run.tabId) !== run || run.stopping) return;
-		const status = await this.#fetchStatus(run).catch(() => null);
-		if (status?.state !== "waiting_quota") return;
-		await this.#setState(run, { state: "running" });
-		if (restarted) {
-			await this.#continueOrPause(run);
-			return;
-		}
-		const retried = await this.#stockResponse(run.tabId, { type: "retry" }).catch(() => null);
-		if (retried?.success) {
-			run.quotaRetries = 0;
-			return;
-		}
-		// A turn is already under way (a message of the user's, a nudge): the run is going on.
-		const facts = this.#deps.pool.tabFacts(run.tabId);
-		if (facts?.busy || facts?.retrying) return;
-		// The retry did not take: wait again, visibly (`waiting_quota` with the time of the next try), at the next reset
-		// the provider reports or after a backoff of at most {@link QUOTA_RETRY_MAX_MS}, whichever is sooner. It repeats
-		// until the run goes on.
-		const now = this.#now();
-		const backoff = Math.min(QUOTA_RETRY_MAX_MS, QUOTA_RETRY_MIN_MS * 2 ** run.quotaRetries);
-		run.quotaRetries += 1;
-		const next = now + backoff;
-		this.#log(`${run.tabId}: the retry after the quota wait failed; trying again at ${new Date(next).toISOString()}`);
-		await this.#setState(run, { state: "waiting_quota", quotaResetAt: next });
-		this.#armQuotaWake(run, next, false);
-	}
-
-	async #stopRequested(run: Run, request: AutopilotStopRequest): Promise<void> {
-		if (run.stopping) return;
-		if (request.end) {
-			await this.#beginStop(run, request.reason as AutopilotEndReason);
-			return;
-		}
-		await this.#pause(run, request.reason as AutopilotPauseReason, request.detail);
-	}
-
-	async #pause(run: Run, reason: AutopilotPauseReason, detail?: string): Promise<void> {
-		if (run.stopping) return;
-		await this.#stock(run.tabId, { type: "set_goal", action: "pause" }).catch(() => undefined);
-		await this.#setState(run, { state: "paused", reason, ...(detail ? { detail } : {}) });
-		await this.#reportStop(run, "paused", reason, detail);
-	}
-
-	/** The last turn of a stopping run settled. */
-	async #settled(run: Run, reason: AutopilotPauseReason | AutopilotEndReason): Promise<void> {
-		await this.#closeChildren(run, run.status?.cycle ?? 0);
-		await this.#drain(run);
-		throwIfStepStalled();
-		run.stopPolling?.();
-		run.stopPolling = null;
-		const ending = (reason as string) === "user" || reason === "agent_done" || reason === "tab_closed";
-		if (!ending) {
-			await this.#setState(run, { state: "paused", reason: reason as AutopilotPauseReason });
-			run.stopping = false;
-			await this.#reportStop(run, "paused", reason, undefined);
-			return;
-		}
-		const summary = await this.#summary(run, reason, undefined);
-		await this.#setState(run, { state: "ended", reason });
-		await this.#stock(run.tabId, { type: "set_goal", action: "drop" }).catch(() => undefined);
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.disarm, {}).catch(error =>
-			this.#log(`disarm: ${String(error)}`),
-		);
-		throwIfStepStalled();
-		this.#deps.runLog?.("ended", summary.details);
-		this.#notify(run, { kind: "completion", title: this.#deps.text("autopilot.ended.title"), body: summary.line });
-		this.#runs.delete(run.tabId);
-		this.#deps.runEnded?.(run.root);
+		this.#tell("resumeSettled", { tab: tabId, outcome });
 	}
 
 	// ----------------------------------------------------------------------------------------
@@ -1649,281 +508,38 @@ export class Autopilot {
 		worktree?: { path: string; branch: string };
 		tag?: string;
 	}): Promise<void> {
-		// The tool path (`ompdesk_session_open`) passes no tag, so every session an autopilot run's tab opens is its child;
-		// a tagged one whose caller is no run (a stale tag) is refused below.
-		if (child.tag !== AUTOPILOT_CHILD_TAG && !this.#runs.has(child.callerTabId)) return;
-		const run = this.#runs.get(child.callerTabId);
-		if (!run) throw new Error("Autopilot is not running in the session that opened this one.");
-		if (run.stopping) throw new Error("Autopilot is ending: start nothing new.");
-		const root = child.worktree?.path ?? this.#deps.pool.sidecarOf(child.tabId)?.cwd ?? run.root;
-		const branch = child.worktree?.branch ?? "";
-		const arm: AutopilotArmParams = {
-			role: "child",
-			root,
-			run: run.run,
-			branch,
-			baseBranch: run.branch,
-			settings: {
-				...run.settings,
-				ship: { ...DEFAULT_SHIP_POLICY, remote: run.settings.ship.remote },
-				limits: NO_LIMITS,
-			},
-			parentTab: run.tabId,
-		};
-		await this.#bridge(child.tabId, AUTOPILOT_BRIDGE_METHODS.arm, arm);
-		this.#childRuns.set(child.tabId, { parentTab: run.tabId, root, branch });
-		run.children.set(child.tabId, {
-			tabId: child.tabId,
-			...(branch ? { branch } : {}),
-			...(child.worktree ? { worktree: child.worktree.path } : {}),
-		});
-		if (branch) run.childBranches.add(branch);
-		this.#track(this.#refresh(run));
+		const answer = await this.#ask<{ ok: true } | { ok: false; error: string }>("beforeFirstPrompt", { child });
+		if (!answer.ok) throw new Error(answer.error);
 	}
 
-	/** Usage of every child of the cycle, its tab closed and its clean, merged worktree removed. */
-	async #closeChildren(run: Run, cycle: number): Promise<void> {
-		const children = [...run.children.values()];
-		run.children.clear();
-		let tokens = 0;
-		let usd = 0;
-		for (const child of children) {
-			const stats = await this.#stock<{ tokens?: { total?: number }; cost?: number }>(child.tabId, {
-				type: "get_session_stats",
-			}).catch(() => null);
-			tokens += stats?.tokens?.total ?? 0;
-			usd += stats?.cost ?? 0;
-			if (this.#deps.pool.tabFacts(child.tabId)?.busy) {
-				this.#deps.pool.noteStopped(child.tabId);
-				recordTurnStop({ command: "abort", tab: child.tabId, by: "autopilot", surface: "run-ended" });
-				await this.#stock(child.tabId, { type: "abort" }).catch(() => undefined);
-			}
-			this.#childRuns.delete(child.tabId);
-			await this.#deps.pool.releaseTabWhenExited(child.tabId).catch(() => undefined);
-			await this.#removeChildWorktree(run, child);
-		}
-		if (children.length > 0 && (tokens > 0 || usd > 0) && cycle > 0) {
-			await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.cycleAmend, { n: cycle, tokens, usd }).catch(error =>
-				this.#log(`cycle amend: ${String(error)}`),
-			);
-		}
-		if (children.length > 0) this.#track(this.#refresh(run));
+	/** Resolves when every queued cycle-end/stop task and every background step of every run has finished (tests, quit). */
+	async idle(): Promise<void> {
+		await this.#ask("idle", {});
 	}
 
-	/** `git worktree remove` (no force) when the child's branch is merged into the run's and its tree is clean. */
-	async #removeChildWorktree(run: Run, child: ChildState): Promise<void> {
-		if (!child.worktree || !child.branch) return;
-		const merged = await gitRaw(run.root, ["merge-base", "--is-ancestor", child.branch, run.branch], {
-			timeoutMs: GIT_MS,
-		}).catch(() => null);
-		if (merged?.code !== 0) return;
-		const dirty = await gitRaw(child.worktree, ["status", "--porcelain"], { timeoutMs: GIT_MS }).catch(() => null);
-		if (dirty?.code !== 0 || dirty.stdout.toString("utf8").trim() !== "") return;
-		await gitRaw(run.root, ["worktree", "remove", child.worktree], { timeoutMs: GIT_MS }).catch(() => undefined);
+	/** Closes the port to the core: what it still asks of main fails, and nothing more reaches this client. */
+	dispose(): void {
+		this.#port.close();
 	}
 
 	// ----------------------------------------------------------------------------------------
-	// Release run
+	// What the core reads of main
 	// ----------------------------------------------------------------------------------------
 
-	async #releaseReported(run: Run, ship: NonNullable<AutopilotCycleRecord["ship"]>): Promise<void> {
-		const item = run.releaseItem ?? run.ship.track({ kind: "release", detail: ship.version }).id;
-		run.releaseItem = item;
-		if (!ship.runUrl) {
-			run.ship.finish(item, "done", ship.version);
-			run.releaseItem = undefined;
-			await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.configure, {
-				release: { version: ship.version, state: "success" },
-			}).catch(() => undefined);
-			return;
-		}
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.configure, {
-			release: { version: ship.version, runUrl: ship.runUrl, state: "pending" },
-		}).catch(() => undefined);
-		this.#pollRelease(run, ship.version, ship.runUrl);
-	}
-
-	#pollRelease(run: Run, version: string, runUrl: string): void {
-		run.stopPolling?.();
-		const setTimer =
-			this.#deps.setTimer ??
-			((fn, ms) => {
-				const timer = setInterval(fn, ms);
-				timer.unref?.();
-				return () => clearInterval(timer);
-			});
-		let busy = false;
-		const stop = setTimer(() => {
-			if (busy) return;
-			busy = true;
-			this.#track(
-				this.#checkRelease(run, version, runUrl, stop)
-					.catch(error => this.#log(`release poll: ${String(error)}`))
-					.finally(() => {
-						busy = false;
-					}),
-			);
-		}, RELEASE_POLL_MS);
-		run.stopPolling = stop;
-	}
-
-	async #checkRelease(run: Run, version: string, runUrl: string, stop: () => void): Promise<void> {
-		const info = await (this.#deps.ghRun ?? ghRunStatus)(run.root, runUrl);
-		if (info?.status !== "completed") return;
-		stop();
-		run.stopPolling = null;
-		const ok = info.conclusion === "success";
-		const item = run.releaseItem;
-		run.releaseItem = undefined;
-		if (item) run.ship.finish(item, ok ? "done" : "failed", version, runUrl);
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.configure, {
-			release: { version, runUrl, state: ok ? "success" : "failure" },
-		}).catch(() => undefined);
-		this.#notify(run, {
-			kind: ok ? "completion" : "error",
-			title: this.#deps.text("autopilot.release.title"),
-			body: this.#deps.text(ok ? "autopilot.release.ok" : "autopilot.release.failed", { version }),
-		});
-		// "Ship, then stop" ends the run on a release that succeeded; a failed one is owed, and the next cycle repairs it.
-		if (run.endAfterShip !== undefined) {
-			const waited = run.shipStopWaitsRelease === true;
-			run.shipStopWaitsRelease = undefined;
-			if (!ok) run.releaseOwed = true;
-			else {
-				run.releaseOwed = undefined;
-				if (waited) {
-					run.endAfterShip = undefined;
-					await this.#beginStop(run, "user");
-				}
-			}
-		}
-		// A failed release run is reported (notice above, the run's status) and handed to the next cycle: never a pause.
-		if (!ok) {
-			await this.#tellAgent(
-				run,
-				`The release run of ${version} failed (${info.conclusion ?? "failed"}): ${runUrl}. Read the failure, fix it and release again.`,
-			);
-		}
-	}
-
-	// ----------------------------------------------------------------------------------------
-	// Notifications
-	// ----------------------------------------------------------------------------------------
-
-	/**
-	 * Stops, ends and release outcomes: what a person away from the screen must know. Where it goes (this computer's
-	 * banner under its own notifications switch, the paired device that started or shows the run, phones) is `notify`'s.
-	 */
-	#notify(run: Run, notice: AutopilotNotice): void {
-		this.#deps.notify(run.tabId, notice);
-	}
-
-	/**
-	 * A run paused: the summary line goes to the runtime log always and to a notification unless the pause is the user's
-	 * own doing or a state the screen already shows ({@link SILENT_REASONS}).
-	 */
-	async #reportStop(run: Run, state: "paused", reason: string, detail: string | undefined): Promise<void> {
-		const summary = await this.#summary(run, reason, detail);
-		this.#deps.runLog?.(state, summary.details);
-		if (SILENT_REASONS.has(reason)) return;
-		this.#notify(run, {
-			kind: COMPLETION_REASONS.has(reason) ? "completion" : "error",
-			title: this.#deps.text("autopilot.paused.title"),
-			body: summary.line,
-		});
-	}
-
-	/**
-	 * One line that says what the run did and why it stopped: cycles (green), commits, whether they reached the default
-	 * branch (landing), the pushed branch, or only this computer, and the reason. Read from the journal and git, so it is
-	 * right after a relaunch too; it is the record that outlives the run's session.
-	 */
-	async #summary(
-		run: Run,
-		reason: string,
-		detail: string | undefined,
-	): Promise<{ line: string; details: Record<string, string | number | boolean> }> {
-		const text = this.#deps.text;
-		const status = await this.#fetchStatus(run).catch(() => run.status);
-		const cycles = status?.cycles ?? [];
-		const commits = cycles.flatMap(cycle => (cycle.commit ? [cycle.commit] : []));
-		const green = cycles.filter(cycle => cycle.verify === "green").length;
-		const remote = run.settings.ship.remote;
-		const contains = async (ref: string, sha: string) =>
-			(await gitRaw(run.root, ["merge-base", "--is-ancestor", sha, ref], { timeoutMs: GIT_MS }).catch(() => null))
-				?.code === 0;
-		let shipped: string;
-		const details: Record<string, string | number | boolean> = {};
-		if (run.settings.ship.land && run.landTo) {
-			const ref = `refs/remotes/${remote}/${run.landTo}`;
-			let landed = 0;
-			for (const sha of commits) if (await contains(ref, sha)) landed++;
-			details.landed = landed;
-			details.landTo = run.landTo;
-			shipped = run.landing
-				? text("autopilot.summary.pr", {
-						landed,
-						commits: commits.length,
-						target: run.landTo,
-						url: run.landing.url ?? run.branch,
-					})
-				: text("autopilot.summary.landed", { landed, commits: commits.length, target: run.landTo });
-			if (run.landing?.url) details.pr = run.landing.url;
-		} else if (run.settings.ship.autoPush || run.settings.ship.autoRelease.on) {
-			const dest = run.target ?? run.branch;
-			const last = commits.at(-1);
-			const pushed = last ? await contains(`refs/remotes/${remote}/${dest}`, last) : false;
-			details.pushed = pushed;
-			shipped = pushed
-				? text("autopilot.summary.pushed", { target: `${remote}/${dest}` })
-				: text("autopilot.summary.notPushed");
-		} else {
-			shipped = text("autopilot.summary.local");
-		}
-		const key = REASON_TEXT[reason as AutopilotPauseReason | AutopilotEndReason];
-		const why = key ? text(key, { detail: detail ?? "" }) : detail ? `${reason}: ${detail}` : reason;
-		const line = text("autopilot.summary", {
-			branch: run.branch,
-			cycles: cycles.length,
-			green,
-			commits: commits.length,
-			shipped,
-			reason: why,
-		});
-		return {
-			line,
-			details: {
-				summary: line,
-				run: run.run,
-				root: run.root,
-				branch: run.branch,
-				reason,
-				...(detail ? { detail } : {}),
-				cycles: cycles.length,
-				green,
-				commits: commits.length,
-				...details,
-			},
-		};
-	}
-
-	// ----------------------------------------------------------------------------------------
-	// Plumbing
-	// ----------------------------------------------------------------------------------------
-
+	/** The approver's view of a tab: its run, or the run its parent runs (a child). */
 	#approverRun(tabId: string): ApproverRun | undefined {
-		const run = this.#runs.get(tabId);
+		const run = this.#mirror.get(tabId);
 		if (run) {
 			return {
 				role: "parent",
 				root: run.root,
-				ship: run.settings.ship,
-				oneShotRelease: run.settings.ship.autoRelease.on || run.releaseRequested,
+				ship: run.policy,
+				oneShotRelease: run.oneShotRelease,
 				defaultBranch: run.baseBranch,
 			};
 		}
 		const child = this.#childRuns.get(tabId);
-		const parent = child ? this.#runs.get(child.parentTab) : undefined;
+		const parent = child ? this.#mirror.get(child.parentTab) : undefined;
 		if (!child || !parent) return undefined;
 		return {
 			role: "child",
@@ -1934,16 +550,16 @@ export class Autopilot {
 		};
 	}
 
-	#overlaid(run: Run, status: AutopilotStatus): AutopilotStatus {
+	#overlaid(run: RunMirror, status: AutopilotStatus): AutopilotStatus {
 		const ship: AutopilotShipState = {
-			...(status.ship ?? { policy: run.settings.ship, queue: [] }),
-			queue: run.ship.queue(),
+			...(status.ship ?? { policy: run.policy, queue: [] }),
+			queue: run.queue.map(item => ({ ...item })),
 			...(run.releaseProcedure ? { releaseProcedure: run.releaseProcedure } : {}),
 			...(run.releaseBlocked && !run.releaseProcedure ? { releaseBlocked: run.releaseBlocked } : {}),
 			...(run.landing ? { landing: run.landing } : {}),
-			...(run.endAfterShip !== undefined ? { endAfterShip: true as const } : {}),
+			...(run.endAfterShip ? { endAfterShip: true as const } : {}),
 		};
-		const children: AutopilotChildLive[] = [...run.children.values()].map(child => ({
+		const children: AutopilotChildLive[] = run.children.map(child => ({
 			tabId: child.tabId,
 			...(child.area ? { area: child.area } : {}),
 			...(child.branch ? { branch: child.branch } : {}),
@@ -1952,123 +568,23 @@ export class Autopilot {
 		return { ...status, ship, children, ...(run.stalls.length > 0 ? { stalls: run.stalls } : {}) };
 	}
 
-	async #fetchStatus(run: Run): Promise<AutopilotStatus> {
-		const status = await this.#bridge<AutopilotStatus>(run.tabId, AUTOPILOT_BRIDGE_METHODS.status, {});
-		run.status = status;
-		if (status.settings) run.settings = status.settings;
-		return status;
+	#log(message: string): void {
+		(this.#deps.log ?? ((text: string) => console.warn(`[autopilot] ${text}`)))(message);
 	}
 
-	/** Make the bridge re-emit `autopilot_update` (through the overlay) after something only main changed. */
-	async #refresh(run: Run): Promise<void> {
-		if (run.refreshing) {
-			run.refreshAgain = true;
-			return;
-		}
-		run.refreshing = true;
-		try {
-			do {
-				run.refreshAgain = false;
-				await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.configure, {}).catch(() => undefined);
-			} while (run.refreshAgain);
-		} finally {
-			run.refreshing = false;
-		}
-	}
-
-	/**
-	 * Journal a state through the bridge, keeping what the last status said about the rest. A change that names no
-	 * state (a push's in-flight mark) sends none: the journal keeps its own, which a pause given after this process
-	 * last read the status has already changed (a push's mark once wrote `running` over the user's Pause).
-	 */
-	async #setState(
-		run: Run,
-		change: {
-			state?: AutopilotStatus["state"];
-			reason?: AutopilotPauseReason | AutopilotEndReason;
-			detail?: string;
-			inFlight?: { kind: "push" | "release"; startedAt: number } | null;
-			quotaResetAt?: number;
-		},
-	): Promise<void> {
-		const current = run.status;
-		const sameState = change.state === undefined || change.state === current?.state;
-		const reason = change.reason ?? (sameState ? current?.reason : undefined);
-		const detail = change.detail ?? (sameState ? current?.detail : undefined);
-		await this.#bridge(run.tabId, AUTOPILOT_BRIDGE_METHODS.setState, {
-			...(change.state !== undefined ? { state: change.state } : {}),
-			...(change.state !== undefined && reason ? { reason } : {}),
-			...(change.state !== undefined && detail ? { detail } : {}),
-			...(change.inFlight !== undefined ? { inFlight: change.inFlight } : {}),
-			...(change.quotaResetAt !== undefined ? { quotaResetAt: change.quotaResetAt } : {}),
-		});
-	}
-
-	async #bridge<T = unknown>(tabId: string, method: string, params: unknown, timeoutMs?: number): Promise<T> {
-		throwIfStepStalled();
-		const client = this.#deps.pool.sidecarOf(tabId)?.rpcClient;
+	/** The omp of a tab: its client, or why there is none. */
+	#client(tab: string): NonNullable<SidecarLike["rpcClient"]> {
+		const client = this.#deps.pool.sidecarOf(tab)?.rpcClient;
 		if (!client) throw new Error("That session's process is gone.");
-		const response = await client.command({ type: "autopilot_bridge", method, params }, timeoutMs);
-		// A pipeline step stopped for running past its bound can resume here later: it ends, the next step owns the run.
-		throwIfStepStalled();
-		if (!response.success) throw new Error(response.error ?? `${method} failed`);
-		return response.data as T;
+		return client;
 	}
 
-	async #stockResponse(tabId: string, command: Record<string, unknown>): Promise<RpcResponse> {
-		throwIfStepStalled();
-		const client = this.#deps.pool.sidecarOf(tabId)?.rpcClient;
-		if (!client) throw new Error("That session's process is gone.");
-		// The coordinator speaks stock command names; RpcCommand only types the renderer's set.
-		const response = await client.command(command as unknown as RpcCommand);
-		throwIfStepStalled();
-		return response;
-	}
-
-	async #stock<T = unknown>(tabId: string, command: Record<string, unknown>): Promise<T> {
-		const response = await this.#stockResponse(tabId, command);
-		if (!response.success) throw new Error(response.error ?? `${String(command.type)} failed`);
-		return response.data as T;
-	}
-
-	/** A relaunch's run takes over naming its session, from the next cycle, while the name is still the run's own. */
-	async #adoptTitle(run: Run, status: AutopilotStatus, folders: readonly string[]): Promise<void> {
-		const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" }).catch(
-			() => null,
-		);
-		if (!state) return;
-		const name = state.sessionName ?? "";
-		const items = [...(status.cycles ?? []).map(cycle => cycle.title ?? ""), status.now?.title ?? ""];
-		if (
-			runOwnsTitle(
-				name,
-				folders.map(folder => basename(folder)),
-				items,
-			)
-		)
-			run.title = { name, item: null };
-	}
-
-	/** Names the run's session (`runSessionTitle`); a later rename only replaces the run's own title, never the user's. */
-	async #retitle(run: Run, what: string): Promise<void> {
-		const name = runSessionTitle(what);
-		try {
-			if (run.title) {
-				const state = await this.#stock<{ sessionName?: string | null }>(run.tabId, { type: "get_state" });
-				if ((state.sessionName ?? "") !== run.title.name) return;
-			}
-			await this.#stock(run.tabId, { type: "set_session_name", name });
-			run.title = { name, item: run.title?.item ?? null };
-		} catch (error) {
-			this.#log(`naming the run's session failed: ${error instanceof Error ? error.message : String(error)}`);
-		}
-	}
-
-	async #ready(tabId: string): Promise<SidecarLike> {
-		const sidecar = this.#deps.pool.sidecarOf(tabId);
-		if (!sidecar) throw new Error("The Autopilot tab is gone.");
-		if (sidecar.status === "ready") return sidecar;
-		const { promise, resolve, reject } = Promise.withResolvers<SidecarLike>();
+	/** A start's wait for its new tab's omp: no deadline, ended by the core. */
+	#readyWait(tab: string): Promise<void> {
+		const sidecar = this.#deps.pool.sidecarOf(tab);
+		if (!sidecar) return Promise.reject(new Error("The Autopilot tab is gone."));
+		if (sidecar.status === "ready") return Promise.resolve();
+		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const listener = (payload: { status: string }) => {
 			if (payload.status === "ready") finish(null);
 			else if (payload.status === "error" || payload.status === "exited")
@@ -2076,164 +592,103 @@ export class Autopilot {
 		};
 		const finish = (error: Error | null) => {
 			sidecar.off("status", listener);
-			this.#startWaits.delete(tabId);
+			this.#readyCancels.delete(tab);
 			if (error) reject(error);
-			else resolve(sidecar);
+			else resolve();
 		};
-		this.#startWaits.set(tabId, finish);
+		this.#readyCancels.set(tab, () => finish(new Error("The wait was ended.")));
 		sidecar.on("status", listener);
 		// A tab nobody has shown yet may still be asleep.
 		if (sidecar.status === "asleep") sidecar.start();
 		return promise;
 	}
 
-	/** The remote a run ships to when nothing says: `origin`, else the only (first) remote, else `origin` anyway. */
-	async #detectRemote(cwd: string): Promise<string> {
-		const names = (await this.#gitText(cwd, ["remote"])).split("\n").filter(Boolean);
-		return names.includes("origin") ? "origin" : (names[0] ?? "origin");
-	}
-
-	/** `gone` only when two probes {@link REPO_RECHECK_MS} apart both say so; `unknown` when git could not answer. */
-	async #repoState(root: string): Promise<RepoProbe> {
-		const probe = this.#deps.probeRepo ?? probeRepo;
-		const first = await probe(root);
-		if (first !== "gone") return first;
-		const { promise, resolve } = Promise.withResolvers<void>();
-		(this.#deps.after ?? afterMs)(resolve, REPO_RECHECK_MS);
-		await promise;
-		return probe(root);
-	}
-
-	async #gitText(cwd: string, args: string[]): Promise<string> {
-		const result = await gitRaw(cwd, args, { timeoutMs: GIT_MS }).catch(() => null);
-		return result?.code === 0 ? result.stdout.toString("utf8").trim() : "";
-	}
-
-	/**
-	 * Writes Start's guide into the new worktree and commits it as the autopilot branch's first commit; nothing happens
-	 * when the worktree's own AUTOPILOT.md already says the same. Hooks are skipped (a docs-only commit must not be able
-	 * to stop the start) and so is signing. The user's own branch is never written.
-	 */
-	async #commitGuide(root: string, guide: string): Promise<void> {
-		const body = `${guide.trim()}\n`;
-		if (Buffer.byteLength(body) > AUTOPILOT_GUIDE_COMMIT_MAX_BYTES) {
-			throw new AutopilotError(this.#deps.text("autopilot.err.guideTooLarge"), "autopilot_guide_large");
-		}
-		const file = join(root, AUTOPILOT_GUIDE_FILE);
-		const current = await readFile(file, "utf8").catch(() => null);
-		if (current !== null && `${current.trim()}\n` === body) return;
-		await writeFile(file, body, "utf8");
-		const message = current === null ? "docs: add AUTOPILOT.md guide" : "docs: update AUTOPILOT.md guide";
-		const steps = [
-			["add", "--", AUTOPILOT_GUIDE_FILE],
-			["-c", "commit.gpgsign=false", "commit", "--no-verify", "-m", message, "--", AUTOPILOT_GUIDE_FILE],
-		];
-		for (const args of steps) {
-			const result = await gitRaw(root, args, { timeoutMs: GIT_MS }).catch(() => null);
-			if (result?.code !== 0) {
-				const why = result?.stderr.trim() || "git failed";
-				throw new AutopilotError(
-					`${this.#deps.text("autopilot.err.guideCommit")} ${why}`,
-					"autopilot_guide_commit",
-				);
-			}
-		}
-	}
-
-	/** Start's guide from the bridge (see {@link AUTOPILOT_BRIDGE_METHODS.guide}); null when the bridge cannot build one. */
-	async #guideToCommit(
-		tabId: string,
-		root: string,
-		procedure: AutopilotReleaseProcedure | null,
-		text: string | undefined,
-	): Promise<AutopilotEnsuredGuide | null> {
-		const guide = await this.#bridge<unknown>(
-			tabId,
-			AUTOPILOT_BRIDGE_METHODS.guide,
-			{ root, procedure, ...(typeof text === "string" && text.trim() ? { text } : {}) },
-			GUIDE_MS,
-		).catch(() => null);
-		if (typeof guide !== "object" || guide === null || !("text" in guide) || typeof guide.text !== "string")
-			return null;
-		return guide.text.trim() ? (guide as AutopilotEnsuredGuide) : null;
-	}
-
-	/** What the start sheet needs of a session that is no run: ship defaults, release facts, the branches. */
-	async #idleStatus(sidecar: SidecarLike): Promise<AutopilotStatus> {
-		const release = await this.#releaseFor(sidecar.cwd);
-		// git prints `C:/x` on Windows; the sheet's key and the folders the picker names are native paths.
-		const topText = await this.#gitText(sidecar.cwd, ["rev-parse", "--show-toplevel"]);
-		const toplevel = topText ? resolve(topText) : topText;
-		const remote = await this.#detectRemote(sidecar.cwd);
-		const branches = toplevel ? await readBranchInfo(sidecar.cwd, { toplevel, remote }).catch(() => null) : null;
-		return {
-			active: false,
-			ship: {
-				policy: { ...DEFAULT_SHIP_POLICY, remote },
-				queue: [],
-				...(release.procedure ? { releaseProcedure: release.procedure } : {}),
-				...(release.blocked ? { releaseBlocked: release.blocked } : {}),
-			},
-			...(branches ? { branches } : {}),
+	#handlers() {
+		const deps = this.#deps;
+		const call = (id: number) => {
+			const held = this.#calls.get(id);
+			if (!held) throw new Error("That command is over.");
+			return held;
 		};
-	}
-
-	/** Throws the reason a run cannot take `choice` (git's own state, read at the start). */
-	#refuseBranch(choice: AutopilotBranchChoice, entries: readonly AutopilotBranchEntry[]): void {
-		const problem = branchProblem(choice, entries);
-		if (!problem) return;
-		const text = this.#deps.text;
-		const branch = choice.kind === "new" ? (choice.name ?? "") : choice.name;
-		if (problem.code === "exists") {
-			throw new AutopilotError(text("autopilot.err.branchExists", { branch }), "autopilot_branch_exists");
-		}
-		if (problem.code === "invalid_name") {
-			throw new AutopilotError(text("autopilot.err.branchInvalid", { branch }), "autopilot_branch_invalid");
-		}
-		throw new AutopilotError(text("autopilot.err.branchMissing", { branch }), "autopilot_branch_missing");
-	}
-
-	/** The checkout the worktree was cut from: the first entry of `git worktree list` (the primary one). */
-	async #commonCheckout(root: string): Promise<string | null> {
-		const list = await this.#gitText(root, ["worktree", "list", "--porcelain"]);
-		const first = /^worktree (.+)$/m.exec(list)?.[1];
-		return first ?? null;
-	}
-
-	/** The release procedure of the repository at `root` (cached a minute), or why there is none. */
-	async #releaseFor(root: string): Promise<{ procedure: AutopilotReleaseProcedure | null; blocked?: string }> {
-		const cached = this.#releaseCache.get(root);
-		const now = this.#now();
-		let value: AutopilotReleaseProcedure | null;
-		if (cached && now - cached.at < RELEASE_CACHE_MS) value = cached.value;
-		else {
-			value = await (this.#deps.detectRelease ?? detectReleaseProcedure)(root).catch(() => null);
-			this.#releaseCache.set(root, { at: now, value });
-		}
-		return value ? { procedure: value } : { procedure: null, blocked: this.#deps.text("autopilot.err.noRelease") };
-	}
-
-	#now(): number {
-		return this.#deps.now?.() ?? Date.now();
-	}
-
-	#log(message: string): void {
-		(this.#deps.log ?? ((text: string) => console.warn(`[autopilot] ${text}`)))(message);
-	}
-
-	/** Resolves when every queued cycle-end/stop task and every background step of every run has finished (tests, quit). */
-	async idle(): Promise<void> {
-		for (;;) {
-			const chains = [...this.#runs.values()].map(run => [run, run.chain] as const);
-			await Promise.allSettled([...this.#background, ...chains.map(([, chain]) => chain)]);
-			await this.#approver.idle();
-			// A task that queued another (a stop that settles itself) moved a chain on.
-			if (this.#background.size === 0 && chains.every(([run, chain]) => run.chain === chain)) return;
-		}
-	}
-
-	#track(work: Promise<unknown>): void {
-		this.#background.add(work);
-		void work.finally(() => this.#background.delete(work));
+		return {
+			gitRunner: () => gitRunner(),
+			stock: ({ tab, command }: { tab: string; command: RpcCommand }) => this.#client(tab).command(command),
+			bridge: ({
+				tab,
+				method,
+				params,
+				timeoutMs,
+			}: {
+				tab: string;
+				method: string;
+				params: unknown;
+				timeoutMs?: number;
+			}) =>
+				this.#client(tab).command({ type: "autopilot_bridge", method, params } as unknown as RpcCommand, timeoutMs),
+			facts: ({ tab }: { tab: string }) => deps.pool.tabFacts(tab),
+			sidecar: ({ tab }: { tab: string }) => {
+				const sidecar = deps.pool.sidecarOf(tab);
+				return sidecar ? { cwd: sidecar.cwd, status: sidecar.status, device: Boolean(sidecar.device) } : null;
+			},
+			ready: ({ tab }: { tab: string }) => this.#readyWait(tab),
+			readyCancel: ({ tab }: { tab: string }) => this.#readyCancels.get(tab)?.(),
+			release: ({ tab }: { tab: string }) => deps.pool.releaseTabWhenExited(tab),
+			noteStopped: ({ tab }: { tab: string }) => deps.pool.noteStopped(tab),
+			turnStop: (stop: Parameters<typeof recordTurnStop>[0]) => recordTurnStop(stop),
+			answer: ({ id, tab, response }: { id: string; tab: string; response: object }) =>
+				deps.pool.routeSideChannel(id, response, tab),
+			dispatch: ({
+				call: id,
+				tab,
+				command,
+				timeoutMs,
+			}: {
+				call: number;
+				tab: string;
+				command: RpcCommand;
+				timeoutMs?: number;
+			}) => {
+				const { win, sidecar } = call(id);
+				return deps.dispatch(win, sidecar, tab, command, timeoutMs);
+			},
+			spawnTab: ({ call: id, payload }: { call: number; payload: IpcSpawnTabPayload }) =>
+				deps.spawnTab(call(id).win, payload),
+			text: ({ key, params }: { key: MainTextKey; params?: Record<string, string | number> }) =>
+				deps.text(key, params),
+			releaseProcedure: ({ root }: { root: string }) =>
+				(deps.detectRelease ?? detectReleaseProcedure)(root).catch(() => null),
+			prText: ({ branch, cycles }: { branch: string; cycles: AutopilotStatus["cycles"] }) => ({
+				title: autopilotLogTitle(branch, (cycles ?? []).length),
+				body: formatAutopilotLog({ branch, cycles: cycles ?? [] }),
+			}),
+			prCreate: ({
+				cwd,
+				input,
+			}: {
+				cwd: string;
+				input: { title: string; body: string; base?: string; head?: string; draft?: boolean };
+			}) => (deps.prCreate ?? prCreate)(cwd, input),
+			ghRun: ({ cwd, url }: { cwd: string; url: string }) => (deps.ghRun ?? ghRunStatus)(cwd, url),
+			probeRepo: ({ root }: { root: string }) => deps.probeRepo?.(root),
+			prepareWorktree: ({ primary, tree }: { primary: string; tree: string }) => prepareWorktree(primary, tree),
+			landShell: ({ command }: { command: string }) => landShell(command),
+			clearQueue: ({ tab }: { tab: string }) => this.#control?.clearQueue(tab),
+			quotaWait: ({ reports, provider, now }: { reports: UsageReport[]; provider: string | null; now: number }) =>
+				quotaWaitUntil(reports, provider ?? undefined, now),
+			relaunch: ({ tab }: { tab: string }) => deps.relaunchContinuation(tab),
+			notify: ({ tab, notice }: { tab: string; notice: AutopilotNotice }) => deps.notify(tab, notice),
+			runEnded: ({ root }: { root: string }) => deps.runEnded?.(root),
+			log: ({ message }: { message: string }) => this.#log(message),
+			runLog: ({ message, details }: { message: string; details: Record<string, string | number | boolean> }) =>
+				deps.runLog?.(message, details),
+			mirror: (event: MirrorEvent) => {
+				if ("gone" in event) this.#mirror.delete(event.tab);
+				else this.#mirror.set(event.tab, event);
+			},
+			childRun: ({ tab, run }: { tab: string; run: { parentTab: string; root: string } | null }) => {
+				if (run) this.#childRuns.set(tab, run);
+				else this.#childRuns.delete(tab);
+			},
+		};
 	}
 }

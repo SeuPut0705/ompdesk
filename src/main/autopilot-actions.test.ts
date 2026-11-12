@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	type AutopilotArmParams,
@@ -8,21 +8,20 @@ import {
 	DEFAULT_SHIP_POLICY,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
 import type { ExtensionUIRequest } from "../shared/rpc-types";
-import { RELEASE_NOW_MESSAGE } from "./autopilot";
 import {
 	autopilot,
 	build,
-	clock,
 	commit,
 	dataOf,
 	errorOf,
+	ghRuns,
 	installAutopilotRig,
 	main,
 	notices,
-	polls,
 	record,
 	remote,
 	setReleaseState,
+	sleep,
 	start,
 	tmp,
 	win,
@@ -30,6 +29,10 @@ import {
 } from "./autopilot-test-rig";
 import { gitSync } from "./local/git/test-repos";
 import type { SidecarLike } from "./sidecar-types";
+
+/** The words a "Release" press sends as the user's own (the core's `RELEASE_NOW_MESSAGE`, pinned there). */
+const RELEASE_NOW_MESSAGE =
+	"Release now: finish the item in progress, start nothing new, then run this repository's release procedure.";
 
 installAutopilotRig();
 
@@ -61,9 +64,9 @@ describe("ship actions from the screen", () => {
 		const status = world.statuses.get("ap-1") as AutopilotStatus;
 		status.now = { n: 2, startedAt: 1 };
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
-		clock.value = 20;
 		autopilot.frame(sidecar, { type: "autopilot_cycle_end", record: record({ n: 1, commit: sha }) });
-		clock.value = 30;
+		// What the person queues after the frame arrived (the core's clock, a few ms on) waits for the next turn's end.
+		await sleep(25);
 		await autopilot.handleCommand(win, sidecar, "ap-1", { type: "set_autopilot", action: "ship", kind: "pr" }, "1");
 		await autopilot.idle();
 		expect(gitSync(remote, "rev-parse", "refs/heads/autopilot/2026-10-17")).toBe(sha);
@@ -207,24 +210,25 @@ describe("release run", () => {
 		return sidecar;
 	}
 
-	it("follows the run every 15 s and reports success", async () => {
+	// The core polls the run on its own clock (`releasePollMs`, 15 s in the app): a test sets what the fake GitHub says.
+	it("follows the run and reports success", async () => {
 		await reported();
 		expect(world.releaseCalls("ap-1").at(-1)?.params).toEqual({
 			release: { version: "1.2.3", runUrl: "https://github.com/o/r/actions/runs/9", state: "pending" },
 		});
-		expect(polls).toHaveLength(1);
 		setReleaseState({ status: "in_progress", conclusion: null });
-		polls[0]?.run();
-		await autopilot.idle();
-		expect(polls[0]?.stopped).toBe(false);
+		await vi.waitFor(() => expect(ghRuns).toBeGreaterThan(1), { timeout: 5_000 });
+		expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({ release: { state: "pending" } });
 		setReleaseState({ status: "completed", conclusion: "success" });
-		polls[0]?.run();
+		await vi.waitFor(
+			() => expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({ release: { state: "success" } }),
+			{ timeout: 5_000 },
+		);
 		await autopilot.idle();
-		await autopilot.idle();
-		expect(polls[0]?.stopped).toBe(true);
-		expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({
-			release: { state: "success" },
-		});
+		// The poll stopped with the outcome: nothing asks GitHub any more.
+		const asked = ghRuns;
+		await sleep(150);
+		expect(ghRuns).toBe(asked);
 		expect(notices.at(-1)).toEqual({
 			kind: "completion",
 			title: "Autopilot release",
@@ -235,8 +239,10 @@ describe("release run", () => {
 	it("a failed run is reported and handed to the next cycle: the run is not paused", async () => {
 		await reported();
 		setReleaseState({ status: "completed", conclusion: "failure" });
-		polls[0]?.run();
-		await autopilot.idle();
+		await vi.waitFor(
+			() => expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({ release: { state: "failure" } }),
+			{ timeout: 5_000 },
+		);
 		await autopilot.idle();
 		expect(world.bridgeCalls("ap-1", AUTOPILOT_BRIDGE_METHODS.setState).at(-1)?.params?.state).not.toBe("paused");
 		expect(notices.map(notice => notice.kind)).toContain("error");
@@ -278,8 +284,15 @@ describe("release run", () => {
 		};
 		const poll = async (conclusion: "success" | "failure") => {
 			setReleaseState({ status: "completed", conclusion });
-			polls.at(-1)?.run();
-			await autopilot.idle();
+			await vi.waitFor(
+				() =>
+					expect(world.releaseCalls("ap-1").at(-1)?.params).toMatchObject({
+						release: { state: conclusion },
+					}),
+				{ timeout: 5_000 },
+			);
+			// The fake GitHub answers for every run: the next release's run is still going.
+			setReleaseState({ status: "in_progress", conclusion: null });
 			await autopilot.idle();
 		};
 		// Landed, its release still running: the run waits for it.
@@ -293,7 +306,7 @@ describe("release run", () => {
 		await cycle(3, "1.2.4");
 		expect(autopilot.isStopping("ap-1")).toBe(false);
 		await poll("success");
-		expect(autopilot.isStopping("ap-1")).toBe(true);
+		await vi.waitFor(() => expect(autopilot.isStopping("ap-1")).toBe(true), { timeout: 5_000 });
 	});
 
 	it("a release without a run to watch is recorded as done", async () => {
@@ -304,7 +317,9 @@ describe("release run", () => {
 			record: record({ area: "release", ship: { kind: "release", version: "1.2.3" } }),
 		});
 		await autopilot.idle();
-		expect(polls).toHaveLength(0);
+		// No run to watch: nothing polls GitHub.
+		await sleep(150);
+		expect(ghRuns).toBe(0);
 		expect(world.releaseCalls("ap-1").at(-1)?.params).toEqual({
 			release: { version: "1.2.3", state: "success" },
 		});
@@ -418,7 +433,7 @@ describe("children", () => {
 		world.addTab("c1", path.join(tmp, "c1"));
 		await autopilot.beforeFirstPrompt({ tabId: "c1", callerTabId: "ap-1", tag: "autopilot-child" });
 		autopilot.tabReleased("ap-1");
-		await Promise.resolve();
+		await autopilot.idle();
 		expect(world.released).toEqual(["c1"]);
 		expect(autopilot.isStopping("ap-1")).toBe(false);
 	});

@@ -1,0 +1,103 @@
+{
+ "diff": [
+  {
+   "before": {
+    "refs/heads/a": "1",
+    "refs/heads/b": "2",
+    "refs/heads/c": "3"
+   },
+   "after": {
+    "refs/heads/a": "1",
+    "refs/heads/b": "9",
+    "refs/heads/d": "4"
+   },
+   "out": [
+    {
+     "ref": "refs/heads/b",
+     "from": "2",
+     "to": "9"
+    },
+    {
+     "ref": "refs/heads/c",
+     "from": "3",
+     "to": null
+    },
+    {
+     "ref": "refs/heads/d",
+     "from": null,
+     "to": "4"
+    }
+   ]
+  },
+  {
+   "before": {},
+   "after": {},
+   "out": []
+  },
+  {
+   "before": {},
+   "after": {
+    "x": "1"
+   },
+   "out": [
+    {
+     "ref": "x",
+     "from": null,
+     "to": "1"
+    }
+   ]
+  },
+  {
+   "before": {
+    "x": "1"
+   },
+   "after": {},
+   "out": [
+    {
+     "ref": "x",
+     "from": "1",
+     "to": null
+    }
+   ]
+  },
+  {
+   "before": {
+    "refs/tags/v1": "a",
+    "refs/heads/z": "b"
+   },
+   "after": {
+    "refs/heads/z": "b"
+   },
+   "out": [
+    {
+     "ref": "refs/tags/v1",
+     "from": "a",
+     "to": null
+    }
+   ]
+  },
+  {
+   "before": {
+    "b": "1",
+    "a": "1"
+   },
+   "after": {
+    "a": "2",
+    "b": "1",
+    "c": "3"
+   },
+   "out": [
+    {
+     "ref": "a",
+     "from": "1",
+     "to": "2"
+    },
+    {
+     "ref": "c",
+     "from": null,
+     "to": "3"
+    }
+   ]
+  }
+ ]
+}

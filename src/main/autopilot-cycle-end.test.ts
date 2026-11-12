@@ -2,9 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AUTOPILOT_BRIDGE_METHODS } from "../../resources/gui-bridge/modes/autopilot-contracts";
-import type { RepoProbe } from "./autopilot";
 import {
-	afters,
 	autopilot,
 	build,
 	commit,
@@ -24,19 +22,11 @@ import type { SidecarLike } from "./sidecar-types";
 installAutopilotRig();
 
 describe("a cycle's end", () => {
-	/** Fires the timers the coordinator arms while its chain waits on them, until the chain has drained. */
-	async function drainWithTimers(): Promise<void> {
-		for (let round = 0; round < 50; round++) {
-			const { promise, resolve } = Promise.withResolvers<void>();
-			setImmediate(resolve);
-			await promise;
-			for (const fire of afters.splice(0)) fire();
-		}
-		await autopilot.idle();
-	}
+	/** The repository's second look waits `repoRecheckMs` (10 ms here, 1.5 s in the app): the chain drains by itself. */
+	const drainWithTimers = () => autopilot.idle();
 
 	it("a git that cannot answer for a moment is no missing repository: no pause, the next cycle goes on", async () => {
-		const probes: RepoProbe[] = ["unknown", "unknown", "present"];
+		const probes: Array<"present" | "gone" | "unknown"> = ["unknown", "unknown", "present"];
 		build({ probeRepo: async () => probes.shift() ?? "present" });
 		await start();
 		const sidecar = world.sidecars.get("ap-1") as unknown as SidecarLike;
@@ -48,7 +38,7 @@ describe("a cycle's end", () => {
 	});
 
 	it("one probe that says gone is checked again: gone twice pauses, gone then present goes on", async () => {
-		const once: RepoProbe[] = ["gone", "present"];
+		const once: Array<"present" | "gone" | "unknown"> = ["gone", "present"];
 		build({ probeRepo: async () => once.shift() ?? "present" });
 		await start();
 		autopilot.frame(world.sidecars.get("ap-1") as unknown as SidecarLike, {

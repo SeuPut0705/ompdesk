@@ -9,7 +9,6 @@ import {
 import {
 	autopilot,
 	branchChoiceWorld,
-	build,
 	commit,
 	dataOf,
 	installAutopilotRig,
@@ -149,8 +148,7 @@ describe("the branch a run is on", () => {
 	});
 
 	it("gives the sheet the folder's own branch only, whatever an earlier release remembered", async () => {
-		// `autopilotBranch` was the remembered choice of earlier releases: retired, never read.
-		build({ prefs: { autopilotBranch: { [main]: { kind: "existing", name: "feature/x" } } } });
+		// `autopilotBranch` was the remembered choice of earlier releases: retired, and the coordinator reads no pref at all.
 		const sidecar = world.addTab("m", main);
 		const status = dataOf<AutopilotStatus>(
 			await autopilot.handleCommand(win, sidecar as unknown as SidecarLike, "m", { type: "get_autopilot" }, "1"),

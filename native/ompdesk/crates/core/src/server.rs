@@ -253,6 +253,7 @@ pub fn registry() -> Registry {
     crate::web::router::register(&mut registry);
     crate::web::store::register(&mut registry);
     crate::agentctl::register(&mut registry);
+    crate::autopilot::register(&mut registry);
     crate::ports::register(&mut registry);
     registry
 }

@@ -1,0 +1,745 @@
+{
+ "gaps": [
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [],
+   "own": [],
+   "out": null
+  },
+  {
+   "record": {
+    "verify": "skipped",
+    "commit": "abc"
+   },
+   "results": [],
+   "own": [],
+   "out": "its check was skipped"
+  },
+  {
+   "record": {
+    "verify": "red",
+    "commit": "abc"
+   },
+   "results": [],
+   "own": [],
+   "out": "its check was red"
+  },
+  {
+   "record": {
+    "verify": "green"
+   },
+   "results": [],
+   "own": [],
+   "out": "it made no commit"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "l",
+      "kind": "land",
+      "state": "done",
+      "at": 1
+     },
+     "land": {
+      "kind": "landed"
+     }
+    }
+   ],
+   "own": [
+    "l"
+   ],
+   "out": null
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "l",
+      "kind": "land",
+      "state": "done",
+      "at": 1
+     },
+     "land": {
+      "kind": "pr"
+     }
+    }
+   ],
+   "own": [
+    "l"
+   ],
+   "out": null
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "l",
+      "kind": "land",
+      "state": "failed",
+      "at": 1
+     },
+     "land": {
+      "kind": "behind"
+     }
+    }
+   ],
+   "own": [
+    "l"
+   ],
+   "out": "its land did not go through (behind)"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "l",
+      "kind": "land",
+      "state": "failed",
+      "at": 1
+     }
+    }
+   ],
+   "own": [
+    "l"
+   ],
+   "out": "its land did not go through (failed)"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "p",
+      "kind": "push",
+      "state": "failed",
+      "at": 1
+     }
+    }
+   ],
+   "own": [
+    "p"
+   ],
+   "out": "its push failed"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "p",
+      "kind": "push",
+      "state": "done",
+      "at": 1
+     }
+    }
+   ],
+   "own": [
+    "p"
+   ],
+   "out": null
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [],
+   "own": [
+    "p"
+   ],
+   "out": "its push did not run"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "p",
+      "kind": "push",
+      "state": "done",
+      "at": 1
+     }
+    },
+    {
+     "item": {
+      "id": "l",
+      "kind": "land",
+      "state": "failed",
+      "at": 1
+     },
+     "land": {
+      "kind": "red"
+     }
+    }
+   ],
+   "own": [
+    "p",
+    "l"
+   ],
+   "out": "its land did not go through (red)"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": ""
+   },
+   "results": [],
+   "own": [],
+   "out": "it made no commit"
+  },
+  {
+   "record": {
+    "verify": "green",
+    "commit": "abc"
+   },
+   "results": [
+    {
+     "item": {
+      "id": "q",
+      "kind": "pr",
+      "state": "running",
+      "at": 1
+     }
+    }
+   ],
+   "own": [
+    "q"
+   ],
+   "out": "its pr failed"
+  }
+ ],
+ "titles": [
+  {
+   "input": "",
+   "out": ""
+  },
+  {
+   "input": "  ",
+   "out": ""
+  },
+  {
+   "input": "Add a test",
+   "out": "Add a test"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "out": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+  },
+  {
+   "input": "a  b\n\tc",
+   "out": "a b c"
+  },
+  {
+   "input": "  spaced out  title that is long enough to be cut at forty chars ",
+   "out": "spaced out title that is long enough to…"
+  },
+  {
+   "input": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한",
+   "out": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한…"
+  },
+  {
+   "input": "x😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "out": "x😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀…"
+  },
+  {
+   "input": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy z",
+   "out": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy z"
+  }
+ ],
+ "owns": [
+  {
+   "name": "",
+   "folders": [],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "  ",
+   "folders": [
+    "/a/b"
+   ],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "Autopilot · x",
+   "folders": [],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "오토파일럿 · y",
+   "folders": [],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "repo",
+   "folders": [
+    "repo"
+   ],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "repo",
+   "folders": [
+    "other"
+   ],
+   "items": [],
+   "out": false
+  },
+  {
+   "name": "Add a test",
+   "folders": [],
+   "items": [
+    "Add a test"
+   ],
+   "out": true
+  },
+  {
+   "name": "Add a test",
+   "folders": [],
+   "items": [
+    "Other"
+   ],
+   "out": false
+  },
+  {
+   "name": "typed by me",
+   "folders": [
+    "repo"
+   ],
+   "items": [
+    "Add a test"
+   ],
+   "out": false
+  },
+  {
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+   "folders": [],
+   "items": [
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "out": true
+  },
+  {
+   "name": " repo ",
+   "folders": [
+    "repo"
+   ],
+   "items": [],
+   "out": true
+  },
+  {
+   "name": "Autopilot ·",
+   "folders": [],
+   "items": [],
+   "out": false
+  }
+ ],
+ "settings": [
+  {
+   "input": {},
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "preset": "push"
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": true,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "preset": "release"
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": true,
+     "autoRelease": {
+      "on": true,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "preset": "local"
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "ship": {
+     "remote": "up"
+    }
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "up"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "ship": {
+     "autoPush": true
+    }
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": true,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "ship": {
+     "autoRelease": {
+      "on": true,
+      "cadence": {
+       "kind": "every",
+       "n": 3
+      }
+     }
+    },
+    "preset": "push"
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": true,
+     "autoRelease": {
+      "on": true,
+      "cadence": {
+       "kind": "every",
+       "n": 3
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "focus": [
+     "tests"
+    ],
+    "limits": {
+     "cycles": 3
+    }
+   },
+   "out": {
+    "focus": [
+     "tests"
+    ],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": 3,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "limits": {
+     "tokens": 5,
+     "usd": 2
+    }
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": 5,
+     "minutes": null,
+     "cycles": null,
+     "usd": 2
+    }
+   }
+  },
+  {
+   "input": {
+    "preset": "release",
+    "ship": {
+     "remote": "u",
+     "autoPush": false
+    }
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": true,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "u"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  },
+  {
+   "input": {
+    "ship": {
+     "autoPush": false
+    },
+    "preset": "push"
+   },
+   "out": {
+    "focus": [],
+    "ship": {
+     "autoPush": false,
+     "autoRelease": {
+      "on": false,
+      "cadence": {
+       "kind": "agent"
+      }
+     },
+     "remote": "origin"
+    },
+    "limits": {
+     "tokens": null,
+     "minutes": null,
+     "cycles": null,
+     "usd": null
+    }
+   }
+  }
+ ],
+ "constants": {
+  "nudge": {
+   "no_progress": "Autopilot: no cycle is running. Call `autopilot begin` and continue with the next cycle.",
+   "plan": "Autopilot: plan mode stopped the run and is off now; nobody approves plans here. Call `autopilot begin` and continue with the next cycle.",
+   "blocked": "Autopilot: every todo item is blocked, so the run stopped. If a cycle is open, end it with each blocker as a follow-up; then call `autopilot begin` and pick an item that is not blocked.",
+   "error": "Autopilot: the last turn failed and nothing retried it. Call `autopilot begin` and continue; repeat the failed step only if the failure looks transient, otherwise record it as a follow-up and pick another item."
+  },
+  "releaseNow": "Release now: finish the item in progress, start nothing new, then run this repository's release procedure.",
+  "stopAfterShip": "The person chose to ship, then stop: finish this cycle's item and commit it (a green cycle lands as usual). Then call autopilot propose_release; if a release is due, run the release procedure in this cycle. End the cycle with `end` as usual: the run stops after it.",
+  "defaultShipPolicy": {
+   "autoPush": false,
+   "autoRelease": {
+    "on": false,
+    "cadence": {
+     "kind": "agent"
+    }
+   },
+   "remote": "origin"
+  },
+  "noLimits": {
+   "tokens": null,
+   "minutes": null,
+   "cycles": null,
+   "usd": null
+  },
+  "bridge": {
+   "arm": "modes.autopilot_arm",
+   "status": "modes.autopilot_status",
+   "configure": "modes.autopilot_configure",
+   "note": "modes.autopilot_note",
+   "dismiss": "modes.autopilot_dismiss",
+   "setState": "modes.autopilot_set_state",
+   "shipAction": "modes.autopilot_ship_action",
+   "markReverted": "modes.autopilot_mark_reverted",
+   "takeShipRequests": "modes.autopilot_take_ship_requests",
+   "cycleAmend": "modes.autopilot_cycle_amend",
+   "disarm": "modes.autopilot_disarm",
+   "guide": "modes.autopilot_guide"
+  },
+  "presets": {
+   "local": {
+    "autoPush": false,
+    "autoRelease": {
+     "on": false,
+     "cadence": {
+      "kind": "agent"
+     }
+    },
+    "remote": "origin"
+   },
+   "push": {
+    "autoPush": true,
+    "autoRelease": {
+     "on": false,
+     "cadence": {
+      "kind": "agent"
+     }
+    },
+    "remote": "origin"
+   },
+   "release": {
+    "autoPush": true,
+    "autoRelease": {
+     "on": true,
+     "cadence": {
+      "kind": "agent"
+     }
+    },
+    "remote": "origin"
+   }
+  }
+ }
+}

@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	AUTOPILOT_BRIDGE_METHODS,
 	type AutopilotStatus,
+	DEFAULT_AUTOPILOT_SETTINGS,
 	DEFAULT_SHIP_POLICY,
 } from "../../resources/gui-bridge/modes/autopilot-contracts";
-import { startSettings } from "./autopilot";
 import {
 	autopilot,
 	build,
@@ -40,7 +40,7 @@ describe("restart", () => {
 			branch,
 			baseBranch: "main",
 			cycle: 3,
-			settings: startSettings({}),
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
 			cycles: [],
 			ship: { policy: DEFAULT_SHIP_POLICY, queue: [] },
 		});
@@ -163,7 +163,7 @@ describe("restart", () => {
 			branch: "autopilot/2026-10-17",
 			baseBranch: "main",
 			cycle: 3,
-			settings: startSettings({}),
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
 			cycles: [],
 			ship: { policy: DEFAULT_SHIP_POLICY, queue: [] },
 		});
@@ -220,7 +220,7 @@ describe("restart", () => {
 			role: "child",
 			root: main,
 			branch: "x",
-			settings: startSettings({}),
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
 		});
 		autopilot.attachSidecar("kid", child as unknown as SidecarLike);
 		child.emit("status", { status: "ready" });
@@ -233,7 +233,7 @@ describe("restart", () => {
 			role: "parent",
 			root: main,
 			branch: "x",
-			settings: startSettings({}),
+			settings: DEFAULT_AUTOPILOT_SETTINGS,
 		});
 		autopilot.attachSidecar("done", done as unknown as SidecarLike);
 		done.emit("status", { status: "ready" });
