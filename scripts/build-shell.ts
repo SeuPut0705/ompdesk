@@ -134,7 +134,7 @@ function listFiles(dir: string, prefix = "", out: string[] = []): string[] {
 	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
 		const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
 		if (entry.isDirectory()) listFiles(path.join(dir, entry.name), rel, out);
-		else if (entry.isFile() && rel !== RECORD_NAME) out.push(rel);
+		else if (entry.isFile() && rel !== RECORD_NAME && !entry.name.includes(".old-")) out.push(rel);
 	}
 	return out.sort();
 }
@@ -351,13 +351,33 @@ function copyIfChanged(from: string, to: string): void {
 	try {
 		fs.copyFileSync(from, temp);
 		fs.chmodSync(temp, 0o755);
-		fs.renameSync(temp, to);
+		try {
+			fs.renameSync(temp, to);
+		} catch (error) {
+			// Windows refuses to replace an executable a test or the person is running; it may be renamed, though.
+			if (!fs.existsSync(to) || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+			const old = `${to}.old-${process.pid}`;
+			fs.renameSync(to, old);
+			fs.renameSync(temp, to);
+			try {
+				fs.rmSync(old, { force: true });
+			} catch {
+				// Still running: the next build removes it (`removeLeftovers`).
+			}
+		}
 	} finally {
 		fs.rmSync(temp, { force: true });
 	}
 }
 
+/** Files an earlier build renamed aside because they were running then. */
+function removeLeftovers(dir: string): void {
+	for (const entry of fs.existsSync(dir) ? fs.readdirSync(dir) : [])
+		if (entry.includes(".old-")) fs.rmSync(path.join(dir, entry), { force: true });
+}
+
 function stageFiles(target: string, built: string): void {
+	removeLeftovers(target);
 	const cef = cefDir();
 	if (process.platform === "win32") {
 		copyIfChanged(built, path.join(target, binaryName()));
