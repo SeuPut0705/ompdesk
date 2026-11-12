@@ -21,6 +21,7 @@ pub mod fail;
 pub mod host;
 pub mod js;
 pub mod messages;
+pub mod pace;
 pub mod resolve;
 pub mod schedules;
 pub mod sessions;

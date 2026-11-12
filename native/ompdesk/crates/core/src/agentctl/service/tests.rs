@@ -643,7 +643,7 @@ async fn a_call_is_refused_while_the_tools_are_off_or_the_tab_is_gone() {
 }
 
 #[tokio::test]
-async fn an_invalid_call_is_answered_with_main_s_validation_and_a_family_body_not_yet_ported_says_so()
+async fn an_invalid_call_is_answered_with_main_s_validation_and_a_valid_one_runs_its_family_body()
  {
     let state = state_with(vec![session_tab("a", "/s/x_1.jsonl")], &[("a", "w")]);
     let (control, asked) = rig(
@@ -686,9 +686,10 @@ async fn an_invalid_call_is_answered_with_main_s_validation_and_a_family_body_no
             .any(|(method, args)| method == "notify" && args["title"] == "hi")
     );
     let listing = control.run("a", "ompdesk_sessions", json!({}), None).await;
-    assert_eq!(
-        listing.text,
-        "ompdesk_sessions failed: ompdesk_sessions is not ported to the core yet"
+    assert!(
+        listing.text.starts_with("1 session in this window:\n- a "),
+        "{}",
+        listing.text
     );
     control.host.port().close();
 }
