@@ -1759,7 +1759,7 @@ pub(super) fn raw_node(value: &Value) -> SplitNode {
 impl Ctx {
     /// A new core's pool is seeded with the tabs main still holds handles for (the old core was lost): each is an
     /// entry as a deferred acquire makes it, from the facts the handle can say (`SidecarPool.#reseed` lists what is
-    /// lost with the old pool: run state, titles, asks, session files until the next identity report, viewers, splits).
+    /// lost with the old pool: run state, titles, asks, viewers, splits; the session file survives).
     pub(super) fn seed(&self, tabs: &[Value]) {
         let mut windows: Vec<i64> = Vec::new();
         for tab in tabs {
@@ -1776,6 +1776,18 @@ impl Ctx {
                     tab["status"].as_str().unwrap_or("asleep").to_string(),
                 );
                 entry.device = tab["device"].as_str().map(str::to_string);
+                // The file the tab held: it owns it again (F-OWN), as at its acquire. Tabs come in acquisition order.
+                if let Some(file) = tab["sessionFile"].as_str().filter(|file| !file.is_empty()) {
+                    entry.session_file = Some(file.to_string());
+                    let key = super::state::owner_key(entry.device.as_deref(), file);
+                    pool.session_owners.insert(
+                        key,
+                        super::state::Owner {
+                            tab_id: id.to_string(),
+                            win_id: win,
+                        },
+                    );
+                }
                 entry.hosted_view = tab["hosted"].as_bool() == Some(true);
                 let wired: Vec<i64> = tab["full"]
                     .as_array()
