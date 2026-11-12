@@ -185,10 +185,13 @@ pub struct Record {
     pub config: String,
 }
 
-/// Results in the order written; the last line for a key wins where they are merged.
+/// Results in the order written; the last line for a key wins where they are merged. Two Vitest or Jest tests with
+/// the same full name in one file (allowed there) get `#2`, `#3` after the first, so a failure is never folded into a
+/// pass of its namesake; Playwright refuses duplicate titles, and its repeated lines are one test's retries.
 pub fn read_results(path: &Path) -> (Vec<Record>, Option<String>) {
     let mut out = Vec::new();
     let mut end = None;
+    let mut seen: HashMap<String, usize> = HashMap::new();
     let Ok(text) = fs::read_to_string(path) else {
         return (out, end);
     };
@@ -228,6 +231,13 @@ pub fn read_results(path: &Path) -> (Vec<Record>, Option<String>) {
             ("jest", _) => format!("jest|{file}|{}", titles.join(" > ")),
             ("cargo", _) => format!("cargo|{file}|{}", titles.join("")),
             _ => format!("{runner}|{file}|{}", titles.join(" > ")),
+        };
+        let key = if matches!(runner.as_str(), "vitest" | "jest") && !file_record {
+            let n = seen.entry(key.clone()).or_default();
+            *n += 1;
+            if *n > 1 { format!("{key} #{n}") } else { key }
+        } else {
+            key
         };
         out.push(Record {
             key,
@@ -880,6 +890,23 @@ mod tests {
         assert_eq!(rw.skipped.len(), 1);
         let plain = rewrite(&d, &argv("cargo test -- --nocapture"), &reporters(), None);
         assert_eq!(plain.argv, argv("cargo test --no-fail-fast -- --nocapture"));
+    }
+
+    #[test]
+    fn namesakes_in_one_file_keep_their_own_results() {
+        let path =
+            std::env::temp_dir().join(format!("ompdesk-namesakes-{}.jsonl", std::process::id()));
+        let line = |status: &str| {
+            format!(
+                r#"{{"runner":"vitest","project":"node","file":"a.test.ts","titles":["same"],"status":"{status}"}}"#
+            )
+        };
+        fs::write(&path, format!("{}\n{}\n", line("passed"), line("failed"))).unwrap();
+        let (records, _) = read_results(&path);
+        let _ = fs::remove_file(&path);
+        assert_eq!(records.len(), 2);
+        assert_ne!(records[0].key, records[1].key);
+        assert_eq!(records[1].status, "failed");
     }
 
     #[test]
