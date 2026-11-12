@@ -213,7 +213,17 @@ impl HostState {
     }
 
     /// `deletedAt({path, device})`.
+    /// A tombstone of this computer names its file as node's `path.resolve` spelled it (`deleted-sessions.ts`
+    /// `keyOf`), and the query is read the same way; a paired device's path is compared as it came.
     pub fn deleted_at_path(&self, path: &str, device: Option<&str>) -> Option<f64> {
+        let local;
+        let path = match device {
+            Some(_) => path,
+            None => {
+                local = node_resolve(path);
+                &local
+            }
+        };
         self.deleted
             .by_path
             .iter()
@@ -834,4 +844,21 @@ impl Host {
     pub fn record_closed(&self, child: &ClosedChild) {
         self.port.tell("recordClosed", &json!({ "child": child }));
     }
+}
+
+/// node's `path.resolve(path)` in this process: absolute against its working folder (on Windows a rooted path takes
+/// the working folder's drive), separators the platform's, `.` and `..` taken lexically.
+pub(crate) fn node_resolve(path: &str) -> String {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| std::path::PathBuf::from(path));
+    let mut resolved = std::path::PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            other => resolved.push(other),
+        }
+    }
+    resolved.to_string_lossy().into_owned()
 }

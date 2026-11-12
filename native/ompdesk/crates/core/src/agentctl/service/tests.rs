@@ -408,7 +408,7 @@ fn state_json(tabs: &[(&str, &str)]) -> Value {
         "parents": { "b": { "callerTabId": "a", "tag": "autopilot-child" } },
         "summaries": { "": [{ "sessionPath": "/s/x_1.jsonl", "tabId": "a", "status": "running", "agents": [{ "status": "running" }, { "status": "done" }] }, { "sessionPath": "tab:b", "tabId": "b", "status": "ready" }],
                        "dev1": [{ "sessionPath": "/s/y_2.jsonl", "status": "ready" }] },
-        "deleted": { "byPath": [{ "path": "/s/z_3.jsonl", "at": 5.0 }, { "path": "/s/z_3.jsonl", "device": "dev1", "at": 6.0 }], "byId": { "z3": 7.0 } },
+        "deleted": { "byPath": [{ "path": super::host::node_resolve("/s/z_3.jsonl"), "at": 5.0 }, { "path": "/s/z_3.jsonl", "device": "dev1", "at": 6.0 }], "byId": { "z3": 7.0 } },
         "scheduleDevices": ["", "dev1"],
         "stopping": ["a"],
         "texts": { "stopTitle": "Stop {count} session{plural}?" },
@@ -889,8 +889,7 @@ async fn a_closed_tab_s_id_keeps_naming_its_session_and_a_delete_says_so() {
         vec![session_tab("caller", "/s/2026_sid-cccc.jsonl")],
         &[("caller", "w")],
     );
-    deleted["deleted"] =
-        json!({ "byPath": [{ "path": "/s/2026_sid-gone.jsonl", "at": 1_700_000_000_000.0 }] });
+    deleted["deleted"] = json!({ "byPath": [{ "path": super::host::node_resolve("/s/2026_sid-gone.jsonl"), "at": 1_700_000_000_000.0 }] });
     crate::ports::apply_state(control.host.port(), 5, &deleted.to_string()).unwrap();
     let error = control
         .resolve_any(&tabs, "tab-gone", &caller, "read", None)

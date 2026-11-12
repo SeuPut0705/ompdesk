@@ -1,7 +1,7 @@
 //! The journals, against what the TypeScript wrote (`captured.json`: every op of a case run through the TypeScript
 //! modules, with the answer and the file's text after each step) and the TypeScript tests' own cases.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
@@ -13,7 +13,7 @@ use super::mail_outbox::{
     MAIL_OUTBOX_MAX, MAIL_OUTBOX_TTL_MS, MailAnswer, MailOutbox, OutboxMail, RedeliverDeps,
     redeliver_mail,
 };
-use super::pending_cleanups::{CleanupAction, PendingCleanup, PendingCleanups};
+use super::pending_cleanups::{PendingCleanup, PendingCleanups};
 use super::send_outbox::{
     HandOver, OutboxSend, OwedDeps, SendOutbox, SentAnswer, StreamingBehavior, deliver_owed,
     redeliver_sends,
@@ -660,7 +660,9 @@ fn the_mail_file_is_written_when_a_report_is_kept() {
 #[cfg(unix)]
 #[test]
 fn the_outbox_files_are_private_and_the_call_journal_is_not_pinned() {
+    use super::pending_cleanups::CleanupAction;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
     let dir = Dir::new();
     let mode = |file: &Path| std::fs::metadata(file).unwrap().permissions().mode() & 0o777;
     let sends = dir.file("s.json");
