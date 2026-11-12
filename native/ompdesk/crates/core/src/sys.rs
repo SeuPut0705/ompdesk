@@ -1621,3 +1621,162 @@ pub fn file_link_size(file: &std::fs::File) -> std::io::Result<u64> {
             .map(|character| character.map_or(3, |character| character.len_utf8() as u64))
             .sum::<u64>())
 }
+
+/// The local calendar date (year, month from 1, day) at `secs` since the epoch, in the system's time zone as it is
+/// set now; none when the system cannot say. A daily schedule's day (`schedules/rules.rs`).
+#[cfg(unix)]
+pub fn local_day(secs: i64) -> Option<(i64, u32, u32)> {
+    // The libc crate names it for some systems only; POSIX has it everywhere.
+    unsafe extern "C" {
+        fn tzset();
+    }
+    let time = secs as libc::time_t;
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: `tzset` reads the environment and the zone files; `localtime_r` reads `time` and writes all of `tm`,
+    // which is read only when it said so (a non-null return).
+    let tm = unsafe {
+        tzset();
+        if libc::localtime_r(&time, tm.as_mut_ptr()).is_null() {
+            return None;
+        }
+        tm.assume_init()
+    };
+    Some((
+        i64::from(tm.tm_year) + 1900,
+        u32::try_from(tm.tm_mon + 1).ok()?,
+        u32::try_from(tm.tm_mday).ok()?,
+    ))
+}
+
+/// Seconds since the epoch of a local wall-clock minute, as `mktime` reads it with the clock change left for it to
+/// find; none when the system cannot say.
+#[cfg(unix)]
+pub fn local_instant(year: i64, month: u32, day: u32, hour: u32, minute: u32) -> Option<i64> {
+    // SAFETY: every field of `tm` is an integer or a pointer, for which all zeroes is a value.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    tm.tm_year = i32::try_from(year - 1900).ok()?;
+    tm.tm_mon = i32::try_from(month).ok()? - 1;
+    tm.tm_mday = i32::try_from(day).ok()?;
+    tm.tm_hour = i32::try_from(hour).ok()?;
+    tm.tm_min = i32::try_from(minute).ok()?;
+    tm.tm_isdst = -1;
+    // SAFETY: `mktime` reads `tm` and writes its normalized fields back.
+    let secs = unsafe { libc::mktime(&mut tm) };
+    // -1 is `mktime`'s failure; the second before the epoch is no minute a schedule names.
+    (secs != -1).then_some(secs as i64)
+}
+
+/// The system's time zone through kernel32, never the C runtime's: that one reads the `TZ` variable in its own
+/// spelling, so the zone name a Git Bash shell exports (`Asia/Seoul`) reads there as UTC.
+#[cfg(windows)]
+mod zone {
+    /// Seconds between 1601-01-01, where a `FILETIME` starts, and the epoch.
+    const EPOCH: i64 = 11_644_473_600;
+    const TIME_ZONE_ID_INVALID: u32 = u32::MAX;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct SystemTime {
+        year: u16,
+        month: u16,
+        day_of_week: u16,
+        day: u16,
+        hour: u16,
+        minute: u16,
+        second: u16,
+        milliseconds: u16,
+    }
+
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    #[repr(C)]
+    struct DynamicTimeZoneInformation {
+        bias: i32,
+        standard_name: [u16; 32],
+        standard_date: SystemTime,
+        standard_bias: i32,
+        daylight_name: [u16; 32],
+        daylight_date: SystemTime,
+        daylight_bias: i32,
+        time_zone_key_name: [u16; 128],
+        dynamic_daylight_time_disabled: u8,
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDynamicTimeZoneInformation(zone: *mut DynamicTimeZoneInformation) -> u32;
+        fn SystemTimeToTzSpecificLocalTimeEx(
+            zone: *const DynamicTimeZoneInformation,
+            universal: *const SystemTime,
+            local: *mut SystemTime,
+        ) -> i32;
+        fn TzSpecificLocalTimeToSystemTimeEx(
+            zone: *const DynamicTimeZoneInformation,
+            local: *const SystemTime,
+            universal: *mut SystemTime,
+        ) -> i32;
+        fn FileTimeToSystemTime(time: *const FileTime, system: *mut SystemTime) -> i32;
+        fn SystemTimeToFileTime(system: *const SystemTime, time: *mut FileTime) -> i32;
+    }
+
+    fn zone() -> Option<DynamicTimeZoneInformation> {
+        let mut zone = std::mem::MaybeUninit::<DynamicTimeZoneInformation>::uninit();
+        // SAFETY: the call writes the whole structure, which is read only when it did not fail.
+        unsafe {
+            (GetDynamicTimeZoneInformation(zone.as_mut_ptr()) != TIME_ZONE_ID_INVALID)
+                .then(|| zone.assume_init())
+        }
+    }
+
+    pub fn local_day(secs: i64) -> Option<(i64, u32, u32)> {
+        let ticks = u64::try_from(secs.checked_add(EPOCH)?)
+            .ok()?
+            .checked_mul(10_000_000)?;
+        let time = FileTime {
+            low: ticks as u32,
+            high: (ticks >> 32) as u32,
+        };
+        let zone = zone()?;
+        let mut universal = SystemTime::default();
+        let mut local = SystemTime::default();
+        // SAFETY: each call reads the structures it is given by const pointer and writes the one given by mut
+        // pointer; all of them live on this stack for the calls.
+        let converted = unsafe {
+            FileTimeToSystemTime(&time, &mut universal) != 0
+                && SystemTimeToTzSpecificLocalTimeEx(&zone, &universal, &mut local) != 0
+        };
+        converted.then(|| (local.year.into(), local.month.into(), local.day.into()))
+    }
+
+    pub fn local_instant(year: i64, month: u32, day: u32, hour: u32, minute: u32) -> Option<i64> {
+        let zone = zone()?;
+        let minute_at = |hour: u32| {
+            let local = SystemTime {
+                year: u16::try_from(year).ok()?,
+                month: u16::try_from(month).ok()?,
+                day: u16::try_from(day).ok()?,
+                hour: u16::try_from(hour).ok()?,
+                minute: u16::try_from(minute).ok()?,
+                ..SystemTime::default()
+            };
+            let mut universal = SystemTime::default();
+            let mut time = FileTime { low: 0, high: 0 };
+            // SAFETY: as in `local_day`.
+            let converted = unsafe {
+                TzSpecificLocalTimeToSystemTimeEx(&zone, &local, &mut universal) != 0
+                    && SystemTimeToFileTime(&universal, &mut time) != 0
+            };
+            let ticks = (u64::from(time.high) << 32) | u64::from(time.low);
+            converted.then(|| (ticks / 10_000_000) as i64 - EPOCH)
+        };
+        // A minute the clock skips as it changes is the one an hour later, as JavaScript reads it.
+        minute_at(hour).or_else(|| minute_at(hour + 1))
+    }
+}
+
+#[cfg(windows)]
+pub use zone::{local_day, local_instant};

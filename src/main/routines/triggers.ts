@@ -139,7 +139,7 @@ export class RoutineTriggers {
 			} catch (error) {
 				const message = `could not start its trigger: ${error instanceof Error ? error.message : String(error)}`;
 				this.#deps.log(`${schedule.name}: ${message}`);
-				this.#deps.service.triggerFailed(id, message);
+				this.#failed(id, message);
 			}
 		}
 		for (const id of ended) {
@@ -157,14 +157,20 @@ export class RoutineTriggers {
 		const { id } = schedule;
 		const key = keyOf(schedule, event);
 		const context: SourceContext = {
-			fire: detail => this.#deps.service.fire(id, detail),
+			fire: detail => {
+				this.#deps.service.fire(id, detail).catch(error => {
+					this.#deps.log(
+						`${schedule.name}: its event was lost: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				});
+			},
 			running: () => this.#running.has(id),
 			quiet: () =>
 				this.#running.has(id) ||
 				Date.now() < (this.#endedAt.get(id) ?? Number.NEGATIVE_INFINITY) + (this.#deps.quietMs ?? ROUTINE_QUIET_MS),
 			warn: message => {
 				this.#deps.log(`${schedule.name}: ${message}`);
-				this.#deps.service.triggerFailed(id, message);
+				this.#failed(id, message);
 			},
 			mark: this.#deps.marks.get(id, key),
 			// A source stopped meanwhile (its routine off, edited, gone) keeps nothing: its mark was dropped.
@@ -206,6 +212,11 @@ export class RoutineTriggers {
 			case "webhook":
 				throw new Error("a webhook is answered by the web server");
 		}
+	}
+
+	/** The failure goes into the routine's history; the log line above already holds it when the service cannot take it. */
+	#failed(id: string, message: string): void {
+		this.#deps.service.triggerFailed(id, message).catch(() => undefined);
 	}
 
 	#stop(source: RoutineSource): void {

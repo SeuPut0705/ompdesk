@@ -1,6 +1,6 @@
 /**
  * Scheduled runs (Settings › Schedules): a prompt run as stock `omp -p` in a
- * project folder on a timer, by main, only while OMPdesk is open. Times missed
+ * project folder on a timer, by OMPdesk's core process, only while OMPdesk is open. Times missed
  * while the app was closed are skipped, never caught up. Stock omp has no
  * scheduler, so this one is GUI-owned; each run is one ordinary print-mode
  * session that stock saves like any other. A schedule with `wakeSession` is a session's own wake-up instead: its
@@ -152,7 +152,11 @@ export const GITHUB_REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 /** A branch name git accepts in `refs/heads/` (the common subset: no spaces, `..`, `~^:?*[\`, or leading `-`). */
 const BRANCH = /^(?!-)(?!.*\.\.)(?!.*\/\/)[^\s~^:?*[\\]+(?<![./])$/;
 
-/** Why a draft cannot be saved, as a locale key suffix; null when it can. */
+/**
+ * Why a draft cannot be saved, as a locale key suffix; null when it can. The core keeps a copy for the journal it
+ * reads and the drafts it saves (`native/ompdesk/crates/core/src/schedules/rules.rs`); `schedules.test.ts` holds this
+ * one to the same captured rows.
+ */
 export function scheduleDraftProblem(
 	draft: ScheduleDraft,
 ): "name" | "prompt" | "cwd" | "interval" | "time" | "days" | "once" | "event" | null {
@@ -218,42 +222,6 @@ export function scheduleEventProblem(event: ScheduleEvent): string | null {
 
 function nonEmptySubset(values: unknown, allowed: readonly string[]): boolean {
 	return Array.isArray(values) && values.length > 0 && values.every(value => allowed.includes(value));
-}
-
-/**
- * The first start strictly after `now`; null when the clock never starts it (an event trigger, a one-time schedule
- * whose moment passed). An interval repeats from the previous start (else from `now`); a start that fell while the app
- * was closed is skipped, so the next one is a full interval away. A daily schedule starts at its local time on an
- * allowed weekday. A one-time schedule's own start is spent by turning it off (`ScheduleService`), never read from its
- * runs: a Test before its moment, or a run of an earlier moment it was changed from, leaves the start where it is.
- */
-export function nextRunAt(
-	frequency: ScheduleFrequency,
-	now: Date,
-	lastStart: Date | null,
-	/** The length of a minute; only a test launch shortens it (`OMP_GUI_TEST_SCHEDULE_MINUTE_MS`). */
-	minuteMs = 60_000,
-): Date | null {
-	if (frequency.kind === "event") return null;
-	if (frequency.kind === "once") {
-		const at = Date.parse(frequency.at);
-		return at > now.getTime() ? new Date(at) : null;
-	}
-	if (frequency.kind === "interval") {
-		const step = frequency.minutes * minuteMs;
-		const due = lastStart ? lastStart.getTime() + step : now.getTime() + step;
-		return new Date(due > now.getTime() ? due : now.getTime() + step);
-	}
-	const match = TIME.exec(frequency.time);
-	const hours = match ? Number(match[1]) : 9;
-	const minutes = match ? Number(match[2]) : 0;
-	for (let offset = 0; offset <= 7; offset++) {
-		const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset, hours, minutes, 0, 0);
-		if (candidate.getTime() <= now.getTime()) continue;
-		if (frequency.days.length === 0 || frequency.days.includes(candidate.getDay())) return candidate;
-	}
-	// Unreachable with a valid weekday list; a day out runs again tomorrow at the time.
-	return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hours, minutes, 0, 0);
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;

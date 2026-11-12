@@ -1445,8 +1445,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return response === 0;
 		},
 	});
-	deps.schedules?.()?.prune(Date.now());
-	setInterval(() => deps.schedules?.()?.prune(Date.now()), 60 * 60_000).unref();
+	const pruneSchedules = () =>
+		void deps
+			.schedules?.()
+			?.prune(Date.now())
+			.catch(() => undefined);
+	pruneSchedules();
+	setInterval(pruneSchedules, 60 * 60_000).unref();
 	deps.sessionWake.current = (schedule, runId) => agentControl.wakeSession(schedule, runId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({

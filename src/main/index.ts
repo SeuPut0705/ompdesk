@@ -1997,7 +1997,7 @@ app.whenReady().then(() => {
 			? { emailPollMs: Number(process.env.OMP_GUI_TEST_EMAIL_POLL_MS) }
 			: {}),
 	});
-	void scheduleService.start();
+	void scheduleService.start().catch(error => console.error("[schedules] couldn't start:", error));
 	// Lists every folder sessions ran in (the first pass also the ones from before the list existed).
 	void sidebarProjects.sync();
 	logWatcher = new LogWatcher();

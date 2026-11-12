@@ -265,6 +265,18 @@ pub fn write_atomic(
     scope: &Scope,
 ) -> Result<bool, Fault> {
     live(scope)?;
+    write_atomic_if(file, bytes, Some(mode), dir_mode, &|| !scope.cancelled())
+}
+
+/// `write_atomic` for a writer that is no request: `commit` is asked right before every rename, and a refusal
+/// drops the write. Without a `mode` the file gets the one its creation gives it.
+pub fn write_atomic_if(
+    file: &Path,
+    bytes: &[u8],
+    mode: Option<u32>,
+    dir_mode: u32,
+    commit: &dyn Fn() -> bool,
+) -> Result<bool, Fault> {
     if let Some(dir) = file.parent() {
         make_dirs(dir, dir_mode)?;
     }
@@ -276,9 +288,11 @@ pub fn write_atomic(
     ));
     let written = (|| {
         fs::write(&temp, bytes).map_err(|error| fault(&error, "open", &temp))?;
-        chmod(&temp, mode)?;
+        if let Some(mode) = mode {
+            chmod(&temp, mode)?;
+        }
         for wait in RENAME_RETRY_MS.iter().map(Some).chain([None]) {
-            if scope.cancelled() {
+            if !commit() {
                 return Ok(false);
             }
             match fs::rename(&temp, file) {

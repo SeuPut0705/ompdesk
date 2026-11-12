@@ -164,7 +164,7 @@ export interface WebServerDeps {
 	/** Web Push: the VAPID public key a page subscribes against. */
 	push: { publicKey: () => string };
 	/** The schedule service that answers `POST /hooks/<id>`; null or absent while there is none (503). */
-	hooks?: () => { webhook(id: string, bearer: string, detail: string): WebhookOutcome } | null;
+	hooks?: () => { webhook(id: string, bearer: string, detail: string): Promise<WebhookOutcome> } | null;
 	now?: () => number;
 }
 
@@ -536,8 +536,8 @@ export class WebServer {
 	}
 
 	/**
-	 * The webhook call itself, however it arrived: `Authorization: Bearer <key>` is checked by the schedule service in
-	 * constant time. 202 fired (or kept for after the run in progress), 404 no such routine, 401 a wrong or missing key,
+	 * The webhook call itself, however it arrived: `Authorization: Bearer <key>` is checked by the schedule service (the
+	 * core) in constant time. 202 fired (or kept for after the run in progress), 404 no such routine, 401 a wrong or missing key,
 	 * 409 the routine is off, 413 a body over 64 KiB. A call with no bearer, or for an id that cannot be one, costs
 	 * nothing: its body is not read. A call with one reads at most 64 KiB before the key is compared.
 	 */
@@ -552,7 +552,7 @@ export class WebServer {
 		const detail = await readHookDetail(req);
 		const service = this.#deps.hooks?.();
 		if (!service) throw new HttpError(503, "unavailable");
-		switch (service.webhook(id, bearer, detail)) {
+		switch (await service.webhook(id, bearer, detail)) {
 			case "fired":
 				sendJson(res, 202, { ok: true });
 				return;

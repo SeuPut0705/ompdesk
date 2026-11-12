@@ -1,37 +1,27 @@
 /**
- * Scheduled runs: main starts stock `omp -p` in a project folder when a
- * schedule comes due, only while OMPdesk is open (contract and timing rules in
- * src/shared/schedules.ts). Schedules and the run log live in
- * `<userData>/schedules.json`; each run's output goes to
- * `<userData>/schedule-runs/<runId>.log`.
+ * Scheduled runs: stock `omp -p` started in a project folder when a schedule comes due, only while OMPdesk is open
+ * (contract in src/shared/schedules.ts). This is the typed client of the core's schedules
+ * (`native/ompdesk/crates/core/src/schedules`), which keeps the clock, the journal (`<userData>/schedules.json`), the
+ * run logs (`<userData>/schedule-runs/<runId>.log`), the routines' events with their loop guard, the webhook key and
+ * its check, and starts each omp under the supervisor.
  *
- * Every run goes through the setup supervisor (`spawnSupervised`): omp reads a
- * piped stdin as its prompt and never watches it for EOF, so the supervisor
- * hands it the prompt file as stdin and kills omp's whole process tree when its
- * own stdin closes — a Stop, an app quit, or a crash that skips every quit
- * handler. A start that falls due while the previous run of the same schedule
- * still goes is recorded as skipped instead of piling up.
+ * What stays here is what only main has:
+ * - a copy of the state, written from the core's `schedules.state` events alone, for the readers that cannot wait
+ *   (`state()`: the routine triggers read it as each change arrives);
+ * - what the core asks for: whether a paired device has a model request left (`reserve`, main's `PeerQuota`), a
+ *   session's own wake-up (`wake`, the control tools), and a run's omp with its environment and extensions, which
+ *   `ompRunLauncher` resolves and hands to the core's launcher;
+ * - the cleaning of a draft the page or an agent sent (`cleanDraft`), before the core checks and saves it.
  *
- * A schedule with `wakeSession` (a session's own wake-up, `ompdesk_schedule` with `target: "self"`)
- * starts no omp: its start hands the prompt to `wake`, which delivers it into that session as a mail that starts a turn
- * and follows that turn. The run ends with the turn: succeeded, failed with the turn's error, or stopped.
+ * Requests go to the core one after the other, in the order they were made here, because the core takes requests
+ * side by side: two saves, or an event and the end of the run it came during, keep their order.
  *
- * An event schedule (`frequency.kind` `event`, a routine) has no clock: `fire` starts it (src/main/routines watches
- * its trigger; `webhook` answers `POST /hooks/<id>`). Events that come while it runs are kept and start one more run
- * after it with all of them; a routine whose every run is asked for again before it ends is turned off after
- * `ROUTINE_CHAIN_LIMIT` such runs in a row (its own work keeps firing its trigger). A `once` schedule starts at its
- * moment and turns itself off.
+ * A core that ended took its timers and every omp it ran with it (the journal reads them stopped); the service opens
+ * again on the next core, from the journal.
  */
-import type { ChildProcess } from "node:child_process";
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { createWriteStream, existsSync } from "node:fs";
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { finished } from "node:stream/promises";
 import { AGENT_SCHEDULE_PREFIX } from "../shared/agent-control";
 import { codedError } from "../shared/ipc-error-codes";
 import {
-	nextRunAt,
 	ROUTINE_CHAIN_LIMIT,
 	SCHEDULE_ONCE_DONE_KEPT,
 	SCHEDULE_RUNS_KEPT,
@@ -40,22 +30,22 @@ import {
 	type ScheduleCreated,
 	type ScheduleDraft,
 	type ScheduleFrequency,
-	type ScheduleRun,
 	type SchedulesRequest,
 	type SchedulesState,
-	scheduleDraftProblem,
 } from "../shared/schedules";
-import { writeFileAtomic, writeFileAtomicSync } from "./atomic-file";
+import { CoreError, core } from "./core/process";
+import { nativeBinPath } from "./native-bin";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompPathEnv } from "./omp-runtime";
-import { SUPERVISOR_STOPPED_CODE, spawnSupervised } from "./setup/supervisor";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 
 /** How often due schedules are checked; a wall-clock check survives system sleep, a long timer would not. */
 export const SCHEDULE_TICK_MS = 30_000;
-/** A run's log is read back at most this much from its end. */
-const LOG_TAIL_BYTES = 256 * 1024;
+/** The request kept open on the service: it fails when the core dies, which is how this side learns it. */
+const HOLD_MS = 2 ** 31 - 1;
+/** How long after a core could not take the schedules back they are offered again. */
+const REOPEN_MS = 30_000;
 
-/** One started `omp -p`: `stop()` ends it, `done` settles once it exited and its log is flushed. */
+/** One started run: `stop()` ends it, `done` settles once it ended (an omp: exited, its log flushed). */
 export interface RunProcess {
 	stop(): void;
 	done: Promise<{ code: number | null; error?: string }>;
@@ -89,601 +79,32 @@ export interface ScheduleServiceOptions {
 	 * is charged at every start, timed or not; absent = no device is ever charged (tests, no remote host).
 	 */
 	reserve?: (device: string) => ScheduleCharge;
-}
-
-interface StoredSchedules {
-	version: 1;
-	paused: boolean;
-	schedules: Schedule[];
-	runs: ScheduleRun[];
-}
-
-interface ActiveRun {
-	runId: string;
-	process: RunProcess | null;
-	stopRequested: boolean;
+	/**
+	 * The clock, where a test owns it: the core then keeps no timer and reads no clock, this side checks every
+	 * `tickMs` and says the time with each request. Absent: the core's own timer and the system's clock.
+	 */
+	now?: () => number;
 }
 
 /** What a webhook call came to (`ScheduleService.webhook`): started or kept for after the running one, or why not. */
 export type WebhookOutcome = "fired" | "unknown" | "denied" | "off";
 
-/** Event lines kept for the run after the running one (the newest). */
-const PENDING_DETAILS_MAX = 20;
-/** One event line, as a run's prompt and record carry it. */
-const DETAIL_MAX = 500;
-
-export class ScheduleService {
-	readonly #options: ScheduleServiceOptions;
-	#paused = false;
-	#schedules: Schedule[] = [];
-	#runs: ScheduleRun[] = [];
-	#next = new Map<string, number>();
-	/** Running starts by schedule id. */
-	#active = new Map<string, ActiveRun>();
-	/** Events that came while a routine ran, by schedule id: one more run starts with them when it ends. */
-	#pending = new Map<string, string[]>();
-	/** Event runs in a row each asked for while the one before ran, by schedule id (the loop guard). */
-	#chain = new Map<string, number>();
-	#tick: NodeJS.Timeout | null = null;
-	#writes: Promise<void> = Promise.resolve();
-	#disposed = false;
-
-	constructor(options: ScheduleServiceOptions) {
-		this.#options = options;
-	}
-
-	/** Load the saved schedules (a run left `running` by a crash ends as stopped) and start the clock. */
-	async start(): Promise<void> {
-		const stored = await readStored(this.#options.file);
-		this.#paused = stored.paused;
-		this.#schedules = stored.schedules;
-		const now = new Date().toISOString();
-		this.#runs = stored.runs.map(run =>
-			run.status === "running"
-				? { ...run, status: "stopped", endedAt: now, error: "OMPdesk closed during the run" }
-				: run,
-		);
-		if (this.#disposed) return;
-		this.#rescheduleAll();
-		this.#tick = setInterval(() => this.#runDue(), this.#options.tickMs ?? SCHEDULE_TICK_MS);
-		this.#changed();
-	}
-
-	state(): SchedulesState {
-		const nextRuns: Record<string, string | null> = {};
-		for (const schedule of this.#schedules) {
-			const next = this.#next.get(schedule.id);
-			nextRuns[schedule.id] = next === undefined ? null : new Date(next).toISOString();
-		}
-		return {
-			paused: this.#paused,
-			schedules: this.#schedules.map(schedule => ({ ...schedule })),
-			runs: this.#runs.map(run => ({ ...run })),
-			nextRuns,
-		};
-	}
-
-	/**
-	 * An event schedule's trigger fired (src/main/routines; `detail`: one English line saying what happened). Starts a
-	 * run now, or keeps the event for one more run after the running one. False when nothing will run on it: no such
-	 * routine, it is no event schedule, off, everything is paused, or the app is closing.
-	 */
-	fire(id: string, detail: string): boolean {
-		const schedule = this.#schedules.find(item => item.id === id);
-		if (schedule?.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed) return false;
-		const line = detail.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX) || "The trigger fired";
-		if (this.#active.has(id)) {
-			this.#pending.set(id, [...(this.#pending.get(id) ?? []), line].slice(-PENDING_DETAILS_MAX));
-			return true;
-		}
-		this.#chain.delete(id);
-		this.#startEvent(schedule, [line]);
-		this.#changed();
-		return true;
-	}
-
-	/**
-	 * `POST /hooks/<id>` with `Authorization: Bearer <key>` (src/main/web/server.ts): fires the routine whose webhook
-	 * key it is. The key is compared in constant time; any other id, source or key is `unknown`/`denied` alike to the
-	 * caller's eyes only by status, never by timing of the key.
-	 */
-	webhook(id: string, bearer: string, detail: string): WebhookOutcome {
-		const schedule = this.#schedules.find(item => item.id === id);
-		const event = schedule?.frequency.kind === "event" ? schedule.frequency.event : null;
-		if (!schedule || event?.source !== "webhook") return "unknown";
-		const want = Buffer.from(event.key);
-		const got = Buffer.from(bearer);
-		if (want.length !== got.length || !timingSafeEqual(want, got)) return "denied";
-		return this.fire(id, detail) ? "fired" : "off";
-	}
-
-	/**
-	 * A routine's trigger cannot watch what it names (GitHub refused, a folder is gone, git or the mailbox failed;
-	 * src/main/routines tells each distinct failure once): recorded as a failed run with the reason, so the routine's
-	 * history shows it, and nothing runs. False when the routine is gone, off or paused.
-	 */
-	triggerFailed(id: string, reason: string): boolean {
-		const schedule = this.#schedules.find(item => item.id === id);
-		if (schedule?.frequency.kind !== "event" || !schedule.enabled || this.#paused || this.#disposed) return false;
-		const at = new Date().toISOString();
-		const run: ScheduleRun = {
-			id: randomUUID(),
-			scheduleId: id,
-			trigger: "event",
-			startedAt: at,
-			endedAt: at,
-			status: "failed",
-			exitCode: null,
-			error: `Its trigger failed: ${reason.replace(/\s+/g, " ").trim().slice(0, DETAIL_MAX)}`,
-		};
-		this.#record(run);
-		this.#changed();
-		return true;
-	}
-
-	/**
-	 * `origin`: the paired device a request comes from (`host.schedules.command`). A save from a device makes the
-	 * schedule that device's (its runs count against its daily model limit here); a save here makes it this computer's.
-	 * A run now from a device is charged to that device and refused past its limit.
-	 */
-	async command(request: SchedulesRequest, origin?: string): Promise<SchedulesState> {
-		switch (request.action) {
-			case "get":
-				break;
-			case "save":
-				this.#save(request.draft, request.id, origin);
-				break;
-			case "delete":
-				this.#find(request.id);
-				this.#delete(request.id);
-				break;
-			case "setEnabled": {
-				const schedule = this.#find(request.id);
-				schedule.enabled = request.enabled === true;
-				this.#pending.delete(schedule.id);
-				this.#chain.delete(schedule.id);
-				this.#reschedule(schedule);
-				break;
-			}
-			case "setPaused":
-				this.#paused = request.paused === true;
-				this.#rescheduleAll();
-				break;
-			case "runNow": {
-				const schedule = this.#find(request.id);
-				if (this.#active.has(schedule.id)) throw new Error("This schedule is already running");
-				const charge = origin === undefined ? undefined : this.#options.reserve?.(origin);
-				if (charge && !charge.ok) throw codedError("remote_limit_reached", charge.reason);
-				void this.#startRun(
-					schedule,
-					"manual",
-					charge,
-					schedule.frequency.kind === "event" ? ["A test run: no event fired"] : undefined,
-				);
-				break;
-			}
-			case "stop": {
-				const entry = [...this.#active.entries()].find(([, active]) => active.runId === request.runId);
-				if (entry) this.#stopSchedule(entry[0]);
-				break;
-			}
-			default:
-				throw new Error("Unknown schedules action");
-		}
-		this.#changed();
-		return this.state();
-	}
-
-	/**
-	 * Save a new schedule and say which one it is: the id comes from this save, never from a diff a concurrent save
-	 * could share. `origin`: the paired device it is made for (its runs count against that device), as in `command`.
-	 */
-	async create(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated> {
-		const id = this.#save(draft, undefined, origin);
-		this.#changed();
-		return { id, state: this.state() };
-	}
-
-	/** The run's captured output, from its end when long. */
-	async readLog(runId: string): Promise<string> {
-		if (!this.#runs.some(run => run.id === runId)) throw new Error("Run not found");
-		const path = join(this.#options.logDir, `${runId}.log`);
-		if (!existsSync(path)) return "";
-		const handle = await open(path, "r");
-		try {
-			const { size } = await handle.stat();
-			const start = Math.max(0, size - LOG_TAIL_BYTES);
-			const buffer = Buffer.alloc(size - start);
-			await handle.read(buffer, 0, buffer.length, start);
-			return buffer.toString("utf8");
-		} finally {
-			await handle.close();
-		}
-	}
-
-	/** App quit: stop every running omp (its supervisor kills the tree) and record it, synchronously. */
-	dispose(): void {
-		if (this.#disposed) return;
-		this.#disposed = true;
-		clearInterval(this.#tick ?? undefined);
-		this.#tick = null;
-		const now = new Date().toISOString();
-		for (const [scheduleId, active] of this.#active) {
-			active.stopRequested = true;
-			active.process?.stop();
-			this.#runs = this.#runs.map(run =>
-				run.id === active.runId && run.status === "running"
-					? { ...run, status: "stopped", endedAt: now, error: "OMPdesk closed during the run" }
-					: run,
-			);
-			this.#active.delete(scheduleId);
-		}
-		try {
-			writeFileAtomicSync(this.#options.file, JSON.stringify(this.#stored(), null, 2));
-		} catch (error) {
-			console.error("[schedules] couldn't save on quit:", error);
-		}
-	}
-
-	#find(id: string): Schedule {
-		const schedule = this.#schedules.find(item => item.id === id);
-		if (!schedule) throw new Error("Schedule not found");
-		return schedule;
-	}
-
-	/** Returns the id of the schedule saved. */
-	#save(draft: ScheduleDraft, id: string | undefined, origin: string | undefined): string {
-		const existing = id ? this.#find(id) : undefined;
-		// A saved edit keeps what the Settings dialog does not show: the session a wake-up goes to.
-		const wakeSession = draft.wakeSession ?? existing?.wakeSession;
-		const clean: ScheduleDraft = {
-			name: String(draft.name ?? "").trim(),
-			prompt: String(draft.prompt ?? ""),
-			cwd: String(draft.cwd ?? ""),
-			frequency: cleanFrequency(draft.frequency, existing?.frequency),
-			model: typeof draft.model === "string" && draft.model.trim() ? draft.model.trim() : null,
-			autoApprove: draft.autoApprove === true,
-			enabled: draft.enabled === true,
-			...(wakeSession === undefined ? {} : { wakeSession: String(wakeSession) }),
-		};
-		const problem = scheduleDraftProblem(clean);
-		if (problem) throw new Error(`Invalid schedule: ${problem}`);
-		// A one-time start is set for a moment still to come (a changed moment too); a missed one never runs.
-		if (
-			clean.frequency.kind === "once" &&
-			Date.parse(clean.frequency.at) <= Date.now() &&
-			!(existing?.frequency.kind === "once" && existing.frequency.at === clean.frequency.at)
-		)
-			throw new Error("Invalid schedule: once (the moment has passed)");
-		if (clean.wakeSession !== undefined) {
-			if (!(clean.wakeSession.startsWith("/") || /^[A-Za-z]:[\\/]/.test(clean.wakeSession)))
-				throw new Error("Invalid schedule: session");
-			if (origin !== undefined) throw new Error("Invalid schedule: only this computer's own sessions are woken");
-		}
-		if (existing) {
-			Object.assign(existing, clean);
-			if (origin === undefined) delete existing.device;
-			else existing.device = origin;
-			this.#reschedule(existing);
-			return existing.id;
-		}
-		const schedule: Schedule = {
-			...clean,
-			id: randomUUID(),
-			createdAt: new Date().toISOString(),
-			...(origin === undefined ? {} : { device: origin }),
-		};
-		this.#schedules.push(schedule);
-		this.#reschedule(schedule);
-		return schedule.id;
-	}
-
-	#lastStart(scheduleId: string): Date | null {
-		const last = this.#runs.find(run => run.scheduleId === scheduleId && run.status !== "skipped");
-		return last ? new Date(last.startedAt) : null;
-	}
-
-	#reschedule(schedule: Schedule): void {
-		const next =
-			this.#paused || !schedule.enabled
-				? null
-				: nextRunAt(schedule.frequency, new Date(), this.#lastStart(schedule.id), this.#options.minuteMs);
-		if (next === null) this.#next.delete(schedule.id);
-		else this.#next.set(schedule.id, next.getTime());
-	}
-
-	#rescheduleAll(): void {
-		for (const schedule of this.#schedules) this.#reschedule(schedule);
-	}
-
-	/** The start after a skipped one, from the moment it was due. */
-	#skipTo(schedule: Schedule, now: number, due: number): void {
-		const next = nextRunAt(schedule.frequency, new Date(now), new Date(due), this.#options.minuteMs);
-		if (next === null) this.#next.delete(schedule.id);
-		else this.#next.set(schedule.id, next.getTime());
-	}
-
-	#skipped(schedule: Schedule, trigger: ScheduleRun["trigger"], error: string, detail?: string): void {
-		const at = new Date().toISOString();
-		const run: ScheduleRun = {
-			id: randomUUID(),
-			scheduleId: schedule.id,
-			trigger,
-			startedAt: at,
-			endedAt: at,
-			status: "skipped",
-			exitCode: null,
-			error,
-			...(detail === undefined ? {} : { detail }),
-		};
-		this.#record(run);
-	}
-
-	#runDue(): void {
-		if (this.#paused || this.#disposed) return;
-		const now = Date.now();
-		let changed = false;
-		for (const schedule of this.#schedules) {
-			const due = this.#next.get(schedule.id);
-			if (due === undefined || due > now) continue;
-			changed = true;
-			if (this.#active.has(schedule.id)) {
-				this.#skipped(schedule, "schedule", "The previous run was still going");
-				this.#skipTo(schedule, now, due);
-				continue;
-			}
-			const charge = schedule.device === undefined ? undefined : this.#options.reserve?.(schedule.device);
-			if (charge && !charge.ok) {
-				this.#skipped(schedule, "schedule", charge.reason);
-				this.#skipTo(schedule, now, due);
-				continue;
-			}
-			void this.#startRun(schedule, "schedule", charge);
-		}
-		if (changed) this.#changed();
-	}
-
-	/** An event run with what fired it; a paired device's routine is charged like any start of its. */
-	#startEvent(schedule: Schedule, details: string[]): void {
-		const charge = schedule.device === undefined ? undefined : this.#options.reserve?.(schedule.device);
-		if (charge && !charge.ok) {
-			this.#skipped(schedule, "event", charge.reason, details.join("\n"));
-			return;
-		}
-		void this.#startRun(schedule, "event", charge, details);
-	}
-
-	/**
-	 * A routine's run ended with events kept meanwhile: one more run with all of them, unless every run has been asked
-	 * for again before it ended `ROUTINE_CHAIN_LIMIT` times in a row (its own work fires its trigger): then it is off.
-	 */
-	#afterRun(schedule: Schedule): void {
-		const details = this.#pending.get(schedule.id);
-		this.#pending.delete(schedule.id);
-		if (!details || this.#paused || !schedule.enabled || !this.#schedules.includes(schedule)) {
-			this.#chain.delete(schedule.id);
-			return;
-		}
-		const chain = (this.#chain.get(schedule.id) ?? 0) + 1;
-		if (chain >= ROUTINE_CHAIN_LIMIT) {
-			schedule.enabled = false;
-			this.#chain.delete(schedule.id);
-			this.#reschedule(schedule);
-			this.#skipped(
-				schedule,
-				"event",
-				`Turned off: its trigger fired again during each of its last ${ROUTINE_CHAIN_LIMIT} runs, so its own work probably fires it. Check the trigger, then turn it back on.`,
-				details.join("\n"),
-			);
-			this.#changed();
-			return;
-		}
-		this.#chain.set(schedule.id, chain);
-		this.#startEvent(schedule, details);
-		this.#changed();
-	}
-
-	async #startRun(
-		schedule: Schedule,
-		trigger: ScheduleRun["trigger"],
-		charge: Extract<ScheduleCharge, { ok: true }> | undefined,
-		/** What fired an event run (or says a test run fired nothing); told to the run under its prompt. */
-		details?: readonly string[],
-	): Promise<void> {
-		const detail = details?.join("\n");
-		const run: ScheduleRun = {
-			id: randomUUID(),
-			scheduleId: schedule.id,
-			trigger,
-			startedAt: new Date().toISOString(),
-			endedAt: null,
-			status: "running",
-			exitCode: null,
-			error: null,
-			...(detail === undefined ? {} : { detail }),
-		};
-		const active: ActiveRun = { runId: run.id, process: null, stopRequested: false };
-		this.#active.set(schedule.id, active);
-		this.#record(run);
-		// A one-time start is spent: the schedule is off from now on (a test run leaves it as it was).
-		if (schedule.frequency.kind === "once" && trigger === "schedule") {
-			schedule.enabled = false;
-			this.#pruneOnce();
-		}
-		this.#reschedule(schedule);
-		this.#changed();
-		const files = {
-			log: join(this.#options.logDir, `${run.id}.log`),
-			prompt: join(this.#options.logDir, `${run.id}.prompt`),
-		};
-		const prompt =
-			detail === undefined
-				? schedule.prompt
-				: `${schedule.prompt}\n\n${trigger === "manual" ? "Test run" : "What fired this run"}:\n${detail}`;
-		let result: { code: number | null; error?: string };
-		let launched: RunProcess | null = null;
-		try {
-			await mkdir(this.#options.logDir, { recursive: true });
-			if (schedule.wakeSession !== undefined) {
-				const wake = this.#options.wake;
-				if (!wake) throw new Error("Waking a session is not available here");
-				launched = await wake({ ...schedule, prompt }, run.id);
-				await writeFile(files.log, `Woke ${schedule.wakeSession}\n${prompt}\n`);
-			} else {
-				await writeFile(files.prompt, prompt);
-				if (!existsSync(schedule.cwd)) throw new Error(`Project folder not found: ${schedule.cwd}`);
-				launched = await this.#options.launch({ ...schedule, prompt }, files);
-			}
-			active.process = launched;
-			if (active.stopRequested || this.#disposed) launched.stop();
-			result = await launched.done;
-		} catch (error) {
-			result = {
-				code: null,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		}
-		// A run that never started spent nothing of the device's day.
-		if (!launched) charge?.refund();
-		void rm(files.prompt, { force: true }).catch(() => {});
-		if (this.#active.get(schedule.id) === active) this.#active.delete(schedule.id);
-		if (this.#disposed) return;
-		const stopped = active.stopRequested || result.code === SUPERVISOR_STOPPED_CODE;
-		this.#finish(run.id, {
-			status: stopped ? "stopped" : result.code === 0 ? "succeeded" : "failed",
-			exitCode: result.code,
-			error: stopped ? null : (result.error ?? (result.code === 0 ? null : `omp exited with code ${result.code}`)),
-		});
-		if (schedule.frequency.kind === "event") this.#afterRun(schedule);
-	}
-
-	#finish(runId: string, patch: Pick<ScheduleRun, "status" | "exitCode" | "error">): void {
-		const endedAt = new Date().toISOString();
-		this.#runs = this.#runs.map(run => (run.id === runId ? { ...run, ...patch, endedAt } : run));
-		this.#changed();
-		const run = this.#runs.find(entry => entry.id === runId);
-		const schedule = run && this.#schedules.find(entry => entry.id === run.scheduleId);
-		// An agent's one-time wake that did its work is spent and gone: nothing is left to read but a success.
-		if (run && schedule && run.trigger === "schedule" && run.status === "succeeded" && spentAgentOnce(schedule)) {
-			this.#delete(schedule.id);
-			this.#changed();
-		}
-	}
-
-	/**
-	 * Ages out what agents left (launch and hourly): an agent schedule's finished runs past seven days, and a spent
-	 * one-time agent schedule, at once when its run did not fail (or it never ran: an older build kept them), or a day
-	 * after a failed run ended. The owner's own schedules keep their history.
-	 */
-	prune(now: number): void {
-		let changed = false;
-		for (const schedule of [...this.#schedules]) {
-			if (!spentAgentOnce(schedule) || this.#active.has(schedule.id)) continue;
-			const last = this.#runs.find(run => run.scheduleId === schedule.id);
-			const failed = last !== undefined && last.status !== "succeeded";
-			if (failed && !(Date.parse(last.endedAt ?? last.startedAt) < now - 24 * 60 * 60_000)) continue;
-			this.#delete(schedule.id);
-			changed = true;
-		}
-		const agent = new Set(
-			this.#schedules
-				.filter(schedule => schedule.name.startsWith(AGENT_SCHEDULE_PREFIX))
-				.map(schedule => schedule.id),
-		);
-		const old = this.#runs.filter(
-			run =>
-				run.status !== "running" &&
-				agent.has(run.scheduleId) &&
-				Date.parse(run.endedAt ?? run.startedAt) < now - 7 * 24 * 60 * 60_000,
-		);
-		if (old.length > 0) {
-			this.#runs = this.#runs.filter(run => !old.includes(run));
-			this.#removeLogs(old);
-			changed = true;
-		}
-		if (changed) this.#changed();
-	}
-
-	#stopSchedule(scheduleId: string): void {
-		const active = this.#active.get(scheduleId);
-		if (!active) return;
-		active.stopRequested = true;
-		active.process?.stop();
-	}
-
-	/** Newest first; each schedule keeps its `SCHEDULE_RUNS_PER_SCHEDULE` newest, all together `SCHEDULE_RUNS_KEPT`. */
-	#record(run: ScheduleRun): void {
-		this.#runs = [run, ...this.#runs];
-		const kept: ScheduleRun[] = [];
-		const dropped: ScheduleRun[] = [];
-		const perSchedule = new Map<string, number>();
-		for (const entry of this.#runs) {
-			const count = perSchedule.get(entry.scheduleId) ?? 0;
-			if (entry.status === "running" || (kept.length < SCHEDULE_RUNS_KEPT && count < SCHEDULE_RUNS_PER_SCHEDULE)) {
-				kept.push(entry);
-				perSchedule.set(entry.scheduleId, count + 1);
-			} else dropped.push(entry);
-		}
-		if (dropped.length === 0) return;
-		this.#runs = kept;
-		this.#removeLogs(dropped);
-	}
-
-	/** A schedule and its finished runs go; a running one is stopped and its record ends as it ends. */
-	#delete(id: string): void {
-		this.#stopSchedule(id);
-		this.#schedules = this.#schedules.filter(schedule => schedule.id !== id);
-		const dropped = this.#runs.filter(run => run.scheduleId === id && run.status !== "running");
-		this.#runs = this.#runs.filter(run => !dropped.includes(run));
-		this.#removeLogs(dropped);
-		this.#next.delete(id);
-		this.#pending.delete(id);
-		this.#chain.delete(id);
-	}
-
-	/** Spent one-time schedules past `SCHEDULE_ONCE_DONE_KEPT`, the oldest first, are deleted with their runs. */
-	#pruneOnce(): void {
-		const spent = this.#schedules.filter(
-			schedule => schedule.frequency.kind === "once" && !schedule.enabled && !this.#active.has(schedule.id),
-		);
-		for (const schedule of spent.slice(0, Math.max(0, spent.length - SCHEDULE_ONCE_DONE_KEPT)))
-			this.#delete(schedule.id);
-	}
-
-	#removeLogs(runs: readonly ScheduleRun[]): void {
-		for (const run of runs) {
-			void rm(join(this.#options.logDir, `${run.id}.log`), { force: true }).catch(() => {});
-		}
-	}
-
-	#stored(): StoredSchedules {
-		return { version: 1, paused: this.#paused, schedules: this.#schedules, runs: this.#runs };
-	}
-
-	#changed(): void {
-		if (this.#disposed) return;
-		const snapshot = JSON.stringify(this.#stored(), null, 2);
-		const file = this.#options.file;
-		this.#writes = this.#writes
-			// dispose() writes the final state synchronously; an older snapshot must not land after it. `commitIf` is
-			// asked right before every rename, which runs in the same tick, so a quit that comes while this write is
-			// in flight (or waits out a reader of the file) cannot slip between the check and the rename.
-			.then(() =>
-				this.#disposed ? undefined : writeFileAtomic(file, snapshot, { commitIf: () => !this.#disposed }),
-			)
-			.catch(error => console.error("[schedules] couldn't save:", error));
-		this.#options.onState(this.state());
-	}
+/** `schedules.start`: the core asks main to start a run. */
+interface StartAsk {
+	run: string;
+	/** The schedule with the prompt as the run is told it (what fired it under it). */
+	schedule: Schedule;
+	files: { log: string; prompt: string };
+	wake: boolean;
+	/** The request the start was charged with (`schedules.reserve`'s `ask`). */
+	charge: number | null;
 }
 
-/**
- * A draft's timing as stored: unknown fields dropped. A webhook trigger saved without a key gets a new one, or keeps
- * the key the schedule already had (an edit never shows or resends it).
- */
-function cleanFrequency(
-	frequency: ScheduleFrequency | undefined,
-	before: ScheduleFrequency | undefined,
-): ScheduleFrequency {
+/** Names a service and a launched omp to the core; one counter for this process. */
+let sequence = 0;
+
+/** A draft's timing as stored: unknown fields dropped. A webhook's key stays as sent (empty: the core makes or keeps one). */
+function cleanFrequency(frequency: ScheduleFrequency | undefined): ScheduleFrequency {
 	switch (frequency?.kind) {
 		case "daily":
 			return { kind: "daily", time: String(frequency.time), days: [...new Set(frequency.days)].toSorted() };
@@ -692,11 +113,8 @@ function cleanFrequency(
 		case "event": {
 			const event = frequency.event;
 			switch (event?.source) {
-				case "webhook": {
-					const kept = before?.kind === "event" && before.event.source === "webhook" ? before.event.key : "";
-					const key = String(event.key ?? "") || kept || randomBytes(24).toString("base64url");
-					return { kind: "event", event: { source: "webhook", key } };
-				}
+				case "webhook":
+					return { kind: "event", event: { source: "webhook", key: String(event.key ?? "") } };
 				case "github":
 					return {
 						kind: "event",
@@ -729,32 +147,303 @@ function cleanFrequency(
 	}
 }
 
-async function readStored(file: string): Promise<StoredSchedules> {
-	try {
-		const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-		if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
-		const value = parsed as Partial<StoredSchedules>;
-		return {
-			version: 1,
-			paused: value.paused === true,
-			schedules: Array.isArray(value.schedules)
-				? value.schedules.filter(
-						(schedule): schedule is Schedule =>
-							typeof schedule?.id === "string" && scheduleDraftProblem(schedule) === null,
-					)
-				: [],
-			runs: Array.isArray(value.runs)
-				? value.runs.filter((run): run is ScheduleRun => typeof run?.id === "string").slice(0, SCHEDULE_RUNS_KEPT)
-				: [],
-		};
-	} catch {
-		return { version: 1, paused: false, schedules: [], runs: [] };
+/**
+ * What a draft the page, an agent or a paired device sent is saved as: every member of its own type, in the order the
+ * journal keeps them. The core checks it (`scheduleDraftProblem`'s rule) and adds what the schedule already had.
+ */
+function cleanDraft(draft: ScheduleDraft): ScheduleDraft {
+	return {
+		name: String(draft.name ?? "").trim(),
+		prompt: String(draft.prompt ?? ""),
+		cwd: String(draft.cwd ?? ""),
+		frequency: cleanFrequency(draft.frequency),
+		model: typeof draft.model === "string" && draft.model.trim() ? draft.model.trim() : null,
+		autoApprove: draft.autoApprove === true,
+		enabled: draft.enabled === true,
+		...(draft.wakeSession == null ? {} : { wakeSession: String(draft.wakeSession) }),
+	};
+}
+
+/** A refusal of the core as the service threw it: a plain error with its words, the device's limit with its code. */
+function refusal(error: unknown): unknown {
+	if (!(error instanceof CoreError)) return error;
+	if (error.code === "remote_limit_reached") return codedError("remote_limit_reached", error.message);
+	return error.code === "schedule_error" || error.code === "schedules_closed" ? new Error(error.message) : error;
+}
+
+export class ScheduleService {
+	readonly #options: ScheduleServiceOptions;
+	readonly #name = `${process.pid}.${++sequence}`;
+	/** The core's last word; replaced whole by each `schedules.state`, never changed in place. */
+	#state: SchedulesState = { paused: false, schedules: [], runs: [], nextRuns: {} };
+	/** The requests' queue: each is sent once the one before it was answered. */
+	#lane: Promise<unknown> = Promise.resolve();
+	/** The runs main started and still follows, by run id; null while one is being started. */
+	readonly #runs = new Map<string, RunProcess | null>();
+	/** What gives a counted request back, by the ask it answered, until its run started. */
+	readonly #refunds = new Map<number, () => void>();
+	#unsubscribe: (() => void)[] = [];
+	#tick: NodeJS.Timeout | null = null;
+	#retry: NodeJS.Timeout | null = null;
+	#started = false;
+	#disposed = false;
+
+	constructor(options: ScheduleServiceOptions) {
+		this.#options = options;
+	}
+
+	/** Open the saved schedules in the core (a run left `running` by a crash ends as stopped) and start the clock. */
+	async start(): Promise<void> {
+		const host = core();
+		const mine =
+			<T>(handle: (told: T) => void) =>
+			(data: unknown) => {
+				// A frame of this app's own core, spelled by `schedules/mod.rs`.
+				const told = data as T & { service: string };
+				if (told.service === this.#name) handle(told);
+			};
+		this.#started = true;
+		this.#unsubscribe = [
+			host.on(
+				"schedules.state",
+				mine<{ state: SchedulesState }>(({ state }) => {
+					if (this.#disposed) return;
+					this.#state = state;
+					this.#options.onState(state);
+				}),
+			),
+			host.on(
+				"schedules.start",
+				mine<StartAsk>(ask => void this.#run(ask)),
+			),
+			host.on(
+				"schedules.stop",
+				mine<{ run: string }>(({ run }) => this.#runs.get(run)?.stop()),
+			),
+			host.on(
+				"schedules.reserve",
+				mine<{ ask: number; device: string }>(({ ask, device }) => this.#reserve(ask, device)),
+			),
+			host.on(
+				"schedules.refund",
+				mine<{ charge: number }>(({ charge }) => {
+					this.#refunds.get(charge)?.();
+					this.#refunds.delete(charge);
+				}),
+			),
+		];
+		await this.#opening();
+	}
+
+	/** Opens the schedules; whatever is asked meanwhile waits for it. A core that cannot take them is asked again later. */
+	#opening(): Promise<void> {
+		const opened = this.#open();
+		this.#lane = opened.catch(() => undefined);
+		opened.catch(() => {
+			if (this.#disposed) return;
+			this.#retry = setTimeout(() => {
+				this.#opening().catch(error => console.error("[schedules] couldn't open in ompdesk-core:", error));
+			}, REOPEN_MS);
+			this.#retry.unref();
+		});
+		return opened;
+	}
+
+	async #open(): Promise<void> {
+		const { file, logDir, tickMs = SCHEDULE_TICK_MS, minuteMs = 60_000, now } = this.#options;
+		await this.#call("schedules.open", {
+			file,
+			logDir,
+			tickMs,
+			minuteMs,
+			manual: now !== undefined,
+			charges: this.#options.reserve !== undefined,
+			wakes: this.#options.wake !== undefined,
+			limits: {
+				runsKept: SCHEDULE_RUNS_KEPT,
+				runsPerSchedule: SCHEDULE_RUNS_PER_SCHEDULE,
+				onceDoneKept: SCHEDULE_ONCE_DONE_KEPT,
+				chainLimit: ROUTINE_CHAIN_LIMIT,
+				agentPrefix: AGENT_SCHEDULE_PREFIX,
+			},
+		});
+		if (this.#disposed) {
+			// The quit came while the journal was read: its close found nothing open yet.
+			await this.#call("schedules.close").catch(() => undefined);
+			return;
+		}
+		if (now && !this.#tick) {
+			this.#tick = setInterval(() => void this.#send("schedules.tick").catch(() => undefined), tickMs);
+		}
+		void this.#hold();
+	}
+
+	/** Keeps a request open on the service; when the core dies under it, opens the schedules on the next one. */
+	async #hold(): Promise<void> {
+		const host = core();
+		const home = host.pid;
+		while (!this.#disposed && host.pid === home) {
+			try {
+				await host.call("schedules.closed", { service: this.#name }, { timeoutMs: HOLD_MS });
+				return;
+			} catch (error) {
+				if (this.#disposed) return;
+				if (error instanceof CoreError && error.code === "timeout") continue;
+				break;
+			}
+		}
+		// The core's omps went with it and the journal reads them stopped; a woken session's turn goes on unfollowed.
+		this.#runs.clear();
+		this.#refunds.clear();
+		if (this.#disposed) return;
+		this.#opening().catch(error => console.error("[schedules] couldn't open in ompdesk-core:", error));
+	}
+
+	/** The schedules as the core last told them. */
+	state(): SchedulesState {
+		return this.#state;
+	}
+
+	/** One request to the core, at once. */
+	async #call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+		const now = this.#options.now;
+		try {
+			const sent = { service: this.#name, ...(now ? { now: now() } : {}), ...params };
+			return (await core().call<T>(method, sent)).result;
+		} catch (error) {
+			throw refusal(error);
+		}
+	}
+
+	/** One request to the core in its turn; it carries the time it was made at, not the time it is sent at. */
+	#send<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+		const now = this.#options.now;
+		const stamped = now ? { now: now(), ...params } : params;
+		const sent = this.#lane.then(() => this.#call<T>(method, stamped));
+		this.#lane = sent.catch(() => undefined);
+		return sent;
+	}
+
+	/**
+	 * An event schedule's trigger fired (src/main/routines; `detail`: one English line saying what happened). Starts a
+	 * run now, or keeps the event for one more run after the running one. False when nothing will run on it: no such
+	 * routine, it is no event schedule, off, everything is paused, or the app is closing.
+	 */
+	async fire(id: string, detail: string): Promise<boolean> {
+		if (this.#disposed) return false;
+		return this.#send<boolean>("schedules.fire", { id, detail });
+	}
+
+	/**
+	 * `POST /hooks/<id>` with `Authorization: Bearer <key>` (src/main/web/server.ts): fires the routine whose webhook
+	 * key it is. The core compares the key in constant time; any other id, source or key is `unknown`/`denied` alike
+	 * to the caller's eyes only by status, never by timing of the key.
+	 */
+	async webhook(id: string, bearer: string, detail: string): Promise<WebhookOutcome> {
+		if (this.#disposed) return "off";
+		return this.#send<WebhookOutcome>("schedules.webhook", { id, bearer, detail });
+	}
+
+	/**
+	 * A routine's trigger cannot watch what it names (GitHub refused, a folder is gone, git or the mailbox failed;
+	 * src/main/routines tells each distinct failure once): recorded as a failed run with the reason, so the routine's
+	 * history shows it, and nothing runs. False when the routine is gone, off or paused.
+	 */
+	async triggerFailed(id: string, reason: string): Promise<boolean> {
+		if (this.#disposed) return false;
+		return this.#send<boolean>("schedules.triggerFailed", { id, reason });
+	}
+
+	/**
+	 * `origin`: the paired device a request comes from (`host.schedules.command`). A save from a device makes the
+	 * schedule that device's (its runs count against its daily model limit here); a save here makes it this computer's.
+	 * A run now from a device is charged to that device and refused past its limit.
+	 */
+	async command(request: SchedulesRequest, origin?: string): Promise<SchedulesState> {
+		const sent = request.action === "save" ? { ...request, draft: cleanDraft(request.draft) } : request;
+		return this.#send<SchedulesState>("schedules.command", { request: sent, origin });
+	}
+
+	/**
+	 * Save a new schedule and say which one it is: the id comes from this save, never from a diff a concurrent save
+	 * could share. `origin`: the paired device it is made for (its runs count against that device), as in `command`.
+	 */
+	async create(draft: ScheduleDraft, origin?: string): Promise<ScheduleCreated> {
+		return this.#send<ScheduleCreated>("schedules.create", { draft: cleanDraft(draft), origin });
+	}
+
+	/** The run's captured output, from its end when long. */
+	async readLog(runId: string): Promise<string> {
+		return this.#send<string>("schedules.log", { run: runId });
+	}
+
+	/**
+	 * Ages out what agents left (launch and hourly): an agent schedule's finished runs past seven days, and a spent
+	 * one-time agent schedule, at once when its run did not fail (or it never ran: an older build kept them), or a day
+	 * after a failed run ended. The owner's own schedules keep their history.
+	 */
+	async prune(now: number): Promise<void> {
+		if (this.#disposed) return;
+		await this.#send("schedules.prune", { at: now });
+	}
+
+	/**
+	 * App quit: stop every run main follows (a woken session's turn; an omp's supervisor kills its tree) and have the
+	 * core record them and write the journal. Resolves once the core has; the quit does not wait for it, because the
+	 * core answers what it holds before it exits.
+	 */
+	dispose(): Promise<void> {
+		if (this.#disposed) return Promise.resolve();
+		this.#disposed = true;
+		clearInterval(this.#tick ?? undefined);
+		clearTimeout(this.#retry ?? undefined);
+		for (const off of this.#unsubscribe) off();
+		for (const process of this.#runs.values()) process?.stop();
+		// A service that never asked the core for anything has nothing there to close.
+		if (!this.#started) return Promise.resolve();
+		// Not in its turn behind what still waits: the journal is closed now.
+		return this.#call<void>("schedules.close").catch(() => undefined);
+	}
+
+	/** Counts a start against its device, tells the core, and keeps how to give it back until the run started. */
+	#reserve(ask: number, device: string): void {
+		const charge = this.#options.reserve?.(device) ?? { ok: true, refund: () => undefined };
+		if (charge.ok) this.#refunds.set(ask, charge.refund);
+		// Not in its turn: a run now that waits for this answer holds the turn.
+		this.#call("schedules.reserved", { ask, ...(charge.ok ? {} : { refused: charge.reason }) }).catch(() => {
+			// A core that never heard the answer starts nothing on it.
+			this.#refunds.get(ask)?.();
+			this.#refunds.delete(ask);
+		});
+	}
+
+	/** Starts the run the core asks for and follows it to its end. */
+	async #run({ run, schedule, files, wake, charge }: StartAsk): Promise<void> {
+		this.#runs.set(run, null);
+		let result: { code: number | null; error?: string };
+		try {
+			const process = wake ? await this.#options.wake?.(schedule, run) : await this.#options.launch(schedule, files);
+			if (!process) throw new Error("Waking a session is not available here");
+			this.#runs.set(run, process);
+			// Started: the request it was charged with is spent.
+			if (charge !== null) this.#refunds.delete(charge);
+			if (this.#disposed) process.stop();
+			// The core sends a stop that was asked for meanwhile once it hears the run started.
+			await this.#send("schedules.started", { run });
+			result = await process.done;
+		} catch (error) {
+			result = { code: null, error: error instanceof Error ? error.message : String(error) };
+		}
+		this.#runs.delete(run);
+		if (this.#disposed) return;
+		await this.#send("schedules.ended", { run, ...result }).catch(() => undefined);
 	}
 }
 
 /**
- * The production launcher: `omp -p [--model m] [--yolo]` under the supervisor,
- * the prompt as its stdin, stdout and stderr appended to the run's log.
+ * The production launcher: `omp -p [--model m] [--yolo]` under the supervisor, started by the core
+ * (`schedules.launch`), the prompt file as its stdin, stdout and stderr appended to the run's log. This side resolves
+ * what the run needs at its start: the omp, the environment, the extensions of its folder.
  */
 export function ompRunLauncher(options: {
 	omp: () => Promise<OmpResolution>;
@@ -779,59 +468,57 @@ export function ompRunLauncher(options: {
 			...(schedule.model ? ["--model", schedule.model] : []),
 			...(schedule.autoApprove ? ["--yolo"] : []),
 		];
-		const log = createWriteStream(files.log, { flags: "a" });
-		// A log that cannot be written (disk full, folder removed) must neither crash main nor stop the run:
-		// without a listener the stream's 'error' is an uncaught exception. The run goes on unlogged.
-		let logFailed = false;
-		log.on("error", () => {
-			logFailed = true;
+		const ompEnv: Record<string, string> = {};
+		for (const [name, value] of Object.entries({
+			...env,
+			PATH: ompPathEnv(bin, env.PATH ?? ""),
+			PI_NOTIFICATIONS: "off",
+			PI_NO_PTY: "1",
+			...OMP_TELEMETRY_OFF,
+		}))
+			if (value !== undefined) ompEnv[name] = value;
+		const run = `${process.pid}.${++sequence}`;
+		const host = core();
+		const ended = Promise.withResolvers<{ code: number | null; error?: string }>();
+		// Heard from the tick the request is sent in: the end of a supervisor that could not start comes before the answer.
+		const unsubscribe = [
+			host.on("schedules.launchEnded", data => {
+				const told = data as { run: string; code: number | null; error?: string };
+				if (told.run === run) ended.resolve(told.error === undefined ? { code: told.code } : told);
+			}),
+			// A core that started after the one the omp was started on holds nothing of it: it ended with its core.
+			host.on("ready", () => {
+				if (host.pid !== home) ended.resolve({ code: null, error: "ompdesk-core exited during the run" });
+			}),
+		];
+		const done = ended.promise.then(({ code, error }) => {
+			for (const off of unsubscribe) off();
+			return error === undefined ? { code } : { code, error };
 		});
-		log.write(`$ omp ${args.join(" ")}\n# ${schedule.cwd}\n\n`);
-		let child: ChildProcess;
+		const started = host.call("schedules.launch", {
+			run,
+			supervisor: nativeBinPath("ompdesk-core"),
+			file: spawnCommand(bin),
+			args: spawnArgs(bin, args),
+			shell: needsShell(bin),
+			env: ompEnv,
+			cwd: schedule.cwd,
+			log: files.log,
+			prompt: files.prompt,
+			header: `$ omp ${args.join(" ")}\n# ${schedule.cwd}\n\n`,
+		});
+		const home = host.pid;
 		try {
-			child = spawnSupervised(
-				{
-					file: spawnCommand(bin),
-					args: spawnArgs(bin, args),
-					shell: needsShell(bin),
-					inputFile: files.prompt,
-				},
-				{
-					...env,
-					PATH: ompPathEnv(bin, env.PATH ?? ""),
-					PI_NOTIFICATIONS: "off",
-					PI_NO_PTY: "1",
-					...OMP_TELEMETRY_OFF,
-				},
-				schedule.cwd,
-			);
+			await started;
 		} catch (error) {
-			log.destroy();
+			for (const off of unsubscribe) off();
 			throw error;
 		}
-		child.stdout?.pipe(log, { end: false });
-		child.stderr?.pipe(log, { end: false });
-		log.on("error", () => {
-			// pipe() detaches a failed destination, which would leave omp blocked on a full stdout pipe.
-			child.stdout?.unpipe(log);
-			child.stderr?.unpipe(log);
-			child.stdout?.resume();
-			child.stderr?.resume();
-		});
-		const { promise, resolve } = Promise.withResolvers<{ code: number | null; error?: string }>();
-		child.on("error", error => resolve({ code: null, error: error.message }));
-		child.on("close", code => resolve({ code }));
-		const done = promise.then(async result => {
-			// A destroyed log never calls end()'s callback, so wait for 'close' instead.
-			if (!logFailed) log.end();
-			await finished(log).catch(() => undefined);
-			return result;
-		});
-		return { stop: () => child.stdin?.end(), done };
+		return {
+			stop: () => {
+				host.call("schedules.launchStop", { run }).catch(() => undefined);
+			},
+			done,
+		};
 	};
-}
-
-/** A one-time schedule an agent made (`[agent] …`) whose start is spent (it turned itself off). */
-function spentAgentOnce(schedule: Schedule): boolean {
-	return schedule.frequency.kind === "once" && !schedule.enabled && schedule.name.startsWith(AGENT_SCHEDULE_PREFIX);
 }

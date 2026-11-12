@@ -101,7 +101,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	triggers.dispose();
-	service.dispose();
+	await service.dispose();
 	vi.useRealTimers();
 	// A schedule save still in flight at dispose may write and drop its temp file while the folder goes.
 	for (const path of dirs.splice(0)) await rm(path, RM_TEMP);

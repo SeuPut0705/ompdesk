@@ -8,8 +8,8 @@
 export const ROUTINE_QUIET_MS = 3_000;
 
 export interface SourceContext {
-	/** Start the routine with this line, or keep it for after the running run. False when nothing will run on it. */
-	fire(detail: string): boolean;
+	/** Start the routine with this line, or keep it for after the running run; nothing runs on a routine that is off. */
+	fire(detail: string): void;
 	/** The routine's own run (or a test run of it) is going now. */
 	running(): boolean;
 	/** Its own run is going, or ended less than `ROUTINE_QUIET_MS` ago: what changes now are its own work. */

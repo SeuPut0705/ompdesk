@@ -74,7 +74,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await host.stop();
-	service?.dispose();
+	await service?.dispose();
 	rmSync(userData, { recursive: true, force: true });
 	rmSync(staticRoot, { recursive: true, force: true });
 });

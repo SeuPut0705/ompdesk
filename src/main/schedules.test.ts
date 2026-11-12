@@ -9,6 +9,7 @@ import {
 	type ScheduleDraft,
 	type SchedulesState,
 } from "../shared/schedules";
+import { core } from "./core/process";
 import type { OmpResolution } from "./omp-runtime";
 import {
 	ompRunLauncher,
@@ -78,6 +79,7 @@ function harness(dir: string, launch: RunLauncher, reserve?: ScheduleServiceOpti
 		file: join(dir, "schedules.json"),
 		logDir: join(dir, "runs"),
 		launch,
+		now: () => Date.now(),
 		...(reserve ? { reserve } : {}),
 		onState: state => {
 			for (const listener of [...listeners]) listener(state);
@@ -111,7 +113,10 @@ function draft(cwd: string, overrides: Partial<ScheduleDraft> = {}): ScheduleDra
 	};
 }
 
-/** The schedule clock (its tick and `Date`) runs fake; promises and file I/O stay real. */
+/**
+ * The schedule clock (its tick and `Date`) runs fake; promises and file I/O stay real. The services here hand the core
+ * that clock (`now`), so it keeps no timer of its own; the one test on the core's own clock says so.
+ */
 function fakeClock(now?: Date): void {
 	vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], ...(now ? { now } : {}) });
 }
@@ -140,7 +145,7 @@ describe("ScheduleService", () => {
 		runs[0]?.finish(0);
 		const finished = await until(state => state.runs.some(run => run.status === "succeeded"));
 		expect(finished.runs.find(run => run.status === "succeeded")).toMatchObject({ exitCode: 0, trigger: "schedule" });
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("runs on demand, stops on request, and reports a failing exit", async () => {
@@ -165,7 +170,7 @@ describe("ScheduleService", () => {
 		runs[1]?.finish(2);
 		const failed = await until(state => state.runs[0]?.status === "failed");
 		expect(failed.runs[0]).toMatchObject({ exitCode: 2, error: "omp exited with code 2" });
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("a missing project folder fails the run without launching omp", async () => {
@@ -179,7 +184,7 @@ describe("ScheduleService", () => {
 		const failed = await until(state => state.runs[0]?.status === "failed");
 		expect(launch).not.toHaveBeenCalled();
 		expect(failed.runs[0]?.error).toContain("Project folder not found");
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("charges a paired device's schedule to that device's daily model limit and skips a timed run past it", async () => {
@@ -222,7 +227,7 @@ describe("ScheduleService", () => {
 		// Saved again on this computer, it is this computer's schedule.
 		const own = await service.command({ action: "save", id, draft: draft(dir) });
 		expect(own.schedules[0]?.device).toBeUndefined();
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("gives a device's reserved request back when its run cannot start", async () => {
@@ -238,7 +243,7 @@ describe("ScheduleService", () => {
 		await service.command({ action: "runNow", id }, "dev-a");
 		await until(state => state.runs[0]?.status === "failed");
 		expect(refunds).toEqual(["dev-a"]);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("a disabled schedule or a paused list has no next start", async () => {
@@ -255,7 +260,7 @@ describe("ScheduleService", () => {
 		expect(launch).not.toHaveBeenCalled();
 		expect(service.state().runs).toEqual([]);
 		await expect(service.command({ action: "save", draft: draft("relative") })).rejects.toThrow("cwd");
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("tells each of two concurrent creates the schedule its own save made", async () => {
@@ -273,7 +278,7 @@ describe("ScheduleService", () => {
 		expect(beta.state.schedules.find(schedule => schedule.id === alpha.id)?.name).toBe("alpha");
 		expect(beta.state.schedules.find(schedule => schedule.id === beta.id)?.name).toBe("beta");
 		await expect(service.create(draft("relative"))).rejects.toThrow("cwd");
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("quitting stops a running omp and records it; a run left running by a crash loads as stopped", async () => {
@@ -286,7 +291,7 @@ describe("ScheduleService", () => {
 		const id = (await service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
 		await service.command({ action: "runNow", id });
 		await launched(1);
-		service.dispose();
+		await service.dispose();
 		// The launch was still returning when the quit came: the stop follows as soon as it has the process.
 		await runs[0]?.stopSignal;
 		const saved = JSON.parse(await readFile(file, "utf8")) as { runs: { status: string; error: string }[] };
@@ -298,7 +303,31 @@ describe("ScheduleService", () => {
 		await reloaded.start();
 		expect(reloaded.state().runs[0]).toMatchObject({ status: "stopped" });
 		expect(reloaded.state().schedules.map(schedule => schedule.id)).toEqual([id]);
-		reloaded.dispose();
+		await reloaded.dispose();
+	});
+});
+
+describe("ScheduleService on a core that dies", () => {
+	it("opens its schedules again on the next core, from the journal", async () => {
+		const dir = await tempDir();
+		const { launch, launched } = fakeLauncher();
+		const first = harness(dir, launch);
+		await first.service.start();
+		const id = (await first.service.command({ action: "save", draft: draft(dir) })).schedules[0]?.id ?? "";
+		// Closed in order, so the journal holds the schedule.
+		await first.service.dispose();
+
+		const { service } = harness(dir, launch);
+		await service.start();
+		const restarted = Promise.withResolvers<void>();
+		const heard = core().on("ready", () => restarted.resolve());
+		process.kill(core().pid ?? 0);
+		await restarted.promise;
+		heard();
+		const state = await service.command({ action: "runNow", id });
+		expect(state.schedules.map(schedule => schedule.id)).toEqual([id]);
+		await launched(1);
+		await service.dispose();
 	});
 });
 
@@ -323,13 +352,15 @@ describe("a session's own wake-up (wakeSession)", () => {
 			launch,
 			onState: () => {},
 			wake,
+			now: () => Date.now(),
 			...options,
 		});
 		return { service, launch, wake, woken };
 	}
 
+	/** The newest run is there and has ended. */
 	async function settled(service: ScheduleService): Promise<void> {
-		await vi.waitFor(() => expect(service.state().runs[0]?.status).not.toBe("running"));
+		await vi.waitFor(() => expect(service.state().runs[0]?.status ?? "running").not.toBe("running"));
 	}
 
 	it("hands the prompt to wake when due, spawns no omp, and records a succeeded run with a log line", async () => {
@@ -357,7 +388,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 		expect(await service.readLog(service.state().runs[0]?.id ?? "")).toBe(`Woke ${SESSION}\nCheck the build\n`);
 		// It repeats like any schedule, and stays in the list the Schedules panel shows.
 		expect(service.state().nextRuns[id]).not.toBeNull();
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("fails the run with the reason when the session cannot be woken, and keeps the schedule", async () => {
@@ -374,7 +405,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 			error: "The session to wake is gone (/sessions/self.jsonl)",
 		});
 		expect(service.state().schedules).toHaveLength(1);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("fails its run where nothing delivers wake-ups", async () => {
@@ -389,7 +420,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 			error: "Waking a session is not available here",
 		});
 		expect(launch).not.toHaveBeenCalled();
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("keeps its session through an edit from Settings, and only this computer's own sessions are woken", async () => {
@@ -408,12 +439,12 @@ describe("a session's own wake-up (wakeSession)", () => {
 		await expect(
 			service.command({ action: "save", draft: draft(dir, { wakeSession: "self.jsonl" }) }),
 		).rejects.toThrow("Invalid schedule: session");
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("counts a minute by minuteMs and checks every tickMs, so a test launch wakes within moments", async () => {
 		const dir = await tempDir();
-		const { service, woken } = wakeHarness(dir, { minuteMs: 20, tickMs: 10 });
+		const { service, woken } = wakeHarness(dir, { minuteMs: 20, tickMs: 10, now: undefined });
 		await service.start();
 		await service.command({
 			action: "save",
@@ -421,7 +452,7 @@ describe("a session's own wake-up (wakeSession)", () => {
 		});
 		await vi.waitFor(() => expect(woken.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
 		expect(woken[0]).toMatchObject({ prompt: "Soon", session: SESSION });
-		service.dispose();
+		await service.dispose();
 	});
 });
 
@@ -455,6 +486,7 @@ describe("routines: event triggers, once, run history", () => {
 			launch,
 			onState: stateChanged,
 			wake,
+			now: () => Date.now(),
 		});
 		return { service, turns, woke, wake };
 	}
@@ -488,7 +520,7 @@ describe("routines: event triggers, once, run history", () => {
 		await service.start();
 		const id = await routine(service, dir, { prompt: "Review the change" });
 		expect(service.state().nextRuns[id]).toBeNull();
-		expect(service.fire(id, "src/a.ts changed")).toBe(true);
+		expect(await service.fire(id, "src/a.ts changed")).toBe(true);
 		await woke(1);
 		expect(turns[0]?.prompt).toBe("Review the change\n\nWhat fired this run:\nsrc/a.ts changed");
 		expect(service.state().runs[0]).toMatchObject({
@@ -496,8 +528,8 @@ describe("routines: event triggers, once, run history", () => {
 			status: "running",
 			detail: "src/a.ts changed",
 		});
-		expect(service.fire(id, "src/b.ts changed")).toBe(true);
-		expect(service.fire(id, "src/c.ts changed")).toBe(true);
+		expect(await service.fire(id, "src/b.ts changed")).toBe(true);
+		expect(await service.fire(id, "src/c.ts changed")).toBe(true);
 		turns[0]?.end({ code: 0 });
 		await woke(2);
 		expect(turns[1]?.prompt).toBe("Review the change\n\nWhat fired this run:\nsrc/b.ts changed\nsrc/c.ts changed");
@@ -509,7 +541,7 @@ describe("routines: event triggers, once, run history", () => {
 		]);
 		// Nothing else was kept: no third run.
 		expect(turns).toHaveLength(2);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("turns a routine off when its own runs keep firing it, and says why in its history", async () => {
@@ -517,19 +549,19 @@ describe("routines: event triggers, once, run history", () => {
 		const { service, turns, woke } = routineHarness(dir);
 		await service.start();
 		const id = await routine(service, dir);
-		service.fire(id, "change 0");
+		await service.fire(id, "change 0");
 		for (let index = 0; index < ROUTINE_CHAIN_LIMIT; index++) {
 			await woke(index + 1);
 			// Every run's own work fires the trigger again before it ends.
-			service.fire(id, `change ${index + 1}`);
+			await service.fire(id, `change ${index + 1}`);
 			turns[index]?.end({ code: 0 });
 		}
 		await vi.waitFor(() => expect(service.state().schedules[0]?.enabled).toBe(false));
 		expect(turns).toHaveLength(ROUTINE_CHAIN_LIMIT);
 		expect(service.state().runs[0]).toMatchObject({ status: "skipped", trigger: "event" });
 		expect(service.state().runs[0]?.error).toContain("its own work probably fires it");
-		expect(service.fire(id, "later")).toBe(false);
-		service.dispose();
+		expect(await service.fire(id, "later")).toBe(false);
+		await service.dispose();
 	});
 
 	it("fires nothing for a schedule that is no routine, is off, or while everything is paused", async () => {
@@ -539,13 +571,13 @@ describe("routines: event triggers, once, run history", () => {
 		const timed = (await service.create(draft(dir))).id;
 		const off = await routine(service, dir, { enabled: false });
 		const on = await routine(service, dir);
-		expect(service.fire(timed, "x")).toBe(false);
-		expect(service.fire(off, "x")).toBe(false);
-		expect(service.fire("nope", "x")).toBe(false);
+		expect(await service.fire(timed, "x")).toBe(false);
+		expect(await service.fire(off, "x")).toBe(false);
+		expect(await service.fire("nope", "x")).toBe(false);
 		await service.command({ action: "setPaused", paused: true });
-		expect(service.fire(on, "x")).toBe(false);
+		expect(await service.fire(on, "x")).toBe(false);
 		expect(service.state().runs).toEqual([]);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("a test run of a routine says no event fired", async () => {
@@ -557,7 +589,7 @@ describe("routines: event triggers, once, run history", () => {
 		await woke(1);
 		expect(turns[0]?.prompt).toBe("Look\n\nTest run:\nA test run: no event fired");
 		expect(service.state().runs[0]).toMatchObject({ trigger: "manual" });
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("a webhook gets its key on save, keeps it through an edit, and fires only for that key", async () => {
@@ -570,18 +602,18 @@ describe("routines: event triggers, once, run history", () => {
 		expect(key.length).toBeGreaterThanOrEqual(32);
 		await service.command({ action: "save", id, draft: draft(dir, { frequency: event("webhook"), prompt: "New" }) });
 		expect(service.state().schedules[0]?.frequency).toEqual({ kind: "event", event: { source: "webhook", key } });
-		expect(service.webhook(id, "wrong", "body")).toBe("denied");
-		expect(service.webhook(id, `${key}x`, "body")).toBe("denied");
-		expect(service.webhook("nope", key, "body")).toBe("unknown");
+		expect(await service.webhook(id, "wrong", "body")).toBe("denied");
+		expect(await service.webhook(id, `${key}x`, "body")).toBe("denied");
+		expect(await service.webhook("nope", key, "body")).toBe("unknown");
 		expect(service.state().runs).toEqual([]);
-		expect(service.webhook(id, key, 'Webhook call: {"ok":true}')).toBe("fired");
+		expect(await service.webhook(id, key, 'Webhook call: {"ok":true}')).toBe("fired");
 		await woke(1);
 		expect(turns[0]?.prompt).toContain('Webhook call: {"ok":true}');
 		turns[0]?.end({ code: 0 });
 		await ended(service, 1);
 		await service.command({ action: "setEnabled", id, enabled: false });
-		expect(service.webhook(id, key, "x")).toBe("off");
-		service.dispose();
+		expect(await service.webhook(id, key, "x")).toBe("off");
+		await service.dispose();
 	});
 
 	it("a once routine starts at its moment, then is off and done; a moment already past is refused", async () => {
@@ -603,7 +635,7 @@ describe("routines: event triggers, once, run history", () => {
 		await expect(
 			service.create(draft(dir, { frequency: { kind: "once", at: new Date(2026, 9, 15, 11, 0).toISOString() } })),
 		).rejects.toThrow("the moment has passed");
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("an agent's once routine goes once its run succeeds; a failed one stays a day so its reason can be read", async () => {
@@ -625,12 +657,12 @@ describe("routines: event triggers, once, run history", () => {
 		await vi.waitFor(() => expect(ids()).not.toContain(done));
 		expect(ids()).toEqual(expect.arrayContaining([failed, owners]));
 		expect(service.state().runs.find(run => run.scheduleId === failed)?.error).toBe("model unreachable");
-		service.prune(Date.now() + 23 * 60 * 60_000);
+		await service.prune(Date.now() + 23 * 60 * 60_000);
 		expect(ids()).toContain(failed);
-		service.prune(Date.now() + 25 * 60 * 60_000);
+		await service.prune(Date.now() + 25 * 60 * 60_000);
 		expect(ids()).toEqual([owners]);
 		expect(service.state().runs.map(run => run.scheduleId)).toEqual([owners]);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("forgets an agent routine's runs after 7 days and leaves the owner's own schedules' history", async () => {
@@ -639,14 +671,14 @@ describe("routines: event triggers, once, run history", () => {
 		await service.start();
 		const agent = await routine(service, dir, { name: "[agent] watch" });
 		const mine = await routine(service, dir, { name: "Watch" });
-		service.fire(agent, "a");
-		service.fire(mine, "b");
+		await service.fire(agent, "a");
+		await service.fire(mine, "b");
 		await woke(2);
 		for (const turn of turns) turn.end({ code: 0 });
 		await ended(service, 2);
-		service.prune(Date.now() + 6 * 24 * 60 * 60_000);
+		await service.prune(Date.now() + 6 * 24 * 60 * 60_000);
 		expect(service.state().runs).toHaveLength(2);
-		service.prune(Date.now() + 8 * 24 * 60 * 60_000);
+		await service.prune(Date.now() + 8 * 24 * 60 * 60_000);
 		expect(service.state().runs.map(run => run.scheduleId)).toEqual([mine]);
 		expect(
 			service
@@ -654,7 +686,7 @@ describe("routines: event triggers, once, run history", () => {
 				.schedules.map(schedule => schedule.id)
 				.sort(),
 		).toEqual([agent, mine].sort());
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("a Test before a once routine's moment keeps that moment; moving a spent one to a new moment schedules it again", async () => {
@@ -690,7 +722,7 @@ describe("routines: event triggers, once, run history", () => {
 		await vi.advanceTimersByTimeAsync(90 * 60_000 + SCHEDULE_TICK_MS);
 		await woke(3);
 		expect(service.state().runs[0]).toMatchObject({ trigger: "schedule" });
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("keeps each schedule's newest runs, so a busy routine never pushes out another's history", async () => {
@@ -699,12 +731,12 @@ describe("routines: event triggers, once, run history", () => {
 		await service.start();
 		const quiet = await routine(service, dir);
 		const busy = await routine(service, dir);
-		service.fire(quiet, "once");
+		await service.fire(quiet, "once");
 		await woke(1);
 		turns[0]?.end({ code: 0 });
 		await ended(service, 1);
 		for (let index = 0; index < SCHEDULE_RUNS_PER_SCHEDULE + 5; index++) {
-			service.fire(busy, `event ${index}`);
+			await service.fire(busy, `event ${index}`);
 			await woke(index + 2);
 			turns[index + 1]?.end({ code: 0 });
 			await ended(service, Math.min(index + 2, SCHEDULE_RUNS_PER_SCHEDULE + 1));
@@ -713,7 +745,7 @@ describe("routines: event triggers, once, run history", () => {
 		expect(runs.filter(run => run.scheduleId === busy)).toHaveLength(SCHEDULE_RUNS_PER_SCHEDULE);
 		expect(runs.filter(run => run.scheduleId === busy)[0]?.detail).toBe(`event ${SCHEDULE_RUNS_PER_SCHEDULE + 4}`);
 		expect(runs.filter(run => run.scheduleId === quiet)).toHaveLength(1);
-		service.dispose();
+		await service.dispose();
 	});
 
 	it("records a trigger's failure as a failed run that runs nothing; none for a routine that is off", async () => {
@@ -727,15 +759,15 @@ describe("routines: event triggers, once, run history", () => {
 		});
 		await service.start();
 		const id = await routine(service, dir, { name: "[agent] CI watch" });
-		expect(service.triggerFailed(id, "github o/r: gh: HTTP 401")).toBe(true);
+		expect(await service.triggerFailed(id, "github o/r: gh: HTTP 401")).toBe(true);
 		expect(service.state().runs).toMatchObject([
 			{ scheduleId: id, trigger: "event", status: "failed", error: "Its trigger failed: github o/r: gh: HTTP 401" },
 		]);
 
 		await service.command({ action: "setEnabled", id, enabled: false });
-		expect(service.triggerFailed(id, "again")).toBe(false);
+		expect(await service.triggerFailed(id, "again")).toBe(false);
 		expect(service.state().runs).toHaveLength(1);
-		service.dispose();
+		await service.dispose();
 	});
 });
 

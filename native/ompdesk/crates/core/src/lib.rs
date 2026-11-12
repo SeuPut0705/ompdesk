@@ -17,6 +17,7 @@ pub mod models;
 pub mod procs;
 pub mod routines;
 mod run;
+pub mod schedules;
 pub mod server;
 pub mod sessions;
 pub mod ssh;
