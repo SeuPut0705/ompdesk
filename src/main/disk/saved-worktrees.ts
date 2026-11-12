@@ -1,8 +1,7 @@
 /**
  * Worktrees disk care takes off the disk, losing nothing, and puts back on request.
  *
- * - `dropArtifacts`: the ignored (or untracked) output the project's own tools make again (`regenerable.ts`) goes;
- *   everything else stays.
+ * - `dropArtifacts`: the ignored (or untracked) output the project's own tools make again goes; everything else stays.
  * - `saveAndRemoveWorktree`: an idle worktree with work nothing else holds is saved first: tracked changes and
  *   untracked files as one commit on a new `ompdesk/saved/…` branch (never on the worktree's own branch, never on
  *   main; secrets never enter it), and every file git does not keep and no tool makes again (a seeded `.env`
@@ -12,17 +11,22 @@
  * - `archiveIgnoredData`: the archive alone, before a landed worktree is removed (`git worktree remove` deletes
  *   ignored files without asking).
  * - `restoreSavedWorktree`: `git worktree add` at the old path, the saved changes back in the working tree (not
- *   committed), the archive copied back, then the repository's own seeding and setup hook.
+ *   committed), the repository's own seeding and setup hook, then the archive copied back.
+ *
+ * Each step's disk work and gits are one request to the core process (`native/ompdesk/crates/core/src/disk/saved.rs`),
+ * held to the repository-lock step it is made in (`coreGit`, `coreHeld`). What stays here is main's: the saved records
+ * (`SavedWorktreeStore`), the secret check (the central redactor, `worktree-facts.ts`), whether nothing moved while a
+ * save ran (the caller's `stillSame`), the seeding between a restore's checkout and its files, and the order.
  */
 
 import { randomBytes } from "node:crypto";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { SavedWorktree, SavedWorktreeRestore } from "../../shared/disk-care";
 import { discardNewWorktree, type WorktreeRef, type WorktreeRemoval } from "../agent-control/branches";
 import { writeFileAtomic } from "../atomic-file";
+import { CoreError } from "../core/process";
 import { fs } from "../fenced-fs";
-import { git, gitRaw } from "../local/git/exec";
+import { coreGit, coreGitAnswer, coreHeld } from "../local/git/exec";
 import { prepareWorktree } from "../local/git/worktree-seed";
 import { LocalCommandError } from "../local/types";
 import { ompsExitedIn } from "../omp-exits";
@@ -36,20 +40,32 @@ import {
 	processInside,
 	processWorkingFolders,
 	readWorktreeFiles,
-	SECRET_SCAN_MAX_BYTES,
 	secretIn,
 	type WorktreeFiles,
 } from "./worktree-facts";
 
-/** A worktree whose untracked files would make a commit this big is kept, not saved. */
-export const SAVE_COMMIT_MAX_BYTES = 256 * 1024 * 1024;
-/** A worktree whose private archive would be this big is kept, not saved. */
-export const ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
-const SAVED_PREFIX = "ompdesk/saved/";
-const ZERO_SHA = "0000000000000000000000000000000000000000";
+/**
+ * Deadlines of the core requests: the slow gits of a save and a restore (`add -A` of a big tree, `worktree add`,
+ * `worktree remove`) and the copy of an archive (up to 512 MB, cloned where the volume can).
+ */
+const SLOW_MS = 300_000;
+const ARCHIVE_COPY_MS = 10 * 60_000;
+const ARCHIVE_STEP_MS = 60_000;
+/** Build output to drop is measured, then removed. */
+const DROP_MS = 30 * 60_000;
 
 /** Why a worktree was left in place; the runtime log carries it. */
 export class KeepWorktree extends Error {}
+
+/** The core's refusal to save (`keep_worktree`) as the `KeepWorktree` callers catch. */
+async function saveStep<T>(request: Promise<T>): Promise<T> {
+	try {
+		return await request;
+	} catch (error) {
+		if (error instanceof CoreError && error.code === "keep_worktree") throw new KeepWorktree(error.message);
+		throw error;
+	}
+}
 
 /** The saved records and their archives: `<dir>/saved.json`, `<dir>/saved/<id>/`. */
 export class SavedWorktreeStore {
@@ -108,81 +124,8 @@ export function savedWorktreeStore(): SavedWorktreeStore {
 	return store;
 }
 
-interface ArchivedFile {
-	path: string;
-	mode: number;
-	size: number;
-	link?: true;
-	/** A tracked file whose change was kept out of the saved commit (a secret): a restore writes it over HEAD's copy. */
-	overwrite?: true;
-}
-
-async function walkFiles(root: string, relative: string, out: ArchivedFile[]): Promise<void> {
-	const absolute = path.join(root, ...relative.split("/"));
-	const stat = await fs.lstat(absolute);
-	if (stat.isDirectory()) {
-		for (const name of (await fs.readdir(absolute)).sort()) await walkFiles(root, `${relative}/${name}`, out);
-		return;
-	}
-	out.push({
-		path: relative,
-		mode: stat.mode & 0o777,
-		size: stat.size,
-		...(stat.isSymbolicLink() ? { link: true as const } : {}),
-	});
-}
-
-/**
- * Copies `entries` (relative to `worktree`, a directory ending in `/`) into the archive `id`: copy-on-write where the
- * volume allows, links as links, then 0600/0700 with the original modes kept in `manifest.json`. Verified by walking
- * both sides; a mismatch removes the half archive and throws.
- */
-export async function writeArchive(
-	worktree: string,
-	entries: readonly string[],
-	saved: SavedWorktreeStore,
-	id: string,
-	overwrite: readonly string[] = [],
-): Promise<{ files: number; bytes: number }> {
-	const source: ArchivedFile[] = [];
-	for (const entry of entries) await walkFiles(worktree, entry.replace(/\/+$/, ""), source);
-	for (const file of source) if (overwrite.includes(file.path)) file.overwrite = true;
-	const bytes = source.reduce((sum, file) => sum + file.size, 0);
-	if (bytes > ARCHIVE_MAX_BYTES)
-		throw new KeepWorktree(`files no tool makes again take ${bytes} bytes, more than the archive takes`);
-	if (source.length === 0) return { files: 0, bytes: 0 };
-	const dir = saved.archiveDir(id);
-	const files = path.join(dir, "files");
-	try {
-		await fs.mkdir(files, { recursive: true, mode: 0o700 });
-		for (const file of source) {
-			const target = path.join(files, ...file.path.split("/"));
-			await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-			const from = path.join(worktree, ...file.path.split("/"));
-			if (file.link) await fs.symlink(await fs.readlink(from), target);
-			else {
-				await fs.copyFile(from, target, fs.constants.COPYFILE_FICLONE);
-				await fs.chmod(target, 0o600);
-			}
-		}
-		const copied: ArchivedFile[] = [];
-		for (const file of source) await walkFiles(files, file.path, copied);
-		const same =
-			copied.length === source.length &&
-			copied.every((file, index) => file.path === source[index]?.path && file.size === source[index]?.size);
-		if (!same) throw new Error(`the archive of ${worktree} does not match its files`);
-		await fs.writeFile(path.join(dir, "manifest.json"), `${JSON.stringify({ worktree, files: source }, null, 2)}\n`, {
-			mode: 0o600,
-		});
-	} catch (error) {
-		await fs.rm(dir, { recursive: true, force: true });
-		throw error;
-	}
-	return { files: source.length, bytes };
-}
-
 /** What the archive must hold: ignored entries no tool makes again, plus untracked or changed files that hold secrets. */
-export async function archiveEntries(
+async function archiveEntries(
 	worktree: string,
 	files: WorktreeFiles,
 ): Promise<{ archive: string[]; secrets: string[]; overwrite: string[] }> {
@@ -202,145 +145,27 @@ function newId(): string {
 	return `${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
 }
 
-async function freeBranchName(primary: string, folder: string): Promise<string> {
-	const day = new Date().toISOString().slice(0, 10);
-	for (let suffix = 1; ; suffix++) {
-		const name = `${SAVED_PREFIX}${folder}-${day}${suffix > 1 ? `-${suffix}` : ""}`;
-		const exists = await gitRaw(primary, ["show-ref", "--verify", "--quiet", `refs/heads/${name}`]);
-		if (exists.code !== 0) return name;
-	}
-}
-
-/** Disk care's own identity on its commits; no hook runs and nothing is signed (`commit-tree --no-gpg-sign`). */
-const SAVE_ENV = {
-	GIT_AUTHOR_NAME: "OMPdesk disk care",
-	GIT_AUTHOR_EMAIL: "disk-care@ompdesk.invalid",
-	GIT_COMMITTER_NAME: "OMPdesk disk care",
-	GIT_COMMITTER_EMAIL: "disk-care@ompdesk.invalid",
-};
-
-/**
- * The worktree's index (what is staged) as one commit on top of HEAD, or null when nothing is staged. Written from a
- * copy of the index, so the worktree's own index file is never touched. A staged file that names or holds a secret
- * keeps the worktree (a staged blob cannot be left out of the index's tree).
- */
-async function stagedCommit(worktree: string, head: string): Promise<string | null> {
-	const staged = await gitRaw(worktree, ["diff", "--cached", "--name-only", "--no-renames", "-z"]);
-	if (staged.code !== 0) throw new Error(`git diff --cached failed in ${worktree}: ${staged.stderr.trim()}`);
-	if (staged.stdout.toString("utf8").split("\0").filter(Boolean).length === 0) return null;
-	// Every staged file that has content in the index (a staged deletion has none to hold a secret).
-	const withContent = await gitRaw(worktree, [
-		"diff",
-		"--cached",
-		"--name-only",
-		"--no-renames",
-		"--diff-filter=d",
-		"-z",
-	]);
-	for (const file of withContent.stdout.toString("utf8").split("\0").filter(Boolean)) {
-		const blob = await gitRaw(worktree, ["cat-file", "blob", `:${file}`], { maxBytes: SECRET_SCAN_MAX_BYTES });
-		if (secretIn(file, blob.stdout, blob.code === 0 && !blob.truncated))
-			throw new KeepWorktree(`a staged file may hold a secret (${file})`);
-	}
-	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-staged-"));
-	try {
-		const index = path.resolve(worktree, (await git(worktree, ["rev-parse", "--git-path", "index"])).trim());
-		await fs.copyFile(index, path.join(scratch, "index"));
-		const env = { ...SAVE_ENV, GIT_INDEX_FILE: path.join(scratch, "index") };
-		const tree = (await gitRaw(worktree, ["write-tree"], { env })).stdout.toString("utf8").trim();
-		if (!tree) throw new Error(`git write-tree of the index failed in ${worktree}`);
-		const message = `Saved by OMPdesk disk care: what was staged in ${path.basename(worktree)}`;
-		const commit = await gitRaw(worktree, ["commit-tree", "--no-gpg-sign", "-p", head, "-m", message, tree], { env });
-		if (commit.code !== 0) throw new Error(`git commit-tree failed in ${worktree}: ${commit.stderr.trim()}`);
-		return commit.stdout.toString("utf8").trim();
-	} finally {
-		await fs.rm(scratch, { recursive: true, force: true });
-	}
-}
-
-/**
- * One commit on top of `head` (HEAD, or the staged commit) holding the worktree's tracked changes and untracked files,
- * built in a scratch index (the worktree's own index is never touched); `exclude` (secrets, regenerable untracked
- * folders) stays out. Null when it would hold nothing more than `head`.
- */
-async function saveCommit(worktree: string, head: string, exclude: readonly string[]): Promise<string | null> {
-	const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-save-"));
-	const env = { ...SAVE_ENV, GIT_INDEX_FILE: path.join(scratch, "index") };
-	try {
-		const step = async (args: string[]): Promise<string> => {
-			const result = await gitRaw(worktree, args, { env, timeoutMs: 300_000 });
-			if (result.code !== 0) throw new Error(`git ${args[0]} failed in ${worktree}: ${result.stderr.trim()}`);
-			return result.stdout.toString("utf8").trim();
-		};
-		await step(["read-tree", head]);
-		const pathspec = [".", ...exclude.map(entry => `:(exclude,literal)${entry.replace(/\/+$/, "")}`)];
-		await step(["add", "-A", "--", ...pathspec]);
-		const tree = await step(["write-tree"]);
-		if (tree === (await step(["rev-parse", `${head}^{tree}`]))) return null;
-		return await step([
-			"commit-tree",
-			"--no-gpg-sign",
-			"-p",
-			head,
-			"-m",
-			`Saved by OMPdesk disk care: uncommitted work of ${path.basename(worktree)}`,
-			tree,
-		]);
-	} finally {
-		await fs.rm(scratch, { recursive: true, force: true });
-	}
-}
-
-/**
- * Files whose checkout writes the bytes the blob holds: `text` unspecified or unset and no other converting attribute.
- * Git reads the attributes itself (tracked and untracked `.gitattributes`, `info/attributes` of the common dir,
- * `core.attributesFile` however it is spelled, the system file), so nothing here parses or locates them.
- */
-const VERBATIM = ["!eol", "!crlf", "!filter", "!working-tree-encoding", "!ident"].join(" ");
-const VERBATIM_PATHSPECS = [`:(attr:!text ${VERBATIM})`, `:(attr:-text ${VERBATIM})`];
-
-/**
- * Losing nothing means the restore writes the very bytes the folder holds now, for every tracked file, changed or not.
- * Git rewrites bytes on add and checkout when line-ending or filter settings apply (core.autocrlf true/input, Git for
- * Windows' default; core.eol; text/eol/crlf/filter/working-tree-encoding/ident attributes), so an LF file in such a
- * repo comes back CRLF. Without any of them, add stores and checkout writes bytes as they are. So a worktree with a
- * file the saved commit would carry under any such setting is kept (a configured filter driver, git-lfs on most
- * machines, acts only where an attribute names it, so the attributes decide): the reason, or null when bytes round-trip.
- */
-async function rewritesBytes(worktree: string): Promise<string | null> {
-	const config = async (key: string): Promise<string> =>
-		(await gitRaw(worktree, ["config", "--get", key])).stdout.toString("utf8").trim().toLowerCase();
-	const autocrlf = await config("core.autocrlf");
-	if (autocrlf === "true" || autocrlf === "input")
-		return `core.autocrlf is ${autocrlf}: a restore could change line endings`;
-	if (await config("core.eol")) return "core.eol is set: a restore could change line endings";
-	// What the saved commit can carry: tracked files and untracked ones git does not ignore.
-	const files = async (pathspecs: string[]): Promise<number | null> => {
-		const result = await gitRaw(worktree, [
-			"ls-files",
-			"-z",
-			"--cached",
-			"--others",
-			"--exclude-standard",
-			"--",
-			...pathspecs,
-		]);
-		if (result.code !== 0 || result.truncated) return null;
-		return result.stdout.toString("utf8").split("\0").filter(Boolean).length;
-	};
-	const all = await files([]);
-	const verbatim = await files(VERBATIM_PATHSPECS);
-	if (all === null || verbatim === null) return "git could not list the files' attributes";
-	if (verbatim < all) return "line-ending or filter attributes apply: a restore could rewrite files";
-	return null;
-}
-
 export interface SaveTarget {
 	path: string;
 	primary: string;
 	branch: string | null;
 	/** Commits nothing else holds (the worktree is unlanded). */
 	unlanded: boolean;
+}
+
+/** What a save's checks found: HEAD, whether anything is staged, the staged files with content in the index. */
+interface SaveChecked {
+	head: string;
+	staged: boolean;
+	stagedFiles: string[];
+}
+
+interface SaveWork {
+	staged: string | null;
+	savedBranch: string | null;
+	savedSha: string | null;
+	archivedFiles: number;
+	archivedBytes: number;
 }
 
 /**
@@ -353,37 +178,62 @@ export async function saveAndRemoveWorktree(
 	saved: SavedWorktreeStore,
 	stillSame: () => Promise<boolean>,
 ): Promise<SavedWorktree> {
-	const head = (await git(target.path, ["rev-parse", "HEAD"])).trim();
 	const { archive, secrets, overwrite } = await archiveEntries(target.path, files);
 	const regenerableUntracked = files.untracked.filter(entry => entry.regenerable).map(entry => entry.path);
 	const exclude = [...secrets, ...regenerableUntracked];
-	let commitBytes = 0;
-	for (const file of files.untrackedFiles) {
-		if (exclude.some(entry => file === entry || file.startsWith(entry.endsWith("/") ? entry : `${entry}/`))) continue;
-		commitBytes += (await fs.lstat(path.join(target.path, file)).catch(() => null))?.size ?? 0;
+	// HEAD, the size of the untracked files, whether a restore could rewrite bytes, then what is staged.
+	const checked = await saveStep(
+		coreGit<SaveChecked>(
+			"disk.saveCheck",
+			{ worktree: target.path, untrackedFiles: files.untrackedFiles, exclude },
+			7,
+		),
+	);
+	// Each staged file read whole, one at a time, until the first that names or holds a secret: a staged blob cannot
+	// be left out of the index's tree, so such a file keeps the worktree.
+	for (const file of checked.stagedFiles) {
+		const blob = await coreGitAnswer<{ complete: boolean }>(
+			"disk.stagedBlob",
+			{ worktree: target.path, path: file },
+			1,
+		);
+		const bytes = blob.bin ? Buffer.from(blob.bin.buffer, blob.bin.byteOffset, blob.bin.byteLength) : Buffer.alloc(0);
+		if (secretIn(file, bytes, blob.result.complete))
+			throw new KeepWorktree(`a staged file may hold a secret (${file})`);
 	}
-	if (commitBytes > SAVE_COMMIT_MAX_BYTES)
-		throw new KeepWorktree(`its untracked files take ${commitBytes} bytes, more than a saved commit takes`);
-
-	const rewrites = await rewritesBytes(target.path);
-	if (rewrites) throw new KeepWorktree(rewrites);
-
-	// HEAD → what was staged → the working tree: the index and the working tree each come back as they were.
-	const staged = await stagedCommit(target.path, head);
-	const wip = await saveCommit(target.path, staged ?? head, exclude);
-	const savedSha = wip ?? staged ?? (target.branch === null && target.unlanded ? head : null);
-	const savedBranch = savedSha ? await freeBranchName(target.primary, path.basename(target.path)) : null;
-	if (savedBranch && savedSha)
-		await git(target.primary, ["update-ref", `refs/heads/${savedBranch}`, savedSha, ZERO_SHA]);
+	const head = checked.head;
 	const id = newId();
-	const rollback = async (): Promise<void> => {
-		if (savedBranch && savedSha)
-			await gitRaw(target.primary, ["update-ref", "-d", `refs/heads/${savedBranch}`, savedSha]);
-		await fs.rm(saved.archiveDir(id), { recursive: true, force: true });
-	};
-	let archived: { files: number; bytes: number };
+	const archiveDir = saved.archiveDir(id);
+	// HEAD → what was staged → the working tree: the index and the working tree each come back as they were. The core
+	// takes the branch and the archive back when the archive fails.
+	const work = await saveStep(
+		coreGit<SaveWork>(
+			"disk.saveWork",
+			{
+				worktree: target.path,
+				primary: target.primary,
+				branch: target.branch,
+				unlanded: target.unlanded,
+				head,
+				staged: checked.staged,
+				exclude,
+				archive,
+				overwrite,
+				archiveDir,
+				name: path.basename(target.path),
+				day: new Date().toISOString().slice(0, 10),
+			},
+			6,
+			5 * SLOW_MS + ARCHIVE_COPY_MS,
+		),
+	);
+	const rollback = () =>
+		coreGit(
+			"disk.saveRollback",
+			{ primary: target.primary, branch: work.savedBranch, sha: work.savedSha, archiveDir },
+			1,
+		);
 	try {
-		archived = await writeArchive(target.path, archive, saved, id, overwrite);
 		if (!(await stillSame())) throw new KeepWorktree("it changed while it was being saved");
 	} catch (error) {
 		await rollback();
@@ -395,11 +245,11 @@ export async function saveAndRemoveWorktree(
 		repo: target.primary,
 		branch: target.branch,
 		head,
-		savedBranch,
-		...(staged ? { staged } : {}),
+		savedBranch: work.savedBranch,
+		...(work.staged ? { staged: work.staged } : {}),
 		removedAt: Date.now(),
-		archivedFiles: archived.files,
-		archivedBytes: archived.bytes,
+		archivedFiles: work.archivedFiles,
+		archivedBytes: work.archivedBytes,
 	};
 	// The record is written before anything is removed, and once removal starts nothing is rolled back: a removal that
 	// stops half way has already taken files, and the saved branch and archive are then their only copies.
@@ -409,17 +259,22 @@ export async function saveAndRemoveWorktree(
 		await rollback();
 		throw error;
 	}
-	const removed = await gitRaw(target.primary, ["worktree", "remove", "--force", target.path], { timeoutMs: 300_000 });
-	if (removed.code !== 0) {
+	const refused = await coreGit<string | null>(
+		"disk.forceRemove",
+		{ primary: target.primary, path: target.path },
+		0,
+		SLOW_MS,
+	);
+	if (refused !== null) {
 		throw new Error(
-			`git worktree remove failed for ${target.path} (${removed.stderr.trim()}); its work stays saved on ${savedBranch ?? record.branch ?? record.head} and in archive ${id}`,
+			`git worktree remove failed for ${target.path} (${refused}); its work stays saved on ${work.savedBranch ?? record.branch ?? record.head} and in archive ${id}`,
 		);
 	}
 	return record;
 }
 
 /** The archive alone, recorded as saved when it holds anything (a landed worktree about to be removed). */
-export async function archiveIgnoredData(
+async function archiveIgnoredData(
 	target: { path: string; primary: string; branch: string | null },
 	files: WorktreeFiles,
 	saved: SavedWorktreeStore,
@@ -427,20 +282,26 @@ export async function archiveIgnoredData(
 	const { archive } = await archiveEntries(target.path, files);
 	if (archive.length === 0) return null;
 	const id = newId();
-	const archived = await writeArchive(target.path, archive, saved, id);
-	if (archived.files === 0) return null;
-	const record: SavedWorktree = {
+	const archived = await saveStep(
+		coreGit<{ files: number; bytes: number; head: string } | null>(
+			"disk.archive",
+			{ worktree: target.path, entries: archive, archiveDir: saved.archiveDir(id) },
+			1,
+			ARCHIVE_COPY_MS,
+		),
+	);
+	if (!archived) return null;
+	return {
 		id,
 		path: target.path,
 		repo: target.primary,
 		branch: target.branch,
-		head: (await git(target.path, ["rev-parse", "HEAD"])).trim(),
+		head: archived.head,
 		savedBranch: null,
 		removedAt: Date.now(),
 		archivedFiles: archived.files,
 		archivedBytes: archived.bytes,
 	};
-	return record;
 }
 
 /**
@@ -448,21 +309,14 @@ export async function archiveIgnoredData(
  * and any archived file is gone or changed from the folder (the archive is then its only copy). Only a worktree that
  * still holds every archived file as it was loses the archive.
  */
-export async function settleArchive(saved: SavedWorktreeStore, record: SavedWorktree, removed: boolean): Promise<void> {
+async function settleArchive(saved: SavedWorktreeStore, record: SavedWorktree, removed: boolean): Promise<void> {
 	if (!removed) {
-		const dir = saved.archiveDir(record.id);
-		const manifest = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8")) as {
-			files: ArchivedFile[];
-		};
-		let intact = true;
-		for (const file of manifest.files) {
-			const stat = await fs.lstat(path.join(record.path, ...file.path.split("/"))).catch(() => null);
-			if (!stat || stat.size !== file.size) intact = false;
-		}
-		if (intact) {
-			await fs.rm(dir, { recursive: true, force: true });
-			return;
-		}
+		const intact = await coreHeld<boolean>(
+			"disk.settleArchive",
+			{ worktree: record.path, archiveDir: saved.archiveDir(record.id) },
+			ARCHIVE_STEP_MS,
+		);
+		if (intact) return;
 	}
 	await saved.update(records => [record, ...records]);
 }
@@ -557,118 +411,60 @@ export async function listSavedWorktrees(primary: string, saved: SavedWorktreeSt
 		.sort((a, b) => b.removedAt - a.removedAt);
 }
 
-async function sameBytes(a: string, b: string): Promise<boolean> {
-	const [left, right] = await Promise.all([fs.readFile(a).catch(() => null), fs.readFile(b).catch(() => null)]);
-	return left !== null && right !== null && left.equals(right);
-}
-
-/** `<target>.ompdesk-before-restore`, numbered when that is taken too. */
-async function asideName(target: string): Promise<string> {
-	for (let suffix = 1; ; suffix++) {
-		const candidate = `${target}.ompdesk-before-restore${suffix > 1 ? `-${suffix}` : ""}`;
-		if (!(await fs.lstat(candidate).catch(() => null))) return candidate;
-	}
-}
-
-/**
- * Puts the archive back. The archived bytes are what the person had, so they win: a file something else made at that
- * path since (a post-checkout hook's default `.env`, the repository's seeding) is moved aside to
- * `<name>.ompdesk-before-restore`, never deleted; an identical one counts as restored; a tracked secret's change goes
- * over HEAD's copy (which git holds). A folder where a file was is left alone and the file counts as skipped.
- */
-async function copyBack(dir: string, worktree: string): Promise<{ restored: number; skipped: number }> {
-	const manifest = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8")) as { files: ArchivedFile[] };
-	let restored = 0;
-	let skipped = 0;
-	for (const file of manifest.files) {
-		const target = path.join(worktree, ...file.path.split("/"));
-		const from = path.join(dir, "files", ...file.path.split("/"));
-		const existing = await fs.lstat(target).catch(() => null);
-		if (existing) {
-			if (existing.isDirectory()) {
-				skipped++;
-				continue;
-			}
-			if (!file.link && existing.isFile() && (await sameBytes(from, target))) {
-				restored++;
-				continue;
-			}
-			if (file.overwrite) await fs.rm(target, { force: true });
-			else await fs.rename(target, await asideName(target));
-		}
-		await fs.mkdir(path.dirname(target), { recursive: true });
-		if (file.link) await fs.symlink(await fs.readlink(from), target);
-		else {
-			await fs.copyFile(from, target, fs.constants.COPYFILE_FICLONE);
-			await fs.chmod(target, file.mode);
-		}
-		restored++;
-	}
-	return { restored, skipped };
-}
-
 /**
  * Put a saved worktree back at its old path: on its branch when the branch still points where it did and no other
  * worktree has it checked out, else detached at the saved HEAD; the saved changes as uncommitted work; then the
- * repository's seeding and setup hook; then the archive over whatever those made (`copyBack`). The record and archive
+ * repository's seeding and setup hook; then the archive over whatever those made (the archived bytes win; a file
+ * something else made there is set aside as `<name>.ompdesk-before-restore`, never deleted). The record and archive
  * go only when every archived file came back; otherwise both stay.
  */
 export async function restoreSavedWorktree(id: string, saved: SavedWorktreeStore): Promise<SavedWorktreeRestore> {
 	const record = (await saved.list()).find(entry => entry.id === id);
 	if (!record) throw new LocalCommandError(`No saved worktree ${id}.`, "not_saved");
-	if (await fs.lstat(record.path).catch(() => null))
-		throw new LocalCommandError(`${record.path} already exists; nothing was restored.`, "path_exists");
-	const tip = record.branch
-		? (await gitRaw(record.repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${record.branch}`])).stdout
-				.toString("utf8")
-				.trim()
-		: "";
-	const checkedOut = record.branch
-		? (await git(record.repo, ["worktree", "list", "--porcelain"])).includes(`branch refs/heads/${record.branch}\n`)
-		: false;
-	const onBranch = record.branch !== null && tip === record.head && !checkedOut;
-	await fs.mkdir(path.dirname(record.path), { recursive: true });
-	const added = await gitRaw(
-		record.repo,
-		onBranch
-			? ["worktree", "add", record.path, record.branch as string]
-			: ["worktree", "add", "--detach", record.path, record.head],
-		{ timeoutMs: 300_000 },
-	);
-	if (added.code !== 0) throw new Error(`git worktree add failed: ${added.stderr.trim()}`);
-	if (record.savedBranch) {
-		const savedSha = (await git(record.repo, ["rev-parse", `refs/heads/${record.savedBranch}`])).trim();
-		if (savedSha !== record.head) {
-			// Two-tree read-tree moves the working tree from HEAD to the saved commit (deletions too); the reset puts
-			// the index back on HEAD, so the saved work is uncommitted again; then what was staged goes back into the
-			// index alone (read-tree without -u leaves the working tree as it is).
-			await git(record.path, ["read-tree", "-m", "-u", "HEAD", savedSha]);
-			await git(record.path, ["reset", "-q"]);
-			if (record.staged) await git(record.path, ["read-tree", record.staged]);
-		}
+	let onBranch: boolean;
+	try {
+		onBranch = await coreGit<boolean>(
+			"disk.restoreCheckout",
+			{
+				path: record.path,
+				repo: record.repo,
+				branch: record.branch,
+				head: record.head,
+				savedBranch: record.savedBranch,
+				staged: record.staged ?? null,
+			},
+			6,
+			SLOW_MS,
+		);
+	} catch (error) {
+		if (error instanceof CoreError && error.code === "path_exists")
+			throw new LocalCommandError(error.message, "path_exists");
+		throw error;
 	}
 	const dir = saved.archiveDir(record.id);
 	await prepareWorktree(record.repo, record.path);
-	const archive = record.archivedFiles > 0 ? await copyBack(dir, record.path) : { restored: 0, skipped: 0 };
+	const archive =
+		record.archivedFiles > 0
+			? await coreHeld<{ restored: number; skipped: number }>(
+					"disk.restoreFiles",
+					{ worktree: record.path, archiveDir: dir },
+					ARCHIVE_COPY_MS,
+				)
+			: { restored: 0, skipped: 0 };
 	if (archive.skipped === 0) {
 		await saved.update(records => records.filter(entry => entry.id !== record.id));
-		await fs.rm(dir, { recursive: true, force: true });
+		await coreHeld("disk.forgetArchive", { archiveDir: dir }, ARCHIVE_STEP_MS);
 	}
 	return { path: record.path, branch: onBranch ? record.branch : null, archive };
 }
 
 /** Removes the regenerable entries of `files`; each with what it took (allocated bytes, measured before). */
-export async function dropArtifacts(
+export function dropArtifacts(
 	worktree: string,
 	files: WorktreeFiles,
 ): Promise<{ path: string; bytes: number; reason: string }[]> {
-	const dropped: { path: string; bytes: number; reason: string }[] = [];
-	for (const entry of [...files.ignored, ...files.untracked]) {
-		if (!entry.regenerable) continue;
-		const target = path.join(worktree, ...entry.path.replace(/\/+$/, "").split("/"));
-		const bytes = await diskBytes(target);
-		await fs.rm(target, { recursive: true, force: true, maxRetries: 3 });
-		dropped.push({ path: entry.path, bytes, reason: entry.regenerable.reason });
-	}
-	return dropped;
+	const entries = [...files.ignored, ...files.untracked].flatMap(entry =>
+		entry.regenerable ? [{ path: entry.path, reason: entry.regenerable.reason }] : [],
+	);
+	return entries.length === 0 ? Promise.resolve([]) : coreHeld("disk.dropArtifacts", { worktree, entries }, DROP_MS);
 }

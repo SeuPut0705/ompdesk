@@ -1,0 +1,83 @@
+{
+ "proj": {
+  "status": "IE0gUkVBRE1FLm1kAEEgIGFkZGVkLnRzACBEIGRlbC50eHQAUiAgcmVuYW1lZC50eHQAb2xkLnR4dABNICBzcmMvYS50cwA/PyBub3Rlcy8APz8gc3BhY2UgbmFtZS50eHQAPz8gdGFiCW5hbWUudHh0AD8/IOycoOuLiOy9lOuTnC5tZAAhISAuZW52ACEhIGxpbmstb3V0ACEhIHBhY2thZ2VzLwAhISBzY3JhdGNoLwAhISBzdWIvACEhIHdlaXJkIG5hbWUvACEhIHgubG9nAA==",
+  "ignored": [
+   ".env",
+   "link-out",
+   "packages/",
+   "scratch/",
+   "sub/",
+   "weird name/",
+   "x.log"
+  ],
+  "untracked": [
+   "notes/",
+   "space name.txt",
+   "tab\tname.txt",
+   "유니코드.md"
+  ],
+  "changed": [
+   "README.md",
+   "added.ts",
+   "del.txt",
+   "renamed.txt",
+   "src/a.ts"
+  ],
+  "checkIgnore": ".gitignore:1:.env\t.env\n.gitignore:14:link-out\tlink-out\n.gitignore:5:scratch/\tscratch\n.gitignore:15:weird name/\tweird name\n.gitignore:13:*.log\tx.log\n",
+  "ignoredBy": [
+   [
+    ".env",
+    {
+     "source": ".gitignore",
+     "line": 1
+    }
+   ],
+   [
+    "link-out",
+    {
+     "source": ".gitignore",
+     "line": 14
+    }
+   ],
+   [
+    "scratch",
+    {
+     "source": ".gitignore",
+     "line": 5
+    }
+   ],
+   [
+    "weird name",
+    {
+     "source": ".gitignore",
+     "line": 15
+    }
+   ],
+   [
+    "x.log",
+    {
+     "source": ".gitignore",
+     "line": 13
+    }
+   ]
+  ]
+ },
+ "wt": {
+  "status": "",
+  "ignored": [],
+  "untracked": [],
+  "changed": [],
+  "checkIgnore": "",
+  "ignoredBy": []
+ },
+ "unborn": {
+  "status": "Pz8gdS50eHQA",
+  "ignored": [],
+  "untracked": [
+   "u.txt"
+  ],
+  "changed": [],
+  "checkIgnore": "",
+  "ignoredBy": []
+ }
+}

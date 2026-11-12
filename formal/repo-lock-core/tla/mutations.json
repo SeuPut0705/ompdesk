@@ -80,6 +80,20 @@
 			"search": "    /\\ scratch # \"made\"",
 			"replace": "    /\\ TRUE",
 			"breaks": "NoScratchAfterStop"
+		},
+		{
+			"name": "answer-before-disk-call-returns",
+			"why": "the core answers while a file system call of the request (an archive copy, a removal) still runs on its worker: the lock moves on and that call lands beside the next holder",
+			"search": "    /\\ WaitGroup => disk = 0",
+			"replace": "    /\\ TRUE",
+			"breaks": "NoDiskAfterStop"
+		},
+		{
+			"name": "disk-call-ignores-cancel",
+			"why": "a cancelled request goes on copying, removing or walking: a stopped save keeps writing its archive or removing files",
+			"search": "    /\\ coreUp /\\ handler = \"running\" /\\ ~cancelled /\\ disk = 0 /\\ diskCalls < MaxDisk",
+			"replace": "    /\\ coreUp /\\ handler = \"running\" /\\ disk = 0 /\\ diskCalls < MaxDisk",
+			"breaks": "NoDiskAfterCancel"
 		}
 	]
 }

@@ -4,16 +4,17 @@
  * (same merge as the omp runtime) because a Finder-launched app inherits
  * launchd's bare PATH, where Homebrew's `gh` is missing.
  *
- * The Changes panel's git (`changes.ts`, `scm.ts`) and every gh run (`pr.ts`, `github.ts` and the clients `gh`,
- * `ghText` below) run in the core process (`native/ompdesk/crates/core/src/{git,gh}`): `gitRunner` and `ghRunner` hand
- * it this file's rules (binary, environment, timeout, output cap), so both runners follow one set, and `coreGit` and
- * `coreGh` hold each request to the repository-lock step it is made in as `execBin` holds a git.
+ * The Changes panel's git (`changes.ts`, `scm.ts`), every gh run (`pr.ts`, `github.ts` and the clients `gh`, `ghText`
+ * below) and disk care's gits and disk work (`src/main/disk/`) run in the core process
+ * (`native/ompdesk/crates/core/src/{git,gh,disk}`): `gitRunner` and `ghRunner` hand it this file's rules (binary,
+ * environment, timeout, output cap), so both runners follow one set, and `coreGit`, `coreGh` and `coreHeld` hold each
+ * request to the repository-lock step it is made in as `execBin` holds a git.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
-import { core } from "../../core/process";
+import { type CoreAnswer, core } from "../../core/process";
 import { ChainBusyError, currentStepSignal, SerialChain, trackEffect } from "../../serial-chain";
 import { brewBinDirs, spawnPath } from "../../shell-env";
 import { findOnPath } from "../../spawn";
@@ -159,6 +160,11 @@ const CORE_SLACK_MS = KILL_GRACE_MS + 5_000;
  * `CORE_SLACK_MS`.
  */
 async function heldRequest<T>(method: string, params: () => Promise<object>, timeoutMs: number): Promise<T> {
+	return (await heldAnswer<T>(method, params, timeoutMs)).result;
+}
+
+/** `heldRequest` with the answer's `bin` tail. */
+async function heldAnswer<T>(method: string, params: () => Promise<object>, timeoutMs: number): Promise<CoreAnswer<T>> {
 	const hold = currentStepSignal();
 	if (hold?.aborted) throw hold.reason;
 	const request = await params();
@@ -170,12 +176,12 @@ async function heldRequest<T>(method: string, params: () => Promise<object>, tim
 		signal: hold,
 		onEnded: ended.resolve,
 	});
-	if (!hold) return (await answer).result;
+	if (!hold) return answer;
 	const stopped = Promise.withResolvers<never>();
 	const stop = () => stopped.reject(hold.reason);
 	hold.addEventListener("abort", stop, { once: true });
 	try {
-		return (await Promise.race([answer, stopped.promise])).result;
+		return await Promise.race([answer, stopped.promise]);
 	} finally {
 		hold.removeEventListener("abort", stop);
 	}
@@ -186,12 +192,22 @@ async function heldRequest<T>(method: string, params: () => Promise<object>, tim
  * another at the default timeout, `slowMs` the timeout of its slow one (a hook, the network, a merge); the call waits
  * for both.
  */
-export function coreGit<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<T> {
-	return heldRequest(
-		method,
-		async () => ({ ...params, git: await gitRunner() }),
-		rounds * DEFAULT_TIMEOUT_MS + slowMs,
-	);
+export async function coreGit<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<T> {
+	return (await coreGitAnswer<T>(method, params, rounds, slowMs)).result;
+}
+
+/** `coreGit` with the answer's `bin` tail (file contents the request read). */
+export function coreGitAnswer<T>(method: string, params: object, rounds: number, slowMs = 0): Promise<CoreAnswer<T>> {
+	return heldAnswer(method, async () => ({ ...params, git: await gitRunner() }), rounds * DEFAULT_TIMEOUT_MS + slowMs);
+}
+
+/**
+ * A request to the core that runs no git (disk care's walks, copies and removals), held as `heldRequest` says: a
+ * stopped step cancels it and the lock's next holder waits until the core is done with it. `timeoutMs` is how long its
+ * work may take.
+ */
+export function coreHeld<T>(method: string, params: object, timeoutMs: number): Promise<T> {
+	return heldRequest(method, async () => params, timeoutMs);
 }
 
 /**

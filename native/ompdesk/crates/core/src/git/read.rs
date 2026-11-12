@@ -38,7 +38,7 @@ pub(super) fn native(path: &str) -> String {
 }
 
 /// node's `path.resolve(base, path)` for an absolute `base`: `path` itself when absolute, else joined to `base`.
-pub(super) fn resolve(base: &str, path: &str) -> String {
+pub(crate) fn resolve(base: &str, path: &str) -> String {
     if is_absolute(path) {
         native(path)
     } else {
@@ -61,7 +61,7 @@ fn is_absolute(path: &str) -> bool {
 }
 
 /// Disk work on tokio's blocking pool.
-pub(super) async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, Fault> {
     tokio::task::spawn_blocking(work)

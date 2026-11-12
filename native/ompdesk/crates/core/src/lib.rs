@@ -3,6 +3,7 @@
 //! any `AsyncRead`/`AsyncWrite`, so tests drive it in process; the binary serves stdio.
 
 pub mod control;
+pub mod disk;
 pub mod fs;
 pub mod gh;
 pub mod git;
