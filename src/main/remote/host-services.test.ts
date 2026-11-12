@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { fixtureProviderOptions } from "../../../e2e/models-config-fixture";
 import type { PromptOriginEnv } from "../../../resources/gui-bridge/prompt-origin-contracts";
@@ -40,6 +40,7 @@ import { applySummaryChange, type SummaryDelta, type VersionedSummaries } from "
 import type { SidebarProjectsRequest, SidebarProjectsState } from "../../shared/sidebar-projects";
 import { branchEvidence, branchFacts, landingFacts, type WorktreeRef } from "../agent-control/branches";
 import type { MemoryPageCopy } from "../ai-memory/client";
+import { serveMemoryStore } from "../ai-memory/memory-store-test-rig";
 import { serveConclusionPull, serveConclusionPush, servePull, servePush } from "../ai-memory/sync";
 import { canonicalCwd } from "../canonical-cwd";
 import { deletedSessions, initDeletedSessions } from "../deleted-sessions";
@@ -4234,7 +4235,9 @@ describe("LocalHostServices host.memory.*: memory shared with the person's other
 			conclusions: vi.fn(async () => ({ rows: [], next: 0, more: false, store: "db-1", last: 0 })),
 			writeConclusions: vi.fn(async () => []),
 		};
-		const deps = { store, ready: () => ready, selfId: () => "this-host" };
+		const served = await serveMemoryStore(() => store);
+		onTestFinished(() => served.close());
+		const deps = { server: () => (ready ? served.server : null), selfId: () => "this-host" };
 		const pull = { since: null };
 		await expect(services.call(x.peer, "host.memory.pull", pull, x)).rejects.toThrow(/\[unsupported\]/);
 		services.attachMemory({
@@ -4293,7 +4296,7 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 		origin: "device-x",
 	};
 
-	function attach(services: LocalHostServices, ready: () => boolean) {
+	async function attach(services: LocalHostServices, ready: () => boolean) {
 		const store = {
 			projects: vi.fn(async () => []),
 			allPages: vi.fn(async () => []),
@@ -4324,7 +4327,9 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 				items.map(() => "written" as const),
 			),
 		};
-		const deps = { store, ready, selfId: () => "this-host" };
+		const served = await serveMemoryStore(() => store);
+		onTestFinished(() => served.close());
+		const deps = { server: () => (ready() ? served.server : null), selfId: () => "this-host" };
 		services.attachMemory({
 			pull: (id, params) => servePull(deps, id, params),
 			push: (id, params) => servePush(deps, id, params),
@@ -4343,7 +4348,7 @@ describe("LocalHostServices host.memory.conclusions.*: session conclusions share
 		const push = { conclusions: [{ ...wire, origin: "device-blocked" }] };
 		await expect(services.call(x.peer, "host.memory.conclusions.pull", pull, x)).rejects.toThrow(/\[unsupported\]/);
 		let ready = true;
-		const store = attach(services, () => ready);
+		const store = await attach(services, () => ready);
 
 		const reply = await services.call(x.peer, "host.memory.conclusions.pull", pull, x);
 		expect(MemoryConclusionPullReply.parse(reply)).toEqual({

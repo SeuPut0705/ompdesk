@@ -224,8 +224,9 @@ export const REMOTE_OPENED_DEBOUNCE_MS = 250;
 const ANSWERED_KEPT = 256;
 
 /**
- * The memory pages and session conclusions this computer shares with the devices that use it (ai-memory/sync.ts
- * `servePull`/`servePush`, `serveConclusionPull`/`serveConclusionPush`).
+ * The memory pages and session conclusions this computer shares with the devices that use it: each request is one
+ * core call (ai-memory/sync.ts `servePull`/`servePush`, `serveConclusionPull`/`serveConclusionPush`, answered by the
+ * core's `memsync/host.rs`).
  */
 export interface HostMemory {
 	pull(peerId: string, params: MemoryPullParams): Promise<MemoryPullReply>;

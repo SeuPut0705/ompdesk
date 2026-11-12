@@ -1,0 +1,3001 @@
+{
+	"hashes": [
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "plain",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "8e35225ae35c17d7d21dd3a0ddbcdb25178d368a58628351c77e9023d104f861"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "plain",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "9f9bf32fb7457bdf9f028b3996ad37e73d612bf4e6bfe5994bb642ec8ec64099"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"plain",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "8811a483b293f086e215924acd02bbb0a7fe3c5e9166bc78cde350c5a7a192ee"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "ef34152ffd721f97d20ec393e2d0dfe1d03aa0b6ceefe43619350ec2b80fff85"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "565d2b6fe01fbae17807625f4cd82689816c0d3c172fdf4331211875993f011e"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "fa82694c383b5a908cff24cedf77b646b584b8e1c336a073252882b2292fc913"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "été",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "6a87edc566f50b5eaac35a862481263eb86bf3c9e93041830ff994ac2aa59f4e"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "été",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "6f6c79c8c5a67c677ef1fbbb1e6e494b9de4b1992b615012c42c5d86b594e67e"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"été",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "94b512402658c18f528f2d7f7804a966053cae0f4ae5d3eadd405063d1cfe907"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "été",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "418a58d26b79863cdec95c35040841b8121d506abe4466fbd3ee56e80f4e29cc"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "été",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "6f61201d5323a7ace0ad935906de4aeb6e9b30fa46f5966c94e7727ad91a2aeb"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"été",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "1d2263ae86f2866acf74d4e5e81157e2e4510988ae1f7ce742995e09b23d067b"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "😀 emoji 𝄞",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "d7f1ddfc3abd388faf0d890bac4280d4173683f4dbe714534cb62aca5780e139"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "😀 emoji 𝄞",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "5feda54df837c13040151ed779b6fc6c1516e7527df9e0a395e4fb8d64ad75f9"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"😀 emoji 𝄞",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "e6e6b51c00c89b86bb92fee792c14d385f3d0ffb011ad40d0bb225842fbeac2e"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "한국어 메모리",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "85ddd329cafcca88ef85530b4a4f5ba58e3d480cd0a507f4d5970907dc58388c"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "한국어 메모리",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "6629618011c146d6b41bee5fbc23192bd3187b44d95d00542d97b16653ca1919"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"한국어 메모리",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "5252dee1e40eb5215e3baa6f6477ae8fd90753241396f33bf46c156b7a8db59f"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "quote \" backslash \\ slash /",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "315ba53ffbac843bfa3b383a5dd8dded4e38181a644729c6d3c4fff0a7a903da"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "quote \" backslash \\ slash /",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "ed15a7173eead48f5259b7331149f4974a2bc16475caac972e8beeda5a2651b3"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"quote \" backslash \\ slash /",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "fbdebd544a548a63eeb846fe6bd2ea017b231ebd5ebacfdc66a76cf33bc72cd0"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "ctl \n\t\r\b\f \u0000 \u001f ",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "d5f02364dd646ae07f3d2f84ac36cf9075d429d6bbe71784b0bc9be984013a15"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "ctl \n\t\r\b\f \u0000 \u001f ",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "ea0c5a23b7751d273bbb272c33d4d4586c154cc60fb7e3cbceb18ff053e96a84"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"ctl \n\t\r\b\f \u0000 \u001f ",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "acc59359b58fb6ac16c8c745091a8ac535a1d1749f9756a0a05217319c8c7472"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "seps     ﻿",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "90f11d5cf1bedd58c05a9e365e200650aba8c93c2cd300e92866fa738766b5c2"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "seps     ﻿",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "6a65283c92d9c6225744e1351aaf49d7f6190841027d0c149a31735e1cb240b1"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"seps     ﻿",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "4846c5c67253d651e5e7e3be7250de978a9aea4726b4fd4fd447af94a4e6cf2d"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "～ tilde wide",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "247232d365fa32fc7ab43312f2b45dee83635930534a8d922c23fae748c59201"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "～ tilde wide",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "8369d5a13ef72923d9925af9dca0d85581debbcaef1f0eb6f662cd2c0ebd6a08"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"～ tilde wide",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "5af9268aff28a280cf0e4109d2150faf5d7173a4d51d860d94d52af3ec175326"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "c4ffd9beb7fe38d044f22bca95233e8dbde90801d70615958aa90b2087a0c4ca"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "c4ffd9beb7fe38d044f22bca95233e8dbde90801d70615958aa90b2087a0c4ca"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "procedural",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "369b26f895a1cc19f7c4c219e1cc7319be9b715b2d943d8ed7488c647aded786"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"b",
+					"a",
+					"B",
+					"😀",
+					"～",
+					"~",
+					"a"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "e7dc1e7ea67ce50db7ed47cd31d06b2112327dfd304cc4bb33142d76f6875bba"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"～",
+					"😀"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "2b66a1071b7dd326ba2cec3572ba943268dd7f8c839a135bc277b0b155d98c4b"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null,
+				"expiresAt": "2026-10-21T00:00:00.000Z"
+			},
+			"hash": "d8c077de99b0246100cba00d594de7b895f01110048c700bbc40e73655b047cb"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null,
+				"expiresAt": ""
+			},
+			"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"entities": [
+						"Tailscale",
+						"é",
+						"😀"
+					]
+				},
+				"updatedAt": null
+			},
+			"hash": "a2ce3dc7d5a47459b2a648e7a2f73860c9ba360b2d50ea924399027a2dab24e8"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"entities": []
+				},
+				"updatedAt": null
+			},
+			"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"abstract": ""
+				},
+				"updatedAt": null
+			},
+			"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"abstract": "The short of it."
+				},
+				"updatedAt": null
+			},
+			"hash": "90517c1a8b7cc84638cdb7278d145c8f4793fcf9c859641bb57bee3455391313"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"z": [
+							"x"
+						],
+						"a": [],
+						"😀": [
+							"y"
+						],
+						"～": [
+							"w"
+						],
+						"B": [
+							"b",
+							"a"
+						]
+					}
+				},
+				"updatedAt": null
+			},
+			"hash": "e06b2c24dff0f193729cea5a22f7308ec5021e3803282ecc9fb31037147b7675"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"～": [
+							"w"
+						],
+						"B": [
+							"b",
+							"a"
+						],
+						"😀": [
+							"y"
+						],
+						"z": [
+							"x"
+						]
+					}
+				},
+				"updatedAt": null
+			},
+			"hash": "e06b2c24dff0f193729cea5a22f7308ec5021e3803282ecc9fb31037147b7675"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"only": []
+					}
+				},
+				"updatedAt": null
+			},
+			"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"applies_to": [
+						"src/**",
+						"*.ts"
+					],
+					"enforced_by": "lint"
+				},
+				"updatedAt": null
+			},
+			"hash": "4519147aeccf0ac3d6899ceac58188af7829c571f4fcaa6b4377302924fa5725"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": true,
+				"metadata": {
+					"entities": [
+						"X"
+					],
+					"abstract": "abs",
+					"relations": {
+						"see": [
+							"decisions/b.md"
+						]
+					},
+					"applies_to": [
+						"a"
+					],
+					"enforced_by": "ci"
+				},
+				"updatedAt": "2026-10-19T00:00:00Z",
+				"origin": "win",
+				"id": "v9",
+				"expiresAt": "2026-10-22T00:00:00Z"
+			},
+			"hash": "71276cde79489217877db8dfd6e1692e01a8dc7892a501c871c4057fb59d8bc2"
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"hash": "3998ff714a9cd766f121527c4a3e6e66fc984cad986bd31a9fba5a70a10f9a75"
+		}
+	],
+	"cuts": [
+		{
+			"text": "",
+			"max": 5,
+			"out": ""
+		},
+		{
+			"text": "abcdefghij",
+			"max": 5,
+			"out": "abcde"
+		},
+		{
+			"text": "abc",
+			"max": 5,
+			"out": "abc"
+		},
+		{
+			"text": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+			"max": 2000,
+			"out": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+		},
+		{
+			"text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+			"max": 2000,
+			"out": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		},
+		{
+			"text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀b",
+			"max": 2000,
+			"out": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		},
+		{
+			"text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+			"max": 2000,
+			"out": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+		},
+		{
+			"text": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+			"max": 2000,
+			"out": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééée"
+		},
+		{
+			"text": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한",
+			"max": 2000,
+			"out": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한"
+		},
+		{
+			"text": "é",
+			"max": 1,
+			"out": ""
+		},
+		{
+			"text": "é",
+			"max": 0,
+			"out": ""
+		},
+		{
+			"text": "a😀b",
+			"max": 3,
+			"out": "a"
+		},
+		{
+			"text": "a😀b",
+			"max": 5,
+			"out": "a😀"
+		}
+	],
+	"durable": [
+		{
+			"path": "decisions/a.md",
+			"durable": true
+		},
+		{
+			"path": "_rules/x.md",
+			"durable": true
+		},
+		{
+			"path": "gotchas/a/b.md",
+			"durable": true
+		},
+		{
+			"path": "procedures/p.md",
+			"durable": true
+		},
+		{
+			"path": "preferences/p.md",
+			"durable": true
+		},
+		{
+			"path": "profile/me.md",
+			"durable": true
+		},
+		{
+			"path": "sessions/s.md",
+			"durable": false
+		},
+		{
+			"path": "decisions",
+			"durable": false
+		},
+		{
+			"path": "decisions/",
+			"durable": false
+		},
+		{
+			"path": "decisions/a.txt",
+			"durable": false
+		},
+		{
+			"path": "decisions//a.md",
+			"durable": false
+		},
+		{
+			"path": "decisions/./a.md",
+			"durable": false
+		},
+		{
+			"path": "decisions/../a.md",
+			"durable": false
+		},
+		{
+			"path": "decisions\\a.md",
+			"durable": false
+		},
+		{
+			"path": "decisions/a\\b.md",
+			"durable": false
+		},
+		{
+			"path": "Decisions/a.md",
+			"durable": false
+		},
+		{
+			"path": "/decisions/a.md",
+			"durable": false
+		},
+		{
+			"path": "decisions/.md",
+			"durable": true
+		},
+		{
+			"path": "decisions/a.md/",
+			"durable": false
+		}
+	],
+	"wires": [
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "2026-10-19T00:00:01Z",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "2026-10-19T00:00:01Z",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "",
+				"hash": "c4ffd9beb7fe38d044f22bca95233e8dbde90801d70615958aa90b2087a0c4ca"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "c4ffd9beb7fe38d044f22bca95233e8dbde90801d70615958aa90b2087a0c4ca"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"z": [
+							"x"
+						],
+						"a": []
+					},
+					"entities": [
+						"E"
+					],
+					"enforced_by": "e",
+					"applies_to": [
+						"a"
+					],
+					"abstract": "s"
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"entities": [
+						"E"
+					],
+					"abstract": "s",
+					"relations": {
+						"z": [
+							"x"
+						],
+						"a": []
+					},
+					"applies_to": [
+						"a"
+					],
+					"enforced_by": "e"
+				},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "f8b5ae7aca5408d66c93966a44851d4a2e2511036553d86da49308ab629b3763"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null,
+				"expiresAt": "2026-10-21T00:00:00Z"
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"expiresAt": "2026-10-21T00:00:00Z",
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "33ebc4e21144d0eb7091a41b36dc61a37a536f37a4ae213a750056bcb3f14607"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null,
+				"expiresAt": ""
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": "x",
+				"origin": "win",
+				"id": "v1"
+			},
+			"origin": "win",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "win",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"repository": {
+				"identity": "github.com/a/b",
+				"source": "git_remote"
+			},
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"identity": "github.com/a/b",
+				"identitySource": "git_remote",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"repository": {
+				"identity": "github.com/a/b",
+				"source": ""
+			},
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"identity": "github.com/a/b",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"repository": {
+				"identity": "",
+				"source": "git_remote"
+			},
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "sessions/s.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1e242b626eb5392742d5da08a8650c11f3d0003d9128b1f0d9af24a54fae6ed4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "0f9149ef86e6a86040d141b110b8f80f7355741d5f9f78a8e4d19033610b6d59"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"t0",
+					"t1",
+					"t2",
+					"t3",
+					"t4",
+					"t5",
+					"t6",
+					"t7",
+					"t8",
+					"t9",
+					"t10",
+					"t11",
+					"t12",
+					"t13",
+					"t14",
+					"t15",
+					"t16",
+					"t17",
+					"t18",
+					"t19",
+					"t20",
+					"t21",
+					"t22",
+					"t23",
+					"t24",
+					"t25",
+					"t26",
+					"t27",
+					"t28",
+					"t29",
+					"t30",
+					"t31",
+					"t32",
+					"t33",
+					"t34",
+					"t35",
+					"t36",
+					"t37",
+					"t38",
+					"t39",
+					"t40",
+					"t41",
+					"t42",
+					"t43",
+					"t44",
+					"t45",
+					"t46",
+					"t47",
+					"t48",
+					"t49",
+					"t50",
+					"t51",
+					"t52",
+					"t53",
+					"t54",
+					"t55",
+					"t56",
+					"t57",
+					"t58",
+					"t59",
+					"t60",
+					"t61",
+					"t62",
+					"t63"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"t0",
+					"t1",
+					"t2",
+					"t3",
+					"t4",
+					"t5",
+					"t6",
+					"t7",
+					"t8",
+					"t9",
+					"t10",
+					"t11",
+					"t12",
+					"t13",
+					"t14",
+					"t15",
+					"t16",
+					"t17",
+					"t18",
+					"t19",
+					"t20",
+					"t21",
+					"t22",
+					"t23",
+					"t24",
+					"t25",
+					"t26",
+					"t27",
+					"t28",
+					"t29",
+					"t30",
+					"t31",
+					"t32",
+					"t33",
+					"t34",
+					"t35",
+					"t36",
+					"t37",
+					"t38",
+					"t39",
+					"t40",
+					"t41",
+					"t42",
+					"t43",
+					"t44",
+					"t45",
+					"t46",
+					"t47",
+					"t48",
+					"t49",
+					"t50",
+					"t51",
+					"t52",
+					"t53",
+					"t54",
+					"t55",
+					"t56",
+					"t57",
+					"t58",
+					"t59",
+					"t60",
+					"t61",
+					"t62",
+					"t63"
+				],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "04ae0d6f04495d112906f45b46302f0aad00be7fc46cd2cf67471b742b587469"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"t0",
+					"t1",
+					"t2",
+					"t3",
+					"t4",
+					"t5",
+					"t6",
+					"t7",
+					"t8",
+					"t9",
+					"t10",
+					"t11",
+					"t12",
+					"t13",
+					"t14",
+					"t15",
+					"t16",
+					"t17",
+					"t18",
+					"t19",
+					"t20",
+					"t21",
+					"t22",
+					"t23",
+					"t24",
+					"t25",
+					"t26",
+					"t27",
+					"t28",
+					"t29",
+					"t30",
+					"t31",
+					"t32",
+					"t33",
+					"t34",
+					"t35",
+					"t36",
+					"t37",
+					"t38",
+					"t39",
+					"t40",
+					"t41",
+					"t42",
+					"t43",
+					"t44",
+					"t45",
+					"t46",
+					"t47",
+					"t48",
+					"t49",
+					"t50",
+					"t51",
+					"t52",
+					"t53",
+					"t54",
+					"t55",
+					"t56",
+					"t57",
+					"t58",
+					"t59",
+					"t60",
+					"t61",
+					"t62",
+					"t63",
+					"t64"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [
+					"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+				],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"entities": [
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e",
+						"e"
+					]
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"entities": [
+						"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+					]
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"abstract": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"r": [
+							"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+						]
+					}
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"relations": {
+						"r": [
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x",
+							"x"
+						]
+					}
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"applies_to": [
+						"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+					]
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {
+					"enforced_by": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+				},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "ttttttttttttttttttttttttttttttttt",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "1b725d42898234c19a333af9aa811dda0a8926c7d2ca091a47aa0ddb90e112a4"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null,
+				"expiresAt": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"repository": {
+				"identity": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+				"source": "git_remote"
+			},
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"repository": {
+				"identity": "i",
+				"source": "sssssssssssssssssssssssssssssssss"
+			},
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": {
+					"repeat": "é",
+					"count": 131072,
+					"tail": ""
+				},
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": null,
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "badefc2e6ad0faa0dac4ab496ff29fe04882923dbdf7abea43faaba41b29d895"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": {
+					"repeat": "é",
+					"count": 131072,
+					"tail": "x"
+				},
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": null
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": {
+					"repeat": "😀",
+					"count": 65536,
+					"tail": ""
+				},
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "A",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": null,
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "d411cd18047dea1e570c4c6a7da7b51c38aaf9d7dc48619cc540f3c2821eb88c"
+			}
+		},
+		{
+			"copy": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "ctl \n\u0000   \"q\" 😀",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "한국어 \\ body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"updatedAt": null
+			},
+			"origin": "mac",
+			"at": "t",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md",
+				"title": "ctl \n\u0000   \"q\" 😀",
+				"kind": "decision",
+				"tier": "semantic",
+				"body": "한국어 \\ body",
+				"tags": [],
+				"pinned": false,
+				"metadata": {},
+				"origin": "mac",
+				"updatedAt": "t",
+				"hash": "ad9f0df8b9f1ac8ec16ab2a111e3e091bc7ff1b13273c4bac71e210384fc5b3c"
+			}
+		}
+	],
+	"conclusions": [
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Key ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4",
+				"body": "Deployed with ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4 now",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Key <token>",
+			"redactedBody": "Deployed with <token> now",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Key <token>",
+				"body": "Deployed with <token> now",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "<token>😀",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "<token>😀",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "  \n\t ",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "  \n\t ",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "　 ﻿",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "　 ﻿",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "​",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "​",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "​",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "bad id",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "nb sp",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "zw​sp",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "zw​sp",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "line\nbreak",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"repository": {
+				"identity": "github.com/a/b",
+				"source": "git_remote"
+			},
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"identity": "github.com/a/b",
+				"identitySource": "git_remote",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"repository": {
+				"identity": "github.com/a/b",
+				"source": ""
+			},
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"identity": "github.com/a/b",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "Title",
+				"body": "Body.",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"repository": {
+				"identity": "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+				"source": "git_remote"
+			},
+			"redactedTitle": "Title",
+			"redactedBody": "Body.",
+			"wire": null
+		},
+		{
+			"row": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "100.101.102.103",
+				"body": "mail me at someone@example.com from /Users/someone/x",
+				"at": "2026-10-19T00:00:00Z"
+			},
+			"origin": "mac",
+			"redactedTitle": "<tailnet-ip>",
+			"redactedBody": "mail me at <email> from ~/x",
+			"wire": {
+				"workspace": "default",
+				"project": "app",
+				"id": "c1",
+				"sessionId": "s1",
+				"title": "<tailnet-ip>",
+				"body": "mail me at <email> from ~/x",
+				"at": "2026-10-19T00:00:00Z",
+				"origin": "mac"
+			}
+		}
+	],
+	"keys": [
+		{
+			"ref": {
+				"workspace": "default",
+				"project": "app",
+				"path": "decisions/a.md"
+			},
+			"key": "default\u0000app\u0000decisions/a.md"
+		}
+	]
+}
