@@ -166,3 +166,27 @@ test("a refused connection while the computer reads online waits for the connect
 		await cleanup(profile);
 	}
 });
+
+// 12 Nov 2026: a session ended three turns with this 429 (the model's weekly limit: a wait past stock's
+// `retry.maxDelayMs` with no fallback model that fits, so stock ended each turn at once) and sat for 37 minutes until
+// another session wrote to it. Nothing took the turn up again unless a person booked it on the card.
+test("a turn stock gave up on at a rate limit is tried again by itself once the limit is expected gone", async () => {
+	test.setTimeout(120_000);
+	const profile = await makeProfile("en", "4000,4000,4000");
+	Object.assign(profile.env, { OMP_GUI_TEST_RETRY_AFTER_MS: "6000", OMP_GUI_TEST_USAGE_RESET_MS: "6000" });
+	let current: ElectronApplication | undefined;
+	try {
+		const { app, page } = await launch(profile);
+		current = app;
+		await stockRetry(page, true);
+		await send(page, "fixture rate limit");
+		await expect(page.locator(".omp-message-error")).toHaveCount(1, { timeout: 30_000 });
+		// The card counts down to the try, and the turn goes on with no click.
+		await expect(page.locator("[data-scheduled-retry]")).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByText("Resumed after the usage limit reset.")).toBeVisible({ timeout: 60_000 });
+		await expect(page.locator("[data-scheduled-retry]")).toHaveCount(0);
+	} finally {
+		if (current) await exitApp(current);
+		await cleanup(profile);
+	}
+});

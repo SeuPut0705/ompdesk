@@ -409,13 +409,18 @@ export function runRpcUi(): void {
 	let isStreaming = false;
 	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
 	let thinking = { level: "medium", configured: "medium" };
-	/** `fixture usage limit` stops a turn on the provider's quota; its account resets at this time. */
+	/** `fixture usage limit` and `fixture rate limit` stop a turn on the provider's quota; its account resets at this time. */
 	let usageLimitResetAt: number | undefined;
+	/** `fixture rate limit`: the provider refuses every request until the account resets, a `/retry` included. */
+	let rateLimited = false;
 	/** `fixture network error` ends a turn on a dropped connection; stock `/retry` runs it again. */
 	let networkFailed = false;
 	/** `fixture socket drop`: stock's auto-retry saga in flight (its timer and attempt), until it gives up or `abort_retry`. */
 	let socketRetry: { timer: NodeJS.Timeout; attempt: number; failed: AgentMessage } | undefined;
 	const SOCKET_CLOSED = "The socket connection was closed unexpectedly before the response completed";
+	/** A reply refused at an account limit as stock journals it; `OMP_GUI_TEST_RETRY_AFTER_MS` is the wait the provider names. */
+	const rateLimitError = (): string =>
+		`429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed your account's rate limit. Please try again later."},"request_id":"req_fixture"} retry-after-ms=${Number(process.env.OMP_GUI_TEST_RETRY_AFTER_MS ?? 319_918_000)}`;
 	let planModeEnabled = Boolean(process.env.OMP_GUI_TEST_PANEL_PLAN);
 	/** `modes.auto_mode_undo` ran: no further automatic decisions (the bridge's per-session memory). */
 	let autoModeSuppressed = false;
@@ -5423,8 +5428,11 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				};
 			};
 			fail(1);
-		} else if (message === "fixture usage limit") {
-			// The provider's quota stops the turn; the limit resets a few seconds later.
+		} else if (message === "fixture usage limit" || message === "fixture rate limit") {
+			// The provider's quota stops the turn; the limit resets a few seconds later. `rate limit` is the failed reply
+			// stock leaves when the provider names a wait past `retry.maxDelayMs` and no fallback model fits (it ends the turn
+			// at once, turn-recovery.ts `exceedsDelayCap`): the provider's body, then the wait its header named.
+			rateLimited = message === "fixture rate limit";
 			usageLimitResetAt = Date.now() + Number(process.env.OMP_GUI_TEST_USAGE_RESET_MS ?? 90_000);
 			const answer: AgentMessage = {
 				role: "assistant",
@@ -5433,7 +5441,7 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				provider: model.provider,
 				model: model.id,
 				stopReason: "error",
-				errorMessage: "429 usage limit reached for this account",
+				errorMessage: rateLimited ? rateLimitError() : "429 usage limit reached for this account",
 			};
 			appendMessage(answer);
 			write({ type: "message_end", message: answer });
@@ -6952,13 +6960,35 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			case "prompt":
 				if (text("message") === "/retry" && autopilot.retry(data => ok(data))) break;
 				if (text("message") === "/retry") {
-					// Stock `/retry` (main's `retry` handler sends it): the failed turn runs again, here answering.
+					// Stock `/retry` (main's `retry` handler sends it): the failed turn runs again, here answering, or
+					// refused again while the `fixture rate limit` account has not reset.
 					const failed = usageLimitResetAt !== undefined || networkFailed;
 					const afterNetwork = networkFailed;
-					usageLimitResetAt = undefined;
+					const refused = rateLimited && usageLimitResetAt !== undefined && usageLimitResetAt > Date.now();
+					if (!refused) {
+						usageLimitResetAt = undefined;
+						rateLimited = false;
+					}
 					networkFailed = false;
 					ok({ agentInvoked: failed });
 					if (!failed) break;
+					if (refused) {
+						isStreaming = true;
+						write({ type: "agent_start" });
+						const again: AgentMessage = {
+							role: "assistant",
+							content: [],
+							timestamp: Date.now(),
+							provider: model.provider,
+							model: model.id,
+							stopReason: "error",
+							errorMessage: rateLimitError(),
+						};
+						appendMessage(again);
+						write({ type: "message_end", message: again });
+						endTurn([again]);
+						break;
+					}
 					isStreaming = true;
 					write({ type: "agent_start" });
 					const answer: AgentMessage = {
