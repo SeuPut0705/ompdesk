@@ -725,7 +725,9 @@ mod tests {
         let (link, mut peer, mut frames, _keep) = pair(Liveness::default()).await;
         peer.send(&serde_json::json!({"t": "one"})).await.unwrap();
         peer.send(&serde_json::json!({"t": "ping"})).await.unwrap();
-        peer.send(&serde_json::json!({"t": "two", "n": 2})).await.unwrap();
+        peer.send(&serde_json::json!({"t": "two", "n": 2}))
+            .await
+            .unwrap();
         assert!(frames.try_recv().is_err(), "nothing before listen");
         link.command(Command::Listen);
         let mut got = Vec::new();

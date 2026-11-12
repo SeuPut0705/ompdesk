@@ -105,7 +105,11 @@ impl Events {
 
     /// Events a test reads as frames (the channel's receiver), as the output's writer would get them.
     #[cfg(test)]
-    pub fn capture() -> (Events, mpsc::UnboundedSender<Frame>, mpsc::UnboundedReceiver<Frame>) {
+    pub fn capture() -> (
+        Events,
+        mpsc::UnboundedSender<Frame>,
+        mpsc::UnboundedReceiver<Frame>,
+    ) {
         let (frames, receiver) = mpsc::unbounded_channel();
         (
             Events {
