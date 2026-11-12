@@ -102,6 +102,8 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		readonly id: number;
 		readonly webContents: WebContents;
 		#bounds: Rect = { x: 0, y: 0, width: 0, height: 0 };
+		/** A view is visible once it is shown: Electron's default. */
+		#visible = true;
 
 		constructor(options: { webPreferences?: WebPreferences } = {}) {
 			super();
@@ -117,7 +119,12 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		}
 
 		setVisible(visible: boolean): void {
+			this.#visible = visible;
 			this.op("setVisible", { visible });
+		}
+
+		getVisible(): boolean {
+			return this.#visible;
 		}
 
 		setBounds(bounds: Rect): void {

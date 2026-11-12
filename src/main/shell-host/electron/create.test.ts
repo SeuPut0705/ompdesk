@@ -473,12 +473,19 @@ describe("BrowserWindow", () => {
 		const view = new WebContentsView({ webPreferences: { sandbox: true } });
 		win.contentView.addChildView(view);
 		view.setBounds({ x: 1, y: 2, width: 3, height: 4 });
+		expect(win.contentView.children.at(-1)).toBe(view);
+		expect(view.getVisible()).toBe(true);
+		view.setVisible(false);
+		expect(view.getVisible()).toBe(false);
+		view.setVisible(true);
 		win.contentView.removeChildView(view);
 		await settle();
 		expect(fake.callsOf("view.create")[0].params).toMatchObject({ viewId: 1, wcId: view.webContents.id });
 		expect(fake.callsOf("view.op").map(call => [call.params.op, call.params.args])).toEqual([
 			["attach", { winId: win.id }],
 			["setBounds", { bounds: { x: 1, y: 2, width: 3, height: 4 } }],
+			["setVisible", { visible: false }],
+			["setVisible", { visible: true }],
 			["detach", { winId: win.id }],
 		]);
 	});
