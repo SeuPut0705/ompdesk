@@ -909,6 +909,22 @@ describe("workflows", () => {
 		expect(manual.some(run => run.includes("bunx playwright test --grep"))).toBe(true);
 		expect(job?.steps.some(step => step.with?.path?.includes("captures/"))).toBe(true);
 	});
+
+	it("gives a manual batch run every job a push to main runs, before a batch lands", () => {
+		const ci = parse(workflows.find(entry => entry.name === "ci.yml")?.text ?? "") as {
+			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
+			jobs: Record<string, { if?: string; strategy?: { matrix?: { include?: string } } }>;
+		};
+		expect(ci.on.workflow_dispatch.inputs).toHaveProperty("batch");
+		for (const job of ["win-platform", "mac-smoke", "mac-native", "memory"]) {
+			expect(ci.jobs[job]?.if, job).toContain("inputs.batch");
+		}
+		// The native job's three OS legs, not Linux alone.
+		expect(ci.jobs.native?.strategy?.matrix?.include).toContain("inputs.batch");
+		for (const job of ["static", "check", "build", "native"]) {
+			expect(ci.jobs[job]?.if ?? "", job).not.toContain("workflow_dispatch'");
+		}
+	});
 });
 
 /**

@@ -42,6 +42,10 @@ on:
     paths-ignore: ["**.md", "docs/**", "LICENSE", "THIRD_PARTY_NOTICES.txt", ".github/ISSUE_TEMPLATE/**", ".github/workflows/setup-assets-health.yml", ".github/workflows/omp-latest.yml"]
   workflow_dispatch:
     inputs:
+      batch:
+        description: "Run every job a push to main runs, on this ref (a Rust batch's gate before it lands)"
+        type: boolean
+        default: false
       e2e:
         description: "Also run the full Playwright e2e suite on macOS"
         type: boolean
@@ -216,7 +220,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-latest","name":"linux"},{"os":"windows-latest","name":"windows"},{"os":"macos-latest","name":"macos arm64"}]' || '[{"os":"ubuntu-latest","name":"linux"}]') }}
+        include: ${{ fromJSON((github.event_name == 'push' || inputs.batch) && '[{"os":"ubuntu-latest","name":"linux"},{"os":"windows-latest","name":"windows"},{"os":"macos-latest","name":"macos arm64"}]' || '[{"os":"ubuntu-latest","name":"linux"}]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/native-check
@@ -229,10 +233,10 @@ jobs:
   # release.yml's `win` pre-flight half: the tests outside src/renderer on
   # Windows (paths, PATH lookup, cmd.exe shims, spawn, named pipes, file modes),
   # in three shards as release.yml's `win-platform`.
-  # Pushes to main only: a pull request runs Linux alone.
+  # Pushes to main and batch runs: a pull request runs Linux alone.
   win-platform:
     name: win-platform (${{ matrix.shard }}/3)
-    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.win_platform)"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && (inputs.win_platform || inputs.batch))"
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
@@ -274,9 +278,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # release.yml's `mac` pre-flight half: the @smoke specs on the fake omp, on
-  # the built app (out/), on macOS. Pushes to main only.
+  # the built app (out/), on macOS. Pushes to main and batch runs only.
   mac-smoke:
-    if: "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch)"
     runs-on: macos-latest
     timeout-minutes: 20
     permissions:
@@ -307,9 +311,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   # The vitest files that drive the real ompdesk-core binary, on macOS, as
-  # release.yml's `mac-native`. Pushes to main only.
+  # release.yml's `mac-native`. Pushes to main and batch runs only.
   mac-native:
-    if: "github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')"
+    if: "(github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'release: v')) || (github.event_name == 'workflow_dispatch' && inputs.batch)"
     runs-on: macos-latest
     timeout-minutes: 10
     permissions:
@@ -576,7 +580,7 @@ jobs:
   # It saves the binary under release.yml's cache key, so a release after a main push that changed the source finds it
   # built; a hit (that source was built before) only runs `--check`.
   memory:
-    if: "github.event_name != 'workflow_dispatch' && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
+    if: "(github.event_name != 'workflow_dispatch' || inputs.batch) && (github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'release: v'))"
     runs-on: macos-latest
     timeout-minutes: 40
     permissions:
