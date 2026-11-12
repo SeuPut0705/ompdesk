@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	clearAgentWorktrees,
@@ -7,6 +10,7 @@ import {
 } from "./agent-worktrees";
 import type { OmpRuntime } from "./local/types";
 import { resolveOmp } from "./omp-runtime";
+import { configDirName } from "./test-bridge-probe";
 
 type Run = OmpRuntime["run"];
 
@@ -83,10 +87,19 @@ describe("list / clear", () => {
 });
 
 describe("stock omp worktree list --json", () => {
+	// In an empty agent dir of its own: run with the person's, omp opens (and on a clean machine creates) the real
+	// `~/.omp/agent/agent.db`, which is what made the real-account suite run on a CI runner (12 Nov 2026).
 	it("parses the installed omp's own output", async () => {
 		const omp = await resolveOmp();
 		if (!omp.ok) return;
-		const entries = await listAgentWorktrees(omp.runtime);
-		expect(Array.isArray(entries)).toBe(true);
+		const agentDir = mkdtempSync(join(tmpdir(), "ompdesk-agent-worktrees-"));
+		try {
+			const own = { PI_CODING_AGENT_DIR: agentDir, PI_CONFIG_DIR: configDirName(agentDir) };
+			const run: Run = (args, opts = {}) => omp.runtime.run(args, { ...opts, env: { ...opts.env, ...own } });
+			const entries = await listAgentWorktrees({ ...omp.runtime, run });
+			expect(Array.isArray(entries)).toBe(true);
+		} finally {
+			rmSync(agentDir, { recursive: true, force: true });
+		}
 	});
 });

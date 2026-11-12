@@ -128,8 +128,10 @@ describe.skipIf(!existsSync(omp))("stock account selectors and listing, with no 
 	}, 120_000);
 });
 
+// The person's own accounts: never on a CI runner, whose home holds only what another test left there.
 const source = join(homedir(), ".omp", "agent");
-describe.skipIf(!existsSync(omp) || !existsSync(join(source, "agent.db")))("real stock account/reset adapters", () => {
+const personsData = existsSync(join(source, "agent.db")) && process.env.GITHUB_ACTIONS !== "true";
+describe.skipIf(!existsSync(omp) || !personsData)("real stock account/reset adapters", () => {
 	it("preserves account listings, uses stock attribution/reset selectors, and logs out only a throwaway credential", () => {
 		const isolated = mkdtempSync(join(tmpdir(), "ompdesk-accounts-stock-"));
 		chmodSync(isolated, 0o700);
