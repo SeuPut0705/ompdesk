@@ -55,6 +55,12 @@ impl Output {
     }
 }
 
+/// What `Exec::run_kept` answers: the output, and whether the process ran past its timeout and was ended.
+pub struct Ended {
+    pub output: Output,
+    pub timed_out: bool,
+}
+
 /// What one process sets past the runner's own: its timeout, its output cap, variables over the environment, and the
 /// bytes it reads on stdin (none: stdin is closed).
 #[derive(Default, Clone, Copy)]
@@ -90,6 +96,28 @@ impl Exec {
     /// Answers whatever the exit code; fails only when the process could not run, ran past its timeout or the request
     /// was cancelled.
     pub async fn run(&self, cwd: &str, args: &[&str], opts: Opts<'_>) -> Result<Output, Fault> {
+        let ended = self.run_kept(cwd, args, opts).await?;
+        if !ended.timed_out {
+            return Ok(ended.output);
+        }
+        let runner = &self.runner;
+        let timeout_ms = opts.timeout_ms.unwrap_or(runner.timeout_ms);
+        // `execBin` names the process's first argument (`-c` for every git).
+        let first = runner.args.first().map_or_else(
+            || args.first().copied().unwrap_or(&runner.bin),
+            String::as_str,
+        );
+        Err(Fault::new(
+            Cow::Owned(format!("{}_timeout", self.tool)),
+            format!("{first} timed out after {timeout_ms}ms"),
+        ))
+    }
+
+    /// `run` for a process whose output counts although it ran past its timeout (`tailscale up --json` prints the
+    /// sign-in link and then waits to be cut short): the timeout is an answer (`timed_out`) with the output kept up
+    /// to then, given once the process was ended and exited, as `run`'s fault is. A cancelled request starts
+    /// nothing and fails as in `run`.
+    pub async fn run_kept(&self, cwd: &str, args: &[&str], opts: Opts<'_>) -> Result<Ended, Fault> {
         if self.scope.cancelled() {
             return Err(Fault::cancelled());
         }
@@ -148,26 +176,29 @@ impl Exec {
                 truncated,
             }
         });
-        let reaped = match tokio::time::timeout(Duration::from_millis(timeout_ms), &mut work).await
-        {
-            Ok(reaped) => reaped,
-            Err(_) => {
-                end.notify_one();
-                let _ = work.await;
-                // `execBin` names the process's first argument (`-c` for every git).
-                let first = runner.args.first().map_or_else(
-                    || args.first().copied().unwrap_or(&runner.bin),
-                    String::as_str,
-                );
-                return Err(Fault::new(
-                    Cow::Owned(format!("{}_timeout", self.tool)),
-                    format!("{first} timed out after {timeout_ms}ms"),
-                ));
-            }
-        };
+        // A process past its timeout is asked to end and waited for, here as for a request that fails on it.
+        let (reaped, timed_out) =
+            match tokio::time::timeout(Duration::from_millis(timeout_ms), &mut work).await {
+                Ok(reaped) => (reaped, false),
+                Err(_) => {
+                    end.notify_one();
+                    (work.await, true)
+                }
+            };
         match reaped {
+            Ok(output) if timed_out => Ok(Ended { output, timed_out }),
             Ok(_) if self.scope.cancelled() => Err(Fault::cancelled()),
-            Ok(output) => Ok(output),
+            Ok(output) => Ok(Ended { output, timed_out }),
+            // The timeout counts whatever became of the supervisor.
+            Err(_) if timed_out => Ok(Ended {
+                output: Output {
+                    code: 1,
+                    stdout: Vec::new(),
+                    stderr: String::new(),
+                    truncated: false,
+                },
+                timed_out,
+            }),
             Err(_) => Err(Fault::new("internal", "the process's supervisor failed")),
         }
     }
@@ -472,5 +503,61 @@ pub(crate) mod tests {
             .success();
         assert!(!alive, "the process outlived its answer");
         let _ = std::fs::remove_file(pid_file);
+    }
+
+    /// `tailscale up --json`: a process that prints and then waits is ended at its timeout, its output kept, and it
+    /// is gone when the answer comes.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn keeps_the_output_of_a_process_past_its_timeout_and_answers_once_it_exited() {
+        let pid_file =
+            std::env::temp_dir().join(format!("ompdesk-core-kept-{}", std::process::id()));
+        let script = format!(
+            "trap '' TERM; echo $$ > '{}'; echo printed; exec sleep 30",
+            pid_file.display()
+        );
+        let started = std::time::Instant::now();
+        let ended = exec(shell(300, 1024), Scope::detached())
+            .run_kept("/", &[script.as_str()], Opts::default())
+            .await
+            .unwrap_or_else(|fault| panic!("{}", fault.message));
+        assert!(ended.timed_out);
+        assert_eq!(ended.output.text(), "printed\n");
+        assert!(started.elapsed() >= KILL_GRACE, "returned before the kill");
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        let alive = std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive, "the process outlived its answer");
+        let _ = std::fs::remove_file(pid_file);
+        let quick = exec(shell(10_000, 1024), Scope::detached())
+            .run_kept("/", &["echo done; exit 3"], Opts::default())
+            .await
+            .unwrap_or_else(|fault| panic!("{}", fault.message));
+        assert!(!quick.timed_out);
+        assert_eq!(
+            (quick.output.code, quick.output.text()),
+            (3, "done\n".into())
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_kept_starts_no_process_once_its_request_was_cancelled() {
+        let scope = Scope::detached();
+        scope.cancel();
+        let marker =
+            std::env::temp_dir().join(format!("ompdesk-core-kept-started-{}", std::process::id()));
+        let script = format!("touch '{}'", marker.display());
+        let fault = exec(shell(10_000, 1024), scope)
+            .run_kept("/", &[script.as_str()], Opts::default())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(fault, Fault::cancelled());
+        assert!(!marker.exists(), "a cancelled request started a process");
     }
 }
