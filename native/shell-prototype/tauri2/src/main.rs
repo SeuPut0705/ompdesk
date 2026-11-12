@@ -482,14 +482,13 @@ fn main() {
                 .inner_size(1280.0, 800.0)
                 .decorations(false)
                 .build()?;
-            // macOS: Electron's `hiddenInset`: the page runs under a transparent title bar, traffic lights at (18, 17).
+            // macOS: the page runs under a transparent title bar; WindowBuilder (multiwebview) has no traffic_light_position, so the lights sit where AppKit puts them.
             #[cfg(target_os = "macos")]
             let window = WindowBuilder::new(app, "main")
                 .title("OMPdesk proto (tauri2)")
                 .inner_size(1280.0, 800.0)
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(18.0, 17.0))
                 .build()?;
             let size = window.inner_size()?;
             let scale = window.scale_factor()?;
