@@ -22,7 +22,6 @@
 import { readFile, rm } from "node:fs/promises";
 import { parse } from "yaml";
 import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
-import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import {
 	AI_MEMORY_BINARIES,
 	AI_MEMORY_BUILD_MANIFEST,
@@ -49,6 +48,7 @@ import { StepStalledError, writeStall } from "../serial-chain";
 import { SetupRunner } from "../setup/runner";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { AiMemoryClient, DEFAULT_SERVER_URL } from "./client";
+import { AI_MEMORY_REQUIREMENT, MAC_STAGE_KEY } from "./staging";
 
 const POLL_MS = 60_000;
 const HEALTH_WAIT_MS = 30_000;
@@ -65,16 +65,6 @@ export const AI_MEMORY_STEP_MAX_MS = 30 * 60_000;
 const HOLD_MS = 2 ** 31 - 1;
 /** The chain's name in a stall's log line and error, as `SerialChain` named it. */
 const CHAIN = "ai-memory";
-
-/**
- * macOS: the designated requirement of the shipped binary of a packaged build. Packaging re-signs it
- * (`scripts/mac-sign.cjs`) after `scripts/after-pack.cjs` held its bytes to the build record, so what names it
- * afterwards is this requirement: codesign identifies an unbundled Mach-O by its file name, and every release is signed
- * with OMPdesk's pinned certificate (`scripts/mac-signing.json`). Any other signature, ad-hoc or not, fails it.
- */
-export const AI_MEMORY_REQUIREMENT = `identifier "ai-memory" and certificate root = H"${macSigning.certificateSha1}"`;
-/** macOS: the one folder under `<tools>/ai-memory` every build stages into, so TCC's grants (keyed by path) survive. */
-export const MAC_STAGE_KEY = "current";
 
 /** The OS service ai-memory's `setup` installs, where main stands in for it (tests, the e2e's pid file). */
 export interface ServiceControl {

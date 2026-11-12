@@ -17,14 +17,13 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import {
-	AI_MEMORY_REQUIREMENT,
 	AI_MEMORY_STEP_MAX_MS,
 	AiMemoryService,
 	type AiMemoryServiceDeps,
-	MAC_STAGE_KEY,
 	pidFileControl,
 	type ServiceControl,
 } from "./service";
+import { AI_MEMORY_REQUIREMENT, MAC_STAGE_KEY } from "./staging";
 
 /** ai-memory's own layout of omp's agent dir and of the extension root (the core's `terminal.rs` and `root.rs`). */
 const EXTENSION_FILE = join("extensions", "ai-memory-omp.ts");
