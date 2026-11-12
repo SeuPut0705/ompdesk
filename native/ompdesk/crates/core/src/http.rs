@@ -286,6 +286,15 @@ pub async fn open(request: Request<'_>) -> Result<hyper::Response<Incoming>, Fai
     exchange(&request, machine_tls).await
 }
 
+/// Sends `request` once and answers its status as soon as the head arrived; the body is not read. A redirect is an
+/// answer here and is not followed: Web Push's one attempt takes a push service's 3xx as a refusal, as `https.request`
+/// did (the redirect rules above are `fetch`'s).
+pub async fn status_once(request: Request<'_>) -> Result<u16, Failure> {
+    let url = Url::parse(request.url).map_err(|_| Failure::Request)?;
+    let response = exchange_once(&url, request.headers, request.body, machine_tls).await?;
+    Ok(response.status().as_u16())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Mutex;

@@ -1,12 +1,13 @@
 /**
- * One Web Push message to one subscription: the `web-push` library's VAPID signing and payload encryption
- * behind an injectable transport, so tests put a fake push service where the network would be. A single
- * attempt, no backoff: a 404/410 means the browser dropped the subscription (the caller forgets it), any other
- * failure is logged and the notice is lost (a push is a courtesy; the page shows the state when opened).
+ * One Web Push message to one subscription: the core signs it with the host's VAPID key, encrypts it for the
+ * subscription (RFC 8291) and POSTs it (`crates/core/src/web/push.rs`), behind an injectable transport so tests put a
+ * fake push service where the network would be. A single attempt, no backoff: a 404/410 means the browser dropped
+ * the subscription (the caller forgets it), any other failure is logged and the notice is lost (a push is a courtesy;
+ * the page shows the state when opened).
  */
-import webpush from "web-push";
 import type { WebPushPayload, WebPushSubscriptionJson } from "../../shared/web-push";
-import type { VapidKeys } from "./vapid-store";
+import { core } from "../core/process";
+import { loadVapid } from "./vapid-store";
 
 export type PushUrgency = "very-low" | "low" | "normal" | "high";
 
@@ -21,32 +22,36 @@ export interface PushTransport {
 	send(
 		subscription: WebPushSubscriptionJson,
 		body: string,
-		options: PushOptions & { vapid: VapidKeys; timeoutMs: number },
+		options: PushOptions & { timeoutMs: number },
 	): Promise<{ statusCode: number }>;
 }
 
-/** The real transport: `web-push` over HTTPS. A non-2xx answer comes back as its status, not as an exception. */
-export const webPushTransport: PushTransport = {
-	async send(subscription, body, options) {
-		try {
-			const result = await webpush.sendNotification(subscription, body, {
-				TTL: options.ttl,
-				urgency: options.urgency,
-				timeout: options.timeoutMs,
-				contentEncoding: "aes128gcm",
-				vapidDetails: {
-					subject: options.vapid.subject,
-					publicKey: options.vapid.publicKey,
-					privateKey: options.vapid.privateKey,
+/** The core waits `timeoutMs` for the push service; this side waits a little longer for the core's answer. */
+const CORE_SLACK_MS = 5_000;
+
+/**
+ * The real transport: the core over HTTPS. A non-2xx answer comes back as its status, not as an exception; a request
+ * that got no answer (no connection, TLS, timeout) rejects with the core's coded fault.
+ */
+export function coreTransport(userData: string): PushTransport {
+	return {
+		async send(subscription, body, options) {
+			const answer = await core().call<{ statusCode: number }>(
+				"push.send",
+				{
+					userData,
+					subscription,
+					payload: body,
+					ttl: options.ttl,
+					urgency: options.urgency,
+					timeoutMs: options.timeoutMs,
 				},
-			});
-			return { statusCode: result.statusCode };
-		} catch (error) {
-			if (error instanceof webpush.WebPushError) return { statusCode: error.statusCode };
-			throw error;
-		}
-	},
-};
+				{ timeoutMs: options.timeoutMs + CORE_SLACK_MS },
+			);
+			return answer.result;
+		},
+	};
+}
 
 export const PUSH_ENDPOINT_MAX_CHARS = 2048;
 
@@ -76,21 +81,37 @@ const SEND_TIMEOUT_MS = 10_000;
 export type PushResult = "sent" | "gone" | "failed";
 
 export interface PushSenderDeps {
-	vapid: () => VapidKeys;
+	/** The folder the core keeps the VAPID keypair in (`web-push.json`). */
+	userData: string;
 	transport?: PushTransport | undefined;
 	log?: ((message: string) => void) | undefined;
 }
 
 export class PushSender {
 	readonly #deps: PushSenderDeps;
+	readonly #transport: PushTransport;
+	#publicKey: string | null = null;
 
 	constructor(deps: PushSenderDeps) {
 		this.#deps = deps;
+		this.#transport = deps.transport ?? coreTransport(deps.userData);
 	}
 
-	/** The public key a page subscribes against. */
+	/**
+	 * Loads the VAPID keypair in the core (making one when the file is unusable), before the first page asks for the
+	 * public key or the first push goes out. `created` is true when every stored subscription was made against
+	 * another key: the caller drops them.
+	 */
+	async open(): Promise<{ created: boolean }> {
+		const { publicKey, created } = await loadVapid(this.#deps.userData);
+		this.#publicKey = publicKey;
+		return { created };
+	}
+
+	/** The public key a page subscribes against; only once `open` has answered. */
 	get publicKey(): string {
-		return this.#deps.vapid().publicKey;
+		if (this.#publicKey === null) throw new Error("web push: the VAPID keypair is not loaded yet");
+		return this.#publicKey;
 	}
 
 	/** Never throws: `gone` (404/410) tells the caller to forget the subscription. */
@@ -105,9 +126,8 @@ export class PushSender {
 			return "failed";
 		}
 		try {
-			const { statusCode } = await (this.#deps.transport ?? webPushTransport).send(subscription, body, {
+			const { statusCode } = await this.#transport.send(subscription, body, {
 				...options,
-				vapid: this.#deps.vapid(),
 				timeoutMs: SEND_TIMEOUT_MS,
 			});
 			if (statusCode >= 200 && statusCode < 300) return "sent";

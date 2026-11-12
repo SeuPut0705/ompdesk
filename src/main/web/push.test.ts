@@ -1,13 +1,22 @@
-import { createECDH, randomBytes } from "node:crypto";
-import { EventEmitter } from "node:events";
-import https from "node:https";
+import { createECDH, createPublicKey, randomBytes, verify } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import http from "node:http";
 import { createRequire } from "node:module";
-import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WebPushPayload, WebPushSubscriptionJson } from "../../shared/web-push";
-import { isPushEndpoint, PUSH_PAYLOAD_MAX_BYTES, PushSender, type PushTransport, webPushTransport } from "./push";
-import type { VapidKeys } from "./vapid-store";
-import { VAPID_SUBJECT } from "./vapid-store";
+import { CoreError } from "../core/process";
+import {
+	coreTransport,
+	isPushEndpoint,
+	PUSH_PAYLOAD_MAX_BYTES,
+	type PushOptions,
+	PushSender,
+	type PushTransport,
+} from "./push";
+import { loadVapid } from "./vapid-store";
 
 const require = createRequire(import.meta.url);
 const ece = require("http_ece") as {
@@ -16,26 +25,13 @@ const ece = require("http_ece") as {
 
 const payload: WebPushPayload = { v: 1, kind: "completion", title: "Tab", body: "Done", tabId: "t1", tag: "tab:t1" };
 
-function vapid(): VapidKeys {
-	const ecdh = createECDH("prime256v1");
-	ecdh.generateKeys();
-	// Node drops the scalar's leading zero bytes (1 key in 256 is 31 bytes); web-push wants 32, as its own
-	// `generateVAPIDKeys` pads them.
-	const scalar = ecdh.getPrivateKey();
-	return {
-		publicKey: ecdh.getPublicKey().toString("base64url"),
-		privateKey: Buffer.concat([Buffer.alloc(32 - scalar.length), scalar]).toString("base64url"),
-		subject: VAPID_SUBJECT,
-	};
-}
-
 /** What a browser holds for a subscription: its key pair and auth secret. */
-function browser() {
+function browser(endpoint = "https://push.example.com/send/abc") {
 	const ecdh = createECDH("prime256v1");
 	ecdh.generateKeys();
 	const auth = randomBytes(16);
 	const subscription: WebPushSubscriptionJson = {
-		endpoint: "https://push.example.com/send/abc",
+		endpoint,
 		keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: auth.toString("base64url") },
 	};
 	return { ecdh, auth, subscription };
@@ -43,7 +39,13 @@ function browser() {
 
 const options = { ttl: 3600, urgency: "normal" } as const;
 
-afterEach(() => vi.restoreAllMocks());
+let dir: string;
+
+beforeEach(() => {
+	dir = mkdtempSync(join(tmpdir(), "push-"));
+});
+
+afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("PushSender", () => {
 	function sender(statusCode: number | Error, log: string[] = []) {
@@ -55,19 +57,20 @@ describe("PushSender", () => {
 				return { statusCode };
 			},
 		};
-		const keys = vapid();
-		return { push: new PushSender({ vapid: () => keys, transport, log: message => log.push(message) }), calls, keys };
+		return { push: new PushSender({ userData: dir, transport, log: message => log.push(message) }), calls };
 	}
 
-	it("sends the payload as JSON with the TTL, the urgency and the VAPID keys", async () => {
-		const { push, calls, keys } = sender(201);
+	it("sends the payload as JSON with the TTL and the urgency, and tells the public key the core signs with", async () => {
+		const { push, calls } = sender(201);
+		const { created } = await push.open();
+		expect(created).toBe(true);
+		expect((await loadVapid(dir)).publicKey).toBe(push.publicKey);
 		const { subscription } = browser();
 		expect(await push.send(subscription, payload, { ttl: 21600, urgency: "high" })).toBe("sent");
 		const [sentTo, body, sentOptions] = calls[0] ?? [];
 		expect(sentTo).toEqual(subscription);
 		expect(JSON.parse(body ?? "")).toEqual(payload);
-		expect(sentOptions).toMatchObject({ ttl: 21600, urgency: "high", vapid: keys, timeoutMs: 10_000 });
-		expect(push.publicKey).toBe(keys.publicKey);
+		expect(sentOptions).toEqual({ ttl: 21600, urgency: "high", timeoutMs: 10_000 });
 	});
 
 	it("says `gone` for 404 and 410 so the caller forgets the subscription, and logs nothing", async () => {
@@ -107,59 +110,115 @@ describe("PushSender", () => {
 	});
 });
 
-describe("webPushTransport (the real web-push library, against a stand-in for the HTTPS request)", () => {
-	function pushService(statusCode: number) {
-		const seen: { options: https.RequestOptions; body: Buffer } = { options: {}, body: Buffer.alloc(0) };
-		vi.spyOn(https, "request").mockImplementation(((
-			requestOptions: https.RequestOptions,
-			callback: (res: unknown) => void,
-		) => {
-			const request = new EventEmitter() as EventEmitter & { write(chunk: Buffer): void; end(): void };
+describe("coreTransport (the real core, against a push service of its own on loopback)", () => {
+	const services: http.Server[] = [];
+	afterEach(() => {
+		for (const server of services.splice(0)) server.close();
+	});
+
+	/** A push service on 127.0.0.1 that keeps the one request it gets and answers `statusCode`. */
+	async function pushService(statusCode: number) {
+		const seen: { method?: string; url?: string; headers: http.IncomingHttpHeaders; body: Buffer } = {
+			headers: {},
+			body: Buffer.alloc(0),
+		};
+		const server = http.createServer((request, response) => {
 			const chunks: Buffer[] = [];
-			seen.options = requestOptions;
-			request.write = chunk => chunks.push(Buffer.from(chunk));
-			request.end = () => {
+			request.on("data", (chunk: Buffer) => chunks.push(chunk));
+			request.on("end", () => {
+				Object.assign(seen, { method: request.method, url: request.url, headers: request.headers });
 				seen.body = Buffer.concat(chunks);
-				const response = Object.assign(new PassThrough(), { statusCode, headers: {} });
-				callback(response);
-				response.end("");
-			};
-			return request;
-		}) as never);
-		return seen;
+				response.writeHead(statusCode).end();
+			});
+		});
+		services.push(server);
+		await new Promise<void>(listening => server.listen(0, "127.0.0.1", listening));
+		const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+		return { seen, origin, endpoint: `${origin}/send/abc` };
 	}
 
+	const send = (subscription: WebPushSubscriptionJson, ttl = 3600, urgency: PushOptions["urgency"] = "high") =>
+		coreTransport(dir).send(subscription, JSON.stringify(payload), { ttl, urgency, timeoutMs: 10_000 });
+
 	it("posts a VAPID-signed, aes128gcm-encrypted payload the subscriber can decrypt", async () => {
-		const seen = pushService(201);
-		const keys = vapid();
-		const { ecdh, auth, subscription } = browser();
-		const result = await webPushTransport.send(subscription, JSON.stringify(payload), {
-			ttl: 3600,
-			urgency: "high",
-			vapid: keys,
-			timeoutMs: 10_000,
-		});
+		const { seen, origin, endpoint } = await pushService(201);
+		const { publicKey, subject } = await loadVapid(dir);
+		const { ecdh, auth, subscription } = browser(endpoint);
+		const result = await send(subscription);
 		expect(result).toEqual({ statusCode: 201 });
-		expect(seen.options).toMatchObject({ hostname: "push.example.com", path: "/send/abc", method: "POST" });
-		const headers = seen.options.headers as Record<string, string | number>;
-		expect(Number(headers.TTL)).toBe(3600);
-		expect(headers.Urgency).toBe("high");
-		expect(headers["Content-Encoding"]).toBe("aes128gcm");
-		expect(headers.Authorization).toMatch(new RegExp(`^vapid t=.+, k=${keys.publicKey}$`));
+		expect(seen).toMatchObject({ method: "POST", url: "/send/abc" });
+		const headers = seen.headers;
+		expect(Number(headers.ttl)).toBe(3600);
+		expect(headers.urgency).toBe("high");
+		expect(headers["content-encoding"]).toBe("aes128gcm");
+		expect(headers["content-type"]).toBe("application/octet-stream");
+		const [, token, key] = /^vapid t=(.+), k=(.+)$/.exec(headers.authorization ?? "") ?? [];
+		expect(key).toBe(publicKey);
+		// The token is the ES256 JWT of RFC 8292: signed by the key `publicKey` names, for this push service.
+		const [head, claims, signature] = (token ?? "").split(".");
+		expect(JSON.parse(Buffer.from(head ?? "", "base64url").toString())).toEqual({ typ: "JWT", alg: "ES256" });
+		const point = Buffer.from(publicKey, "base64url");
+		const verifyingKey = createPublicKey({
+			key: {
+				kty: "EC",
+				crv: "P-256",
+				x: point.subarray(1, 33).toString("base64url"),
+				y: point.subarray(33).toString("base64url"),
+			},
+			format: "jwk",
+		});
+		expect(
+			verify(
+				"sha256",
+				Buffer.from(`${head}.${claims}`),
+				{ key: verifyingKey, dsaEncoding: "ieee-p1363" },
+				Buffer.from(signature ?? "", "base64url"),
+			),
+		).toBe(true);
+		const { aud, exp, sub } = JSON.parse(Buffer.from(claims ?? "", "base64url").toString()) as {
+			aud: string;
+			exp: number;
+			sub: string;
+		};
+		expect({ aud, sub }).toEqual({ aud: origin, sub: subject });
+		expect(exp).toBeGreaterThan(Date.now() / 1000 + 11 * 3600);
+		expect(exp).toBeLessThan(Date.now() / 1000 + 13 * 3600);
 		const clear = ece.decrypt(seen.body, { version: "aes128gcm", privateKey: ecdh, authSecret: auth });
 		expect(JSON.parse(clear.toString("utf8"))).toEqual(payload);
 	});
 
 	it("returns a refusal's status instead of throwing", async () => {
-		pushService(410);
-		const { subscription } = browser();
-		const result = await webPushTransport.send(subscription, JSON.stringify(payload), {
-			ttl: 60,
-			urgency: "normal",
-			vapid: vapid(),
-			timeoutMs: 10_000,
-		});
-		expect(result).toEqual({ statusCode: 410 });
+		const { endpoint } = await pushService(410);
+		await loadVapid(dir);
+		expect(await send(browser(endpoint).subscription, 60, "normal")).toEqual({ statusCode: 410 });
+	});
+
+	it("rejects with the core's fault when no push service answers, naming no endpoint", async () => {
+		const { endpoint } = await pushService(201);
+		await loadVapid(dir);
+		await Promise.all(services.splice(0).map(server => new Promise(closed => server.close(closed))));
+		const failure = await send(browser(`${endpoint}/secret-token`).subscription).catch((error: unknown) => error);
+		expect(failure).toBeInstanceOf(CoreError);
+		expect((failure as CoreError).code).toBe("push_connect");
+		expect((failure as CoreError).message).not.toMatch(/secret-token|127\.0\.0\.1/);
+	});
+
+	it("will not send before the keypair was loaded", async () => {
+		const { endpoint } = await pushService(201);
+		const failure = await send(browser(endpoint).subscription).catch((error: unknown) => error);
+		expect((failure as CoreError).code).toBe("no_vapid");
+	});
+
+	it("refuses an address that is not a push service's https address", async () => {
+		await loadVapid(dir);
+		for (const endpoint of [
+			"http://push.example.com/x",
+			"http://192.168.1.4/x",
+			"https://user:pw@push.example.com/x",
+		]) {
+			const failure = await send(browser(endpoint).subscription).catch((error: unknown) => error);
+			expect((failure as CoreError).code, endpoint).toBe("push_request");
+		}
 	});
 });
 
