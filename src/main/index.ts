@@ -553,6 +553,8 @@ const RECALL_TERMS_REFRESH_MS = 10 * 60_000;
 let extensionUpdater: ExtensionUpdater | null = null;
 let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
+/** Settles once the core wrote the schedules' journal at a quit, or its bound passed: the core's stop and the exit wait for it. */
+let schedulesClosed: Promise<void> = Promise.resolve();
 /** Watches what event routines (Settings › Schedules) wait for (src/main/routines). */
 let routineTriggers: RoutineTriggers | null = null;
 let routineMarks: FileMarks | null = null;
@@ -2538,7 +2540,12 @@ installQuitGuard(
 					routineMarks?.dispose();
 				},
 			],
-			["schedules", () => scheduleService?.dispose()],
+			[
+				"schedules",
+				() => {
+					schedulesClosed = scheduleService?.dispose() ?? Promise.resolve();
+				},
+			],
 			["work-awake", () => workAwakePolicy?.dispose()],
 			["lid-awake", () => lidAwake?.dispose()],
 			["disk-care", () => diskCare?.stop()],
@@ -2548,7 +2555,8 @@ installQuitGuard(
 			["web-host", () => void webHost?.stop()],
 			["session-index", () => sessionIndex?.stop()],
 			["log-watcher", () => logWatcher?.stop()],
-			["core", () => void stopCore()],
+			// After the schedules' last write: the core answers it before its input ends.
+			["core", () => void schedulesClosed.then(() => stopCore())],
 			["tray", () => destroyTray()],
 		];
 		for (const [name, run] of steps) {
@@ -2572,5 +2580,8 @@ installQuitGuard(
 			release: tabId => sidecarPool.releaseTabWhenExited(tabId),
 		});
 	},
-	() => ompProcesses?.stopAll() ?? Promise.resolve(),
+	// Main's exit ends the core at once on Windows: the schedules' journal is written before it.
+	async () => {
+		await Promise.all([ompProcesses?.stopAll(), schedulesClosed]);
+	},
 );

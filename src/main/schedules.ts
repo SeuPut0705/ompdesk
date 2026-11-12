@@ -42,6 +42,11 @@ import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 export const SCHEDULE_TICK_MS = 30_000;
 /** The request kept open on the service: it fails when the core dies, which is how this side learns it. */
 const HOLD_MS = 2 ** 31 - 1;
+/**
+ * How long a quit waits for the core to say the journal is written: what was asked before it and the journal's
+ * rename, which Windows can hold back for 5 s; under the quit watchdog's 30 s.
+ */
+export const QUIT_SCHEDULES_CLOSE_MS = 8_000;
 /** How long after a core could not take the schedules back they are offered again. */
 const REOPEN_MS = 30_000;
 
@@ -187,6 +192,8 @@ export class ScheduleService {
 	#retry: NodeJS.Timeout | null = null;
 	#started = false;
 	#disposed = false;
+	/** The quit's close, once asked for. */
+	#closing: Promise<void> | null = null;
 
 	constructor(options: ScheduleServiceOptions) {
 		this.#options = options;
@@ -389,20 +396,28 @@ export class ScheduleService {
 
 	/**
 	 * App quit: stop every run main follows (a woken session's turn; an omp's supervisor kills its tree) and have the
-	 * core record them and write the journal. Resolves once the core has; the quit does not wait for it, because the
-	 * core answers what it holds before it exits.
+	 * core record them and write the journal. Resolves once the core answered that the journal is written, or after
+	 * `boundMs`. The quit holds the process and the core's stop until then (`index.ts`): main's exit ends the core at
+	 * once on Windows, whatever it still had to write.
 	 */
-	dispose(): Promise<void> {
-		if (this.#disposed) return Promise.resolve();
+	dispose(boundMs = QUIT_SCHEDULES_CLOSE_MS): Promise<void> {
+		if (this.#closing) return this.#closing;
 		this.#disposed = true;
 		clearInterval(this.#tick ?? undefined);
 		clearTimeout(this.#retry ?? undefined);
 		for (const off of this.#unsubscribe) off();
 		for (const process of this.#runs.values()) process?.stop();
 		// A service that never asked the core for anything has nothing there to close.
-		if (!this.#started) return Promise.resolve();
-		// Not in its turn behind what still waits: the journal is closed now.
-		return this.#call<void>("schedules.close").catch(() => undefined);
+		if (!this.#started) {
+			this.#closing = Promise.resolve();
+			return this.#closing;
+		}
+		// In its turn: what was asked before the quit is taken first, so the journal the close writes holds it.
+		const closed = this.#send<void>("schedules.close").catch(() => undefined);
+		const { promise: bound, resolve } = Promise.withResolvers<void>();
+		const timer = setTimeout(resolve, boundMs);
+		this.#closing = Promise.race([closed, bound]).then(() => clearTimeout(timer));
+		return this.#closing;
 	}
 
 	/** Counts a start against its device, tells the core, and keeps how to give it back until the run started. */

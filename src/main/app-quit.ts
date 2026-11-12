@@ -150,14 +150,16 @@ async function askOnce(options: MessageBoxOptions): Promise<boolean> {
  * teardown, with the windows still up (worktree-lifecycle.ts asks there); the
  * quit resumes when it settles. An update's quit skips it: Squirrel has already
  * closed the windows, and the saved tabs come back after the update.
- * `ompsExited` (the teardown stopped every omp) holds the exit in `will-quit` until every omp has exited, so a stuck one
- * is killed by its stop instead of outliving the app (8 Nov 2026: seven did, for minutes, after an update's relaunch).
+ * `settled` (what the teardown started and the exit must not cut off) holds the exit in `will-quit`: until every omp
+ * has exited, so a stuck one is killed by its stop instead of outliving the app (8 Nov 2026: seven did, for minutes,
+ * after an update's relaunch), and until the core wrote the schedules' journal, which main's exit would cut off on
+ * Windows. Each part bounds itself.
  */
 export function installQuitGuard(
 	tabInventory: () => WindowTabFact[],
 	teardown: () => void,
 	finalize: () => Promise<void>,
-	ompsExited: () => Promise<void>,
+	settled: () => Promise<void>,
 ): void {
 	inventory = tabInventory;
 	let finalizing: "pending" | "running" | "done" = "pending";
@@ -168,11 +170,11 @@ export function installQuitGuard(
 		if (exiting) return;
 		exiting = true;
 		event.preventDefault();
-		markMainStep("quit", "will-quit: waiting for every omp to exit");
-		void ompsExited()
-			.catch((err: unknown) => console.warn(`[quit] omp stops failed: ${String(err)}`))
+		markMainStep("quit", "will-quit: waiting for every omp to exit and the schedules' journal");
+		void settled()
+			.catch((err: unknown) => console.warn(`[quit] the last stops failed: ${String(err)}`))
 			.finally(() => {
-				markMainStep("quit", "omps exited");
+				markMainStep("quit", "omps exited, schedules saved");
 				app.exit(0);
 			});
 	});
