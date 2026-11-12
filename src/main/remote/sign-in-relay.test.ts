@@ -1,5 +1,5 @@
 import { request as httpRequest } from "node:http";
-import { createServer, type Server } from "node:net";
+import { connect, createServer, type Server } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IpcSignInRelay } from "../../shared/ipc-types";
 import { loopbackCallback } from "../sign-in-callback";
@@ -78,6 +78,17 @@ function get(port: number, path: string, host = `127.0.0.1:${port}`): Promise<{ 
 	request.end();
 	return promise;
 }
+
+/** Whether nothing listens on `port`, by a bare connect: no request, so nothing a stand-in still listening could forward. */
+const nothingListens = (port: number) =>
+	new Promise<boolean>(resolve => {
+		const socket = connect({ host: "127.0.0.1", port });
+		socket.once("connect", () => {
+			socket.destroy();
+			resolve(false);
+		});
+		socket.once("error", (error: NodeJS.ErrnoException) => resolve(error.code === "ECONNREFUSED"));
+	});
 
 const refused = (port: number) =>
 	get(port, "/callback?code=abc&state=xyz").then(
@@ -209,7 +220,7 @@ describe("startSignInRelay", () => {
 		const later = await freePort();
 		const timed = relay({ callback: `http://127.0.0.1:${later}/callback`, timeoutMs: 50 });
 		await vi.waitFor(() => expect(timed.states).toEqual([{ listening: true }]));
-		await vi.waitFor(async () => expect(await refused(later)).toBe(true));
+		await vi.waitFor(async () => expect(await nothingListens(later)).toBe(true));
 		expect(timed.forward).not.toHaveBeenCalled();
 	});
 

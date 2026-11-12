@@ -4,6 +4,7 @@
  * core. The core's end is `remote.testLink` (keys the test chose, no handshake); main holds it as `Link`.
  */
 import { randomBytes } from "node:crypto";
+import { once } from "node:events";
 import { createServer, type Server, type Socket } from "node:net";
 import { deflateRawSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
@@ -161,13 +162,18 @@ describe("a core link and a released TypeScript link on one socket", () => {
 	});
 
 	it("a graceful close flushes what was sent, then ends as `local`", async () => {
-		const { core: link, peer } = await pair();
+		const { core: link, peer, socket } = await pair();
 		const got = collect(peer, 1);
 		link.listen(() => {});
 		const reason = closed(link);
+		const ended = once(socket, "end");
 		link.send({ t: "last" });
 		link.close();
 		expect(await got).toEqual([{ t: "last" }]);
+		// The core ends its side once the close went through; only then does the peer go, so its end is read as the
+		// answer to a close and never as a peer that left first (the frame can reach the peer before the core reads
+		// main's close).
+		await ended;
 		peer.destroy();
 		expect(await reason).toBe("local");
 	});
