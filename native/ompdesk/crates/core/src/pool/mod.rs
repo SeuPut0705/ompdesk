@@ -20,6 +20,7 @@
 
 mod api;
 mod later;
+pub mod layout;
 mod listen;
 mod omap;
 mod persist;

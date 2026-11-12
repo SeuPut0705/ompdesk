@@ -117,6 +117,7 @@ import {
 	tcpConnects,
 } from "./connectivity";
 import { installCliLaunchers } from "./control-socket/cli-install";
+import { takeHubMinute } from "./core/hub";
 import { core, stopCore } from "./core/process";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
@@ -797,6 +798,12 @@ app.whenReady().then(async () => {
 	if (gotLock) {
 		reportPreviousHang();
 		installHangWatchdog();
+		// The measurement of main's blocked waits on the core's hub (native-rust ledger, H2): one line a minute.
+		if (process.env.OMP_GUI_HUB_STATS === "1")
+			setInterval(() => {
+				const minute = takeHubMinute();
+				if (minute) writeRuntimeLog({ source: "hub", message: "blocked waits", details: { ...minute } });
+			}, 60_000).unref();
 		// The GPU the crash marker compares (gpu-fallback-core.ts): a changed driver brings hardware back.
 		void recordGpuIdentity();
 		// A launch that ran this long, or quits cleanly sooner, ends no crash loop. A GPU relaunch's `app.exit`

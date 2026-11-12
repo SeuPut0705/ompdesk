@@ -663,6 +663,30 @@ async fn a_started_tab_negotiates_answers_get_state_and_reads_ready() {
 }
 
 #[tokio::test]
+async fn an_in_core_subscriber_gets_every_event_main_gets_in_order() {
+    let mut rig = Rig::new("subscribe", "ok").await;
+    let mut tapped = super::subscribe(&rig.tab);
+    let _open = rig.open(no_queue());
+    rig.tab_call("sidecar.start", json!({})).await.unwrap();
+    rig.status("ready").await;
+    // The statuses main read, in its order, and the spawn among them.
+    let mut statuses_tapped = Vec::new();
+    let mut spawned = false;
+    while statuses_tapped.last().map(String::as_str) != Some("ready") {
+        let event = tapped.recv().await.expect("the lane still runs");
+        spawned |= event.name == "sidecar.spawned";
+        if event.name == "sidecar.status" {
+            statuses_tapped.push(event.data["payload"]["status"].as_str().unwrap().to_owned());
+        }
+    }
+    assert_eq!(statuses_tapped, statuses(&rig));
+    assert!(spawned);
+    finish(rig).await;
+    // The lane is over: its subscription ends.
+    while tapped.recv().await.is_some() {}
+}
+
+#[tokio::test]
 async fn requests_that_arrive_early_are_applied_in_their_order() {
     let mut rig = Rig::new("order", "ok").await;
     // `start` (seq 2) is sent before `open` (seq 1): the core may see them in either order.

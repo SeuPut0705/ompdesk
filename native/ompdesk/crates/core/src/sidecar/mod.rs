@@ -19,6 +19,7 @@ use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot};
 
@@ -98,6 +99,60 @@ fn done() -> Answer {
 
 fn failed(fault: Fault) -> Answer {
     Box::pin(async move { Err(fault) })
+}
+
+// ---- in-core subscribers ------------------------------------------------------------------------------------------
+
+/// An event a lane sent main (`sidecar.status`, `sidecar.frame` with omp's raw line as `bin`, …), as an in-core
+/// subscriber gets it: the same name, data and bytes, in the order main gets them.
+#[derive(Clone, Debug)]
+pub struct LaneEvent {
+    pub name: String,
+    pub data: Value,
+    pub bin: Option<std::sync::Arc<[u8]>>,
+}
+
+/// How many subscriptions are open: with none, a lane's events cost nothing more.
+static TAPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static TAPS: LazyLock<Mutex<HashMap<String, Vec<mpsc::UnboundedSender<LaneEvent>>>>> =
+    LazyLock::new(Default::default);
+
+/// Every event tab `tab`'s lane sends main from now on, beside main (code in the core that serves the tab too: a
+/// paired device's link, `docs/rust-remaining-units.md` R6). The receiver ends when the lane is over.
+pub fn subscribe(tab: &str) -> mpsc::UnboundedReceiver<LaneEvent> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    locked(&TAPS)
+        .entry(tab.to_owned())
+        .or_default()
+        .push(sender);
+    TAPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    receiver
+}
+
+/// Hands a lane's event to the tab's subscribers (`lane.rs` calls it beside every send to main).
+pub(crate) fn tap(tab: &str, name: &str, data: &Value, bin: Option<&[u8]>) {
+    if TAPPED.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        return;
+    }
+    let mut taps = locked(&TAPS);
+    let Some(senders) = taps.get_mut(tab) else {
+        return;
+    };
+    let event = LaneEvent {
+        name: name.to_owned(),
+        data: data.clone(),
+        bin: bin.map(std::sync::Arc::from),
+    };
+    let before = senders.len();
+    senders.retain(|sender| sender.send(event.clone()).is_ok());
+    TAPPED.fetch_sub(before - senders.len(), std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The lane of `tab` is over: its subscribers' receivers end.
+pub(crate) fn untap(tab: &str) {
+    if let Some(senders) = locked(&TAPS).remove(tab) {
+        TAPPED.fetch_sub(senders.len(), std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 // ---- the table of tabs --------------------------------------------------------------------------------------------

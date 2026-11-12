@@ -3,6 +3,7 @@ description: "OMPdesk rules: Interrupted turns resuming, relaunch log and stop l
 globs:
   - "src/main/turn-resume.ts"
   - "src/main/connectivity.ts"
+  - "native/ompdesk/crates/core/src/resume/**"
   - "src/main/quit-*.ts"
   - "src/main/app-quit.ts"
   - "src/main/hang-watchdog*"
@@ -19,7 +20,7 @@ globs:
 ## Interrupted work, quit and diagnostics
 
 ### Interrupted turns continue by themselves
-- `src/main/turn-resume.ts`, `src/main/connectivity.ts`. Settings › General › Continue interrupted work after relaunch, pref `resumeInterrupted`, **default on** (main reads `!== false`).
+- `src/main/turn-resume.ts`, `src/main/connectivity.ts` (since batch H2 the clients of the core's `native/ompdesk/crates/core/src/resume/`: `machine.rs` is `TurnResume`, `connectivity.rs` `ConnectivityMonitor`, `ends.rs` with `hold-ends.json` the end table; a `#name` below is the Rust function of the same name in snake case, native-rust › 9f). Settings › General › Continue interrupted work after relaunch, pref `resumeInterrupted`, **default on** (main reads `!== false`).
 - **Two paths, one coordinator (`TurnResume`), driven by `SidecarPool.onRunningChange` (`resumeFacts()`).**
 - **① Relaunch.** Eligibility is a marker file `<userData>/interrupted-turns.json` ({window, tab, peer, sessionPath, cwd, kind, startedAt, reason}) rewritten atomically on every run-state transition. NEVER write it in a quit hook: SIGKILL/crash runs none. `InterruptedTurnStore` writes through `writeFileAtomicDeferred` (one attempt now, retries on a timer) because on Windows the rename fails (`EPERM`) while any process reads the file and a running turn has no later transition to rewrite it; it logs `markers not saved` (source `turn-resume`) only when every try failed.
   - Present while a turn runs (`running`); cleared on normal completion and on the user's Stop (`SidecarPool.noteStopped`, called by the RPC dispatcher for `STOP_COMMANDS` `abort`/`abort_and_prompt`/`abort_and_restore_queue`, so a kill before the run's end event leaves none); kept as `asking` while blocked on an ask/approval (the relaunch re-runs the cut-off call, the card reopens; not "continuing"). An omp that exits or restarts takes its open asks with it (the pool forgets owners on any non-ready status).

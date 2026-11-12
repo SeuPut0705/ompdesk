@@ -574,6 +574,7 @@ impl Lane {
                 }
             }
             lane.end();
+            super::untap(&lane.tab);
         });
         inbox
     }
@@ -595,13 +596,16 @@ impl Lane {
         };
         data.insert("tab".into(), json!(self.tab));
         data.insert("cmd".into(), json!(self.applied));
-        self.events.send(name, &Value::Object(data));
+        let data = Value::Object(data);
+        super::tap(&self.tab, name, &data, None);
+        self.events.send(name, &data);
     }
 
     /// The answer to the command main numbered `seq`: omp's response line (none for a barrier), sent in order with the
     /// frames, also by a tab that is over (`quiet`): the call waits for it.
     fn answer_event(&self, seq: u64, response: Option<Vec<u8>>) {
         let data = json!({ "tab": self.tab, "cmd": self.applied, "seq": seq });
+        super::tap(&self.tab, "sidecar.answer", &data, response.as_deref());
         match response {
             Some(raw) => self.events.send_bin("sidecar.answer", &data, raw),
             None => self.events.send("sidecar.answer", &data),
@@ -612,11 +616,9 @@ impl Lane {
         if self.quiet {
             return;
         }
-        self.events.send_bin(
-            "sidecar.frame",
-            &json!({ "tab": self.tab, "cmd": self.applied }),
-            raw,
-        );
+        let data = json!({ "tab": self.tab, "cmd": self.applied });
+        super::tap(&self.tab, "sidecar.frame", &data, Some(&raw));
+        self.events.send_bin("sidecar.frame", &data, raw);
     }
 
     fn set_status(&mut self, status: &'static str, detail: Detail) {
@@ -781,7 +783,7 @@ impl Lane {
 
     /// The lane is over: whatever still waits on it is told.
     fn end(&mut self) {
-        let barriers: Vec<_> = self.barriers.drain(..).collect();
+        let barriers = std::mem::take(&mut self.barriers);
         for (seq, barrier) in barriers {
             self.answer_event(seq, None);
             let _ = barrier.send(());
@@ -1353,7 +1355,7 @@ impl Lane {
 
     fn release_barriers(&mut self) {
         if self.held.is_none() {
-            let barriers: Vec<_> = self.barriers.drain(..).collect();
+            let barriers = std::mem::take(&mut self.barriers);
             for (seq, barrier) in barriers {
                 self.answer_event(seq, None);
                 let _ = barrier.send(());

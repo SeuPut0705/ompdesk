@@ -1,6 +1,5 @@
 import { connect } from "node:net";
 import { type HubItem, hub } from "./core/hub";
-import { CoreError } from "./core/process";
 
 /**
  * Whether this computer can reach the internet right now, as far as a waiting
@@ -147,13 +146,7 @@ export class ConnectivityMonitor {
 
 	/** One call; a core lost under it opens again and the call is made once more. */
 	#call<T>(method: string, params: Record<string, unknown> = {}): T {
-		for (let attempt = 0; ; attempt++) {
-			try {
-				return hub().call<T>(this.#instance(), method, params);
-			} catch (error) {
-				if (!(error instanceof CoreError) || this.#id !== null || attempt > 0) throw error;
-			}
-		}
+		return hub().callOnce<T>(() => this.#instance(), method, params);
 	}
 
 	#lost(): void {

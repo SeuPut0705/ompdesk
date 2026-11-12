@@ -40,8 +40,8 @@ import { LIMIT_LOOK_MS, QUOTA_FALLBACK_MS } from "../shared/quota-reset";
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
-import { type HubItem, hub } from "./core/hub";
-import { CoreError } from "./core/process";
+import { type HubItem, hub, sharedInstance } from "./core/hub";
+import type { CoreError } from "./core/process";
 import { deletedSessions } from "./deleted-sessions";
 import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
@@ -500,36 +500,10 @@ function sidecarId(sidecar: SidecarLike): number {
 }
 
 /** The instance the pure rules run on: they read no state, so one serves every caller. */
-let helper: number | null = null;
+const helper = sharedInstance("resume");
 
 function pure<T>(method: string, params: unknown): T {
-	for (let attempt = 0; ; attempt++) {
-		try {
-			if (helper === null) {
-				const id = hub().nextId();
-				hub().open(
-					id,
-					"resume",
-					{},
-					{
-						item: () => undefined,
-						ask: q => {
-							throw new Error(`the pure rules ask nothing (${q})`);
-						},
-						lost: () => {
-							if (helper === id) helper = null;
-						},
-					},
-				);
-				helper = id;
-			}
-			return hub().call<T>(helper, method, params);
-		} catch (error) {
-			// A lost core opens again once; a second loss is the caller's.
-			if (!(error instanceof CoreError) || attempt > 0) throw error;
-			helper = null;
-		}
-	}
+	return hub().callOnce<T>(helper, method, params);
 }
 
 /** What a question's `want` list asks main to read (the instant a stretch of the rules begins). */
@@ -601,13 +575,7 @@ export class TurnResume {
 
 	/** One call; a core lost under it opens again and the call is made once more. */
 	#call<T>(method: string, params: Record<string, unknown> = {}): T {
-		for (let attempt = 0; ; attempt++) {
-			try {
-				return hub().call<T>(this.#instance(), method, params);
-			} catch (error) {
-				if (!(error instanceof CoreError) || this.#id !== null || attempt > 0) throw error;
-			}
-		}
+		return hub().callOnce<T>(() => this.#instance(), method, params);
 	}
 
 	#lost(_error: CoreError): void {

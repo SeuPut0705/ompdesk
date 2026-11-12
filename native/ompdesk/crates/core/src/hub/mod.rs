@@ -97,6 +97,7 @@ fn kinds() -> &'static [Kind] {
     &[
         probe::KIND,
         crate::pool::KIND,
+        crate::pool::layout::KIND,
         crate::resume::RESUME_KIND,
         crate::resume::CONNECTIVITY_KIND,
     ]
