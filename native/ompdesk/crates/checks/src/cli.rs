@@ -6,6 +6,7 @@
 //! - `ompdesk heavy status [--json]`: the pool's slots, their holders and the queue.
 //! - `ompdesk heavy hold [--all]`: for a program that holds a slot itself: prints `held <slots>` once it has the
 //!   slot(s) and gives them back when its stdin closes (or it dies).
+//! - `ompdesk check [--full] [--light] [--release] [--] CMD [ARG…]`, `check status|attach|cancel`: see `check.rs`.
 
 use std::io::{self, BufRead, Write};
 use std::process::Command;
@@ -20,6 +21,9 @@ pub const EXIT_NOT_STARTED: i32 = 127;
 pub const HELP: &str = concat!(
     "  run       `run --heavy [--all] [--] CMD [ARG...]`: run CMD in one of this computer's heavy slots (all with --all).\n",
     "  heavy     `heavy status [--json]` lists the slots and the queue; `heavy hold [--all]` holds slots until stdin closes.\n",
+    "  check     `check [--full] [--light] [--release] [--] CMD [ARG...]`: run a test suite or check, reusing only results\n",
+    "            whose inputs are unchanged; survives OMPdesk restarts. `check status [ID] [--all] [--json]`,\n",
+    "            `check attach [ID]`, `check cancel ID`.\n",
 );
 
 fn env(name: &str) -> Option<String> {
@@ -32,8 +36,105 @@ pub fn dispatch(argv: &[String]) -> Option<i32> {
     match name.as_str() {
         "run" => Some(run(rest)),
         "heavy" => Some(heavy_command(rest)),
+        "check" => Some(check_command(rest)),
         _ => None,
     }
+}
+
+fn check_command(rest: &[String]) -> i32 {
+    let word = |at: usize| rest.get(at).map(String::as_str);
+    match word(0) {
+        Some("--spawn") => return word(1).map_or(EXIT_USAGE, crate::check::spawn_runner),
+        Some("--runner") => return word(1).map_or(EXIT_USAGE, crate::check::run_runner),
+        Some("status") => {
+            let mut id = None;
+            let (mut all, mut json) = (false, false);
+            for a in &rest[1..] {
+                match a.as_str() {
+                    "--all" => all = true,
+                    "--json" => json = true,
+                    flag if flag.starts_with('-') => {
+                        return usage(&format!("check status: unknown option {flag}"));
+                    }
+                    other => id = Some(other),
+                }
+            }
+            return crate::check::status(id, all, json);
+        }
+        Some("attach") => return crate::check::attach(word(1)),
+        Some("cancel") => {
+            return match word(1) {
+                Some(id) => crate::check::cancel(id),
+                None => usage("check cancel needs a run id (ompdesk check status lists them)"),
+            };
+        }
+        _ => {}
+    }
+    let (mut full, mut light, mut release) = (false, false, false);
+    let mut at = 0;
+    while at < rest.len() {
+        match rest[at].as_str() {
+            "--full" => full = true,
+            "--light" => light = true,
+            "--release" => release = true,
+            "--" => {
+                at += 1;
+                break;
+            }
+            flag if flag.starts_with('-') => {
+                return usage(&format!("check: unknown option {flag}"));
+            }
+            _ => break,
+        }
+        at += 1;
+    }
+    if at >= rest.len() {
+        return usage(
+            "check needs a command: ompdesk check [--full] [--light] [--release] [--] CMD [ARG...]",
+        );
+    }
+    crate::check::start(crate::check::Start {
+        argv: rest[at..].to_vec(),
+        full,
+        light,
+        release,
+    })
+}
+
+/// The program Windows would start for `name`: a path as given, else the first match on `PATH` with each of
+/// `PATHEXT`'s extensions, so a `.cmd` shim (npm, bunx) is found and run through cmd.
+#[cfg(windows)]
+pub fn resolve_windows(
+    name: &str,
+    env: &std::collections::BTreeMap<String, String>,
+) -> Option<std::path::PathBuf> {
+    use std::path::{Path, PathBuf};
+    let get = |k: &str| {
+        env.iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(k))
+            .map(|(_, v)| v.clone())
+    };
+    let exts: Vec<String> = get("PATHEXT")
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".into())
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .map(str::to_string)
+        .collect();
+    let candidates = |base: PathBuf| -> Option<PathBuf> {
+        if base.extension().is_some() && base.is_file() {
+            return Some(base);
+        }
+        exts.iter()
+            .map(|e| PathBuf::from(format!("{}{e}", base.display())))
+            .find(|p| p.is_file())
+    };
+    if name.contains(['/', '\\']) || Path::new(name).is_absolute() {
+        return candidates(PathBuf::from(name));
+    }
+    get("PATH")?
+        .split(';')
+        .filter(|d| !d.is_empty())
+        .find_map(|dir| candidates(Path::new(dir).join(name)))
 }
 
 fn usage(message: &str) -> i32 {
