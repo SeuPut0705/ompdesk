@@ -252,10 +252,10 @@ impl Tracking {
                     serial: *serial,
                 });
             }
-            Some("agent_end") if ended => {
-                if event.get("isTerminal").and_then(Value::as_bool) != Some(false) {
-                    self.last_run = Some(run_outcome(event.get("messages")));
-                }
+            Some("agent_end")
+                if ended && event.get("isTerminal").and_then(Value::as_bool) != Some(false) =>
+            {
+                self.last_run = Some(run_outcome(event.get("messages")));
             }
             Some("auto_retry_end") => {
                 self.retry = None;

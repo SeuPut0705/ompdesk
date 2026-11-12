@@ -228,7 +228,8 @@ impl Ctx {
     ) -> Option<Value> {
         let id = request["id"].as_str().unwrap_or("").to_string();
         let active = pool.by_seq(seq).is_some_and(Entry::signin_active);
-        if !(active && kinds.sign_in) && !pool.sign_in_requests.contains(&id) {
+        let held = pool.sign_in_requests.contains(&id);
+        if !(held || active && kinds.sign_in) {
             return None;
         }
         let entry = pool.by_seq_mut(seq)?;
