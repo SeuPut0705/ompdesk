@@ -346,7 +346,8 @@ fn shown_index(id: &str, count: usize) -> Option<usize> {
 /// no trailing commas, no leading zeros, raw control characters refused, a duplicate key's last value kept); three
 /// inputs differ, each leaving every pair `None` here where V8 read the object:
 /// - a string escape holding half a surrogate pair (`"\ud800"`): serde refuses it, V8 keeps the lone surrogate;
-/// - a number past the `f64` range (`1e999`): serde refuses it, V8 reads Infinity;
+/// - a number past the `f64` range (`1e999`): serde refuses it, V8 reads Infinity (the shipped workspace build, with the
+///   CLI's `arbitrary_precision`, reads it too);
 /// - nesting deeper than 128 levels: serde refuses it, V8 reads thousands of levels.
 ///
 /// Nothing serde accepts is refused by V8 (the captured rows hold every malformed form tried).
@@ -906,7 +907,7 @@ mod tests {
                 .map(verdict_json)
                 .collect();
             let want = row["verdicts"].as_array().unwrap();
-            if row["serdeRefuses"].as_bool() == Some(true) {
+            if row["serdeRefuses"].as_bool() == Some(true) && got.iter().all(Value::is_null) {
                 serde_refused += 1;
                 assert!(got.iter().all(Value::is_null), "{answer:?}");
                 assert!(want.iter().any(|verdict| !verdict.is_null()), "{answer:?}");
@@ -917,8 +918,15 @@ mod tests {
                 assert!(same(got, want), "{answer:?}: {got} against {want}");
             }
         }
-        // Past f64's range, a half surrogate escape, nesting past 128 levels: see `parse_smol_verdicts`.
-        assert_eq!(serde_refused, 8);
+        // Past f64's range, a half surrogate escape, nesting past 128 levels: see `parse_smol_verdicts`. The
+        // workspace build (the shipped core) unifies the CLI's `arbitrary_precision`, under which `1e999` parses and
+        // the answer reads as V8 read it.
+        let big = rows
+            .iter()
+            .filter(|row| row["serdeRefuses"] == true && text(row, "answer").contains("e999"))
+            .count();
+        let big_parses = serde_json::from_str::<Value>("1e999").is_ok();
+        assert_eq!(serde_refused, if big_parses { 8 - big } else { 8 });
     }
 }
 

@@ -35,7 +35,9 @@ use crate::upkeep::asks::Asker;
 use crate::upkeep::facts::Facts;
 use crate::upkeep::store::Store;
 
-/// What every `care.*` request carries.
+/// What every `care.*` request carries, read from the same params as the method's own fields (a second parse, never
+/// `#[serde(flatten)]`: the workspace build unifies the CLI's `arbitrary_precision`, under which a flattened number
+/// reads as a map and fails).
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Common {
@@ -302,8 +304,6 @@ fn json_reply<T: serde::Serialize>(value: &T) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TickParams {
-    #[serde(flatten)]
-    common: Common,
     state_file: String,
     version: String,
     /// A test's own units; else the three of `units.rs`.
@@ -321,10 +321,10 @@ struct TickParams {
 
 /// `care.tick`: one unit's step, the first one due. Answers its name, or null when none is.
 async fn tick(call: Call) -> Result<Reply, Fault> {
-    let params: TickParams = call.params()?;
-    let service = engine::service(&params.common.service);
-    let name = params.common.service.clone();
-    let ctx = Arc::new(Ctx::new(params.common, &call.events));
+    let (common, params): (Common, TickParams) = (call.params()?, call.params()?);
+    let service = engine::service(&common.service);
+    let name = common.service.clone();
+    let ctx = Arc::new(Ctx::new(common, &call.events));
     let (asked, units) = match params.units {
         Some(units) => (true, units),
         None => (false, units::production()),
@@ -350,15 +350,13 @@ async fn tick(call: Call) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StateParams {
-    #[serde(flatten)]
-    common: Common,
     state_file: String,
 }
 
 /// `care.summary`: the Maintenance line, or null.
 async fn summary(call: Call) -> Result<Reply, Fault> {
-    let params: StateParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, StateParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let line = until_cancelled(&call, async {
         Ok(engine::summary(&ctx, &params.state_file).await)
     })
@@ -368,9 +366,9 @@ async fn summary(call: Call) -> Result<Reply, Fault> {
 
 /// `care.undo`: puts back every page the line shows. Answers how many came back.
 async fn undo(call: Call) -> Result<Reply, Fault> {
-    let params: StateParams = call.params()?;
-    let service = engine::service(&params.common.service);
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, StateParams) = (call.params()?, call.params()?);
+    let service = engine::service(&common.service);
+    let ctx = Ctx::new(common, &call.events);
     let restored = until_cancelled(&call, engine::undo(&service, &ctx, &params.state_file)).await?;
     json_reply(&restored)
 }
@@ -434,8 +432,6 @@ async fn unit_call(call: Call) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BackfillParams {
-    #[serde(flatten)]
-    common: Common,
     sessions_dir: String,
     origin: String,
     #[serde(default)]
@@ -448,8 +444,8 @@ struct BackfillParams {
 
 /// `care.backfill`: one pass. Answers `{report, memo}`, the memo as the pass left it.
 async fn backfill(call: Call) -> Result<Reply, Fault> {
-    let params: BackfillParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, BackfillParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let deps = Deps {
         sessions_dir: &params.sessions_dir,
         origin: &params.origin,
@@ -468,8 +464,6 @@ async fn backfill(call: Call) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CurateParams {
-    #[serde(flatten)]
-    common: Common,
     #[serde(default)]
     judge: Option<JudgeConfig>,
     #[serde(default)]
@@ -485,8 +479,8 @@ struct CurateParams {
 
 /// `care.curate`: one curation run, its page changes made on the memory itself. Answers the report.
 async fn curate(call: Call) -> Result<Reply, Fault> {
-    let params: CurateParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, CurateParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let judge = Judge::choose(&ctx.asker, ctx.asked("judge"), params.judge.as_ref());
     let options = Options {
         dry_run: params.dry_run,
@@ -506,8 +500,6 @@ async fn curate(call: Call) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct FreshnessParams {
-    #[serde(flatten)]
-    common: Common,
     project: ProjectRef,
     #[serde(default)]
     git: Option<Runner>,
@@ -524,8 +516,8 @@ struct FreshnessParams {
 /// `care.freshness`: one project's check, its page changes made on the memory itself. Answers `{report, flagged}`,
 /// `flagged` as the check left it.
 async fn freshness(call: Call) -> Result<Reply, Fault> {
-    let params: FreshnessParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, FreshnessParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let options = freshness::Options {
         dry_run: params.dry_run,
         max_pages: params.max_pages,
@@ -551,8 +543,6 @@ async fn freshness(call: Call) -> Result<Reply, Fault> {
 
 #[derive(Deserialize)]
 struct SmolParams {
-    #[serde(flatten)]
-    common: Common,
     pairs: Vec<PagePair>,
     #[serde(default)]
     rules: String,
@@ -563,8 +553,8 @@ struct SmolParams {
 
 /// `care.judgeSmol`: one batched call on the cheap model. Answers a judgment or null.
 async fn judge_smol(call: Call) -> Result<Reply, Fault> {
-    let params: SmolParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, SmolParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let model = Model::choose(&ctx.asker, &ctx.asks, PathBuf::from(&params.cwd));
     let judgment = until_cancelled(&call, async {
         Ok(
@@ -581,8 +571,6 @@ async fn judge_smol(call: Call) -> Result<Reply, Fault> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct JevParams {
-    #[serde(flatten)]
-    common: Common,
     pairs: Vec<PagePair>,
     enabled: bool,
     host_file: String,
@@ -591,8 +579,8 @@ struct JevParams {
 
 /// `care.judgeJev`: Jev through stock's judge chain, on the omp main names (ask `omp`). Answers a judgment or null.
 async fn judge_jev(call: Call) -> Result<Reply, Fault> {
-    let params: JevParams = call.params()?;
-    let ctx = Ctx::new(params.common, &call.events);
+    let (common, params): (Common, JevParams) = (call.params()?, call.params()?);
+    let ctx = Ctx::new(common, &call.events);
     let config = JudgeConfig {
         enabled: params.enabled,
         host_file: params.host_file,

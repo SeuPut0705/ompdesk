@@ -216,7 +216,9 @@ fn reads_the_build_record_as_the_typescript_did() {
             (Err(message), None) => {
                 assert_eq!(
                     message.replace(&shown, "<dir>"),
-                    text(&row["error"]),
+                    // Captured on Windows: the record's path is joined with the platform's separator.
+                    text(&row["error"])
+                        .replace("<dir>\\", &format!("<dir>{}", std::path::MAIN_SEPARATOR)),
                     "{row}"
                 );
             }
@@ -863,6 +865,7 @@ async fn reads_and_removes_the_launch_agent() {
     let _ = fs::remove_dir_all(&home);
 }
 
+#[cfg(windows)]
 fn query(command: &str) -> String {
     format!(
         "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    ai-memory    REG_SZ    {command}\r\n\r\n"
