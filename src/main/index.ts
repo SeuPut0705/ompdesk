@@ -100,11 +100,9 @@ import { AiMemoryClient } from "./ai-memory/client";
 import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
 import { chainJudges, jevJudge, type PairJudge, smolJudge } from "./ai-memory/memory-judge";
-import { RecallStateFile } from "./ai-memory/recall-state";
 import { RecallTermsIndex } from "./ai-memory/recall-terms";
-import { AiMemoryService } from "./ai-memory/service";
+import { AiMemoryService, pidFileControl } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
-import { pidFileControl } from "./ai-memory/unit";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
 import { appIconPath, appNotification, holdTestNotifications } from "./app-icon";
 import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
@@ -881,8 +879,8 @@ app.whenReady().then(() => {
 	const desktopSlotRef: { current: DesktopSlotHost | null } = { current: null };
 	// The shared-checkout pass is built in ipc.ts too; the factory runs it when a bridge reports a new changed file.
 	const checkoutFilesRef: { current: ((sidecar: object) => void) | null } = { current: null };
-	// Memory's address for the bridge's recall in every omp this computer runs (src/main/ai-memory/recall-state.ts).
-	const memoryRecallState = new RecallStateFile(join(app.getPath("userData"), "ai-memory", "recall.json"));
+	// Memory's address for the bridge's recall in every omp this computer runs, written by the core's memory service.
+	const memoryRecallFile = join(app.getPath("userData"), "ai-memory", "recall.json");
 	const recallTermsFile = join(app.getPath("userData"), "ai-memory", RECALL_TERMS_FILE);
 	mcpHub = new McpHub({
 		script: join(bridgeDir, "mcp-hub.ts"),
@@ -897,7 +895,7 @@ app.whenReady().then(() => {
 			return { ...shell, ...proxy, PATH: resolution.ok ? ompPathEnv(resolution.runtime.bin, basePath) : basePath };
 		},
 		reaCacheDir: join(app.getPath("userData"), "rea"),
-		memoryStateFile: memoryRecallState.path,
+		memoryStateFile: memoryRecallFile,
 		lowerPriority: lowerAgentPriority,
 		log: (message, details) => console.log(`[mcp-hub] ${message}`, details ?? ""),
 	});
@@ -987,7 +985,7 @@ app.whenReady().then(() => {
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
 		gracefulStopMs: () => (aiMemoryService?.state().phase === "ready" ? 4_000 : 0),
 		aiMemoryExtensionArgs: cwd => aiMemoryService?.extensionArgs(cwd) ?? Promise.resolve([]),
-		memoryStateFile: memoryRecallState.path,
+		memoryStateFile: memoryRecallFile,
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
@@ -1712,6 +1710,7 @@ app.whenReady().then(() => {
 		home: homedir(),
 		agentDir,
 		rootDir: join(app.getPath("userData"), "ai-memory", "omp-ext"),
+		recallFile: memoryRecallFile,
 		terminalPref: () => {
 			const stored = prefs.get(AI_MEMORY_TERMINAL_PREF);
 			return typeof stored === "boolean" ? stored : undefined;
@@ -1737,7 +1736,6 @@ app.whenReady().then(() => {
 				aiMemoryUpkeep?.pause();
 				aiMemoryCare?.pause();
 			}
-			void memoryRecallState.update(aiMemoryService?.recallEnv() ?? null);
 			// Memory just came up: catch up with the computers this one is connected to.
 			if (state.phase === "ready" && aiMemoryPhase !== "ready") {
 				aiMemorySync?.syncAll();

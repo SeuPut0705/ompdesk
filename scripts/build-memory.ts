@@ -9,7 +9,7 @@
  * `resources/ai-memory-bin/<platform>-<arch>/ai-memory[.exe]` and next to it `ai-memory.build.json`, the record of
  * THIS build (binary name, SHA-256, version, upstream tag, rustc, when and how long). Both are gitignored. The
  * record is what the packaging check (`scripts/after-pack.cjs`) and the app at run time hold the shipped bytes to
- * (src/main/ai-memory/binary.ts): there is no download and no external pin.
+ * (the core's `aimemory/service/binary.rs`): there is no download and no external pin.
  *
  * OMPdesk builds macOS arm64 and Windows x64, each on its own host (release.yml's `mac` and `win` jobs). Without
  * Rust (`cargo`) this prints how to get it and exits 1; the app then reports memory as not built, never crashes.

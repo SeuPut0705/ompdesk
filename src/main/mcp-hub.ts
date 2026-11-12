@@ -28,7 +28,7 @@ export interface McpHubLaunch {
 	env: () => Promise<Record<string, string>>;
 	/** Where REA's startup cache lives (`<userData>/rea`). */
 	reaCacheDir: string;
-	/** Memory's state file (src/main/ai-memory/recall-state.ts). */
+	/** Memory's state file (`recall.json`, written by the core's memory service, `crates/core/src/aimemory/service`). */
 	memoryStateFile: string;
 	lowerPriority?: LowerAgentPriority;
 	/** One line per start, exit and restart (`gui-runtime.jsonl`). */

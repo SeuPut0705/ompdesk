@@ -11,7 +11,7 @@ export const MCP_AUTH_ENV = "OMP_GUI_MCP_AUTH";
 /** The omp's folder, URL-encoded: where that omp's REA runs (it ran as omp's grandchild before the hub). */
 export const MCP_CWD_ENV = "OMP_GUI_MCP_CWD";
 
-/** The `ompdesk-memory` entry of memory's extension root (src/main/ai-memory/root.ts). */
+/** The `ompdesk-memory` entry of memory's extension root (the core's `aimemory/service/root.rs`). */
 export const MEMORY_HUB_ENTRY = {
 	type: "http",
 	url: `\${${MCP_HUB_ENV}}/memory`,

@@ -84,11 +84,11 @@ impl From<PageAtWire> for PageAt {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
-    version: Option<String>,
-    pages: Number,
-    sessions: Number,
-    observations: Number,
-    disk_bytes: Number,
+    pub(crate) version: Option<String>,
+    pub(crate) pages: Number,
+    pub(crate) sessions: Number,
+    pub(crate) observations: Number,
+    pub(crate) disk_bytes: Number,
 }
 
 #[derive(Debug, Clone, Serialize)]

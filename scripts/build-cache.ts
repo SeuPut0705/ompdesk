@@ -30,7 +30,7 @@ const BUILD_SCRIPTS = [
 	"scripts/precompress-plugin.ts",
 	"scripts/ws-bundle-probe.config.ts",
 	"scripts/ws-bundle-probe.ts",
-	// The pinned certificate the shipped ai-memory's requirement names (src/main/ai-memory/binary.ts).
+	// The pinned certificate the shipped ai-memory's requirement names (src/main/ai-memory/service.ts).
 	"scripts/mac-signing.json",
 ];
 /**

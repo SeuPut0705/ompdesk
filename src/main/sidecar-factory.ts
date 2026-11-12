@@ -108,7 +108,7 @@ export interface LocalSidecarDeps {
 	 */
 	aiMemoryExtensionArgs?: (cwd: string) => Promise<string[]>;
 	/**
-	 * The file memory's address is kept in (src/main/ai-memory/recall-state.ts), passed as `OMP_GUI_MEMORY` at every spawn
+	 * The file memory's address is kept in (written by the core's memory service), passed as `OMP_GUI_MEMORY` at every spawn
 	 * for the bridge's memory recall; absent: no recall (tests).
 	 */
 	memoryStateFile?: string;

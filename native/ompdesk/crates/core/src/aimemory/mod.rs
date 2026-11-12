@@ -19,6 +19,7 @@
 
 mod client;
 mod ops;
+pub(crate) mod service;
 mod value;
 
 use serde::Serialize;
@@ -223,6 +224,7 @@ async fn handle(op: &'static str, call: Call) -> Result<Reply, Fault> {
 }
 
 pub fn register(registry: &mut Registry) {
+    service::register(registry);
     macro_rules! operations {
         ($($op:literal),+ $(,)?) => {
             $(registry.add(concat!("aimemory.", $op), |call| Box::pin(handle($op, call)));)+

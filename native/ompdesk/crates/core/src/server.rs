@@ -264,11 +264,13 @@ where
     crate::control::close_all(&ending).await;
     crate::ssh::close_all(&ending);
     crate::schedules::close_all(&ending);
+    crate::aimemory::service::close_all(&ending);
     crate::stock::close_all(&ending).await;
     while tasks.join_next().await.is_some() {
         crate::control::close_all(&ending).await;
         crate::ssh::close_all(&ending);
         crate::schedules::close_all(&ending);
+        crate::aimemory::service::close_all(&ending);
         crate::stock::close_all(&ending).await;
     }
     drop(frames);
