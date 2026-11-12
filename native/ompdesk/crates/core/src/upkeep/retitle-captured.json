@@ -1,0 +1,116 @@
+{
+"note": "captured from src/main/ai-memory/retitle.ts by a throwaway bun script",
+"handoffs": [
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">\nTitle: x","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">\nTitle: x","agent":true,"child":true},
+{"summary":"Session focused on: Complete assignment thoroughly:\n\nTitle: x","state":"open","subject":"Complete assignment thoroughly:\n\nTitle: x","agent":true,"child":true},
+{"summary":"Session focused on: 고쳐줘","state":"open","subject":"고쳐줘","agent":false,"child":false},
+{"summary":"no lead-in","state":"open","subject":null,"agent":false,"child":false},
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"expired","subject":null,"agent":false,"child":false},
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"accepted","subject":null,"agent":false,"child":false},
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"","subject":null,"agent":false,"child":false},
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"Open","subject":null,"agent":false,"child":false},
+{"summary":"Started:<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Started:　　<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Started:\n\n<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Started:<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":false,"child":false},
+{"summary":"started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":null,"agent":false,"child":false},
+{"summary":" Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":null,"agent":false,"child":false},
+{"summary":"xStarted: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":null,"agent":false,"child":false},
+{"summary":"Session focused on:<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Session focused on:","state":"open","subject":"","agent":false,"child":false},
+{"summary":"Started:","state":"open","subject":"","agent":false,"child":false},
+{"summary":"Started: ","state":"open","subject":"","agent":false,"child":false},
+{"summary":"Started:  　 ","state":"open","subject":"","agent":false,"child":false},
+{"summary":"Started: Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":false,"child":false},
+{"summary":"Session focused on: Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"Started: <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":false,"child":false},
+{"summary":"Started: ﻿<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":true,"child":true},
+{"summary":"Started: <ompdesk-agent-message from=\"부모\">\nTitle: 일\n\nbody\n</ompdesk-agent-message>","state":"open","subject":"<ompdesk-agent-message from=\"부모\">\nTitle: 일\n\nbody\n</ompdesk-agent-message>","agent":true,"child":true},
+{"summary":"Started: Complete assignment thoroughly:","state":"open","subject":"Complete assignment thoroughly:","agent":true,"child":true},
+{"summary":"Started: Complete assignment thoroughly:\r\nTitle: x","state":"open","subject":"Complete assignment thoroughly:\r\nTitle: x","agent":true,"child":true},
+{"summary":"Started: You are a subagent spawned by another session.\nx","state":"open","subject":"You are a subagent spawned by another session.\nx","agent":true,"child":true},
+{"summary":"Session focused on: 이제 업데이트 완료했어 AI 메모리도 승인해놨고","state":"open","subject":"이제 업데이트 완료했어 AI 메모리도 승인해놨고","agent":false,"child":false},
+{"summary":"Started: 😀 <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","state":"open","subject":"😀 <ompdesk-agent-message from=\"병렬 세션 자동 정리\">","agent":false,"child":false},
+{"summary":"Started:\t\t고쳐줘","state":"open","subject":"고쳐줘","agent":false,"child":false}
+],
+"titleKeys": [
+{"title":"  Hello   World  ","key":"hello world"},
+{"title":"한글　제목 x","key":"한글 제목 x"},
+{"title":"","key":""},
+{"title":"   ","key":""},
+{"title":"ABC def","key":"abc def"},
+{"title":"İSTANBUL","key":"i̇stanbul"},
+{"title":"ΑΣ","key":"ας"},
+{"title":"a\tb\nc","key":"a b c"},
+{"title":"ab","key":"ab"},
+{"title":"😀 😀","key":"😀 😀"},
+{"title":"x﻿y z w","key":"x y z w"},
+{"title":"ǅ","key":"ǆ"}
+],
+"sessionIds": [
+{"path":"sessions/abc.md","id":"abc"},
+{"path":"sessions/abc","id":"abc"},
+{"path":"sessions/.md","id":""},
+{"path":"sessions/a.md.md","id":"a.md"},
+{"path":"sessions/a.mdx","id":"a.mdx"},
+{"path":"decisions/x.md","id":"/x"},
+{"path":"short","id":""},
+{"path":"","id":""},
+{"path":"sessions/","id":""},
+{"path":"sessions","id":""},
+{"path":"sessions/한글.md","id":"한글"},
+{"path":"sessions/😀.md","id":"😀"},
+{"path":"sessions/a\n.md","id":"a\n"},
+{"path":"x.md","id":""},
+{"path":"sessionsX/y.md","id":"/y"},
+{"path":"sessions/abc-1234-5678.md","id":"abc-1234-5678"},
+{"path":"sessions/a.MD","id":"a.MD"},
+{"path":"😀😀😀😀😀x.md","id":"\ude00x"},
+{"path":"sessions😀x.md","id":"\ude00x"}
+],
+"retitles": [
+{"markdown":"# <ompdesk-agent-message from=\"병렬 세션 자동 정리\">\n\n## Prompts\n\n1. <ompdesk-agent-message from=\"병렬 세션 자동 정리\">\n\n## Notes\n\n1. <ompdesk-agent-message from=\"병렬 세션 자동 정리\">\nmentions <ompdesk-agent-message from=\"병렬 세션 자동 정리\"> in prose\n","from":"<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","to":"새 제목","renames":[["<ompdesk-agent-message from=\"병렬 세션 자동 정리\">","새 제목"]],"out":"# 새 제목\n\n## Prompts\n\n1. 새 제목\n\n## Notes\n\n1. <ompdesk-agent-message from=\"병렬 세션 자동 정리\">\nmentions <ompdesk-agent-message from=\"병렬 세션 자동 정리\"> in prose\n"},
+{"markdown":"# x\n\n## Prompts\n\n1. 가가가가가가가가가가가가가가가가가가가가…\n","from":"x","to":"y","renames":[["가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가긴 제목","짧은"]],"out":"# y\n\n## Prompts\n\n1. 짧은\n"},
+{"markdown":"# T\n\n## Session metadata\n\n- **session_id:** `a1`\n\n## Prompts\n\n1. 맥 자동업데이트 확인\n2. 두번째 일\n\n## Tool calls\n\n- `non-file`: 4\n\n## Raw observations\n\n- `session-start` @ 2026-10-19T01:00:53Z — claude-opus-5-5\n- `user-prompt` @ 2026-10-19T01:00:57Z — 맥 자동업데이트 확인\n- `user-prompt` @ 2026-10-19T01:00:58Z — 두번째 일\n- `pre-tool-use` @ 2026-10-19T01:01:03Z — tool file\n","from":"T","to":"새 제목","renames":[["맥 자동업데이트 확인","맥 새 이름"],["두번째 일","둘째"]],"out":"# 새 제목\n\n## Session metadata\n\n- **session_id:** `a1`\n\n## Prompts\n\n1. 맥 새 이름\n2. 둘째\n\n## Tool calls\n\n- `non-file`: 4\n\n## Raw observations\n\n- `session-start` @ 2026-10-19T01:00:53Z — claude-opus-5-5\n- `user-prompt` @ 2026-10-19T01:00:57Z — 맥 새 이름\n- `user-prompt` @ 2026-10-19T01:00:58Z — 둘째\n- `pre-tool-use` @ 2026-10-19T01:01:03Z — tool file\n"},
+{"markdown":"# T\r\n\r\n## Prompts\r\n\r\n1. old\r\n2. old\r\n","from":"T","to":"N","renames":[["old","new"]],"out":"# T\r\n\r\n## Prompts\r\n\r\n1. old\r\n2. old\r\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. old x\n2. old\n3. old \n4. \n","from":"T","to":"N","renames":[["old","new"],["old x","newer"],["","empty"]],"out":"# N\n\n## Prompts\n\n1. old x\n2. new\n3. old \n4. empty\n"},
+{"markdown":"\n\n# T\n\n## Prompts\n1. old\n","from":"T","to":"N","renames":[["old","new"]],"out":"\n\n# N\n\n## Prompts\n1. new\n"},
+{"markdown":"## Prompts\n1. old\n2. old\n# T\n","from":"T","to":"N","renames":[["old","new"]],"out":"## Prompts\n1. old\n2. new\n# T\n"},
+{"markdown":"text first\n# T\n## Prompts\n1. old","from":"T","to":"N","renames":[["old","new"]],"out":"text first\n# T\n## Prompts\n1. new"},
+{"markdown":"# T\n## Prompts \n1. old\n##   Prompts\n2. old\n## Prompts　\n3. old\n## Prompts\n4. old\n","from":"T","to":"N","renames":[["old","new"]],"out":"# N\n## Prompts \n1. new\n##   Prompts\n2. new\n## Prompts　\n3. new\n## Prompts\n4. new\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. old\n10. old\n01. old\n1.old\n1 . old\n a. old\n 1. old\n1.  old\n12345678901234567890. old\n","from":"T","to":"N","renames":[["old","new"],[" old","sp"]],"out":"# N\n\n## Prompts\n\n1. new\n10. new\n01. new\n1.old\n1 . old\n a. old\n 1. old\n1. sp\n12345678901234567890. new\n"},
+{"markdown":"# T\n\n## Raw observations\n\n- `user-prompt` @ 2026-10-19T01:00:57Z — old\n- `user-prompt` @ — — old\n- `user-prompt` @ x — old\n- `user-prompt` @ x  — old\n- `user-prompt` @ x — old\n- `user-prompt` @ a b — old\n- `user-prompt` @ x- old\n- `user-prompt` @ x – old\n- `user-prompt` @  — old\n- `user-prompt` @ x　— old\n- `user-prompt` @ x —  old\n- `session-start` @ x — old\n-  `user-prompt` @ x — old\n- `user-prompt` @ x — old\r\n","from":"T","to":"N","renames":[["old","new"],[" old","sp"]],"out":"# N\n\n## Raw observations\n\n- `user-prompt` @ 2026-10-19T01:00:57Z — new\n- `user-prompt` @ — — new\n- `user-prompt` @ x — new\n- `user-prompt` @ x  — old\n- `user-prompt` @ x — new\n- `user-prompt` @ a b — old\n- `user-prompt` @ x- old\n- `user-prompt` @ x – old\n- `user-prompt` @  — old\n- `user-prompt` @ x　— old\n- `user-prompt` @ x — sp\n- `session-start` @ x — old\n-  `user-prompt` @ x — old\n- `user-prompt` @ x — old\r\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. aaaaaaaaaaaaaaaaaaaa…\n2. bbbbbbbbbb…\n3. …\n4. a…\n5. cccccccccc…\n","from":"T","to":"N","renames":[["aaaaaaaaaaaaaaaaaaaa1","A1"],["aaaaaaaaaaaaaaaaaaaa2","A2"],["bbbbbbbbbb long","B"],["a","single a"],["cccccccccc","C exact"],["ccccccccccc more","C other"]],"out":"# N\n\n## Prompts\n\n1. aaaaaaaaaaaaaaaaaaaa…\n2. B\n3. …\n4. a…\n5. cccccccccc…\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. dup\n","from":"T","to":"N","renames":[["dup","first"],["dup","second"]],"out":"# N\n\n## Prompts\n\n1. second\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. keep\n","from":"T","to":"N","renames":[],"out":"# N\n\n## Prompts\n\n1. keep\n"},
+{"markdown":"","from":"T","to":"N","renames":[["a","b"]],"out":""},
+{"markdown":"\n\n\n","from":"T","to":"N","renames":[],"out":"\n\n\n"},
+{"markdown":"# T\n# T\n## Prompts\n1. a","from":"T","to":"N","renames":[["a","b"]],"out":"# N\n# T\n## Prompts\n1. b"},
+{"markdown":"#  T\n## Prompts\n1. a","from":" T","to":"N","renames":[["a","b"]],"out":"# N\n## Prompts\n1. b"},
+{"markdown":"# 한글 😀\n\n## Prompts\n\n1. 한글 😀 prompt…\n2. 😀\n","from":"한글 😀","to":"새 😀","renames":[["한글 😀 prompt…","x"],["😀","e"]],"out":"# 새 😀\n\n## Prompts\n\n1. x\n2. e\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. x\n\n## Raw observations\n\n- `user-prompt` @ t — x\n\n## Prompts\n\n2. x\n","from":"T","to":"N","renames":[["x","y"]],"out":"# N\n\n## Prompts\n\n1. y\n\n## Raw observations\n\n- `user-prompt` @ t — y\n\n## Prompts\n\n2. y\n"},
+{"markdown":"# T\n\n## Prompts\n\n1. x\n## Raw observations\n- `user-prompt` @ t — x\n## Other\n1. x\n- `user-prompt` @ t — x","from":"T","to":"N","renames":[["x","y"]],"out":"# N\n\n## Prompts\n\n1. y\n## Raw observations\n- `user-prompt` @ t — y\n## Other\n1. x\n- `user-prompt` @ t — x"},
+{"markdown":"   \n  # T\n## Prompts\n1. a","from":"T","to":"N","renames":[["a","b"]],"out":"   \n  # T\n## Prompts\n1. b"},
+{"markdown":"　\n# T\n## Prompts\n1. a","from":"T","to":"N","renames":[["a","b"]],"out":"　\n# N\n## Prompts\n1. b"},
+{"markdown":"\n# T\n## Prompts\n1. a","from":"T","to":"N","renames":[["a","b"]],"out":"\n# T\n## Prompts\n1. b"},
+{"markdown":"# T\n## Prompts\n1. a b\n2. a","from":"T","to":"N","renames":[["a","b"]],"out":"# N\n## Prompts\n1. a b\n2. b"}
+],
+"renamed": [
+{"renames":[["a","b"]],"text":"a","expected":"b"},
+{"renames":[["a","b"]],"text":"z","expected":null},
+{"renames":[["abc long","x"]],"text":"abc…","expected":"x"},
+{"renames":[["abc long","x"],["abc other","y"]],"text":"abc…","expected":null},
+{"renames":[["abc long","x"],["abd","y"]],"text":"abc…","expected":"x"},
+{"renames":[["abc","x"]],"text":"abc…","expected":"x"},
+{"renames":[["abc…","x"]],"text":"abc…","expected":"x"},
+{"renames":[["x","y"]],"text":"…","expected":null},
+{"renames":[["…","y"]],"text":"…","expected":"y"},
+{"renames":[["x",""]],"text":"x","expected":null},
+{"renames":[["xy",""]],"text":"x…","expected":null},
+{"renames":[["a","b"]],"text":"","expected":null},
+{"renames":[["","b"]],"text":"","expected":"b"},
+{"renames":[["한글 제목","x"]],"text":"한글…","expected":"x"},
+{"renames":[["😀😀😀","x"]],"text":"😀😀…","expected":"x"},
+{"renames":[["a","1"],["a","2"]],"text":"a","expected":"2"}
+]
+}

@@ -183,6 +183,7 @@ pub fn registry() -> Registry {
     crate::tailscale::register(&mut registry);
     crate::ssh::register(&mut registry);
     crate::stock::register(&mut registry);
+    crate::upkeep::register(&mut registry);
     registry
 }
 

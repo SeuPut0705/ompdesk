@@ -111,6 +111,11 @@ export class StockHelper {
 		answerLaunches();
 	}
 
+	/** The name the core knows this helper's lanes under (`stock.request`'s `host`). */
+	get host(): string {
+		return this.#host;
+	}
+
 	async request<T>(method: string, params: unknown, options: StockHelperRequestOptions = {}): Promise<T> {
 		if (this.#stopped) throw new Error("Stock helper stopped");
 		const timeoutMs = options.timeoutMs ?? this.#requestTimeoutMs;
@@ -165,6 +170,16 @@ export function stockHelperRequest<T>(
 	if (ompAvailability() === "missing") return Promise.reject(refuseWithoutOmp("omp is not installed yet"));
 	helper ??= new StockHelper(bridgeDirectory);
 	return helper.request<T>(method, params, options);
+}
+
+/**
+ * The default helper's name in the core, for the core's own requests to its stock worker (`upkeep`/`care` ask the
+ * worker for prompt facts without crossing main). Made as `stockHelperRequest` makes it, so its launcher is
+ * registered when the core asks for a worker; after `stopStockHelper` the next call names a new one.
+ */
+export function stockHelperHost(): string {
+	helper ??= new StockHelper(bridgeDirectory);
+	return helper.host;
 }
 
 /** Ends every worker (an omp update, app quit); the next request starts them again. */

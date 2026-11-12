@@ -848,6 +848,80 @@ fn read_lines(stdout: std::fs::File, generation: u64, inbox: &mpsc::UnboundedSen
     }
 }
 
+/// Ends the wait of an in-process request that was dropped (its caller was cancelled): the lane is told to skip it.
+struct Withdraw {
+    inbox: mpsc::UnboundedSender<Msg>,
+    id: u64,
+    armed: bool,
+}
+
+impl Drop for Withdraw {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.inbox.send(Msg::GaveUp(self.id));
+        }
+    }
+}
+
+/// One request to a worker of `host`, made from inside the core (`stock.request`'s lane machinery, the same lanes and
+/// the same messages): `params` is the request's JSON, the answer the worker's result (`null` for none). A worker is
+/// started, if none runs, by asking main through `events` as for any request. It fails at `timeout` with
+/// `stock_timeout`; a caller that drops the future withdraws the request as a `cancel` frame does.
+pub(crate) async fn request_in_process(
+    events: &Events,
+    host: &str,
+    method: &str,
+    params: &serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, Fault> {
+    // `Value`'s compact JSON never holds a raw line break, which a worker would read as two requests.
+    let text =
+        serde_json::to_vec(params).map_err(|error| Fault::new("internal", error.to_string()))?;
+    let worker = Worker::of(method);
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let (reply, answer) = oneshot::channel();
+    let inbox = {
+        // Sent under the table's lock, so a stop that takes the lane out never leaves a request behind it.
+        let mut lanes = locked(&LANES);
+        let entry = lanes
+            .entry((host.to_owned(), worker))
+            .or_insert_with(|| Entry {
+                inbox: Lane::start(host.to_owned(), worker, events.clone()),
+                events: events.clone(),
+            });
+        entry.events = events.clone();
+        let _ = entry.inbox.send(Msg::Request {
+            id,
+            line: request_line(id, method, Some(&text)),
+            method: method.to_owned(),
+            timeout,
+            tuning: Tuning::default(),
+            events: events.clone(),
+            reply,
+        });
+        entry.inbox.clone()
+    };
+    let mut withdraw = Withdraw {
+        inbox,
+        id,
+        armed: true,
+    };
+    tokio::select! {
+        biased;
+        answer = answer => {
+            withdraw.armed = false;
+            match answer {
+                Ok(Ok(Some(result))) => serde_json::from_str(&whole_surrogates(&String::from_utf8_lossy(&result)))
+                    .map_err(|error| Fault::new("stock_json", error.to_string())),
+                Ok(Ok(None)) => Ok(serde_json::Value::Null),
+                Ok(Err(fault)) => Err(fault),
+                Err(_) => Err(stopped()),
+            }
+        }
+        () = tokio::time::sleep(timeout) => Err(Fault::new("stock_timeout", "omp stock helper request timed out")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

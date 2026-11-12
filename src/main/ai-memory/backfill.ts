@@ -29,13 +29,13 @@ import { open, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import {
-	conclusionExcerpt,
 	explicitTitle,
 	firstMeaningfulLine,
 	isAgentPrompt,
 	isJunkTitle,
 	promptTitle,
 } from "../../../resources/gui-bridge/memory-prompt";
+import { firstPrompt, turnsOf } from "../../../resources/gui-bridge/stock-helper/memory";
 import type { AiMemoryProjectRef } from "../../shared/ai-memory";
 import type { AiMemoryClient } from "./client";
 /** The client calls a pass makes (a fake implements exactly these). */
@@ -177,54 +177,6 @@ async function readHeader(path: string): Promise<Header | null> {
 	} finally {
 		await file.close();
 	}
-}
-
-interface Turn {
-	at: number;
-	body: string;
-}
-
-interface Message {
-	role?: unknown;
-	content?: unknown;
-	stopReason?: unknown;
-	timestamp?: unknown;
-}
-
-/** A run's final reply: an assistant message that stopped (not for a tool call) and said something in words. */
-function turnsOf(messages: readonly unknown[]): Turn[] {
-	const turns: Turn[] = [];
-	for (const raw of messages) {
-		const message = raw as Message | null;
-		if (message?.role !== "assistant" || message.stopReason !== "stop") continue;
-		if (typeof message.timestamp !== "number" || !Number.isFinite(message.timestamp)) continue;
-		const body = conclusionExcerpt([message]);
-		if (body) turns.push({ at: message.timestamp, body });
-	}
-	return turns;
-}
-
-function firstPrompt(messages: readonly unknown[]): string | undefined {
-	for (const raw of messages) {
-		const message = raw as Message | null;
-		if (message?.role !== "user") continue;
-		const parts: unknown[] =
-			typeof message.content === "string"
-				? [message.content]
-				: Array.isArray(message.content)
-					? message.content
-					: [];
-		const text = parts
-			.map(part => {
-				if (typeof part === "string") return part;
-				const isText = part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part;
-				return isText ? String(part.text) : "";
-			})
-			.join("\n")
-			.trim();
-		if (text) return text;
-	}
-	return undefined;
 }
 
 /** What the server knows of its own conclusions: where its capture began and what it already holds per session. */

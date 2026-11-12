@@ -1,29 +1,19 @@
 /**
- * The project's rules file (AGENTS.md, CLAUDE.md at the repository root) is already in front of every session, so a
- * learned page that only repeats it is noise: on the user's own memory 4 of the 5 pages learned were in AGENTS.md.
+ * The project's rules file (AGENTS.md, CLAUDE.md at the repository root, `.omp/rules/*.md`): which of its words a page
+ * shares, and what it outlines. The upkeep's use of it (the check that a learned page only repeats the file) moved into
+ * the core with the learning (`native/ompdesk/crates/core/src/upkeep/rules_file.rs`).
  *
- * The check is local and cheap, no model call: a proposal is the rules file's when one sentence of the file holds at
- * least `RULES_COVERAGE` (0.6) of the proposal's content terms, weighted by how rare each term is in the file (IDF over
- * its sentences, so "session" or "user" count for little in OMPdesk's AGENTS.md and a term the file never uses counts
- * the most), and at least `RULES_MIN_SHARED` (3) of them. Terms are Latin words (lowercased, common words left out, a
- * plural or tense ending cut) and character pairs of Hangul, Han and kana runs. The owner usually writes in Korean and
- * the rules file in English, so the proposal's English gist (`gist_en`, written by the same model call) is compared
- * too; its title and body together are the other candidate. It cannot tell a rule from its negation ("keep only en-US"
- * and "keep every locale" share their terms), so a correction that contradicts the rules file is skipped as stated.
- * Read-only: the file is never written, and it is read whole up to `RULES_FILE_BYTES` (4 MB: OMPdesk's own AGENTS.md is
- * over 400 KB, and a cut at 200 KB missed half its rules).
+ * Kept for curate.ts until 7d moves it (this batch): `contentTerms`, `readRulesText`, `rulesOutline`.
  */
 import { open, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export const RULES_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
+const RULES_FILES = ["AGENTS.md", "CLAUDE.md"] as const;
 /** omp's project rules folder: a repository can keep its rules there instead of one large AGENTS.md (this one does). */
-export const RULES_DIR = ".omp/rules";
-export const RULES_FILE_BYTES = 4 * 1024 * 1024;
-export const RULES_COVERAGE = 0.6;
-export const RULES_MIN_SHARED = 3;
+const RULES_DIR = ".omp/rules";
+const RULES_FILE_BYTES = 4 * 1024 * 1024;
 /** The rules-file outline the distill prompt carries (≈ 1.5k tokens at most). */
-export const RULES_OUTLINE_BYTES = 6 * 1024;
+const RULES_OUTLINE_BYTES = 6 * 1024;
 /** A bold lead longer than this is an emphasized sentence, not a label. */
 const OUTLINE_LEAD_CHARS = 100;
 
@@ -45,6 +35,7 @@ function stem(word: string): string {
 	return word;
 }
 
+// kept for curate.ts until 7d moves it (this batch)
 /** A text's content terms. */
 export function contentTerms(text: string): Set<string> {
 	const terms = new Set<string>();
@@ -58,53 +49,7 @@ export function contentTerms(text: string): Set<string> {
 	return terms;
 }
 
-export interface RulesIndex {
-	/** Each sentence's terms. */
-	units: Set<string>[];
-	/** How many sentences hold each term. */
-	df: Map<string, number>;
-}
-
-/** The rules text as sentences' terms, the units a proposal is compared with one by one. */
-export function rulesIndex(text: string): RulesIndex {
-	const units = text
-		.split(/\n|(?<=[.!?;。])\s+/)
-		.map(contentTerms)
-		.filter(terms => terms.size >= RULES_MIN_SHARED);
-	const df = new Map<string, number>();
-	for (const unit of units) for (const term of unit) df.set(term, (df.get(term) ?? 0) + 1);
-	return { units, df };
-}
-
-function covered(terms: Set<string>, index: RulesIndex): boolean {
-	if (terms.size < RULES_MIN_SHARED) return false;
-	const weight = new Map(
-		[...terms].map(term => [term, Math.log((index.units.length + 1) / ((index.df.get(term) ?? 0) + 1)) + 1]),
-	);
-	let total = 0;
-	for (const value of weight.values()) total += value;
-	for (const unit of index.units) {
-		let shared = 0;
-		let held = 0;
-		for (const [term, value] of weight) {
-			if (!unit.has(term)) continue;
-			shared += 1;
-			held += value;
-		}
-		if (shared >= RULES_MIN_SHARED && held / total >= RULES_COVERAGE) return true;
-	}
-	return false;
-}
-
-/** Whether the rules file already states what the proposal says. */
-export function statedByRules(index: RulesIndex, proposal: { title: string; body: string; gist?: string }): boolean {
-	if (index.units.length === 0) return false;
-	return (
-		(proposal.gist ? covered(contentTerms(proposal.gist), index) : false) ||
-		covered(contentTerms(`${proposal.title}\n${proposal.body}`), index)
-	);
-}
-
+// kept for curate.ts until 7d moves it (this batch)
 /**
  * What the distill prompt shows of the rules file so the model can see what is already a rule: its `#`, `##` and `###`
  * headings and the bold phrase a line opens with (`- **No count or rate caps**: …` → `- No count or rate caps`; one
@@ -169,6 +114,7 @@ async function head(file: string): Promise<string> {
 	}
 }
 
+// kept for curate.ts until 7d moves it (this batch)
 /**
  * The rules files at the root of the repository `cwd` is in, then each `.omp/rules/*.md` in name order, joined (each
  * read whole up to `RULES_FILE_BYTES`); empty when there are none (or no `cwd`).

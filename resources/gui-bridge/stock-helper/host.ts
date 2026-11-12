@@ -12,6 +12,7 @@ import { methods as accounts } from "./accounts";
 import { createDispatcher, type HelperMethods } from "./dispatch";
 import { UNQUEUED_METHODS as HISTORY_UNQUEUED, methods as history } from "./history";
 import { methods as images } from "./images";
+import { methods as memory } from "./memory";
 import { methods as models } from "./models";
 import { methods as search } from "./search";
 import { UNQUEUED_METHODS as SESSIONS_UNQUEUED, methods as sessions } from "./sessions";
@@ -24,7 +25,7 @@ const methods: HelperMethods = terminalWorker
 	? terminals
 	: worker === "extensions"
 		? (await import("./extensions")).methods
-		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees, ...history };
+		: { ...sessions, ...models, ...search, ...accounts, ...images, ...worktrees, ...history, ...memory };
 const input = createInterface({ input: process.stdin });
 if (terminalWorker) process.on("exit", disposeTerminals);
 input.on("close", () => {
