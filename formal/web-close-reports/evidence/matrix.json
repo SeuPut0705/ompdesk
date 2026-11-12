@@ -66,7 +66,7 @@
         {
           "step": 3,
           "action": "CloseRelease(\"t1\")",
-          "code": "src/main/tab-release.ts:38-41, src/main/agent-control/host.ts:960-969",
+          "code": "src/main/tab-release.ts:38-41, src/main/agent-control/host.ts:1370-1380",
           "changed": {
             "deciding": "{\"t1\"} -> {}",
             "released": "{} -> {\"t1\"}"
@@ -155,7 +155,7 @@
           },
           "code": [
             "src/main/tab-release.ts:38-41",
-            "src/main/agent-control/host.ts:960-969"
+            "src/main/agent-control/host.ts:1370-1380"
           ],
           "changed": {
             "deciding": {

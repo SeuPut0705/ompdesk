@@ -168,7 +168,7 @@ CloseDecide(t) ==
 \* The release lands after awaits (host.release, closeWindowTab's refreshExitPolicy); reports may arrive meanwhile.
 \* Right after the await, with no await before the release, the one rule decides again on what the store says now.
 \* @code src/main/tab-release.ts:38-41 refreshExitPolicy, stillClosable, closeTabTerminals, releaseTab
-\* @code src/main/agent-control/host.ts:960-969 release: stillReleasable = tabCloseStep on the store's word then
+\* @code src/main/agent-control/host.ts:1370-1380 release: stillReleasable = tabCloseStep on the store's word then
 CloseRelease(t) ==
     /\ t \in deciding
     /\ deciding' = deciding \ {t}
