@@ -369,7 +369,7 @@ struct HostParams {
 
 async fn host_stop(call: Call) -> Result<Reply, Fault> {
     let params: HostParams = call.params()?;
-    host::stop(params.host);
+    host::stop(params.host).await;
     Reply::json(&Value::Null)
 }
 
