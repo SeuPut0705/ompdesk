@@ -371,8 +371,6 @@ async function rig(
 		else await open();
 	}
 	const services = hostServices(pool, workDir);
-	// Fixed keys: a run before and a run after seal the same bytes.
-	const key = (seed: number) => createHash("sha256").update(`key-${seed}`).digest();
 	for (let index = 0; index < COMPUTERS; index++) {
 		const sink = new Sink(hashing);
 		receivers.computers.push(sink);
