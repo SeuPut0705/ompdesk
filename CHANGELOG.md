@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.126.0] - 2026-11-12
+
+ChatGPT 계정의 크레딧 잔액이 보이고, 요금제 한도를 넘겨 크레딧을 쓸지를 스위치로 정할 수 있게 됐어요. 이 스위치는 꺼진 채로 나와요.
+
+### 새 기능
+- 설정 › 모델 및 계정에 "크레딧 사용" 스위치가 생겼어요. **기본은 꺼짐이에요.** 꺼져 있으면 요금제 한도를 다 쓴 계정을 한도에 걸린 것으로 보고, ChatGPT 크레딧이나 Claude 추가 사용량으로 이어 쓰지 않고 다른 계정이나 대체 모델로 넘어가요. 켜면 지금까지처럼 크레딧과 추가 사용량으로 계속 써요. 이전 판은 켜짐과 같이 동작했으니, 크레딧을 쓰려면 이 스위치를 켜야 해요. OMPdesk는 크레딧을 사거나 충전하지 않아요. 프로바이더의 자동충전은 크레딧이 쓰여야 일어나서, 스위치가 꺼져 있으면 OMPdesk 때문에 일어나지 않아요.
+- 계정 목록에 ChatGPT 계정의 크레딧 잔액이 나와요. 크레딧을 세지 않는 계정은 "크레딧 무제한"으로 나와요. 스위치를 꺼 둬도 잔액은 그대로 보여요.
+- 탭을 닫거나 세션을 멈추거나 지우면, 그 세션이 띄워 놓은 프로세스(개발 서버, 테스트용 브라우저, 에뮬레이터)를 끝내요. 부모가 사라져 따로 떠 있는 것도 찾아서 끝내요. 먼저 끝내 달라고 요청하고 5초 뒤에도 남아 있으면 강제로 끝내요. 앱을 종료할 때는 아무것도 끝내지 않고, 다시 켰을 때 돌아오지 않은 세션의 것만 치워요. 탭이 열려 있는 세션의 프로세스는 건드리지 않아요.
+- 컴퓨터의 메모리가 모자라면 그때 가장 많이 쓰는 프로세스 8개와 세션 6개를 실행 기록에 남겨요. 이름, 크기, 나이, 어느 세션의 것인지가 적혀요. 명령줄은 남기지 않아요.
+
+### 고친 것
+- 대체 모델이 대신 답하는 동안 입력창의 모델 칩과 모델 선택기가 대체 모델을 내가 고른 모델처럼 보여 주던 것을 고쳤어요. 이제 칩은 고른 모델을 그대로 보여 주고, 작은 점과 "지난 턴은 … 모델로 실행했어요" 한 줄만 붙어요. 모델을 직접 고르면 바로 사라져요. omp는 대체 모델을 저장하지 않아서 재시작과 새 탭은 원래도 고른 모델로 시작했어요.
+- omp 18.19.0에 새로 생긴 프로바이더(Liquid AI)에 마크가 붙고, 새 설정 다섯 개가 한국어로 나와요.
+
+### 바뀐 것
+- 다음 일들이 Rust 코어 프로세스로 옮겨졌어요: 에이전트 제어 소켓, 디스크 관리, 워크트리 시딩, Tailscale과 SSH 도구 실행, 확장 업데이트의 분류, 체크아웃 상태를 비롯한 남은 git 읽기. 화면과 결과는 그대로예요. 달라진 점은 둘이에요. 새 워크트리에 파일을 채우는 일은 60초가 지나면 새 항목을 시작하지 않고 나머지를 건너뛰어요. 시간 제한에 걸린 Tailscale 명령은 끝내 달라고 요청한 뒤 2초를 기다려요. 속도는 재지 않았어요.
+
+아직 실제로 확인하지 못한 것이 있어요. 크레딧 스위치는 가짜 프로바이더와 실제 omp로만 확인했고 실제 계정으로는 써 보지 않았어요. 꺼 둬도 한도를 넘기는 바로 그 요청 하나는 나가고, ChatGPT는 다음 사용량 조회 전까지(약 5분) 크레딧으로 나갈 수 있어요. 세션 프로세스 정리는 환경 변수를 지운 프로세스나 시스템이 대신 띄운 것(가상 머신의 도우미, `open`으로 연 앱)을 보지 못하고, 메모리가 빠듯한 실제 Mac에서 부하를 걸어 확인하지는 않았어요. 한 세션이 띄운 `adb`나 Gradle 같은 공용 데몬은 그 탭이 닫힐 때 같이 끝나요.
+
+<!-- en -->
+
+A ChatGPT account's credit balance is shown, and a switch decides whether accounts go on running on credits once their plan is used up. The switch ships off.
+
+### Added
+- Settings › Models & accounts has a "Credit use" switch. **It is off by default.** Off: once an account's plan limit is used up it counts as limited, and work moves on to another account or your fallback models instead of running on ChatGPT credits or Claude extra usage. On: accounts keep running on credits and extra usage, as before. Earlier versions behaved like On, so turn the switch on if you want credits spent. OMPdesk never buys or tops up credits. A provider's auto top-up fires only when credits are spent, so with the switch off it cannot fire because of OMPdesk.
+- The accounts list shows a ChatGPT account's credit balance. An account whose credits are not counted reads "Credits Unlimited". The balance stays visible with the switch off.
+- Closing a tab, or stopping or deleting a session, ends the processes that session left running (dev servers, test browsers, emulators), including ones whose parent is gone. They are asked to quit first and forced after 5 seconds. Quitting the app ends nothing; the next launch clears only what belongs to sessions that did not come back. A session whose tab is open keeps its processes.
+- When the computer runs short of memory, the runtime log records the 8 largest processes and the 6 sessions holding the most: name, size, age and the session they belong to. No command lines.
+
+### Fixed
+- While a fallback model answered, the composer's model chip and the model picker showed the fallback as if you had chosen it. The chip now keeps your model, with a small dot and one line saying the last turn ran on the other model; picking a model clears it. omp never saved the fallback: a restart and a new tab always started on your model.
+- The provider omp 18.19.0 adds (Liquid AI) has its mark, and its five new settings read in Korean.
+
+### Changed
+- These moved into the Rust core process: the agent control socket, disk care, worktree seeding, running the Tailscale and SSH tools, the extension updater's classification, and the remaining git reads such as checkout status. Screens and results are the same, with two differences: seeding a new worktree starts no new item after 60 seconds and skips the rest, and a Tailscale command cut at its time limit is asked to quit and given 2 seconds. Speed was not measured.
+
+Some of this has not been seen for real. The credit switch was checked against fake providers on the real omp, never with a real account. Even when off, the one request that crosses the limit is served, and for ChatGPT requests can run on credits until the account's next usage read (about 5 minutes). Session process cleanup cannot see a process that cleared its environment or one the system started on its behalf (a virtual machine's helper, an app opened with `open`), and it was not tried under load on a real Mac short of memory. A shared daemon one session started (`adb`, Gradle) ends when that tab closes.
+
 ## [0.125.0] - 2026-11-12
 
 대체 모델을 설정에서 고를 수 있게 됐고, 눌러서 확인한 초기화권이 조회 거절 때문에 안 쓰이던 문제를 고쳤어요.
