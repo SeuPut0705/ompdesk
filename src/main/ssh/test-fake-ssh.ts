@@ -1,13 +1,17 @@
 /**
- * A fake OpenSSH client for main/ssh tests and e2e (POSIX only): `ssh`,
- * `ssh-add` and `ssh-keygen` scripts in one folder (point `OMP_GUI_SSH` at
- * `<dir>/ssh`). Like real ssh it reads the known_hosts the `-F` config names,
- * asks an unknown host key and a password through `$SSH_ASKPASS`, serves `-L`
- * forwards to 127.0.0.1 (the "server" is this machine), and lists the ports
- * in `<dir>/ports` for a remote command. Test knobs, all files in `<dir>`:
- * `password` (required password), `drop` (exists → a running forward exits as
- * a dropped connection), `changed` (exists → the host key changed), `calls`
- * (every argv, one JSON line each), `listings` (one line per port listing written).
+ * A fake OpenSSH client for main/ssh tests and e2e: `ssh`, `ssh-add` and
+ * `ssh-keygen` scripts in one folder (point `OMP_GUI_SSH` at what
+ * `writeFakeSsh` returns: `<dir>/ssh`, on Windows `<dir>\ssh.cmd`, a shim that
+ * runs the script beside it). Like real ssh it reads the known_hosts the `-F`
+ * config names, asks an unknown host key, a key's passphrase and a password
+ * through `$SSH_ASKPASS`, serves `-L` forwards to 127.0.0.1 (the "server" is
+ * this machine), and lists the ports in `<dir>/ports` for a remote command.
+ * Test knobs, all files in `<dir>`: `passphrase` and `password` (required
+ * answers), `leak` (exists → it prints the answers it was given to stderr and
+ * exits as a refused login, which real ssh never does), `drop` (exists → a
+ * running forward exits as a dropped connection), `changed` (exists → the host
+ * key changed), `calls` (every argv, one JSON line each), `listings` (one line
+ * per port listing written).
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -61,13 +65,20 @@ if (!known.includes(entry)) {
 	}
 	fs.appendFileSync(knownHosts, entry + "AAAAfake\n");
 }
-const passwordFile = path.join(dir, "password");
-if (fs.existsSync(passwordFile)) {
-	const answer = ask(user + "@" + host + "'s password: ");
-	if (answer !== fs.readFileSync(passwordFile, "utf8").trim()) {
+const answers = [];
+for (const [knob, prompt] of [["passphrase", "Enter passphrase for key '/fake/id_ed25519': "], ["password", user + "@" + host + "'s password: "]]) {
+	const file = path.join(dir, knob);
+	if (!fs.existsSync(file)) continue;
+	const answer = ask(prompt);
+	answers.push(answer);
+	if (answer !== fs.readFileSync(file, "utf8").trim()) {
 		process.stderr.write(user + "@" + host + ": Permission denied (publickey,password).\n");
 		process.exit(255);
 	}
+}
+if (fs.existsSync(path.join(dir, "leak"))) {
+	process.stderr.write("debug1: read " + answers.join(" ") + "\n" + user + "@" + host + ": Permission denied (" + answers.join(",") + ").\n");
+	process.exit(255);
 }
 if (local) {
 	const [bindHost, bindPort, toHost, toPort] = local.split(":");
@@ -127,12 +138,17 @@ fs.writeFileSync(file, kept.map(line => line + "\n").join(""));
 /** Write the fake tools into `dir`; returns the `ssh` path for `OMP_GUI_SSH`. */
 export async function writeFakeSsh(dir: string, node: string = process.execPath): Promise<string> {
 	await fs.mkdir(dir, { recursive: true });
+	const windows = process.platform === "win32";
 	for (const [name, source] of [
 		["ssh", SSH.replace("__DIR__", JSON.stringify(dir))],
 		["ssh-add", SSH_ADD],
 		["ssh-keygen", SSH_KEYGEN],
 	] as const) {
-		await fs.writeFile(path.join(dir, name), `#!${node}\n${source}`, { mode: 0o755 });
+		if (windows) {
+			// Windows starts no `#!` script: a shim of the same name runs the script beside it.
+			await fs.writeFile(path.join(dir, `${name}.js`), source);
+			await fs.writeFile(path.join(dir, `${name}.cmd`), `@"${node}" "%~dp0${name}.js" %*\r\n`);
+		} else await fs.writeFile(path.join(dir, name), `#!${node}\n${source}`, { mode: 0o755 });
 	}
-	return path.join(dir, "ssh");
+	return path.join(dir, windows ? "ssh.cmd" : "ssh");
 }

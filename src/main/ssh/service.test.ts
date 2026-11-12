@@ -5,66 +5,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SshPrompt, SshToolsState } from "../../shared/ssh-tools";
-import { AskpassServer } from "./askpass";
-import { classifyFailure, classifyPrompt, parseListeningPorts, writeSshConfig } from "./options";
 import { SshTools } from "./service";
 import { writeFakeSsh } from "./test-fake-ssh";
 
-describe("ssh options", () => {
-	it("reads listening ports from ss, netstat and lsof", () => {
-		expect(parseListeningPorts("LISTEN 0 4096 127.0.0.1:631 0.0.0.0:*\nLISTEN 0 511 [::]:3000 [::]:*\n")).toEqual([
-			631, 3000,
-		]);
-		expect(
-			parseListeningPorts(
-				"Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address Foreign Address State\ntcp 0 0 0.0.0.0:22 0.0.0.0:* LISTEN\n",
-			),
-		).toEqual([22]);
-		expect(
-			parseListeningPorts(
-				"COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nnode 812 me 23u IPv6 0x1 0t0 TCP *:5173 (LISTEN)\n",
-			),
-		).toEqual([5173]);
-	});
+// Main's SSH tools against the real core process and a stand-in ssh (`test-fake-ssh.ts`), on every platform. The
+// rules that moved to the core are tested there with rows captured from the TypeScript (`ssh/rules.rs`: listening
+// ports, questions, failures, saved host names, arguments, the config), as are the askpass listener's own cases
+// (`ssh/askpass.rs`: a forged token, a release that cancels only its own process's questions).
 
-	it("tells host keys, passwords, passphrases and codes apart", () => {
-		expect(
-			classifyPrompt(
-				"The authenticity of host 'jump.example (10.0.0.1)' can't be established.\nED25519 key fingerprint is SHA256:abc+/=.\nAre you sure you want to continue connecting (yes/no/[fingerprint])?",
-			),
-		).toEqual({ kind: "hostKey", fingerprint: "SHA256:abc+/=", host: "jump.example (10.0.0.1)" });
-		expect(classifyPrompt("Enter passphrase for key '/u/.ssh/id_ed25519': ").kind).toBe("passphrase");
-		expect(classifyPrompt("me@box's password: ").kind).toBe("password");
-		expect(classifyPrompt("Verification code: ").kind).toBe("code");
-	});
-
-	it("never retries a changed host key or a refused login", () => {
-		expect(classifyFailure("@@@\n@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nfoo").kind).toBe(
-			"hostKeyChanged",
-		);
-		expect(classifyFailure("me@box: Permission denied (publickey).").kind).toBe("refused");
-		expect(classifyFailure("Connection to box closed by remote host.")).toEqual({
-			kind: "dropped",
-			message: "Connection to box closed by remote host.",
-		});
-	});
-
-	it("pins OMPdesk's known_hosts before the user's config", async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ssh-config-"));
-		try {
-			const { config, knownHosts } = await writeSshConfig(dir, "/home/me");
-			const text = await fs.readFile(config, "utf8");
-			expect(text.indexOf("StrictHostKeyChecking ask")).toBeLessThan(text.indexOf("Include"));
-			// ssh_config reads backslashes as escapes, so Windows paths are written with forward slashes.
-			expect(text).toContain(`UserKnownHostsFile "${knownHosts.replace(/\\/g, "/")}"`);
-			expect(text).toContain('Include "/home/me/.ssh/config"');
-		} finally {
-			await fs.rm(dir, { recursive: true, force: true });
-		}
-	});
-});
-
-describe.skipIf(process.platform === "win32")("SshTools", () => {
+describe("SshTools", () => {
 	let root: string;
 	let fake: string;
 	let http: Server;
@@ -73,11 +22,14 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 	let state: SshToolsState;
 	let stateBroadcasts = 0;
 	let prompts: SshPrompt[];
+	/** Everything sent to the windows, as text. */
+	let broadcasts: string[];
 	const target = { name: "box", host: "box.example" };
 	const create = () =>
 		new SshTools({
 			userData: path.join(root, "user"),
 			broadcast: (kind, data) => {
+				broadcasts.push(JSON.stringify(data));
 				if (kind === "state") {
 					state = data as SshToolsState;
 					stateBroadcasts++;
@@ -102,12 +54,16 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 		await listening.promise;
 		remotePort = (http.address() as net.AddressInfo).port;
 		prompts = [];
+		broadcasts = [];
 		tools = create();
 	});
 	afterEach(async () => {
 		tools.dispose();
+		// Every ssh has exited: on Windows a running one holds the folder.
+		await tools.settled();
 		http.close();
 		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
 		await fs.rm(root, { recursive: true, force: true });
 	});
 
@@ -222,6 +178,46 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 			agentKeys: ["256 SHA256:agentKeyFingerprint fake@laptop (ED25519)"],
 		});
 	}, 30_000);
+
+	it("reports nothing of a password or a passphrase: no status, no prompt, no error, no line the core logs", async () => {
+		const password = "hunter2-on-the-wire";
+		const passphrase = "correct horse battery";
+		const logged = vi.spyOn(console, "warn");
+		await fs.writeFile(path.join(fake, "passphrase"), passphrase);
+		await fs.writeFile(path.join(fake, "password"), password);
+		// A stand-in that prints what it was answered, which real ssh never does.
+		await fs.writeFile(path.join(fake, "leak"), "");
+		await tools.command({ action: "forward", target, remotePort });
+		await answerNext("hostKey", "yes");
+		await answerNext("passphrase", passphrase);
+		await answerNext("password", password);
+		await vi.waitFor(
+			() =>
+				expect(state.forwards[0]?.status).toEqual({
+					kind: "stopped",
+					error: "me@box.example: Permission denied (***,***).",
+				}),
+			{ timeout: 10_000 },
+		);
+		await tools.command({ action: "watch", target, on: true });
+		await answerNext("passphrase", passphrase);
+		await answerNext("password", password);
+		await vi.waitFor(() => expect(state.watches[0]?.error).toBe("me@box.example: Permission denied (***,***)."), {
+			timeout: 10_000,
+		});
+		// An answer that is refused, here and in the core, is not repeated either.
+		const refusals = await Promise.all([
+			tools.command({ action: "answer", id: "none", value: `${password} `.repeat(300) }).then(String, String),
+			tools.command({ action: "answer", id: 5, value: passphrase }).then(String, String),
+		]);
+		expect(refusals[0]).toBe("CoreError: Invalid SSH tools request");
+		const said = [...broadcasts, ...refusals, ...logged.mock.calls.flat().map(String)];
+		expect(broadcasts.length).toBeGreaterThan(6);
+		for (const text of said) {
+			for (const secret of [password, passphrase, password.slice(0, 7), passphrase.slice(8)])
+				expect(text).not.toContain(secret);
+		}
+	}, 40_000);
 
 	describe("re-entrancy", () => {
 		const portOpen = (port: number) => {
@@ -358,65 +354,7 @@ describe.skipIf(process.platform === "win32")("SshTools", () => {
 	});
 });
 
-describe.skipIf(process.platform === "win32")("askpass", () => {
-	it("answers only its own processes' tokens", async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-askpass-"));
-		const server = new AskpassServer(dir, () => {});
-		try {
-			const { env } = await server.env("box");
-			const socket = net.connect(env.OMPDESK_ASKPASS_SOCKET ?? "");
-			let reply = "";
-			socket.on("data", chunk => {
-				reply += chunk;
-			});
-			const closed = Promise.withResolvers<void>();
-			socket.on("close", () => closed.resolve());
-			socket.write(`${JSON.stringify({ token: "forged", prompt: "password:" })}\n`);
-			await closed.promise;
-			expect(JSON.parse(reply)).toEqual({ cancel: true });
-			expect(server.list()).toEqual([]);
-		} finally {
-			server.close();
-			await fs.rm(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("release cancels only the prompts of its own token, not another process's on the same server", async () => {
-		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-askpass-"));
-		const seen: SshPrompt[][] = [];
-		const server = new AskpassServer(dir, prompts => seen.push(prompts));
-		const ask = (env: NodeJS.ProcessEnv, prompt: string) => {
-			const socket = net.connect(env.OMPDESK_ASKPASS_SOCKET ?? "");
-			let reply = "";
-			socket.on("data", chunk => {
-				reply += chunk;
-			});
-			const closed = Promise.withResolvers<string>();
-			socket.on("close", () => closed.resolve(reply));
-			socket.write(`${JSON.stringify({ token: env.OMPDESK_ASKPASS_TOKEN, prompt })}\n`);
-			return { socket, closed: closed.promise };
-		};
-		try {
-			const forward = await server.env("box");
-			const watch = await server.env("box");
-			const watchAsk = ask(watch.env, "box's password: ");
-			const forwardAsk = ask(forward.env, "Enter passphrase for key: ");
-			await vi.waitFor(() => expect(server.list()).toHaveLength(2));
-			// The watch ends: its question goes, the forward's stays open on the same server.
-			watch.release();
-			expect(JSON.parse(await watchAsk.closed)).toEqual({ cancel: true });
-			expect(server.list().map(prompt => prompt.kind)).toEqual(["passphrase"]);
-			const [pending] = server.list();
-			server.answer(pending?.id ?? "", "secret");
-			expect(JSON.parse(await forwardAsk.closed)).toEqual({ value: "secret" });
-		} finally {
-			server.close();
-			await fs.rm(dir, { recursive: true, force: true });
-		}
-	});
-});
-
-describe.skipIf(process.platform === "win32")("SshTools key actions", () => {
+describe("SshTools key actions", () => {
 	let root: string;
 	let tools: SshTools;
 	beforeEach(async () => {
