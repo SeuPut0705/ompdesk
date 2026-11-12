@@ -17,6 +17,7 @@ pub mod models;
 pub mod omp;
 pub mod procs;
 pub mod remote;
+pub mod remotebytes;
 pub mod routines;
 mod run;
 pub mod schedules;
