@@ -33,6 +33,14 @@
 		"reason": "Known duplicate: the worktree slug rule main/local/git/parse.ts WORKTREE_NAME_PATTERN enforces, restated by WorktreeDialog.tsx (the renderer cannot import main); merge into src/shared/worktree-branch.ts."
 	},
 	{
+		"rule": "/^(Autopilot|오토파일럿) · /",
+		"files": [
+			"src/main/autopilot.ts",
+			"src/renderer/lib/session-title.ts"
+		],
+		"reason": "Known duplicate: the title prefix earlier builds gave an Autopilot run, stripped in main/autopilot.ts and renderer/lib/session-title.ts; merge into one src/shared export."
+	},
+	{
 		"rule": "/key|token|secret|password/i",
 		"files": [
 			"src/renderer/components/panels/inventory/plugin-settings.ts",
