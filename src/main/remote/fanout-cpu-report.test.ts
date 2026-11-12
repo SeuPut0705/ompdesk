@@ -3,7 +3,7 @@
  * stream into what each receiver gets, with several desktop windows, two paired web pages and two paired computers on
  * the same tab. The stream is recorded once from the scripted omp (`test-traffic-omp.ts`) through a real
  * SidecarManager (`<dir>/stream.json`), then replayed on fake timers through the real SidecarPool (windows), WsRouter
- * (web pages) and LocalHostServices with real Links (computers). Each receiver's bytes are hashed, so a run before and a
+ * with the core's router (web pages) and LocalHostServices with real Links (computers). Each receiver's bytes are hashed, so a run before and a
  * run after a change can show the same output (`<dir>/<label>.json`, label `OMP_GUI_FANOUT_LABEL`). With
  * `OMP_GUI_FANOUT_PROFILE=1` a CPU profile of one replay is written beside it, and its self time grouped by function.
  */
@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { serialize } from "node:v8";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent, SubagentFrame } from "../../shared/rpc-types";
+import { core } from "../core/process";
 import type { MachineServices } from "../machine-services";
 import { SidecarManager } from "../sidecar";
 import { SidecarPool } from "../sidecar-pool";
@@ -27,7 +28,8 @@ import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
 import type { ClientWindow } from "../web/client-window";
 import type { WebDevice } from "../web/devices-store";
 import { WebWindows } from "../web/web-client-window";
-import { type RouterSocket, type Timers, WsRouter } from "../web/ws-router";
+import type { WsRouter } from "../web/ws-router";
+import { TestRouterHost } from "../web/ws-router-test-rig";
 import type { HostConnection } from "./host-server";
 import { LocalHostServices } from "./host-services";
 import type { PeerInfo } from "./peers-store";
@@ -186,15 +188,25 @@ function desktopWindow(id: number, sink: Sink): ClientWindow {
 	} as unknown as ClientWindow;
 }
 
-class SinkSocket implements RouterSocket {
-	bufferedAmount = 0;
-	constructor(readonly sink: Sink) {}
-	send(data: string): void {
-		this.sink.add(data);
-	}
-	close(): void {}
-	ping(): void {}
-	terminate(): void {}
+/**
+ * What main hands the core for each page (`web.deliver`'s data): the core's router batches and numbers it, off this
+ * thread, as it frames a computer's link. The sink keeps what main handed over, so a run before and a run after can
+ * still compare what each page got.
+ */
+const pageSinks = new Map<string, Sink>();
+let teed: object | null = null;
+
+function teePages(): void {
+	const process = core();
+	if (teed === process) return;
+	teed = process;
+	const push = process.push.bind(process);
+	process.push = (method, params, bin) => {
+		push(method, params, bin);
+		if (method !== "web.deliver" || typeof params !== "object" || params === null || !("device" in params)) return;
+		const sink = pageSinks.get(String(params.device));
+		if (sink && bin) sink.add(bin);
+	};
 }
 
 /**
@@ -250,15 +262,6 @@ class Connection implements HostConnection {
 	}
 	close(): void {}
 }
-
-const realTimers: Timers = {
-	after: (callback, ms) => {
-		const timer = setTimeout(callback, ms);
-		return () => clearTimeout(timer);
-	},
-	// No heartbeat: the replay's pages never answer one.
-	every: () => () => {},
-};
 
 function webDevice(deviceId: string): WebDevice {
 	return {
@@ -345,7 +348,8 @@ async function rig(
 	const devices = new Map<string, WebDevice>();
 	let router: WsRouter | null = null;
 	const windows = new WebWindows((deviceId, channel, payload) => router?.deliver(deviceId, channel, payload));
-	router = new WsRouter({
+	// The core's router, its batch windows never closed during the replay: what it writes is the core's work.
+	const host = await TestRouterHost.open({
 		registry: { invoke: async () => undefined, send: () => {} },
 		devices: { get: (deviceId: string) => devices.get(deviceId) },
 		windows,
@@ -354,17 +358,21 @@ async function rig(
 		features: () => ({ push: false, preview: false, upload: true, passkey: false }),
 		blobs: { addBytes: () => "", addMedia: () => "", mediaUrl: () => "", release: () => {} } as never,
 		uploads: { take: async () => Buffer.alloc(0) },
-		toModelImage: async (image: unknown) => image,
-		timers: realTimers,
-	} as never);
+		toModelImage: async image => image,
+	});
+	router = host.router;
+	pageSinks.clear();
+	teePages();
 	const late: Array<() => Promise<void>> = [];
 	for (let index = 0; index < WEB_PAGES; index++) {
 		const deviceId = `phone-${index}`;
 		devices.set(deviceId, webDevice(deviceId));
 		const sink = new Sink(hashing);
 		receivers.pages.push(sink);
+		pageSinks.set(deviceId, sink);
 		const open = async () => {
-			router?.attach(deviceId, new SinkSocket(sink));
+			await host.device(deviceId, webDevice(deviceId).grants);
+			await host.attach(deviceId);
 			pool.attachViewer(windows.windowFor(deviceId), "busy");
 		};
 		if (JOIN !== undefined && index === WEB_PAGES - 1) late.push(open);
@@ -501,7 +509,10 @@ function readProfile(profile: { nodes: ProfileNode[]; samples: number[]; timeDel
 		["link send (JSON, frame)", node => node.callFrame.functionName === "send" && fromFile(node, "wire.ts")],
 		["link to the core (JSON, pipe)", node => fromFile(node, "process.ts")],
 		["link encode", node => fromFile(node, "link-events.ts")],
-		["web frame (coalesce, JSON)", node => node.callFrame.functionName === "flush" && fromFile(node, "ws-router.ts")],
+		[
+			"web push (JSON once, to the core)",
+			node => node.callFrame.functionName === "deliver" && fromFile(node, "ws-router.ts"),
+		],
 		["window clone (Electron stand-in)", node => node.callFrame.functionName === "serialize"],
 		["message slim (windows, links)", node => fromFile(node, "message-update-slim.ts")],
 		// What the harness does around a push (counting a sink, the profiler's own call); never above production code.

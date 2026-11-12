@@ -107,7 +107,7 @@ Edit(p, v) ==
     /\ UNCHANGED <<conn, live, greeted, handoff, store, deciding, released, bad, late, refused>>
 
 \* A fresh socket: the router serves a new connection (a new random id) for the page.
-\* @code src/main/web/ws-router.ts:391-403 attach
+\* @code native/ompdesk/crates/core/src/web/router.rs:720-761 attach_conn
 Connect(p) ==
     /\ conn[p] < MaxConn
     /\ conn[p] = 0 \/ Current(p) \notin live
@@ -126,7 +126,7 @@ Greet(p) ==
     /\ UNCHANGED <<edit, conn, live, handoff, store, deciding, released, edits, bad, late, refused>>
 
 \* The socket ends (closed, timed out, retired, revoked): detach, onConnectionEnded, forget, in one synchronous run.
-\* @code src/main/web/ws-router.ts:418-434 detach -> onConnectionEnded; src/main/index.ts:1843 forget
+\* @code native/ompdesk/crates/core/src/web/router.rs:825-862 finish -> web.conns end; src/main/web/ws-router.ts:383-394 connections -> onConnectionEnded; src/main/index.ts:2297 forget
 Drop(c) ==
     /\ c \in live
     /\ live' = live \ {c}
@@ -134,7 +134,7 @@ Drop(c) ==
     /\ UNCHANGED <<edit, conn, greeted, q, handoff, deciding, released, edits, bad, late, refused>>
 
 \* A report frame reaches main: an ended connection refuses it; a live one hands it to the handler in the same run.
-\* @code src/main/web/ws-router.ts:507-508 receive (closed -> ignored); ws-router.ts:749 registry.invoke; src/main/ipc.ts:1542-1546 FILE_EDIT_REPORT
+\* @code native/ompdesk/crates/core/src/web/router.rs:1009-1018 receive (closed -> ignored); native/ompdesk/crates/core/src/web/router.rs:1140-1222 dispatch -> web.call; src/main/web/ws-router.ts:414-434 call -> #dispatch; ws-router.ts:476 registry.invoke; src/main/ipc.ts:1693-1697 FILE_EDIT_REPORT
 Deliver(c) ==
     /\ q[c] # <<>>
     /\ q' = [q EXCEPT ![c] = Tail(@)]

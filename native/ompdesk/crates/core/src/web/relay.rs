@@ -1,18 +1,14 @@
-//! What the edge asks of main while main still owns it (native-rust ledger 8b): the WebSocket router (`ws-router.ts`,
-//! until 8c), the desktop's say over a new device (`pairing.ts`, which computer sharing's gate shares), `tailscale
-//! whois` through main's located CLI, the schedule service's webhook, and Settings' allowed logins. Each is an event
-//! main answers with `web.answer`, or an event main only hears.
+//! What the edge asks of main while main still owns it (native-rust ledger 8b): the desktop's say over a new device
+//! (`pairing.ts`, which computer sharing's gate shares), `tailscale whois` through main's located CLI, the schedule
+//! service's webhook, and Settings' allowed logins. Each is an event main answers with `web.answer`, or an event main
+//! only hears. The page sockets are the core's router's (`router.rs`, 8c).
 //!
 //! Events: `web.ask {call, host, kind, ...}` with `kind` one of `policy` → `{host, publicPort, secure, servePrefix,
 //! pendingPrefix, allowedUsers}`, `confirmNew` → `bool`,
 //! `confirm {name, userAgent, tailscaleLogin, ip}` → `{approved: true, grants} | {approved: false, reason}`,
 //! `whois {address}` → `TailnetPeer | null`, `hook {id, bearer, detail}` → `"fired"|"unknown"|"denied"|"off"|
-//! "unavailable"`, `count {deviceId}` → number, `retire {deviceId, connId}` → null, `attach {conn, deviceId,
-//! resumeFrom}` → bool. `web.deviceConnected {host, device: {id, name, tailscaleLogin}}`, `web.unpairedAuth
-//! {host, address}`. A socket: `web.ws.frame {host, conn}` with the text as `bin`, `web.ws.close {host,
-//! conn, code, reason}` (the edge refused a frame), `web.ws.gone {host, conn}`. Main's pushes to a socket:
-//! `web.ws.send {conn}` + text as `bin`, `web.ws.ping {conn}`, `web.ws.close {conn, code, reason}`,
-//! `web.ws.terminate {conn}`.
+//! "unavailable"`. `web.deviceConnected {host, device: {id, name, tailscaleLogin}}`, `web.unpairedAuth {host,
+//! address}`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
@@ -23,17 +19,15 @@ use tokio::sync::oneshot;
 
 use super::auth::Policy;
 use super::deps::{
-    BoxFuture, Connection, Desktop, HookOutcome, Hooks, Outbox, Outgoing, PairingDetails,
-    PairingOutcome, Peer, Router, Whois,
+    BoxFuture, Desktop, HookOutcome, Hooks, PairingDetails, PairingOutcome, Peer, Whois,
 };
 use super::devices::{DEFAULT_GRANTS, Device};
-use crate::server::{Call, Events, Fault, PushCall, Registry, Reply};
+use crate::server::{Call, Events, Fault, Registry, Reply};
 
 #[derive(Default)]
 struct State {
     next: u64,
     asks: HashMap<u64, oneshot::Sender<Value>>,
-    sockets: HashMap<u64, Outbox>,
 }
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(Mutex::default);
@@ -208,101 +202,6 @@ impl Hooks for Relay {
     }
 }
 
-/// One page socket main's router holds by the core's number.
-struct RelayConnection {
-    relay: Arc<Relay>,
-    conn: u64,
-}
-
-impl Connection for RelayConnection {
-    fn receive(&self, text: String) {
-        let mut message = Map::new();
-        message.insert("host".into(), self.relay.host.into());
-        message.insert("conn".into(), self.conn.into());
-        self.relay
-            .events
-            .send_bin("web.ws.frame", &message, text.into_bytes());
-    }
-
-    fn close(&self, code: u16, reason: &str) {
-        self.relay.tell(
-            "web.ws.close",
-            json!({ "conn": self.conn, "code": code, "reason": reason }),
-        );
-    }
-
-    fn dispose(&self) {
-        state().sockets.remove(&self.conn);
-        self.relay.tell("web.ws.gone", json!({ "conn": self.conn }));
-    }
-}
-
-/// The router as main's `WsRouter`, reached over the pipe.
-pub struct RelayRouter(pub Arc<Relay>);
-
-impl Router for RelayRouter {
-    fn connection_count<'a>(&'a self, device_id: &'a str) -> BoxFuture<'a, usize> {
-        Box::pin(async move {
-            self.0
-                .ask("count", json!({ "deviceId": device_id }))
-                .await
-                .and_then(|v| v.as_u64())
-                .map_or(usize::MAX, |n| usize::try_from(n).unwrap_or(usize::MAX))
-        })
-    }
-
-    fn retire<'a>(&'a self, device_id: &'a str, connection_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            let _ = self
-                .0
-                .ask(
-                    "retire",
-                    json!({ "deviceId": device_id, "connId": connection_id }),
-                )
-                .await;
-        })
-    }
-
-    fn attach<'a>(
-        &'a self,
-        device_id: &'a str,
-        outbox: Outbox,
-        resume_from: Option<&'a str>,
-    ) -> BoxFuture<'a, Option<Box<dyn Connection>>> {
-        Box::pin(async move {
-            let conn = {
-                let mut state = state();
-                state.next += 1;
-                let conn = state.next;
-                // Registered before main hears of it: main may send down the socket as soon as it attached.
-                state.sockets.insert(conn, outbox);
-                conn
-            };
-            let attached = self
-                .0
-                .ask(
-                    "attach",
-                    json!({ "conn": conn, "deviceId": device_id, "resumeFrom": resume_from }),
-                )
-                .await
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if !attached {
-                state().sockets.remove(&conn);
-                return None;
-            }
-            let connection: Box<dyn Connection> = Box::new(RelayConnection {
-                relay: self.0.clone(),
-                conn,
-            });
-            Some(connection)
-        })
-    }
-
-    /// Main closes its connections (1001) before it stops the edge (`WebHost.stop`).
-    fn close_all(&self, _code: u16, _reason: &str) {}
-}
-
 #[derive(Deserialize)]
 struct AnswerParams {
     call: u64,
@@ -319,44 +218,6 @@ async fn answer(call: Call) -> Result<Reply, Fault> {
     Reply::json(&Value::Null)
 }
 
-#[derive(Deserialize)]
-struct ConnParams {
-    conn: u64,
-    code: Option<u16>,
-    reason: Option<String>,
-}
-
-fn to_socket(push: &PushCall, outgoing: impl FnOnce(&ConnParams) -> Option<Outgoing>) {
-    let Ok(params) = serde_json::from_str::<ConnParams>(push.params.get()) else {
-        return;
-    };
-    let outbox = state().sockets.get(&params.conn).cloned();
-    if let (Some(outbox), Some(outgoing)) = (outbox, outgoing(&params)) {
-        outbox.send(outgoing);
-    }
-}
-
 pub fn register(registry: &mut Registry) {
     registry.add("web.answer", |call| Box::pin(answer(call)));
-    registry.add_push("web.ws.send", |mut push| {
-        let text = push
-            .bin
-            .take()
-            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-        to_socket(&push, |_| text.map(Outgoing::Text));
-    });
-    registry.add_push("web.ws.ping", |push| {
-        to_socket(&push, |_| Some(Outgoing::Ping));
-    });
-    registry.add_push("web.ws.close", |push| {
-        to_socket(&push, |p| {
-            Some(Outgoing::Close(
-                p.code.unwrap_or(1000),
-                p.reason.clone().unwrap_or_default(),
-            ))
-        });
-    });
-    registry.add_push("web.ws.terminate", |push| {
-        to_socket(&push, |_| Some(Outgoing::Terminate));
-    });
 }

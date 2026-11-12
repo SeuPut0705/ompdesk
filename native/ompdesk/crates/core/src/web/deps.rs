@@ -183,7 +183,7 @@ pub trait Connection: Send + Sync {
     fn dispose(&self);
 }
 
-/// The WebSocket router (`ws-router.ts`; its frame handling moves in 8c, until then main's, reached over the pipe).
+/// The WebSocket router (`router.rs`, 8c).
 /// The edge checks the ticket and hands the upgraded socket over.
 pub trait Router: Send + Sync {
     fn connection_count<'a>(&'a self, device_id: &'a str) -> BoxFuture<'a, usize>;

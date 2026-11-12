@@ -3,14 +3,14 @@
  * core/src/web/`, native-rust ledger 8b): the static allowlist, the walls of every request, `/api/pair`,
  * `/api/session`, `/api/push`, `/upload`, `/blob/`, `/hooks/<id>` and the page's socket. Main keeps what the edge asks
  * for at each request (`web.ask`): the published address and the allowed logins (`RequestPolicy`, which Mobile web's
- * service configures), the desktop's say over a new device, `tailscale whois`, the schedule service's webhook and the
- * WebSocket router (until 8c): each page socket's frames reach `WsRouter` here by the core's connection number.
+ * service configures), the desktop's say over a new device, `tailscale whois` and the schedule service's webhook. The
+ * page sockets are the core's router's (8c); main's side of it is `WsRouter`, whose number is this host's.
  */
 import { CORE_EXITED, type CoreProcess, core } from "../core/process";
 import type { WebhookOutcome } from "../schedules";
 import type { TailnetPeer } from "../tailscale/whois";
 import type { PairingConfirmations } from "./pairing";
-import type { RouterSocket, WsConnection, WsRouter } from "./ws-router";
+import type { WsRouter } from "./ws-router";
 
 export const WEB_SERVER_HOST = "127.0.0.1";
 
@@ -71,7 +71,7 @@ interface ConfigurablePolicy {
 interface EdgeAsk {
 	call: number;
 	host: number;
-	kind: "policy" | "confirmNew" | "confirm" | "whois" | "hook" | "count" | "retire" | "attach";
+	kind: "policy" | "confirmNew" | "confirm" | "whois" | "hook";
 	name?: string;
 	userAgent?: string;
 	tailscaleLogin?: string;
@@ -80,17 +80,12 @@ interface EdgeAsk {
 	id?: string;
 	bearer?: string;
 	detail?: string;
-	deviceId?: string;
-	connId?: string;
-	conn?: number;
-	resumeFrom?: string | null;
 }
 
 const servers = new Map<number, WebServer>();
-let nextHost = 0;
 let routed: CoreProcess | null = null;
 
-/** The core's asks and socket frames reach the server they name. */
+/** The core's asks reach the server they name. */
 function route(process: CoreProcess): void {
 	if (routed === process) return;
 	routed = process;
@@ -104,18 +99,6 @@ function route(process: CoreProcess): void {
 			console.warn(`[web] ${ask.kind} failed: ${error instanceof Error ? error.message : String(error)}`);
 			answer(null);
 		});
-	});
-	process.on("web.ws.frame", (data, bin) => {
-		const { host, conn } = data as { host: number; conn: number };
-		servers.get(host)?.frame(conn, bin === null ? "" : Buffer.from(bin).toString("utf8"));
-	});
-	process.on("web.ws.close", data => {
-		const { host, conn, code, reason } = data as { host: number; conn: number; code: number; reason: string };
-		servers.get(host)?.connectionOf(conn)?.close(code, reason);
-	});
-	process.on("web.ws.gone", data => {
-		const { host, conn } = data as { host: number; conn: number };
-		servers.get(host)?.gone(conn);
 	});
 	process.on("web.deviceConnected", data => {
 		const { host, device } = data as {
@@ -133,26 +116,16 @@ function route(process: CoreProcess): void {
 	});
 }
 
-/** A page socket the core holds, as the router writes to it. */
-function socketOf(process: CoreProcess, conn: number): RouterSocket {
-	return {
-		send: data => process.push("web.ws.send", { conn }, Buffer.from(data, "utf8")),
-		close: (code, reason) => process.push("web.ws.close", { conn, code, reason }),
-		ping: () => process.push("web.ws.ping", { conn }),
-		terminate: () => process.push("web.ws.terminate", { conn }),
-	};
-}
-
 export class WebServer {
 	readonly #deps: WebServerDeps;
-	readonly #id = ++nextHost;
-	readonly #connections = new Map<number, WsConnection>();
+	readonly #id: number;
 	#port: number | null = null;
 	/** The loopback port asked for at `start`, kept to start again on it after a core that ended. */
 	#asked = 0;
 
 	constructor(deps: WebServerDeps) {
 		this.#deps = deps;
+		this.#id = deps.router.host;
 	}
 
 	/** The loopback port while listening, else null. */
@@ -178,6 +151,7 @@ export class WebServer {
 				userData: this.#deps.userData,
 				port: this.#asked,
 				staticRoot: this.#deps.staticRoot(),
+				router: this.#deps.router.config(),
 			});
 			this.#port = result.port;
 			return result;
@@ -192,18 +166,16 @@ export class WebServer {
 		if (this.#port === null) return;
 		this.#port = null;
 		this.#deps.confirmations.declineAll();
-		this.#deps.router.closeAll(1001, "server stopping");
 		try {
 			await core().call("web.stop", { host: this.#id });
 		} finally {
 			servers.delete(this.#id);
-			this.#disposeAll();
 		}
 	}
 
 	/** One question of the edge (`web.ask`). */
 	async answerAsk(ask: EdgeAsk): Promise<unknown> {
-		const { policy, router } = this.#deps;
+		const { policy } = this.#deps;
 		switch (ask.kind) {
 			case "policy":
 				return {
@@ -230,33 +202,7 @@ export class WebServer {
 				if (!service) return "unavailable";
 				return service.webhook(ask.id ?? "", ask.bearer ?? "", ask.detail ?? "");
 			}
-			case "count":
-				return router.connectionCount(ask.deviceId ?? "");
-			case "retire":
-				router.retire(ask.deviceId ?? "", ask.connId ?? "");
-				return null;
-			case "attach": {
-				const conn = ask.conn ?? 0;
-				const connection = router.attach(ask.deviceId ?? "", socketOf(core(), conn), ask.resumeFrom ?? undefined);
-				if (!connection) return false;
-				this.#connections.set(conn, connection);
-				return true;
-			}
 		}
-	}
-
-	connectionOf(conn: number): WsConnection | undefined {
-		return this.#connections.get(conn);
-	}
-
-	frame(conn: number, text: string): void {
-		this.#connections.get(conn)?.receive(text);
-	}
-
-	gone(conn: number): void {
-		const connection = this.#connections.get(conn);
-		this.#connections.delete(conn);
-		connection?.dispose();
 	}
 
 	deviceConnected(device: { id: string; name: string; tailscaleLogin: string | null }): void {
@@ -269,18 +215,11 @@ export class WebServer {
 
 	/** The core ended with the edge in it: its sockets are gone, and the edge listens again on the same port. */
 	coreExited(): void {
-		this.#disposeAll();
 		if (this.#port === null) return;
 		const port = this.#port;
 		this.#port = null;
 		this.start({ port: this.#asked === 0 ? port : this.#asked }).catch(error =>
 			this.#deps.log?.(`web: the server could not start again after the core ended: ${String(error)}`),
 		);
-	}
-
-	#disposeAll(): void {
-		const connections = [...this.#connections.values()];
-		this.#connections.clear();
-		for (const connection of connections) connection.dispose();
 	}
 }

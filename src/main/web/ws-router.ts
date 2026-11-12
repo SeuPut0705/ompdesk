@@ -1,14 +1,17 @@
 /**
- * The web client's side of the wire (web-protocol.ts): one `WsConnection` per open socket, owned by the
- * `WsRouter`. Frames from a page become calls on the one `IpcRegistry` (`invoke` for `inv`, `send` for `snd`)
- * with the device's `WebClientWindow` as the caller, after the channel policy (ipc-policy.ts) and the device's
- * grants have said yes; the model-use quota counts model commands first, and a picture the page sent by upload
- * (`WebUploadedImage`) is read back into the call. Pushes the pool makes to that window come back as `evt`
- * frames, batched every 75 ms with a reply's streaming deltas merged, and stop while the page reports itself
- * hidden. The socket itself (`RouterSocket`) is whatever `ws` hands the server, or a fake.
+ * Main's side of the paired pages' router. The sockets are the core's (`native/ompdesk/crates/core/src/web/router.rs`,
+ * native-rust ledger 8c): there each connection is rate limited, its frames parsed, its pushes numbered, batched every
+ * 75 ms with a reply's streaming deltas merged and dropped while the page reports itself hidden, and each call is
+ * checked against the channel policy (ipc-policy.ts), the web-only channels and the device's grants. What stays here
+ * is what reads main's state in the same tick: a call the core let through (`web.call`) runs on the one `IpcRegistry`
+ * (`invoke` for `inv`, `send` for `snd`) with the device's `WebClientWindow` as the caller, after the model-use quota
+ * counted it and a picture the page sent by upload (`WebUploadedImage`) was read back into it; the window's pushes
+ * go to the core once per device (`web.deliver`), a stream's data text made once for every device; and a copy of
+ * each device's connections (`web.conns`) answers who is connected and whose page is in the foreground.
+ *
+ * Every message between the core and main is handled in the order it came: a page's call reaches main before the
+ * event that ends its connection, and a call's answer (`web.reply`) leaves after every push main made before it.
  */
-import { randomUUID } from "node:crypto";
-import { z } from "zod";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { IPC_COMMANDS, IPC_EVENTS } from "../../shared/ipc-types";
 import { WEB_DEVICE_CONNECTED, WEB_DEVICES_CHANGED, WEB_PAIRING_REQUEST } from "../../shared/mobile-web";
@@ -18,72 +21,30 @@ import {
 	isWebUploadedImage,
 	replaceBlocks,
 	WEB_PROTOCOL_VERSION,
-	type WebClientFrame,
 	type WebFeatures,
 	type WebInvokeError,
 	type WebPermission,
-	type WebServerFrame,
 } from "../../shared/web-protocol";
+import { CORE_EXITED, type CoreProcess, core } from "../core/process";
 import type { PeerQuota } from "../remote/peer-quota";
 import { commandUsesModel } from "../remote/quota-commands";
 import type { BlobStore } from "./blobs";
 import type { WebDevice, WebDevices } from "./devices-store";
-import { IPC_POLICY, type IpcChannel } from "./ipc-policy";
+import { IPC_POLICY } from "./ipc-policy";
 import type { IpcCaller } from "./ipc-registry";
-import { ConcurrencyLimiter, TokenBucket } from "./rate-limit";
 import type { UploadStore } from "./uploads";
 import type { WebClientWindow, WebWindows } from "./web-client-window";
 
 /** Files up to this size ride in the reply as base64; bigger ones are fetched over `/blob`. */
 const INLINE_BINARY_MAX_BYTES = 512 * 1024;
 
-/** The most a page may send in one frame. */
-export const MAX_FRAME_BYTES = 1024 * 1024;
-export const EVENT_BATCH_MS = 75;
-export const MAX_CONNECTIONS_PER_DEVICE = 4;
-/** Sustained and burst messages a second per socket. */
-export const MESSAGE_RATE = 200;
-export const MESSAGE_BURST = 400;
-/** Heavy calls (a search, a big read, a directory listing) one device may have running at once. */
-export const HEAVY_CALLS_PER_DEVICE = 4;
-export const HEARTBEAT_MS = 20_000;
-export const HEARTBEAT_MAX_MISSES = 3;
-/** A socket this far behind on what it was sent is closed rather than fed more. */
-export const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
-/** How long an ended connection can be resumed by the page that held it (`resume.<connId>`). */
-export const RESUME_WINDOW_MS = 10 * 60_000;
-const RESUME_ENTRIES_MAX = 64;
-
-export const CLOSE_GOING_AWAY = 1001;
-export const CLOSE_POLICY = 1008;
-export const CLOSE_TOO_BIG = 1009;
 /** The device was revoked or expired. */
 export const CLOSE_REVOKED = 4401;
-export const CLOSE_RATE_LIMITED = 4429;
-export const CLOSE_SLOW_CONSUMER = 4408;
-export const CLOSE_HEARTBEAT = 4410;
 
-/** Timers a test can drive: each returns what cancels it. */
-export interface Timers {
-	every(callback: () => void, ms: number): () => void;
-	after(callback: () => void, ms: number): () => void;
-}
-
-/** Real timers that never keep the process alive. */
-const realTimers: Timers = {
-	every(callback, ms) {
-		const handle = setInterval(callback, ms);
-		handle.unref();
-		return () => clearInterval(handle);
-	},
-	after(callback, ms) {
-		const handle = setTimeout(callback, ms);
-		handle.unref();
-		return () => clearTimeout(handle);
-	},
-};
-
-/** The pushes that carry a running reply or a log: dropped while the page is hidden (it reloads state on return). */
+/**
+ * The pushes that carry a running reply or a log: the core's router drops them while the page is hidden (it reloads
+ * state on return), and their data is a fresh object the pool never changes, so its JSON is made once for every device.
+ */
 const STREAM_CHANNELS: ReadonlySet<string> = new Set([
 	IPC_EVENTS.EVENTS_BATCH,
 	IPC_EVENTS.SUBAGENT_FRAMES,
@@ -93,20 +54,20 @@ const STREAM_CHANNELS: ReadonlySet<string> = new Set([
 	IPC_EVENTS.COMMAND_OUTPUT,
 ]);
 
+/** Calls that read or scan a lot: a device runs a few at once. */
+const HEAVY_CHANNELS: readonly string[] = [
+	IPC_COMMANDS.FS_SEARCH,
+	IPC_COMMANDS.FS_READ_BINARY,
+	IPC_COMMANDS.FS_LIST,
+	IPC_COMMANDS.REMOTE_LIST_DIRS,
+];
+
 /** Pushes for the desktop's own windows: a web window never gets them. */
 const DESKTOP_ONLY_PUSH: Readonly<Record<string, true>> = {
 	[WEB_DEVICES_CHANGED]: true,
 	[WEB_DEVICE_CONNECTED]: true,
 	[WEB_PAIRING_REQUEST]: true,
 };
-
-/** Calls that read or scan a lot: a device runs a few at once. */
-const HEAVY_CHANNELS: ReadonlySet<string> = new Set([
-	IPC_COMMANDS.FS_SEARCH,
-	IPC_COMMANDS.FS_READ_BINARY,
-	IPC_COMMANDS.FS_LIST,
-	IPC_COMMANDS.REMOTE_LIST_DIRS,
-]);
 
 /** The caller of a web-only channel: who, and the window their pushes and tabs belong to. */
 export interface WebCallContext {
@@ -125,18 +86,6 @@ export interface WebChannelEntry {
 
 /** Channels a web device has and Electron's windows do not (shared/web-host.ts and the device's own prefs). */
 export type WebChannelTable = Readonly<Record<string, WebChannelEntry>>;
-
-/** What the router needs of a socket. */
-export interface RouterSocket {
-	send(data: string): void;
-	close(code: number, reason: string): void;
-	/** A WebSocket-level ping (the page's browser answers it without a script). */
-	ping(): void;
-	/** Drop the connection without a close handshake (a peer that stopped answering). */
-	terminate(): void;
-	/** Bytes queued for the peer and not yet written. */
-	readonly bufferedAmount?: number;
-}
 
 export interface WsRouterDeps {
 	registry: {
@@ -166,27 +115,41 @@ export interface WsRouterDeps {
 	onConnectionEnded?: (deviceId: string, connId: string) => void;
 	/** The device's page got a hello it must resync from (`resumed: false`): it missed pushes. */
 	onResync?: (deviceId: string) => void;
-	now?: () => number;
-	timers?: Timers;
 }
 
-const FrameSchema = z.discriminatedUnion("t", [
-	z.object({
-		t: z.literal("inv"),
-		id: z.number().int().nonnegative(),
-		ch: z.string().min(1).max(128),
-		a: z.array(z.unknown()).max(16),
-	}),
-	z.object({ t: z.literal("snd"), ch: z.string().min(1).max(128), a: z.array(z.unknown()).max(16) }),
-	z.object({ t: z.literal("ack"), seq: z.number().int().nonnegative() }),
-	z.object({ t: z.literal("presence"), visible: z.boolean() }),
-	z.object({ t: z.literal("ping") }),
-	z.object({ t: z.literal("pong") }),
-]);
+/** What the core's router is started with (`web.start`'s `router`). */
+export interface RouterConfig {
+	channels: { batch: string; streams: string[]; heavy: readonly string[]; prefsSet: string };
+	protocol: number;
+	features: WebFeatures;
+	build: string | null;
+	policy: Record<string, { dir: string; permission?: string; mode: string }>;
+	webChannels: Record<string, { dir: string; permission: string; heavy: boolean }>;
+}
 
-interface QueuedEvent {
+/** A call the core let through. `answer`: the core waits for `web.reply` (an invoke, or a send holding a heavy slot). */
+interface CallEvent {
+	host: number;
+	call: number;
+	answer: boolean;
+	device: string;
+	connId: string;
+	dir: "invoke" | "send";
 	ch: string;
-	d: unknown;
+}
+
+interface PageConnection {
+	connId: string;
+	visible: boolean;
+}
+
+/** A device's connections after one came or went, or a page told its presence. */
+interface ConnsEvent {
+	host: number;
+	device: string;
+	conns: PageConnection[];
+	change: "attach" | "end" | "presence";
+	connId: string;
 }
 
 interface TabBatch {
@@ -204,80 +167,6 @@ function isTabBatch(data: unknown): data is TabBatch {
 		Array.isArray(data.payload)
 	);
 }
-
-type MessageUpdate = Extract<AgentSessionEvent, { type: "message_update" }>;
-const DELTA_TYPES: ReadonlySet<string> = new Set(["text_delta", "thinking_delta", "toolcall_delta"]);
-
-/** A streamed update with no snapshot (the pool slims every update after a message's first): its delta can be joined. */
-function mergeableUpdate(event: AgentSessionEvent): event is MessageUpdate {
-	if (event.type !== "message_update") return false;
-	const increment = event.assistantMessageEvent;
-	return DELTA_TYPES.has(increment.type) && !("content" in event.message);
-}
-
-/** Two neighbouring slim updates of one block of one message become one with their deltas joined. */
-function joinUpdates(earlier: MessageUpdate, later: MessageUpdate): MessageUpdate | null {
-	const a = earlier.assistantMessageEvent;
-	const b = later.assistantMessageEvent;
-	if (a.type !== b.type || a.contentIndex !== b.contentIndex || !("delta" in a) || !("delta" in b)) return null;
-	if (earlier.messageId !== later.messageId || earlier.message.timestamp !== later.message.timestamp) return null;
-	return { ...later, assistantMessageEvent: { ...b, delta: a.delta + b.delta } };
-}
-
-/** Merge a tab's neighbouring slim `message_update`s; anything else keeps its place and count. */
-export function mergeMessageUpdates(events: readonly AgentSessionEvent[]): AgentSessionEvent[] {
-	const merged: AgentSessionEvent[] = [];
-	for (const event of events) {
-		const previous = merged.at(-1);
-		if (previous && mergeableUpdate(previous) && mergeableUpdate(event)) {
-			const joined = joinUpdates(previous, event);
-			if (joined) {
-				merged[merged.length - 1] = joined;
-				continue;
-			}
-		}
-		merged.push(event);
-	}
-	return merged;
-}
-
-/** A push as it leaves: one queued push, or a tab's neighbouring batches joined. */
-export interface CoalescedEvent extends QueuedEvent {
-	/** The data of the queued pushes it was made of, in order: pushes made of the same ones read the same. */
-	from: readonly unknown[];
-}
-
-/** Join neighbouring `EVENTS_BATCH` pushes of one tab into one, then merge their streaming deltas. */
-export function coalesceEvents(queue: readonly QueuedEvent[]): CoalescedEvent[] {
-	const out: CoalescedEvent[] = [];
-	for (const item of queue) {
-		const previous = out.at(-1);
-		if (
-			previous &&
-			item.ch === IPC_EVENTS.EVENTS_BATCH &&
-			previous.ch === IPC_EVENTS.EVENTS_BATCH &&
-			isTabBatch(previous.d) &&
-			isTabBatch(item.d) &&
-			previous.d.tabId === item.d.tabId
-		) {
-			out[out.length - 1] = {
-				ch: item.ch,
-				d: { tabId: item.d.tabId, payload: [...previous.d.payload, ...item.d.payload] },
-				from: [...previous.from, item.d],
-			};
-			continue;
-		}
-		out.push({ ch: item.ch, d: item.d, from: [item.d] });
-	}
-	return out.map(item =>
-		item.ch === IPC_EVENTS.EVENTS_BATCH && isTabBatch(item.d)
-			? { ...item, d: { ...item.d, payload: mergeMessageUpdates(item.d.payload) } }
-			: item,
-	);
-}
-
-/** Pushes' data texts kept per first push: connections whose batch windows close apart join pushes differently. */
-const DATA_TEXTS_KEPT = 4;
 
 /** Tokens one assistant reply used (its `message_end` usage). */
 function assistantTokens(event: AgentSessionEvent): number {
@@ -302,10 +191,6 @@ function webError(error: unknown): WebInvokeError {
 	const message = error instanceof Error ? error.message : String(error);
 	const code = ipcErrorCode(error);
 	return code ? { message, code } : { message };
-}
-
-function forbidden(message: string): Error {
-	return codedError("web_forbidden", message);
 }
 
 /** An image block with its bytes inline, as a call carries it to the registry. */
@@ -336,43 +221,102 @@ function isCommandWithType(command: unknown): command is Parameters<typeof comma
 	return typeof command === "object" && command !== null && "type" in command && typeof command.type === "string";
 }
 
-/** A connection that ended: whether its page had everything it was sent, and the device's push count then. */
-interface EndedConnection {
-	deviceId: string;
-	pushes: number;
-	clean: boolean;
-	at: number;
+/** An RPC response that reports failure: the request it reserved is given back. */
+function refused(result: unknown): boolean {
+	return typeof result === "object" && result !== null && "success" in result && result.success === false;
+}
+
+/** `IPC_POLICY` as the core's router reads it, made once. */
+let policyData: RouterConfig["policy"] | null = null;
+
+function routerPolicy(): RouterConfig["policy"] {
+	policyData ??= Object.fromEntries(
+		Object.entries(IPC_POLICY).map(([channel, policy]) => [
+			channel,
+			"permission" in policy
+				? { dir: policy.dir, permission: policy.permission, mode: policy.mode }
+				: { dir: policy.dir, mode: policy.mode },
+		]),
+	);
+	return policyData;
+}
+
+const routers = new Map<number, WsRouter>();
+let nextHost = 0;
+let routed: CoreProcess | null = null;
+
+/** The core's router events reach the router they name. */
+function route(process: CoreProcess): void {
+	if (routed === process) return;
+	routed = process;
+	process.on("web.call", (data, bin) => {
+		const event = data as CallEvent;
+		routers.get(event.host)?.call(event, bin === null ? "[]" : Buffer.from(bin).toString("utf8"));
+	});
+	process.on("web.conns", data => {
+		const event = data as ConnsEvent;
+		routers.get(event.host)?.connections(event);
+	});
+	process.on("web.resync", data => {
+		const { host, conn, device } = data as { host: number; conn: number; device: string };
+		routers.get(host)?.resync(conn, device);
+	});
+	process.on(CORE_EXITED, () => {
+		for (const router of routers.values()) router.coreExited();
+	});
 }
 
 export class WsRouter {
+	/** The number the core's router and edge know this host by (`web.start`'s `host`). */
+	readonly host = ++nextHost;
 	readonly #deps: WsRouterDeps;
-	readonly #connections = new Map<string, Set<WsConnection>>();
-	readonly #heavy = new ConcurrencyLimiter(HEAVY_CALLS_PER_DEVICE);
+	/** Each connected device's connections, as the core last told them. */
+	readonly #connections = new Map<string, PageConnection[]>();
 	/** The device that last sent each tab a model command: it is charged that tab's tokens. */
 	readonly #drivers = new Map<string, string>();
-	/** Pushes made to each device's window so far, connected or not. */
-	readonly #pushes = new Map<string, number>();
-	/** Recently ended connections by `connId`, for a page that reconnects with `resume.<connId>`. */
-	readonly #ended = new Map<string, EndedConnection>();
-	readonly now: () => number;
-	readonly timers: Timers;
+	/** A streamed push's data JSON, made once for every device that gets the pool's very push object. */
+	readonly #texts = new WeakMap<object, Uint8Array>();
+	/** Devices told of a push they had no connection for: until one connects, one word is all the core needs. */
+	readonly #unsent = new Set<string>();
+	/** The core's router was started (`config`) and has not ended with its core since. */
+	#open = false;
 
 	constructor(deps: WsRouterDeps) {
 		this.#deps = deps;
-		this.now = deps.now ?? Date.now;
-		this.timers = deps.timers ?? realTimers;
 	}
 
 	get deps(): WsRouterDeps {
 		return this.#deps;
 	}
 
-	get heavy(): ConcurrencyLimiter {
-		return this.#heavy;
+	/** What `web.start` hands the core's router; from here the core's router events reach this one. */
+	config(): RouterConfig {
+		route(core());
+		routers.set(this.host, this);
+		this.#open = true;
+		const webChannels = Object.fromEntries(
+			Object.entries(this.#deps.webChannels).map(([channel, entry]) => [
+				channel,
+				{ dir: entry.dir, permission: entry.permission, heavy: entry.heavy === true },
+			]),
+		);
+		return {
+			channels: {
+				batch: IPC_EVENTS.EVENTS_BATCH,
+				streams: [...STREAM_CHANNELS],
+				heavy: HEAVY_CHANNELS,
+				prefsSet: IPC_COMMANDS.PREFS_SET,
+			},
+			protocol: WEB_PROTOCOL_VERSION,
+			features: this.#deps.features(),
+			build: this.#deps.build?.() ?? null,
+			policy: routerPolicy(),
+			webChannels,
+		};
 	}
 
 	connectionCount(deviceId: string): number {
-		return this.#connections.get(deviceId)?.size ?? 0;
+		return this.#connections.get(deviceId)?.length ?? 0;
 	}
 
 	isConnected(deviceId: string): boolean {
@@ -381,85 +325,45 @@ export class WsRouter {
 
 	/** Some socket of the device is open with its page in the foreground (`presence.visible`): it sees events live. */
 	isDeviceVisible(deviceId: string): boolean {
-		for (const connection of this.#connections.get(deviceId) ?? []) if (connection.visible) return true;
-		return false;
-	}
-
-	/**
-	 * The page that held `connId` is back on a new socket: an old connection of the device still open (the
-	 * server had not noticed the drop yet) ends now, so it is judged as of this moment and frees its slot.
-	 */
-	retire(deviceId: string, connId: string): void {
-		for (const connection of this.#connections.get(deviceId) ?? []) {
-			if (connection.connId === connId) connection.close(CLOSE_GOING_AWAY, "resumed");
-		}
-	}
-
-	/**
-	 * Start serving a socket the server accepted for `deviceId`; null when the device already has its four.
-	 * `resumeFrom` is the page's previous `connId`: the hello says `resumed` when that connection ended with
-	 * every event it was sent acknowledged and nothing dropped, and no push reached the device since.
-	 */
-	attach(deviceId: string, socket: RouterSocket, resumeFrom?: string): WsConnection | null {
-		if (this.connectionCount(deviceId) >= MAX_CONNECTIONS_PER_DEVICE) return null;
-		const connection = new WsConnection(this, deviceId, socket);
-		let set = this.#connections.get(deviceId);
-		if (!set) {
-			set = new Set();
-			this.#connections.set(deviceId, set);
-		}
-		set.add(connection);
-		this.#deps.onConnectionsChanged?.(deviceId);
-		connection.start(resumeFrom !== undefined && this.#resumable(deviceId, resumeFrom));
-		return connection;
-	}
-
-	#resumable(deviceId: string, connId: string): boolean {
-		const ended = this.#ended.get(connId);
-		this.#ended.delete(connId);
-		return (
-			ended !== undefined &&
-			ended.deviceId === deviceId &&
-			ended.clean &&
-			ended.pushes === (this.#pushes.get(deviceId) ?? 0) &&
-			this.now() - ended.at <= RESUME_WINDOW_MS
-		);
-	}
-
-	/** Called by a connection that ended. */
-	detach(connection: WsConnection): void {
-		const set = this.#connections.get(connection.deviceId);
-		if (!set?.delete(connection)) return;
-		if (set.size === 0) this.#connections.delete(connection.deviceId);
-		const now = this.now();
-		for (const [connId, ended] of this.#ended) {
-			if (now - ended.at > RESUME_WINDOW_MS || this.#ended.size >= RESUME_ENTRIES_MAX) this.#ended.delete(connId);
-		}
-		this.#ended.set(connection.connId, {
-			deviceId: connection.deviceId,
-			pushes: this.#pushes.get(connection.deviceId) ?? 0,
-			clean: connection.clean,
-			at: now,
-		});
-		this.#deps.onConnectionsChanged?.(connection.deviceId);
-		this.#deps.onConnectionEnded?.(connection.deviceId, connection.connId);
+		return this.#connections.get(deviceId)?.some(connection => connection.visible) ?? false;
 	}
 
 	/** A push the pool or a handler made to the device's window. */
 	deliver(deviceId: string, channel: string, payload: unknown): void {
 		this.#recordTokens(deviceId, channel, payload);
-		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as IpcChannel] : undefined;
+		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as keyof typeof IPC_POLICY] : undefined;
 		if (policy?.dir !== "push" || policy.mode === "client" || Object.hasOwn(DESKTOP_ONLY_PUSH, channel)) return;
-		this.#pushes.set(deviceId, (this.#pushes.get(deviceId) ?? 0) + 1);
-		for (const connection of this.#connections.get(deviceId) ?? []) connection.push(channel, payload);
+		if (!this.#open) return;
+		if (!this.#connections.has(deviceId)) {
+			// Counted, so a page that comes back is not told it missed nothing; its data would reach no socket.
+			if (this.#unsent.has(deviceId)) return;
+			this.#unsent.add(deviceId);
+			core().push("web.deliver", { host: this.host, device: deviceId });
+			return;
+		}
+		let data: Uint8Array | undefined;
+		try {
+			data = this.#dataBytes(channel, payload);
+		} catch {
+			return;
+		}
+		core().push("web.deliver", { host: this.host, device: deviceId, ch: channel }, data);
+	}
+
+	/** `JSON.stringify(payload)`'s bytes; a stream's made once per push object. Throws as `JSON.stringify` does. */
+	#dataBytes(channel: string, payload: unknown): Uint8Array | undefined {
+		const keyed = STREAM_CHANNELS.has(channel) && typeof payload === "object" && payload !== null ? payload : null;
+		const known = keyed ? this.#texts.get(keyed) : undefined;
+		if (known) return known;
+		const text = JSON.stringify(payload);
+		if (text === undefined) return undefined;
+		const bytes = Buffer.from(text, "utf8");
+		if (keyed) this.#texts.set(keyed, bytes);
+		return bytes;
 	}
 
 	closeDevice(deviceId: string, code: number, reason: string): void {
-		for (const connection of [...(this.#connections.get(deviceId) ?? [])]) connection.close(code, reason);
-	}
-
-	closeAll(code: number, reason: string): void {
-		for (const deviceId of [...this.#connections.keys()]) this.closeDevice(deviceId, code, reason);
+		if (this.#open) core().push("web.closeDevice", { host: this.host, device: deviceId, code, reason });
 	}
 
 	noteDriver(tabId: string, deviceId: string): void {
@@ -475,390 +379,117 @@ export class WsRouter {
 		if (tokens > 0) this.#deps.quota.record(deviceId, { tokens });
 	}
 
-	/**
-	 * A streamed push's data as JSON, made once for every connection that sends the same pushes joined the same way:
-	 * every page showing a tab gets the pool's very push objects (one slimmed batch for all, made fresh for each push and
-	 * never changed), and the batch windows of pages that received the same pushes close together. Keyed by the first
-	 * push it was made of. Other channels' data may be an object a handler changes and pushes again: made each time.
-	 */
-	readonly #dataTexts = new WeakMap<
-		object,
-		Array<{ ch: string; from: readonly unknown[]; text: string | undefined }>
-	>();
+	/** The core's word on a device's connections. */
+	connections(event: ConnsEvent): void {
+		if (event.conns.length > 0) {
+			this.#connections.set(event.device, event.conns);
+			this.#unsent.delete(event.device);
+		} else {
+			this.#connections.delete(event.device);
+		}
+		if (event.change === "presence") return;
+		this.#deps.onConnectionsChanged?.(event.device);
+		if (event.change === "end") this.#deps.onConnectionEnded?.(event.device, event.connId);
+	}
 
-	/** `JSON.stringify(item.d)`; throws as that does. */
-	dataText(item: CoalescedEvent): string | undefined {
-		const [first] = item.from;
-		if (!STREAM_CHANNELS.has(item.ch) || typeof first !== "object" || first === null) return JSON.stringify(item.d);
-		const known = this.#dataTexts.get(first);
-		const same = known?.find(
-			entry =>
-				entry.ch === item.ch &&
-				entry.from.length === item.from.length &&
-				entry.from.every((source, index) => source === item.from[index]),
+	/** A page is about to be told to resync: the pool sends whole stream snapshots from now, then the hello goes. */
+	resync(conn: number, deviceId: string): void {
+		this.#deps.onResync?.(deviceId);
+		core().push("web.resynced", { host: this.host, conn });
+	}
+
+	/** The core ended, and every page socket with it. */
+	coreExited(): void {
+		this.#open = false;
+		this.#unsent.clear();
+		const ended = [...this.#connections];
+		this.#connections.clear();
+		for (const [deviceId, connections] of ended) {
+			this.#deps.onConnectionsChanged?.(deviceId);
+			for (const { connId } of connections) this.#deps.onConnectionEnded?.(deviceId, connId);
+		}
+	}
+
+	/** A call the core let through: run here, and answered when the core waits for it. */
+	call(event: CallEvent, argsText: string): void {
+		let args: unknown[];
+		try {
+			args = JSON.parse(argsText) as unknown[];
+		} catch {
+			args = [];
+		}
+		const running = this.#dispatch(event, args);
+		if (event.dir === "send") {
+			const done = () => {
+				if (event.answer) core().push("web.reply", { host: this.host, call: event.call, ok: true });
+			};
+			running.then(done, done);
+			return;
+		}
+		running.then(
+			value => this.#reply(event, value),
+			error => core().push("web.reply", { host: this.host, call: event.call, ok: false, e: webError(error) }),
 		);
-		if (same) return same.text;
-		const text = JSON.stringify(item.d);
-		const entry = { ch: item.ch, from: item.from, text };
-		if (!known) this.#dataTexts.set(first, [entry]);
-		else if (known.length < DATA_TEXTS_KEPT) known.push(entry);
-		return text;
-	}
-}
-
-export class WsConnection {
-	readonly deviceId: string;
-	readonly connId = randomUUID();
-	readonly #router: WsRouter;
-	readonly #socket: RouterSocket;
-	readonly #bucket: TokenBucket;
-	#queue: QueuedEvent[] = [];
-	#cancelFlush: (() => void) | null = null;
-	#stopHeartbeat: (() => void) | null = null;
-	#seq = 0;
-	/** The last event `seq` the page acknowledged. */
-	#acked = 0;
-	/** A stream push was dropped while the page was hidden: it must load its state again. */
-	#missed = false;
-	#visible = true;
-	#closed = false;
-	#misses = 0;
-	#lastActivity: number;
-	#lastTick: number;
-
-	constructor(router: WsRouter, deviceId: string, socket: RouterSocket) {
-		this.#router = router;
-		this.deviceId = deviceId;
-		this.#socket = socket;
-		this.#bucket = new TokenBucket(MESSAGE_RATE, MESSAGE_BURST, router.now);
-		this.#lastActivity = router.now();
-		this.#lastTick = router.now();
 	}
 
-	start(resumed: boolean): void {
-		this.#sendHello(resumed);
-		this.#stopHeartbeat = this.#router.timers.every(() => this.#tick(), HEARTBEAT_MS);
-	}
-
-	/** The page had every event this connection was sent: none queued, none dropped, all acknowledged. */
-	get clean(): boolean {
-		return !this.#missed && this.#queue.length === 0 && this.#acked >= this.#seq;
-	}
-
-	/** One text frame from the page. */
-	receive(text: string): void {
-		if (this.#closed) return;
-		this.#lastActivity = this.#router.now();
-		if (text.length > MAX_FRAME_BYTES || Buffer.byteLength(text) > MAX_FRAME_BYTES) {
-			this.close(CLOSE_TOO_BIG, "frame too large");
-			return;
-		}
-		if (!this.#bucket.take()) {
-			this.close(CLOSE_RATE_LIMITED, "too many messages");
-			return;
-		}
-		let frame: WebClientFrame;
+	/** An invoke's answer; a value JSON cannot carry fails the call instead of leaving the page to wait forever. */
+	#reply(event: CallEvent, value: unknown): void {
+		let text: string | undefined;
 		try {
-			frame = FrameSchema.parse(JSON.parse(text));
+			text = JSON.stringify(value);
 		} catch {
-			this.close(CLOSE_POLICY, "malformed frame");
+			const e = { message: `The computer's answer to ${event.ch} could not be sent to this page` };
+			core().push("web.reply", { host: this.host, call: event.call, ok: false, e });
 			return;
 		}
-		switch (frame.t) {
-			case "inv":
-				void this.#invoke(frame.id, frame.ch, frame.a);
-				return;
-			case "snd":
-				this.#send(frame.ch, frame.a);
-				return;
-			case "ping":
-				this.#write({ t: "pong" });
-				return;
-			case "presence":
-				this.#setVisible(frame.visible);
-				return;
-			case "ack":
-				if (frame.seq <= this.#seq) this.#acked = Math.max(this.#acked, frame.seq);
-				return;
-			case "pong":
-				return;
-		}
+		const bin = text === undefined ? undefined : Buffer.from(text, "utf8");
+		core().push("web.reply", { host: this.host, call: event.call, ok: true }, bin);
 	}
 
-	/** A pushed event for this socket; queued, merged and sent within a batch window. */
-	push(channel: string, data: unknown): void {
-		if (this.#closed) return;
-		if (!this.#visible && STREAM_CHANNELS.has(channel)) {
-			this.#missed = true;
-			return;
-		}
-		this.#queue.push({ ch: channel, d: data });
-		if (this.#cancelFlush) return;
-		this.#cancelFlush = this.#router.timers.after(() => this.flush(), EVENT_BATCH_MS);
-	}
-
-	/** Send what is queued now. */
-	flush(): void {
-		this.#cancelFlush?.();
-		this.#cancelFlush = null;
-		if (this.#closed || this.#queue.length === 0) return;
-		const queue = this.#queue;
-		this.#queue = [];
-		for (const item of coalesceEvents(queue)) this.#writeEvent(++this.#seq, item);
-		if ((this.#socket.bufferedAmount ?? 0) > MAX_BUFFERED_BYTES) this.close(CLOSE_SLOW_CONSUMER, "slow consumer");
-	}
-
-	close(code: number, reason: string): void {
-		if (this.#closed) return;
-		this.#finish();
-		try {
-			this.#socket.close(code, reason);
-		} catch {
-			this.#socket.terminate();
-		}
-	}
-
-	/** The socket ended on its own. */
-	dispose(): void {
-		this.#finish();
-	}
-
-	#finish(): void {
-		if (this.#closed) return;
-		this.#closed = true;
-		this.#cancelFlush?.();
-		this.#stopHeartbeat?.();
-		this.#cancelFlush = null;
-		this.#stopHeartbeat = null;
-		// Detached first: the router judges whether the page had everything (`clean`) with the queue still here.
-		this.#router.detach(this);
-		this.#queue = [];
-	}
-
-	/** False when `frame` cannot be serialized; a socket that just closed counts as sent (the page resyncs). */
-	#write(frame: WebServerFrame): boolean {
-		if (this.#closed) return true;
-		let text: string;
-		try {
-			text = JSON.stringify(frame);
-		} catch {
-			return false;
-		}
-		this.#sendText(text);
-		return true;
-	}
-
-	/** `#write({t: "evt", seq, ch, d})`, the data's JSON made once for every connection that sends it (`dataText`). */
-	#writeEvent(seq: number, item: CoalescedEvent): void {
-		if (this.#closed) return;
-		let data: string | undefined;
-		try {
-			data = this.#router.dataText(item);
-		} catch {
-			return;
-		}
-		const head = `{"t":"evt","seq":${seq},"ch":${JSON.stringify(item.ch)}`;
-		this.#sendText(data === undefined ? `${head}}` : `${head},"d":${data}}`);
-	}
-
-	#sendText(text: string): void {
-		try {
-			this.#socket.send(text);
-		} catch {
-			// The socket is closing; its close event ends this connection.
-		}
-	}
-
-	#sendHello(resumed: boolean): void {
-		if (!resumed) this.#router.deps.onResync?.(this.deviceId);
-		const build = this.#router.deps.build?.();
-		this.#write({
-			t: "hello",
-			protocol: WEB_PROTOCOL_VERSION,
-			minClient: WEB_PROTOCOL_VERSION,
-			connId: this.connId,
-			resumed,
-			features: this.#router.deps.features(),
-			grants: this.#router.deps.devices.get(this.deviceId)?.grants ?? [],
-			...(build ? { build } : {}),
-		});
-	}
-
-	/** The page's last `presence` (visible until it says otherwise). */
-	get visible(): boolean {
-		return this.#visible;
-	}
-
-	#setVisible(visible: boolean): void {
-		if (visible === this.#visible) return;
-		this.#visible = visible;
-		if (!visible) {
-			const kept = this.#queue.filter(item => !STREAM_CHANNELS.has(item.ch));
-			if (kept.length < this.#queue.length) this.#missed = true;
-			this.#queue = kept;
-			return;
-		}
-		// Nothing streamed while hidden: the page's state is whole, and what is queued goes out as usual.
-		if (!this.#missed) return;
-		// Whatever streamed while hidden was dropped: the page reloads its state, as after a reconnect.
-		this.#missed = false;
-		this.#queue = [];
-		this.#sendHello(false);
-	}
-
-	/** Every 20 s: a socket that said nothing for three ticks in a row is gone; a tick that ran late counts for nothing. */
-	#tick(): void {
-		const now = this.#router.now();
-		const late = now - this.#lastTick > HEARTBEAT_MS * 1.5;
-		const quiet = now - this.#lastActivity >= HEARTBEAT_MS;
-		this.#lastTick = now;
-		if (late || !quiet) {
-			this.#misses = 0;
-		} else if (++this.#misses >= HEARTBEAT_MAX_MISSES) {
-			this.#finish();
-			this.#socket.terminate();
-			return;
-		}
-		try {
-			this.#socket.ping();
-		} catch {
-			// The socket is closing; its close event ends this connection.
-		}
-		this.#write({ t: "ping" });
-	}
-
-	/** The device now, or the reason it cannot call (revoked while connected). */
-	#caller(): { device: WebDevice; win: WebClientWindow; caller: IpcCaller } | null {
-		const { devices, windows } = this.#router.deps;
-		const device = devices.get(this.deviceId);
-		if (!device) {
-			this.close(CLOSE_REVOKED, "revoked");
-			return null;
-		}
-		return { device, win: windows.windowFor(this.deviceId), caller: windows.callerFor(this.deviceId, this.connId) };
-	}
-
-	async #invoke(id: number, channel: string, args: readonly unknown[]): Promise<void> {
-		try {
-			const value = await this.#dispatch("invoke", channel, args);
-			if (this.#reply({ t: "res", id, ok: true, v: value })) return;
-			// A result JSON cannot carry: the call fails here instead of the page waiting for it forever.
-			this.#reply({
-				t: "res",
-				id,
-				ok: false,
-				e: { message: `The computer's answer to ${channel} could not be sent to this page` },
-			});
-		} catch (error) {
-			this.#reply({ t: "res", id, ok: false, e: webError(error) });
-		}
-	}
-
-	/**
-	 * A call's answer, after every event pushed before it. Without the flush an answer overtook the batch window
-	 * (75 ms): a page read a tab list naming the tab's session file, then a status pushed before it saying "no file
-	 * yet", and replaced the tab's runtime with the draft being typed in it. The desktop's IPC keeps this order.
-	 */
-	#reply(frame: Extract<WebServerFrame, { t: "res" }>): boolean {
-		this.flush();
-		return this.#write(frame);
-	}
-
-	#send(channel: string, args: readonly unknown[]): void {
-		void this.#dispatch("send", channel, args).catch(() => {
-			// A fire-and-forget call has nobody to tell.
-		});
-	}
-
-	async #dispatch(dir: "invoke" | "send", channel: string, args: readonly unknown[]): Promise<unknown> {
-		const who = this.#caller();
-		if (!who) throw forbidden("This device is no longer paired");
-		const { device, win, caller } = who;
-		const { webChannels, registry } = this.#router.deps;
-
+	async #dispatch(event: CallEvent, args: readonly unknown[]): Promise<unknown> {
+		const { devices, windows, webChannels, registry } = this.#deps;
+		const { device: deviceId, ch: channel, dir } = event;
+		const device = devices.get(deviceId);
+		if (!device) throw codedError("web_forbidden", "This device is no longer paired");
+		const win = windows.windowFor(deviceId);
 		const own = Object.hasOwn(webChannels, channel) ? webChannels[channel] : undefined;
-		if (own) {
-			this.#authorize(device, dir, own.dir, own.permission, channel);
-			const release = own.heavy ? this.#acquireHeavy() : null;
-			try {
-				return await own.handler({ deviceId: this.deviceId, device, win }, args);
-			} finally {
-				release?.();
-			}
-		}
+		if (own) return own.handler({ deviceId, device, win }, args);
 
-		const policy = Object.hasOwn(IPC_POLICY, channel) ? IPC_POLICY[channel as IpcChannel] : undefined;
-		if (!policy || policy.dir === "push") throw forbidden(`Unknown channel ${channel}`);
-		if (policy.mode === "boundary") throw forbidden(`${channel} is not available to a paired web device`);
-		this.#authorize(device, dir, policy.dir, policy.permission, channel);
-		this.#guardPrefs(channel, args);
-
-		const release = HEAVY_CHANNELS.has(channel) ? this.#acquireHeavy() : null;
-		const refund = dir === "invoke" ? this.#meter(channel, args, win) : null;
+		const caller = windows.callerFor(deviceId, event.connId);
+		const refund = dir === "invoke" ? this.#meter(deviceId, channel, args, win) : null;
 		try {
 			// Synchronous unless a picture came by upload, so plain calls keep their order and timing.
 			const landed =
 				channel === IPC_COMMANDS.FS_UPLOAD_TO_HOST
-					? await this.#landHostUpload(args)
+					? await this.#landHostUpload(deviceId, args)
 					: holdsBlock(args, isWebUploadedImage)
-						? await this.#landUploads(args)
+						? await this.#landUploads(deviceId, args)
 						: args;
 			if (dir === "send") {
 				registry.send(
 					channel,
 					caller,
-					channel === IPC_COMMANDS.FS_MEDIA_RELEASE ? await this.#translateMediaRelease(landed) : landed,
+					channel === IPC_COMMANDS.FS_MEDIA_RELEASE ? await this.#translateMediaRelease(deviceId, landed) : landed,
 				);
 				return undefined;
 			}
 			const result = await registry.invoke(channel, caller, landed);
 			if (refund && refused(result)) refund();
-			return this.#shape(channel, args, result);
+			return this.#shape(deviceId, channel, args, result);
 		} catch (error) {
 			refund?.();
 			throw error;
-		} finally {
-			release?.();
 		}
-	}
-
-	#authorize(
-		device: WebDevice,
-		asked: "invoke" | "send",
-		declared: "invoke" | "send",
-		permission: WebPermission,
-		channel: string,
-	): void {
-		if (asked !== declared) throw forbidden(`${channel} is not a ${asked} channel`);
-		if (permission === "pairing-admin" || !device.grants.includes(permission)) {
-			throw forbidden(`This device may not use ${channel} (${permission})`);
-		}
-	}
-
-	/** `mobileWeb.*` preferences decide who may pair and reach the page: only the desktop writes them. */
-	#guardPrefs(channel: string, args: readonly unknown[]): void {
-		if (channel !== IPC_COMMANDS.PREFS_SET) return;
-		const payload = args[0];
-		const key = typeof payload === "object" && payload !== null && "key" in payload ? payload.key : undefined;
-		if (typeof key === "string" && key.toLowerCase().startsWith("mobileweb")) {
-			throw forbidden("Mobile web settings can only be changed on the computer");
-		}
-	}
-
-	#acquireHeavy(): () => void {
-		const release = this.#router.heavy.acquire(this.deviceId);
-		if (!release) throw forbidden("Too many heavy requests at once");
-		return release;
 	}
 
 	/**
 	 * Count a model command against the device's daily limit before it runs (synchronously, so parallel
 	 * callers see each other). The returned function gives the request back; null when the call is free.
 	 */
-	#meter(channel: string, args: readonly unknown[], win: WebClientWindow): (() => void) | null {
-		const weight = this.#modelRequests(channel, args, win);
+	#meter(deviceId: string, channel: string, args: readonly unknown[], win: WebClientWindow): (() => void) | null {
+		const weight = this.#modelRequests(deviceId, channel, args, win);
 		if (weight === 0) return null;
-		const reservation = this.#router.deps.quota.reserve(this.deviceId, weight);
+		const reservation = this.#deps.quota.reserve(deviceId, weight);
 		if (!reservation.ok) {
 			throw codedError(
 				"remote_limit_reached",
@@ -871,12 +502,12 @@ export class WsConnection {
 	}
 
 	/** How many model requests a call spends: 0 for a free one. */
-	#modelRequests(channel: string, args: readonly unknown[], win: WebClientWindow): number {
+	#modelRequests(deviceId: string, channel: string, args: readonly unknown[], win: WebClientWindow): number {
 		if (channel === IPC_COMMANDS.RPC_COMMAND || channel === IPC_COMMANDS.RPC_COMMAND_FOR_TAB) {
 			const { command, tabId } = rpcPayload(args[0]);
 			if (!isCommandWithType(command) || !commandUsesModel(command)) return 0;
-			const tab = tabId ?? this.#router.deps.activeTab?.(win) ?? null;
-			if (tab) this.#router.noteDriver(tab, this.deviceId);
+			const tab = tabId ?? this.#deps.activeTab?.(win) ?? null;
+			if (tab) this.noteDriver(tab, deviceId);
 			return 1;
 		}
 		if (channel === IPC_COMMANDS.BENCH_RUN) {
@@ -890,7 +521,7 @@ export class WsConnection {
 	}
 
 	/** What a page may see: no secret-looking preferences, no raw bytes or `omp-media://` address. */
-	#shape(channel: string, args: readonly unknown[], result: unknown): unknown {
+	#shape(deviceId: string, channel: string, args: readonly unknown[], result: unknown): unknown {
 		if (channel === IPC_COMMANDS.PREFS_GET) {
 			const payload = args[0];
 			const keyed = typeof payload === "object" && payload !== null && "key" in payload && payload.key;
@@ -898,13 +529,13 @@ export class WsConnection {
 		}
 		// A file the page saves for itself (`FS_SAVE_COPY` from a web window answers the bytes) rides like a read.
 		if (channel === IPC_COMMANDS.FS_READ_BINARY || channel === IPC_COMMANDS.FS_SAVE_COPY)
-			return this.#binaryResult(result);
-		if (channel === IPC_COMMANDS.FS_MEDIA_STREAM) return this.#mediaResult(result);
+			return this.#binaryResult(deviceId, result);
+		if (channel === IPC_COMMANDS.FS_MEDIA_STREAM) return this.#mediaResult(deviceId, result);
 		return result;
 	}
 
 	/** The file's bytes inline as base64 up to 512 KiB, else behind a `/blob` URL (the shim turns either back into bytes). */
-	#binaryResult(result: unknown): unknown {
+	#binaryResult(deviceId: string, result: unknown): unknown {
 		if (
 			typeof result !== "object" ||
 			result === null ||
@@ -918,12 +549,12 @@ export class WsConnection {
 			return { ...rest, dataBase64: Buffer.from(data.buffer, data.byteOffset, data.length).toString("base64") };
 		}
 		const mime = "mime" in rest && typeof rest.mime === "string" ? rest.mime : "application/octet-stream";
-		return { ...rest, blobUrl: this.#router.deps.blobs.addBytes(this.deviceId, data, mime) };
+		return { ...rest, blobUrl: this.#deps.blobs.addBytes(deviceId, data, mime) };
 	}
 
 	/** A player's stream: `MediaStreams` keeps serving it, behind this device's `/blob` URL. */
-	#mediaResult(result: unknown): unknown {
-		const { blobs, mediaOpen } = this.#router.deps;
+	#mediaResult(deviceId: string, result: unknown): unknown {
+		const { blobs, mediaOpen } = this.#deps;
 		if (!mediaOpen || typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) {
 			return result;
 		}
@@ -937,7 +568,7 @@ export class WsConnection {
 		}
 		const url = result.url;
 		const open = (range: string | undefined): Promise<Response> => mediaOpen(url, range);
-		return { ...result, url: blobs.addMedia(this.deviceId, { url, mime: result.mime, open }) };
+		return { ...result, url: blobs.addMedia(deviceId, { url, mime: result.mime, open }) };
 	}
 
 	/**
@@ -945,10 +576,10 @@ export class WsConnection {
 	 * upload consumed; a format models refuse (`convertsForModel`) comes back converted. A path outside this
 	 * device's uploads, or one already gone, fails the call, and so does a picture that cannot be converted.
 	 */
-	async #landUploads(args: readonly unknown[]): Promise<unknown[]> {
-		const { uploads, toModelImage } = this.#router.deps;
+	async #landUploads(deviceId: string, args: readonly unknown[]): Promise<unknown[]> {
+		const { uploads, toModelImage } = this.#deps;
 		const landed = await replaceBlocks(args, isWebUploadedImage, async ({ upload, ...block }) => {
-			const bytes = await uploads.take(this.deviceId, upload).catch(() => {
+			const bytes = await uploads.take(deviceId, upload).catch(() => {
 				throw codedError(
 					"file_not_found",
 					"A picture this message names is no longer on the computer; attach it again",
@@ -967,28 +598,23 @@ export class WsConnection {
 	 * A file a page attaches to a paired host's tab came to this computer by `POST /upload` first (a frame holds 1 MB):
 	 * its bytes are read back here (`UploadStore.take`, this device's own uploads only) and go on to the host.
 	 */
-	async #landHostUpload(args: readonly unknown[]): Promise<unknown[]> {
+	async #landHostUpload(deviceId: string, args: readonly unknown[]): Promise<unknown[]> {
 		const request = args[0];
 		if (typeof request !== "object" || request === null) return [...args];
 		const { upload, ...rest } = request as { upload?: unknown };
 		if (typeof upload !== "string") throw codedError("invalid_path", "No uploaded file named");
-		const bytes = await this.#router.deps.uploads.take(this.deviceId, upload).catch(() => {
+		const bytes = await this.#deps.uploads.take(deviceId, upload).catch(() => {
 			throw codedError("file_not_found", "The file is no longer on the computer; attach it again");
 		});
 		return [{ ...rest, data: new Uint8Array(bytes) }, ...args.slice(1)];
 	}
 
 	/** `FS_MEDIA_RELEASE` names the `/blob` URL the page holds; the handler knows the `omp-media://` one. */
-	async #translateMediaRelease(args: readonly unknown[]): Promise<readonly unknown[]> {
+	async #translateMediaRelease(deviceId: string, args: readonly unknown[]): Promise<readonly unknown[]> {
 		if (typeof args[0] !== "string") return args;
-		const { blobs } = this.#router.deps;
-		const media = await blobs.mediaUrl(this.deviceId, args[0]).catch(() => null);
-		await blobs.release(this.deviceId, args[0]).catch(() => false);
+		const { blobs } = this.#deps;
+		const media = await blobs.mediaUrl(deviceId, args[0]).catch(() => null);
+		await blobs.release(deviceId, args[0]).catch(() => false);
 		return media === null ? args : [media];
 	}
-}
-
-/** An RPC response that reports failure: the request it reserved is given back. */
-function refused(result: unknown): boolean {
-	return typeof result === "object" && result !== null && "success" in result && result.success === false;
 }

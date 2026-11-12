@@ -3,10 +3,10 @@
 | Model | Code | Atomic because |
 |---|---|---|
 | `Edit(p, v)` | `src/renderer/web/FileEditReporter.tsx` effect on `fileEditDirty`/`fileEditTabId`/`activeTabId` → `reportFileEdits` | one React effect run; the frame joins the socket's FIFO |
-| `Connect(p)` | `WsRouter.attach` (a new `WsConnection`, `connId = randomUUID()`) | synchronous attach |
+| `Connect(p)` | the core's router `Host::attach_conn` (`web/router.rs`; a new connection, `connId` a random UUID) | under the router's lock |
 | `Greet(p)` | `FileEditReporter`'s `onConnectionState("open")` → send | the page's own effect, after the hello |
-| `Drop(c)` | `WsConnection.#finish` → `WsRouter.detach` → `onConnectionEnded` → `web-host.ts` → `index.ts` `fileEditReports.forget(connId)` | one synchronous call chain, no `await` |
-| `Deliver(c)` | `WsConnection.receive` (refuses after `#closed`) → `#invoke` → `#dispatch` → `registry.invoke` → `ipc.ts` `FILE_EDIT_REPORT` → `FileEditReports.report` | no `await` before the handler for a frame without picture blocks; the handler accepts only that shape (`parseFileEditReport`: exactly one `{dirtyTabId}`), so a frame whose upload `#dispatch` awaits is refused (pinned: `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection, even one whose arguments carry a picture…") |
+| `Drop(c)` | the core's `Host::finish` (the connection leaves the router, then `web.conns` `end`) → main's `WsRouter.connections` → `onConnectionEnded` → `web-host.ts` → `index.ts` `fileEditReports.forget(connId)` | the core refuses the connection's frames from the moment it ends; main runs the event's chain synchronously, after every `web.call` the core sent before it (one ordered stream) |
+| `Deliver(c)` | the core's `Host::receive` (refuses an ended connection) → `Host::dispatch` → `web.call` → main's `WsRouter.call` → `#dispatch` → `registry.invoke` → `ipc.ts` `FILE_EDIT_REPORT` → `FileEditReports.report` | no `await` before the handler for a frame without picture blocks; the handler accepts only that shape (`parseFileEditReport`: exactly one `{dirtyTabId}`), so a frame whose upload `#dispatch` awaits is refused (pinned: `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection, even one whose arguments carry a picture…") |
 | `Write` / `Forget` | `FileEditReports.report` / `forget`: one connection's entry | Map set/delete |
 | `Edits(t)` | `FileEditReports.edits` | pure read |
 | `CloseStep(t)` | `tabCloseStep` (`src/main/agent-control/tab-close.ts`) minus `looked`/`userTouched` | pure |

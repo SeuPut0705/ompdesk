@@ -178,7 +178,6 @@ export class WebHost {
 			onConnectionsChanged: () => this.devices.notifyChanged(),
 			onConnectionEnded: (_deviceId, connId) => deps.onPageConnectionEnded?.(connId),
 			onResync: deviceId => deps.tabs.resnapshot(this.windows.windowFor(deviceId)),
-			now,
 		});
 		this.notifier = new WebPushNotifier({
 			devices: this.devices,

@@ -20,7 +20,8 @@ import type { WebDevice } from "../../src/main/web/devices-store";
 import { IpcRegistry } from "../../src/main/web/ipc-registry";
 import { writeDialogPreload } from "../../src/main/web/preview-dialog";
 import { WebWindows } from "../../src/main/web/web-client-window";
-import { WsRouter } from "../../src/main/web/ws-router";
+import type { WsRouter } from "../../src/main/web/ws-router";
+import { TestRouterHost } from "../../src/main/web/ws-router-test-rig";
 import type { PreviewState, PreviewStreamFrame, PreviewStreamInput, PreviewStreamPoll } from "../../src/shared/preview";
 import {
 	PREVIEW_COMMAND,
@@ -166,54 +167,50 @@ async function main() {
 		uiPrefs: {},
 		createdAt: 0,
 	};
-	const windows = new WebWindows((deviceId, channel, payload) => router.deliver(deviceId, channel, payload));
-	const router: WsRouter = new WsRouter({
-		registry: ipc,
-		devices: { get: () => device },
-		windows,
-		quota: { reserve: () => ({ ok: true, refund: () => {} }), record: () => {} },
-		webChannels: {},
-		features: () => ({ push: false, preview: true, upload: false, passkey: false }),
-		blobs: new BlobStore(),
-		uploads: { take: () => Promise.reject(new Error("this host takes no uploads")) },
-		toModelImage: () => Promise.reject(new Error("this host converts no pictures")),
-	});
+	let router: WsRouter | null = null;
+	const windows = new WebWindows((deviceId, channel, payload) => router?.deliver(deviceId, channel, payload));
+	// The core's router without its edge, on real batch and heartbeat timers (`ws-router-test-rig.ts`).
+	const routerHost = await TestRouterHost.open(
+		{
+			registry: ipc,
+			devices: { get: () => device },
+			windows,
+			quota: { reserve: () => ({ ok: true, refund: () => {} }), record: () => {} },
+			webChannels: {},
+			features: () => ({ push: false, preview: true, upload: false, passkey: false }),
+			blobs: new BlobStore(),
+			uploads: { take: () => Promise.reject(new Error("this host takes no uploads")) },
+			toModelImage: () => Promise.reject(new Error("this host converts no pictures")),
+		},
+		{ timers: "real", now: Date.now() },
+	);
+	router = routerHost.router;
+	await routerHost.device(device.deviceId, device.grants);
 
 	// The fake client: the frames the router writes, and calls it makes as `inv` / `snd` frames.
 	const states: PreviewState[] = [];
 	const pending = new Map<number, (reply: Reply) => void>();
 	let nextId = 1;
-	const connection = router.attach(device.deviceId, {
-		send(data) {
-			const frame = JSON.parse(data) as {
-				t: string;
-				id?: number;
-				ok?: boolean;
-				v?: unknown;
-				e?: { message: string };
-				ch?: string;
-				d?: unknown;
-			};
-			if (frame.t === "res" && frame.id !== undefined) {
+	const connection = await routerHost.attach(device.deviceId);
+	if (connection) {
+		connection.socket.onFrame = frame => {
+			if (frame.t === "res") {
 				const reply = pending.get(frame.id);
 				pending.delete(frame.id);
-				reply?.({ ok: frame.ok === true, v: frame.v, e: frame.e });
+				reply?.(frame.ok ? { ok: true, v: frame.v } : { ok: false, e: frame.e });
 			} else if (frame.t === "evt" && frame.ch === PREVIEW_STATE) states.push(frame.d as PreviewState);
-		},
-		close() {},
-		ping() {},
-		terminate() {},
-	});
+		};
+	}
 	if (!connection) throw new Error("The router refused the connection");
 	const invoke = (channel: string, ...args: unknown[]) => {
 		const id = nextId++;
 		const { promise, resolve } = Promise.withResolvers<Reply>();
 		pending.set(id, resolve);
-		connection.receive(JSON.stringify({ t: "inv", id, ch: channel, a: args }));
+		void connection.receive(JSON.stringify({ t: "inv", id, ch: channel, a: args }));
 		return promise;
 	};
 	const send = (channel: string, ...args: unknown[]) =>
-		connection.receive(JSON.stringify({ t: "snd", ch: channel, a: args }));
+		void connection.receive(JSON.stringify({ t: "snd", ch: channel, a: args }));
 	const command = async (request: unknown) => {
 		const reply = await invoke(PREVIEW_COMMAND, request);
 		if (!reply.ok) throw new Error(`preview command failed: ${reply.e?.message}`);

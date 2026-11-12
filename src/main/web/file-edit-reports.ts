@@ -3,8 +3,9 @@
  * belongs to the connection that sent it (`IpcCaller.connId`, a fresh UUID per socket), never to the window: a device
  * may hold up to four connections (browser tabs, a reload overlapping its predecessor) sharing ONE window, each with
  * its own Files state, so one page's fresh "nothing dirty" never erases another's unsaved edit. A connection's report
- * stands until that connection ends (`WsRouter` `onConnectionEnded`, which also ends every connection of a device
- * before its window goes); an offline page may edit a file main never hears about, so its old word stops counting.
+ * stands until that connection ends (`WsRouter` `onConnectionEnded`, told by the core's router, which also ends every
+ * connection of a device before its window goes); an offline page may edit a file main never hears about, so its old
+ * word stops counting.
  * The page reports on every change and on every (re)connect (`FileEditReporter`).
  *
  * `edits` is what an agent's close reads (`tabCloseStep`): `dirty` when a live connection names the tab, `clean` when
@@ -17,7 +18,7 @@ export type FileEdits = "clean" | "dirty" | "unreported";
 
 /**
  * A `FILE_EDIT_REPORT` call's arguments exactly as the page sends them (one `{dirtyTabId}`), or null for anything
- * else. Exact on purpose: a picture block anywhere in a call's arguments makes `WsConnection.#dispatch` await its
+ * else. Exact on purpose: a picture block anywhere in a call's arguments makes `WsRouter.#dispatch` await its
  * upload before the handler runs, and a connection that ended meanwhile was already forgotten. An accepted report
  * holds nothing but a string or null, so it reaches the store in the frame's own synchronous run.
  */

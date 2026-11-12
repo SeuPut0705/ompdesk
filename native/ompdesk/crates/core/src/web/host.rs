@@ -1,8 +1,8 @@
 //! The edge serving (native-rust ledger 8b; was `src/main/web/server.ts`): `web.start {host, userData, port,
-//! staticRoot}` → `{port}` listens on `127.0.0.1` (`port` 0 picks one; a taken port is the fault `EADDRINUSE`, as
+//! staticRoot, router}` → `{port}` listens on `127.0.0.1` (`port` 0 picks one; a taken port is the fault `EADDRINUSE`, as
 //! node's `listen` failed), `web.stop {host}` ends the accept loop, gives the page sockets a second to close and lets the
 //! port go. `host` is main's number for its `WebServer`: every ask and socket event of the edge carries it
-//! (`relay.rs`). The edge reads the paired devices, the blocks, the uploads, the blob tokens and the kept builds from
+//! (`relay.rs`, `router.rs`). The edge reads the paired devices, the blocks, the uploads, the blob tokens and the kept builds from
 //! the core's own stores of that `userData`, the very objects main's clients change.
 
 use std::collections::HashMap;
@@ -14,7 +14,8 @@ use serde_json::json;
 
 use super::assets::Assets;
 use super::auth::Policy;
-use super::relay::{Relay, RelayRouter};
+use super::relay::Relay;
+use super::router;
 use super::server::{Deps, Edge, Running, SERVER_HOST};
 use crate::server::{Call, Fault, Registry, Reply};
 
@@ -49,6 +50,8 @@ struct StartParams {
     user_data: PathBuf,
     port: u16,
     static_root: Option<PathBuf>,
+    /// The page sockets' router: `IPC_POLICY`, the web-only channels, the protocol, features and build.
+    router: router::Config,
 }
 
 fn now_ms() -> i64 {
@@ -67,6 +70,12 @@ async fn start(call: Call) -> Result<Reply, Fault> {
     let blobs = super::blobs::open(&user_data);
     blobs.attach_events(call.events.clone());
     let relay = Relay::new(call.events.clone(), params.host);
+    let router = router::open(
+        params.host,
+        call.events.clone(),
+        params.router,
+        stores.devices.clone(),
+    );
     let key_dir = user_data.clone();
     let edge = Edge::new(Deps {
         // Main's policy is read for every request (`Desktop::policy`); this one only stands in until it answers.
@@ -82,7 +91,7 @@ async fn start(call: Call) -> Result<Reply, Fault> {
         blocks: stores.blocks.clone(),
         whois: relay.clone(),
         desktop: relay.clone(),
-        router: Arc::new(RelayRouter(relay.clone())),
+        router,
         uploads: super::uploads::open(&user_data),
         blobs,
         hooks: Some(relay),

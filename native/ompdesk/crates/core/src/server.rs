@@ -230,6 +230,7 @@ pub fn registry() -> Registry {
     crate::web::bytes::register(&mut registry);
     crate::web::host::register(&mut registry);
     crate::web::push::register(&mut registry);
+    crate::web::router::register(&mut registry);
     crate::web::store::register(&mut registry);
     registry
 }

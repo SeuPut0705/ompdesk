@@ -13,6 +13,7 @@ pub mod limits;
 pub mod push;
 pub mod refusal;
 pub mod relay;
+pub mod router;
 pub mod server;
 pub mod store;
 pub mod uploads;
