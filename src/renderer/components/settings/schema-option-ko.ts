@@ -944,6 +944,11 @@ export const KO_SCHEMA_OPTION_TEXT: Readonly<Record<string, string>> = {
 		"판정 역할이 TypeSafe jev 네이티브 모델일 때 켜요",
 	"Always enable, whichever model the judge role resolves to": "판정 역할이 어떤 모델이든 항상 켜요",
 	"Never classify prompts for prewalk": "사전 탐색용으로 요청을 분류하지 않아요",
+	"Never split prompts": "요청을 나누지 않아요",
+	"Judge each prompt and report the split without acting on it":
+		"요청마다 판정해 나눈 결과만 알리고 그대로 실행하지는 않아요",
+	"When a prompt splits into independent subtasks, tell the agent to delegate them in parallel":
+		"요청이 서로 독립된 하위 작업으로 나뉘면 에이전트에게 병렬로 위임하라고 알려요",
 	Suggest: "제안만",
 	"Classify each task and report the decision without arming prewalk":
 		"작업마다 분류해 결과만 알리고 사전 탐색은 켜지 않아요",

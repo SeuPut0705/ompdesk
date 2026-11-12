@@ -138,6 +138,19 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 		label: "파일에서 작업 지시 읽기",
 		description: "task 도구가 서브에이전트 지시를 파일(taskFile)에서 읽고, 그 경로와 SHA-256을 기록해요.",
 	},
+	"task.autoParallel": {
+		label: "자동 병렬 분할",
+		description:
+			"'judge' 역할로 정해진 네이티브 판정 모델에게 새 최상위 요청마다 어느 부분을 동시에 실행할 수 있는지 물어요. 네이티브 판정 모델과 task 도구가 있어야 하고, 없으면 아무것도 판정하지 않아요.",
+	},
+	"task.steps": {
+		label: "순서 있는 작업 단계",
+		description:
+			"서브에이전트를 띄울 때 `task` 하나 대신 순서가 있는 `steps`를 받아요. 서브에이전트는 첫 단계를 받고, 앞 단계를 끝낼 때마다 다음 단계를 받아요. 4단계를 넘으면 앞쪽 메시지에 두 단계 이상이 함께 담겨요. 마지막 단계의 결과가 작업의 결과예요.",
+	},
+	systemPromptTemplates: {
+		label: "모델별 시스템 프롬프트 템플릿",
+	},
 	"task.agentCompactionThresholdOverrides": { label: "에이전트별 압축 임계값 재정의" },
 	"task.agentAccountPools": { label: "에이전트별 계정 풀" },
 	"task.agentSoftRequestBudget": { label: "에이전트별 요청 예산" },
@@ -1717,6 +1730,16 @@ export const KO_SETTINGS: Record<string, { label: string; description?: string }
 	"browser.idleCloseSec": {
 		label: "브라우저 유휴 종료 타임아웃",
 		description: "omp가 띄운 브라우저를 유휴 상태로 얼마나 지나면 닫을지(초)예요. 0이면 닫지 않아요.",
+	},
+	"browser.webkit": {
+		label: "WebKit 브라우저",
+		description:
+			"엔진이 설치되어 있으면 관리형 Chromium 대신 omp의 자체 헤드리스 WebKit 엔진으로 브라우저 탭을 열어요(설치된 브라우저가 없으면 omp가 Chrome for Testing보다 먼저 ~/.o2/lib/abkit에 내려받아요. '브라우저 WebKit 경로' 참고). 엔진에 뷰어가 없는 곳에서 보이는 브라우저를 열 때와 엔진이 시작하지 못한 탭은 Chromium으로 열어요. 앱을 직접 지정한 경우, 릴레이, 브라우저 CDP URL, Tern, cmux가 우선이고, app \"chromium\"은 그 한 번만 WebKit을 쓰지 않아요. PI_BROWSER_WEBKIT=0 또는 PI_BROWSER_WEBKIT=1로 덮어쓸 수 있어요.",
+	},
+	"browser.webkitPath": {
+		label: "브라우저 WebKit 경로",
+		description:
+			"omp의 WebKit 엔진이에요. 호스트 실행 파일이나, 그것을 ABHost(Windows는 ABHost.exe)로 담은 ABKit 엔진 폴더를 적어요. 비워 두면 설치된 엔진 ~/.o2/lib/abkit/ABHost(Windows는 ABHost.exe)를 써요. ~를 쓸 수 있어요. PI_BROWSER_WEBKIT_PATH가 이 값을 덮어써요.",
 	},
 	"browser.tern": {
 		label: "Tern 브라우저",
