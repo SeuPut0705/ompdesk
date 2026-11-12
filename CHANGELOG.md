@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.127.0] - 2026-11-12
+
+한도 오류로 멈춘 턴이 이제 버튼을 누르지 않아도 한도가 풀리면 스스로 이어져요.
+
+### 고친 것
+- 사용량 한도나 요청 한도(429)로 끝난 턴이 그대로 멈춰 있던 것을 고쳤어요. 이제 OMPdesk가 오류에 적힌 초기화 시각에 그 턴을 다시 시도해요. 그 전에도 10분에 한 번 넘지 않게 사용량을 살펴서 한도가 일찍 풀리면(초기화권, 다른 계정, 바뀐 모델이나 대체 모델 설정) 바로 이어 가요. 창이 열려 있지 않아도 되고, 다른 컴퓨터에서 연 탭에도 똑같이 적용돼요. 오류 카드는 "○시에 스스로 다시 시도해요, 한도가 일찍 풀리면 그보다 먼저요"라고 말하고, 지금 다시 시도와 취소가 옆에 있어요. 살펴보는 일은 모델을 부르지 않아요. 돈이 떨어진 계정, 로그인 문제, 거절된 요청, 컨텍스트 초과는 기다려도 풀리지 않으니 전처럼 오류로 남아요. 예전의 "○시에 이어서 하기" 버튼은 없어졌어요.
+- 터미널에서 `omp update`처럼 OMPdesk 밖에서 omp를 다시 설치하면, 앱을 다시 켤 때까지 새 워크트리 세션이 "Export named … not found"로 열리지 않던 문제를 고쳤어요. omp를 읽는 OMPdesk의 보조 프로세스가 설치가 바뀐 것을 알아채면 다음 요청에서 새로 시작해요.
+
+### 바뀐 것
+- 에이전트 세션의 작업 보고와 세션 목록에 검사와 테스트에 쓴 시간이 나와요(횟수, 시간, 도구 시간 중 비율).
+
+아직 실제로 확인하지 못한 것이 있어요. 한도 대기는 가짜 omp와 가짜 한도로만 확인했고, 실제 프로바이더의 429와 실제 초기화권으로 한도가 풀리는 경우는 일으켜 보지 않았어요. 이 기능의 형식 모델 검사는 부하 때문에 시간 안에 끝나지 않아 다시 돌리지 못했어요(모델에 새 상태는 넣지 않았어요).
+
+<!-- en -->
+
+A turn stopped by a limit now goes on by itself once the limit lifts, with no button to press.
+
+### Fixed
+- A turn that ended at a usage limit or a rate limit (429) used to stay stopped. OMPdesk now tries it again at the reset the error names, and looks at the usage at most every 10 minutes before that, so a limit that lifts early (a reset pass, another account, a changed model or fallback chain) is picked up at once. No window needs to be open, and a tab opened from another computer gets the same. The error card says "Tries again by itself at … or sooner once the limit lifts", with Retry now and Cancel. Looking calls no model. An account out of money, a sign-in problem, a refused request or a context overflow does not clear by waiting and stays an error, as before. The old "Resume at …" button is gone.
+- After omp was reinstalled outside OMPdesk (a terminal's `omp update`), a new worktree session could not open ("Export named … not found") until the app was restarted. OMPdesk's helper process that reads omp now notices the changed install and starts fresh at the next request.
+
+### Changed
+- An agent session's report and the session list show what its checks and tests took (runs, time, share of tool time).
+
+Some of this has not been seen for real. The limit wait was checked against a fake omp and fake limits only; no real provider 429 and no real reset pass lifting a limit were triggered. Its formal model check did not finish in time under load and was not rerun (the model gained no new state).
+
 ## [0.126.0] - 2026-11-12
 
 ChatGPT 계정의 크레딧 잔액이 보이고, 요금제 한도를 넘겨 크레딧을 쓸지를 스위치로 정할 수 있게 됐어요. 이 스위치는 꺼진 채로 나와요.
