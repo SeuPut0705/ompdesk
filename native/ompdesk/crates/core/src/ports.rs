@@ -64,6 +64,7 @@ trait Sink: Send + Sync {
     fn state(&self, seq: u64, state: &RawValue) -> Result<(), Fault>;
     fn close(&self);
     fn closed(&self) -> watch::Receiver<bool>;
+    fn events(&self) -> &Events;
 }
 
 static PORTS: LazyLock<Mutex<HashMap<u64, Arc<dyn Sink>>>> = LazyLock::new(Default::default);
@@ -280,6 +281,10 @@ impl<S: DeserializeOwned + Send + Sync + 'static> Sink for Port<S> {
     fn closed(&self) -> watch::Receiver<bool> {
         self.closed.subscribe()
     }
+
+    fn events(&self) -> &Events {
+        &self.events
+    }
 }
 
 impl<S> Drop for Port<S> {
@@ -330,6 +335,21 @@ pub fn register(registry: &mut Registry) {
 
 fn now(result: Result<Reply, Fault>) -> crate::server::Answer {
     Box::pin(std::future::ready(result))
+}
+
+/// Closes every port whose asks go to `events`' output, or to none any more: `serve` calls it when its input ended,
+/// because main stops the core in its quit teardown before it could close them, and a main that died never does.
+/// What waits on such a port (an ask, `ports.held`, a subsystem's `until_closed`) ends with it, so nothing held open
+/// for main keeps the core from exiting.
+pub fn close_all(events: &Events) {
+    let open: Vec<Arc<dyn Sink>> = ports()
+        .values()
+        .filter(|port| !port.events().reaches_another(events))
+        .cloned()
+        .collect();
+    for port in open {
+        port.close();
+    }
 }
 
 fn sink(port: u64) -> Option<Arc<dyn Sink>> {
@@ -437,6 +457,32 @@ mod tests {
         Sink::state(&*port, 1, &raw(r#"{"n":1}"#)).unwrap();
         assert_eq!(port.state().n, 2);
         port.close();
+    }
+
+    #[tokio::test]
+    async fn the_end_of_main_s_input_closes_its_ports_and_ends_what_holds_them() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let events = crate::server::test_events(&tx);
+        let (other_tx, _other_rx) = tokio::sync::mpsc::unbounded_channel();
+        let other = crate::server::test_events(&other_tx);
+        let port: Arc<Port<State>> = Port::open(&events, 9_004, State::default()).unwrap();
+        let kept: Arc<Port<State>> = Port::open(&other, 9_005, State::default()).unwrap();
+        let held = {
+            let port = port.clone();
+            tokio::spawn(async move { port.until_closed().await })
+        };
+        let asked = {
+            let port = port.clone();
+            tokio::spawn(async move { port.ask_raw("x", &()).await })
+        };
+        tokio::task::yield_now().await;
+        close_all(&events);
+        held.await.unwrap();
+        assert!(asked.await.unwrap().is_err());
+        assert!(sink(9_004).is_none());
+        // Another connection's port is none of this input's.
+        assert!(sink(9_005).is_some());
+        kept.close();
     }
 
     #[tokio::test]

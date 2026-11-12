@@ -342,6 +342,7 @@ where
     crate::aimemory::service::close_all(&ending);
     crate::stock::close_all(&ending).await;
     crate::sidecar::close_all(&ending).await;
+    crate::ports::close_all(&ending);
     while tasks.join_next().await.is_some() {
         crate::control::close_all(&ending).await;
         crate::ssh::close_all(&ending);
@@ -349,6 +350,7 @@ where
         crate::aimemory::service::close_all(&ending);
         crate::stock::close_all(&ending).await;
         crate::sidecar::close_all(&ending).await;
+        crate::ports::close_all(&ending);
     }
     crate::web::store::flush_all().await;
     drop(frames);
