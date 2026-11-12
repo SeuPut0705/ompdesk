@@ -5,7 +5,9 @@
 # downloads each in full through the app's own downloader. While it fails, one
 # issue ("Setup downloads health check failed") stays open with the report; a
 # passing run closes it. Linux, no `bun install` (the script imports only
-# Node built-ins).
+# Node built-ins). The lookups and the downloads run in OMPdesk's core process
+# (native/ompdesk/crates/core/src/setup), which the script builds first with the
+# runner's Rust (`ensureNative`, the toolchain rust-toolchain.toml pins).
 #
 # Run it now: gh workflow run setup-assets-health.yml
 name: setup-assets-health

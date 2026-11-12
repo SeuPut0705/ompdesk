@@ -280,6 +280,12 @@ pub async fn status(request: Request<'_>) -> Result<u16, Failure> {
     Ok(exchange(&request, machine_tls).await?.status().as_u16())
 }
 
+/// Sends `request` and answers at the last head with the body still to be read, frame by frame (a download that
+/// streams to disk). Dropping the answer closes the connection.
+pub async fn open(request: Request<'_>) -> Result<hyper::Response<Incoming>, Failure> {
+    exchange(&request, machine_tls).await
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Mutex;

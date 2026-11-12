@@ -2,17 +2,18 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SetupItemId, SetupPlatform, SetupPresence, SetupState } from "../../shared/setup";
 import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
 import type { Detection } from "./detect";
-import type { DownloadFetch } from "./download";
 import type { SpawnSpec } from "./plans";
 import { SetupRunner, type SupervisedChild } from "./runner";
 import { BACKOFF_MS, SETUP_STEP_MAX_MS, SetupService, type SetupServiceDeps } from "./service";
+import { type Answer, type Mirror, startMirror } from "./test-mirror";
 
 const present = (version = "1.0.0"): SetupPresence => ({ kind: "present", version, path: "/bin/x" });
 const missing: SetupPresence = { kind: "missing" };
@@ -33,6 +34,19 @@ interface Machine {
 	brew: string | null;
 	winget: string | null;
 }
+
+/**
+ * One server on 127.0.0.1 for the whole file, standing in for every host the service's lookups and downloads reach
+ * (`SetupServiceDeps.mirror`); each harness sets what it answers. By default it knows nothing: a 404 for anything.
+ */
+let mirror: Mirror;
+let answers: (url: string, request: IncomingMessage) => Answer | Promise<Answer> = () => undefined;
+beforeAll(async () => {
+	mirror = await startMirror((url, request) => answers(url, request));
+});
+afterAll(async () => {
+	await mirror.close();
+});
 
 let dir: string;
 beforeEach(async () => {
@@ -67,7 +81,8 @@ function harness(
 		hold?: SetupItemId;
 		now?: () => number;
 		testDownload?: { url: string; sha256: string };
-		fetch?: DownloadFetch;
+		/** What the mirror answers for a real address (default: 404 for all). */
+		serve?: (url: string, request: IncomingMessage) => Answer | Promise<Answer>;
 		spawnEnv?: NodeJS.ProcessEnv;
 		/** The version a successful install leaves behind (default 1.0.0). */
 		installedVersion?: string;
@@ -83,11 +98,12 @@ function harness(
 		toolExit?: number;
 		toolOutput?: string;
 		holdTool?: boolean;
-		fetchText?: (url: string) => Promise<string>;
 		/** Main's gate for the optional installs (the first ready tab). */
 		beforeOptional?: () => Promise<void>;
 	} = {},
 ) {
+	answers = options.serve ?? (() => undefined);
+	mirror.asked.length = 0;
 	const spawned: { spec: SpawnSpec; env: NodeJS.ProcessEnv }[] = [];
 	const states: SetupState[] = [];
 	const onOmpReady = vi.fn();
@@ -167,16 +183,7 @@ function harness(
 		detect,
 		runner,
 		refreshPath: async () => {},
-		fetchText:
-			options.fetchText ??
-			(async url => {
-				throw new Error(`no network in tests: ${url}`);
-			}),
-		fetch:
-			options.fetch ??
-			(async url => {
-				throw new Error(`no network in tests: ${url}`);
-			}),
+		mirror: mirror.url,
 		ompRelease: options.ompRelease ?? (async () => null),
 		...(options.testDownload ? { testDownload: options.testDownload } : {}),
 		...(options.now ? { now: options.now } : {}),
@@ -671,24 +678,15 @@ describe("SetupService", () => {
 			.update(new Uint8Array([...a, ...b]))
 			.digest("hex");
 		const rest = Promise.withResolvers<void>();
-		const requested: string[] = [];
-		const fetch: DownloadFetch = async url => {
-			requested.push(url);
-			let pulls = 0;
-			const body = new ReadableStream<Uint8Array>({
-				async pull(controller) {
-					pulls += 1;
-					if (pulls === 1) return controller.enqueue(a);
-					await rest.promise;
-					controller.enqueue(b);
-					controller.close();
-				},
-			});
-			return new Response(body, { headers: { "content-length": "4000" } });
+		const serve = (): Answer => async (_request, response) => {
+			response.writeHead(200, { "content-length": "4000" });
+			response.write(a);
+			await rest.promise;
+			response.end(b);
 		};
 		const h = harness(machine({ omp: missing }), {
 			testDownload: { url: "https://example.test/omp.bin", sha256 },
-			fetch,
+			serve,
 			hold: "omp",
 		});
 		const run = h.service.start();
@@ -702,17 +700,17 @@ describe("SetupService", () => {
 		expect(omp()?.progress).toMatchObject({ step: 1, steps: 1, download: null });
 		const file = join(dir, "tools", ".downloads", "test-download");
 		expect(existsSync(file)).toBe(true);
-		expect(requested).toEqual(["https://example.test/omp.bin"]);
+		expect(mirror.asked).toEqual(["https://example.test/omp.bin"]);
 		h.service.cancel();
 		await run;
 		expect(existsSync(file)).toBe(false);
 	});
 
 	it("fails a download that answers an error or does not match its SHA-256, without running anything", async () => {
-		const respond = (status: number) => async () => new Response("bytes", { status });
+		const respond = (status: number) => () => ({ status, body: "bytes" });
 		const refused = harness(machine({ omp: missing }), {
 			testDownload: { url: "https://example.test/omp.bin", sha256: "0".repeat(64) },
-			fetch: respond(404),
+			serve: respond(404),
 		});
 		await refused.service.start();
 		expect(refused.spawned).toEqual([]);
@@ -723,7 +721,7 @@ describe("SetupService", () => {
 		});
 		const tampered = harness(machine({ omp: missing }), {
 			testDownload: { url: "https://example.test/omp.bin", sha256: "0".repeat(64) },
-			fetch: respond(200),
+			serve: respond(200),
 		});
 		await tampered.service.start();
 		expect(tampered.spawned).toEqual([]);
@@ -734,18 +732,14 @@ describe("SetupService", () => {
 	});
 
 	it("cancels a running download as cancelled, and runs nothing after it", async () => {
-		const fetch: DownloadFetch = async (_url, init) => {
-			const body = new ReadableStream<Uint8Array>({
-				start(controller) {
-					controller.enqueue(new Uint8Array(10));
-					init.signal?.addEventListener("abort", () => controller.error(init.signal?.reason));
-				},
-			});
-			return new Response(body, { headers: { "content-length": "100" } });
+		// Ten bytes of a hundred, then nothing: the download stays open until it is cancelled.
+		const serve = (): Answer => (_request, response) => {
+			response.writeHead(200, { "content-length": "100" });
+			response.write(new Uint8Array(10));
 		};
 		const h = harness(machine({ bun: missing, omp: missing }), {
 			testDownload: { url: "https://example.test/x", sha256: "0".repeat(64) },
-			fetch,
+			serve,
 		});
 		const run = h.service.start();
 		await vi.waitFor(() =>
@@ -1134,14 +1128,12 @@ process.exit(1);`,
 			try {
 				const sha = "a".repeat(64);
 				const lookup = Promise.withResolvers<string>();
-				const download = vi.fn(async () => new Response("never", { status: 500 }));
 				const h = harness(machine({}), {
 					testInstaller: null,
-					fetch: download as unknown as DownloadFetch,
-					fetchText: async url => {
+					serve: url => {
 						if (url.endsWith("/releases/latest")) return lookup.promise;
 						if (url.endsWith("_checksums.txt")) return `${sha}  gh_2.99.0_macOS_arm64.zip\n`;
-						throw new Error(`unexpected ${url}`);
+						return undefined;
 					},
 				});
 				const stale = h.service.runToolUpdate({
@@ -1158,9 +1150,11 @@ process.exit(1);`,
 				const before = h.states.length;
 				// The stopped step's lookup answers after the next step ran: it must neither download nor spawn.
 				lookup.resolve(JSON.stringify({ tag_name: "v2.99.0" }));
+				// The core does not know the step was stopped: it reads the checksums too, and answers.
+				await vi.waitFor(() => expect(mirror.asked.some(url => url.endsWith("_checksums.txt"))).toBe(true));
 				await vi.advanceTimersByTimeAsync(1000);
-				await new Promise<void>(done => setImmediate(done));
-				expect(download).not.toHaveBeenCalled();
+				for (let turn = 0; turn < 20; turn += 1) await new Promise<void>(done => setImmediate(done));
+				expect(mirror.asked.filter(url => url.endsWith(".zip"))).toEqual([]);
 				expect(h.spawned).toEqual([]);
 				expect(h.states).toHaveLength(before);
 			} finally {
@@ -1186,7 +1180,7 @@ process.exit(1);`,
 				managed: "gh",
 				env: {},
 			});
-			expect(outcome).toMatchObject({ kind: "failed", detail: expect.stringContaining("no network in tests") });
+			expect(outcome).toMatchObject({ kind: "failed", detail: expect.stringContaining("answered 404") });
 			expect(h.spawned).toEqual([]);
 		});
 
@@ -1195,15 +1189,15 @@ process.exit(1);`,
 			const sha = createHash("sha256").update(bytes).digest("hex");
 			const h = harness(machine({}), {
 				testInstaller: null,
-				fetch: (async () => new Response(bytes)) as unknown as DownloadFetch,
-				fetchText: async url => {
+				serve: url => {
 					if (url === "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest") {
 						return JSON.stringify({ tag_name: "v1.2.0" });
 					}
 					if (url.endsWith("/v1.2.0/checksums.txt")) {
 						return `${sha}  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n`;
 					}
-					throw new Error(`unexpected ${url}`);
+					if (url.endsWith("/v1.2.0/agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz")) return bytes;
+					return undefined;
 				},
 			});
 			const outcome = await h.service.runToolUpdate({
@@ -1227,10 +1221,10 @@ process.exit(1);`,
 		it("is the version of the verified archive release machine setup would download", async () => {
 			const sha = "a".repeat(64);
 			const h = harness(machine({}), {
-				fetchText: async url => {
+				serve: url => {
 					if (url.endsWith("/releases/latest")) return JSON.stringify({ tag_name: "v2.99.0" });
 					if (url.endsWith("_checksums.txt")) return `${sha}  gh_2.99.0_macOS_arm64.zip\n`;
-					throw new Error(`unexpected ${url}`);
+					return undefined;
 				},
 			});
 			await expect(h.service.latestManaged("gh")).resolves.toBe("2.99.0");
@@ -1238,24 +1232,24 @@ process.exit(1);`,
 
 		it("rejects with the lookup's reason", async () => {
 			const h = harness(machine({}));
-			await expect(h.service.latestManaged("node")).rejects.toThrow("no network in tests");
+			await expect(h.service.latestManaged("node")).rejects.toThrow(
+				"https://nodejs.org/dist/index.json answered 404",
+			);
 		});
 
 		it("is agent-desktop's own newest release, and refuses a platform it has no release for", async () => {
 			const sha = "a".repeat(64);
-			const fetchText = async (url: string) => {
+			const serve = (url: string) => {
 				if (url === "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest") {
 					return JSON.stringify({ tag_name: "v1.3.1" });
 				}
 				if (url.endsWith("/v1.3.1/checksums.txt")) {
 					return `${sha}  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n`;
 				}
-				throw new Error(`unexpected ${url}`);
+				return undefined;
 			};
-			await expect(harness(machine({}), { fetchText }).service.latestManaged("agent-desktop")).resolves.toBe(
-				"1.3.1",
-			);
-			const other = harness(machine({}), { fetchText, platform: "other" });
+			await expect(harness(machine({}), { serve }).service.latestManaged("agent-desktop")).resolves.toBe("1.3.1");
+			const other = harness(machine({}), { serve, platform: "other" });
 			await expect(other.service.latestManaged("agent-desktop")).rejects.toThrow(/no release for this platform/);
 		});
 	});
@@ -1330,8 +1324,10 @@ describe("SetupService Tailscale item", () => {
 		});
 		const h = harness(machine({ tailscale: missing }), {
 			testInstaller: null,
-			fetchText: async url => (url.endsWith(".sha256") ? `${"ab".repeat(32)}\n` : index),
-			fetch: async () => new Response(new Uint8Array([1, 2, 3])),
+			serve: url => {
+				if (url.endsWith(".sha256")) return `${"ab".repeat(32)}\n`;
+				return url.endsWith(".zip") ? new Uint8Array([1, 2, 3]) : index;
+			},
 		});
 		await h.service.start();
 		const item = await h.service.installForConnection("tailscale");
@@ -1354,8 +1350,10 @@ describe("SetupService Tailscale item", () => {
 		const index = JSON.stringify({ MacZips: { universal: "Tailscale-1.104.1-macos.zip" }, Version: "1.104.1" });
 		const h = harness(machine({ tailscale: missing }), {
 			testInstaller: null,
-			fetchText: async url => (url.endsWith(".sha256") ? sha : index),
-			fetch: async () => new Response(bytes),
+			serve: url => {
+				if (url.endsWith(".sha256")) return sha;
+				return url.endsWith(".zip") ? bytes : index;
+			},
 		});
 		await h.service.start();
 		await h.service.installForConnection("tailscale").catch(() => undefined);

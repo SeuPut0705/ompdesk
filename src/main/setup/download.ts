@@ -1,19 +1,12 @@
 /**
- * A download main runs itself for an install (PortableGit, a gh/Node archive),
- * so the setup screen can show real byte progress instead of a silent
- * installer. The file is streamed to `<file>.part`, hashed on the way, and moved
- * to `file` only when its SHA-256 matches the published one; any failure or an
- * abort leaves nothing behind.
+ * A download main runs itself for an install (PortableGit, a gh/Node archive), so the setup screen can show real
+ * byte progress instead of a silent installer. The core (`crates/core/src/setup/download.rs`) streams the file to
+ * `<file>.part`, hashes it on the way and moves it to `file` only when its SHA-256 matches the published one; any
+ * failure or an abort leaves nothing behind. This is the typed client: the request, its progress events and the
+ * abort.
  */
-import { createHash } from "node:crypto";
-import { once } from "node:events";
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
-import { dirname } from "node:path";
-import { finished } from "node:stream/promises";
 import type { SetupDownloadProgress } from "../../shared/setup";
-
-export type DownloadFetch = (url: string, init: RequestInit) => Promise<Response>;
+import { CoreError, core } from "../core/process";
 
 /** `download`: the server could not be reached or refused; `checksum`: the bytes did not match. */
 export class DownloadError extends Error {
@@ -33,66 +26,50 @@ export interface DownloadOptions {
 	file: string;
 	signal: AbortSignal;
 	onProgress: (progress: SetupDownloadProgress) => void;
-	fetch?: DownloadFetch;
+	/** An `accept` header (the GitHub API's asset URL answers the file only to `application/octet-stream`). */
+	accept?: string;
+	/**
+	 * A test's server on 127.0.0.1 standing in for every host: `https://host/path` is fetched from
+	 * `<mirror>/host/path`. Only a test passes it.
+	 */
+	mirror?: string;
+}
+
+/** The longest `setTimeout` takes: a download has no bound of its own, only its signal. */
+export const NO_TIMEOUT_MS = 2 ** 31 - 1;
+
+const listeners = new Map<number, (progress: SetupDownloadProgress) => void>();
+let subscribed = false;
+let sequence = 0;
+
+function subscribe(): void {
+	if (subscribed) return;
+	subscribed = true;
+	core().on("setup.downloadProgress", data => {
+		const { id, received, total } = data as { id: number; received: number; total: number | null };
+		listeners.get(id)?.({ received, total });
+	});
 }
 
 /** Download `url` to `file` and check its SHA-256. Throws DownloadError, or the abort reason once `signal` fired. */
 export async function downloadVerified(options: DownloadOptions): Promise<void> {
-	const { url, sha256, file, signal, onProgress } = options;
-	let response: Response;
+	const { url, sha256, file, signal, onProgress, accept, mirror } = options;
+	signal.throwIfAborted();
+	subscribe();
+	const id = ++sequence;
+	listeners.set(id, onProgress);
 	try {
-		response = await (options.fetch ?? fetch)(url, {
-			signal,
-			redirect: "follow",
-			headers: { "user-agent": "ompdesk-setup" },
-		});
+		await core().call(
+			"setup.download",
+			{ id, url, sha256, file, ...(accept ? { accept } : {}), ...(mirror ? { mirror } : {}) },
+			{ signal, timeoutMs: NO_TIMEOUT_MS },
+		);
 	} catch (error) {
-		if (signal.aborted) throw error;
-		const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error);
-		throw new DownloadError("download", `${url}: ${cause}`);
-	}
-	if (!response.ok || !response.body) {
-		await response.body?.cancel();
-		throw new DownloadError("download", `${url} answered ${response.status}`);
-	}
-	const length = Number(response.headers.get("content-length"));
-	const total = Number.isSafeInteger(length) && length > 0 ? length : null;
-	await mkdir(dirname(file), { recursive: true });
-	const part = `${file}.part`;
-	const out = createWriteStream(part);
-	// A stream with no 'error' listener turns ENOSPC/EACCES (or a failed open) into an uncaught exception
-	// in main, and a pending `reader.read()` would never notice it. This listener lives as long as the stream.
-	const writeFailed = new Promise<never>((_, reject) => {
-		out.on("error", error => reject(new DownloadError("download", `${part}: ${error.message}`)));
-	});
-	writeFailed.catch(() => undefined);
-	const hash = createHash("sha256");
-	const reader = response.body.getReader();
-	let received = 0;
-	onProgress({ received, total });
-	try {
-		for (;;) {
-			const { done, value } = await Promise.race([reader.read(), writeFailed]);
-			if (done) break;
-			hash.update(value);
-			received += value.byteLength;
-			if (!out.write(value)) await Promise.race([once(out, "drain"), writeFailed]);
-			onProgress({ received, total });
-		}
-		out.end();
-		await Promise.race([finished(out), writeFailed]);
-		const actual = hash.digest("hex");
-		if (actual !== sha256) throw new DownloadError("checksum", `SHA-256 mismatch: expected ${sha256}, got ${actual}`);
-		await rename(part, file);
-	} catch (error) {
-		// Cancel before releasing the lock so the response body (a socket) is closed, not left open.
-		await reader.cancel(error).catch(() => undefined);
-		reader.releaseLock();
-		out.destroy();
-		// An early abort can land while `.part` is still opening; destroy() closes it only once
-		// that open finished, so remove the file after the close or the open recreates it.
-		await finished(out).catch(() => undefined);
-		await rm(part, { force: true, recursive: true });
+		if (signal.aborted) throw signal.reason;
+		if (error instanceof CoreError && (error.code === "download" || error.code === "checksum"))
+			throw new DownloadError(error.code, error.message);
 		throw error;
+	} finally {
+		listeners.delete(id);
 	}
 }

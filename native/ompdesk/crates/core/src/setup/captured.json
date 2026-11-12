@@ -1,0 +1,2186 @@
+{
+	"lts": [
+		{
+			"index": [
+				{
+					"version": "v26.11.1",
+					"lts": false
+				},
+				{
+					"version": "v24.10.0",
+					"lts": "Krypton"
+				},
+				{
+					"version": "v24.11.0",
+					"lts": "Krypton"
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v20.19.0",
+					"lts": "Iron"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": {
+				"not": "a list"
+			},
+			"expect": null
+		},
+		{
+			"index": null,
+			"expect": null
+		},
+		{
+			"index": "text",
+			"expect": null
+		},
+		{
+			"index": 7,
+			"expect": null
+		},
+		{
+			"index": [],
+			"expect": null
+		},
+		{
+			"index": [
+				null,
+				3,
+				"x",
+				[],
+				{
+					"version": "v24.11.0",
+					"lts": "K"
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": false
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": null
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": 0
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": 1
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": ""
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": true
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": []
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": {}
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": 0
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": 24,
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "24.11.0",
+					"lts": "K"
+				}
+			],
+			"expect": "24.11.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11",
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0-rc.1",
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": " v24.11.0",
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0\n",
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.10.9",
+					"lts": "K"
+				},
+				{
+					"version": "v22.19.0",
+					"lts": "J"
+				}
+			],
+			"expect": "v22.19.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v22.18.9",
+					"lts": "J"
+				},
+				{
+					"version": "v22.19.0",
+					"lts": "J"
+				}
+			],
+			"expect": "v22.19.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v22.20.1",
+					"lts": "J"
+				}
+			],
+			"expect": "v22.20.1"
+		},
+		{
+			"index": [
+				{
+					"version": "v26.0.0",
+					"lts": "L"
+				}
+			],
+			"expect": "v26.0.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v25.9.9",
+					"lts": "L"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v100.0.0",
+					"lts": "L"
+				}
+			],
+			"expect": "v100.0.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v99999999999999999999999.0.0",
+					"lts": "L"
+				}
+			],
+			"expect": "v99999999999999999999999.0.0"
+		},
+		{
+			"index": [
+				{
+					"version": "v024.011.000",
+					"lts": "K"
+				}
+			],
+			"expect": "v024.011.000"
+		},
+		{
+			"index": [
+				{
+					"version": "v٢٤.11.0",
+					"lts": "K"
+				}
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"version": "v24.11.0",
+					"lts": "K"
+				},
+				{
+					"version": "v26.0.0",
+					"lts": "L"
+				}
+			],
+			"expect": "v24.11.0"
+		},
+		{
+			"index": [
+				[
+					{
+						"version": "v24.11.0",
+						"lts": "K"
+					}
+				]
+			],
+			"expect": null
+		},
+		{
+			"index": [
+				{
+					"lts": "K"
+				},
+				{
+					"version": "v24.11.0",
+					"lts": "K"
+				}
+			],
+			"expect": "v24.11.0"
+		}
+	],
+	"shasums": [
+		{
+			"listing": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  node-v24.11.0-darwin-x64.tar.gz\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  node-v24.11.0-darwin-arm64.tar.gz\n",
+			"file": "node-v24.11.0-darwin-arm64.tar.gz",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  node-v24.11.0-darwin-x64.tar.gz\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  node-v24.11.0-darwin-arm64.tar.gz\n",
+			"file": "node-v24.11.0-darwin-arm64.tar.xz",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t*file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \t file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbfile.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *",
+			"file": "*",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *",
+			"file": "",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  **file.zip",
+			"file": "**file.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  **file.zip",
+			"file": "*file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  a b.zip",
+			"file": "a b.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  a b.zip",
+			"file": "a",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  a b.zip",
+			"file": "b.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0  file.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip  \r\n",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip\r\ncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc  other.zip\r\n",
+			"file": "other.zip",
+			"expect": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip\rcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc  other.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip\ncccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc  file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": " bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip ",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "﻿bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbfile.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb file.zip",
+			"file": "file.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  éé.zip",
+			"file": "éé.zip",
+			"expect": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		},
+		{
+			"listing": "gbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "# bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file.zip",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "",
+			"file": "file.zip",
+			"expect": null
+		},
+		{
+			"listing": "AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789AbCdEf0123456789  file.zip",
+			"file": "file.zip",
+			"expect": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+		}
+	],
+	"files": [
+		{
+			"version": "v24.11.0",
+			"arch": "arm64",
+			"node": "node-v24.11.0-darwin-arm64.tar.gz",
+			"gh": "gh_24.11.0_macOS_arm64.zip"
+		},
+		{
+			"version": "v24.11.0",
+			"arch": "x64",
+			"node": "node-v24.11.0-darwin-x64.tar.gz",
+			"gh": "gh_24.11.0_macOS_amd64.zip"
+		},
+		{
+			"version": "v24.11.0",
+			"arch": "ia32",
+			"node": "node-v24.11.0-darwin-x64.tar.gz",
+			"gh": "gh_24.11.0_macOS_amd64.zip"
+		},
+		{
+			"version": "v24.11.0",
+			"arch": "",
+			"node": "node-v24.11.0-darwin-x64.tar.gz",
+			"gh": "gh_24.11.0_macOS_amd64.zip"
+		},
+		{
+			"version": "2.102.0",
+			"arch": "arm64",
+			"node": "node-2.102.0-darwin-arm64.tar.gz",
+			"gh": "gh_2.102.0_macOS_arm64.zip"
+		},
+		{
+			"version": "2.102.0",
+			"arch": "x64",
+			"node": "node-2.102.0-darwin-x64.tar.gz",
+			"gh": "gh_2.102.0_macOS_amd64.zip"
+		},
+		{
+			"version": "vv2.0.0",
+			"arch": "arm64",
+			"node": "node-vv2.0.0-darwin-arm64.tar.gz",
+			"gh": "gh_v2.0.0_macOS_arm64.zip"
+		}
+	],
+	"resolve": [
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v24.11.0\",\"lts\":\"Krypton\"}]",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  node-v24.11.0-darwin-arm64.tar.gz\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  node-v24.11.0-darwin-x64.tar.gz\n"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt"
+			],
+			"ok": {
+				"item": "node",
+				"version": "v24.11.0",
+				"file": "node-v24.11.0-darwin-arm64.tar.gz",
+				"url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-darwin-arm64.tar.gz",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "x64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v24.11.0\",\"lts\":\"Krypton\"}]",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  node-v24.11.0-darwin-arm64.tar.gz\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  node-v24.11.0-darwin-x64.tar.gz\n"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt"
+			],
+			"ok": {
+				"item": "node",
+				"version": "v24.11.0",
+				"file": "node-v24.11.0-darwin-x64.tar.gz",
+				"url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-darwin-x64.tar.gz",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "ia32"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v24.11.0\",\"lts\":\"Krypton\"}]",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  node-v24.11.0-darwin-arm64.tar.gz\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB  node-v24.11.0-darwin-x64.tar.gz\n"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt"
+			],
+			"ok": {
+				"item": "node",
+				"version": "v24.11.0",
+				"file": "node-v24.11.0-darwin-x64.tar.gz",
+				"url": "https://nodejs.org/dist/v24.11.0/node-v24.11.0-darwin-x64.tar.gz",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[]"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json"
+			],
+			"err": "nodejs.org lists no supported LTS release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "{}"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json"
+			],
+			"err": "nodejs.org lists no supported LTS release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "not json"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json"
+			],
+			"err": null,
+			"syntax": true
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {},
+			"asked": [
+				"https://nodejs.org/dist/index.json"
+			],
+			"err": "https://nodejs.org/dist/index.json answered 404",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v24.11.0\",\"lts\":\"K\"}]"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt"
+			],
+			"err": "https://nodejs.org/dist/v24.11.0/SHASUMS256.txt answered 404",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v24.11.0\",\"lts\":\"K\"}]",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt"
+			],
+			"err": "No published SHA-256 for node-v24.11.0-darwin-arm64.tar.gz",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "node",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://nodejs.org/dist/index.json": "[{\"version\":\"v26.1.0\",\"lts\":false},{\"version\":\"v24.12.1\",\"lts\":\"K\"},{\"version\":\"v22.19.0\",\"lts\":\"J\"}]",
+				"https://nodejs.org/dist/v24.12.1/SHASUMS256.txt": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc *node-v24.12.1-darwin-arm64.tar.gz"
+			},
+			"asked": [
+				"https://nodejs.org/dist/index.json",
+				"https://nodejs.org/dist/v24.12.1/SHASUMS256.txt"
+			],
+			"ok": {
+				"item": "node",
+				"version": "v24.12.1",
+				"file": "node-v24.12.1-darwin-arm64.tar.gz",
+				"url": "https://nodejs.org/dist/v24.12.1/node-v24.12.1-darwin-arm64.tar.gz",
+				"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v2.102.0\"}",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  gh_2.102.0_macOS_amd64.zip\n"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt"
+			],
+			"ok": {
+				"item": "gh",
+				"version": "2.102.0",
+				"file": "gh_2.102.0_macOS_arm64.zip",
+				"url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_macOS_arm64.zip",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "x64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v2.102.0\"}",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  gh_2.102.0_macOS_amd64.zip\n"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt"
+			],
+			"ok": {
+				"item": "gh",
+				"version": "2.102.0",
+				"file": "gh_2.102.0_macOS_amd64.zip",
+				"url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_macOS_amd64.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"2.102.0\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt"
+			],
+			"ok": {
+				"item": "gh",
+				"version": "2.102.0",
+				"file": "gh_2.102.0_macOS_arm64.zip",
+				"url": "https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_macOS_arm64.zip",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v2.102\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"V2.1.0\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"nightly\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v1.2.3-rc.1\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"../v1.2.3\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":7}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":null}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v1.2.3\\n\"}",
+				"https://github.com/cli/cli/releases/download/v1.2.3/gh_1.2.3_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_1.2.3_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip",
+				"https://github.com/cli/cli/releases/download/v2.1.0/gh_2.1.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.1.0_macOS_arm64.zip"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "[]"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "null"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": "GitHub lists no GitHub CLI release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest"
+			],
+			"err": null,
+			"syntax": true
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "x64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v2.102.0\"}",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  gh_2.102.0_macOS_arm64.zip\n"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt"
+			],
+			"err": "No published SHA-256 for gh_2.102.0_macOS_amd64.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "archive",
+				"item": "gh",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/cli/cli/releases/latest": "{\"tag_name\":\"v2.102.0\"}",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz  gh_2.102.0_macOS_arm64.zip\n"
+			},
+			"asked": [
+				"https://api.github.com/repos/cli/cli/releases/latest",
+				"https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_checksums.txt"
+			],
+			"err": "No published SHA-256 for gh_2.102.0_macOS_arm64.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt"
+			],
+			"ok": {
+				"item": "agent-desktop",
+				"version": "1.2.0",
+				"file": "agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+				"url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+				"sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+			}
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "x64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt"
+			],
+			"ok": {
+				"item": "agent-desktop",
+				"version": "1.2.0",
+				"file": "agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+				"url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+				"sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+			}
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "win32",
+				"arch": "x64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt"
+			],
+			"ok": {
+				"item": "agent-desktop",
+				"version": "1.2.0",
+				"file": "agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+				"url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+				"sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+			}
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "win32",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt"
+			],
+			"ok": {
+				"item": "agent-desktop",
+				"version": "1.2.0",
+				"file": "agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz",
+				"url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz",
+				"sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+			}
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "win32",
+				"arch": "ia32"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [],
+			"err": "agent-desktop has no release for win32 ia32",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "ia32"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [],
+			"err": "agent-desktop has no release for darwin ia32",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "win32",
+				"arch": ""
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [],
+			"err": "agent-desktop has no release for win32 ",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "ARM64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [],
+			"err": "agent-desktop has no release for darwin ARM64",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"nightly\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0-rc.1\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"../v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"1.3.1\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt"
+			],
+			"ok": {
+				"item": "agent-desktop",
+				"version": "1.3.1",
+				"file": "agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz",
+				"url": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz",
+				"sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+			}
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":12}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.3.1/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  agent-desktop-v1.3.1-aarch64-apple-darwin.tar.gz\n2222222222222222222222222222222222222222222222222222222222222222  agent-desktop-v1.3.1-x86_64-apple-darwin.tar.gz\n3333333333333333333333333333333333333333333333333333333333333333  agent-desktop-v1.3.1-x86_64-pc-windows-msvc.tar.gz\n4444444444444444444444444444444444444444444444444444444444444444  agent-desktop-v1.3.1-aarch64-pc-windows-msvc.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "GitHub lists no agent-desktop release",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "{\"tag_name\":\"v1.2.0\"}",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": "1111111111111111111111111111111111111111111111111111111111111111  other.tar.gz"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest",
+				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt"
+			],
+			"err": "No published SHA-256 for agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": "https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest answered 404",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "agent",
+				"platform": "darwin",
+				"arch": "arm64"
+			},
+			"pages": {
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest": "<html>"
+			},
+			"asked": [
+				"https://api.github.com/repos/vercel-labs/agent-desktop/releases/latest"
+			],
+			"err": null,
+			"syntax": true
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-null.msi.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "Tailscale publishes no installer for this processor",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": "amd64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "amd64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "tailscale-setup-1.104.1-amd64.msi",
+				"url": "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-amd64.msi",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": "arm64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "arm64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-arm64.msi.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-arm64.msi.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "tailscale-setup-1.104.1-arm64.msi",
+				"url": "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-arm64.msi",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": "x86"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "x86"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-x86.msi.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-x86.msi.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "tailscale-setup-1.104.1-x86.msi",
+				"url": "https://pkgs.tailscale.com/stable/tailscale-setup-1.104.1-x86.msi",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"../../evil.zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"https://evil.example/x.zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"a/b.zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\".zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"-a.zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"a.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"a.zip\\n\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"a?x=1.zip\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":7},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":[],\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":null,\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":\"universal\",\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"latest\",\"Version\":\"x\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"latest\",\"Version\":\"1.2.3\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"Version\":\"1.2.3\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.2.3",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":1,\"Version\":\"1.2.3\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.2.3",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"}}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"v1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "v1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "not a hash"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": ""
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "éaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "No published SHA-256 for Tailscale-1.104.1-macos.zip",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "SHA256 (file) = DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"ok": {
+				"version": "1.104.1",
+				"file": "Tailscale-1.104.1-macos.zip",
+				"url": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip",
+				"sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\",\"arm64\":\"tailscale-setup-1.104.1-arm64.msi\",\"x86\":\"tailscale-setup-1.104.1-x86.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256"
+			],
+			"err": "https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256 answered 404",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "https://pkgs.tailscale.com/stable/?mode=json answered 404",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "[]"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "null"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "darwin",
+				"msiArch": null
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "nope"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": null,
+			"syntax": true
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "arm64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"tailscale-setup-1.104.1-amd64.msi\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "arm64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":null,\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/Tailscale-1.104.1-macos.zip.sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  file\n"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "x86"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"x86\":\"t.msi\"},\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"2.0.0\"}",
+				"https://pkgs.tailscale.com/stable/t.msi.sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json",
+				"https://pkgs.tailscale.com/stable/t.msi.sha256"
+			],
+			"ok": {
+				"version": "2.0.0",
+				"file": "t.msi",
+				"url": "https://pkgs.tailscale.com/stable/t.msi",
+				"sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+			}
+		},
+		{
+			"call": {
+				"fn": "tailscale",
+				"platform": "win32",
+				"msiArch": "amd64"
+			},
+			"pages": {
+				"https://pkgs.tailscale.com/stable/?mode=json": "{\"MSIs\":{\"amd64\":\"t.MSI\"},\"MSIsVersion\":\"1.104.1\",\"MacZips\":{\"universal\":\"Tailscale-1.104.1-macos.zip\",\"universal-package\":\"Tailscale-1.104.1-macos.pkg\"},\"MacZipsVersion\":\"1.104.1\",\"Version\":\"1.104.1\"}",
+				"https://pkgs.tailscale.com/stable/t.MSI.sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+			},
+			"asked": [
+				"https://pkgs.tailscale.com/stable/?mode=json"
+			],
+			"err": "pkgs.tailscale.com lists no installer for this machine",
+			"syntax": false
+		}
+	]
+}

@@ -18,10 +18,12 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type FetchText, resolveAgentDesktopRelease, resolveArchiveRelease } from "../src/main/setup/archives";
-import { type DownloadFetch, downloadVerified } from "../src/main/setup/download";
+import { stopCore } from "../src/main/core/process";
+import { type LookupOptions, resolveAgentDesktopRelease, resolveArchiveRelease } from "../src/main/setup/archives";
+import { downloadVerified } from "../src/main/setup/download";
 import { PORTABLE_GIT } from "../src/main/setup/plans";
 import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
+import { ensureNative } from "./build-native";
 
 export interface PinnedAsset {
 	label: string;
@@ -34,7 +36,7 @@ export type AssetResult = { ok: true; bytes: number } | { ok: false; error: stri
 const ATTEMPTS = 3;
 
 /** Every download machine setup can start, with its expected SHA-256; lookups that failed are listed instead. */
-export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: PinnedAsset[]; failures: string[] }> {
+export async function pinnedAssets(lookup: LookupOptions): Promise<{ assets: PinnedAsset[]; failures: string[] }> {
 	const assets: PinnedAsset[] = [];
 	const failures: string[] = [];
 	for (const arch of ["x64", "arm64"] as const) {
@@ -49,7 +51,7 @@ export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: Pinn
 			// Each publisher's own name for the arch, as in its file names.
 			const platform = `macOS ${item === "gh" && arch === "x64" ? "amd64" : arch}`;
 			try {
-				const release = await resolveArchiveRelease(item, arch, fetchText);
+				const release = await resolveArchiveRelease(item, arch, lookup);
 				assets.push({
 					label: `${name} ${release.version} (${platform})`,
 					url: release.url,
@@ -67,7 +69,7 @@ export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: Pinn
 	] as const) {
 		const where = `${platform === "darwin" ? "macOS" : "Windows"} ${arch}`;
 		try {
-			const release = await resolveAgentDesktopRelease(platform, arch, fetchText);
+			const release = await resolveAgentDesktopRelease(platform, arch, lookup);
 			assets.push({
 				label: `agent-desktop ${release.version} (${where})`,
 				url: release.url,
@@ -90,7 +92,7 @@ export async function pinnedAssets(fetchText: FetchText): Promise<{ assets: Pinn
 /** Download `asset` in full and check its SHA-256; a refused or broken download is retried, a mismatch is final. */
 export async function checkAsset(
 	asset: PinnedAsset,
-	fetch: DownloadFetch,
+	mirror: string | undefined,
 	wait: (ms: number) => Promise<void>,
 ): Promise<AssetResult> {
 	const dir = await mkdtemp(join(tmpdir(), "ompdesk-assets-health-"));
@@ -107,7 +109,7 @@ export async function checkAsset(
 					onProgress: progress => {
 						bytes = progress.received;
 					},
-					fetch,
+					...(mirror ? { mirror } : {}),
 				});
 				return { ok: true, bytes };
 			} catch (caught) {
@@ -143,27 +145,16 @@ export function healthReport(
 	].join("\n");
 }
 
-/** fetch() as text, authenticated to api.github.com when the workflow provides a token (60 requests/h without). */
-async function fetchListing(url: string): Promise<string> {
-	const token = process.env.GITHUB_TOKEN;
-	const response = await fetch(url, {
-		headers: {
-			"user-agent": "ompdesk-setup-assets-health",
-			...(token && url.startsWith("https://api.github.com/") ? { authorization: `Bearer ${token}` } : {}),
-		},
-		signal: AbortSignal.timeout(30_000),
-	});
-	if (!response.ok) throw new Error(`${url} answered ${response.status}`);
-	return response.text();
-}
-
 async function main(): Promise<number> {
+	// The release lookups and the downloads run in the core.
+	ensureNative();
 	const reportIndex = process.argv.indexOf("--report");
 	const reportPath = reportIndex > 0 ? process.argv[reportIndex + 1] : undefined;
-	const { assets, failures } = await pinnedAssets(fetchListing);
+	// Authenticated to api.github.com when the workflow provides a token (60 requests/h without).
+	const { assets, failures } = await pinnedAssets({ githubToken: process.env.GITHUB_TOKEN });
 	const results: { asset: PinnedAsset; result: AssetResult }[] = [];
 	for (const asset of assets) {
-		const result = await checkAsset(asset, fetch, ms => Bun.sleep(ms));
+		const result = await checkAsset(asset, undefined, ms => Bun.sleep(ms));
 		console.log(
 			result.ok ? `✓ ${asset.label}: ${result.bytes} bytes, SHA-256 matches` : `✗ ${asset.label}: ${result.error}`,
 		);
@@ -178,4 +169,7 @@ async function main(): Promise<number> {
 	return 1;
 }
 
-if (import.meta.main) process.exit(await main());
+if (import.meta.main) {
+	const code = await main().finally(stopCore);
+	process.exit(code);
+}

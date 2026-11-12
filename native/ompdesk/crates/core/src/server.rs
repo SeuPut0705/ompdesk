@@ -179,6 +179,7 @@ pub fn registry() -> Registry {
     crate::routines::register(&mut registry);
     crate::schedules::register(&mut registry);
     crate::sessions::register(&mut registry);
+    crate::setup::register(&mut registry);
     crate::control::register(&mut registry);
     crate::tailscale::register(&mut registry);
     crate::ssh::register(&mut registry);

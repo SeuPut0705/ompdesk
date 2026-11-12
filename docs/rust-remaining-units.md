@@ -215,7 +215,7 @@ R5–R7 need the pool (9d, 9e) in the core: `RemoteSidecar` is a `SidecarLike` t
 
 ### 2.7 What is left of `setup/**` and `cli-tools/**` under 4c's constraint
 
-Movable: the supervisor (6a, 478 lines), and the downloads (`setup/download.ts` 98 `downloadVerified`, `setup/archives.ts` 177 `resolveArchiveRelease`/`resolveAgentDesktopRelease`/`resolveTailscaleRelease`/`fetchText`: 275 lines) once an HTTPS client is chosen (§1.4; `sha2` for the checksums). Parity `setup/download.test.ts` 181, `setup/archives.test.ts` 202.
+Movable: the supervisor (6a, 478 lines), and the downloads (`setup/download.ts` 98 `downloadVerified`, `setup/archives.ts` 177 `resolveArchiveRelease`/`resolveAgentDesktopRelease`/`resolveTailscaleRelease`/`fetchText`: 275 lines) once an HTTPS client is chosen (§1.4; `sha2` for the checksums). Parity `setup/download.test.ts` 181, `setup/archives.test.ts` 202. **Done as ledger 6c** (the downloads and lookups; the supervisor was 6a).
 
 Stays until the core no longer has to repair itself (4c) or until 9a:
 

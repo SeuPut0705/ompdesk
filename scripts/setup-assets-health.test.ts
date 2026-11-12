@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { PORTABLE_GIT } from "../src/main/setup/plans";
+import { type Answer, type Mirror, startMirror } from "../src/main/setup/test-mirror";
 import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
 import { checkAsset, healthReport, type PinnedAsset, pinnedAssets } from "./setup-assets-health";
 
@@ -16,8 +17,19 @@ const sha = createHash("sha256").update(bytes).digest("hex");
 const asset: PinnedAsset = { label: "PortableGit 2.56.0.2 (x64)", url: "https://example.test/git.7z.exe", sha256: sha };
 const noWait = async () => {};
 
+/** The mirrors started by a test (the core reads every address from one), closed after it. */
+const started: Mirror[] = [];
+afterEach(async () => {
+	await Promise.all(started.splice(0).map(mirror => mirror.close()));
+});
+async function serve(answer: (url: string) => Answer): Promise<Mirror> {
+	const mirror = await startMirror(answer);
+	started.push(mirror);
+	return mirror;
+}
+
 /** nodejs.org and GitHub, as `resolveArchiveRelease` and `resolveAgentDesktopRelease` read them. */
-function listings(overrides: Record<string, string> = {}): (url: string) => Promise<string> {
+function listings(overrides: Record<string, string> = {}): Promise<Mirror> {
 	const pages: Record<string, string> = {
 		"https://nodejs.org/dist/index.json": JSON.stringify([{ version: "v24.11.0", lts: "Krypton" }]),
 		"https://nodejs.org/dist/v24.11.0/SHASUMS256.txt": [
@@ -37,16 +49,12 @@ function listings(overrides: Record<string, string> = {}): (url: string) => Prom
 		].join("\n"),
 		...overrides,
 	};
-	return async url => {
-		const page = pages[url];
-		if (page === undefined) throw new Error(`${url} answered 404`);
-		return page;
-	};
+	return serve(url => pages[url]);
 }
 
 describe("pinnedAssets", () => {
 	it("lists both pinned PortableGits, the gh, Node and agent-desktop archives the app would download and the agent-desktop it ships, with their checksums", async () => {
-		const { assets, failures } = await pinnedAssets(listings());
+		const { assets, failures } = await pinnedAssets({ mirror: (await listings()).url });
 		expect(failures).toEqual([]);
 		expect(assets).toEqual([
 			{ label: "PortableGit 2.56.0.2 (x64)", url: PORTABLE_GIT.x64.url, sha256: PORTABLE_GIT.x64.sha256 },
@@ -91,13 +99,15 @@ describe("pinnedAssets", () => {
 	});
 
 	it("reports a release lookup that no longer resolves, or a file its checksum list leaves out", async () => {
-		const { assets, failures } = await pinnedAssets(
-			listings({
-				"https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_checksums.txt": `${"c".repeat(64)}  other.zip`,
-				"https://nodejs.org/dist/index.json": "[]",
-				"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": `${"e".repeat(64)}  other.tar.gz`,
-			}),
-		);
+		const { assets, failures } = await pinnedAssets({
+			mirror: (
+				await listings({
+					"https://github.com/cli/cli/releases/download/v2.83.0/gh_2.83.0_checksums.txt": `${"c".repeat(64)}  other.zip`,
+					"https://nodejs.org/dist/index.json": "[]",
+					"https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/checksums.txt": `${"e".repeat(64)}  other.tar.gz`,
+				})
+			).url,
+		});
 		expect(assets.map(entry => entry.label)).toEqual([
 			"PortableGit 2.56.0.2 (x64)",
 			"PortableGit 2.56.0.2 (arm64)",
@@ -117,53 +127,32 @@ describe("pinnedAssets", () => {
 
 describe("checkAsset", () => {
 	it("passes a file that downloads in full and matches its pinned SHA-256", async () => {
-		expect(await checkAsset(asset, async () => new Response(bytes), noWait)).toEqual({
-			ok: true,
-			bytes: bytes.byteLength,
-		});
+		const mirror = await serve(() => ({ body: bytes }));
+		expect(await checkAsset(asset, mirror.url, noWait)).toEqual({ ok: true, bytes: bytes.byteLength });
 	});
 
 	it("fails a checksum mismatch at once, without retrying", async () => {
-		let calls = 0;
-		const result = await checkAsset(
-			{ ...asset, sha256: "0".repeat(64) },
-			async () => {
-				calls += 1;
-				return new Response(bytes);
-			},
-			noWait,
-		);
+		const mirror = await serve(() => ({ body: bytes }));
+		const result = await checkAsset({ ...asset, sha256: "0".repeat(64) }, mirror.url, noWait);
 		expect(result).toEqual({ ok: false, error: `SHA-256 mismatch: expected ${"0".repeat(64)}, got ${sha}` });
-		expect(calls).toBe(1);
+		expect(mirror.asked).toHaveLength(1);
 	});
 
 	it("retries a refused download three times before calling it broken", async () => {
 		const waits: number[] = [];
-		let calls = 0;
-		const result = await checkAsset(
-			asset,
-			async () => {
-				calls += 1;
-				return new Response("gone", { status: 404 });
-			},
-			async ms => {
-				waits.push(ms);
-			},
-		);
+		const gone = await serve(() => ({ status: 404, body: "gone" }));
+		const result = await checkAsset(asset, gone.url, async ms => {
+			waits.push(ms);
+		});
 		expect(result).toEqual({ ok: false, error: "https://example.test/git.7z.exe answered 404" });
-		expect(calls).toBe(3);
+		expect(gone.asked).toHaveLength(3);
 		expect(waits).toEqual([2000, 4000]);
 		let flaky = 0;
-		expect(
-			await checkAsset(
-				asset,
-				async () => {
-					flaky += 1;
-					return flaky === 1 ? new Response("", { status: 502 }) : new Response(bytes);
-				},
-				noWait,
-			),
-		).toEqual({ ok: true, bytes: bytes.byteLength });
+		const flakyMirror = await serve(() => {
+			flaky += 1;
+			return flaky === 1 ? { status: 502, body: "" } : { body: bytes };
+		});
+		expect(await checkAsset(asset, flakyMirror.url, noWait)).toEqual({ ok: true, bytes: bytes.byteLength });
 	});
 });
 

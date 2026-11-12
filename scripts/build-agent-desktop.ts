@@ -23,8 +23,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { fetchText, resolveAgentDesktopRelease } from "../src/main/setup/archives";
+import { stopCore } from "../src/main/core/process";
+import { resolveAgentDesktopRelease } from "../src/main/setup/archives";
 import { downloadVerified } from "../src/main/setup/download";
+import { ensureNative } from "./build-native";
 
 export const REPO_ROOT = path.resolve(import.meta.dir, "..");
 export const PIN_FILE = path.join(REPO_ROOT, "scripts", "agent-desktop-pin.json");
@@ -143,15 +145,7 @@ async function download(urls: () => AsyncGenerator<string>, expected: string): P
 						file,
 						signal: AbortSignal.timeout(300_000),
 						onProgress: () => {},
-						...(api
-							? {
-									fetch: (target, init) =>
-										fetch(target, {
-											...init,
-											headers: { ...init.headers, accept: "application/octet-stream" },
-										}),
-								}
-							: {}),
+						...(api ? { accept: "application/octet-stream" } : {}),
 					});
 					return fs.readFileSync(file);
 				} catch (caught) {
@@ -231,7 +225,7 @@ async function pinLatest(pin: Pin): Promise<Pin> {
 	for (const [key, target] of Object.entries(pin.targets)) {
 		const [platform, arch] = key.split("-");
 		if (platform !== "darwin" && platform !== "win32") fail(`unknown pinned platform ${key}`);
-		const release = await resolveAgentDesktopRelease(platform, arch ?? "", fetchText);
+		const release = await resolveAgentDesktopRelease(platform, arch ?? "");
 		if (version && release.version !== version) fail(`targets resolved to ${version} and ${release.version}`);
 		version = release.version;
 		targets[key] = { ...target, file: release.file, sha256: release.sha256 };
@@ -240,6 +234,8 @@ async function pinLatest(pin: Pin): Promise<Pin> {
 }
 
 async function main(): Promise<void> {
+	// The downloads and the release lookup run in the core.
+	ensureNative();
 	const args = process.argv.slice(2);
 	let pin = JSON.parse(fs.readFileSync(PIN_FILE, "utf8")) as Pin;
 	if (args.includes("--pin-latest")) {
@@ -252,4 +248,11 @@ async function main(): Promise<void> {
 	for (const key of keys) await unpack(key, pin);
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) {
+	// The core is a child with an open stdin pipe: the script ends only once it is stopped.
+	try {
+		await main();
+	} finally {
+		await stopCore();
+	}
+}

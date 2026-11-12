@@ -35,16 +35,10 @@ import { manifestBunMinimum, ompUpdateEnv, parseUpdateCheck } from "../omp-runti
 import { writeRuntimeLog } from "../runtime-log";
 import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
-import {
-	type FetchText,
-	fetchText,
-	resolveAgentDesktopRelease,
-	resolveArchiveRelease,
-	resolveTailscaleRelease,
-} from "./archives";
+import { resolveAgentDesktopRelease, resolveArchiveRelease, resolveTailscaleRelease } from "./archives";
 import { setAsideCompiledOmp, settleSetAside } from "./compiled-launcher";
 import { type Detection, detectMachine } from "./detect";
-import { DownloadError, type DownloadFetch, downloadVerified } from "./download";
+import { DownloadError, downloadVerified } from "./download";
 import {
 	GIT_ASLR_RECORD,
 	gitAslrSpawn,
@@ -114,9 +108,11 @@ export interface SetupServiceDeps {
 		agentDesktopBundle?: string,
 	) => Promise<Detection>;
 	runner?: SetupRunner;
-	fetchText?: FetchText;
-	/** Downloads main runs itself (download.ts). */
-	fetch?: DownloadFetch;
+	/**
+	 * A test's server on 127.0.0.1 standing in for every host the release lookups and main's downloads reach
+	 * (`https://host/path` is read from `<mirror>/host/path`). Only a test passes it.
+	 */
+	mirror?: string;
 	/** `OMP_GUI_TEST_DOWNLOAD(_SHA256)`: under the test installer, every plan first downloads this (e2e progress). */
 	testDownload?: { url: string; sha256: string } | null;
 	refreshPath?: (platform: SetupPlatform, toolsDir: string) => Promise<void>;
@@ -404,6 +400,11 @@ export class SetupService {
 		return parsed.latestVersion;
 	}
 
+	/** What the core's lookups and downloads are told beyond their request: a test's mirror. */
+	#lookupOptions(): { mirror?: string } {
+		return this.#deps.mirror ? { mirror: this.#deps.mirror } : {};
+	}
+
 	/** The newest release of machine setup's verified archive for gh, Node or agent-desktop (`runToolUpdate`'s `managed` update installs it). */
 	async latestManaged(item: "gh" | "node" | "agent-desktop"): Promise<string> {
 		const release = await this.#resolveManaged(item);
@@ -412,11 +413,11 @@ export class SetupService {
 
 	/** The release machine setup's verified archive install of `item` downloads (agent-desktop has its own source and targets). */
 	#resolveManaged(item: "gh" | "node" | "agent-desktop"): Promise<ArchiveRelease> {
-		const fetchLatest = this.#deps.fetchText ?? fetchText;
-		if (item !== "agent-desktop") return resolveArchiveRelease(item, this.#deps.arch, fetchLatest);
+		const lookup = this.#lookupOptions();
+		if (item !== "agent-desktop") return resolveArchiveRelease(item, this.#deps.arch, lookup);
 		if (this.#deps.platform === "other")
 			return Promise.reject(new Error("agent-desktop has no release for this platform"));
-		return resolveAgentDesktopRelease(this.#deps.platform, this.#deps.arch, fetchLatest);
+		return resolveAgentDesktopRelease(this.#deps.platform, this.#deps.arch, lookup);
 	}
 
 	/**
@@ -479,7 +480,7 @@ export class SetupService {
 						...download,
 						signal: controller.signal,
 						onProgress: () => {},
-						...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
+						...this.#lookupOptions(),
 					});
 				} catch (error) {
 					throwIfStepStalled();
@@ -893,7 +894,7 @@ export class SetupService {
 					tailscale = await resolveTailscaleRelease(
 						platform,
 						tailscaleMsiArch(this.#deps.arch),
-						this.#deps.fetchText ?? fetchText,
+						this.#lookupOptions(),
 					);
 					throwIfStepStalled();
 				} catch (error) {
@@ -987,7 +988,7 @@ export class SetupService {
 					if (item.progress) item.progress = { ...item.progress, download: { ...value } };
 					this.#emitSoon();
 				},
-				...(this.#deps.fetch ? { fetch: this.#deps.fetch } : {}),
+				...this.#lookupOptions(),
 			});
 		} catch (error) {
 			throwIfStepStalled();

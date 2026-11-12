@@ -50,14 +50,6 @@
 		"reason": "Known duplicate: the worktree slug rule main/local/git/parse.ts WORKTREE_NAME_PATTERN enforces, restated by WorktreeDialog.tsx (the renderer cannot import main); merge into src/shared/worktree-branch.ts."
 	},
 	{
-		"rule": "/^v?\\d+\\.\\d+\\.\\d+$/",
-		"files": [
-			"src/main/setup/archives.ts",
-			"src/shared/builtin-mcp.ts"
-		],
-		"reason": "Not one rule: a plain `X.Y.Z` shape that setup/archives.ts checks on a download index and builtin-mcp.ts parses from a pinned MCP version; neither is a release-version rule of the other."
-	},
-	{
 		"rule": "/key|token|secret|password/i",
 		"files": [
 			"src/renderer/components/panels/inventory/plugin-settings.ts",

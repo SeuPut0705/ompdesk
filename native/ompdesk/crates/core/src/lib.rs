@@ -21,6 +21,7 @@ mod run;
 pub mod schedules;
 pub mod server;
 pub mod sessions;
+pub mod setup;
 pub mod ssh;
 pub mod stock;
 pub mod supervise;
