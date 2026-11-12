@@ -34,6 +34,8 @@ import {
 import { Link, type WireMessage } from "./wire";
 
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+/** A rebind still running this long is logged once (`rebind-slow`), with the device links open meanwhile. */
+const REBIND_SLOW_MS = 2_000;
 
 /** What the host tells an authenticated client in its hello. */
 export interface HostHello {
@@ -200,6 +202,8 @@ export class RemoteHost {
 	#running = false;
 	#binding: Promise<void> | null = null;
 	#loggedPort: number | null = null;
+	/** What the last `listening`/`not-listening` line said: a rebind that ends the same writes nothing. */
+	#loggedListen: string | null = null;
 
 	constructor(opts: RemoteHostOptions) {
 		this.#opts = opts;
@@ -235,14 +239,36 @@ export class RemoteHost {
 
 	async #rebind(): Promise<void> {
 		if (!this.#running) return;
-		const wanted = [...new Set(await this.#opts.bindHosts().catch(() => []))].sort();
-		if (!this.#running) return;
-		const same = wanted.length === this.#bound.length && wanted.every((host, i) => host === this.#bound[i]);
-		if (same && (this.#servers.length > 0 || wanted.length === 0)) return;
-		await this.#closeServers();
-		this.#listenError = null;
-		if (wanted.length > 0) await this.#listenOn(wanted);
-		this.#emitter.emit("listenChanged");
+		const began = this.#now();
+		const slow = setTimeout(() => this.#opts.log?.("rebind-slow", { links: this.#connections.size }), REBIND_SLOW_MS);
+		slow.unref?.();
+		try {
+			const wanted = [...new Set(await this.#opts.bindHosts().catch(() => []))].sort();
+			if (!this.#running) return;
+			const same = wanted.length === this.#bound.length && wanted.every((host, i) => host === this.#bound[i]);
+			if (same && (this.#servers.length > 0 || wanted.length === 0)) return;
+			this.#closeServers();
+			this.#listenError = null;
+			if (wanted.length > 0) await this.#listenOn(wanted);
+			this.#logListen(wanted.length, this.#now() - began);
+			this.#emitter.emit("listenChanged");
+		} finally {
+			clearTimeout(slow);
+		}
+	}
+
+	/** Where it listens after a rebind that changed it, for the runtime log: ports and counts, never an address. */
+	#logListen(wanted: number, ms: number): void {
+		const port = this.#port;
+		const links = this.#connections.size;
+		const [message, details] =
+			port === null
+				? (["not-listening", { wanted }] as const)
+				: (["listening", { port, addresses: this.#listening.length }] as const);
+		const said = `${message} ${JSON.stringify(details)}`;
+		if (said === this.#loggedListen) return;
+		this.#loggedListen = said;
+		this.#opts.log?.(message, { ...details, links, ms });
 	}
 
 	/**
@@ -268,7 +294,7 @@ export class RemoteHost {
 					continue;
 				}
 				// Not a port of its own (the address left this computer meanwhile): the next rebind tries again.
-				this.#opts.log?.("listen-failed", { message: error instanceof Error ? error.message : String(error) });
+				this.#opts.log?.("listen-failed", { code: errorCode(error) });
 				return;
 			}
 			const servers = [server];
@@ -282,7 +308,7 @@ export class RemoteHost {
 					listening.push(host);
 				} catch (error) {
 					if (other.listening) await close(other);
-					this.#opts.log?.("listen-skipped", { host, port, code: errorCode(error) });
+					this.#opts.log?.("listen-skipped", { port, family: isIPv4(host) ? 4 : 6, code: errorCode(error) });
 				}
 			}
 			this.#servers = servers;
@@ -299,21 +325,27 @@ export class RemoteHost {
 		this.#listenError = { code: "port_in_use", ports: candidates };
 	}
 
-	async #closeServers(): Promise<void> {
+	/**
+	 * Stops listening at once and leaves every link accepted on these listeners open: `server.close` calls back only
+	 * once each of them ended, so awaiting it held the rebind (and every later one, which shares it) for as long as one
+	 * device stayed connected, and the host listened nowhere until the app restarted.
+	 */
+	#closeServers(): void {
 		const servers = this.#servers;
 		this.#servers = [];
 		this.#bound = [];
 		this.#listening = [];
 		this.#port = null;
-		await Promise.all(servers.map(close));
+		for (const server of servers) server.close();
 	}
 
 	async stop(): Promise<void> {
 		this.#running = false;
 		await this.#binding?.catch(() => undefined);
 		for (const link of [...this.#links]) link.destroy();
-		await this.#closeServers();
+		this.#closeServers();
 		this.#listenError = null;
+		this.#loggedListen = null;
 	}
 
 	/** `ip:port` for each tailnet address it listens on. */

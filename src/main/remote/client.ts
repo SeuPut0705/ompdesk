@@ -399,6 +399,8 @@ interface Outage {
 	since: number;
 	attempts: number;
 	downLogged: boolean;
+	/** Whether the last failed attempt of this stretch was refused on every address; null before one failed. */
+	refused: boolean | null;
 }
 
 interface Pending {
@@ -559,11 +561,12 @@ export class RemoteClient {
 
 	async #attempt(trigger: AttemptTrigger, delayMs: number): Promise<void> {
 		this.#attempting = true;
-		this.#outage ??= { since: Date.now(), attempts: 0, downLogged: false };
+		this.#outage ??= { since: Date.now(), attempts: 0, downLogged: false, refused: null };
 		const outage = this.#outage;
 		outage.attempts += 1;
 		if (trigger !== "backoff" || outage.attempts <= LOGGED_BACKOFF_ATTEMPTS) {
-			this.#opts.log?.("attempt", { deviceId: this.deviceId, n: outage.attempts, delayMs, trigger });
+			const last = outage.refused === null ? {} : { refused: outage.refused };
+			this.#opts.log?.("attempt", { deviceId: this.deviceId, n: outage.attempts, delayMs, trigger, ...last });
 		}
 		this.#setState("connecting");
 		const cancel = new AbortController();
@@ -622,6 +625,7 @@ export class RemoteClient {
 			return;
 		}
 		this.#error = failure.code;
+		outage.refused = refused;
 		if (!outage.downLogged) {
 			outage.downLogged = true;
 			this.#opts.log?.("down", {
@@ -675,7 +679,7 @@ export class RemoteClient {
 			reason: link.closeReason ?? "closed",
 			wasOnlineMs: now - (this.#onlineAt ?? now),
 		});
-		this.#outage = { since: now, attempts: 0, downLogged: true };
+		this.#outage = { since: now, attempts: 0, downLogged: true, refused: null };
 		for (const [id, pending] of this.#pending) {
 			clearTimeout(pending.timer);
 			this.#pending.delete(id);
