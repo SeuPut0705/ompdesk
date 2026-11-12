@@ -221,9 +221,17 @@ fn browser(argv: Vec<String>) -> i32 {
         );
         return 1;
     };
+    // The renderer and the preload are the main script's siblings (`out/main/index.js` → `out/renderer`): the e2e
+    // harness runs pinned snapshots (`out-<hash>/main/index.js`) beside the checkout's own `out/`.
+    let entry = node::entry_script(&located.app_dir);
+    let build_dir = entry
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| located.app_dir.join("out"));
     let _ = PATHS.set(Paths {
-        renderer_dir: located.app_dir.join("out").join("renderer"),
-        preload_file: located.app_dir.join("out").join("preload").join("shell.js"),
+        renderer_dir: build_dir.join("renderer"),
+        preload_file: build_dir.join("preload").join("shell.js"),
         web_dir: web_dir.clone(),
     });
     local_storage::prepare(&user_data, &web_dir, &mut |event, data| log(event, data));
@@ -236,6 +244,7 @@ fn browser(argv: Vec<String>) -> i32 {
         user_data: user_data.clone(),
         exe: exe.clone(),
         app_dir: located.app_dir.clone(),
+        renderer_root: build_dir.join("renderer"),
         packaged: located.packaged,
         resources: located.resources.clone(),
         argv: argv.clone(),
@@ -283,7 +292,6 @@ fn browser(argv: Vec<String>) -> i32 {
         },
     );
     let program = node::node_program(located.packaged, &located.resources);
-    let entry = node::entry_script(&located.app_dir);
     if let Err(error) = node::spawn(&program, &entry, &args, &socket, &token) {
         log(
             "node.spawn_failed",

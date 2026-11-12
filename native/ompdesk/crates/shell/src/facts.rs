@@ -16,6 +16,8 @@ pub struct Launch {
     pub exe: PathBuf,
     /// The folder holding `out/main/index.js` and `package.json`.
     pub app_dir: PathBuf,
+    /// Where `app://ompdesk/` is served from: `<main script's folder>/../renderer`.
+    pub renderer_root: PathBuf,
     pub packaged: bool,
     /// `process.resourcesPath`.
     pub resources: PathBuf,
@@ -82,6 +84,7 @@ pub fn collect(launch: &Launch, log: &mut dyn FnMut(&str, Value)) -> Value {
         "exe": launch.exe.to_string_lossy(),
         "resourcesPath": launch.resources.to_string_lossy(),
         "appPath": launch.app_dir.to_string_lossy(),
+        "rendererRoot": launch.renderer_root.to_string_lossy(),
         "isPackaged": launch.packaged,
         "argv": launch.argv,
         "locale": { "appLocale": app_locale, "systemLocale": system_locale, "preferredLanguages": system::preferred_languages() },
@@ -122,6 +125,7 @@ pub fn collect(launch: &Launch, log: &mut dyn FnMut(&str, Value)) -> Value {
         "exe": launch.exe.to_string_lossy(),
         "resourcesPath": launch.resources.to_string_lossy(),
         "appPath": launch.app_dir.to_string_lossy(),
+        "rendererRoot": launch.renderer_root.to_string_lossy(),
         "isPackaged": launch.packaged,
         "argv": launch.argv,
         "locale": { "appLocale": app_locale, "systemLocale": system_locale, "preferredLanguages": crate::sys_mac::preferred_languages() },
@@ -162,6 +166,7 @@ mod tests {
             user_data: dir.clone(),
             exe: PathBuf::from("C:/x/ompdesk-shell.exe"),
             app_dir: PathBuf::from("C:/repo"),
+            renderer_root: PathBuf::from("C:/repo/out/renderer"),
             packaged: false,
             resources: PathBuf::from("C:/repo/resources"),
             argv: vec!["ompdesk-shell.exe".into()],
