@@ -132,7 +132,7 @@ export interface AutopilotPool {
 
 /** DeskTools' side (`AgentControl`): who a tab opened, and emptying a child's queue without aborting it. */
 export interface AutopilotControl {
-	childrenOf(callerTabId: string): string[];
+	childrenOf(callerTabId: string): string[] | Promise<string[]>;
 	clearQueue(tabId: string): Promise<void>;
 }
 
