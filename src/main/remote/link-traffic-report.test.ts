@@ -7,9 +7,10 @@
  * progress snapshots are pinned in `link-traffic-progress.test.ts` and `link-traffic-progress-events.test.ts`.
  */
 import { setTimeout as delay } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../../shared/rpc-types";
 import { createMessageUpdateSlimmer } from "../message-update-slim";
+import { writeCaptured } from "./link-events-capture";
 import {
 	closeSessions,
 	type Delivered,
@@ -18,6 +19,11 @@ import {
 	type LinkRecorder,
 	openSession,
 } from "./link-traffic-test-rig";
+
+vi.mock("./link-events", async importOriginal =>
+	(await import("./link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("link-traffic-report"));
 
 const MEASURE = process.env.OMP_GUI_LINK_TRAFFIC === "1";
 
