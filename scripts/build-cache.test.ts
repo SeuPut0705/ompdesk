@@ -88,6 +88,20 @@ describe("build cache", () => {
 		expect(reason()).toBeUndefined();
 	});
 
+	it("ignores the binaries packaging stages under resources/ (the shell, Node, CEF's licences, memory, agent-desktop)", () => {
+		built();
+		for (const dir of [
+			"ompdesk-shell/win32-x64",
+			"node/win32-x64",
+			"shell-licenses/win32-x64",
+			"ai-memory-bin/win32-x64",
+			"agent-desktop-bin/win32-x64",
+		]) {
+			put(`resources/${dir}/staged.bin`, "bytes\n");
+		}
+		expect(reason()).toBeUndefined();
+	});
+
 	it("rebuilds when a file under out/ was removed, added or rewritten", () => {
 		built();
 		fs.rmSync(path.join(root, "out/renderer/index.html"));
@@ -137,5 +151,7 @@ describe("isBuildInput", () => {
 		expect(isBuildInput("src/main/ipc.test.ts")).toBe(false);
 		expect(isBuildInput("AGENTS.md")).toBe(false);
 		expect(isBuildInput("e2e/smoke.e2e.ts")).toBe(false);
+		for (const dir of ["ompdesk-shell", "node", "shell-licenses"])
+			expect(isBuildInput(`resources/${dir}/win32-x64/x`), dir).toBe(false);
 	});
 });

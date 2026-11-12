@@ -1,7 +1,7 @@
 /**
  * Package OMPdesk for macOS (Apple silicon) from the CEF shell:
  *
- *   bun run package:mac [-- --no-dmg] [-- --legacy-zip]
+ *   bun run package:mac [-- --no-dmg] [-- --legacy-zip] [-- --version <v>]
  *
  * electron-builder cannot lay out a CEF app (its macOS pack is Electron's: the `Electron Framework`, its helper names
  * and Info.plists), so this assembles `dist/mac-arm64/OMPdesk.app` itself, holds it to `scripts/after-pack.cjs`, signs
@@ -20,6 +20,24 @@
  * `resources/entitlements.mac.plist` (V8's JIT needs it in the helpers and Node), no secure timestamp (nothing is
  * notarized), then the helper apps and the app, which `stageBundleFromDmg` (src/main/updater-state.ts) verifies with
  * `codesign --verify --deep --strict` after the update.
+ *
+ * Written without a Mac; nothing here has run on one. What a Mac must show (each one is a way the update from the
+ * released v0.127.0 would fail, and where a failure of the first four cannot be mended on the new side, the handoff
+ * release the rule describes is needed):
+ *  1. `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/OMPdesk.app` passes: CEF's framework seals with its
+ *     symlinks (`Versions/Current`, the root links) kept and nothing unsealed at the framework's root.
+ *  2. `codesign -d -r- OMPdesk.app` reads `identifier "com.seuput.ompdesk" and certificate root = H"<mac-signing.json's
+ *     sha1>"`, the same line as v0.127.0's app (privacy grants survive), with the pinned certificate (release run on main).
+ *  3. The DMG passes `stageBundleFromDmg` (hdiutil attach, ditto, the check above, bundle id, version) and the relaunch
+ *     swap (`SWAP_SCRIPT`) replaces /Applications/OMPdesk.app and reopens it, with its rollback when it fails.
+ *  4. The app starts from the staged copy: CEF finds its five helper apps by name, Node (`Resources/node/node`, signed
+ *     here with the entitlements file) runs `Resources/app/out/main/index.js` under the hardened runtime, the window
+ *     and the traffic lights show, `omp://` reaches the app as an Apple Event after the swap.
+ *  5. Electron's keychain item "ompdesk Safe Storage" is read by the shell (silently or with one prompt), or each stored
+ *     secret is asked for again with the reason shown.
+ *  6. `bun scripts/shell-move/feed.ts --platform mac` + the released app launched with `--host-resolver-rules` and
+ *     `--ignore-certificate-errors` (`open -n OMPdesk.app --args …`) walks the whole update on the Mac: `check found` …
+ *     `swap helper relaunch`, then `swap result installed`; with the swap made to fail, `swap result rolled back`.
  */
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -89,8 +107,9 @@ const copy = (from: string, to: string) => {
  * build's `ompdesk-shell`) is the app's executable and each helper app's, copied, as CEF starts its helper processes
  * from `Contents/Frameworks/<product> Helper*.app`.
  */
-export function assembleBundle(repo: string, out: string): string {
+export function assembleBundle(repo: string, out: string, version?: string): string {
 	const manifest = JSON.parse(fs.readFileSync(path.join(repo, "package.json"), "utf8")) as { version: string };
+	if (version) manifest.version = version;
 	const staged = path.join(repo, "resources", "ompdesk-shell", KEY);
 	const recordFile = path.join(staged, "ompdesk-shell.build.json");
 	if (!fs.existsSync(recordFile)) fail(`${recordFile} is missing; run \`bun run build:shell\``);
@@ -132,7 +151,7 @@ export function assembleBundle(repo: string, out: string): string {
 	if (!fs.existsSync(path.join(repo, "out", "main", "index.js")))
 		fail("out/ has no main/index.js; run `bun run build`");
 	fs.mkdirSync(appDir, { recursive: true });
-	fs.copyFileSync(path.join(repo, "package.json"), path.join(appDir, "package.json"));
+	fs.writeFileSync(path.join(appDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 	fs.cpSync(path.join(repo, "out"), path.join(appDir, "out"), {
 		recursive: true,
 		filter: source => path.basename(source) !== ".build-stamp.json",
@@ -198,7 +217,10 @@ async function main(): Promise<void> {
 	const args = process.argv.slice(2);
 	if (process.platform !== "darwin") fail("run this on a Mac (codesign, hdiutil)");
 	const out = path.join(REPO_ROOT, "dist", "mac-arm64");
-	const app = assembleBundle(REPO_ROOT, out);
+	// `--version <v>`: another version than package.json's (the update dry run offers 0.200.0 from a released 0.127.0).
+	const versionAt = args.indexOf("--version");
+	const version = versionAt >= 0 ? args[versionAt + 1] : undefined;
+	const app = assembleBundle(REPO_ROOT, out, version);
 	await afterPack({
 		electronPlatformName: "darwin",
 		appOutDir: out,
@@ -212,7 +234,17 @@ async function main(): Promise<void> {
 	const targets = args.includes("--legacy-zip") ? ["dmg", "zip"] : ["dmg"];
 	const builder = spawnSync(
 		"bunx",
-		["electron-builder", "--mac", ...targets, "--arm64", "--publish", "never", "--prepackaged", app],
+		[
+			"electron-builder",
+			"--mac",
+			...targets,
+			"--arm64",
+			"--publish",
+			"never",
+			...(version ? [`-c.extraMetadata.version=${version}`] : []),
+			"--prepackaged",
+			app,
+		],
 		{ cwd: REPO_ROOT, stdio: "inherit" },
 	);
 	if (builder.status !== 0) fail("electron-builder failed");

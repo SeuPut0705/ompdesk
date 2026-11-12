@@ -23,6 +23,7 @@
   ${AndIf} $R0 != ""
   ${AndIf} ${FileExists} "$R0\${UNINSTALL_FILENAME}"
     ${IfNot} ${Silent}
+    ${AndIfNot} ${isUpdated}
       MessageBox MB_OKCANCEL|MB_ICONINFORMATION "OMPdesk is installed for all users in $R0.$\r$\n$\r$\nThis setup installs OMPdesk for you only, so it first removes that copy with its own uninstaller. Windows asks for permission once.$\r$\n$\r$\nYour settings, sessions and omp stay as they are." IDOK +2
       Quit
     ${EndIf}
@@ -36,6 +37,7 @@
     ReadRegStr $R1 HKLM "${UNINSTALL_REGISTRY_KEY}" UninstallString
     ${If} $R1 != ""
       ${IfNot} ${Silent}
+      ${AndIfNot} ${isUpdated}
         MessageBox MB_OK|MB_ICONSTOP "The all-users OMPdesk in $R0 was not removed (Windows permission was declined, or its uninstaller failed).$\r$\n$\r$\nNothing was installed and your data was not changed. Remove OMPdesk in Settings > Apps, then run this setup again."
       ${EndIf}
       SetErrorLevel 2
@@ -68,6 +70,11 @@
 ; setup's environment. It is not defined in a release build.
 ; ---------------------------------------------------------------------------------------------------------------------
 
+; electron-builder includes these two only while it has no `customCheckAppRunning` to use (allowOnlyOneInstallerInstance.nsh
+; asks `!ifmacrondef customCheckAppRunning`); the macro below keeps electron-builder's own check, so it needs them too.
+!include "getProcessInfo.nsh"
+Var pid
+
 !ifndef BUILD_UNINSTALLER
   Var /GLOBAL ompBackup
   Var /GLOBAL ompBackupMode
@@ -86,6 +93,7 @@
     ; A move cut off earlier left its backup beside a partial folder: the old app comes back first.
     ${if} ${FileExists} "$ompBackup\*.*"
       DetailPrint "Putting back the old app an earlier setup set aside"
+      SetOutPath "$TEMP"
       RMDir /r "$INSTDIR"
       ClearErrors
       Rename "$ompBackup" "$INSTDIR"
@@ -98,6 +106,7 @@
       ReadRegStr $ompOldQuiet SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" QuietUninstallString
       ReadRegStr $ompOldIcon SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" DisplayIcon
       ReadRegDWORD $ompOldSize SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" EstimatedSize
+      SetOutPath "$TEMP"
       ClearErrors
       Rename "$INSTDIR" "$ompBackup"
       ${if} ${Errors}
@@ -119,13 +128,39 @@
   !endif
 !macroend
 
+; One line in %TEMP%\ompdesk-setup.log: what the setup did when it did not go the usual way.
+!macro ompLog TEXT
+  !ifndef BUILD_UNINSTALLER
+    FileOpen $R8 "$TEMP\ompdesk-setup.log" a
+    ${if} $R8 != ""
+      FileSeek $R8 0 END
+      FileWrite $R8 "${TEXT}$\r$\n"
+      FileClose $R8
+    ${endIf}
+  !endif
+!macroend
+
 !macro ompRestoreOldFolder
   !ifndef BUILD_UNINSTALLER
     DetailPrint "The new files are not complete: putting the old app back"
+    !insertmacro ompLog "the new files were not complete; putting the old app back ($ompBackupMode)"
+    ; The setup's own working folder is the install folder (SetOutPath): NSIS cannot delete the folder it stands in, and
+    ; a rename onto a folder that is still there fails, so it steps out first.
+    SetOutPath "$TEMP"
     ${if} $ompBackupMode == "renamed"
       RMDir /r "$INSTDIR"
       ClearErrors
       Rename "$ompBackup" "$INSTDIR"
+      ${if} ${Errors}
+        ; The folder is still there (a file in it is held): copy the old app over what is left, then drop the backup.
+        ClearErrors
+        CopyFiles /SILENT "$ompBackup\*.*" "$INSTDIR"
+        ${if} ${Errors}
+          !insertmacro ompLog "the old app could not be put back from $ompBackup"
+        ${else}
+          RMDir /r "$ompBackup"
+        ${endIf}
+      ${endIf}
     ${elseIf} $ompBackupMode == "copied"
       RMDir /r "$INSTDIR"
       CopyFiles /SILENT "$ompBackup\*.*" "$INSTDIR"
@@ -141,7 +176,11 @@
         WriteRegDWORD SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" EstimatedSize $ompOldSize
       ${endIf}
     ${endIf}
+    ; Only a setup a person started by hand says so. An update's rollback shows nothing: the old app starts again and
+    ; the next launch's `swap result … rolled back` line in its update log reports it (a dialog shown to a person whose
+    ; update went wrong is a failed move).
     ${IfNot} ${Silent}
+    ${AndIfNot} ${isUpdated}
       MessageBox MB_OK|MB_ICONSTOP "OMPdesk could not be updated: the new files were not complete. Your settings and sessions were not changed."
     ${endIf}
     ; An automatic update brings the old app back, as it came back from every update before.

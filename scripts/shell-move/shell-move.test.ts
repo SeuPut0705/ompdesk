@@ -76,6 +76,8 @@ describe("resources/installer.nsh and the test seams", () => {
 
 	it("keeps the old folder until the new one is complete, and checks the shell, CEF, Node and the main", () => {
 		expect(shipping).toContain("!macro customCheckAppRunning");
+		// electron-builder includes getProcessInfo.nsh (and declares $pid) only while it has no such macro of ours to use.
+		expect(shipping).toMatch(/^!include "getProcessInfo\.nsh"\nVar pid$/m);
 		// electron-builder's own check first, then the old folder is set aside.
 		expect(shipping).toMatch(/!insertmacro _CHECK_APP_RUNNING\n\s+!insertmacro ompKeepOldFolder/);
 		expect(shipping).toContain('Rename "$INSTDIR" "$ompBackup"');
@@ -89,6 +91,31 @@ describe("resources/installer.nsh and the test seams", () => {
 		);
 		// `${NAME}` as NSIS writes it, built so it never reads as a template slot.
 		expect(shipping).toContain(`WriteRegStr SHELL_CONTEXT "$${"{"}UNINSTALL_REGISTRY_KEY}" DisplayVersion`);
+	});
+
+	it("shows no dialog to an update: every MessageBox is behind `IfNot Silent` and `AndIfNot isUpdated`", () => {
+		// v0.127.0's "Restart & install" starts the setup without /S: a rollback's dialog would reach a person whose update
+		// went wrong (the dry run's two windows on the owner's desktop, 13 Nov 2026). An update reports through the
+		// next launch's `swap result … rolled back` line and %TEMP%\ompdesk-setup.log.
+		const boxes = shipping.match(/MessageBox /g)?.length ?? 0;
+		const guarded =
+			shipping.match(/\$\{IfNot\} \$\{Silent\}\n\s+\$\{AndIfNot\} \$\{isUpdated\}\n\s+MessageBox /g)?.length ?? 0;
+		expect(boxes).toBe(3);
+		expect(guarded).toBe(boxes);
+		expect(shipping).toContain("%TEMP%\\ompdesk-setup.log");
+	});
+
+	it("steps out of the install folder before it deletes or renames it (NSIS cannot delete the folder it stands in)", () => {
+		expect(shipping).toMatch(
+			/SetOutPath "\$TEMP"\n\s+RMDir \/r "\$INSTDIR"\n\s+ClearErrors\n\s+Rename "\$ompBackup" "\$INSTDIR"/,
+		);
+		expect(shipping).toMatch(/SetOutPath "\$TEMP"\n\s+ClearErrors\n\s+Rename "\$INSTDIR" "\$ompBackup"/);
+	});
+
+	it("makes the dry run's setup silent however the updater starts it", () => {
+		expect(seams).toMatch(
+			/!macro preInit\n\s+ReadEnvStr \$R9 OMP_MOVE_SILENT\n\s+StrCmp \$R9 "1" 0 \+2\n\s+SetSilent silent/,
+		);
 	});
 
 	it("never defines OMP_MOVE_TEST itself, and only the dry run's include does", () => {

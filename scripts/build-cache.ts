@@ -43,10 +43,18 @@ const INPUT_DIRS = ["src", "resources"];
 const TEST_FILE = /\.(test|spec|bench)\.[cm]?[jt]sx?$/;
 const RENDERER_DIR = `src${path.sep}renderer${path.sep}`;
 /**
- * Binaries packaged as extraResources and never read by the build: the memory binary built from native/memory
- * (bun run build:memory) and agent-desktop's pinned release (bun run build:agent-desktop).
+ * Binaries packaged as extraResources (or, the shell and its licences, as the app's own files) and never read by the
+ * build: the memory binary built from native/memory (bun run build:memory), agent-desktop's pinned release (bun run
+ * build:agent-desktop), the Node runtime (bun run build:node), the CEF shell (bun run build:shell, about 450 MB) and
+ * CEF's licence files (bun run stage:cef-licenses).
  */
-const PACKAGED_BINS = [path.join("resources", "ai-memory-bin"), path.join("resources", "agent-desktop-bin")];
+const PACKAGED_BINS = [
+	path.join("resources", "ai-memory-bin"),
+	path.join("resources", "agent-desktop-bin"),
+	path.join("resources", "node"),
+	path.join("resources", "ompdesk-shell"),
+	path.join("resources", "shell-licenses"),
+];
 /**
  * Env electron-vite and its plugins read at build time: Vite's mode and
  * NODE_ENV, the `VITE_`-prefixed vars electron-vite's `loadEnv` exposes to each

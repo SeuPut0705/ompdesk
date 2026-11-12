@@ -142,6 +142,22 @@ async function stopTestProcesses(): Promise<void> {
 	}
 }
 
+/**
+ * The dry run puts no window on anyone's screen: a setup or test-folder process with a visible main window is a failure,
+ * and its process is ended (never one outside the test folder or the dry run's own home).
+ */
+async function noWindows(): Promise<boolean> {
+	const seen = await powershell(
+		`Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -and ($_.Path.StartsWith('${TEST_DIR}\\', 'OrdinalIgnoreCase') -or $_.Path.StartsWith('${home}\\', 'OrdinalIgnoreCase')) -and $_.ProcessName -ne 'OMPdesk' } | ForEach-Object { "$($_.Id)|$($_.ProcessName)|$($_.MainWindowTitle)" }`,
+	);
+	const windows = seen.out.split(/\r?\n/).filter(Boolean);
+	for (const line of windows) {
+		await run(["taskkill", "/PID", line.split("|")[0] ?? "0", "/T", "/F"]);
+		expect(false, "no window appears (a process of the dry run showed one and was ended)", line);
+	}
+	return windows.length === 0;
+}
+
 const regValues = async (key: string) => (await run(["reg", "query", key])).out;
 const regValue = (text: string, name: string) => new RegExp(`${name}\\s+REG_\\w+\\s+(.*)`).exec(text)?.[1]?.trim();
 
@@ -158,6 +174,7 @@ function testEnv(): Record<string, string> {
 		OMP_GUI_OMP: join(home, "no-omp.cmd"),
 		OMP_GUI_TEST_INSTALLER: join(process.env.SystemRoot ?? "C:\\Windows", "System32", "whoami.exe"),
 		OMP_MOVE_LOG: setupLog,
+		OMP_MOVE_SILENT: "1",
 		OMP_MOVE_HOME: home,
 		OMP_MOVE_DEBUG_PORT: String(debugPort),
 		...(failAt ? { OMP_MOVE_FAIL: failAt } : {}),
@@ -212,6 +229,7 @@ async function main(): Promise<void> {
 	mkdirSync(join(home, "AppData", "Roaming"), { recursive: true });
 	mkdirSync(join(home, "AppData", "Local"), { recursive: true });
 	rmSync(setupLog, { force: true });
+	rmSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"), { force: true });
 
 	// 0. Before anything: the test identity is clean and the setup's process search is trustworthy.
 	expect(!existsSync(TEST_DIR), "the test install folder does not exist yet", TEST_DIR);
@@ -299,6 +317,7 @@ async function main(): Promise<void> {
 		const lines = updateLines();
 		for (const line of lines.slice(seen)) note("app-update", { message: line.message, ...line.details });
 		seen = lines.length;
+		await noWindows();
 		const installer = (
 			await powershell(
 				"Get-Process -Name ompdesk-windows-setup -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }",
@@ -479,6 +498,15 @@ async function verifyRolledBack(port: number): Promise<void> {
 		"the folder holds the Electron app again (app.asar, no libcef.dll)",
 	);
 	expect(!existsSync(`${TEST_DIR}.move-backup`), "no backup folder is left");
+	const setupText = existsSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"))
+		? readFileSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"), "utf8")
+		: "";
+	expect(
+		setupText.includes("putting the old app back"),
+		"the setup logged the rollback (in %TEMP%\\ompdesk-setup.log), no dialog",
+		setupText.trim(),
+	);
+	expect(await noWindows(), "no window appeared during the failed move");
 	expect(!existsSync(join(TEST_DIR, "ompdesk-move-test.cmd")), "nothing of the new install is left in the folder");
 	// The old app starts as before, on the same profile, with no feed to update from this time.
 	await stopTestProcesses();

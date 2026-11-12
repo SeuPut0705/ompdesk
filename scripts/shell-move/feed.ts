@@ -6,6 +6,7 @@
  * downloads the asset, electron-updater checks its SHA-512).
  *
  *   bun feed.ts --setup <ompdesk-windows-setup.exe> --version 0.200.0 --cert-dir <dir> [--port 8443]
+ *   bun feed.ts --setup <ompdesk-mac-arm64.dmg> --platform mac --version 0.200.0 --cert-dir <dir>   (the Mac's run)
  *
  * The self-signed certificate for api.github.com is made in `--cert-dir` (never the repository). One JSON line per
  * request on stdout; the first line says it is listening.
@@ -20,6 +21,7 @@ const { values } = parseArgs({
 		setup: { type: "string" },
 		version: { type: "string" },
 		"cert-dir": { type: "string" },
+		platform: { type: "string", default: "windows" },
 		port: { type: "string", default: "8443" },
 	},
 });
@@ -29,7 +31,8 @@ const certDir = values["cert-dir"] ?? "";
 if (!setup || !certDir) throw new Error("usage: bun feed.ts --setup <file> --version <v> --cert-dir <dir> [--port n]");
 const bytes = new Uint8Array(await Bun.file(setup).arrayBuffer());
 const sha512 = createHash("sha512").update(bytes).digest("base64");
-const name = "ompdesk-windows-setup.exe";
+const platform = values.platform === "mac" ? "mac" : "windows";
+const name = platform === "mac" ? "ompdesk-mac-arm64.dmg" : "ompdesk-windows-setup.exe";
 mkdirSync(certDir, { recursive: true });
 const key = join(certDir, "feed-key.pem");
 const cert = join(certDir, "feed-cert.pem");
@@ -55,7 +58,7 @@ if (!existsSync(cert)) {
 const metadata = {
 	version,
 	releaseDate: new Date().toISOString(),
-	files: { windows: { name, size: bytes.length, sha512 } },
+	files: { [platform]: { name, size: bytes.length, sha512 } },
 };
 const release = {
 	tag_name: `v${version}`,

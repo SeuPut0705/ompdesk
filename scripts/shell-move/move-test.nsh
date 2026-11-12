@@ -4,6 +4,15 @@
 
 !define OMP_MOVE_TEST
 
+; The dry run never puts a window on the person's screen: the updater starts the setup without /S (v0.127.0's "Restart &
+; install" is quitAndInstall() with isSilent=false, which shows electron-builder's progress window), so the test setup
+; turns itself silent as it starts (SetSilent works in .onInit only; `preInit` runs there first).
+!macro preInit
+  ReadEnvStr $R9 OMP_MOVE_SILENT
+  StrCmp $R9 "1" 0 +2
+  SetSilent silent
+!macroend
+
 ; Before the new folder is checked: log what the setup saw of its environment (the old app's updater started it with its
 ; own environment: what it passed through is what the setup logs) and, with OMP_MOVE_FAIL=swap, make the unpack
 ; incomplete on purpose by deleting CEF's library, so the check fails and the old app must come back.

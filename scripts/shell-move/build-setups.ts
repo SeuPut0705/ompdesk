@@ -206,7 +206,12 @@ export async function buildSetups(
 	const root = standIn ? resolve(standIn) : REPO_ROOT;
 	let old = "";
 	let current = "";
-	if (only !== "new") {
+	// The old setup depends on nothing of this checkout (the release's files, its installer.nsh): kept between runs.
+	const keptOld = existsSync(join(work, "old", "dist"))
+		? readdirSync(join(work, "old", "dist")).find(name => name.endsWith("-setup.exe"))
+		: undefined;
+	if (keptOld) old = join(work, "old", "dist", keptOld);
+	if (only !== "new" && !keptOld) {
 		const app = await unpackReleased(work);
 		// The old setup is the old release's: its installer.nsh (git's copy at the tag), no seams.
 		const include = join(work, "old", "installer.nsh");
