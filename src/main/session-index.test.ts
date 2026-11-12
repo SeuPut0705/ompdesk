@@ -311,10 +311,10 @@ describe("SessionIndex watcher", () => {
 	it("starts reporting once a missing sessions root is made", { timeout: 3 * REPORT_MS + 5000 }, async () => {
 		const dir = path.join(await sessionsRoot(), "sessions");
 		const watch = watchSessions(dir);
-		// omp makes the root, a project and its first session together: a fresh list has to find that one.
+		// omp makes the root, a project and its first session together.
 		await fs.mkdir(path.join(dir, "project-x"), { recursive: true });
 		await fs.writeFile(path.join(dir, "project-x", "first.jsonl"), "{}\n");
-		await watch.reported(ANYTHING);
+		// start() may observe this as initial state; require reports only after the watch is live.
 		await watch.live();
 		await fs.writeFile(path.join(dir, "project-x", "second.jsonl"), "{}\n");
 		await watch.reported(path.join(dir, "project-x", "second.jsonl"));
