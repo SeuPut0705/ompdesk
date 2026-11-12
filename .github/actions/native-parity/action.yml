@@ -33,6 +33,7 @@ runs:
         src/main/ext-update/mcp-owner.test.ts
         src/main/ext-update/mcp-plans.test.ts
         src/main/ext-update/updater.test.ts
+        src/main/github-auth/service.test.ts
         src/main/checkout-peers*.test.ts
         src/main/git-fingerprints*.test.ts
         src/main/ai-memory/freshness*.test.ts
