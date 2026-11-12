@@ -46,8 +46,9 @@ const CHECKS: readonly { kind: CheckKind; tool: RegExp; script: RegExp }[] = [
 	},
 ];
 
+// `ompdesk check -- <cmd>` and `ompdesk run --heavy -- <cmd>` (native/ompdesk/crates/checks) run the command after them.
 const EXEC_WRAPPER =
-	/^(?:(?:\w+=\S*|npx|bunx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|uv\s+run|poetry\s+run|python3?\s+-m|time|env|timeout(?:\s+(?:-[ks]\s*\d+(?:\.\d+)?[smhd]?|-\S+))*\s+\d+(?:\.\d+)?[smhd]?)\s+)+/;
+	/^(?:(?:\w+=\S*|npx|bunx|pnpm\s+(?:exec|dlx)|yarn\s+dlx|uv\s+run|poetry\s+run|python3?\s+-m|time|env|ompdesk\s+check(?:\s+--(?:full|light|release))*(?:\s+--)?|ompdesk\s+run\s+--heavy(?:\s+--all)?(?:\s+--)?|timeout(?:\s+(?:-[ks]\s*\d+(?:\.\d+)?[smhd]?|-\S+))*\s+\d+(?:\.\d+)?[smhd]?)\s+)+/;
 const SCRIPT_RUNNER = /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(\S+)/;
 
 /**

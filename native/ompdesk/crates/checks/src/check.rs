@@ -1530,9 +1530,11 @@ fn finish(
     } else {
         ""
     };
+    // OMPdesk's Pace line reads `reuse saved about … (<n> s)` from this line (`src/main/session-pace.ts`).
     rt.say(&format!(
-        "{own}: {state} in {took}{note} — {summary} — saved about {} — verdict {}",
+        "{own}: {state} in {took}{note} — {summary} — reuse saved about {} ({} s) — verdict {}",
         store::duration(rt.run.saved_ms),
+        rt.run.saved_ms / 1000,
         verdict.display()
     ));
     rt.store.prune(&rt.run.key);

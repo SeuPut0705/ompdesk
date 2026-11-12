@@ -81,6 +81,7 @@ export const FEATURES = {
 	computerUse: "Computer use engine: agent-desktop, falling back to the built-in prelude (prompt section, notice)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
 	scratch: "A scratch folder per session for throwaway files (prompt section)",
+	checkRuns: "Heavy commands and test suites through ompdesk run --heavy and ompdesk check (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
 	contextHookIdle: "Model requests not copied while the message filters have nothing to drop (recap, mount notice)",
@@ -478,6 +479,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	/** modes/scratch.ts: only the public `before_agent_start` hook; no internals to probe. */
 	scratch: {},
+	/** modes/check-runs.ts: only the public `before_agent_start` hook; no internals to probe. */
+	checkRuns: {},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
 	backgroundChecks: {
 		pkg: ["Settings.instance"],
