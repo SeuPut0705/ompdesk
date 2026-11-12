@@ -378,6 +378,20 @@ export async function exitShellApp(app: Pick<ShellApplication, "process" | "eval
 	await waitForProcessesToExit(owned, EXIT_GRACE_MS);
 }
 
+/** With `OMP_GUI_E2E_SHELL_LOG=1`: every page that opens, crashes or closes, so a "Target closed" has a cause on record. */
+function traceTargets(browser: Browser, pid: number | undefined): void {
+	const say = (what: string, page: Page) => console.error(`[shell ${pid}] page ${what}: ${page.url()}`);
+	const watch = (page: Page) => {
+		say("opened", page);
+		page.on("close", () => say("closed", page));
+		page.on("crash", () => say("crashed", page));
+	};
+	for (const context of browser.contexts()) {
+		context.pages().forEach(watch);
+		context.on("page", watch);
+	}
+}
+
 /** The last bytes of what the shell wrote, for the message of a launch that failed. */
 const TAIL_BYTES = 16 * 1024;
 
@@ -464,6 +478,7 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 				await Promise.race([sleep(100), exitedEarly.promise]);
 			}
 		}
+		if (env.OMP_GUI_E2E_SHELL_LOG === "1") traceTargets(browser, child.pid);
 		return new ShellApplication(child, inspector, browser);
 	} catch (error) {
 		inspector?.close();
