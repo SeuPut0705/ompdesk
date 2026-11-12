@@ -69,3 +69,10 @@ runs:
         src/main/local/git/exec-gh.test.ts
         src/main/workspace-fs*.test.ts
         src/main/disk/*.test.ts
+        src/main/sidecar.test.ts
+        src/main/shell-env.test.ts
+        src/main/sidecar-os-shutdown.test.ts
+        src/main/builtin-mcp-spawn.test.ts
+        src/main/session-launch-parity.test.ts
+        src/main/remote/link-traffic-relaunch.test.ts
+        src/main/remote/fanout-cpu-report.test.ts
