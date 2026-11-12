@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron, type Page } from "playwright";
-import { AI_MEMORY_REQUIREMENT, MAC_STAGE_KEY } from "../src/main/ai-memory/binary";
+import { AI_MEMORY_REQUIREMENT, MAC_STAGE_KEY } from "../src/main/ai-memory/service";
 import { AI_MEMORY_VERSION } from "../src/shared/ai-memory";
 import { exitApp, fixtureOmp } from "./harness";
 

@@ -3,32 +3,29 @@
  * OMPdesk spawns an app-owned extension root. Memory and learning are always on (the user's decision of 29 Oct 2026):
  * there is no off switch, and only OMPdesk's own build ever runs, as OMPdesk's own service.
  *
- * Why ai-memory's own service rather than a child OMPdesk supervises: ai-memory documents it as the local single-user
- * setup (launchd LaunchAgent on macOS, a logon entry on Windows, `ai-memory setup`), and a terminal omp the user
- * connected keeps capturing while OMPdesk is closed. OMPdesk therefore supervises nothing long-lived: it runs short,
- * idempotent `ai-memory` commands, polls `/healthz`, and re-runs `setup` when the service or the root went missing.
+ * This is the typed client of the core's memory service (`native/ompdesk/crates/core/src/aimemory/service`), which
+ * runs the passes (stage, `setup`, the generated extension root, the service unit, the health poll and its heal, the
+ * retries, purge, the terminal omp's wiring, the suppression overlay and the recall file). What stays here is what
+ * only main has:
+ * - a copy of the state, written from the core's `aimemory.service.state` events alone, for the readers that cannot
+ *   wait (`state()`);
+ * - what the core asks for (`aimemory.service.ask`): every `ai-memory` command, run by `SetupRunner` under the setup
+ *   supervisor (`setup --yes` isolated: the service host outlives OMPdesk and must hold no handle of it), the prefs,
+ *   omp's agent dir, Bun, the first tab, the environment, the configs' `disabledExtensions` (main's YAML reader), and
+ *   the test seams for the OS service and the macOS signature;
+ * - the runtime log (`gui-runtime.jsonl` has one writer) and the reads Settings makes through `AiMemoryClient`.
  *
- * What runs, always with the binary from `binary.ts`, in a neutral working directory:
- *   on    `setup --yes --agent omp`   the data dir + token and the user service. `setup` cannot install the service
- *                                     without wiring an agent, so omp's agent dir is pointed at a scratch folder
- *                                     (`PI_CODING_AGENT_DIR`), which is deleted again, together with the shared skills
- *                                     it newly created: nothing is written to `~/.omp/agent`.
- *         `install-hooks|install-mcp|install-skills` generate the extension root (`root.ts`), which sessions load with `-e`
- *   service  a unit that runs someone else's binary is replaced by OMPdesk's own (`#takeOverService`); a server no unit
- *         explains (Docker, a foreground `serve`) fails the pass with a message. `uninstall --apply` is never run: it
- *         removes every agent's wiring.
- *   terminal  "Also use in the terminal omp": ai-memory's own `setup --agent omp` into the real agent dir; the reverse
- *         removes just that extension and MCP entry (`terminal.ts`).
- *   purge the server is stopped (when it is OMPdesk's), the wiki/db/raw folders are deleted, then on again
- * Defaults stay ai-memory's: no LLM or cloud embedding provider (zero-LLM path; a fresh config opts out of the local
- * embedding model, see `config.ts`), the single-user cross-project profile.
+ * Steps the core queues (a retry, a purge, a terminal change) are sent one after the other, so they queue in the order
+ * they were asked here. A core that ended took the service with it; the next core opens it again and, once memory had
+ * started, runs the launch pass again (every command of it is idempotent).
  */
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
-import type { MemoryEnv } from "../../../resources/gui-bridge/modes/memory-recall-contracts";
+import { readFile, rm } from "node:fs/promises";
+import { parse } from "yaml";
+import { MEMORY_HUB_ENTRY } from "../../../resources/gui-bridge/mcp-hub-contracts";
+import macSigning from "../../../scripts/mac-signing.json" with { type: "json" };
 import {
 	AI_MEMORY_BINARIES,
+	AI_MEMORY_BUILD_MANIFEST,
 	AI_MEMORY_VERSION,
 	type AiMemoryDeleted,
 	type AiMemoryFeedback,
@@ -43,43 +40,18 @@ import {
 	type AiMemoryProjectRef,
 	type AiMemorySession,
 	type AiMemoryState,
-	type AiMemoryStep,
 	type AiMemorySweep,
 	type AiMemoryWriteInput,
 } from "../../shared/ai-memory";
 import type { SetupPlatform } from "../../shared/setup";
-import { SerialChain, stepStalled, throwIfStepStalled } from "../serial-chain";
+import { CoreError, core } from "../core/process";
+import { StepStalledError, writeStall } from "../serial-chain";
 import { SetupRunner } from "../setup/runner";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
-import {
-	AI_MEMORY_REQUIREMENT,
-	type BuiltAsset,
-	codeRequirementProblem,
-	probeVersion,
-	pruneStaged,
-	readBuiltAsset,
-	stageBinary,
-	stagingRoot,
-} from "./binary";
-import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
-import { withoutLocalEmbeddings } from "./config";
-import { generateRoot, rootComplete } from "./root";
-import { suppressionOverlay, TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID } from "./suppress";
-import {
-	legacyOwned,
-	listSharedSkills,
-	readTerminalWiring,
-	removeNewSharedSkills,
-	removeTerminalWiring,
-} from "./terminal";
-import { launchdControl, logonControl, type ServiceControl } from "./unit";
+import { AiMemoryClient, DEFAULT_SERVER_URL } from "./client";
 
 const POLL_MS = 60_000;
 const HEALTH_WAIT_MS = 30_000;
-const HEALTH_STEP_MS = 500;
-/** Re-run `setup` after this many polls in a row that found the server down, at most once in REWIRE_COOLDOWN_MS. */
-const REWIRE_AFTER_POLLS = 2;
-const REWIRE_COOLDOWN_MS = 10 * 60_000;
 /**
  * A failed wiring pass runs again by itself after each of these waits, then stays failed (Settings' Try again). The
  * service manager can refuse a moment (launchd's bootstrap right after a bootout of the draining old server), so one
@@ -87,9 +59,53 @@ const REWIRE_COOLDOWN_MS = 10 * 60_000;
  */
 const RETRY_DELAYS_MS: readonly number[] = [30_000, 2 * 60_000, 10 * 60_000];
 const OUTPUT_TAIL = 16 * 1024;
-/** The folders `ai-memory reset` wipes; everything else in the data directory (config, token, models) stays. */
-const DATA_FOLDERS = ["wiki", "db", "raw"] as const;
-const STATS_MAX_AGE_MS = 5_000;
+/** The longest one queued step (stage, wire, a terminal wiring) runs; past it the step is stopped and the next starts. */
+export const AI_MEMORY_STEP_MAX_MS = 30 * 60_000;
+/** The request kept open on a step or the service: it fails when the core dies, which is how this side learns it. */
+const HOLD_MS = 2 ** 31 - 1;
+/** The chain's name in a stall's log line and error, as `SerialChain` named it. */
+const CHAIN = "ai-memory";
+
+/**
+ * macOS: the designated requirement of the shipped binary of a packaged build. Packaging re-signs it
+ * (`scripts/mac-sign.cjs`) after `scripts/after-pack.cjs` held its bytes to the build record, so what names it
+ * afterwards is this requirement: codesign identifies an unbundled Mach-O by its file name, and every release is signed
+ * with OMPdesk's pinned certificate (`scripts/mac-signing.json`). Any other signature, ad-hoc or not, fails it.
+ */
+export const AI_MEMORY_REQUIREMENT = `identifier "ai-memory" and certificate root = H"${macSigning.certificateSha1}"`;
+/** macOS: the one folder under `<tools>/ai-memory` every build stages into, so TCC's grants (keyed by path) survive. */
+export const MAC_STAGE_KEY = "current";
+
+/** The OS service ai-memory's `setup` installs, where main stands in for it (tests, the e2e's pid file). */
+export interface ServiceControl {
+	inspect(): Promise<{ installed: boolean; ours: boolean }>;
+	/** Stop the server and remove the unit (it comes back with the next `setup`). */
+	remove(): Promise<void>;
+}
+
+/**
+ * Test seam (`OMP_GUI_AI_MEMORY_UNIT_PIDFILE`): the fake ai-memory of the e2e specs keeps its "service" as a detached
+ * process whose pid is in a file. That file is the unit; the fake is OMPdesk's own by construction.
+ */
+export function pidFileControl(file: string): ServiceControl {
+	return {
+		async inspect() {
+			const installed = (await readFile(file, "utf8").catch(() => "")).trim() !== "";
+			return { installed, ours: installed };
+		},
+		async remove() {
+			const pid = Number((await readFile(file, "utf8").catch(() => "")).trim());
+			if (Number.isInteger(pid) && pid > 0) {
+				try {
+					process.kill(pid);
+				} catch {
+					// already gone
+				}
+			}
+			await rm(file, { force: true });
+		},
+	};
+}
 
 export interface AiMemoryServiceDeps {
 	platform: SetupPlatform;
@@ -108,10 +124,15 @@ export interface AiMemoryServiceDeps {
 	agentDir: () => string;
 	/** OMPdesk's own extension root (`<userData>/ai-memory/omp-ext`), loaded with `-e` into the sessions it spawns. */
 	rootDir: string;
+	/**
+	 * The file every omp OMPdesk spawns reads memory's address from (`OMP_GUI_MEMORY`, contract in
+	 * resources/gui-bridge/modes/memory-recall-contracts.ts); the core writes it as the state moves. Absent: none.
+	 */
+	recallFile?: string;
 	/** `AI_MEMORY_TERMINAL_PREF`: undefined until the user (or the one-time migration) decided. */
 	terminalPref: () => boolean | undefined;
 	persistTerminal: (enabled: boolean) => void;
-	/** The OS service ai-memory's `setup` installs; absent: launchd on macOS, the logon entry on Windows. */
+	/** The OS service ai-memory's `setup` installs; absent: launchd on macOS, the logon entry on Windows (the core's). */
 	unit?: ServiceControl;
 	spawnEnv: () => Promise<NodeJS.ProcessEnv>;
 	onState: (state: AiMemoryState) => void;
@@ -128,134 +149,91 @@ export interface AiMemoryServiceDeps {
 	 * failed in, the message, the stack of an unexpected error).
 	 */
 	log?: (message: AiMemoryLogMessage, details: AiMemoryLogDetails) => void;
-	/** macOS: the shipped binary's check against `AI_MEMORY_REQUIREMENT` (`codeRequirementProblem`); tests fake it. */
+	/** macOS: the shipped binary's check against `AI_MEMORY_REQUIREMENT`; absent: the core runs codesign. Tests fake it. */
 	codeRequirement?: (file: string) => Promise<string | null>;
 	runner?: SetupRunner;
-	client?: AiMemoryClient;
 	pollMs?: number;
 	healthWaitMs?: number;
 	/** The waits before a failed wiring pass runs again by itself (`RETRY_DELAYS_MS`). */
 	retryDelaysMs?: readonly number[];
+	/**
+	 * The clock, where a test owns it: the core then keeps no timer and reads no clock, every request says the time
+	 * and every timer of the service runs here, so vitest's fake timers drive it. Absent: the core's own.
+	 */
 	now?: () => number;
 }
 
 export type AiMemoryLogMessage = "launch" | "binary" | "phase" | "failed" | "retry";
 export type AiMemoryLogDetails = Record<string, string | number | boolean | null>;
 
-interface Resolved {
-	bin: string;
-	version: string | null;
-	/** The staged copy's folder is pruned of older builds once wiring points at it; null when nothing was staged. */
-	staged: BuiltAsset | null;
-}
+/** `aimemory.service.ask`: what the core needs of main. */
+type Ask = { ask: number } & (
+	| { what: "agentDir" | "terminalPref" | "bunPresent" | "beforeStart" | "spawnEnv" }
+	| { what: "persistTerminal"; enabled: boolean }
+	| { what: "codeRequirement"; file: string }
+	| { what: "unit"; op: "inspect" | "remove" }
+	| { what: "disabledLists"; files: string[] }
+	| { what: "run"; bin: string; args: string[]; env?: Record<string, string>; isolated: boolean }
+);
 
-/** `problem:` lines of `setup`'s summary. */
-export function parseProblems(output: string): string[] {
-	return output
-		.split(/\r?\n/)
-		.map(line => line.trim())
-		.filter(line => line.startsWith("problem:"))
-		.map(line => line.slice("problem:".length).trim());
-}
-
-/** `setup --plan --json`'s document (a log line may precede it). */
-export function parsePlan(
-	output: string,
-): { dataDir: string | null; configPath: string | null; fresh: boolean } | null {
-	const start = output.search(/^\{/m);
-	const end = output.lastIndexOf("}");
-	if (start < 0 || end < start) return null;
+/** `disabledExtensions` of one config file: null when the file is absent, unreadable or does not set it. */
+async function disabledIn(file: string): Promise<string[] | null> {
+	let parsed: unknown;
 	try {
-		const plan = JSON.parse(output.slice(start, end + 1)) as Record<string, unknown>;
-		return {
-			dataDir: typeof plan.data_dir === "string" ? plan.data_dir : null,
-			configPath: typeof plan.config_path === "string" ? plan.config_path : null,
-			fresh: plan.fresh === true,
-		};
+		parsed = parse(await readFile(file, "utf8"));
 	} catch {
 		return null;
 	}
+	if (parsed === null || typeof parsed !== "object" || !("disabledExtensions" in parsed)) return null;
+	const list = parsed.disabledExtensions;
+	return Array.isArray(list) ? list.filter((item): item is string => typeof item === "string") : null;
 }
 
-/** The last meaningful lines of a command's output, without log prefixes and color codes. */
-function tail(output: string, lines = 4): string {
-	const esc = String.fromCharCode(27);
-	return output
-		.replace(new RegExp(`${esc}\\[[0-9;?]*[ -/]*[@-~]`, "g"), "")
-		.split(/\r?\n/)
-		.map(line => line.trim())
-		.filter(line => line && !/\bINFO\b/.test(line))
-		.slice(-lines)
-		.join(" ¶ ");
-}
-
-/** A step failed; `message` is what Settings shows. */
-class StepError extends Error {}
-
-/** The user's cancel (the runner stopped a command): not a failure. */
-/** The longest one queued step (stage, wire, a terminal wiring) runs; past it the step is stopped and the next starts. */
-export const AI_MEMORY_STEP_MAX_MS = 30 * 60_000;
-
-class Cancelled extends Error {}
+/** Names a service to the core; one counter for this process. */
+let sequence = 0;
 
 export class AiMemoryService {
 	readonly #deps: AiMemoryServiceDeps;
 	readonly #runner: SetupRunner;
 	readonly #client: AiMemoryClient;
-	#state: AiMemoryState;
-	/** One step at a time; a step past `AI_MEMORY_STEP_MAX_MS` is stopped (its child ends) and the next runs. */
-	#queue = new SerialChain({
-		name: "ai-memory",
-		maxStepMs: AI_MEMORY_STEP_MAX_MS,
-		onStall: () => this.#runner.cancel(),
-	});
+	readonly #name = `${process.pid}.${++sequence}`;
+	/** The core's last word; replaced whole by each `aimemory.service.state`. */
+	#state: AiMemoryState = {
+		phase: "starting",
+		step: "stage",
+		version: null,
+		binary: null,
+		dataDir: null,
+		serverUrl: null,
+		webUrl: null,
+		wiring: { app: false, terminal: false },
+		stats: null,
+		detail: null,
+		unsupported: null,
+	};
+	#opened: Promise<void> | null = null;
+	#unsubscribe: (() => void)[] = [];
+	/** The queued steps' order: each is sent once the core said the one before it is queued. */
+	#lane: Promise<unknown> = Promise.resolve();
+	/** Main's timers of a service whose clock is main's, by the core's id. */
+	readonly #timers = new Map<number, { handle: NodeJS.Timeout; repeat: boolean }>();
+	/** The command the runner runs now, and the commands cancelled before they started. */
+	#running: number | null = null;
+	readonly #cancelled = new Set<number>();
+	#started = false;
 	#disposed = false;
-	#timer: NodeJS.Timeout | null = null;
-	#resolved: Resolved | null = null;
-	#downPolls = 0;
-	#lastRewire = 0;
-	/** The health check running now (`#check`), joined by any call while it runs. */
-	#checking: Promise<void> | null = null;
-	#statsAt = 0;
-	/** A wiring pass found no Bun: the setup's Bun arriving (`bunInstalled`) runs it again, once. */
-	#awaitingBun = false;
-	#retryTimer: NodeJS.Timeout | null = null;
-	/** Automatic re-runs since the last pass that wired; bounded by `retryDelaysMs`. */
-	#retries = 0;
 
 	constructor(deps: AiMemoryServiceDeps) {
 		this.#deps = deps;
 		this.#runner = deps.runner ?? new SetupRunner();
-		this.#state = {
-			phase: "starting",
-			step: "stage",
-			version: null,
-			binary: null,
-			dataDir: null,
-			serverUrl: null,
-			webUrl: null,
-			wiring: { app: false, terminal: false },
-			stats: null,
-			detail: null,
-			unsupported: null,
-		};
-		this.#client =
-			deps.client ??
-			new AiMemoryClient({
-				url: () => this.#state.serverUrl ?? DEFAULT_SERVER_URL,
-				dataDir: () => this.#state.dataDir,
-			});
+		this.#client = new AiMemoryClient({
+			url: () => this.#state.serverUrl ?? DEFAULT_SERVER_URL,
+			dataDir: () => this.#state.dataDir,
+		});
 	}
 
 	state(): AiMemoryState {
 		return structuredClone(this.#state);
-	}
-
-	get #platformOk(): boolean {
-		return (
-			this.#deps.platform !== "other" &&
-			(!!this.#deps.binaryOverride || !!AI_MEMORY_BINARIES[`${this.#deps.platform}-${this.#deps.arch}`])
-		);
 	}
 
 	/**
@@ -263,41 +241,19 @@ export class AiMemoryService {
 	 * `failed` phase (Settings shows it with Try again) and a `failed` log line.
 	 */
 	async start(): Promise<void> {
-		const { platform, arch, automatic, bundledDir, binaryOverride } = this.#deps;
-		this.#deps.log?.("launch", { automatic, platform, arch, bundledDir, override: binaryOverride ?? null });
+		this.#started = true;
 		try {
-			this.#patch({ wiring: await this.#wiring() });
-			if (!this.#platformOk) {
-				this.#patch({
-					phase: "unsupported",
-					unsupported: "platform",
-					detail: "ai-memory has no build for this platform.",
-				});
-				return;
-			}
-			if (!automatic) {
-				this.#patch({
-					phase: "unsupported",
-					unsupported: "paused",
-					detail:
-						"This launch does not set ai-memory up (safe mode, or an unpackaged build: set OMP_GUI_AI_MEMORY_BIN).",
-				});
-				return;
-			}
-			this.#patch({ phase: "starting", step: "stage" });
-			await this.#deps.beforeStart?.();
-			await this.#enqueue(() => this.#enable());
+			await this.#open();
+			await this.#call("aimemory.service.start", {}, HOLD_MS);
 		} catch (error) {
-			this.#fail(error);
+			if (!this.#disposed) console.error("[ai-memory] couldn't start in ompdesk-core:", error);
 		}
 	}
 
 	/** Wire again after a failure (or an unreachable server). */
 	retry(): Promise<void> {
-		if (!this.#platformOk || !this.#deps.automatic) return Promise.resolve();
-		this.#cancelRetry();
-		this.#patch({ phase: "starting", step: "stage", detail: null });
-		return this.#enqueue(() => this.#enable());
+		if (this.#disposed) return Promise.resolve();
+		return this.#queued({ op: "retry" });
 	}
 
 	/**
@@ -305,33 +261,15 @@ export class AiMemoryService {
 	 * Bun runs again, once; otherwise nothing happens.
 	 */
 	bunInstalled(): void {
-		if (!this.#awaitingBun) return;
-		this.#awaitingBun = false;
-		// A stopped step already failed its own caller and is in the chain-stall log; nobody waits on this one.
-		void this.retry().catch(() => undefined);
+		if (this.#disposed) return;
+		void this.#open()
+			.then(() => this.#call("aimemory.service.bunInstalled"))
+			.catch(() => undefined);
 	}
 
-	/** Erase everything ai-memory remembers (wiki, database, raw events, token); wire it again afterwards. */
+	/** Erase everything ai-memory remembers (wiki, database, raw events); wire it again afterwards. */
 	purge(): Promise<void> {
-		const { promise, resolve, reject } = Promise.withResolvers<void>();
-		if (!this.#platformOk || !this.#deps.automatic) {
-			reject(new Error("ai-memory is not managed by this build."));
-			return promise;
-		}
-		this.#patch({ phase: "starting", step: "purge", detail: null });
-		this.#enqueue(async () => {
-			try {
-				await this.#purgeData();
-				throwIfStepStalled();
-				await this.#enable();
-				resolve();
-			} catch (error) {
-				throwIfStepStalled();
-				await this.#enable().catch(() => undefined);
-				reject(error);
-			}
-		}).catch(reject);
-		return promise;
+		return this.#queued({ op: "purge" });
 	}
 
 	/**
@@ -339,42 +277,34 @@ export class AiMemoryService {
 	 * of exactly that extension and MCP entry. Memory itself (phase, server) is not changed; a failure throws.
 	 */
 	setTerminal(enabled: boolean): Promise<void> {
-		const { promise, resolve, reject } = Promise.withResolvers<void>();
-		if (!this.#platformOk || !this.#deps.automatic) {
-			reject(new Error("ai-memory is not managed by this build."));
-			return promise;
-		}
-		this.#enqueue(async () => {
-			const { phase, detail } = this.#state;
-			this.#patch({ phase: "starting", step: "terminal", detail: null });
-			try {
-				if (enabled) {
-					const resolved = this.#resolved ?? (await this.#resolve());
-					this.#resolved = resolved;
-					await this.#setup(resolved.bin, { terminal: true });
-					this.#deps.persistTerminal(true);
-				} else {
-					await removeTerminalWiring(this.#deps.agentDir());
-					this.#deps.persistTerminal(false);
-				}
-				this.#patch({ phase, step: null, detail, wiring: await this.#wiring() });
-				resolve();
-			} catch (error) {
-				this.#patch({ phase, step: null, detail, wiring: await this.#wiring() });
-				reject(error instanceof Cancelled ? new Error("Cancelled") : error);
-			}
-		}).catch(reject);
-		return promise;
+		return this.#queued({ op: "terminal", enabled });
 	}
 
-	/** Stats and health, at most every few seconds; the Settings page and the panel call it when they open. */
+	/** Stats and health, at most every few seconds; the Settings page calls it when it opens. */
 	async refresh(): Promise<void> {
-		if (this.#disposed || this.#state.phase === "starting") return;
-		const now = (this.#deps.now ?? Date.now)();
-		if (now - this.#statsAt < STATS_MAX_AGE_MS) return;
-		this.#statsAt = now;
-		if (this.#state.phase === "ready" || this.#state.phase === "unreachable") await this.#check(false);
-		else this.#patch({ wiring: await this.#wiring() });
+		if (this.#disposed) return;
+		await this.#open();
+		await this.#call("aimemory.service.refresh", {}, HOLD_MS).catch(error => {
+			throw this.#refusal(error);
+		});
+	}
+
+	/**
+	 * What the omp sessions OMPdesk spawns (in `cwd`) load for memory: `-e <root>` while memory is on and the root is
+	 * complete, and a `--config` overlay holding the agent dir's own ai-memory wiring disabled where there is some
+	 * (the core's `extension_args`).
+	 */
+	async extensionArgs(cwd?: string): Promise<string[]> {
+		if (this.#disposed) return [];
+		try {
+			await this.#open();
+			return await this.#call<string[]>("aimemory.service.extensionArgs", { cwd: cwd ?? null });
+		} catch (error) {
+			const refused = this.#refusal(error);
+			// A core that cannot answer holds no spawn: the session starts without memory's root.
+			if (refused instanceof CoreError) return [];
+			throw refused;
+		}
 	}
 
 	async projects(): Promise<AiMemoryProject[]> {
@@ -452,505 +382,247 @@ export class AiMemoryService {
 
 	dispose(): void {
 		this.#disposed = true;
-		clearInterval(this.#timer ?? undefined);
-		this.#timer = null;
-		this.#cancelRetry();
+		for (const off of this.#unsubscribe) off();
+		this.#unsubscribe = [];
+		this.#clearTimers();
 		this.#runner.cancel();
+		if (this.#opened) void this.#call("aimemory.service.close").catch(() => undefined);
 	}
 
-	#cancelRetry(): void {
-		clearTimeout(this.#retryTimer ?? undefined);
-		this.#retryTimer = null;
+	#clearTimer(id: number): void {
+		const timer = this.#timers.get(id);
+		if (timer?.repeat) clearInterval(timer.handle);
+		else clearTimeout(timer?.handle);
+		this.#timers.delete(id);
 	}
 
-	/** After a failed wiring pass: run it again by itself, a bounded number of times. */
-	#scheduleRetry(): void {
-		const delays = this.#deps.retryDelaysMs ?? RETRY_DELAYS_MS;
-		if (this.#disposed || this.#awaitingBun || this.#retryTimer || this.#retries >= delays.length) return;
-		const inMs = delays[this.#retries] ?? 0;
-		this.#retries += 1;
-		this.#deps.log?.("retry", { attempt: this.#retries, of: delays.length, inMs, detail: this.#state.detail });
-		this.#retryTimer = setTimeout(() => {
-			this.#retryTimer = null;
-			if (this.#disposed || this.#state.phase !== "failed") return;
-			this.#patch({ phase: "starting", step: "stage", detail: null });
-			void this.#enqueue(() => this.#enable()).catch(() => undefined);
-		}, inMs);
-		this.#retryTimer.unref();
+	#clearTimers(): void {
+		for (const id of [...this.#timers.keys()]) this.#clearTimer(id);
 	}
 
-	#enqueue(task: () => Promise<void>): Promise<void> {
-		return this.#queue.run(async () => {
-			if (!this.#disposed) await task();
-		});
-	}
-
-	#patch(patch: Partial<AiMemoryState>): void {
-		const before = this.#state;
-		this.#state = { ...this.#state, ...patch };
-		const { serverUrl } = this.#state;
-		if (serverUrl && !patch.webUrl) this.#state.webUrl = `${serverUrl}/web`;
-		const { phase, step, detail } = this.#state;
-		if (phase !== before.phase || step !== before.step || detail !== before.detail) {
-			this.#deps.log?.("phase", { phase, step, detail, from: before.phase, fromStep: before.step });
-		}
-		this.#deps.onState(this.state());
-	}
-
-	#step(step: AiMemoryStep): void {
-		this.#patch({ phase: "starting", step });
-	}
-
-	#fail(error: unknown): void {
-		const detail = error instanceof Error ? error.message : String(error);
-		this.#deps.log?.("failed", {
-			step: this.#state.step,
-			detail,
-			stack: error instanceof Error && !(error instanceof StepError) ? (error.stack ?? null) : null,
-		});
-		this.#patch({ phase: "failed", step: null, detail });
-		this.#stopPolling();
-	}
-
-	/** What is on disk now: OMPdesk's own root, and the terminal omp's wiring when the user connected it. */
-	async #wiring(): Promise<AiMemoryState["wiring"]> {
-		const [app, terminal] = await Promise.all([
-			rootComplete(this.#deps.rootDir),
-			readTerminalWiring(this.#deps.agentDir()),
-		]);
-		return { app, terminal: this.#deps.terminalPref() === true && (terminal.extension || terminal.mcp) };
-	}
-
-	/**
-	 * What the omp sessions OMPdesk spawns (in `cwd`) load for memory: `-e <root>` while memory is on and the root is
-	 * complete, so a session captures exactly once and has one memory MCP server, both OMPdesk's own build, whatever
-	 * omp's agent dir holds. omp loads the agent dir's ai-memory extension and `ai-memory` MCP entry into every process
-	 * it starts, so:
-	 * - the terminal omp the user connected (pref `true`) already loads ours from there (`setup` refreshes it at every
-	 *   launch): no `-e`, the root is left out;
-	 * - wiring there the user made with their own ai-memory is not ours and not adopted: the root loads and a `--config`
-	 *   overlay holds that extension and that MCP entry disabled for this spawn (`suppress.ts`); the agent dir is
-	 *   untouched. The root's own MCP server is named `ompdesk-memory` (root.ts), so the entry's name cannot take it over.
-	 */
-	async extensionArgs(cwd?: string): Promise<string[]> {
-		if (!this.#deps.automatic || !this.#platformOk) return [];
-		if (!(await rootComplete(this.#deps.rootDir))) return [];
-		const agentDir = this.#deps.agentDir();
-		const wiring = await readTerminalWiring(agentDir);
-		if (this.#deps.terminalPref() === true && wiring.extension) return [];
-		const ids = [...(wiring.extension ? [TERMINAL_EXTENSION_ID] : []), ...(wiring.mcp ? [TERMINAL_MCP_ID] : [])];
-		if (ids.length === 0) return ["-e", this.#deps.rootDir];
-		try {
-			const overlay = await suppressionOverlay({
-				agentDir,
-				cwd,
-				dir: join(dirname(this.#deps.rootDir), "omp-overlays"),
-				ids,
-			});
-			return ["-e", this.#deps.rootDir, "--config", overlay];
-		} catch (error) {
-			// Without the overlay both copies would run; the agent dir's alone is one capture and one server.
-			this.#deps.log?.("failed", {
-				step: "suppress-terminal-wiring",
-				detail: error instanceof Error ? error.message : String(error),
-				stack: null,
-			});
-			return [];
-		}
-	}
-
-	/**
-	 * Where a spawned omp reads memory itself (the bridge's memory recall, via recall-state.ts): the server's URL and the
-	 * data dir its token is in, while memory is on and its setup pass has found the data dir; null otherwise.
-	 */
-	recallEnv(): MemoryEnv | null {
-		if (!this.#deps.automatic || !this.#platformOk) return null;
-		const { dataDir, serverUrl } = this.#state;
-		return dataDir ? { url: serverUrl ?? DEFAULT_SERVER_URL, dataDir } : null;
-	}
-
-	get #unit(): ServiceControl {
-		const { unit, platform, home, toolsDir } = this.#deps;
-		if (unit) return unit;
-		const owned = () => [stagingRoot(toolsDir), ...(this.#resolved ? [this.#resolved.bin] : [])];
-		if (platform === "win32") return logonControl({ owned, dataDir: () => this.#state.dataDir });
-		return launchdControl({ home, owned, uid: process.getuid?.() ?? 0 });
-	}
-
-	async #resolve(): Promise<Resolved> {
-		const { platform, arch, bundledDir, binaryOverride } = this.#deps;
-		const env = await this.#deps.spawnEnv();
-		if (binaryOverride) {
-			return { bin: binaryOverride, version: await probeVersion(binaryOverride, env), staged: null };
-		}
-		if (platform === "other") throw new StepError("ai-memory has no build for this platform.");
-		if (!bundledDir) throw new StepError("The app carries no ai-memory binary. Reinstall OMPdesk.");
-		let asset: BuiltAsset | null;
-		try {
-			asset = await readBuiltAsset(bundledDir, platform, arch);
-		} catch (error) {
-			throw new StepError(error instanceof Error ? error.message : String(error));
-		}
-		if (!asset) throw new StepError("ai-memory has no build for this platform.");
-		const bin = await this.#stage(asset, join(bundledDir, asset.binary));
-		return { bin, version: AI_MEMORY_VERSION, staged: asset };
-	}
-
-	async #stage(asset: BuiltAsset, source: string): Promise<string> {
-		try {
-			return await stageBinary({
-				source,
-				asset,
-				toolsDir: this.#deps.toolsDir,
-				// A packaged macOS release re-signed the shipped file with OMPdesk's certificate (binary.ts).
-				...(this.#deps.platform === "darwin"
-					? {
-							requirement:
-								this.#deps.codeRequirement ?? (file => codeRequirementProblem(file, AI_MEMORY_REQUIREMENT)),
-						}
-					: {}),
-			});
-		} catch (error) {
-			throw new StepError(error instanceof Error ? error.message : String(error));
-		}
-	}
-
-	async #run(
-		bin: string,
-		args: string[],
-		options: { env?: NodeJS.ProcessEnv; isolated?: boolean } = {},
-	): Promise<{ ok: boolean; cancelled: boolean; output: string }> {
-		let output = "";
-		const spawnEnv = await this.#deps.spawnEnv();
-		throwIfStepStalled();
-		// Its own commands read the working directory as "this project" (setup's doctor, `status`): a neutral one.
-		const outcome = await this.#runner.run(
-			{
-				file: spawnCommand(bin),
-				args: spawnArgs(bin, args),
-				shell: needsShell(bin),
-				...(options.isolated ? { isolated: true } : {}),
-			},
-			{ ...spawnEnv, ...options.env },
-			chunk => {
-				output = (output + chunk).slice(-OUTPUT_TAIL);
-			},
-			this.#deps.home,
-		);
-		throwIfStepStalled();
-		if (outcome.kind === "failed" && outcome.reason === "spawn") {
-			throw new StepError(`ai-memory could not start: ${outcome.detail ?? bin}`);
-		}
-		return { ok: outcome.kind === "succeeded", cancelled: outcome.kind === "cancelled", output };
-	}
-
-	/** Paths whose binaries OMPdesk runs: a unit or an MCP entry running one was written by OMPdesk. */
-	#ownedPaths(): string[] {
-		return [stagingRoot(this.#deps.toolsDir), ...(this.#resolved ? [this.#resolved.bin] : [])];
-	}
-
-	/**
-	 * Only OMPdesk's own build serves: `setup` repoints a unit that already runs OMPdesk's, so a unit running someone
-	 * else's binary is removed first (its server stops), and a server that answers with no unit at all (Docker, a
-	 * foreground `ai-memory serve`) cannot be stopped by OMPdesk, so the pass fails and says so. Tests that run the
-	 * server themselves (`noService`) have no unit to take over.
-	 */
-	async #takeOverService(serverWasUp: boolean): Promise<void> {
-		if (this.#deps.noService) return;
-		const unit = await this.#unit.inspect();
-		if (unit.installed && !unit.ours) await this.#removeUnit();
-		else if (unit.installed || !serverWasUp) return;
-		if (await this.#client.healthy()) {
-			throw new StepError(
-				"A memory server that OMPdesk did not start answers on this computer (Docker, a foreground `ai-memory serve`). Stop it and try again: OMPdesk runs only its own.",
-			);
-		}
-	}
-
-	/**
-	 * `setup` installs the service only together with an agent's wiring. For OMPdesk's server the agent dir is a
-	 * scratch folder (deleted afterwards, with the shared skills `setup` newly created); a terminal omp the user
-	 * connected is wired into its real agent dir by the very same command. It runs isolated (`SpawnSpec.isolated`):
-	 * the service host it may start outlives OMPdesk by design, and must not hold any handle of OMPdesk's.
-	 */
-	async #setup(bin: string, options: { terminal: boolean }): Promise<void> {
-		const args = ["setup", "--yes", "--agent", "omp", ...(this.#deps.noService ? ["--no-service"] : [])];
-		const { home } = this.#deps;
-		const scratch = `${this.#deps.rootDir}.setup`;
-		const skillsBefore = options.terminal ? null : await listSharedSkills(home);
-		let result: { ok: boolean; cancelled: boolean; output: string };
-		try {
-			result = await this.#run(bin, args, {
-				isolated: true,
-				...(options.terminal ? {} : { env: { PI_CODING_AGENT_DIR: scratch } }),
-			});
-		} finally {
-			if (!options.terminal) {
-				await rm(scratch, { recursive: true, force: true }).catch(() => undefined);
-				if (skillsBefore) await removeNewSharedSkills(home, skillsBefore).catch(() => undefined);
-			}
-		}
-		if (result.cancelled) throw new Cancelled();
-		const problems = parseProblems(result.output);
-		// Right after the service starts, setup's own self-check can ask before the server listens; the poll below
-		// is the real test. Any other problem is a failure.
-		const fatal = problems.filter(problem => !problem.startsWith("self-check"));
-		if (!result.ok && (fatal.length > 0 || problems.length === 0)) {
-			throw new StepError(`setup failed: ${fatal.join("; ") || tail(result.output) || "no output"}`);
-		}
-	}
-
-	async #enable(): Promise<void> {
-		try {
-			this.#awaitingBun = false;
-			const bunPresent = this.#deps.bunPresent ? await this.#deps.bunPresent() : true;
-			throwIfStepStalled();
-			if (!bunPresent) {
-				this.#awaitingBun = true;
-				throw new StepError("Waiting for Bun: memory sets itself up as soon as the setup has installed it.");
-			}
-			this.#step("stage");
-			const resolved = await this.#resolve();
-			throwIfStepStalled();
-			this.#resolved = resolved;
-			this.#patch({ version: resolved.version, binary: resolved.bin });
-			this.#deps.log?.("binary", { version: resolved.version, bin: resolved.bin });
-			this.#step("wire");
-			// The plan tells the data directory (platform default or AI_MEMORY_DATA_DIR) without touching anything.
-			const plan = await this.#run(resolved.bin, ["setup", "--plan", "--json", "--agent", "omp"]);
-			if (plan.cancelled) return;
-			const facts = parsePlan(plan.output);
-			if (facts?.dataDir) this.#patch({ dataDir: facts.dataDir });
-			// Whether a server of someone else's already runs on this data dir (read before `init` can write a config).
-			const before = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
-			const configured = before === null ? null : await serverUrlFromConfig(before);
-			throwIfStepStalled();
-			if (configured !== null) this.#patch({ serverUrl: configured });
-			const serverWasUp = before !== null && (await this.#client.healthy());
-			throwIfStepStalled();
-			// A fresh data dir: ai-memory's own `init` writes the config (and token) first, and the one setting OMPdesk
-			// changes goes in before the service starts, so the embedding model is never fetched. An existing config
-			// (a user's, or an earlier OMPdesk run) is left exactly as it is.
-			if (facts?.fresh && facts.configPath) {
-				const init = await this.#run(resolved.bin, ["init"]);
-				if (init.cancelled) return;
-				if (!init.ok) throw new StepError(`init failed: ${tail(init.output) || "no output"}`);
-				const current = await readFile(facts.configPath, "utf8").catch(() => null);
-				throwIfStepStalled();
-				const next = current === null ? null : withoutLocalEmbeddings(current);
-				if (next !== null) await writeFile(facts.configPath, next);
-			}
-			await this.#takeOverService(serverWasUp);
-			throwIfStepStalled();
-
-			// An earlier build wired omp globally (extension + MCP entry running OMPdesk's staged binary): move that to
-			// the app-owned root, once. Wiring the person made themselves is never adopted as the terminal's: it stays
-			// untouched and is not read as "terminal omp connected" (only the button sets `aiMemoryTerminal` true).
-			const agentDir = this.#deps.agentDir();
-			let terminal = await readTerminalWiring(agentDir);
-			throwIfStepStalled();
-			if (this.#deps.terminalPref() === undefined) {
-				if (legacyOwned(terminal, this.#ownedPaths())) {
-					await removeTerminalWiring(agentDir);
-					terminal = await readTerminalWiring(agentDir);
-					throwIfStepStalled();
-				}
-				this.#deps.persistTerminal(false);
-			}
-			// Keep a connected terminal omp pointed at the binary in use (an app update stages a new version).
-			const terminalWired = this.#deps.terminalPref() === true && (terminal.extension || terminal.mcp);
-			try {
-				await this.#setup(resolved.bin, { terminal: terminalWired });
-			} catch (error) {
-				throwIfStepStalled();
-				if (error instanceof Cancelled) return;
-				// The extension root belongs to the binary in use, not to the service: an update whose service step failed
-				// still gets the new extension (`promptTitle`, the child-session rules), or it stays stale for the whole run.
-				await this.#generateRoot(resolved.bin).catch((rootError: unknown) =>
-					this.#deps.log?.("failed", {
-						step: "root",
-						detail: rootError instanceof Error ? rootError.message : String(rootError),
-						stack: null,
-					}),
-				);
-				const failedWiring = await this.#wiring();
-				throwIfStepStalled();
-				this.#patch({ wiring: failedWiring });
-				throw error;
-			}
-			const toml = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
-			const serverUrl = await serverUrlFromConfig(toml);
-			throwIfStepStalled();
-			this.#patch({ serverUrl });
-			const generated = await this.#generateRoot(resolved.bin);
-			throwIfStepStalled();
-			if (!generated) return;
-			const wiring = await this.#wiring();
-			throwIfStepStalled();
-			this.#patch({ wiring });
-			if (!wiring.app) throw new StepError(`ai-memory's extension root is not complete in ${this.#deps.rootDir}`);
-			this.#step("check");
-			const up = await this.#waitHealthy();
-			throwIfStepStalled();
-			this.#patch({
-				phase: up ? "ready" : "unreachable",
-				step: null,
-				detail: up ? null : "The server does not answer yet.",
-			});
-			this.#downPolls = 0;
-			this.#retries = 0;
-			if (up) await this.#readStats();
-			throwIfStepStalled();
-			this.#startPolling();
-			if (resolved.staged) void pruneStaged(this.#deps.toolsDir, resolved.staged);
-		} catch (error) {
-			// A stopped step ends here without a word: the next step owns the state now.
-			if (stepStalled()) throw error;
-			this.#fail(error);
-			this.#scheduleRetry();
-		}
-	}
-
-	/** The extension root, from ai-memory's own generators; false when a command was cancelled. */
-	async #generateRoot(bin: string): Promise<boolean> {
-		try {
-			return await generateRoot(this.#deps.rootDir, args => this.#run(bin, args), tail);
-		} catch (error) {
-			throw error instanceof StepError
-				? error
-				: new StepError(error instanceof Error ? error.message : String(error));
-		}
-	}
-
-	/** Remove ai-memory's unit (its server goes with it) and wait for the server to stop answering. */
-	async #removeUnit(): Promise<void> {
-		await this.#unit.remove();
-		const deadline = (this.#deps.now ?? Date.now)() + (this.#deps.healthWaitMs ?? HEALTH_WAIT_MS);
-		while (await this.#client.healthy()) {
-			if ((this.#deps.now ?? Date.now)() >= deadline) return;
-			await sleep(HEALTH_STEP_MS);
-		}
-	}
-
-	/**
-	 * Delete all memory: the server is stopped first and then the data folders are wiped by OMPdesk itself
-	 * (`uninstall --purge-data` would refuse while any `ai-memory` process runs). The caller wires memory again. Throws
-	 * when a step fails.
-	 */
-	async #purgeData(): Promise<void> {
-		this.#stopPolling();
-		try {
-			this.#step("purge");
-			const unit = await this.#unit.inspect();
-			throwIfStepStalled();
-			if (unit.installed) await this.#removeUnit();
-			throwIfStepStalled();
-			await this.#wipeData();
-			throwIfStepStalled();
-			this.#patch({ step: null, detail: null, stats: null });
-		} catch (error) {
-			if (stepStalled()) throw error;
-			this.#fail(error);
+	/** Opens the service in the core once; a core that cannot take it is asked again by the next call. */
+	#open(): Promise<void> {
+		this.#opened ??= this.#opening().catch(error => {
+			this.#opened = null;
 			throw error;
-		}
-	}
-
-	/** Empty `wiki/`, `db/` and `raw/` of the data directory (what `ai-memory reset` wipes); the config and token stay. */
-	async #wipeData(): Promise<void> {
-		const dir = this.#state.dataDir;
-		if (
-			!dir ||
-			!(await stat(join(dir, "config.toml")).then(
-				info => info.isFile(),
-				() => false,
-			))
-		) {
-			throw new StepError("The data folder is not known, so nothing was deleted.");
-		}
-		// The server must be gone: a second server (Docker, a foreground `serve`) would still hold the database.
-		await sleep(HEALTH_STEP_MS);
-		if (await this.#client.healthy()) {
-			throw new StepError("An ai-memory server still answers, so nothing was deleted. Stop it first.");
-		}
-		for (const name of DATA_FOLDERS) await rm(join(dir, name), { recursive: true, force: true });
-	}
-
-	async #waitHealthy(): Promise<boolean> {
-		const deadline = (this.#deps.now ?? Date.now)() + (this.#deps.healthWaitMs ?? HEALTH_WAIT_MS);
-		for (;;) {
-			if (await this.#client.healthy()) return true;
-			if (this.#disposed || (this.#deps.now ?? Date.now)() >= deadline) return false;
-			await sleep(HEALTH_STEP_MS);
-		}
-	}
-
-	async #readStats(): Promise<void> {
-		const status = await this.#client.status();
-		if (!status) return;
-		this.#patch({
-			version: status.version ?? this.#state.version,
-			stats: {
-				pages: status.pages,
-				sessions: status.sessions,
-				observations: status.observations,
-				diskBytes: status.diskBytes,
-			},
 		});
+		return this.#opened;
 	}
 
-	/**
-	 * Health, stats and the wiring files; heals by running `setup` again when the server stays down or a file went.
-	 * One check at a time: a check that started while another was reading would apply what it read after the newer
-	 * one, so a root seen gone could read back as present and ready with no heal (seen on Windows, where a poll's
-	 * file reads outlast the poll interval). A call while one runs joins it.
-	 */
-	#check(heal: boolean): Promise<void> {
-		this.#checking ??= this.#runCheck(heal).finally(() => {
-			this.#checking = null;
-		});
-		return this.#checking;
-	}
-
-	async #runCheck(heal: boolean): Promise<void> {
-		const [up, wiring] = await Promise.all([this.#client.healthy(), this.#wiring()]);
-		if (this.#state.phase === "starting") return;
-		this.#patch({ wiring });
-		if (up) {
-			this.#downPolls = 0;
-			this.#patch({ phase: "ready", detail: null });
-			await this.#readStats();
-		} else {
-			this.#downPolls += 1;
-			this.#patch({ phase: "unreachable", stats: null, detail: "The server does not answer." });
-		}
-		const broken = !up && this.#downPolls >= REWIRE_AFTER_POLLS;
-		const missing = !wiring.app;
-		const now = (this.#deps.now ?? Date.now)();
-		if (heal && (broken || missing) && now - this.#lastRewire >= REWIRE_COOLDOWN_MS) {
-			this.#lastRewire = now;
-			this.#patch({ phase: "starting", step: "wire" });
-			await this.#enqueue(() => this.#enable());
-		}
-	}
-
-	#startPolling(): void {
-		if (this.#timer || this.#disposed) return;
-		this.#timer = setInterval(
-			() =>
-				void this.#check(true).catch((error: unknown) =>
-					this.#deps.log?.("failed", {
-						step: "poll",
-						detail: error instanceof Error ? error.message : String(error),
-						stack: error instanceof Error ? (error.stack ?? null) : null,
+	async #opening(): Promise<void> {
+		const host = core();
+		const mine =
+			<T>(handle: (told: T) => void) =>
+			(data: unknown) => {
+				// A frame of this app's own core, spelled by `aimemory/service/mod.rs`.
+				const told = data as T & { service: string };
+				if (told.service === this.#name && !this.#disposed) handle(told);
+			};
+		if (this.#unsubscribe.length === 0) {
+			this.#unsubscribe = [
+				host.on(
+					"aimemory.service.state",
+					mine<{ state: AiMemoryState }>(({ state }) => {
+						this.#state = state;
+						this.#deps.onState(structuredClone(state));
 					}),
 				),
-			this.#deps.pollMs ?? POLL_MS,
-		);
-		this.#timer.unref();
+				host.on(
+					"aimemory.service.log",
+					mine<{ message: AiMemoryLogMessage; details: AiMemoryLogDetails }>(({ message, details }) =>
+						this.#deps.log?.(message, details),
+					),
+				),
+				host.on(
+					"aimemory.service.stalled",
+					mine(() => writeStall(new StepStalledError(CHAIN, "step", AI_MEMORY_STEP_MAX_MS))),
+				),
+				host.on(
+					"aimemory.service.ask",
+					mine<Ask>(ask => void this.#answer(ask)),
+				),
+				host.on(
+					"aimemory.service.cancel",
+					mine<{ ask: number }>(({ ask }) => {
+						if (this.#running === ask) this.#runner.cancel();
+						else this.#cancelled.add(ask);
+					}),
+				),
+				host.on(
+					"aimemory.service.timer",
+					mine<{ timer: number; ms: number; repeat: boolean }>(({ timer, ms, repeat }) => {
+						const fire = () => {
+							if (!repeat) this.#timers.delete(timer);
+							void this.#call("aimemory.service.fire", { timer }).catch(() => undefined);
+						};
+						const handle = repeat ? setInterval(fire, ms) : setTimeout(fire, ms);
+						handle.unref();
+						this.#timers.set(timer, { handle, repeat });
+					}),
+				),
+				host.on(
+					"aimemory.service.clearTimer",
+					mine<{ timer: number }>(({ timer }) => this.#clearTimer(timer)),
+				),
+			];
+		}
+		const deps = this.#deps;
+		await this.#call("aimemory.service.open", {
+			deps: {
+				platform: deps.platform,
+				arch: deps.arch,
+				automatic: deps.automatic,
+				toolsDir: deps.toolsDir,
+				bundledDir: deps.bundledDir,
+				binaryOverride: deps.binaryOverride ?? null,
+				noService: deps.noService === true,
+				home: deps.home,
+				rootDir: deps.rootDir,
+				recallFile: deps.recallFile ?? null,
+				uid: process.getuid?.() ?? 0,
+				unitAsks: deps.unit !== undefined,
+				codeRequirementAsks: deps.codeRequirement !== undefined,
+				bunCheck: deps.bunPresent !== undefined,
+				beforeStart: deps.beforeStart !== undefined,
+				pollMs: deps.pollMs ?? POLL_MS,
+				healthWaitMs: deps.healthWaitMs ?? HEALTH_WAIT_MS,
+				retryDelaysMs: deps.retryDelaysMs ?? RETRY_DELAYS_MS,
+				stepMaxMs: AI_MEMORY_STEP_MAX_MS,
+				manual: deps.now !== undefined,
+				builds: {
+					binaries: AI_MEMORY_BINARIES,
+					manifest: AI_MEMORY_BUILD_MANIFEST,
+					version: AI_MEMORY_VERSION,
+					macStageKey: MAC_STAGE_KEY,
+					requirement: AI_MEMORY_REQUIREMENT,
+				},
+				hubEntry: MEMORY_HUB_ENTRY,
+			},
+		});
+		void this.#hold();
 	}
 
-	#stopPolling(): void {
-		clearInterval(this.#timer ?? undefined);
-		this.#timer = null;
+	/** Keeps a request open on the service; when the core dies under it, opens the service on the next one. */
+	async #hold(): Promise<void> {
+		const host = core();
+		const home = host.pid;
+		while (!this.#disposed && host.pid === home) {
+			try {
+				await host.call("aimemory.service.closed", { service: this.#name }, { timeoutMs: HOLD_MS });
+				return;
+			} catch (error) {
+				if (this.#disposed) return;
+				if (error instanceof CoreError && error.code === "timeout") continue;
+				break;
+			}
+		}
+		if (this.#disposed) return;
+		this.#opened = null;
+		this.#running = null;
+		this.#clearTimers();
+		// The core's commands went with it; memory's service outlives it, so the launch pass finds it as it was.
+		if (this.#started) void this.start();
+	}
+
+	/**
+	 * One request to the core about this service; a test's service says the time with it. A test's clock is fake, so
+	 * the request's own timeout (a timer on that clock) would end it at the test's first jump: there it waits as long
+	 * as a held request.
+	 */
+	async #call<T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
+		const now = this.#deps.now;
+		const sent = { service: this.#name, ...(now ? { now: now() } : {}), ...params };
+		const bound = now ? HOLD_MS : timeoutMs;
+		return (await core().call<T>(method, sent, bound === undefined ? {} : { timeoutMs: bound })).result;
+	}
+
+	/** A queued step: queued in its turn, then waited for. */
+	async #queued(request: { op: "retry" | "purge" } | { op: "terminal"; enabled: boolean }): Promise<void> {
+		await this.#open();
+		const queued = this.#lane.then(() => this.#call<number | null>("aimemory.service.queue", request));
+		this.#lane = queued.catch(() => undefined);
+		try {
+			const step = await queued;
+			if (step !== null) await this.#call("aimemory.service.outcome", { step }, HOLD_MS);
+		} catch (error) {
+			throw this.#refusal(error);
+		}
+	}
+
+	/** A failure of the core as the service threw it: a stopped step's `StepStalledError`, a step's own words. */
+	#refusal(error: unknown): unknown {
+		if (!(error instanceof CoreError)) return error;
+		if (error.code === "step_stalled") return new StepStalledError(CHAIN, "step", AI_MEMORY_STEP_MAX_MS);
+		return error.code.startsWith("memory_") ? new Error(error.message) : error;
+	}
+
+	async #answer(ask: Ask): Promise<void> {
+		let answer: { value: unknown } | { error: { message: string; stack: string | null } };
+		try {
+			answer = { value: (await this.#asked(ask)) ?? null };
+		} catch (error) {
+			answer = {
+				error: {
+					message: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? (error.stack ?? null) : null,
+				},
+			};
+		}
+		// A core that went meanwhile asks again.
+		await this.#call("aimemory.service.answer", { ask: ask.ask, ...answer }).catch(() => undefined);
+	}
+
+	async #asked(ask: Ask): Promise<unknown> {
+		const deps = this.#deps;
+		switch (ask.what) {
+			case "agentDir":
+				return deps.agentDir();
+			case "terminalPref":
+				return deps.terminalPref();
+			case "persistTerminal":
+				return deps.persistTerminal(ask.enabled);
+			case "bunPresent":
+				return (await deps.bunPresent?.()) ?? true;
+			case "beforeStart":
+				return deps.beforeStart?.();
+			case "spawnEnv":
+				return deps.spawnEnv();
+			case "codeRequirement":
+				return deps.codeRequirement?.(ask.file);
+			case "unit":
+				if (!deps.unit) throw new Error("No service control here");
+				return ask.op === "inspect" ? deps.unit.inspect() : deps.unit.remove();
+			case "disabledLists":
+				return Promise.all(ask.files.map(disabledIn));
+			case "run":
+				return this.#run(ask);
+		}
+	}
+
+	/** One `ai-memory` command under the runner, in a neutral working directory (its commands read it as "this project"). */
+	async #run(ask: Extract<Ask, { what: "run" }>): Promise<unknown> {
+		const spawnEnv = await this.#deps.spawnEnv();
+		if (this.#cancelled.delete(ask.ask)) return { ok: false, cancelled: true, output: "" };
+		let output = "";
+		this.#running = ask.ask;
+		try {
+			const outcome = await this.#runner.run(
+				{
+					file: spawnCommand(ask.bin),
+					args: spawnArgs(ask.bin, ask.args),
+					shell: needsShell(ask.bin),
+					...(ask.isolated ? { isolated: true } : {}),
+				},
+				{ ...spawnEnv, ...ask.env },
+				chunk => {
+					output = (output + chunk).slice(-OUTPUT_TAIL);
+				},
+				this.#deps.home,
+			);
+			if (outcome.kind === "failed" && outcome.reason === "spawn") return { spawn: outcome.detail ?? null };
+			return { ok: outcome.kind === "succeeded", cancelled: outcome.kind === "cancelled", output };
+		} finally {
+			if (this.#running === ask.ask) this.#running = null;
+		}
 	}
 }
