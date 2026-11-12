@@ -854,6 +854,17 @@ describe("a tool result its call's end already carried", () => {
 		expect(older.delivered.flat()).toEqual(overTheWire(events));
 	});
 
+	it("crosses with the key order JavaScript gives the reference: an index-like field of the message first", () => {
+		const events = call("c1", output).map(event =>
+			event.type === "message_start" || event.type === "message_end"
+				? { ...event, message: { "0": "extra", ...event.message } }
+				: event,
+		) as AgentSessionEvent[];
+		const { wire, delivered } = send(events, true);
+		expect(JSON.stringify(wire[2])).toContain('"message":{"0":"extra","~tool":"c1"');
+		expect(delivered.flat()).toEqual(overTheWire(events));
+	});
+
 	it("is dropped, never delivered half, on a device that never saw the call end", () => {
 		const { wire } = send(call("c1", output), true);
 		const turn = { type: "turn_start" } as AgentSessionEvent;

@@ -467,7 +467,10 @@ impl ToolResultEncoder {
         }
         let mut reference = Map::new();
         reference.insert(TOOL.into(), Value::String(id.clone()));
-        reference.extend(js::without(message, &["content", "details"]));
+        // `{"~tool": id, ...rest}`: an index-like key of the rest goes first, as JavaScript orders it.
+        for (key, value) in js::without(message, &["content", "details"]) {
+            js::set(&mut reference, key, value);
+        }
         Some(event_with(event, "message", Value::Object(reference)))
     }
 }
