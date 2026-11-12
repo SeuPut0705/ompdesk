@@ -74,7 +74,7 @@ pub fn register(registry: &mut Registry) {
 /// A number as `sysctl`, `ps` and `/proc/meminfo` print one: decimal digits. `Number()` also read `1e3`, `0x10`,
 /// `1.5` and a sign, which none of them prints.
 #[cfg(any(unix, test))]
-fn digits<T: std::str::FromStr>(text: &str) -> Option<T> {
+pub(crate) fn digits<T: std::str::FromStr>(text: &str) -> Option<T> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
@@ -146,7 +146,7 @@ fn parse_ps(text: &str) -> Vec<ProcessRow> {
 /// Runs `bin` as `execFile` did: no shell, in main's folder with main's environment (this process has both from
 /// main), its output up to `max_bytes`. A non-zero exit, a cut output and a run past `timeout_ms` are faults.
 #[cfg(unix)]
-async fn program(
+pub(crate) async fn program(
     bin: &str,
     args: &[&str],
     max_bytes: usize,
@@ -181,8 +181,7 @@ async fn program(
 }
 
 /// An OS call on tokio's blocking pool.
-#[cfg(not(target_os = "macos"))]
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> std::io::Result<T> + Send + 'static,
 ) -> Result<T, Fault> {
     tokio::task::spawn_blocking(work)
@@ -257,7 +256,7 @@ async fn processes(timeout_ms: u64, scope: Scope) -> Result<Vec<ProcessRow>, Fau
 /// Every process with its parent, working set and image name. A process this user may not open counts 0 bytes.
 #[cfg(windows)]
 async fn processes(_timeout_ms: u64, _scope: Scope) -> Result<Vec<ProcessRow>, Fault> {
-    let entries = blocking(crate::sys::processes).await?;
+    let entries = blocking(|| crate::sys::processes(false)).await?;
     Ok(entries
         .into_iter()
         .map(|entry| ProcessRow {

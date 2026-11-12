@@ -170,6 +170,7 @@ pub fn registry() -> Registry {
     crate::git::register(&mut registry);
     crate::gh::register(&mut registry);
     crate::memory::register(&mut registry);
+    crate::procs::register(&mut registry);
     crate::sessions::register(&mut registry);
     crate::control::register(&mut registry);
     crate::tailscale::register(&mut registry);

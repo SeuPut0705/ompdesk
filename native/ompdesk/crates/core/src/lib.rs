@@ -9,6 +9,7 @@ pub mod gh;
 pub mod git;
 mod json;
 pub mod memory;
+pub mod procs;
 mod run;
 pub mod server;
 pub mod sessions;

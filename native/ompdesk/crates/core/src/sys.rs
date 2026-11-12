@@ -1,6 +1,7 @@
 //! The only unsafe code: asking a child process to end with SIGTERM and (Windows) the job object that ends its
-//! children with it and the one that ends an ssh with its whole tree, physical memory and process reads,
-//! `ReadDirectoryChangesW`, and the system random generator.
+//! children with it and the one that ends an ssh with its whole tree, physical memory and process reads, reading and
+//! ending other processes (their environment and command line, `WM_CLOSE`, SIGKILL), `ReadDirectoryChangesW`, and the
+//! system random generator.
 #![allow(unsafe_code)]
 
 /// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
@@ -30,13 +31,71 @@ pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
 /// Sends SIGTERM to `pid`, a child this process has not reaped yet (so the id still names it).
 #[cfg(unix)]
 pub fn terminate(pid: u32) {
+    signal(pid, false);
+}
+
+/// Sends SIGTERM, or with `force` SIGKILL, to `pid`; whether a process was there to receive it. Never pid 0 or one
+/// past `pid_t`, which `kill` reads as a whole process group.
+#[cfg(unix)]
+pub fn signal(pid: u32, force: bool) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return;
+        return false;
     };
-    // SAFETY: kill only reads its two integer arguments; a failure (the child already exited) is ignored.
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
+    if pid <= 0 {
+        return false;
     }
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+    // SAFETY: kill only reads its two integer arguments; `pid` is one process's id, never a group's.
+    unsafe { libc::kill(pid, signal) == 0 }
+}
+
+/// `KERN_ARGMAX`: the most bytes a process's arguments and environment take, the size `procargs` needs.
+#[cfg(target_os = "macos")]
+pub fn argmax() -> Option<usize> {
+    let mut name = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    let mut value: libc::c_int = 0;
+    let mut size = size_of::<libc::c_int>();
+    // SAFETY: `name` is two live ints, as the call is told; `value` is a live int and `size` its size, so the call
+    // writes at most that; nothing is set (null, 0).
+    let read = unsafe {
+        libc::sysctl(
+            name.as_mut_ptr(),
+            2,
+            (&raw mut value).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read != 0 {
+        return None;
+    }
+    usize::try_from(value).ok()
+}
+
+/// `KERN_PROCARGS2` of `pid` into `buffer` (`argmax` bytes): its argument count, executable path, arguments and
+/// environment as they were at its exec. None for a process this user may not read, a zombie and one that is gone.
+#[cfg(target_os = "macos")]
+pub fn procargs(pid: u32, buffer: &mut [u8]) -> Option<&[u8]> {
+    let mut name = [
+        libc::CTL_KERN,
+        libc::KERN_PROCARGS2,
+        libc::c_int::try_from(pid).ok()?,
+    ];
+    let mut size = buffer.len();
+    // SAFETY: `name` is three live ints, as the call is told; `buffer` is valid for writes of `size` bytes, which is
+    // the most the call writes, and it sets `size` to what it wrote; nothing is set (null, 0).
+    let read = unsafe {
+        libc::sysctl(
+            name.as_mut_ptr(),
+            3,
+            buffer.as_mut_ptr().cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (read == 0).then(|| &buffer[..size.min(buffer.len())])
 }
 
 /// Whether this process may execute `path`, as node's `accessSync(path, X_OK)` answers: `access(2)`, which follows
@@ -288,21 +347,23 @@ pub fn physical_memory() -> std::io::Result<(u64, u64)> {
     Ok((status.total_phys, status.avail_phys))
 }
 
-/// One process of the list: `working_set` in bytes, 0 for the idle process and for one this user may not open;
-/// `image` its executable's file name (`conhost.exe`).
 #[cfg(windows)]
-pub struct ProcessEntry {
-    pub pid: u32,
-    pub parent: u32,
-    pub working_set: u64,
-    pub image: String,
-}
+pub use process_list::{Process, ask_to_close, processes};
 
-/// Every process of a Toolhelp32 snapshot with its working set (`K32GetProcessMemoryInfo`), as the stock helper's
-/// `process-memory.ts` read them through bun's FFI.
+/// This computer's processes: a Toolhelp32 snapshot with each one's working set (`memory.processes`) and, for
+/// `procs.*`, its start and a handle to read its environment and command line and to end it.
 #[cfg(windows)]
-pub fn processes() -> std::io::Result<Vec<ProcessEntry>> {
+mod process_list {
     use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+
+    // The offsets into another process's PEB and parameters below are the 64-bit layout (x64 and ARM64 share it). A
+    // 64-bit reader also reads a WOW64 process this way: its native PEB holds valid 64-bit parameters.
+    #[cfg(not(target_pointer_width = "64"))]
+    compile_error!(
+        "the process parameter offsets are the 64-bit layout; OMPdesk ships 64-bit only"
+    );
 
     type Handle = *mut c_void;
 
@@ -337,13 +398,63 @@ pub fn processes() -> std::io::Result<Vec<ProcessEntry>> {
         peak_pagefile_usage: usize,
     }
 
-    #[cfg(target_pointer_width = "64")]
-    const _: () = assert!(size_of::<Entry>() == 568 && size_of::<Counters>() == 72);
+    /// `FILETIME`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+
+    /// `PROCESS_BASIC_INFORMATION`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicInformation {
+        exit_status: i32,
+        peb: usize,
+        affinity_mask: usize,
+        base_priority: i32,
+        process_id: usize,
+        parent_process_id: usize,
+    }
+
+    const _: () = assert!(
+        size_of::<Entry>() == 568
+            && size_of::<Counters>() == 72
+            && size_of::<FileTime>() == 8
+            && size_of::<BasicInformation>() == 48
+    );
 
     const TH32CS_SNAPPROCESS: u32 = 0x2;
+    const PROCESS_TERMINATE: u32 = 0x0001;
+    const PROCESS_VM_READ: u32 = 0x0010;
+    const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-    /// `INVALID_HANDLE_VALUE`.
-    const INVALID_HANDLE: Handle = usize::MAX as Handle;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    /// What `Process` is opened with: read its memory, end it, wait for it.
+    const READ_AND_END: u32 =
+        PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_TERMINATE | SYNCHRONIZE;
+    const INVALID_HANDLE: Handle = std::ptr::without_provenance_mut(usize::MAX);
+    const WAIT_OBJECT_0: u32 = 0;
+    const WM_CLOSE: u32 = 0x0010;
+    /// `ProcessBasicInformation`.
+    const BASIC_INFORMATION: u32 = 0;
+    /// `PEB.ProcessParameters`.
+    const PEB_PARAMETERS: usize = 0x20;
+    /// `RTL_USER_PROCESS_PARAMETERS`: `Length` (how much of the structure this Windows has), `CommandLine` (a
+    /// `UNICODE_STRING`: its byte length, then its buffer at +8), `Environment`, `EnvironmentSize`, and the bytes up to
+    /// the end of that last one.
+    const PARAMETERS_LENGTH: usize = 0x04;
+    const COMMAND_LINE: usize = 0x70;
+    const ENVIRONMENT: usize = 0x80;
+    const ENVIRONMENT_SIZE: usize = 0x3F0;
+    const PARAMETERS_BYTES: usize = 0x3F8;
+    /// The most of one environment block read; a real one is a few KiB, and Windows caps it at 32 767 characters a
+    /// variable.
+    const ENVIRONMENT_CAP: usize = 1 << 20;
+    const PAGE: usize = 4096;
+    /// 1970-01-01 in `FILETIME`'s milliseconds since 1601-01-01.
+    const UNIX_EPOCH_MS: u64 = 11_644_473_600_000;
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -352,83 +463,354 @@ pub fn processes() -> std::io::Result<Vec<ProcessEntry>> {
         fn Process32NextW(snapshot: Handle, entry: *mut Entry) -> i32;
         fn OpenProcess(access: u32, inherit: i32, process_id: u32) -> Handle;
         fn K32GetProcessMemoryInfo(process: Handle, counters: *mut Counters, size: u32) -> i32;
-        fn CloseHandle(handle: Handle) -> i32;
+        fn GetProcessTimes(
+            process: Handle,
+            creation: *mut FileTime,
+            exit: *mut FileTime,
+            kernel: *mut FileTime,
+            user: *mut FileTime,
+        ) -> i32;
+        fn ReadProcessMemory(
+            process: Handle,
+            address: *const c_void,
+            buffer: *mut c_void,
+            size: usize,
+            read: *mut usize,
+        ) -> i32;
+        fn WaitForSingleObject(handle: Handle, milliseconds: u32) -> u32;
+        fn TerminateProcess(process: Handle, exit_code: u32) -> i32;
     }
 
-    /// A handle this function opened, closed when it goes.
-    struct Owned(Handle);
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: Handle,
+            class: u32,
+            information: *mut c_void,
+            length: u32,
+            returned: *mut u32,
+        ) -> i32;
+    }
 
-    impl Drop for Owned {
-        fn drop(&mut self) {
-            // SAFETY: the handle came from `CreateToolhelp32Snapshot` or `OpenProcess`, was checked to be one, and
-            // is closed only here.
-            unsafe {
-                CloseHandle(self.0);
-            }
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumWindows(visit: extern "system" fn(Handle, isize) -> i32, data: isize) -> i32;
+        fn GetWindowThreadProcessId(window: Handle, process_id: *mut u32) -> u32;
+        fn GetClassNameW(window: Handle, name: *mut u16, capacity: i32) -> i32;
+        fn PostMessageW(window: Handle, message: u32, wparam: usize, lparam: isize) -> i32;
+    }
+
+    /// One process of the list: `working_set` in bytes, 0 for the idle process and for one this user may not open;
+    /// `image` its executable's file name (`conhost.exe`).
+    pub struct ProcessEntry {
+        pub pid: u32,
+        pub parent: u32,
+        pub working_set: u64,
+        pub image: String,
+        /// When it started, in ms since the Unix epoch; read only when `processes` was asked to open each one.
+        pub started_ms: Option<u64>,
+        /// The process opened to read and end it, when asked for and this user may.
+        pub process: Option<Process>,
+    }
+
+    /// A process opened to read its memory and to end it (`PROCESS_QUERY_INFORMATION | PROCESS_VM_READ |
+    /// PROCESS_TERMINATE | SYNCHRONIZE`). Windows gives no other process its id while this handle is open, so what is
+    /// read and ended through it is that one process, never a later one with the same id.
+    #[derive(Debug)]
+    pub struct Process(OwnedHandle);
+
+    fn open_handle(pid: u32, access: u32) -> Option<OwnedHandle> {
+        // SAFETY: the call takes three integers and returns a new handle or null.
+        let handle = unsafe { OpenProcess(access, 0, pid) };
+        if handle.is_null() {
+            return None;
         }
+        // SAFETY: `handle` is the open handle OpenProcess just returned; nothing else owns it.
+        Some(unsafe { OwnedHandle::from_raw_handle(handle) })
     }
 
-    let entry_size = u32::try_from(size_of::<Entry>()).unwrap_or(u32::MAX);
-    let counters_size = u32::try_from(size_of::<Counters>()).unwrap_or(u32::MAX);
-    // SAFETY: the call takes two integers and returns a new handle or `INVALID_HANDLE_VALUE`.
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if snapshot == INVALID_HANDLE {
-        return Err(std::io::Error::last_os_error());
+    fn working_set(process: &OwnedHandle) -> Option<u64> {
+        let size = u32::try_from(size_of::<Counters>()).unwrap_or(u32::MAX);
+        let mut counters = Counters {
+            size,
+            ..Counters::default()
+        };
+        // SAFETY: `process` is an open handle; `counters` is a `PROCESS_MEMORY_COUNTERS` laid out as C lays it out
+        // (`repr(C)`, size checked above), written only during the call, and `size` is its size.
+        let read =
+            unsafe { K32GetProcessMemoryInfo(process.as_raw_handle(), &raw mut counters, size) };
+        (read != 0).then_some(counters.working_set_size as u64)
     }
-    let snapshot = Owned(snapshot);
-    let mut entry = Entry {
-        size: entry_size,
-        usage: 0,
-        process_id: 0,
-        default_heap_id: 0,
-        module_id: 0,
-        threads: 0,
-        parent_process_id: 0,
-        priority_class_base: 0,
-        flags: 0,
-        exe_file: [0; 260],
-    };
-    let mut entries = Vec::new();
-    // SAFETY: `snapshot` is the live handle above; `entry` is a `PROCESSENTRY32W` laid out as C lays it out (`repr(C)`,
-    // size checked above) with its `dwSize` set, written only during the call.
-    let mut more = unsafe { Process32FirstW(snapshot.0, &raw mut entry) };
-    while more != 0 {
-        let pid = entry.process_id;
-        let mut working_set = 0;
-        if pid != 0 {
-            // SAFETY: the call takes three integers and returns a new handle or null.
-            let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-            if !process.is_null() {
-                let process = Owned(process);
-                let mut counters = Counters {
-                    size: counters_size,
-                    ..Counters::default()
+
+    fn started_ms(process: &OwnedHandle) -> Option<u64> {
+        let mut times: [FileTime; 4] = Default::default();
+        let [creation, exit, kernel, user] = &mut times;
+        // SAFETY: `process` is an open handle; the four are `FILETIME`s laid out as C lays them out (`repr(C)`, size
+        // checked above), written only during the call.
+        let read =
+            unsafe { GetProcessTimes(process.as_raw_handle(), creation, exit, kernel, user) };
+        if read == 0 {
+            return None;
+        }
+        let ticks = (u64::from(times[0].high) << 32) | u64::from(times[0].low);
+        (ticks / 10_000).checked_sub(UNIX_EPOCH_MS)
+    }
+
+    /// UTF-16 units out of little-endian bytes (Windows runs little-endian only).
+    fn units(bytes: &[u8]) -> Vec<u16> {
+        bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect()
+    }
+
+    fn word(bytes: &[u8], at: usize) -> Option<usize> {
+        Some(usize::from_le_bytes(
+            bytes.get(at..at + 8)?.try_into().ok()?,
+        ))
+    }
+
+    impl Process {
+        /// Copies bytes from `address` in the process into `into`; how many it could. A read stops at the first page
+        /// that is not readable.
+        fn read(&self, address: usize, into: &mut [u8]) -> usize {
+            let mut read = 0;
+            // SAFETY: `into` is valid for writes of its whole length, which is the most the call writes; `read` is a
+            // live usize. `address` is the other process's, which the call checks (it is never dereferenced here).
+            unsafe {
+                ReadProcessMemory(
+                    self.0.as_raw_handle(),
+                    std::ptr::without_provenance(address),
+                    into.as_mut_ptr().cast(),
+                    into.len(),
+                    &raw mut read,
+                );
+            }
+            read.min(into.len())
+        }
+
+        /// The process's `RTL_USER_PROCESS_PARAMETERS`, at least up to `Environment`.
+        fn parameters(&self) -> Option<Vec<u8>> {
+            let mut information = BasicInformation::default();
+            let length = u32::try_from(size_of::<BasicInformation>()).unwrap_or(u32::MAX);
+            // SAFETY: the handle is open with PROCESS_QUERY_INFORMATION; `information` is a
+            // `PROCESS_BASIC_INFORMATION` laid out as C lays it out (`repr(C)`, size checked above), written only during
+            // the call, and `length` is its size; the returned length may be null.
+            let status = unsafe {
+                NtQueryInformationProcess(
+                    self.0.as_raw_handle(),
+                    BASIC_INFORMATION,
+                    (&raw mut information).cast(),
+                    length,
+                    std::ptr::null_mut(),
+                )
+            };
+            if status < 0 || information.peb == 0 {
+                return None;
+            }
+            let mut pointer = [0; 8];
+            if self.read(information.peb.checked_add(PEB_PARAMETERS)?, &mut pointer) != 8 {
+                return None;
+            }
+            let address = usize::from_le_bytes(pointer);
+            if address == 0 {
+                return None;
+            }
+            let mut parameters = vec![0; PARAMETERS_BYTES];
+            let read = self.read(address, &mut parameters);
+            parameters.truncate(read);
+            (read >= ENVIRONMENT + 8).then_some(parameters)
+        }
+
+        /// Its command line as the process holds it now.
+        pub fn command_line(&self) -> Option<Vec<u16>> {
+            let parameters = self.parameters()?;
+            let length = usize::from(u16::from_le_bytes([
+                parameters[COMMAND_LINE],
+                parameters[COMMAND_LINE + 1],
+            ]));
+            let address = word(&parameters, COMMAND_LINE + 8)?;
+            if address == 0 {
+                return None;
+            }
+            let mut bytes = vec![0; length];
+            (self.read(address, &mut bytes) == length).then(|| units(&bytes))
+        }
+
+        /// Its environment block as the process holds it now (`NAME=value`, each ended by a NUL, the block by one more),
+        /// up to `ENVIRONMENT_CAP` bytes and up to the first page that cannot be read.
+        pub fn environment(&self) -> Option<Vec<u16>> {
+            let parameters = self.parameters()?;
+            let address = word(&parameters, ENVIRONMENT)?;
+            if address == 0 {
+                return None;
+            }
+            let declared = u32::from_le_bytes(
+                parameters[PARAMETERS_LENGTH..PARAMETERS_LENGTH + 4]
+                    .try_into()
+                    .ok()?,
+            );
+            let size = if declared as usize >= PARAMETERS_BYTES {
+                word(&parameters, ENVIRONMENT_SIZE).unwrap_or(0)
+            } else {
+                0
+            };
+            let limit = if size == 0 {
+                ENVIRONMENT_CAP
+            } else {
+                size.min(ENVIRONMENT_CAP)
+            };
+            // A page at a time, so a page that cannot be read ends the block where it begins rather than failing it,
+            // and a block of unknown size is read only up to its end (two NULs in a row).
+            let mut bytes = Vec::new();
+            while bytes.len() < limit {
+                let Some(at) = address.checked_add(bytes.len()) else {
+                    break;
                 };
-                // SAFETY: `process` is the live handle above; `counters` is a `PROCESS_MEMORY_COUNTERS` laid out as
-                // C lays it out (`repr(C)`, size checked above), written only during the call, and `counters_size`
-                // is its size.
-                let read =
-                    unsafe { K32GetProcessMemoryInfo(process.0, &raw mut counters, counters_size) };
-                if read != 0 {
-                    working_set = counters.working_set_size as u64;
+                let want = (PAGE - at % PAGE).min(limit - bytes.len());
+                let start = bytes.len();
+                bytes.resize(start + want, 0);
+                let read = self.read(at, &mut bytes[start..]);
+                bytes.truncate(start + read);
+                if read < want || ends_block(&bytes, start) {
+                    break;
                 }
             }
+            (!bytes.is_empty()).then(|| units(&bytes))
         }
-        let name = &entry.exe_file;
-        let end = name
-            .iter()
-            .position(|unit| *unit == 0)
-            .unwrap_or(name.len());
-        entries.push(ProcessEntry {
-            pid,
-            parent: entry.parent_process_id,
-            working_set,
-            image: String::from_utf16_lossy(&name[..end]),
-        });
-        // SAFETY: as for `Process32FirstW` above.
-        more = unsafe { Process32NextW(snapshot.0, &raw mut entry) };
+
+        /// Whether the process has exited.
+        pub fn exited(&self) -> bool {
+            // SAFETY: the handle is open with SYNCHRONIZE; a wait of 0 ms only looks.
+            unsafe { WaitForSingleObject(self.0.as_raw_handle(), 0) == WAIT_OBJECT_0 }
+        }
+
+        /// Ends the process at once, as `taskkill /f` does; whether Windows took the call.
+        pub fn terminate(&self) -> bool {
+            // SAFETY: the handle is open with PROCESS_TERMINATE.
+            unsafe { TerminateProcess(self.0.as_raw_handle(), 1) != 0 }
+        }
     }
-    Ok(entries)
+
+    /// Whether two zero UTF-16 units in a row (the block's end) are in `bytes` at or after byte `from`, or straddle it.
+    fn ends_block(bytes: &[u8], from: usize) -> bool {
+        let units = bytes.len() / 2;
+        (((from / 2).max(1))..units).any(|unit| bytes[unit * 2 - 2..unit * 2 + 2] == [0; 4])
+    }
+
+    /// Every process of a Toolhelp32 snapshot with its working set (`K32GetProcessMemoryInfo`), as the stock helper's
+    /// `process-memory.ts` read them through bun's FFI. With `open`, each process this user may read and end is also
+    /// opened for that (`ProcessEntry::process`) and its start read.
+    pub fn processes(open: bool) -> io::Result<Vec<ProcessEntry>> {
+        let entry_size = u32::try_from(size_of::<Entry>()).unwrap_or(u32::MAX);
+        // SAFETY: the call takes two integers and returns a new handle or `INVALID_HANDLE_VALUE`.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `snapshot` is the open handle CreateToolhelp32Snapshot just returned; nothing else owns it.
+        let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
+        let mut entry = Entry {
+            size: entry_size,
+            usage: 0,
+            process_id: 0,
+            default_heap_id: 0,
+            module_id: 0,
+            threads: 0,
+            parent_process_id: 0,
+            priority_class_base: 0,
+            flags: 0,
+            exe_file: [0; 260],
+        };
+        let mut entries = Vec::new();
+        // SAFETY: `snapshot` is the open handle above; `entry` is a `PROCESSENTRY32W` laid out as C lays it out
+        // (`repr(C)`, size checked above) with its `dwSize` set, written only during the call.
+        let mut more = unsafe { Process32FirstW(snapshot.as_raw_handle(), &raw mut entry) };
+        while more != 0 {
+            let pid = entry.process_id;
+            let process = (open && pid != 0)
+                .then(|| open_handle(pid, READ_AND_END))
+                .flatten();
+            let limited = (process.is_none() && pid != 0)
+                .then(|| open_handle(pid, PROCESS_QUERY_LIMITED_INFORMATION))
+                .flatten();
+            let handle = process.as_ref().or(limited.as_ref());
+            let name = &entry.exe_file;
+            let end = name
+                .iter()
+                .position(|unit| *unit == 0)
+                .unwrap_or(name.len());
+            entries.push(ProcessEntry {
+                pid,
+                parent: entry.parent_process_id,
+                working_set: handle.and_then(working_set).unwrap_or(0),
+                image: String::from_utf16_lossy(&name[..end]),
+                started_ms: if open {
+                    handle.and_then(started_ms)
+                } else {
+                    None
+                },
+                process: process.map(Process),
+            });
+            // SAFETY: as for `Process32FirstW` above.
+            more = unsafe { Process32NextW(snapshot.as_raw_handle(), &raw mut entry) };
+        }
+        Ok(entries)
+    }
+
+    /// Posts `WM_CLOSE` to every top-level window of these processes, as `taskkill` without `/f` asks a program to
+    /// close; answers the processes that had one. A console's window is left alone: closing it ends every program
+    /// attached to that console, not only these, and a console program cannot be asked.
+    pub fn ask_to_close(pids: &[u32]) -> Vec<u32> {
+        struct Asking<'a> {
+            pids: &'a [u32],
+            asked: Vec<u32>,
+        }
+
+        extern "system" fn visit(window: Handle, data: isize) -> i32 {
+            // SAFETY: `data` is the address of the `Asking` that `ask_to_close` lends EnumWindows, which calls this on
+            // the same thread, one window at a time, before it returns; nothing else touches it meanwhile.
+            let asking =
+                unsafe { &mut *std::ptr::with_exposed_provenance_mut::<Asking<'_>>(data as usize) };
+            let mut pid = 0;
+            // SAFETY: `window` is a handle EnumWindows passed (a window gone since only fails the call); `pid` is a live
+            // u32.
+            unsafe {
+                GetWindowThreadProcessId(window, &raw mut pid);
+            }
+            // SAFETY: as above; WM_CLOSE carries no pointer.
+            if asking.pids.contains(&pid)
+                && !console(window)
+                && unsafe { PostMessageW(window, WM_CLOSE, 0, 0) } != 0
+                && !asking.asked.contains(&pid)
+            {
+                asking.asked.push(pid);
+            }
+            1
+        }
+
+        let mut asking = Asking {
+            pids,
+            asked: Vec::new(),
+        };
+        // SAFETY: `visit` has the callback's signature, and `data` is the address of `asking`, which lives and is used
+        // by nothing else until EnumWindows returns.
+        unsafe {
+            EnumWindows(visit, (&raw mut asking).expose_provenance() as isize);
+        }
+        asking.asked
+    }
+
+    /// Whether `window` is a console's: conhost's, or a pseudoconsole's hidden one.
+    fn console(window: Handle) -> bool {
+        let mut class = [0u16; 32];
+        // SAFETY: `class` is valid for writes of the 32 units the call is told, which it does not exceed.
+        let length = unsafe { GetClassNameW(window, class.as_mut_ptr(), 32) };
+        let class = &class[..usize::try_from(length).unwrap_or(0).min(class.len())];
+        ["ConsoleWindowClass", "PseudoConsoleWindow"]
+            .iter()
+            .any(|name| name.encode_utf16().eq(class.iter().copied()))
+    }
 }
 
 #[cfg(windows)]
