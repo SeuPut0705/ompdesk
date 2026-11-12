@@ -6,12 +6,12 @@
  * is trimmed to the newest entries once it passes `MAX_LINES`.
  */
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
+import { baseTemp } from "./run-temp";
 
 export const LOCK_LOG =
 	process.env.OMPDESK_LOCK_LOG ||
-	(process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-build.log") : "/tmp/ompdesk-build.log");
+	(process.platform === "win32" ? path.join(baseTemp(), "ompdesk-build.log") : "/tmp/ompdesk-build.log");
 
 /** Past this many lines the log keeps only its newest `KEEP_LINES`. */
 const MAX_LINES = 5_000;

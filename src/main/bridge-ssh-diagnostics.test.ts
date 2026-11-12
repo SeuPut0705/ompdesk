@@ -12,6 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { baseTemp } from "../../scripts/run-temp";
 import type { RpcSshTestResult } from "../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
@@ -22,7 +23,10 @@ describe.skipIf(process.platform === "win32" || !existsSync(omp) || !existsSync(
 	"ssh diagnostics bridge",
 	() => {
 		it("adds the verbose trace of a fresh attempt to a failed test", async () => {
-			const profile = await fs.mkdtemp(path.join(os.tmpdir(), "omp-ssh-diag-"));
+			// The temp folder the run started with, not the run's own (scripts/run-temp.ts): from that longer path stock's
+			// SSH control folder no longer fits a unix socket path on Linux, and stock then makes `/tmp/omp-<hash>`, which
+			// nothing here could find to remove.
+			const profile = await fs.mkdtemp(path.join(baseTemp(), "omp-ssh-diag-"));
 			const agent = path.join(profile, "agent");
 			const bin = path.join(profile, "bin");
 			await fs.mkdir(agent, { mode: 0o700 });

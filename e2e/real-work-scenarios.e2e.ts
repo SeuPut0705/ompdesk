@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
+import { baseTemp } from "../scripts/run-temp";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
-import { baseTemp } from "./run-temp";
 
 // Explicit opt-in audit on the user's small model: each scenario is one turn of
 // a real omp session, captured light and dark, and the finished transcript is

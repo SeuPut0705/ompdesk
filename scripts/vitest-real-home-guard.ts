@@ -16,10 +16,11 @@
  */
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { tmpdir, userInfo } from "node:os";
+import { userInfo } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
+import { baseTemp } from "./run-temp";
 
 export const ALLOW_REAL_HOME_ENV = "OMP_GUI_ALLOW_REAL_HOME";
 
@@ -63,13 +64,14 @@ export function protectedRoots(): string[] {
 }
 
 /**
- * This checkout only (never every `~/.omp/wt` worktree), and the temp folder (under the home on Windows) as named and
- * as its real path: a Windows runner's TEMP is the 8.3 short `C:\Users\RUNNER~1\…`, while a test's `realpath` of a
- * `mkdtemp` folder gives the long `C:\Users\runneradmin\…`.
+ * This checkout only (never every `~/.omp/wt` worktree), and the temp folder (under the home on Windows; the one the
+ * run started with, which holds the run's own, `scripts/run-temp.ts`) as named and as its real path: a Windows
+ * runner's TEMP is the 8.3 short `C:\Users\RUNNER~1\…`, while a test's `realpath` of a `mkdtemp` folder gives the long
+ * `C:\Users\runneradmin\…`.
  */
 export function exemptRoots(): string[] {
 	const checkout = dirname(dirname(fileURLToPath(import.meta.url)));
-	const temp = tmpdir();
+	const temp = baseTemp();
 	return [...new Set([checkout, temp, fs.realpathSync.native(temp)].map(normalize))];
 }
 

@@ -32,6 +32,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { processAlive } from "../src/main/process-alive";
+import { baseTemp } from "./run-temp";
 
 export type SlotKind = "build" | "playwright" | "vitest" | "other";
 export const SLOT_KINDS: readonly SlotKind[] = ["build", "playwright", "vitest", "other"];
@@ -106,9 +107,11 @@ export interface Locks {
 	say: (message: string) => void;
 }
 
-const LOCK_ROOT = process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-locks") : "/tmp/ompdesk-locks";
+// Windows: the temp folder the machine shares, never a test run's own (scripts/run-temp.ts), or a lock taken inside a
+// run would be a private one.
+const LOCK_ROOT = process.platform === "win32" ? path.join(baseTemp(), "ompdesk-locks") : "/tmp/ompdesk-locks";
 const LEGACY_DIR =
-	process.platform === "win32" ? path.join(os.tmpdir(), "ompdesk-build.lock") : "/tmp/ompdesk-build.lock";
+	process.platform === "win32" ? path.join(baseTemp(), "ompdesk-build.lock") : "/tmp/ompdesk-build.lock";
 
 /** `OMPDESK_LOCK_SLOTS=playwright=3,heavy=2` overrides the defaults, for measuring a different N. */
 function slotsFromEnv(env: NodeJS.ProcessEnv): Record<LockSlot, number> {

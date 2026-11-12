@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { baseTemp } from "../run-temp";
+import { baseTemp } from "../../scripts/run-temp";
 
 const LAUNCHER = `import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";

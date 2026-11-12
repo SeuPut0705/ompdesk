@@ -1,8 +1,8 @@
 import { totalmem } from "node:os";
 import { defineConfig } from "@playwright/test";
-import { claimRunTemp } from "./e2e/run-temp";
 import { ramWorkers } from "./scripts/lock-slots";
 import { pinSnapshot } from "./scripts/out-snapshot";
+import { claimRunTemp } from "./scripts/run-temp";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Every suite launches Electron with `...process.env`; keep its windows off the
@@ -12,8 +12,8 @@ process.env.OMP_GUI_HEADLESS ??= "1";
 // the runner names itself here, and each worker, loading this file again, names itself. A spec that launches
 // Electron itself with `...process.env` passes it on; `appLaunchOptions` (e2e/harness.ts) sets it too.
 process.env.OMP_GUI_TEST_LAUNCHER_PID = String(process.pid);
-// Windows: the run's temp files (every spec's profile, Playwright's own) go in one folder of its own, cleared with
-// the processes still naming it when the run ends (e2e/run-temp.ts).
+// The run's temp files (every spec's profile, Playwright's own, what apps and fakes write) go in one folder of its
+// own, removed with the processes still naming it when this runner exits (scripts/run-temp.ts).
 claimRunTemp();
 // A run started under `git bisect run` or a hook must not send the specs' temp-repo git commands to this checkout.
 dropGitSelectors();
@@ -43,5 +43,4 @@ export default defineConfig({
 	// mobile-autopilot-rows clicked a button the page no longer showed and waited 5 min).
 	use: { screenshot: "only-on-failure", trace: "retain-on-failure", actionTimeout: 30_000 },
 	globalSetup: "./e2e/global-setup.ts",
-	globalTeardown: "./e2e/global-teardown.ts",
 });

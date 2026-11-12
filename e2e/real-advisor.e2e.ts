@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { baseTemp } from "../scripts/run-temp";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
-import { baseTemp } from "./run-temp";
 import type { RecordedWorkFrame } from "./work-recording";
 
 // Explicit opt-in: this audit spends model tokens (the user's `smol` role, plus the

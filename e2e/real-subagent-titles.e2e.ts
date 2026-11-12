@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { baseTemp } from "../scripts/run-temp";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
-import { baseTemp } from "./run-temp";
 
 // Explicit opt-in audit on the user's small model (OMP_GUI_REAL_WORK=1): with the reply language Korean, the
 // texts a person reads in the main agent's tool calls follow it. Stock's task tool has no `description` field, so

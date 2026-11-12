@@ -4,6 +4,7 @@ import { rmSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { RUN_TEMP_ENV } from "../../../../scripts/run-temp";
 import { withoutGitSelectors } from "../../../shared/git-env";
 import type { LifecycleWorktree } from "./session-worktree";
 
@@ -37,14 +38,13 @@ let templates: Promise<string> | null = null;
 
 /**
  * The folder this test process builds its template repositories in, once; the helpers below copy them (a repository
- * holds no absolute path but its remotes' urls). It lives in the run's folder (`OMP_TEST_REPO_ROOT`,
- * `scripts/vitest-test-repos.ts`), which the run deletes.
+ * holds no absolute path but its remotes' urls). It lives in the run's temp folder (`scripts/run-temp.ts`), which
+ * the run deletes; a process outside a test run removes it as it exits.
  */
 function templateRoot(): Promise<string> {
 	templates ??= (async () => {
-		const parent = process.env.OMP_TEST_REPO_ROOT;
-		const root = await fs.mkdtemp(path.join(parent ?? tmpdir(), "omp-test-repo-"));
-		if (!parent) process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+		const root = await fs.mkdtemp(path.join(tmpdir(), "omp-test-repo-"));
+		if (!process.env[RUN_TEMP_ENV]) process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 		return root;
 	})();
 	return templates;

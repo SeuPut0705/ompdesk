@@ -5,9 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { _electron as electron } from "playwright";
+import { baseTemp } from "../scripts/run-temp";
 import { exitApp } from "./harness";
 import { realOmpProfile } from "./real-omp";
-import { baseTemp } from "./run-temp";
 import { capturer, type Finding, resize } from "./shell-capture";
 
 // Opt-in audit of the first-time journey on the real omp (OMP_GUI_ONBOARDING=<dir>):

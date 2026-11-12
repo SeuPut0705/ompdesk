@@ -13,9 +13,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { chromium, devices, expect, type Locator, type Page, test } from "@playwright/test";
 import { createServer } from "vite";
+import { baseTemp } from "../scripts/run-temp";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { exitApp, fixtureOmp, launchApp } from "./harness";
-import { baseTemp } from "./run-temp";
 
 const directory = process.env.OMP_GUI_FIRST_RUN_WALK;
 test.skip(!directory, "set OMP_GUI_FIRST_RUN_WALK=<dir> to walk the first run");

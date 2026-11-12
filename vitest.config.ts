@@ -1,12 +1,17 @@
 import { availableParallelism, totalmem } from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
 import { ramWorkers } from "./scripts/lock-slots";
+import { claimRunTemp } from "./scripts/run-temp";
 import { CostSequencer } from "./scripts/vitest-sequencer";
 import { dropGitSelectors } from "./src/shared/git-env";
 
 // Tests make temp repositories with `git init` and `git config`: under `git bisect run` or a hook those would
 // rewrite this checkout (src/shared/git-env.ts).
 dropGitSelectors();
+// Before any worker starts, so every test process and thread inherits it: the run's temp files (every `mkdtemp` a test
+// never removes, what fakes and real omps write) go in one folder of its own, removed when this runner exits
+// (scripts/run-temp.ts).
+claimRunTemp();
 
 const RENDERER = "src/renderer/**/*.{test,spec}.?(c|m)[jt]s?(x)";
 
@@ -79,9 +84,8 @@ export default defineConfig({
 					hookTimeout: process.platform === "win32" ? 20_000 : 10_000,
 					// `tmp/` is gitignored scratch (captures, a clone of another repository): never this repository's tests.
 					exclude: [...configDefaults.exclude, RENDERER, "tmp/**"],
-					// The folder the git test repositories are copied from (`src/main/local/git/test-repos.ts`), and the
-					// native binaries the core process and the CLI tests run.
-					globalSetup: ["./scripts/vitest-test-repos.ts", "./scripts/vitest-native.ts"],
+					// The native binaries the core process and the CLI tests run.
+					globalSetup: ["./scripts/vitest-native.ts"],
 				},
 			},
 		],

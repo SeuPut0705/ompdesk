@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import { _electron as electron, type Page } from "playwright";
 import type { AutopilotStatus } from "../resources/gui-bridge/modes/autopilot-contracts";
+import { baseTemp } from "../scripts/run-temp";
 import {
 	command,
 	crash,
@@ -19,7 +20,6 @@ import {
 import { exitApp } from "./harness";
 import { survivors } from "./process-tree";
 import { field, realOmpProfile, spentIn } from "./real-omp";
-import { baseTemp } from "./run-temp";
 
 // Explicit opt-in (OMP_GUI_REAL_WORK=1): these audits spend model tokens on the user's `smol` role in a private
 // disposable agent dir (config.yml and agent.db copied, 0700), a temp git repository and a local bare remote.
