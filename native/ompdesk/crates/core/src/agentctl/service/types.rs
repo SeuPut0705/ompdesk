@@ -901,6 +901,12 @@ pub struct WorktreeSetupReport {
     pub timed_out: bool,
     #[serde(default)]
     pub duration_ms: f64,
+    /// Where the hook's whole output was kept.
+    #[serde(default)]
+    pub log_path: String,
+    /// The end of its output.
+    #[serde(default)]
+    pub output_tail: String,
 }
 
 /// `MergeOutcome`, as one record: `merged` says which of the three it is.
@@ -967,6 +973,9 @@ pub struct RunStatus {
     /// Whether the tab is a run at all (`active: false` for a tab that is no run).
     #[serde(default)]
     pub active: Option<bool>,
+    /// `parent` runs cycles; a `child` is a session a parent's cycle opened (absent when inactive).
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]

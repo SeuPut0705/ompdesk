@@ -166,6 +166,8 @@ pub struct Inner {
     pub send_outbox: Option<SendOutbox>,
     /// Reports between sessions: dispatch ids, coalescing, the last report of each child (`#mailbox`).
     pub mailbox: Mailbox,
+    /// `ompdesk_app`'s control, built at its first use over this service's own ports (`work`'s `ServicePorts`).
+    pub(crate) app: std::sync::OnceLock<crate::agentctl::app::AppControl<work::ServicePorts>>,
 }
 
 /// The agent-control service of one app: cheap to clone, every clone is the same service.
@@ -273,6 +275,7 @@ impl AgentControl {
             mailbox,
             clock,
             mem: Mutex::new(Mem::default()),
+            app: std::sync::OnceLock::new(),
         }))
     }
 
