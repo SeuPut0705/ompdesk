@@ -193,13 +193,15 @@ All of these need the commands to be taken in the core first (§1.2). Each is si
 | **R1** Keys and stores | `remote/crypto.ts` 111, `identity.ts` 52, `trust-store.ts` 73, `hosts-store.ts` 62, `peers-store.ts` 58, `secure-file.ts` 20, `address.ts` 77 (453) | X25519 keys, the HKDF key schedule, the transcript hash, the 0600 JSON stores (`remote-identity.json`, `remote-peers.json`, `remote-hosts.json`) | `crypto.test.ts` 134, `secure-file.test.ts` 24, `transport.test.ts` 1,123 | `x25519-dalek`, `hkdf`, `sha2` | none |
 | **R2** The sealed link | `remote/wire.ts` 468, `protocol.ts` 316, `link-traffic.ts` 207 (991) | `Link` (4-byte length, 16 MiB cap, ping 10 s, dead 30 s), `FrameSealer`/`FrameOpener` (AES-256-GCM, 96-bit counter nonce, strictly increasing), the deflate context, the traffic line | `wire.test.ts` 343, `transport.test.ts` 1,123, `link-traffic.test.ts` 118, `fanout-cpu-report.test.ts` 610 | `aes-gcm`, `flate2` | `session-listing` (`wire.ts:416-441`) |
 | **R3** Dial and handshake | `remote/client.ts` 749, `host-server.ts` 624 (1,373) | the listener on the tailnet addresses, the staggered dial, probe, `auth-init`/`auth-resp`, key pinning, refusals | `transport.test.ts` 1,123, `devices.test.ts` 703 | none beyond R1, R2 | `session-listing` (`client.ts:722-733`) |
-| **R4** Event encoding | `remote/link-events.ts` 1,228 | the slim deltas and their decoder, so main hands raw omp events and the core encodes | `link-events.test.ts` 1,105, `link-events-stock.test.ts` 184, `message-update-slim.test.ts` 252, `link-traffic-report.test.ts` | none | none |
+| **R4** Event encoding (moved to W2, after 9c/9d) | `remote/link-events.ts` 1,228 | the slim deltas and their decoder, so main hands raw omp events and the core encodes | `link-events.test.ts` 1,105, `link-events-stock.test.ts` 184, `message-update-slim.test.ts` 252, `link-traffic-report.test.ts` | none | none |
 | **R5** Devices | `remote/devices.ts` 1,298 with `peer-quota.ts`, `keep-awake.ts` (a blocker event to main), `readopt.ts`, `tailscale/tailnet.ts` 104 (≈1,700) | the gate (`#gate`, `devices.ts:885-900`), quotas, link lifecycle | `devices.test.ts` 703, `peer-quota.test.ts` 154, `keep-awake.test.ts` 102, `readopt.test.ts` 118, `tailnet.test.ts` 96 | none | `session-listing` |
 | **R6** Host services (two units) | `remote/host-services.ts` 2,780 | the host side of a device's tabs | `host-services.test.ts` 5,080 | `sha2` | `turn-resume`, `session-listing` |
 | **R7** Device side | `remote-sidecar.ts` 899, `hosted-view.ts` 256, `hosted-autopilot.ts` 55, `host-session-list.ts` 121, `quota-commands.ts` 359, `app-protocol.ts` 963 (2,653: two units) | | `remote-sidecar.test.ts` 1,084 | none | `session-listing` |
 | **R8** Bytes | `transcript-cache.ts` 282, `image-blob-cache.ts` 149, `image-reads.ts` 77, `host-upload.ts` 52, `sign-in-relay.ts` 131, `link-relay-socket.ts` 87, `preview-relay-tunnels.ts` 110 (888) | | `link-traffic-images.test.ts` 298, `sign-in-relay.test.ts` 223, `transcript-cache.test.ts` 154, `image-blob-cache.test.ts` 125, `image-reads.test.ts` 98, `host-upload.test.ts` 70 | `sha2` | none |
 
 R5–R7 need the pool (9d, 9e) in the core: `RemoteSidecar` is a `SidecarLike` the pool holds, and `LocalHostServices` runs `SidecarManager`s.
+
+R4 waits for the hubs (decided 12 Nov 2026, B2). Its encoder takes the raw omp events, which live only in main until 9c/9d: moved before them, main would serialize every raw event into the pipe and, on the device, parse the rebuilt whole events back, and the whole stream is up to ten times the slim one (`link-traffic-report.test.ts`: 450, 900 and 1800 tokens; a whole `message_update` is O(K²) in the reply), so main's work per event would grow, not shrink. And `createMessageUpdateSlimmer` (`message-update-slim.ts`) also slims the windows' stream in `sidecar-pool.ts`: a Rust slimmer for the link beside the pool's TypeScript one would be two copies of one rule. R4 moves in W2, once the pool's events reach the core, so one copy serves the windows and the link.
 
 ### 2.6 The web program
 
@@ -293,7 +295,7 @@ The owner's call: the units above move in batches, one session per batch, checke
 | Batch | Units | Needs | Runs beside |
 |---|---|---|---|
 | **B1 Memory** | 7b, 7c, 7d, and the setup downloads (§2.7) | 6b on `main`; the core's HTTPS (the fix restoring 5d's https and redirects) for the downloads | B2 |
-| **B2 Link and edge, Rust side** | R1, R2, R3, R4, 8a (8a's Rust lands before 8b serves, the ledger's first "built, not yet called" code; decided by the main session under the owner's speed call, reversible: the owner may ask for one longer session instead) | none | B1 |
+| **B2 Link and edge, Rust side** | R1, R2, R3, 8a; R4 moved to W2 (§2.5) (8a's Rust lands before 8b serves, the ledger's first "built, not yet called" code; decided by the main session under the owner's speed call, reversible: the owner may ask for one longer session instead) | none | B1 |
 | **P Shell prototype** | the three candidates of the ledger against its pass list, the Electron-to-new-shell update included | nothing: runs beside B1 and B2 (12 Nov 2026 19:4x) | B1, B2, W1, H1 |
 | **W1 Web, cut over** | 8b, 8d, 8e | B2 | P, H1 |
 | **H1 Hubs: entry and omp** | 9a, 9b, 9c | built now on its branch; lands once P passed | P, W1 |
@@ -301,7 +303,7 @@ The owner's call: the units above move in batches, one session per batch, checke
 | **H3 Hubs: agent control** | 9g, 9h, 9i, 9j, 9k | H2 | H4a, W2 |
 | **H4a App control** | 9l (two units) | H2 | H3 |
 | **H4b Autopilot** | 9m, 9n | H3 | W2 |
-| **W2 Remote and web, rest** | R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
+| **W2 Remote and web, rest** | R4, R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
 | **S Shell swap** | the chosen shell, the handoff release, deletion of what §4 lists | everything above | none |
 
 Eleven batches; at most two hub batches at once, as before.

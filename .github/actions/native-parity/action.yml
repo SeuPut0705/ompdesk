@@ -57,3 +57,8 @@ runs:
         src/main/local/git/exec-gh.test.ts
         src/main/workspace-fs*.test.ts
         src/main/disk/*.test.ts
+        src/main/remote/wire.test.ts
+        src/main/remote/transport.test.ts
+        src/main/remote/crypto.test.ts
+        src/main/remote/devices.test.ts
+        src/main/web/web-edge-matrix.test.ts
