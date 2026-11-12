@@ -196,6 +196,7 @@ async fn look(
 mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::task::{Context, Waker};
 
     use super::*;
 
@@ -227,9 +228,18 @@ mod tests {
                 fs::create_dir_all(&root).unwrap();
             }
             let (sender, reports) = mpsc::unbounded_channel();
-            let watch = spawn(root.clone(), move |report| {
+            let mut task = Box::pin(run(root.clone(), move |report| {
                 let _ = sender.send(report);
-            });
+            }));
+            if !made {
+                // Observe the missing root before the caller can create it; spawning alone races that creation.
+                assert!(
+                    task.as_mut()
+                        .poll(&mut Context::from_waker(Waker::noop()))
+                        .is_pending()
+                );
+            }
+            let watch = Watch(tokio::spawn(task));
             Rig {
                 root,
                 reports,
