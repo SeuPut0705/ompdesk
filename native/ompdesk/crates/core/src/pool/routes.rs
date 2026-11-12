@@ -59,11 +59,14 @@ impl Ctx {
             Some((
                 changed,
                 entry.tracking.run.running || entry.awaiting_connection,
+                entry.tab_id.clone(),
             ))
         });
-        let Some((changed, held)) = changed else {
+        let Some((changed, held, tab)) = changed else {
             return Ok(());
         };
+        // The one place a tab's file is written (with `unregister_session_file_of`): main keeps it for a new core's seed.
+        self.push(&json!({"k": "sessionFile", "tab": tab, "file": file}));
         // A run's file, and a held wait's: its continuation must not go into another session.
         if changed && held {
             self.on_running_change().await?;
@@ -98,12 +101,14 @@ impl Ctx {
             let entry = pool.by_seq(seq)?;
             entry.session_file.as_ref()?;
             let held = entry.awaiting_connection;
+            let tab = entry.tab_id.clone();
             pool.drop_session_owner(seq);
-            Some(held)
+            Some((held, tab))
         });
-        let Some(held) = held else {
+        let Some((held, tab)) = held else {
             return Ok(());
         };
+        self.push(&json!({"k": "sessionFile", "tab": tab, "file": null}));
         self.on_session_files_changed().await?;
         // A session-id change lets the held wait's file go (another session), as a switch does.
         if held {

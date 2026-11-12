@@ -240,6 +240,11 @@ interface TabHandle {
 	device: string | undefined;
 	/** The core released the tab: it is not in the pool any more, its sidecar is still being let go of. */
 	gone: boolean;
+	/**
+	 * The session file the core holds for the tab (F-OWN), kept only to seed a new core after a loss. Written from the
+	 * core's `sessionFile` item alone, never read for a rule.
+	 */
+	sessionFile: string | null;
 	full: FullWiring | null;
 	/** Paired devices that view this tab through their own tab on this host, by the id the core knows them by. */
 	views: Map<number, HostedTabView>;
@@ -449,9 +454,12 @@ export class SidecarPool {
 	 * answering) is opened again here, and the pool is seeded with the tabs main still holds (`#reseed`).
 	 */
 	#call<T>(method: string, params: object = {}): T {
-		this.#ensureOpen();
+		const instance = () => {
+			this.#ensureOpen();
+			return this.#id;
+		};
 		try {
-			return this.#hub.call<T>(this.#id, method, {
+			return this.#hub.callOnce<T>(instance, method, {
 				...params,
 				// Main's clock goes with every call: the rules read none, so a fake clock in a test is theirs too.
 				now: Date.now(),
@@ -506,8 +514,8 @@ export class SidecarPool {
 
 	/**
 	 * A new core's pool is seeded with the tabs main holds a sidecar for. What the new pool has of each is what the
-	 * handles can say: the tab id, its owner window, its device, its kind and status, its session file when the
-	 * sidecar is still the one it was acquired with. What a lost core loses: each tab's run (a turn on reads as
+	 * handles can say: the tab id, its owner window, its device, its kind and status, the session file the core
+	 * last held for it (F-OWN: the double-attach guard and the resume facts survive a loss). What a lost core loses: each tab's run (a turn on reads as
 	 * idle until its next event), the last outcome, titles and the cached session id, the open asks and sign-ins,
 	 * extension state, drafts, subagent levels, counters (`touched`, `prompted`, `exits`), each window's view (the
 	 * first tab of a window is active and visible again; splits are gone) and every observer's debounce. The windows
@@ -523,6 +531,7 @@ export class SidecarPool {
 				hosted: handle.sidecar instanceof HostedTabView,
 				kind: handle.sidecar.kind,
 				status: handle.sidecar.status,
+				sessionFile: handle.sessionFile,
 				full: [...(handle.full?.windows.keys() ?? [])],
 				views: [...handle.views.keys()],
 			}));
@@ -577,6 +586,11 @@ export class SidecarPool {
 			case "unwireFull":
 				this.#unwireFull(item.tab as string, item.win as number, item.last === true);
 				return;
+			case "sessionFile": {
+				const handle = this.#handles.get(item.tab as string);
+				if (handle) handle.sessionFile = (item.file as string | null) ?? null;
+				return;
+			}
 			case "gone": {
 				const handle = this.#handles.get(item.tab as string);
 				if (handle) handle.gone = true;
@@ -706,7 +720,15 @@ export class SidecarPool {
 					deferStart: item.deferStart === true,
 				});
 				if (gate) sidecar.setStartGate?.(gate);
-				this.#handles.set(tab, { sidecar, win, device, gone: false, full: null, views: new Map() });
+				this.#handles.set(tab, {
+					sidecar,
+					win,
+					device,
+					gone: false,
+					sessionFile: null,
+					full: null,
+					views: new Map(),
+				});
 				this.#wireLight(tab, sidecar);
 				if (!device) this.summaries?.track(sidecar);
 				return { status };
@@ -1162,7 +1184,15 @@ export class SidecarPool {
 		const winId = this.#windowId(win);
 		// Open first: a new core is seeded with the handles held so far, and this tab is not one of them.
 		this.#ensureOpen();
-		this.#handles.set(tabId, { sidecar, win, device: undefined, gone: false, full: null, views: new Map() });
+		this.#handles.set(tabId, {
+			sidecar,
+			win,
+			device: undefined,
+			gone: false,
+			sessionFile: null,
+			full: null,
+			views: new Map(),
+		});
 		const shown = this.#call<boolean>("acquireHostedView", {
 			win: winId,
 			tab: tabId,

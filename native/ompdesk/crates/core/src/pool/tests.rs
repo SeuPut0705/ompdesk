@@ -447,8 +447,10 @@ async fn a_new_core_is_seeded_with_the_tabs_main_holds() {
     main.call(
         "seed",
         json!({"tabs": [
-            {"tab": "a", "win": 1, "device": null, "hosted": false, "kind": "agent", "status": "ready", "full": [1], "views": []},
-            {"tab": "b", "win": 1, "device": "host", "hosted": false, "kind": "chat", "status": "asleep", "full": [], "views": []},
+            {"tab": "a", "win": 1, "device": null, "hosted": false, "kind": "agent", "status": "ready", "full": [1], "views": [],
+             "sessionFile": "/s/a.jsonl"},
+            {"tab": "b", "win": 1, "device": "host", "hosted": false, "kind": "chat", "status": "asleep", "full": [], "views": [],
+             "sessionFile": "/s/a.jsonl"},
         ]}),
     )
     .await;
@@ -460,6 +462,20 @@ async fn a_new_core_is_seeded_with_the_tabs_main_holds() {
     let tabs = main.call("tabsForWindow", json!({"win": 1})).await;
     assert_eq!(tabs[1]["device"], "host");
     assert_eq!(tabs[1]["kind"], "chat");
+    // The files the tabs held own them again; the same path on a device is another file.
+    assert_eq!(
+        main.call("sessionOwner", json!({"path": "/s/a.jsonl"}))
+            .await,
+        json!({"tabId": "a", "winId": 1})
+    );
+    assert_eq!(
+        main.call(
+            "sessionOwner",
+            json!({"path": "/s/a.jsonl", "device": "host"})
+        )
+        .await["tabId"],
+        "b"
+    );
     // The window's closing still releases what was seeded.
     main.call("windowClosed", json!({"win": 1})).await;
     assert_eq!(main.call("size", json!({})).await, 0);
