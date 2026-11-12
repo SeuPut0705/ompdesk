@@ -72,8 +72,9 @@ export interface Surface {
 		 */
 		inView?: string;
 		/**
-		 * False while the fake omp was not started with the data this surface shows (a flag of e2e/fixture/rpc-ui.ts):
-		 * the sheet then has no such surface, and `--both-orders` leaves it out.
+		 * False while the fake omp was not started with the data this surface shows (a flag of e2e/fixture/rpc-ui.ts),
+		 * or on a computer that has no such surface (macOS's permission rows): the sheet then has no such surface, and
+		 * `--both-orders` leaves it out.
 		 */
 		available?(): boolean;
 	};
@@ -1254,9 +1255,10 @@ export const SURFACES: readonly Surface[] = [
 		open: openSettingsComputerUse,
 		ready: "[data-settings-page] [data-mac-permission]",
 		settle: 900,
-		// The rows read the computer's macOS permissions from main: the audits' harness page has no such computer.
+		// The rows read the computer's macOS permissions from main: the audits' harness page has no such computer, and a
+		// host that is no Mac has no such rows (the order check failed on them on Windows, 12 Nov 2026).
 		when: () => false,
-		parity: { session: "work" },
+		parity: { session: "work", available: () => process.platform === "darwin" },
 	},
 	// Settings › Memory: every tab, and the list → detail states of Pages, Handoffs and Sessions.
 	...(["overview", "search", "pages", "handoffs", "sessions", "profile", "maintenance"] as const).map(
