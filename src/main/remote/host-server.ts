@@ -167,6 +167,11 @@ export interface HostAsk {
 }
 
 const hosts = new Map<number, RemoteHost>();
+/**
+ * Listens run one at a time in the order asked, as node's binds did: two hosts of one main (a test's two computers)
+ * that start together take their ports in that order, never as the core's tasks happen to run.
+ */
+let listens: Promise<unknown> = Promise.resolve();
 let nextHost = 0;
 let routed = false;
 
@@ -299,11 +304,7 @@ export class RemoteHost {
 		this.#listening = [];
 		this.#port = null;
 		this.#listenError = null;
-		const { result } = await core().call<{
-			port: number | null;
-			listening: string[];
-			listenError: ListenError | null;
-		}>("remote.hostListen", {
+		const params = {
 			host: this.#id,
 			identity: this.#opts.identity.deviceId,
 			addresses: hosts,
@@ -314,7 +315,15 @@ export class RemoteHost {
 			...(this.#opts.trafficMs !== undefined ? { trafficMs: this.#opts.trafficMs } : {}),
 			...(this.#opts.liveness ? { liveness: this.#opts.liveness } : {}),
 			...(this.#opts.refusePorts ? { refuse: this.#opts.refusePorts } : {}),
-		});
+		};
+		const asked = listens.then(() =>
+			core().call<{ port: number | null; listening: string[]; listenError: ListenError | null }>(
+				"remote.hostListen",
+				params,
+			),
+		);
+		listens = asked.catch(() => undefined);
+		const { result } = await asked;
 		this.#port = result.port;
 		this.#listening = result.listening;
 		this.#listenError = result.listenError;
