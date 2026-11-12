@@ -19,6 +19,8 @@ runs:
         src/main/session-index.test.ts
         src/main/memory-sampler.test.ts
         src/main/model-setup-runner.test.ts
+        src/main/schedules.test.ts
+        src/main/web/webhook.test.ts
         src/main/session-processes.test.ts
         src/main/setup/runner.test.ts
         src/main/control-socket/server.test.ts
