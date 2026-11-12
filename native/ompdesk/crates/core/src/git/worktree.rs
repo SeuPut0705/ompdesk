@@ -26,7 +26,7 @@ fn refuse(code: &'static str, message: impl Into<String>) -> Fault {
 }
 
 /// `fs.realpath` as node spells the answer.
-fn real(path: &str) -> Result<String, NodeError> {
+pub(super) fn real(path: &str) -> Result<String, NodeError> {
     disk::realpath(path).map(|resolved| disk::spelled(&resolved))
 }
 

@@ -5,7 +5,8 @@
 //! worktrees (was the git side of `worktree.ts` and `session-worktree.ts`): `worktree.rs`; what a branch has not landed
 //! (`unlanded.ts`): `unlanded.rs`; a folder's project facts (`origin.ts`): `origin.rs`; a session worktree's standing,
 //! merge and safe removal (`agent-control/branches.ts`): `branches.rs`; orphaned worktrees (`worktree-orphans.ts`):
-//! `orphans.rs`. Every request carries `git`, how main runs git (`gitRunner` in `exec.ts`: binary, environment,
+//! `orphans.rs`; a fresh worktree's seeding from `.worktreeinclude` and its hook's lookup (`worktree-seed.ts`):
+//! `seed.rs`. Every request carries `git`, how main runs git (`gitRunner` in `exec.ts`: binary, environment,
 //! timeout, output cap), so this side decides none of it, and runs under the request's scope: a cancelled request
 //! starts no git and ends the one it runs. Failures are faults whose message is what the TypeScript threw (git's
 //! stderr, node's error text, `spawn <bin> ENOENT`, `-c timed out after 60000ms`); a refusal the TypeScript coded
@@ -20,6 +21,7 @@ pub(crate) mod parse;
 pub(crate) mod read;
 pub(crate) mod run;
 mod scm;
+mod seed;
 mod triggers;
 mod unlanded;
 mod worktree;
@@ -355,6 +357,28 @@ struct FreshnessVerdictParams {
     page: freshness::Named,
     state: Option<freshness::State>,
     timeout_ms: u64,
+}
+
+/// `budgetMs`: how long the seed may start new entries, main's to choose. `pretendClones`: a test's stand-in for the
+/// volume (`seed::pretend_cloner`); the app never sends it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SeedParams {
+    git: Runner,
+    primary: String,
+    target: String,
+    budget_ms: u64,
+    pretend_clones: Option<u32>,
+}
+
+/// `script`: the hook's file, relative to a checkout; `log`: its log's file name.
+#[derive(Deserialize)]
+struct HookParams {
+    git: Runner,
+    primary: String,
+    worktree: String,
+    script: String,
+    log: String,
 }
 
 pub fn register(registry: &mut Registry) {
@@ -880,6 +904,36 @@ pub fn register(registry: &mut Registry) {
             } = call.params()?;
             let git = Git::new(git, call.scope);
             Reply::json(&orphans::remove(&git, &primary, &path, branch, keep_branch).await?)
+        })
+    });
+    registry.add("git.worktreeSeed", |call| {
+        Box::pin(async move {
+            let SeedParams {
+                git,
+                primary,
+                target,
+                budget_ms,
+                pretend_clones,
+            } = call.params()?;
+            let limits = seed::Limits {
+                budget: std::time::Duration::from_millis(budget_ms),
+                pretend_clones,
+            };
+            let git = Git::new(git, call.scope.clone());
+            Reply::json(&seed::seed(git, call.scope, primary, target, limits).await?)
+        })
+    });
+    registry.add("git.worktreeHook", |call| {
+        Box::pin(async move {
+            let HookParams {
+                git,
+                primary,
+                worktree,
+                script,
+                log,
+            } = call.params()?;
+            let git = Git::new(git, call.scope);
+            Reply::json(&seed::hook(&git, &primary, &worktree, &script, &log).await?)
         })
     });
 }

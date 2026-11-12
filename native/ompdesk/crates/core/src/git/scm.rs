@@ -1012,14 +1012,14 @@ async fn reorder(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::git::run::tests::git;
     use std::path::PathBuf;
     use std::process::Command;
 
     /// The tests' own git, which no host config shapes (an empty file: Windows git cannot open `NUL` as one).
-    fn sh(dir: &Path, args: &[&str]) -> String {
+    pub fn sh(dir: &Path, args: &[&str]) -> String {
         let config =
             std::env::temp_dir().join(format!("ompdesk-core-scm-config-{}", std::process::id()));
         if !config.exists() {
@@ -1047,21 +1047,26 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 
-    fn repo(name: &str) -> PathBuf {
+    pub fn repo(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("ompdesk-core-scm-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        sh(&dir, &["init", "-q", "-b", "main"]);
-        sh(&dir, &["config", "user.name", "T"]);
-        sh(&dir, &["config", "user.email", "t@example.com"]);
-        // The core's gits read the host's config: Git for Windows sets core.autocrlf system-wide.
-        sh(&dir, &["config", "core.autocrlf", "false"]);
-        sh(&dir, &["config", "commit.gpgsign", "false"]);
-        std::fs::write(dir.join("README.md"), "hello\n").unwrap();
-        sh(&dir, &["add", "-A"]);
-        sh(&dir, &["commit", "-qm", "init"]);
+        repo_at(&dir);
         dir
+    }
+
+    /// A repository with one commit in the new folder `dir`.
+    pub fn repo_at(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        sh(dir, &["init", "-q", "-b", "main"]);
+        sh(dir, &["config", "user.name", "T"]);
+        sh(dir, &["config", "user.email", "t@example.com"]);
+        // The core's gits read the host's config: Git for Windows sets core.autocrlf system-wide.
+        sh(dir, &["config", "core.autocrlf", "false"]);
+        sh(dir, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join("README.md"), "hello\n").unwrap();
+        sh(dir, &["add", "-A"]);
+        sh(dir, &["commit", "-qm", "init"]);
     }
 
     /// A merge stopped on a conflict: the porcelain v2 count of unmerged paths is what v1's conflict letters gave.

@@ -11,7 +11,7 @@ mod facts;
 mod regenerable;
 mod saved;
 mod sizes;
-mod tree;
+pub(crate) mod tree;
 
 use serde::{Deserialize, Serialize};
 

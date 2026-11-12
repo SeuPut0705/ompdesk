@@ -1,7 +1,7 @@
-//! The only unsafe code: asking a child process to end with SIGTERM and (Windows) the job object that ends its
-//! children with it and the one that ends an ssh with its whole tree, physical memory and process reads, reading and
-//! ending other processes (their environment and command line, `WM_CLOSE`, SIGKILL), `ReadDirectoryChangesW`, and the
-//! system random generator.
+//! The only unsafe code: asking a child process to end with SIGTERM, a file's clone (macOS, Linux) and (Windows) the
+//! job object that ends its children with it and the one that ends an ssh with its whole tree, physical memory and
+//! process reads, a junction, reading and ending other processes (their environment and command line, `WM_CLOSE`,
+//! SIGKILL), `ReadDirectoryChangesW`, and the system random generator.
 #![allow(unsafe_code)]
 
 /// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
@@ -307,6 +307,170 @@ mod job {
             }
         }
     }
+}
+
+/// Makes the new file `to` a clone of the file `from` (`clonefile`, APFS): it shares the file's blocks, so it takes no
+/// disk until either side changes. Fails where the volume cannot (another volume, a file system without clones) or
+/// `to` exists, and then leaves no file.
+#[cfg(target_os = "macos")]
+pub fn clone_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let from = CString::new(from.as_os_str().as_bytes())?;
+    let to = CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both pointers are NUL-terminated strings that outlive the call, which only reads them.
+    if unsafe { libc::clonefile(from.as_ptr(), to.as_ptr(), 0) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Makes the new file `to` a clone of the file `from` (`FICLONE`: Btrfs, XFS with reflinks), with its mode: it shares
+/// the file's blocks, so it takes no disk until either side changes. Fails where the volume cannot or `to` exists,
+/// and then leaves no file.
+#[cfg(target_os = "linux")]
+pub fn clone_file(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    use std::fs::{File, OpenOptions};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let source = File::open(from)?;
+    let permissions = source.metadata()?.permissions();
+    let made = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(to)?;
+    // SAFETY: both descriptors are files this function holds open through the call; `FICLONE` takes the source's
+    // descriptor as its one argument.
+    let cloned = unsafe { libc::ioctl(made.as_raw_fd(), libc::FICLONE, source.as_raw_fd()) } == 0;
+    let finished = if cloned {
+        made.set_permissions(permissions)
+    } else {
+        Err(std::io::Error::last_os_error())
+    };
+    if finished.is_err() {
+        drop(made);
+        let _ = std::fs::remove_file(to);
+    }
+    finished
+}
+
+/// Makes `link` a junction to the folder `target` (an absolute path), as node's `fs.symlink(target, link,
+/// "junction")` does: a folder link that needs no privilege. libuv's spelling of the target: `\\?\` dropped, `/` as
+/// `\`, runs of separators as one; that is the print name, and the substitute name is `\??\` before it.
+#[cfg(windows)]
+pub fn junction(target: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    use std::ffi::c_void;
+    use std::io::{Error, ErrorKind};
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    const BACKSLASH: u16 = b'\\' as u16;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FSCTL_SET_REPARSE_POINT: u32 = 0x0009_00A4;
+    const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+    /// `MAXIMUM_REPARSE_DATA_BUFFER_SIZE`.
+    const MAX_REPARSE_BYTES: usize = 16 * 1024;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn DeviceIoControl(
+            device: *mut c_void,
+            code: u32,
+            input: *mut c_void,
+            input_bytes: u32,
+            output: *mut c_void,
+            output_bytes: u32,
+            returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+    }
+
+    let units: Vec<u16> = target.as_os_str().encode_wide().collect();
+    let verbatim: Vec<u16> = r"\\?\".encode_utf16().collect();
+    let units = units.strip_prefix(verbatim.as_slice()).unwrap_or(&units);
+    let is_separator = |unit: u16| unit == BACKSLASH || unit == u16::from(b'/');
+    let absolute = matches!(units, [letter, colon, separator, ..]
+        if u8::try_from(*letter).is_ok_and(|letter| letter.is_ascii_alphabetic())
+            && *colon == u16::from(b':')
+            && is_separator(*separator));
+    if !absolute {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "a junction's target is an absolute path",
+        ));
+    }
+    let mut name: Vec<u16> = Vec::with_capacity(units.len());
+    for &unit in units {
+        if !is_separator(unit) {
+            name.push(unit);
+        } else if name.last() != Some(&BACKSLASH) {
+            name.push(BACKSLASH);
+        }
+    }
+    let print = &name[..];
+    let substitute: Vec<u16> = r"\??\".encode_utf16().chain(name.iter().copied()).collect();
+    // `REPARSE_DATA_BUFFER` for a mount point, as UTF-16 units (Windows runs little-endian only): the tag, the data's
+    // length and a reserved unit; then the data: each name's offset and length in bytes, and both names with their NUL.
+    let data_bytes = 8 + (substitute.len() + 1 + print.len() + 1) * 2;
+    if 8 + data_bytes > MAX_REPARSE_BYTES {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "a junction's target is too long",
+        ));
+    }
+    let length = |units: usize| (units * 2) as u16;
+    let mut buffer: Vec<u16> = vec![
+        IO_REPARSE_TAG_MOUNT_POINT as u16,
+        (IO_REPARSE_TAG_MOUNT_POINT >> 16) as u16,
+        data_bytes as u16,
+        0,
+        0,
+        length(substitute.len()),
+        length(substitute.len() + 1),
+        length(print.len()),
+    ];
+    buffer.extend_from_slice(&substitute);
+    buffer.push(0);
+    buffer.extend_from_slice(print);
+    buffer.push(0);
+
+    std::fs::create_dir(link)?;
+    let set = (|| {
+        let folder = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(link)?;
+        let mut returned = 0u32;
+        // SAFETY: `folder` is the open handle of the folder made above and outlives the call; `buffer` is a whole
+        // `REPARSE_DATA_BUFFER` of `8 + data_bytes` bytes that the call only reads; no output buffer, and `returned`
+        // is written only during the call.
+        let done = unsafe {
+            DeviceIoControl(
+                folder.as_raw_handle(),
+                FSCTL_SET_REPARSE_POINT,
+                buffer.as_ptr().cast_mut().cast(),
+                (8 + data_bytes) as u32,
+                std::ptr::null_mut(),
+                0,
+                &raw mut returned,
+                std::ptr::null_mut(),
+            )
+        };
+        if done == 0 {
+            Err(Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    })();
+    if set.is_err() {
+        let _ = std::fs::remove_dir(link);
+    }
+    set
 }
 
 /// This computer's physical memory and what of it is available, in bytes (`GlobalMemoryStatusEx`, which Electron's

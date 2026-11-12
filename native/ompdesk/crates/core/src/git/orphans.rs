@@ -56,7 +56,7 @@ fn worktree_list(output: &str) -> Vec<Listed> {
 
 /// node's `isInside`: `child` is strictly inside `root` (both real paths), as `path.relative` reads it (on Windows
 /// case-insensitively; a first part starting with `..` reads as outside).
-fn inside(root: &str, child: &str) -> bool {
+pub(super) fn inside(root: &str, child: &str) -> bool {
     let (root, child) = if cfg!(windows) {
         (root.to_lowercase(), child.to_lowercase())
     } else {
