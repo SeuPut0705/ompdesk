@@ -101,17 +101,20 @@ describe("AssetArchive (the previous builds' assets, served for a while after an
 		renderer = join(root, "renderer-next");
 		build("b");
 		const second = renderer;
-		const copy = fsp.copyFile.bind(fsp);
+		const read = fsp.readFile.bind(fsp);
 		let release = (): void => {};
 		const held = new Promise<void>(resolve => {
 			release = resolve;
 		});
 		const copied: string[] = [];
-		vi.spyOn(fsp, "copyFile").mockImplementation(async (from, to, mode) => {
-			copied.push(String(from));
-			if (copied.length === 1) await held;
-			return copy(from, to, mode);
-		});
+		// The copy reads each asset (web.html, which names the build, is read too and passes).
+		vi.spyOn(fsp, "readFile").mockImplementation((async (file: string, options?: unknown) => {
+			if (String(file).includes(join("assets", "chunk-"))) {
+				copied.push(String(file));
+				if (copied.length === 1) await held;
+			}
+			return read(file, options as BufferEncoding);
+		}) as typeof fsp.readFile);
 		const a = archive.retain(first);
 		await vi.waitFor(() => expect(copied).toHaveLength(1));
 		const b = archive.retain(second);

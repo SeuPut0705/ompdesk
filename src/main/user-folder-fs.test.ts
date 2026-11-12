@@ -36,3 +36,19 @@ describe("main's code over a user's folders", () => {
 		expect(source.match(PLAIN_FS_IMPORT)?.[0]).toBeUndefined();
 	});
 });
+
+/**
+ * Modules that read the app's own files, which a packaged app keeps inside `app.asar`. Electron serves a `copyFile`,
+ * `cp`, `open` or read stream of a file there by copying it out to a temp file first (`.<bundle id>.XXXXXX` on macOS),
+ * never removed: the web server's asset archive left a build's 218 assets in the temp folder at every update. A
+ * `readFile` is served from the archive with no copy. Plain Node has no archive, so this checks the calls.
+ */
+const APP_FILE_MODULES = ["web/asset-archive.ts"];
+const COPIES_OUT = /\b(?:copyFile|copyFileSync|cp|cpSync|open|openSync|createReadStream)\(/;
+
+describe("main's code over the app's own files", () => {
+	it.each(APP_FILE_MODULES)("%s never copies a file out of the app's archive", file => {
+		const source = fs.readFileSync(path.join(MAIN, file), "utf8");
+		expect(source.match(COPIES_OUT)?.[0]).toBeUndefined();
+	});
+});

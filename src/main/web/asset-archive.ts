@@ -12,6 +12,12 @@
  * `<userData>/web-assets/<build>/assets/` (an atomic rename of a `.partial` folder; about 15 MB). The builds that
  * stopped being current are kept for `ARCHIVE_RETAIN_MS` after they were replaced, `ARCHIVE_MAX_PREVIOUS` at most,
  * newest first, and `roots()` lists them for the server (server.ts serves a missing `/assets/` file from them).
+ *
+ * Each file is read and written, never `copyFile`d: in a packaged app the renderer folder is inside `app.asar`, and
+ * Electron serves a copy, open or spawn of a file there by first copying it out to a temp file of its own
+ * (`.<bundle id>.XXXXXX` on macOS) that it never removes. One `copyFile` per asset left all 218 of a build's assets,
+ * 15.6 MB, in the owner's temp folder at every update (12 Nov 2026, three updates that day). A read of an archived
+ * file is served from the archive with no copy.
  */
 import { createHash } from "node:crypto";
 import { promises as fsp } from "node:fs";
@@ -114,7 +120,8 @@ export class AssetArchive {
 			await fsp.mkdir(join(partial, "assets"), { recursive: true });
 			const source = join(staticRoot, "assets");
 			for (const entry of await fsp.readdir(source, { withFileTypes: true })) {
-				if (entry.isFile()) await fsp.copyFile(join(source, entry.name), join(partial, "assets", entry.name));
+				if (entry.isFile())
+					await fsp.writeFile(join(partial, "assets", entry.name), await fsp.readFile(join(source, entry.name)));
 			}
 			await fsp.rename(partial, target);
 			return true;
