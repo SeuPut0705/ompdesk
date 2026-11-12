@@ -96,6 +96,14 @@ impl Gh {
     pub async fn call(&self, cwd: &str, args: &[&str], opts: Opts<'_>) -> Result<String, Fault> {
         let output = self.exec()?.run(cwd, args, opts).await?;
         let command = args[..args.len().min(2)].join(" ");
+        // A cut output is told as such whatever the exit: the cap's own SIGTERM ends a gh still writing with a
+        // non-zero code, which a gh that exited first does not have (node's maxBuffer error came first the same way).
+        if output.truncated {
+            return Err(Fault::new(
+                "gh_exit",
+                format!("gh {command} output exceeded the size cap"),
+            ));
+        }
         if output.code != 0 {
             let stderr = js_trim(&output.stderr);
             let message = if stderr.is_empty() {
@@ -104,12 +112,6 @@ impl Gh {
                 stderr.to_owned()
             };
             return Err(Fault::new("gh_exit", message));
-        }
-        if output.truncated {
-            return Err(Fault::new(
-                "gh_exit",
-                format!("gh {command} output exceeded the size cap"),
-            ));
         }
         Ok(output.text())
     }
