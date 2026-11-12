@@ -13,6 +13,11 @@
  * for a safe point when the countdown ends, instead of installing over a card. After the user's "나중에" that round
  * falls back to the rule below.
  *
+ * An ask or approval card holds the restart only while someone may answer it (the owner's rule, 12 Nov 2026: a
+ * card left open overnight held a downloaded update for 110 minutes): once it has held it for `CARD_HOLD_MS` and
+ * nobody gave the computer input for as long, the countdown starts over it, and the relaunch asks the same question
+ * again. A plan proposal (lost by a relaunch) and a compaction hold without a cap.
+ *
  * With it off (or after "나중에"), a good moment is no tab running a turn and no ask open, and either every window
  * unfocused or no user input for `IDLE_MS`. Still not quiet after `MAX_WAIT_MS`: with Continue interrupted work on
  * it goes ahead anyway; with it off it never forces the restart and keeps waiting for idle.
@@ -29,6 +34,11 @@ export const AUTO_INSTALL_IDLE_MS = 2 * 60 * 1000;
 export const AUTO_INSTALL_MAX_WAIT_MS = 30 * 60 * 1000;
 /** The notice's countdown before the restart. */
 export const AUTO_INSTALL_COUNTDOWN_MS = 60 * 1000;
+/**
+ * How long an ask or approval card holds the restart while nobody gives the computer input (the owner's ten minutes,
+ * 12 Nov 2026); input during that time or during the countdown keeps it waiting.
+ */
+export const AUTO_INSTALL_CARD_HOLD_MS = 10 * 60 * 1000;
 
 export interface AutoInstallFacts {
 	/** The pref `appAutoUpdate`. */
@@ -39,8 +49,13 @@ export interface AutoInstallFacts {
 	resumes: boolean;
 	/** Some tab runs a turn (or compacts) or an ask is open. */
 	busy: boolean;
-	/** An ask or approval card is open (the log names it as the reason, instead of a running turn). */
+	/** A card waits on the person: an ask, an approval or a plan proposal (the log names it as the reason). */
 	asking?: boolean;
+	/**
+	 * A plan proposal waits for approval. It lives only in the omp that made it, so a relaunch loses it: it holds the
+	 * restart without a cap. An ask or approval comes back (the relaunch reruns the cut-off call).
+	 */
+	planWaiting?: boolean;
 	/** Some tab compacts its context: a restart then would cut the compaction, which does not resume. */
 	compacting?: boolean;
 	/** One of this app's windows has focus. */
@@ -61,6 +76,9 @@ export interface AutoInstallEffects {
 /** Why the scheduler is not installing yet. */
 export type AutoInstallWaitReason = "busy turn" | "open ask" | "compaction" | "focused+active input";
 
+/** Who started an install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
+export type InstallTrigger = "auto" | "user click" | "quit";
+
 export type AutoInstallLogDetails = Record<string, string | number | boolean>;
 
 export interface AutoInstallOptions {
@@ -71,7 +89,7 @@ export interface AutoInstallOptions {
 	maxWaitMs?: number;
 	countdownMs?: number;
 	/**
-	 * One line per decision transition: `event` (waiting, safe, quiet, forced, countdown, held, postponed,
+	 * One line per decision transition: `event` (waiting, safe, unattended, quiet, forced, countdown, held, postponed,
 	 * withdrawn, install) and its details.
 	 */
 	log?: (event: string, details?: AutoInstallLogDetails) => void;
@@ -93,8 +111,9 @@ function waitReason(facts: AutoInstallFacts): AutoInstallWaitReason {
 }
 
 /**
- * What a resume-on restart must wait for: an open card (its answer would be lost) or a compaction (a cut one does not
- * resume); else none. Running turns, subagents and jobs are not in it: the relaunch continues them.
+ * What a resume-on restart must wait for: an open card (its answer would be lost while someone may give it; an ask or
+ * approval stops holding once nobody is there, `#cardGivesWay`) or a compaction (a cut one does not resume); else none.
+ * Running turns, subagents and jobs are not in it: the relaunch continues them.
  */
 function unsafeReason(facts: AutoInstallFacts): "open ask" | "compaction" | undefined {
 	if (facts.asking) return "open ask";
@@ -110,15 +129,20 @@ export class AutoInstallScheduler {
 	/** The wait reason last logged, so a tick that waits for the same reason writes nothing. */
 	#loggedWait: AutoInstallWaitReason | undefined;
 	/**
-	 * `install` ran: the restart is under way and nothing is left to decide. The app can stay busy for seconds
-	 * (Windows starts the installer before it quits), and a tick meanwhile must not announce or install again.
-	 * The update no longer being installable (the install failed) or the pref going off starts over.
+	 * An install began (`installStarted`: the scheduler's own, a click, a paired device's, a quit): the restart is under
+	 * way and nothing is left to decide. The app can stay busy for seconds (Windows starts the installer before it
+	 * quits), and a tick meanwhile must not announce or install again. The update no longer being installable (the
+	 * install failed) or the pref going off starts over.
 	 */
 	#installed = false;
 	/** The user's "나중에" this round: the safe-point rule gives way to a quiet moment or the max wait. */
 	#postponed = false;
 	/** The reason a resume-on restart at the countdown's end waits for, last logged. */
 	#loggedHold: string | undefined;
+	/** Since when a card has been open while the update was ready; unset with none open. */
+	#cardSince: number | undefined;
+	/** The open card gave way (logged `unattended`), until input or a closed card ends that. */
+	#cardGaveWay = false;
 
 	constructor(options: AutoInstallOptions) {
 		this.#opts = options;
@@ -140,6 +164,11 @@ export class AutoInstallScheduler {
 		}
 		if (this.#installed) return;
 		this.#waitingSince ??= at;
+		if (f.asking) this.#cardSince ??= at;
+		else {
+			this.#cardSince = undefined;
+			this.#cardGaveWay = false;
+		}
 		const maxWaitMs = this.#opts.maxWaitMs ?? AUTO_INSTALL_MAX_WAIT_MS;
 		const waitedMs = at - this.#waitingSince;
 		if (this.#restartAt !== undefined) {
@@ -154,22 +183,25 @@ export class AutoInstallScheduler {
 				return;
 			}
 			const hold = f.resumes ? unsafeReason(f) : undefined;
-			if (hold) {
+			if (hold === "open ask" && this.#cardGivesWay(f, at)) {
+				// Held past an earlier countdown, someone was there then: warn again before restarting over the card.
+				if (this.#loggedHold !== undefined) {
+					this.#loggedHold = undefined;
+					this.#announce(at);
+					return;
+				}
+			} else if (hold) {
 				if (hold !== this.#loggedHold) this.#opts.log?.("held", { reason: hold });
 				this.#loggedHold = hold;
 				return;
 			}
-			this.#restartAt = undefined;
-			this.#loggedHold = undefined;
-			this.#installed = true;
-			this.#postponed = false;
-			this.#opts.log?.("install", { trigger: "auto" });
+			this.installStarted("auto");
 			effects.install();
 			return;
 		}
 		if (f.resumes && !this.#postponed) {
 			const reason = unsafeReason(f);
-			if (reason) {
+			if (reason && !(reason === "open ask" && this.#cardGivesWay(f, at))) {
 				if (reason !== this.#loggedWait) {
 					this.#loggedWait = reason;
 					this.#opts.log?.("waiting", { reason, waitedMs });
@@ -177,7 +209,7 @@ export class AutoInstallScheduler {
 				return;
 			}
 			this.#loggedWait = undefined;
-			this.#opts.log?.("safe", { waitedMs, running: f.busy, resume: true });
+			if (!reason) this.#opts.log?.("safe", { waitedMs, running: f.busy, resume: true });
 			this.#announce(at);
 			return;
 		}
@@ -195,6 +227,36 @@ export class AutoInstallScheduler {
 		if (forced) this.#opts.log?.("forced", { waitedMs, maxWaitMs, resume: true, reason: waitReason(f) });
 		else this.#opts.log?.("quiet", { waitedMs, idleMs: f.idleMs, focused: f.focused });
 		this.#announce(at);
+	}
+
+	/**
+	 * An open card stops holding the restart once it has held it for `CARD_HOLD_MS` with no input on the computer for
+	 * as long; only an ask or approval, which the relaunch asks again, never a plan proposal, and never while a
+	 * compaction runs beside it. Logs `unattended` when it gives way; input since (or a closed card) holds again.
+	 */
+	#cardGivesWay(f: AutoInstallFacts, at: number): boolean {
+		const heldMs = at - (this.#cardSince ?? at);
+		const gives =
+			!f.planWaiting &&
+			!f.compacting &&
+			heldMs >= AUTO_INSTALL_CARD_HOLD_MS &&
+			f.idleMs >= AUTO_INSTALL_CARD_HOLD_MS;
+		if (gives && !this.#cardGaveWay) this.#opts.log?.("unattended", { heldMs, idleMs: f.idleMs });
+		this.#cardGaveWay = gives;
+		return gives;
+	}
+
+	/**
+	 * An install began, by any trigger: the scheduler's own, a click here or on a paired device, a quit. One `install`
+	 * line, then nothing to decide until the update stops being installable (the install failed) or the pref goes off.
+	 */
+	installStarted(trigger: InstallTrigger): void {
+		if (this.#installed) return;
+		this.#installed = true;
+		this.#restartAt = undefined;
+		this.#loggedHold = undefined;
+		this.#postponed = false;
+		this.#opts.log?.("install", { trigger });
 	}
 
 	#announce(at: number): void {
@@ -219,7 +281,10 @@ export class AutoInstallScheduler {
 		this.#installed = false;
 		this.#postponed = false;
 		this.#loggedHold = undefined;
+		this.#loggedWait = undefined;
 		this.#waitingSince = undefined;
+		this.#cardSince = undefined;
+		this.#cardGaveWay = false;
 		const shown = this.#restartAt !== undefined;
 		this.#restartAt = undefined;
 		if (!shown) return;

@@ -42,7 +42,7 @@ import pkg from "electron-updater";
 import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
-import { AutoInstallScheduler } from "./app-auto-update";
+import { AutoInstallScheduler, type InstallTrigger } from "./app-auto-update";
 import { confirmUpdateRestart, disarmQuitWatchdog, onQuitForcedExit, requestQuit } from "./app-quit";
 import { type BackgroundWork, NO_BACKGROUND_WORK } from "./background-work";
 import { markMainStep } from "./hang-watchdog";
@@ -170,14 +170,14 @@ export interface AutoInstallProbe {
 	busy: () => boolean;
 	/** An ask, an approval or a plan proposal waits on the person (a subset of `busy`; the log names it as the reason). */
 	asking: () => boolean;
+	/** Of those, a plan proposal: a relaunch loses it, so it holds the automatic restart however long nobody is there. */
+	planWaiting: () => boolean;
 	/** A tab compacts its context: a resume-on restart waits for it (a cut compaction does not resume). */
 	compacting: () => boolean;
 	/** Running background subagents and jobs of every tab on this computer, asked fresh (`background-work.ts`). */
 	backgroundWork: () => Promise<BackgroundWork>;
 }
 
-/** Who started the install: the scheduler, a click on "Restart & install" (or a paired device's), or a plain quit. */
-type InstallTrigger = "auto" | "user click" | "quit";
 /** The trigger of the install in progress; unset until one starts, so an approved quit with an update staged counts as `quit`. */
 let installTrigger: InstallTrigger | undefined;
 /** When electron-updater's own (Windows NSIS) download started; unset outside one. */
@@ -253,12 +253,13 @@ function noteInstallHelper(mode: InstallHelperMode, trigger: InstallTrigger, ext
 /**
  * An install starts: remember who asked, and tell the window. Starting the installer and quitting take seconds
  * the window cannot speak in (and a second click meanwhile started the install twice), so the status says
- * "installing" first. The scheduler logs its own `auto` decision; the other two are logged here.
+ * "installing" first. The scheduler logs it once, whoever started it, and decides nothing more (12 Nov 2026: a click
+ * left it deciding, and it logged a safe point and a countdown one second after the click).
  */
 function beginInstall(trigger: InstallTrigger): void {
 	installTrigger = trigger;
 	presenceAtInstall = currentWindowPresence();
-	if (trigger !== "auto") logUpdate("scheduler", { event: "install", trigger });
+	autoInstall?.installStarted(trigger);
 	if (current.state === "downloaded") {
 		broadcast({ state: "downloaded", version: current.version, mode: current.mode, installing: true });
 	}
@@ -887,6 +888,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 				resumes,
 				busy: probe.busy(),
 				asking: probe.asking(),
+				planWaiting: probe.planWaiting(),
 				compacting: probe.compacting(),
 				focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
 				idleMs: powerMonitor.getSystemIdleTime() * 1000,

@@ -89,6 +89,7 @@ beforeAll(() => {
 		resumes: () => true,
 		busy: () => false,
 		asking: () => false,
+		planWaiting: () => false,
 		compacting: () => false,
 		backgroundWork: async () => NO_BACKGROUND_WORK,
 	});

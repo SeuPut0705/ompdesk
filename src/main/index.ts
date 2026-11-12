@@ -2406,6 +2406,7 @@ app.whenReady().then(() => {
 		asking: () =>
 			sidecarPool.restartHolds().planWaiting ||
 			[...sidecarPool.resumeFacts(), ...hostServices.resumeFacts()].some(fact => fact.awaitingUi),
+		planWaiting: () => sidecarPool.restartHolds().planWaiting,
 		compacting: () => sidecarPool.restartHolds().compacting || hostServices.compacting(),
 		// Running subagents and background jobs: `composer.jobs` of every omp whose run is on (background-work.ts).
 		backgroundWork: () =>
