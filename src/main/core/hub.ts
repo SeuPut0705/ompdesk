@@ -83,7 +83,8 @@ function look() {
 		}
 		return;
 	}
-	if (lost || (lines.length > 0 && settled())) handOver();
+	// A drain hands over at once, even nothing: its ping may be older than a hand-over that already took the lines.
+	if (lost || waiting === "drain" || (lines.length > 0 && settled())) handOver();
 }
 
 function connect(endpoint, deadline) {

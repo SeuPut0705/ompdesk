@@ -1,4 +1,6 @@
 import { connect } from "node:net";
+import { type HubItem, hub } from "./core/hub";
+import { CoreError } from "./core/process";
 
 /**
  * Whether this computer can reach the internet right now, as far as a waiting
@@ -21,6 +23,15 @@ import { connect } from "node:net";
  * loop, an offline state that nothing is recovering (a missed `online` event, a `resume`
  * that never arrived) asks again every {@link REPROBE_INTERVAL_MS} and goes
  * online the moment it answers, whatever the link flag says.
+ *
+ * The state machine lives in the core (`native/ompdesk/crates/core/src/resume/connectivity.rs`, hub kind
+ * `connectivity`); this class is its client. What stays here is what main owns: `net.isOnline()` and the clock (read
+ * and sent with each call that needs them), the probe (a promise of main's, asked), the timers (main's, they call back)
+ * and the `changed` hook. The transport helpers below (`reaches`, `tcpConnects`, `probeTarget`, `answersWithin`) are the
+ * probe's own: node's sockets and the proxy setting, wired in `index.ts`.
+ *
+ * When the core is lost the state is gone with it: a new instance starts from `net.isOnline()` (not recovering, no wake
+ * window), the timers it had are cancelled and the probes asked of it answer `false`.
  */
 
 /** A network-class error within this long of a wake still counts as caused by it. */
@@ -104,72 +115,120 @@ export interface ConnectivityDeps {
 
 export class ConnectivityMonitor {
 	readonly #deps: ConnectivityDeps;
-	#online: boolean;
-	#polled: boolean;
-	#resumedAt: number | null = null;
-	#recovering = false;
-	#cancelProbe: (() => void) | null = null;
-	#probing = false;
-	/** Cancels the next re-probe of an offline state nothing is recovering (a missed `online`, a `resume` that never came). */
-	#cancelReprobe: (() => void) | null = null;
-	#reprobing = false;
-	#verifying = new Map<string, Promise<boolean>>();
-	/** The host whose failed lookup took the state offline: the recovery probe asks it beside the default. */
-	#probeHost: string | undefined;
+	#id: number | null = null;
+	readonly #timers = new Map<number, () => void>();
+	/** The promises `verify` handed out, by the core's token. */
+	readonly #tokens = new Map<number, (reachable: boolean) => void>();
+	/** A token settled before its caller had it (an item that came inside the call). */
+	readonly #settled = new Map<number, boolean>();
 
 	constructor(deps: ConnectivityDeps) {
 		this.#deps = deps;
-		this.#online = deps.isOnline();
-		this.#polled = this.#online;
+		// The state starts as the link says; a core lost later opens its next instance the same way.
+		this.#instance();
+	}
+
+	#instance(): number {
+		if (this.#id !== null) return this.#id;
+		const id = hub().nextId();
+		hub().open(
+			id,
+			"connectivity",
+			{ online: this.#deps.isOnline() },
+			{
+				item: item => this.#item(item),
+				ask: (q, item) => this.#ask(q, item),
+				lost: () => this.#lost(),
+			},
+		);
+		this.#id = id;
+		return id;
+	}
+
+	/** One call; a core lost under it opens again and the call is made once more. */
+	#call<T>(method: string, params: Record<string, unknown> = {}): T {
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return hub().call<T>(this.#instance(), method, params);
+			} catch (error) {
+				if (!(error instanceof CoreError) || this.#id !== null || attempt > 0) throw error;
+			}
+		}
+	}
+
+	#lost(): void {
+		this.#id = null;
+		for (const cancel of this.#timers.values()) cancel();
+		this.#timers.clear();
+		const tokens = [...this.#tokens.values()];
+		this.#tokens.clear();
+		for (const settle of tokens) settle(false);
+	}
+
+	#item(item: HubItem): void {
+		switch (item.k) {
+			case "changed":
+				this.#deps.changed(item.online as boolean);
+				break;
+			case "schedule": {
+				const timer = item.timer as number;
+				const cancel = this.#deps.schedule(() => {
+					this.#timers.delete(timer);
+					if (this.#id !== null) this.#call("timer", { timer, isOnline: this.#deps.isOnline() });
+				}, item.ms as number);
+				this.#timers.set(timer, cancel);
+				break;
+			}
+			case "cancelTimer": {
+				const timer = item.timer as number;
+				this.#timers.get(timer)?.();
+				this.#timers.delete(timer);
+				break;
+			}
+			case "done": {
+				const token = item.token as number;
+				const settle = this.#tokens.get(token);
+				if (settle) {
+					this.#tokens.delete(token);
+					settle(item.value === true);
+				} else this.#settled.set(token, item.value === true);
+				break;
+			}
+		}
+	}
+
+	#ask(q: string, item: HubItem): unknown {
+		if (q !== "probe") throw new Error(`the connectivity monitor has no question ${q}`);
+		return this.#deps.probe((item.host ?? undefined) as string | undefined).catch(() => false);
 	}
 
 	get online(): boolean {
-		return this.#online;
+		return this.#call<boolean>("online");
 	}
 
 	/** Offline, or inside the window after a wake: a network-class turn error means "wait", not "failed". */
 	shouldWait(): boolean {
-		if (!this.#online) return true;
-		return this.#resumedAt !== null && this.#deps.now() - this.#resumedAt < RESUME_WINDOW_MS;
+		return this.#call<boolean>("shouldWait", { now: this.#deps.now() });
 	}
 
 	/** An `online`/`offline` event from a window. */
 	report(online: boolean): void {
-		if (!online) {
-			this.#set(false);
-			return;
-		}
-		// While recovering from sleep the probe decides, not the first optimistic event.
-		if (this.#recovering) void this.#attempt();
-		else this.#set(true);
+		this.#call("report", { online, isOnline: this.#deps.isOnline() });
 	}
 
 	/** Edge-triggered `net.isOnline()` sampling: only a real change reports, so a window's event is not overruled. */
 	poll(): void {
-		const now = this.#deps.isOnline();
-		if (now === this.#polled) return;
-		this.#polled = now;
-		this.report(now);
+		this.#call("poll", { isOnline: this.#deps.isOnline() });
 	}
 
 	/** `powerMonitor` `suspend`: nothing is reachable until the wake is confirmed. */
 	suspend(): void {
-		this.#recovering = false;
-		this.#probeHost = undefined;
-		this.#stopProbe();
-		this.#set(false);
-		// A `resume` that never comes must not leave the state offline for good.
-		this.#armReprobe();
+		this.#call("suspend");
 	}
 
 	/** `powerMonitor` `resume`: offline until the probe answers. */
 	resume(): void {
-		this.#resumedAt = this.#deps.now();
-		this.#probeHost = undefined;
-		this.#recovering = true;
-		this.#stopReprobe();
-		this.#set(false);
-		void this.#attempt();
+		this.#call("resume", { now: this.#deps.now(), isOnline: this.#deps.isOnline() });
 	}
 
 	/**
@@ -180,98 +239,14 @@ export class ConnectivityMonitor {
 	 * every concurrent ask.
 	 */
 	verify(host?: string): Promise<boolean> {
-		if (!this.#online) return Promise.resolve(false);
-		const key = host ?? "";
-		let pending = this.#verifying.get(key);
-		if (!pending) {
-			pending = this.#check(host).finally(() => this.#verifying.delete(key));
-			this.#verifying.set(key, pending);
+		const token = this.#call<number>("verify", { host: host ?? null, isOnline: this.#deps.isOnline() });
+		const early = this.#settled.get(token);
+		if (early !== undefined) {
+			this.#settled.delete(token);
+			return Promise.resolve(early);
 		}
-		return pending;
-	}
-
-	async #check(host: string | undefined): Promise<boolean> {
-		const reachable = await this.#reachable(host);
-		if (!this.#online) return false;
-		if (reachable) return true;
-		if (!this.#recovering) {
-			this.#recovering = true;
-			this.#probeHost = host;
-			this.#stopReprobe();
-			this.#set(false);
-			if (!this.#probing) this.#cancelProbe = this.#deps.schedule(() => void this.#attempt(), PROBE_INTERVAL_MS);
-		}
-		return false;
-	}
-
-	/** The link is up and the default way out or `host` answers; a throwing probe is no answer. */
-	async #reachable(host: string | undefined): Promise<boolean> {
-		if (!this.#deps.isOnline()) return false;
-		return this.#answers(host);
-	}
-
-	/** The resolver answers for the default way out or `host`, whatever the link flag says; a throwing probe is no answer. */
-	async #answers(host: string | undefined): Promise<boolean> {
-		const ask = (target?: string) => this.#deps.probe(target).catch(() => false);
-		const answers = await Promise.all(host ? [ask(), ask(host)] : [ask()]);
-		return answers.includes(true);
-	}
-
-	#set(online: boolean): void {
-		if (online === this.#online) return;
-		this.#online = online;
-		if (online) this.#stopReprobe();
-		else this.#armReprobe();
-		this.#deps.changed(online);
-	}
-
-	/** Ask the resolver again in {@link REPROBE_INTERVAL_MS} while the state is offline and no probe loop is recovering it. */
-	#armReprobe(): void {
-		if (this.#online || this.#recovering || this.#cancelReprobe) return;
-		this.#cancelReprobe = this.#deps.schedule(() => void this.#reprobe(), REPROBE_INTERVAL_MS);
-	}
-
-	#stopReprobe(): void {
-		this.#cancelReprobe?.();
-		this.#cancelReprobe = null;
-	}
-
-	async #reprobe(): Promise<void> {
-		this.#stopReprobe();
-		if (this.#online || this.#recovering || this.#reprobing) return;
-		this.#reprobing = true;
-		let reachable = false;
-		try {
-			reachable = await this.#answers(undefined);
-		} finally {
-			this.#reprobing = false;
-		}
-		if (this.#online || this.#recovering) return;
-		if (reachable) this.#set(true);
-		else this.#armReprobe();
-	}
-
-	#stopProbe(): void {
-		this.#cancelProbe?.();
-		this.#cancelProbe = null;
-	}
-
-	async #attempt(): Promise<void> {
-		if (this.#probing) return;
-		this.#probing = true;
-		this.#stopProbe();
-		let reachable = false;
-		try {
-			reachable = await this.#reachable(this.#probeHost);
-		} finally {
-			this.#probing = false;
-		}
-		if (!this.#recovering) return;
-		if (reachable) {
-			this.#recovering = false;
-			this.#set(true);
-			return;
-		}
-		this.#cancelProbe = this.#deps.schedule(() => void this.#attempt(), PROBE_INTERVAL_MS);
+		const { promise, resolve } = Promise.withResolvers<boolean>();
+		this.#tokens.set(token, resolve);
+		return promise;
 	}
 }

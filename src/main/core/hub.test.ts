@@ -70,6 +70,18 @@ describe("the hub connection", () => {
 		await expect(waited).resolves.toBe("woke");
 	});
 
+	it("answers a drain whose ping is older than the hand-over that took its lines", async () => {
+		const hub = new Hub();
+		const instance = probe(hub, () => "yes");
+		// Each synchronous question's answer goes out inside the call; the core's reply to it can come while the worker
+		// is between hand-overs, so a ping waits in main's queue for lines a later wait already took.
+		for (let round = 0; round < 50; round++) {
+			hub.call(instance.id, "ask");
+			await new Promise(resolve => setImmediate(resolve));
+		}
+		expect(instance.lost).toEqual([]);
+	});
+
 	it("never holds main past the deadline when the core stops answering, and opens a new core after", () => {
 		const hub = new Hub();
 		const instance = probe(hub);

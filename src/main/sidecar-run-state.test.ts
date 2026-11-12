@@ -1,6 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../shared/rpc-types";
-import { applyRunEvent, idleRun, type RunState, runFromReading, runReading } from "./sidecar-run-state";
+import {
+	applyRunEvent,
+	idleRun,
+	type RunReading,
+	type RunState,
+	type RunTracking,
+	runFromReading,
+	runReading,
+	settleRun,
+	trackRunEvent,
+} from "./sidecar-run-state";
 
 const START = {
 	type: "auto_retry_start",
@@ -63,5 +74,56 @@ describe("a retry saga across a reading", () => {
 	it("carries no saga for a run that is not on", () => {
 		const reading = { running: false, turn: false, saga: { ...START, elapsedMs: 0, ended: false } };
 		expect(runFromReading(reading)).not.toHaveProperty("saga");
+	});
+});
+
+/**
+ * The pool's run rules moved into the core (`crates/core/src/pool/run.rs`); this file stays for `remote/host-services.ts`,
+ * which reads the same rules synchronously until the remote host moves. One table pins both: event sequences, and the
+ * state every step must leave (`run-captured.json`, captured from this file's functions; the Rust test replays it).
+ */
+describe("the captured table of event sequences", () => {
+	type Step = {
+		op: "event" | "settle" | "reading" | "fromReading" | "stop";
+		now: number;
+		event?: AgentSessionEvent;
+		settled?: boolean;
+		keep?: boolean;
+		reading?: RunReading;
+		expect: Record<string, unknown>;
+	};
+	const table = JSON.parse(
+		readFileSync(new URL("../../native/ompdesk/crates/core/src/pool/run-captured.json", import.meta.url), "utf8"),
+	) as { cases: Array<{ name: string; steps: Step[] }> };
+	const plain = (value: unknown) => (value === undefined ? null : JSON.parse(JSON.stringify(value)));
+
+	it("gives the state the table holds after every step", () => {
+		let steps = 0;
+		for (const { name, steps: list } of table.cases) {
+			const tab: RunTracking = { run: idleRun() };
+			for (const step of list) {
+				const got: Record<string, unknown> = {};
+				if (step.op === "event" && step.event) {
+					vi.spyOn(Date, "now").mockReturnValue(step.now);
+					got.ended = trackRunEvent(tab, structuredClone(step.event));
+				} else if (step.op === "settle") {
+					vi.spyOn(Date, "now").mockReturnValue(step.now);
+					settleRun(tab.run, step.settled === true);
+				} else if (step.op === "reading") got.reading = plain(runReading(tab.run, step.now));
+				else if (step.op === "fromReading" && step.reading)
+					tab.run = runFromReading(structuredClone(step.reading), step.keep ? tab.run : undefined, step.now);
+				else if (step.op === "stop") tab.stopped = true;
+				Object.assign(got, {
+					run: plain(tab.run),
+					lastRun: plain(tab.lastRun),
+					stopped: tab.stopped === true,
+					retry: plain(tab.retry),
+				});
+				expect(got, `${name}: ${JSON.stringify(step)}`).toEqual(step.expect);
+				steps++;
+			}
+		}
+		vi.restoreAllMocks();
+		expect(steps).toBeGreaterThan(1000);
 	});
 });
