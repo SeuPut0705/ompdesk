@@ -639,9 +639,15 @@ fn decide(
         .into_iter()
         .filter(|r| r.id != run.id && r.state.finished() && r.inputs.is_some())
         .collect();
+    // A run on exactly these inputs first (an edit undone brings its results back), else the newest one.
     let Some(prev) = earlier
         .iter()
-        .find(|r| r.changed_during.is_empty() && store.file(&r.id, "inputs.tsv").exists())
+        .find(|r| r.changed_during.is_empty() && r.inputs.as_deref() == Some(digest))
+        .or_else(|| {
+            earlier
+                .iter()
+                .find(|r| r.changed_during.is_empty() && store.file(&r.id, "inputs.tsv").exists())
+        })
     else {
         let mut evidence = Vec::new();
         if let Some(last) = earlier.first() {
