@@ -770,6 +770,12 @@ describe("WebSocket", () => {
 		expect(host.router.isConnected(paired.deviceId)).toBe(true);
 	});
 
+	it("compresses the page's frames: permessage-deflate is agreed with context takeover, as ws agreed it", async () => {
+		const paired = await pair();
+		const { socket } = await open(paired, await ticketFor(paired));
+		expect(socket.extensions).toBe("permessage-deflate");
+	});
+
 	it("refuses a policy-boundary channel and a missing handler with an error frame", async () => {
 		const paired = await pair();
 		const { socket, frames, arrived } = await open(paired, await ticketFor(paired));
