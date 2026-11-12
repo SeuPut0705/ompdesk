@@ -1,5 +1,5 @@
 /// <reference types="bun" />
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
@@ -4275,6 +4275,17 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 			// The holder's turn ends: the bridge let go itself, so main needs no revoke.
 			if (desktopHolding) pushBridgeEvent({ type: "desktop_slot_release", reason: "turn_end" });
 			desktopHolding = false;
+			endTurn([user]);
+		} else if (message.startsWith("fixture detached child:")) {
+			// What an agent's `nohup server &` leaves behind: a process that outlives this omp. Its pid goes to the named
+			// file (e2e/session-processes.e2e.ts).
+			const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+				detached: true,
+				stdio: "ignore",
+				windowsHide: true,
+			});
+			child.unref();
+			fs.writeFileSync(message.slice("fixture detached child:".length), String(child.pid));
 			endTurn([user]);
 		} else if (message === "fixture write figure") {
 			// A finished write of a mermaid file: the tool card's figure box.

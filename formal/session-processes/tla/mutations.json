@@ -1,0 +1,84 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 4,
+		"timeoutSec": 600,
+		"deadlock": false
+	},
+	"properties": [
+		"TypeOK",
+		"OnlyGoneTagsEnd",
+		"OpenTabsKeepTheirProcesses",
+		"NoLeakAtRest",
+		"NoForgottenTag"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "takes-over-a-tag-being-ended",
+			"why": "open() hands a reopened session the tag of its closed tab while the core is still ending that tag's processes: the new tab's omp is spawned with it and the end in flight kills it.",
+			"file": "SessionProcesses.tla",
+			"search": "LeftOf(s) == {t \\in Tags : state[t] = \"left\" /\\ sess[t] = s}",
+			"replace": "LeftOf(s) == {t \\in Tags : state[t] \\in {\"left\", \"ending\"} /\\ sess[t] = s}",
+			"breaks": "OpenTabsKeepTheirProcesses",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "a-quit-ends-the-tabs-it-tears-down",
+			"why": "close() without the frozen check: a quit disposes every tab, so every open session's dev server would be ended at each quit and update restart.",
+			"file": "SessionProcesses.tla",
+			"search": "Frozen == quitting",
+			"replace": "Frozen == FALSE",
+			"breaks": "OnlyGoneTagsEnd",
+			"config": "MC_p1.cfg"
+		},
+		{
+			"name": "sweep-ignores-the-restored-layout",
+			"why": "The launch's sweep ends every tag the last launch left, also those of sessions whose tab came back.",
+			"file": "SessionProcesses.tla",
+			"search": "SweepTargets == {t \\in Tags : state[t] = \"left\" /\\ sess[t] \\notin keep}",
+			"replace": "SweepTargets == {t \\in Tags : state[t] = \"left\"}",
+			"breaks": "OpenTabsKeepTheirProcesses",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "sweep-ends-a-tag-a-tab-holds",
+			"why": "The launch's sweep goes by the file alone, not by who holds a tag now: a tab started before the sweep ran (a session opened right after launch) loses its omp.",
+			"file": "SessionProcesses.tla",
+			"search": "SweepTargets == {t \\in Tags : state[t] = \"left\" /\\ sess[t] \\notin keep}",
+			"replace": "SweepTargets == {t \\in Tags : state[t] # \"free\" /\\ sess[t] \\notin keep}",
+			"breaks": "OpenTabsKeepTheirProcesses",
+			"config": "MC_p2.cfg"
+		},
+		{
+			"name": "a-released-tab-leaves-what-the-last-launch-left",
+			"why": "Without sessionReleased: a restored tab closed before it ever started keeps its session's tag in the file with nobody to end it until the next launch.",
+			"file": "SessionProcesses.tla",
+			"search": "(IF tab[s] = \"started\" THEN {held[s]} ELSE {}) \\cup LeftOf(s)",
+			"replace": "(IF tab[s] = \"started\" THEN {held[s]} ELSE {})",
+			"breaks": "NoLeakAtRest",
+			"config": "MC_p3.cfg"
+		},
+		{
+			"name": "a-failed-end-forgets-the-tag",
+			"why": "An end the core could not answer drops the tag from the file: its processes still run and nothing can ever name them again.",
+			"file": "SessionProcesses.tla",
+			"search": "AfterFailedEnd == \"left\"",
+			"replace": "AfterFailedEnd == \"free\"",
+			"breaks": "NoForgottenTag",
+			"config": "MC_p4.cfg"
+		},
+		{
+			"name": "a-retry-ends-a-tag-a-tab-took-over",
+			"why": "The retry of an end that left something running fires a minute later without looking again: a session reopened meanwhile took the tag over, and the retry kills its omp.",
+			"file": "SessionProcesses.tla",
+			"search": "RetryEnds(t) == state[t] = \"left\"",
+			"replace": "RetryEnds(t) == state[t] # \"free\"",
+			"breaks": "OpenTabsKeepTheirProcesses",
+			"config": "MC_p2.cfg"
+		}
+	]
+}

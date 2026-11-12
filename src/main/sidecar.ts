@@ -57,6 +57,7 @@ import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } fro
 import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
 import { RpcClient } from "./rpc-client";
 import { completeRunMessages } from "./run-messages";
+import type { SessionProcesses, SessionProcessHandle } from "./session-processes";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
 
@@ -379,6 +380,11 @@ export interface SidecarOptions {
 	startQueue?: Pick<OmpStartQueue, "acquire">;
 	/** The app's list of the omps it runs (`omp-processes.ts`), which a quit stops and the next launch reaps. */
 	processes?: Pick<OmpProcesses, "track">;
+	/**
+	 * Whose the processes this tab's omps start are (`session-processes.ts`): the tab's tag goes into every spawn's
+	 * environment, and what still carries it ends once the tab is disposed. Absent (tests): no tag.
+	 */
+	sessionProcesses?: Pick<SessionProcesses, "open">;
 	/** How long a started omp may stay silent before its tab reads slow (`START_SLOW_MS`; tests shorten it). */
 	startSlowMs?: number;
 }
@@ -520,6 +526,8 @@ export class SidecarManager extends EventEmitter {
 	#disposed = false;
 	/** One-shot gate held until the first spawn's `ready` (see SidecarStartGate). */
 	#startGate: SidecarStartGate | null = null;
+	/** The tab's process tag, made at its first spawn and kept for every later one. */
+	#processes: SessionProcessHandle | null = null;
 
 	constructor(options: SidecarOptions) {
 		super();
@@ -685,6 +693,13 @@ export class SidecarManager extends EventEmitter {
 		this.#bootedThisSpawn = false;
 		this.#session = null;
 		const { bridgeDir, cwd, extraFlags } = this.#options;
+		const whose = {
+			cwd,
+			sessionPath: this.#sessionPath ?? undefined,
+			...(this.#options.promptOrigin ? { device: this.#options.promptOrigin.name } : {}),
+		};
+		if (this.#processes) this.#processes.update(whose);
+		else this.#processes = this.#options.sessionProcesses?.open(whose) ?? null;
 		const launch: OmpLaunch = {
 			open: sessionOpen({ path: this.#sessionPath, isNew: this.#isNew }),
 			...(bridgeDir ? { bridge: { dir: bridgeDir, address: newBridgeAddress() } } : {}),
@@ -697,6 +712,7 @@ export class SidecarManager extends EventEmitter {
 			userFlags: [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)],
 			settings: this.#settings(),
 			...(this.#options.promptOrigin ? { origin: this.#options.promptOrigin } : {}),
+			...(this.#processes ? { processTag: this.#processes.tag } : {}),
 		};
 		const args = ompArgs(launch);
 		const bridgeAddress = launch.bridge?.address ?? null;
@@ -747,6 +763,7 @@ export class SidecarManager extends EventEmitter {
 
 		this.#child = child;
 		this.#options.processes?.track(child);
+		this.#processes?.setPid(child.pid);
 		this.#bridgeAddress = bridgeAddress;
 		const slowMs = this.#options.startSlowMs ?? START_SLOW_MS;
 		this.#slowTimer = setTimeout(() => this.#startIsSlow(generation, slowMs), slowMs);
@@ -880,6 +897,7 @@ export class SidecarManager extends EventEmitter {
 			if (next.sessionFile) {
 				this.#sessionPath = next.sessionFile;
 				this.#isNew = false;
+				this.#processes?.update({ sessionPath: next.sessionFile });
 			}
 			if (previous?.sessionId !== next.sessionId || previous?.sessionFile !== next.sessionFile) {
 				this.emit("session", next);
@@ -1471,6 +1489,9 @@ export class SidecarManager extends EventEmitter {
 		// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its stdin
 		// ends; SIGTERM kills it before. With a grace period its stdin closes first.
 		this.#stopChild({ stdinGraceMs: this.#options.gracefulStopMs?.() ?? 0 });
+		// What the tab's omps started ends once they have exited, so an omp's own cleanup of its tools comes first.
+		const processes = this.#processes;
+		if (processes) void Promise.all([...this.#exiting]).then(() => processes.close());
 		this.removeAllListeners();
 	}
 

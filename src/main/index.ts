@@ -175,7 +175,7 @@ import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
-import { LocalHostServices } from "./remote/host-services";
+import { HOST_TAB_GRACE_MS, LocalHostServices } from "./remote/host-services";
 import { KeepAwakePolicy } from "./remote/keep-awake";
 import { readoptHostTabs } from "./remote/readopt";
 import { migrateRetiredPrefs } from "./retired-prefs";
@@ -189,6 +189,7 @@ import { whenSessionFree } from "./session-free";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
 import { setSessionDeleteLog } from "./session-mutations";
+import { SESSION_PROCESSES_FILE, SessionProcesses } from "./session-processes";
 import { SessionSummaries, type SummarySource } from "./session-summaries";
 import { SettleWatch } from "./settle-watch";
 import { registerSetupIpc } from "./setup/ipc";
@@ -913,6 +914,12 @@ app.whenReady().then(() => {
 				});
 		}),
 	);
+	// Whose the processes a tab's omp starts are: they end once the tab is closed, and this launch ends what the
+	// sessions the last one did not bring back left running (session-processes.ts).
+	const sessionProcesses = new SessionProcesses(join(app.getPath("userData"), SESSION_PROCESSES_FILE), {
+		frozen: () => quitApproved(),
+		log: (message, details) => writeRuntimeLog({ source: "session-processes", message, details }),
+	});
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
 		builtinDir,
@@ -967,6 +974,7 @@ app.whenReady().then(() => {
 		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
 		startQueue: ompStarts,
 		processes: ompProcesses,
+		sessionProcesses,
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
 	sessionIndex = new SessionIndex(undefined, initialCwd, sessionId => sessionKinds.isChat(sessionId), bridgeDir);
@@ -1152,6 +1160,7 @@ app.whenReady().then(() => {
 	const ampleTestMemory = !app.isPackaged && !testMemory && process.env.OMP_GUI_TEST_LAUNCHER_PID !== undefined;
 	startMemoryWatch({
 		tabs: () => [...sidecarPool.memoryTabs(), ...hostServices.memoryTabs()],
+		owners: () => sessionProcesses.owners(),
 		log: (message, details) => writeRuntimeLog({ source: "memory", message, details }),
 		...(testMemory ? { testReading: () => testMemoryReading(testMemory) } : {}),
 		...(ampleTestMemory
@@ -2051,14 +2060,15 @@ app.whenReady().then(() => {
 			if (online) devices.wake("online");
 		},
 	});
+	const interruptedTurns = new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json"), error =>
+		writeRuntimeLog({
+			source: "turn-resume",
+			message: "markers not saved",
+			details: { error: error instanceof Error ? error.message : String(error) },
+		}),
+	);
 	const turnResume = new TurnResume({
-		store: new InterruptedTurnStore(join(app.getPath("userData"), "interrupted-turns.json"), error =>
-			writeRuntimeLog({
-				source: "turn-resume",
-				message: "markers not saved",
-				details: { error: error instanceof Error ? error.message : String(error) },
-			}),
-		),
+		store: interruptedTurns,
 		// This computer's own tabs and the ones it runs for paired devices (host-services.ts): the host
 		// owns those turns, so their markers, waits and continuations are this computer's.
 		pool: {
@@ -2385,14 +2395,32 @@ app.whenReady().then(() => {
 	// macOS activates the relaunched app; one that comes back in the tray gives the focus straight back.
 	if (relaunchPresence === "hidden" && process.platform === "darwin") app.hide();
 	// Each paired phone's or tablet's tabs come back into its window, as the host's sessions (web/web-tab-layouts.ts).
+	const restoredLayouts = [...savedLayouts];
 	if (webHost) {
 		const paired = new Set(webHost.devices.list().map(device => device.deviceId));
 		for (const { deviceId, layout } of webTabLayouts.restorable(paired)) {
 			sidecarPool.restoreLayout(webHost.windows.windowFor(deviceId), layout);
+			restoredLayouts.push(layout);
 		}
+	}
+	// The sessions that come back keep what they started before the relaunch: the restored tabs, and the turns the
+	// markers below continue (read before `launch`, which drops the ones it settles).
+	const keptSessions = new Set(interruptedTurns.read().map(marker => marker.sessionPath));
+	for (const layout of restoredLayouts) {
+		for (const tab of layout.tabs) if (tab.device === undefined && tab.sessionPath) keptSessions.add(tab.sessionPath);
 	}
 	// After the saved windows (and so their tabs) exist: go on with what the last process left running.
 	turnResume.launch();
+	// A restored tab closed before it ever started gives up what the last launch left for its session.
+	sidecarPool.observeTabs(activity => {
+		if (activity.type === "released" && activity.session && activity.session.device === undefined)
+			sessionProcesses.sessionReleased(activity.session.path);
+	});
+	void sessionProcesses.sweep({
+		keep: keptSessions,
+		hostedHeld: sessionPath => hostServices.resumeFacts().some(fact => fact.sessionFile === sessionPath),
+		hostedGraceMs: HOST_TAB_GRACE_MS,
+	});
 
 	// Tray, menu, deep links, updater. Test runs (OMP_GUI_HEADLESS) skip the tray:
 	// the menu bar is shared with the user's own OMPdesk, and a test's status item

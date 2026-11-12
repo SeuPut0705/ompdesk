@@ -1,0 +1,27 @@
+TLC 1.8.0 (tla2tools rev 56d37a9), java 21, Windows 11, 12 Nov 2026.
+`bun <tools-dir>/scripts/verify-all.ts formal --only session-processes`
+
+matrix.json (Sessions = {s1, s2}, Tags = {t1, t2, t3}, MaxLaunches = 3):
+ok    code-safety-all-invariants: no violation  (1817421 distinct states, 8935301 generated, depth 23, 41.0s)
+ok    an-end-is-reachable: invariant NeverEnds (as expected)  (11 distinct states, 11 generated, depth 3, 1.3s)
+ok    a-takeover-is-reachable: invariant NeverTakesOver (as expected)  (208 distinct states, 263 generated, depth 5, 1.4s)
+PASS  matrix: all 3 runs ended as expected
+
+mutations.json:
+baseline: pass
+DETECTED takes-over-a-tag-being-ended: failed on OpenTabsKeepTheirProcesses
+DETECTED a-quit-ends-the-tabs-it-tears-down: failed on OnlyGoneTagsEnd
+DETECTED sweep-ignores-the-restored-layout: failed on OpenTabsKeepTheirProcesses
+DETECTED sweep-ends-a-tag-a-tab-holds: failed on OpenTabsKeepTheirProcesses
+DETECTED a-released-tab-leaves-what-the-last-launch-left: failed on NoLeakAtRest
+DETECTED a-failed-end-forgets-the-tag: failed on NoForgottenTag
+DETECTED a-retry-ends-a-tag-a-tab-took-over: failed on OpenTabsKeepTheirProcesses
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+7 of 7 mutations detected
+ok    session-processes: @code tags resolve
+
+Before the `Retry` action was added, by hand, not in the matrix:
+MC_four_tags.cfg (Tags = {t1, t2, t3, t4}):
+ok    code-safety-all-invariants: no violation  (9802091 distinct states, 36038177 generated, depth 24, 409.1s)
+Sessions = {s1, s2, s3}, Tags = {t1..t5}: stopped at the 600 s limit after 30,348,840 distinct states with no violation
+and no verdict. Not checked.

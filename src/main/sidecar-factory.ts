@@ -36,6 +36,7 @@ import { systemOmp } from "./omp-runtime";
 import type { OmpStartQueue } from "./omp-start-queue";
 import { writeRuntimeLog } from "./runtime-log";
 import type { SessionKindStore } from "./session-kinds";
+import type { SessionProcesses } from "./session-processes";
 import { shellSpawnEnv } from "./shell-env";
 import { SidecarManager } from "./sidecar";
 import { markStartup } from "./startup-timing";
@@ -127,6 +128,8 @@ export interface LocalSidecarDeps {
 	startQueue?: Pick<OmpStartQueue, "acquire">;
 	/** The app's list of the omps it runs (omp-processes.ts); absent: none kept (tests). */
 	processes?: Pick<OmpProcesses, "track">;
+	/** Whose the processes an omp starts are (session-processes.ts); absent: none followed (tests). */
+	sessionProcesses?: Pick<SessionProcesses, "open">;
 }
 
 /** The device language as a BCP 47 subtag (`ko`, `zh-Hant`): not the UI one, which ships only en/ko. */
@@ -259,6 +262,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
 			...(deps.startQueue ? { startQueue: deps.startQueue } : {}),
 			...(deps.processes ? { processes: deps.processes } : {}),
+			...(deps.sessionProcesses ? { sessionProcesses: deps.sessionProcesses } : {}),
 			// Test seam: the slow-start parity surface (e2e/parity.e2e.ts) waits seconds, not START_SLOW_MS.
 			...(Number(process.env.OMP_GUI_START_SLOW_MS) > 0
 				? { startSlowMs: Number(process.env.OMP_GUI_START_SLOW_MS) }

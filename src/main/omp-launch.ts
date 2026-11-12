@@ -27,6 +27,11 @@ import { stripDenylistedFlags } from "../shared/launch-profile";
 const BRIDGE_ENTRY = "index.ts";
 /** `--config` overlay pinning `autoResume: false`, so a new tab never reopens the last session. */
 const FRESH_LAUNCH_CONFIG = "fresh-launch.yml";
+/**
+ * The variable that says whose process it is (`session-processes.ts`): every omp gets its tab's tag, and whatever the
+ * omp starts inherits it, however deep and after its parent is gone.
+ */
+export const SESSION_TAG_ENV = "OMP_GUI_SESSION_TAG";
 
 /**
  * Every variable a spawn sets from its own launch (`sessionEnv`). One inherited from the environment OMPdesk was
@@ -56,6 +61,7 @@ export const SESSION_OWNED_ENV = [
 	"OMP_GUI_PSTACK",
 	"OMP_GUI_ECC",
 	MEMORY_ENV,
+	SESSION_TAG_ENV,
 ] as const;
 
 /** `env` without any variable a session owns (`SESSION_OWNED_ENV`). */
@@ -127,6 +133,8 @@ export interface OmpLaunch {
 	readonly settings: SessionSettings;
 	/** The paired device a host tab runs for: the bridge journals its prompts as that device's. */
 	readonly origin?: PromptOriginEnv;
+	/** The tab's process tag (`SESSION_TAG_ENV`); absent: its processes are not followed (tests). */
+	readonly processTag?: string;
 }
 
 /**
@@ -164,5 +172,6 @@ export function sessionEnv(launch: OmpLaunch): Record<string, string> {
 	if (settings.ompdeskRolesFile) env[OMPDESK_ROLES_ENV] = settings.ompdeskRolesFile;
 	if (builtin.root) env.OMP_GUI_REA_ROOT = builtin.root;
 	if (settings.browser) env[DEFAULT_BROWSER_ENV] = agentBrowserEnv(settings.browser);
+	if (launch.processTag) env[SESSION_TAG_ENV] = launch.processTag;
 	return { ...env, ...builtin.env };
 }

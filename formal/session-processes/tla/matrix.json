@@ -1,0 +1,24 @@
+{
+	"runs": [
+		{
+			"name": "code-safety-all-invariants",
+			"config": "MC.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "an-end-is-reachable",
+			"config": "MC_sanity_NeverEnds.cfg",
+			"expect": "invariant",
+			"property": "NeverEnds",
+			"deadlock": false
+		},
+		{
+			"name": "a-takeover-is-reachable",
+			"config": "MC_sanity_NeverTakesOver.cfg",
+			"expect": "invariant",
+			"property": "NeverTakesOver",
+			"deadlock": false
+		}
+	]
+}

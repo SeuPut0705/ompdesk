@@ -43,6 +43,7 @@ const FULL: OmpLaunch = {
 		browser: { kind: "ego" },
 	},
 	origin: { deviceId: "phone", name: "Phone", hostName: "Desk" },
+	processTag: "0123456789abcdef0123456789abcdef",
 };
 
 describe("omp launch", () => {

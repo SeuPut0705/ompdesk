@@ -636,6 +636,13 @@ export type RuntimeErrorSource =
 	 */
 	| "omp-reap"
 	/**
+	 * What a closed session, or one the last launch did not bring back, left running and OMPdesk ended
+	 * (src/main/session-processes.ts): `message` is `ended`, `details` why (`closed`, `relaunch`), the session's folder,
+	 * file name and device, how many processes, how many had to be killed, their MB and names. `not ended` and
+	 * `refused…` (`level: "warn"`) say why nothing was ended.
+	 */
+	| "session-processes"
+	/**
 	 * A start that waited for another live omp to let go of its session (src/main/session-free.ts): `message` says
 	 * whether it was let go or the wait ran out, `details` the session file's name and the wait.
 	 */
@@ -659,7 +666,12 @@ export type RuntimeErrorSource =
 	 * names the routine and the source.
 	 */
 	| "routines"
-	/** A quiet session's omp given back while this computer is short of memory (src/main/idle-release.ts). */
+	/**
+	 * This computer short of memory. `memory release`: a quiet session's omp given back (src/main/idle-release.ts).
+	 * `memory short`: who uses the memory, as it turns short and every five minutes while it stays so
+	 * (src/main/memory-record.ts): `details.top` the largest processes (name, pid, MB, age, whose) and
+	 * `details.sessions` the sessions that hold the most, both JSON text.
+	 */
 	| "memory"
 	/**
 	 * The sidebar, info level (`details.level: "info"`): a change to what it remembers (src/main/sidebar-prefs.ts):

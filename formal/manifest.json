@@ -140,6 +140,21 @@
 			],
 			"syncCommit": "e85d73ddd50cad4b7b72f1ad83e08aedc698c49b",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
+		},
+		{
+			"id": "session-processes",
+			"title": "Session processes: which tags end, and when",
+			"kind": "tla",
+			"dir": "session-processes/tla",
+			"spec": "SessionProcesses.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"src/main/session-processes.ts",
+				"src/main/sidecar.ts#SidecarManager.dispose"
+			],
+			"syncCommit": null,
+			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"
 		}
 	]
 }

@@ -52,6 +52,7 @@ const RUNTIME_ERROR_SOURCE_TABLE: Record<RuntimeErrorSource, true> = {
 	"omp-slow-start": true,
 	"process-priority": true,
 	"omp-reap": true,
+	"session-processes": true,
 	"session-owner": true,
 	"goal-time-limit": true,
 	"turn-stages": true,
