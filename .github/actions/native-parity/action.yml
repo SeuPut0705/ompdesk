@@ -101,4 +101,5 @@ runs:
         src/main/remote/image-blob-cache.test.ts
         src/main/remote/sign-in-relay.test.ts
         src/main/remote/link-traffic-images.test.ts
+        src/main/remote/link-events-core.test.ts
         src/main/web/web-edge-matrix.test.ts
