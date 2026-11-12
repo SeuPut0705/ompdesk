@@ -192,12 +192,40 @@ pub fn may_execute(path: &std::path::Path) -> bool {
 /// closed. Jobs nest (Windows 8 and later), so a job main put this process in does not prevent it.
 #[cfg(windows)]
 pub fn end_children_with_this_process() -> std::io::Result<()> {
-    let job = job::kill_on_close()?;
+    let job = job::kill_on_close(true)?;
     // SAFETY: `job` is the live handle above; `GetCurrentProcess` returns a pseudo-handle that needs no closing.
     if unsafe { job::AssignProcessToJobObject(job, job::GetCurrentProcess()) } == 0 {
         return Err(std::io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Makes this process's own stdin, stdout and stderr (main's pipes) not inheritable, so a process that leaves the job
+/// (a browser `browsers.openExtensions` started) never holds them and main sees this process's pipes close when it
+/// ends. Safe for every other start: a child given `Stdio::inherit` gets a duplicate std makes inheritable for that
+/// one spawn, and a piped or null one never used these handles.
+#[cfg(windows)]
+pub fn stdio_not_inherited() {
+    const STD_INPUT_HANDLE: u32 = -10_i32 as u32;
+    const STD_OUTPUT_HANDLE: u32 = -11_i32 as u32;
+    const STD_ERROR_HANDLE: u32 = -12_i32 as u32;
+    const HANDLE_FLAG_INHERIT: u32 = 0x1;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> *mut std::ffi::c_void;
+        fn SetHandleInformation(handle: *mut std::ffi::c_void, mask: u32, flags: u32) -> i32;
+    }
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: `GetStdHandle` takes one of the three constants and returns this process's handle, null or
+        // INVALID_HANDLE_VALUE; `SetHandleInformation` only changes the inherit flag of a live handle and fails
+        // harmlessly on the other two, and its failure leaves the handle as it was.
+        unsafe {
+            let handle = GetStdHandle(which);
+            if !handle.is_null() && handle as isize != -1 {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -274,6 +302,10 @@ mod job {
     /// `JobObjectExtendedLimitInformation`.
     const EXTENDED_LIMIT_INFORMATION: i32 = 9;
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    /// A process started with `CREATE_BREAKAWAY_FROM_JOB` leaves the job. Only the core's own job allows it, and only a
+    /// browser opened at its extensions page asks (`browsers/mod.rs` `open`); a `ProcessTree` never allows it, so
+    /// nothing escapes a tree a stop must end.
+    const JOB_OBJECT_LIMIT_BREAKAWAY_OK: u32 = 0x0800;
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
@@ -297,11 +329,17 @@ mod job {
         fn CloseHandle(handle: Handle) -> i32;
     }
 
-    /// A new, empty job object that kills every process in it once its last handle closes.
-    pub fn kill_on_close() -> io::Result<Handle> {
+    /// A new, empty job object that kills every process in it once its last handle closes; `breakaway` lets a process
+    /// started with `CREATE_BREAKAWAY_FROM_JOB` leave it.
+    pub fn kill_on_close(breakaway: bool) -> io::Result<Handle> {
         let job = new_job()?;
         let mut limits = ExtendedLimits::default();
-        limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            | if breakaway {
+                JOB_OBJECT_LIMIT_BREAKAWAY_OK
+            } else {
+                0
+            };
         let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap_or(u32::MAX);
         // SAFETY: `job` is the live handle above; `limits` is a `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` laid out as C
         // lays it out (`repr(C)`, size checked above), read only for the call, and `length` is its size.
@@ -345,7 +383,7 @@ mod job {
     impl ProcessTree {
         /// `process` is a live process handle (a child that was just started). Dropping the tree ends what is left of it.
         pub fn of(process: std::os::windows::io::RawHandle) -> io::Result<ProcessTree> {
-            ProcessTree::holding(kill_on_close()?, process)
+            ProcessTree::holding(kill_on_close(false)?, process)
         }
 
         /// As `of`, but dropping the tree (this process ending) leaves what still runs: a setup command's service

@@ -3,11 +3,14 @@
  * looked up on the spawn PATH like `resolveBin`, plus `~/.local/bin`, where ego's installer puts it) and the Chromium
  * browsers in their standard install places, each with whether the omp Browser Relay extension is loaded in one of
  * its profiles (stock's `omp browser-relay install` writes it; Chrome forbids installing it for the user).
+ *
+ * The Chromium browsers are the core process's (`native/ompdesk/crates/core/src/browsers/`): finding them, reading
+ * their profiles and relays, writing the extension's copy and opening a browser at its extensions page. This file is
+ * its client; it hands over the browsers' names and relay ports, where this machine keeps things and how omp runs,
+ * and keeps the PATH lookup (`findOnPath`, which omp's own lookup shares) and the answer held for the launch.
  */
-import { execFile, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { promises as fs } from "original-fs";
 import {
 	type AgentBrowserStatus,
 	CHROMIUM_BROWSER_IDS,
@@ -16,7 +19,9 @@ import {
 	type ChromiumBrowserId,
 	type InstalledBrowser,
 } from "../shared/default-browser";
+import { core } from "./core/process";
 import type { OmpRuntime } from "./local/types";
+import { ompRunEnv } from "./omp-runtime";
 import { spawnPath } from "./shell-env";
 import { findOnPath } from "./spawn";
 
@@ -82,46 +87,6 @@ export function systemBrowserPlaces(): BrowserPlaces {
 	};
 }
 
-interface ChromiumDefinition {
-	/** macOS bundle name. */
-	app?: string;
-	/** Windows exe under a program folder. */
-	exe?: string;
-	/** User data folder under `~/Library/Application Support` (macOS) or `%LOCALAPPDATA%` (Windows). */
-	data: { mac: string; win?: string };
-	/** The scheme its extensions page answers to. */
-	scheme: string;
-}
-
-const DEFINITIONS: Record<ChromiumBrowserId, ChromiumDefinition> = {
-	chrome: {
-		app: "Google Chrome.app",
-		exe: join("Google", "Chrome", "Application", "chrome.exe"),
-		data: { mac: join("Google", "Chrome"), win: join("Google", "Chrome", "User Data") },
-		scheme: "chrome",
-	},
-	edge: {
-		app: "Microsoft Edge.app",
-		exe: join("Microsoft", "Edge", "Application", "msedge.exe"),
-		data: { mac: "Microsoft Edge", win: join("Microsoft", "Edge", "User Data") },
-		scheme: "edge",
-	},
-	brave: {
-		app: "Brave Browser.app",
-		exe: join("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
-		data: { mac: join("BraveSoftware", "Brave-Browser"), win: join("BraveSoftware", "Brave-Browser", "User Data") },
-		scheme: "brave",
-	},
-	// Arc ships as a Store app on Windows, with no standard install place to look in.
-	arc: { app: "Arc.app", data: { mac: join("Arc", "User Data") }, scheme: "arc" },
-	chromium: {
-		app: "Chromium.app",
-		exe: join("Chromium", "Application", "chrome.exe"),
-		data: { mac: "Chromium", win: join("Chromium", "User Data") },
-		scheme: "chrome",
-	},
-};
-
 /** A Chromium browser found on disk: what the launch and the relay check need. */
 export interface FoundBrowser {
 	id: ChromiumBrowserId;
@@ -132,122 +97,26 @@ export interface FoundBrowser {
 	extensionsUrl: string;
 }
 
-async function isPath(file: string): Promise<boolean> {
-	return fs.stat(file).then(
-		() => true,
-		() => false,
-	);
-}
-
-async function findBrowser(id: ChromiumBrowserId, places: BrowserPlaces): Promise<FoundBrowser | undefined> {
-	const def = DEFINITIONS[id];
-	let app: string | undefined;
-	let dataDir: string | undefined;
-	if (places.platform === "darwin" && def.app) {
-		for (const dir of places.appDirs) {
-			if (await isPath(join(dir, def.app))) {
-				app = join(dir, def.app);
-				break;
-			}
-		}
-		dataDir = join(places.home, "Library", "Application Support", def.data.mac);
-	} else if (places.platform === "win32" && def.exe && def.data.win) {
-		for (const dir of places.programDirs) {
-			if (await isPath(join(dir, def.exe))) {
-				app = join(dir, def.exe);
-				break;
-			}
-		}
-		dataDir = join(places.localAppData, def.data.win);
-	}
-	if (!app || !dataDir) return undefined;
-	return { id, name: CHROMIUM_BROWSER_NAMES[id], app, dataDir, extensionsUrl: `${def.scheme}://extensions` };
-}
-
-/**
- * Where `id`'s own copy of the relay extension lives, and where Chrome's profile records loading it from. One copy per
- * browser, each bound to its own port: another browser's copy never counts for this one.
- */
-export function relayExtensionDir(id: ChromiumBrowserId, home: string = homedir()): string {
-	return join(home, ".omp", "browser-relay", `extension-${id}`);
-}
-
-async function readText(file: string): Promise<string> {
-	return fs.readFile(file, "utf8").catch(() => "");
-}
-
-/** The profile folders of a user data dir: `Local State`'s list, else `Default`. */
-async function profileDirs(dataDir: string): Promise<string[]> {
-	try {
-		const state: unknown = JSON.parse(await readText(join(dataDir, "Local State")));
-		const profile = typeof state === "object" && state !== null && "profile" in state ? state.profile : undefined;
-		const cache =
-			typeof profile === "object" && profile !== null && "info_cache" in profile ? profile.info_cache : undefined;
-		if (typeof cache === "object" && cache !== null) {
-			const names = Object.keys(cache);
-			if (names.length > 0) return names.map(name => join(dataDir, name));
-		}
-	} catch {
-		// No usable Local State: the default profile is the one a fresh install has.
-	}
-	return [join(dataDir, "Default")];
-}
-
-/** `text` holds `dir` as a whole path (not as the start of `…/extension-chromium` when `dir` is `…/extension-chrome`). */
-function namesFolder(text: string, dir: string): boolean {
-	// Windows paths are JSON-escaped in the preferences files.
-	for (const needle of [dir, JSON.stringify(dir).slice(1, -1)]) {
-		for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
-			const next = text[at + needle.length];
-			if (next === undefined || !/[\w-]/.test(next)) return true;
-		}
-	}
-	return false;
-}
-
-/** Does some profile's preferences name the extension folder (a loaded unpacked extension records its path)? */
-export async function relayLoadedIn(dataDir: string, extensionDir: string): Promise<boolean> {
-	for (const profile of await profileDirs(dataDir)) {
-		for (const file of ["Preferences", "Secure Preferences"]) {
-			if (namesFolder(await readText(join(profile, file)), extensionDir)) return true;
-		}
-	}
-	return false;
+/** The browsers in `auto` order, as the page names them, each with its own relay port. */
+function named(ports: Record<ChromiumBrowserId, number>) {
+	return CHROMIUM_BROWSER_IDS.map(id => ({ id, name: CHROMIUM_BROWSER_NAMES[id], port: ports[id] }));
 }
 
 /** The Chromium browsers installed in their standard places, in `auto` order. */
 export async function findChromiumBrowsers(places: BrowserPlaces = systemBrowserPlaces()): Promise<FoundBrowser[]> {
-	const found = await Promise.all(CHROMIUM_BROWSER_IDS.map(id => findBrowser(id, places)));
-	return found.filter((browser): browser is FoundBrowser => browser !== undefined);
+	const params = { places, browsers: named(CHROMIUM_RELAY_PORTS) };
+	return (await core().call<FoundBrowser[]>("browsers.find", params)).result;
 }
 
-/** Is `port`'s relay serving a connected extension? Stock answers `/json/version` 200 then, 503 while it waits. */
-async function relayConnected(port: number): Promise<boolean> {
-	try {
-		const response = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(500) });
-		void response.body?.cancel();
-		return response.status === 200;
-	} catch {
-		return false;
-	}
-}
-
-/** The installed Chromium browsers with the state of their own relay extension copy. */
+/**
+ * The installed Chromium browsers with the state of their own relay extension copy. A copy is connected when its
+ * relay at `ports[id]` answers `/json/version` 200 within half a second (503 while it waits for the extension).
+ */
 export async function detectChromiumBrowsers(
 	places: BrowserPlaces = systemBrowserPlaces(),
-	probe: (port: number) => Promise<boolean> = relayConnected,
+	ports: Record<ChromiumBrowserId, number> = CHROMIUM_RELAY_PORTS,
 ): Promise<InstalledBrowser[]> {
-	return Promise.all(
-		(await findChromiumBrowsers(places)).map(async browser => {
-			const relayInstalled = await relayLoadedIn(browser.dataDir, relayExtensionDir(browser.id, places.home));
-			return {
-				id: browser.id,
-				name: browser.name,
-				relayInstalled,
-				relayConnected: relayInstalled && (await probe(CHROMIUM_RELAY_PORTS[browser.id])),
-			};
-		}),
-	);
+	return (await core().call<InstalledBrowser[]>("browsers.status", { places, browsers: named(ports) })).result;
 }
 
 let cachedStatus: Promise<AgentBrowserStatus> | null = null;
@@ -286,63 +155,35 @@ export async function reprobeAgentBrowserStatus(): Promise<{ status: AgentBrowse
 	return { status, changed: before !== null && resolvedKey(before) !== resolvedKey(status) };
 }
 
-/** Both files that name the port the extension dials; stock's asset declares it as `DEFAULT_PORT`. */
-const PORT_FILES = ["background.js", "options.js"] as const;
-
-/** `source` with its one `DEFAULT_PORT` declaration set to `port`; throws when stock's asset no longer has exactly one. */
-export function bindExtensionPort(source: string, port: number, file: string): string {
-	const declaration = /\b((?:var|const|let) DEFAULT_PORT = )\d+;/g;
-	if (source.match(declaration)?.length !== 1) {
-		throw new Error(`omp's relay extension changed: ${file} has no single DEFAULT_PORT to bind to port ${port}`);
-	}
-	return source.replace(declaration, `$1${port};`);
-}
-
 /**
- * Write `id`'s own copy of the relay extension, bound to its own port, and return its folder. Stock's
- * `omp browser-relay install` writes the copy to a staging folder; the copy is bound there and only then put in
- * place, so a stock asset this cannot bind (it fails with a clear error) never leaves an unbound extension behind.
+ * Write `id`'s own copy of the relay extension to `~/.omp/browser-relay/extension-<id>`, bound to its own port, and
+ * return its folder. Stock's `omp browser-relay install` writes the copy to a staging folder; the copy is bound there
+ * and only then put in place, so a stock asset that cannot be bound (it fails with a clear error) never leaves an
+ * unbound extension behind.
  */
 export async function installRelayExtension(
 	omp: OmpRuntime,
 	id: ChromiumBrowserId,
 	home: string = homedir(),
 ): Promise<string> {
-	const dir = relayExtensionDir(id, home);
-	const staging = `${dir}.new`;
-	await fs.rm(staging, { recursive: true, force: true });
-	try {
-		const result = await omp.run(["browser-relay", "install", "--dir", staging], { timeoutMs: 30_000 });
-		if (result.code !== 0) {
-			throw new Error(
-				result.stderr.trim() || result.stdout.trim() || `omp browser-relay install exited ${result.code}`,
-			);
-		}
-		for (const file of PORT_FILES) {
-			const path = join(staging, file);
-			await fs.writeFile(path, bindExtensionPort(await fs.readFile(path, "utf8"), CHROMIUM_RELAY_PORTS[id], file));
-		}
-		// Files go over the old copy one by one: a browser holding it open must not make a folder swap fail.
-		await fs.mkdir(dir, { recursive: true });
-		for (const name of await fs.readdir(staging)) await fs.copyFile(join(staging, name), join(dir, name));
-	} finally {
-		await fs.rm(staging, { recursive: true, force: true });
-	}
-	return dir;
+	const params = {
+		omp: { bin: omp.bin, env: ompRunEnv(omp.bin, await spawnPath()) },
+		id,
+		home,
+		port: CHROMIUM_RELAY_PORTS[id],
+	};
+	// Stock's install has 30 s; the copy and the clean-up after it are a few small files.
+	return (await core().call<string>("browsers.installRelay", params, { timeoutMs: 37_000 })).result;
 }
 
-/** Open `browser` at its extensions page (`open -a` on macOS; the exe itself on Windows). */
-export function openExtensionsPage(browser: FoundBrowser, platform: NodeJS.Platform = process.platform): Promise<void> {
-	const { promise, resolve, reject } = Promise.withResolvers<void>();
-	if (platform === "win32") {
-		const child = spawn(browser.app, [browser.extensionsUrl], { detached: true, stdio: "ignore" });
-		child.once("error", reject);
-		child.once("spawn", () => {
-			child.unref();
-			resolve();
-		});
-	} else {
-		execFile("open", ["-a", browser.app, browser.extensionsUrl], error => (error ? reject(error) : resolve()));
-	}
-	return promise;
+/**
+ * Open `browser` at its extensions page: `open -a` on macOS, answered when `open` exits; the exe itself on Windows,
+ * detached and outside the core's job, so a browser that was not running outlives OMPdesk.
+ */
+export async function openExtensionsPage(browser: FoundBrowser): Promise<void> {
+	await core().call(
+		"browsers.openExtensions",
+		{ app: browser.app, url: browser.extensionsUrl },
+		{ timeoutMs: 37_000 },
+	);
 }

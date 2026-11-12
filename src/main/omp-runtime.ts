@@ -289,6 +289,14 @@ function installedVersion(bin: string): string | null {
 	}
 }
 
+/**
+ * The environment an `omp` CLI call runs with: main's, `env` over it, the spawn PATH with omp's own folders, and
+ * telemetry off. The core process runs `omp browser-relay install` with it too.
+ */
+export function ompRunEnv(bin: string, basePath: string, env: Record<string, string> = {}): NodeJS.ProcessEnv {
+	return { ...process.env, ...env, PATH: ompPathEnv(bin, env.PATH ?? basePath), ...OMP_TELEMETRY_OFF };
+}
+
 function runOmp(
 	bin: string,
 	args: string[],
@@ -298,7 +306,7 @@ function runOmp(
 	const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
 	const child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
 		cwd: opts.cwd,
-		env: { ...process.env, ...opts.env, PATH: ompPathEnv(bin, opts.env?.PATH ?? basePath), ...OMP_TELEMETRY_OFF },
+		env: ompRunEnv(bin, basePath, opts.env),
 		shell: needsShell(bin),
 		stdio: ["pipe", "pipe", "pipe"],
 		windowsHide: true,

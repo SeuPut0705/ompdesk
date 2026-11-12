@@ -1,0 +1,515 @@
+{
+	"bind": [
+		{
+			"source": "var DEFAULT_PORT = 9224;\nuse(DEFAULT_PORT);",
+			"port": 9231,
+			"file": "background.js",
+			"ok": "var DEFAULT_PORT = 9231;\nuse(DEFAULT_PORT);"
+		},
+		{
+			"source": "const DEFAULT_PORT = 9224;",
+			"port": 9232,
+			"file": "options.js",
+			"ok": "const DEFAULT_PORT = 9232;"
+		},
+		{
+			"source": "let DEFAULT_PORT = 0012;",
+			"port": 9233,
+			"file": "options.js",
+			"ok": "let DEFAULT_PORT = 9233;"
+		},
+		{
+			"source": "const PORT = 9224;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = 1;\nvar DEFAULT_PORT = 2;",
+			"port": 9231,
+			"file": "options.js",
+			"error": "omp's relay extension changed: options.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "xvar DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "_var DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "$var DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"ok": "$var DEFAULT_PORT = 9231;"
+		},
+		{
+			"source": "évar DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"ok": "évar DEFAULT_PORT = 9231;"
+		},
+		{
+			"source": "1var DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "-var DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"ok": "-var DEFAULT_PORT = 9231;"
+		},
+		{
+			"source": "var DEFAULT_PORT =  1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var  DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = ;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = 1",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = 1.5;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = 99999999999999999999999;",
+			"port": 1,
+			"file": "background.js",
+			"ok": "var DEFAULT_PORT = 1;"
+		},
+		{
+			"source": "var DEFAULT_PORT = ١٢;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT_X = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var default_port = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "VAR DEFAULT_PORT = 1;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "const DEFAULT_PORT = 1;const DEFAULT_PORT = 2;",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "const DEFAULT_PORT = 1;xconst DEFAULT_PORT = 2;",
+			"port": 9231,
+			"file": "background.js",
+			"ok": "const DEFAULT_PORT = 9231;xconst DEFAULT_PORT = 2;"
+		},
+		{
+			"source": "/* var DEFAULT_PORT = 7; */",
+			"port": 0,
+			"file": "background.js",
+			"ok": "/* var DEFAULT_PORT = 0; */"
+		},
+		{
+			"source": "한글 let DEFAULT_PORT = 9224; 😀",
+			"port": 9235,
+			"file": "options.js",
+			"ok": "한글 let DEFAULT_PORT = 9235; 😀"
+		},
+		{
+			"source": "let DEFAULT_PORT = 9224;let DEFAULT_PORT = 9224;",
+			"port": 9235,
+			"file": "options.js",
+			"error": "omp's relay extension changed: options.js has no single DEFAULT_PORT to bind to port 9235"
+		},
+		{
+			"source": "",
+			"port": 9231,
+			"file": "background.js",
+			"error": "omp's relay extension changed: background.js has no single DEFAULT_PORT to bind to port 9231"
+		},
+		{
+			"source": "var DEFAULT_PORT = 9224;\r\n",
+			"port": 65535,
+			"file": "background.js",
+			"ok": "var DEFAULT_PORT = 65535;\r\n"
+		},
+		{
+			"source": "\tvar DEFAULT_PORT = 9224;",
+			"port": 9234,
+			"file": "options.js",
+			"ok": "\tvar DEFAULT_PORT = 9234;"
+		},
+		{
+			"source": "avar DEFAULT_PORT = 9224; var DEFAULT_PORT = 3;",
+			"port": 9234,
+			"file": "options.js",
+			"ok": "avar DEFAULT_PORT = 9224; var DEFAULT_PORT = 9234;"
+		}
+	],
+	"relay": [
+		{
+			"localState": null,
+			"files": {},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/Users/me/.omp/browser-relay/extension-chrome\"}}}}"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Secure Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/Users/me/.omp/browser-relay/extension-chrome\"}}}}"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/Users/me/.omp/browser-relay/extension-chromeium\"}}}}"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome-x"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome_"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome9"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome/"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome."
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chromeé"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chromex /Users/me/.omp/browser-relay/extension-chrome\""
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chromex /Users/me/.omp/browser-relay/extension-chromey"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"C:\\\\Users\\\\me\\\\.omp\\\\browser-relay\\\\extension-edge\"}}}}"
+			},
+			"dir": "C:\\Users\\me\\.omp\\browser-relay\\extension-edge",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "C:\\Users\\me\\.omp\\browser-relay\\extension-edge"
+			},
+			"dir": "C:\\Users\\me\\.omp\\browser-relay\\extension-edge",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "C:\\\\Users\\\\me\\\\.omp\\\\browser-relay\\\\extension-edgeium"
+			},
+			"dir": "C:\\Users\\me\\.omp\\browser-relay\\extension-edge",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"c:\\\\users\\\\me\\\\.omp\\\\browser-relay\\\\extension-edge\"}}}}"
+			},
+			"dir": "C:\\Users\\me\\.omp\\browser-relay\\extension-edge",
+			"loaded": false
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/a/\\\"q\\\"/b\"}}}}"
+			},
+			"dir": "/a/\"q\"/b",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/a/\\u0001/b\"}}}}"
+			},
+			"dir": "/a/\u0001/b",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/a/\\t/b\"}}}}"
+			},
+			"dir": "/a/\t/b",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/홈/😀/ext\"}}}}"
+			},
+			"dir": "/홈/😀/ext",
+			"loaded": true
+		},
+		{
+			"localState": null,
+			"files": {
+				"Default/Preferences": "/홈/😀/ext가"
+			},
+			"dir": "/홈/😀/ext",
+			"loaded": true
+		},
+		{
+			"localState": "not json",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "[]",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "\"profile\"",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":null}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":[]}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{}}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":\"x\"}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":null}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":[]}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":[\"a\"]}}",
+			"files": {
+				"0/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":[\"a\"]}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"Default\":{},\"Profile 2\":{}}}}",
+			"files": {
+				"Default/Preferences": "{}",
+				"Profile 2/Secure Preferences": "{\"extensions\":{\"settings\":{\"abc\":{\"path\":\"/Users/me/.omp/browser-relay/extension-chrome\"}}}}"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"Default\":{}}}}",
+			"files": {
+				"Default/Preferences": "{}",
+				"Profile 9/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"Profile 1\":{}}}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": false
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"Profile 1\":{}}}}",
+			"files": {
+				"Profile 1/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "﻿{\"profile\":{\"info_cache\":{\"P\":{}}}}",
+			"files": {
+				"Default/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"P\":{}},\"x\":1},\"y\":[1,2]}",
+			"files": {
+				"P/Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		},
+		{
+			"localState": "{\"profile\":{\"info_cache\":{\"1\":{},\"P\":{}}}}",
+			"files": {
+				"1/Preferences": "{}",
+				"P/Secure Preferences": "/Users/me/.omp/browser-relay/extension-chrome"
+			},
+			"dir": "/Users/me/.omp/browser-relay/extension-chrome",
+			"loaded": true
+		}
+	]
+}
