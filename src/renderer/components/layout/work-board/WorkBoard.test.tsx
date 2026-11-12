@@ -3,9 +3,11 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RpcAsyncJobItem, RpcGoalState, RpcJobRow, SubagentSnapshot } from "../../../../shared/rpc-types";
-import { I18nProvider, translate } from "../../../lib/i18n";
+import { I18nProvider, setLanguageOverride, translate } from "../../../lib/i18n";
 import { EMPTY_TURN_METER } from "../../../lib/turn-meter";
 import { accountWindows, shortWindowLabel } from "../../../lib/usage-windows";
+import { en } from "../../../locales/en";
+import { ko } from "../../../locales/ko";
 import { useExtensionUiStore } from "../../../stores/extension-ui";
 import { useMessagesStore } from "../../../stores/messages";
 import { useModelStore } from "../../../stores/model";
@@ -1061,6 +1063,82 @@ describe("WorkBoard account limit", () => {
 		expect(accountWindows(many).map(entry => entry.limit.id)).toEqual(["p:7d", "p:monthly"]);
 		// A model-scoped limit is named by its model: its window is the gauge beside it.
 		expect(many.map(limit => shortWindowLabel(limit))).toEqual(["30D", "5H", "7D", "Opus"]);
+	});
+
+	describe("the account's model-scoped window (Fable)", () => {
+		const resetsAt = Date.now() + 2 * 86_400_000 + 60_000;
+		const scoped = (name: string, usedFraction: number) => ({
+			id: `anthropic:7d:${name.toLowerCase()}`,
+			label: `Claude 7 Day (${name})`,
+			windowId: "7d",
+			windowLabel: "7 Day",
+			usedFraction,
+			resetsAt,
+		});
+		const fiveHour = { id: "anthropic:5h", label: "Claude 5 Hour", windowId: "5h", usedFraction: 0.62 };
+		const weekly = { id: "anthropic:7d", label: "Claude 7 Day", windowId: "7d", usedFraction: 0.4 };
+		const onModel = (id: string) => {
+			withAgent();
+			useModelStore.setState({ model: { provider: "anthropic", id } as never });
+		};
+		const gauges = () => [...pane.querySelectorAll("[data-board-account] .omp-usage-gauge")];
+		const shown = () => gauges().map(gauge => gauge.getAttribute("data-window"));
+
+		afterEach(() => act(async () => setLanguageOverride(null)));
+
+		it("follows 5H and 7D in Settings' column and name, on the board and in the strip", async () => {
+			setLanguageOverride("ko");
+			usageReports = [report({ limits: [scoped("Fable", 0.07), fiveHour, weekly] })];
+			onModel("claude-fable-5-2");
+			await mount();
+			expect(shown()).toEqual(["5h", "7d", "7d:fable"]);
+			expect(pane.querySelector("[data-board-account] .omp-usage-gauges")?.getAttribute("data-count")).toBe("3");
+			expect(gauges().map(gauge => gauge.querySelector(".omp-usage-gauge-text")?.textContent)).toEqual([
+				"5H62%",
+				"7D40%",
+				"Fable7%",
+			]);
+			expect(gauges().map(gauge => gauge.querySelector('[role="progressbar"]')?.getAttribute("aria-label"))).toEqual(
+				["5시간 한도 62%", "주간 한도 40%", "Fable 주간 한도 7%"],
+			);
+			// Drawn, so the tooltip names it as the gauge does.
+			expect(pane.querySelector("[data-board-account]")?.getAttribute("title")).toMatch(/\nFable 7% · ↻ 2d/);
+			expect(translate("usage.limit.7dFable")).toBe(ko["usage.limit.7dFable"]);
+			expect(en["usage.limit.7dFable"]).toBe("Fable weekly limit");
+
+			// The phone's strip: the same three in its panel.
+			await resize(390);
+			await click("[data-work-chip]");
+			expect(pane.querySelector("[data-work-strip-panel]")).not.toBeNull();
+			expect(shown()).toEqual(["5h", "7d", "7d:fable"]);
+		});
+
+		it("keeps two gauges for an account that reports no model-scoped window", async () => {
+			usageReports = [report({ limits: [fiveHour, weekly] })];
+			onModel("claude-fable-5-2");
+			await mount();
+			expect(shown()).toEqual(["5h", "7d"]);
+			expect(pane.querySelector("[data-board-account] .omp-usage-gauges")?.getAttribute("data-count")).toBe("2");
+		});
+
+		it("is the window of the model the session runs on, else the tightest one", async () => {
+			usageReports = [report({ limits: [fiveHour, weekly, scoped("Mythos", 0.9), scoped("Fable", 0.97)] })];
+			onModel("claude-fable-5-2");
+			await mount();
+			// On Fable, Fable's cap decides whether the next turn runs, and here it is the tightest of all.
+			expect(shown()).toEqual(["5h", "7d", "7d:fable"]);
+			expect(gauges()[2]?.getAttribute("data-state")).toBe("near");
+
+			const looser = [fiveHour, weekly, scoped("Mythos", 0.9), scoped("Fable", 0.2)];
+			const scope = (model: string | null) =>
+				accountWindows(looser, { model }).map(entry => entry.limit.id.split(":").slice(1).join(":"));
+			// Fable's own cap still counts on Fable when another model's is tighter; elsewhere the tightest shows.
+			expect(scope("claude-fable-5-2")).toEqual(["5h", "7d", "7d:fable"]);
+			expect(scope("claude-opus-5-5")).toEqual(["5h", "7d", "7d:mythos"]);
+			expect(scope(null)).toEqual(["5h", "7d", "7d:mythos"]);
+			// The sidebar's lines pass no session: two gauges, as before.
+			expect(accountWindows(looser).length).toBe(2);
+		});
 	});
 
 	it("hides for a provider with no usage windows", async () => {

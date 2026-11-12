@@ -336,6 +336,15 @@ export function boardUsage(): { reports: UsageReport[] } {
 				limits: [
 					{ id: "5h", label: "5h", windowId: "5h", usedFraction: 0.82, resetsAt: now + 74 * MINUTE },
 					{ id: "7d", label: "7d", windowId: "7d", usedFraction: 0.46, resetsAt: now + 3 * 24 * 60 * MINUTE },
+					// Claude's model-scoped weekly cap, as stock reports it for a Fable account.
+					{
+						id: "anthropic:7d:fable",
+						label: "Claude 7 Day (Fable)",
+						windowId: "7d",
+						windowLabel: "7 Day",
+						usedFraction: 0.67,
+						resetsAt: now + 2 * 24 * 60 * MINUTE,
+					},
 				],
 			},
 		],

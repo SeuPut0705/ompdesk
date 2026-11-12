@@ -81,15 +81,26 @@ export function gaugeColumns(accounts: readonly (readonly UsageLimit[])[]): stri
 }
 
 /**
- * The windows the row gauges: the two tightest of the account's whole-account limits (a per-model tier such as
+ * The windows a compact row gauges: the two tightest of the account's whole-account limits (a per-model tier such as
  * `7d:opus` only when nothing else is measured), shortest window first. The gauge fills with the share used,
  * as the Settings accounts row does.
+ *
+ * On a session's surface (`session`: the work board) one model-scoped window follows them, where Settings puts its
+ * column ("5H · 7D · Fable"): the one of the model the session runs on, the window that decides whether its next turn
+ * runs (Fable's weekly cap on `claude-fable-5-2`), else the tightest the account reports.
  */
-export function accountWindows(limits: readonly UsageLimit[]): UsageGaugeEntry[] {
+export function accountWindows(limits: readonly UsageLimit[], session?: { model: string | null }): UsageGaugeEntry[] {
 	const all = measured(limits);
 	const plain = all.filter(entry => !scopeId(entry.limit));
-	return (plain.length > 0 ? plain : all)
+	const shown = (plain.length > 0 ? plain : all)
 		.sort((a, b) => b.fraction - a.fraction)
 		.slice(0, 2)
 		.sort((a, b) => windowHours(a.limit) - windowHours(b.limit));
+	if (!session) return shown;
+	const words = session.model?.toLowerCase().split(/[^a-z0-9]+/) ?? [];
+	const scoped = all.filter(entry => scopeId(entry.limit));
+	const next =
+		scoped.find(entry => words.includes(scopeId(entry.limit))) ??
+		scoped.filter(entry => !shown.includes(entry)).sort((a, b) => b.fraction - a.fraction)[0];
+	return next && !shown.includes(next) ? [...shown, next] : shown;
 }

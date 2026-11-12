@@ -11,6 +11,11 @@
 	grid-template-columns: minmax(0, 1fr);
 }
 
+/* The work board's third gauge: the account's model-scoped window after its two ("5H · 7D · Fable"), on the same line. */
+.omp-usage-gauges[data-count="3"] {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 /* Every window, each in its column of the provider's set (Settings accounts list): the same window lines up down the
    list, and a window an account does not report leaves its column empty. */
 .omp-usage-gauges[data-columns] {

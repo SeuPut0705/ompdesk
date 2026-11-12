@@ -2,9 +2,10 @@
  * One subscription account's usage as inline gauges: a bar per window (the two tightest, shortest first) with the
  * window's short name and the share used inside it ("5H 62%", "7D 41%"). The fill is the share used, as in
  * Settings; from 80 % the fill turns warning, at 100 % danger. `resets` adds each window's time to reset beneath
- * its bar. Shared by the work board's account row and the sidebar's usage lines. With `columns` (the Settings
- * accounts list) it draws every measured window, model-scoped ones included ("Fable 44%"), each in its column of
- * the provider's shared set, and leaves the column of a window the account does not report empty.
+ * its bar. Shared by the work board's account row and the sidebar's usage lines; the board passes `session`, which
+ * adds the account's model-scoped window after them ("Fable 44%", `accountWindows`). With `columns` (the Settings
+ * accounts list) it draws every measured window, model-scoped ones included, each in its column of the provider's
+ * shared set, and leaves the column of a window the account does not report empty.
  */
 import type { CSSProperties } from "react";
 import type { UsageLimit, UsageReport } from "../../../shared/rpc-types";
@@ -36,8 +37,14 @@ function limitShare(limit: UsageLimit): string | null {
  * do not draw (a per-model tier, a call count) keeps its full name. The long localized sentences are
  * {@link usageDescription}, the screen-reader text.
  */
-export function usageTooltip(report: UsageReport, label: string, t: Translate, now = Date.now()): string {
-	const drawn = new Set(accountWindows(report.limits).map(({ limit }) => limit));
+export function usageTooltip(
+	report: UsageReport,
+	label: string,
+	t: Translate,
+	session?: { model: string | null },
+	now = Date.now(),
+): string {
+	const drawn = new Set(accountWindows(report.limits, session).map(({ limit }) => limit));
 	return [
 		label,
 		...report.limits.map((limit: UsageLimit) => {
@@ -72,6 +79,7 @@ export function UsageGauges({
 	compact = false,
 	columns,
 	tracks,
+	session,
 }: {
 	limits: readonly UsageLimit[];
 	resets?: boolean;
@@ -80,9 +88,11 @@ export function UsageGauges({
 	columns?: readonly string[];
 	/** With `columns`: the grid's column count, when a list of several providers shares one wider than this one's. */
 	tracks?: number;
+	/** The work board's session: its model's scoped window joins the compact gauges (`accountWindows`). */
+	session?: { model: string | null };
 }) {
 	const t = useT();
-	const windows = columns ? accountGauges(limits) : accountWindows(limits);
+	const windows = columns ? accountGauges(limits) : accountWindows(limits, session);
 	if (windows.length === 0) return null;
 	const now = Date.now();
 	const slots = columns
@@ -112,7 +122,7 @@ export function UsageGauges({
 					<span
 						className="omp-usage-gauge"
 						data-state={fraction >= 1 ? "limit" : fraction >= NEAR_FRACTION ? "near" : "ok"}
-						data-window={columns ? gaugeColumn(limit) : (limit.windowId ?? limit.id)}
+						data-window={gaugeColumn(limit)}
 						key={limit.id}
 					>
 						<span

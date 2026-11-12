@@ -1,7 +1,9 @@
 /**
  * The work board's account items: one per provider company that reports usage windows (API-key providers show
  * nothing), each the account that company's sessions used last (`lastUsedAccounts`, shared with the sidebar's
- * usage block), on one line: the provider's mark and its windows' inline gauges ("5H 82%", `UsageGauges compact`).
+ * usage block), on one line: the provider's mark and its windows' inline gauges ("5H 82%", `UsageGauges compact`),
+ * then the account's model-scoped window ("Fable 44%"): the one of the model this tab runs on, which decides whether
+ * its next turn runs, else the tightest (`accountWindows` with `session`).
  * The account's address, every window and its reset are the item's tooltip and accessible name. The provider this
  * tab uses comes first, with a quiet in-use edge; a click opens Settings › Models & accounts.
  */
@@ -51,15 +53,16 @@ export function AccountAddress({ label }: { label: string }) {
 
 export function AccountLimit() {
 	const t = useT();
-	const provider = useModelStore(s => s.model?.provider ?? null);
+	const model = useModelStore(s => s.model);
 	const reports = useUsageReports();
-	const accounts = reports ? lastUsedAccounts(reports, provider) : [];
+	const accounts = reports ? lastUsedAccounts(reports, model?.provider ?? null) : [];
 	if (accounts.length === 0) return null;
 
 	return (
 		<>
 			{accounts.map(({ report, inUse }) => {
 				const fullLabel = report.account?.trim() || report.provider;
+				const session = { model: inUse ? (model?.id ?? null) : null };
 				return (
 					// controls-ok: the omp-work-board-account class draws the whole control
 					<button
@@ -69,14 +72,14 @@ export function AccountLimit() {
 						key={report.provider}
 						aria-label={usageDescription(report, fullLabel, t)}
 						onClick={() => useUiStore.getState().openProviders()}
-						title={`${usageTooltip(report, bareEmail(fullLabel), t)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
+						title={`${usageTooltip(report, bareEmail(fullLabel), t, session)}${inUse ? `\n${t("usage.inUse")}` : ""}`}
 						type="button"
 					>
 						<ProviderMark
 							className="omp-work-board-provider"
 							provider={{ id: report.provider, name: report.provider }}
 						/>
-						<UsageGauges compact limits={report.limits} />
+						<UsageGauges compact limits={report.limits} session={session} />
 					</button>
 				);
 			})}
