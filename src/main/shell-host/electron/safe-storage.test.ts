@@ -9,8 +9,11 @@
  * macOS: no Mac here; the values come from independent implementations of Chromium's documented format
  * (Python `hashlib.pbkdf2_hmac` for the key, the `openssl enc -aes-128-cbc` CLI for the cipher), never from this code.
  */
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSafeStorage } from "./safe-storage";
+import { createSafeStorage, keychainFetcher } from "./safe-storage";
 
 const PLAIN = "hello ompdesk — 한글 🚀";
 
@@ -35,7 +38,7 @@ const MAC = {
 const quiet = () => undefined;
 
 describe("safeStorage, Windows v10 (AES-256-GCM)", () => {
-	const storage = createSafeStorage({ kind: "win-v10", key: ELECTRON_WINDOWS.key }, quiet);
+	const storage = createSafeStorage({ kind: "win-v10", key: ELECTRON_WINDOWS.key }, { warn: quiet });
 
 	it("decrypts what Electron wrote", () => {
 		expect(storage.decryptString(Buffer.from(ELECTRON_WINDOWS.enc, "base64"))).toBe(PLAIN);
@@ -61,14 +64,17 @@ describe("safeStorage, Windows v10 (AES-256-GCM)", () => {
 		const tampered = Buffer.from(sealed);
 		tampered[20] ^= 1;
 		expect(() => storage.decryptString(tampered)).toThrow(/Decryption failed/);
-		const other = createSafeStorage({ kind: "win-v10", key: Buffer.alloc(32, 1).toString("base64") }, quiet);
+		const other = createSafeStorage(
+			{ kind: "win-v10", key: Buffer.alloc(32, 1).toString("base64") },
+			{ warn: quiet },
+		);
 		expect(() => other.decryptString(sealed)).toThrow(/Decryption failed/);
 		expect(() => storage.decryptString(Buffer.from("v10"))).toThrow();
 	});
 });
 
 describe("safeStorage, macOS v10 (PBKDF2-SHA1 1003, AES-128-CBC, IV of spaces)", () => {
-	const storage = createSafeStorage({ kind: "mac-v10", password: MAC.password }, quiet);
+	const storage = createSafeStorage({ kind: "mac-v10", password: MAC.password }, { warn: quiet });
 
 	it.each(MAC.cases)("reads %j as the independent implementation wrote it", (plain, sealed) => {
 		expect(storage.decryptString(Buffer.from(sealed, "base64"))).toBe(plain);
@@ -85,7 +91,10 @@ describe("safeStorage, macOS v10 (PBKDF2-SHA1 1003, AES-128-CBC, IV of spaces)",
 describe("safeStorage unavailable", () => {
 	it("says so, logs why once, and throws instead of storing in the clear", () => {
 		const logged: string[] = [];
-		const storage = createSafeStorage({ unavailable: "the keychain refused" }, message => logged.push(message));
+		const storage = createSafeStorage(
+			{ unavailable: "the keychain refused" },
+			{ warn: message => logged.push(message) },
+		);
 		expect(storage.isEncryptionAvailable()).toBe(false);
 		expect(logged).toEqual([expect.stringContaining("the keychain refused")]);
 		expect(() => storage.encryptString("x")).toThrow(/not available/);
@@ -93,7 +102,102 @@ describe("safeStorage unavailable", () => {
 	});
 
 	it("is unavailable for a key of the wrong length", () => {
-		const storage = createSafeStorage({ kind: "win-v10", key: Buffer.alloc(16).toString("base64") }, quiet);
+		const storage = createSafeStorage({ kind: "win-v10", key: Buffer.alloc(16).toString("base64") }, { warn: quiet });
 		expect(storage.isEncryptionAvailable()).toBe(false);
 	});
 });
+
+describe("safeStorage on macOS reads the keychain lazily", () => {
+	const key = { kind: "mac-v10", password: MAC.password } as const;
+
+	it("fetches nothing until the first call of any method, then once", () => {
+		let fetched = 0;
+		const storage = createSafeStorage(
+			{ kind: "mac-v10-lazy" },
+			{
+				warn: quiet,
+				fetchKey: () => {
+					fetched += 1;
+					return key;
+				},
+			},
+		);
+		expect(fetched).toBe(0);
+		expect(storage.isEncryptionAvailable()).toBe(true);
+		expect(fetched).toBe(1);
+		expect(storage.decryptString(Buffer.from(MAC.cases[0][1], "base64"))).toBe(PLAIN);
+		storage.encryptString("x");
+		expect(fetched).toBe(1);
+	});
+
+	it.each([
+		["encryptString", (s: ReturnType<typeof createSafeStorage>) => s.encryptString("x")],
+		[
+			"decryptString",
+			(s: ReturnType<typeof createSafeStorage>) => s.decryptString(Buffer.from(MAC.cases[0][1], "base64")),
+		],
+		["getSelectedStorageBackend", (s: ReturnType<typeof createSafeStorage>) => s.getSelectedStorageBackend()],
+	])("%s is the first call that triggers it", (_name, call) => {
+		let fetched = 0;
+		const storage = createSafeStorage(
+			{ kind: "mac-v10-lazy" },
+			{
+				warn: quiet,
+				fetchKey: () => {
+					fetched += 1;
+					return key;
+				},
+			},
+		);
+		call(storage);
+		expect(fetched).toBe(1);
+	});
+
+	it("a refusal is logged once, and a missing reader is unavailable", () => {
+		const logged: string[] = [];
+		const refused = createSafeStorage(
+			{ kind: "mac-v10-lazy" },
+			{ warn: m => logged.push(m), fetchKey: () => ({ unavailable: "denied" }) },
+		);
+		expect(refused.isEncryptionAvailable()).toBe(false);
+		expect(refused.isEncryptionAvailable()).toBe(false);
+		expect(logged).toHaveLength(1);
+		expect(createSafeStorage({ kind: "mac-v10-lazy" }, { warn: quiet }).isEncryptionAvailable()).toBe(false);
+	});
+
+	// The shell binary is a real executable on macOS; Windows cannot run a script file without a shell, and Windows
+	// never reads a keychain, so the run itself is checked where it happens.
+	it.skipIf(process.platform === "win32")(
+		"the real reader runs the shell binary with --keychain-key and reads its JSON line",
+		() => {
+			const script = `console.log(JSON.stringify(process.argv[2] === "--keychain-key" && process.argv[3] === "UD" ? ${JSON.stringify(key)} : { unavailable: "args " + process.argv.slice(2).join(" ") }))`;
+			const exe = writeFakeExe(script);
+			expect(keychainFetcher(exe, "UD")()).toEqual(key);
+			expect(keychainFetcher(exe, "other")()).toEqual({ unavailable: "args --keychain-key other" });
+			const garbage = writeFakeExe('console.log("not json")');
+			expect(keychainFetcher(garbage, "UD")()).toMatchObject({ unavailable: expect.stringContaining("unreadable") });
+		},
+	);
+
+	it("a binary that cannot run is unavailable with the reason, never a throw", () => {
+		expect(keychainFetcher(join(tmpdir(), "no-such-shell-binary.exe"), "UD")()).toMatchObject({
+			unavailable: expect.stringContaining("could not be read"),
+		});
+	});
+});
+
+/** An executable that runs `script` with Node: a `.cmd` on Windows, a shell script elsewhere. */
+function writeFakeExe(script: string): string {
+	const dir = mkdtempSync(join(tmpdir(), "ompdesk-fake-shell-"));
+	const js = join(dir, "main.js");
+	writeFileSync(js, script);
+	const file = join(dir, process.platform === "win32" ? "shell.cmd" : "shell");
+	writeFileSync(
+		file,
+		process.platform === "win32"
+			? `@"${process.execPath}" "${js}" %*\r\n`
+			: `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`,
+		{ mode: 0o755 },
+	);
+	return file;
+}

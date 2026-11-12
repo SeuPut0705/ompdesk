@@ -8,8 +8,9 @@
  * - macOS: `"v10" ‖ AES-128-CBC(PKCS7)`, key = PBKDF2-HMAC-SHA1(keychain password, "saltysalt", 1003, 16),
  *   IV = sixteen spaces.
  */
+import { execFileSync } from "node:child_process";
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
-import type { SafeStorageFact } from "../facts";
+import type { SafeStorageFact, SafeStorageKey } from "../facts";
 
 const PREFIX = Buffer.from("v10", "ascii");
 const NONCE_LENGTH = 12;
@@ -17,6 +18,8 @@ const TAG_LENGTH = 16;
 const MAC_IV = Buffer.alloc(16, 0x20);
 const MAC_SALT = "saltysalt";
 const MAC_ITERATIONS = 1003;
+/** The keychain may show its dialog, and the person takes a while: the read waits that long. */
+const KEYCHAIN_TIMEOUT_MS = 120_000;
 
 export interface SafeStorage {
 	isEncryptionAvailable(): boolean;
@@ -65,31 +68,83 @@ function macCipher(password: Buffer): Cipher {
 	};
 }
 
+/** Reads the macOS keychain key through the shell binary itself (PROTOCOL.md §11); tests give their own. */
+export type KeyFetcher = () => SafeStorageKey;
+
+/** `<exe> --keychain-key <userData>`: its stdout is one JSON line, a `SafeStorageKey`. */
+export function keychainFetcher(exe: string, userData: string): KeyFetcher {
+	return () => {
+		try {
+			const out = execFileSync(exe, ["--keychain-key", userData], {
+				encoding: "utf8",
+				timeout: KEYCHAIN_TIMEOUT_MS,
+				windowsHide: true,
+				stdio: ["ignore", "pipe", "ignore"],
+			});
+			const parsed: unknown = JSON.parse(out.trim().split("\n").at(-1) ?? "");
+			if (typeof parsed === "object" && parsed !== null) {
+				if (
+					"kind" in parsed &&
+					parsed.kind === "mac-v10" &&
+					"password" in parsed &&
+					typeof parsed.password === "string"
+				)
+					return { kind: "mac-v10", password: parsed.password };
+				if ("unavailable" in parsed && typeof parsed.unavailable === "string")
+					return { unavailable: parsed.unavailable };
+			}
+			return { unavailable: "the shell answered the keychain request with something unreadable" };
+		} catch (error) {
+			return {
+				unavailable: `the keychain key could not be read: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	};
+}
+
 export function createSafeStorage(
 	fact: SafeStorageFact,
-	warn: (message: string) => void = message => console.warn(`[shell-host] ${message}`),
+	options: { warn?: (message: string) => void; fetchKey?: KeyFetcher } = {},
 ): SafeStorage {
+	const warn = options.warn ?? ((message: string) => console.warn(`[shell-host] ${message}`));
 	let cipher: Cipher | null = null;
 	let reason = "";
-	if ("unavailable" in fact) {
-		reason = fact.unavailable;
-	} else {
-		try {
-			cipher =
-				fact.kind === "win-v10"
-					? windowsCipher(Buffer.from(fact.key, "base64"))
-					: macCipher(Buffer.from(fact.password, "base64"));
-		} catch (error) {
-			reason = error instanceof Error ? error.message : String(error);
+	let resolved = false;
+	/** The first call of any method settles the key: a lazy key is fetched here, never before. */
+	const resolve = (): void => {
+		if (resolved) return;
+		resolved = true;
+		let key: SafeStorageKey;
+		if ("kind" in fact && fact.kind === "mac-v10-lazy") {
+			if (!options.fetchKey) key = { unavailable: "no keychain reader" };
+			else key = options.fetchKey();
+		} else {
+			key = fact as SafeStorageKey;
 		}
-	}
-	if (!cipher) warn(`safeStorage is unavailable: ${reason}`);
+		if ("unavailable" in key) {
+			reason = key.unavailable;
+		} else {
+			try {
+				cipher =
+					key.kind === "win-v10"
+						? windowsCipher(Buffer.from(key.key, "base64"))
+						: macCipher(Buffer.from(key.password, "base64"));
+			} catch (error) {
+				reason = error instanceof Error ? error.message : String(error);
+			}
+		}
+		if (!cipher) warn(`safeStorage is unavailable: ${reason}`);
+	};
 	const available = (action: string): Cipher => {
+		resolve();
 		if (!cipher) throw new Error(`Error while ${action}. Encryption is not available.`);
 		return cipher;
 	};
 	return {
-		isEncryptionAvailable: () => cipher !== null,
+		isEncryptionAvailable() {
+			resolve();
+			return cipher !== null;
+		},
 		encryptString(plainText) {
 			if (typeof plainText !== "string") throw new TypeError("plainText must be a string");
 			return Buffer.concat([
@@ -114,6 +169,9 @@ export function createSafeStorage(
 				);
 			}
 		},
-		getSelectedStorageBackend: () => (cipher ? (fact as { kind: string }).kind : "unknown"),
+		getSelectedStorageBackend() {
+			resolve();
+			return cipher ? (process.platform === "darwin" ? "keychain" : "dpapi") : "unknown";
+		},
 	};
 }

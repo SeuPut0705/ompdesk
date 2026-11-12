@@ -19,10 +19,14 @@ export interface DisplayFact {
 	monitorFrequency?: number;
 }
 
-export type SafeStorageFact =
+/** The key as the shell read it: handed over in the facts (Windows), or by `--keychain-key` (macOS, `SafeStorageKey`). */
+export type SafeStorageKey =
 	| { kind: "win-v10"; key: string }
 	| { kind: "mac-v10"; password: string }
 	| { unavailable: string };
+
+/** What `facts.safeStorage` is: a key, or on macOS the promise to fetch it on first use (the keychain asks the person). */
+export type SafeStorageFact = SafeStorageKey | { kind: "mac-v10-lazy" };
 
 export const PATH_NAMES = [
 	"userData",

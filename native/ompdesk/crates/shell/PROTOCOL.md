@@ -64,7 +64,7 @@ pushed event.
   system: { reducedMotion: boolean, onBattery: boolean, online: boolean },
   versions: { chrome: string, cef: string, shell: string },
   safeStorage: { kind: "win-v10", key: base64(32 bytes) }
-             | { kind: "mac-v10", password: base64 }       // the keychain item's password bytes
+             | { kind: "mac-v10-lazy" }                      // macOS: no key at launch, see §11
              | { unavailable: string }                      // why (logged by the shim, never silent)
 }
 Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90|180|270, internal: boolean,
@@ -95,6 +95,7 @@ Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90
 | `app.secondInstance` (event) | shell→Node | `{argv: string[], cwd: string}` | another launch for the same userData handed over and exited 0. `argv[0]` is that launch's exe. |
 | `app.openUrl` (event) | shell→Node | `{url}` | macOS `kAEGetURL` (and Windows protocol launches arrive as `secondInstance`). |
 | `app.openFile` (event) | shell→Node | `{path}` | macOS `kAEOpenDocuments`. |
+| `app.quitRequested` (event) | shell→Node | `{}` | macOS ⌘Q / Dock › Quit: the shim runs `app.quit()` (before-quit, window closes, will-quit, quit), which ends in `app.exit`. |
 | `app.activate` (event) | shell→Node | `{hasVisibleWindows: boolean}` | macOS Dock click. |
 | `app.childProcessGone` (event) | shell→Node | `{type: "GPU"\|"Utility"\|"Renderer"\|…, reason, exitCode, name?, serviceName?}` | CEF helper process ended abnormally (the GPU one drives the software fallback). Renderer crashes are `wc.event render-process-gone` instead. |
 
@@ -317,9 +318,18 @@ in the other:
   `os_crypt.encrypted_key` (base64; after the ASCII prefix `DPAPI` the rest is DPAPI-protected; the shell
   unwraps it with `CryptUnprotectData`). Encrypt: `"v10" ‖ nonce(12 random) ‖ AES-256-GCM(plaintext) ‖ tag(16)`;
   decrypt reverses it, refusing another prefix.
-- macOS `{kind: "mac-v10", password}`: the keychain item "ompdesk Safe Storage" (account "ompdesk"). Key =
-  PBKDF2-HMAC-SHA1(password, salt `"saltysalt"`, 1003 iterations, 16 bytes); encrypt: `"v10" ‖ AES-128-CBC(PKCS7,
-  IV = 16 × 0x20)`.
+- macOS: **never read at launch**: any keychain dialog at launch or in the move is a failure. `facts.safeStorage` is
+  `{kind: "mac-v10-lazy"}` and the shim reads the key on the **first** `isEncryptionAvailable` / `encryptString` /
+  `decryptString` / `getSelectedStorageBackend` call (Electron's own semantics; `update-auth.ts` and `mail-accounts.ts`
+  touch safeStorage only when a stored secret exists or one is saved) by a synchronous one-shot of the shell binary
+  itself, so the keychain ACL sees the app's own code identity: `execFileSync(facts.exe, ["--keychain-key", userData])`
+  (stdin closed, stderr ignored, 120 s limit because the keychain may show its prompt). The process answers **one JSON
+  line on stdout** and exits 0: `{"kind":"mac-v10","password":"<base64 of the keychain item's password bytes>"}` or
+  `{"unavailable":"<reason>"}` (item missing and not creatable, access denied, …); any other output, a non-zero exit or
+  a timeout is treated as unavailable with that reason. It must not start CEF, a window, or a second Node, and must
+  not take the single-instance lock. The item is "ompdesk Safe Storage" (account "ompdesk"); key = PBKDF2-HMAC-SHA1(password,
+  salt `"saltysalt"`, 1003 iterations, 16 bytes); encrypt: `"v10" ‖ AES-128-CBC(PKCS7, IV = 16 × 0x20)`.
+- Windows `{kind: "win-v10", key}` stays in the `hello` facts (no prompt exists there).
 - `{unavailable: reason}`: `isEncryptionAvailable()` is false, the reason is logged once; `encryptString` and
   `decryptString` throw.
 - The shell creates the Windows `Local State` key itself when the file lacks one (first run of a clean profile),

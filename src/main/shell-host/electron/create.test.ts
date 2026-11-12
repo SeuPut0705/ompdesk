@@ -306,6 +306,15 @@ describe("the quit sequence", () => {
 		expect(exited).toEqual([0]);
 	});
 
+	it("runs the quit sequence when the shell reports a macOS Cmd-Q", async () => {
+		const order: string[] = [];
+		electron.app.on("before-quit", () => order.push("before-quit"));
+		await shell.event("app.quitRequested");
+		await settle();
+		expect(order).toEqual(["before-quit"]);
+		expect(exited).toEqual([0]);
+	});
+
 	it("stops when before-quit is prevented, and may be asked again", async () => {
 		const { app } = electron;
 		let prevent = true;

@@ -12,7 +12,7 @@ import { IpcMain, serveIpc } from "./ipc-main";
 import { createMenuModule } from "./menu";
 import { NativeImage } from "./native-image";
 import { createNet } from "./net";
-import { createSafeStorage } from "./safe-storage";
+import { createSafeStorage, keychainFetcher } from "./safe-storage";
 import { DEFAULT_PARTITION, type ProtocolHandler, Session, serveProtocolRequests } from "./session";
 import { servePages, webContentsModule } from "./web-contents";
 
@@ -136,7 +136,10 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 			createFromPath: NativeImage.createFromPath,
 			createFromDataURL: NativeImage.createFromDataURL,
 		},
-		safeStorage: createSafeStorage(facts.safeStorage, message => host.warn(message)),
+		safeStorage: createSafeStorage(facts.safeStorage, {
+			warn: message => host.warn(message),
+			fetchKey: keychainFetcher(facts.exe, facts.paths.userData),
+		}),
 	};
 }
 

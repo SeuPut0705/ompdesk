@@ -127,6 +127,7 @@ export class App extends EventEmitter {
 		client.on("app.openFile", ({ path }: { path: string }) => {
 			this.emit("open-file", makeEvent(), path);
 		});
+		client.on("app.quitRequested", () => this.quit());
 		client.on("app.activate", ({ hasVisibleWindows }: { hasVisibleWindows?: boolean }) => {
 			this.emit("activate", makeEvent(), hasVisibleWindows === true);
 		});
