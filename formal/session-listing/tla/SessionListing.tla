@@ -428,8 +428,10 @@ HostEvent(d, i) ==
 \* after that loop: the reply's frame resolves the read's promise (HostReplyArrive), the frames behind it in the same drain
 \* run (HostEvent: a delta of the held version applies), and only then the read continues (HostReplyResume). The model lets any
 \* number of events run between the two (a superset of the frames of one drain).
-\* @code src/main/remote/wire.ts:416-440 #drain: delivers every pending frame synchronously, the listener returns before any promise continues
-\* @code src/main/remote/client.ts:722-733 #onMessage: the reply's frame resolves the pending request of `sessions.list`
+\* @code native/ompdesk/crates/core/src/remote/link.rs:495-550 drain: the core opens a link's frames in order and hands each to main as one event, through the one writer
+\* @code src/main/core/process.ts:159-196 FrameReader.push: delivers every frame of a chunk synchronously, the listener returns before any promise continues
+\* @code src/main/remote/wire.ts:158-163 Link.deliver: a link's message reaches its listener in the same synchronous call
+\* @code src/main/remote/client.ts:595-612 #onMessage: the reply's frame resolves the pending request of `sessions.list`
 HostReplyArrive(d, i) ==
     /\ ~Busy
     /\ RepOk(lk[d], i, LinkMode) /\ lk[d][i].kind = "reply" /\ rp[d] = NoMsg /\ Len(ip[d]) + 3 <= MaxCh
