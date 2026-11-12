@@ -319,6 +319,37 @@ describe("a limit that lifts before its time", () => {
 			expect(w.shown.at(-1)).toEqual({ at: Date.now() + WEEKLY_LIMIT_MS, attempt: attempt + 1, limit: true });
 		}
 	});
+
+	// The stuck sessions of 12 Nov 2026 ran background jobs: a wait that is let go while one still runs is the same sit.
+	it.each<[string, string, (w: World) => void]>([
+		[
+			"lifts early",
+			WEEKLY_LIMIT,
+			w => {
+				w.state.usage = () => [report()];
+			},
+		],
+		["comes due", "429 Too Many Requests retry-after-ms=60000", () => undefined],
+	])(
+		"holds a wait that %s while the failed turn's background work keeps the tab running, and tries once the tab is idle",
+		async (_name, message, lift) => {
+			const w = world();
+			// The turn ended at the limit; a background job keeps the run on.
+			w.start();
+			w.set({ settling: true, lastRun: { stopReason: "error", errorMessage: message } });
+			await vi.advanceTimersByTimeAsync(0);
+			expect(w.shown.at(-1)).toMatchObject({ limit: true });
+			lift(w);
+			await vi.advanceTimersByTimeAsync(3 * LIMIT_LOOK_MS);
+			expect(w.sent("retry")).toBe(0);
+			expect(w.shown).toHaveLength(1);
+			// The job ends with no turn of its own: the next look tries.
+			w.set({ running: false, settling: false });
+			await vi.advanceTimersByTimeAsync(LIMIT_LOOK_MS);
+			expect(w.sent("retry")).toBe(1);
+			expect(w.shown.at(-1)).toBeUndefined();
+		},
+	);
 });
 
 describe("what waiting cannot fix is never waited for", () => {

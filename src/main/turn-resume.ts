@@ -956,12 +956,16 @@ export class TurnResume {
 		return true;
 	}
 
-	/** A limit wait's timer: its time when that is near, else the next look. */
-	#awaitLook(tabId: string, armed: ArmedRetry): void {
+	/**
+	 * A limit wait's timer: its time when that is near, else the next look. `again`: the wait is due but cannot be
+	 * tried yet (the tab is busy), so it looks again a pace later, never at once.
+	 */
+	#awaitLook(tabId: string, armed: ArmedRetry, again = false): void {
 		const pace = this.#deps.scheduledRetry.limitLookMs ?? LIMIT_LOOK_MS;
+		const untilDue = armed.at - this.#deps.now();
 		armed.cancelTimer = this.#deps.scheduledRetry.schedule(
 			() => void this.#look(tabId, armed),
-			Math.min(Math.max(0, armed.at - this.#deps.now()), pace),
+			untilDue > 0 ? Math.min(untilDue, pace) : again ? pace : 0,
 		);
 	}
 
@@ -970,13 +974,19 @@ export class TurnResume {
 	 * (`#readLimit`), and the retry fires early when stock's usage reports no longer say the provider is limited (a reset
 	 * pass was spent, another account is free) or the session's model or fallback chains changed (a chain that now holds
 	 * a model the conversation fits). Otherwise nothing changes but the timer: the wait holds on, and a request goes to
-	 * the provider only once something says it may be taken.
+	 * the provider only once something says it may be taken. While the failed turn's background work keeps the tab
+	 * running, the wait holds too and looks again: firing then would let it go (`busy`), and a tab whose jobs outlast
+	 * the limit would sit as it did before. A result of that work starts a turn of its own, which ends the wait.
 	 */
 	async #look(tabId: string, armed: ArmedRetry): Promise<void> {
 		if (this.#scheduled.get(tabId) !== armed) return;
 		// What ends the wait without a sync of its own (another session file on an idle tab) ends it at the next look.
 		this.sync();
 		if (this.#scheduled.get(tabId) !== armed) return;
+		if (this.#factFor(tabId)?.running) {
+			this.#awaitLook(tabId, armed, true);
+			return;
+		}
 		let why: "due" | "usage" | "setup" = "due";
 		if (this.#deps.now() < armed.at) {
 			const reading = await this.#readLimit(tabId);
