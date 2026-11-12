@@ -46,10 +46,10 @@
 				"src/main/remote/devices.ts:548-564",
 				"src/main/remote/devices.ts:649-651",
 				"src/main/remote/devices.ts:957-978",
-				"src/main/session-index.ts:195-197",
-				"src/main/session-index.ts:246-255",
-				"src/main/session-index.ts:276-289",
-				"src/main/session-index.ts:437-440"
+				"src/main/session-index.ts:264-266",
+				"src/main/session-index.ts:320-329",
+				"src/main/session-index.ts:360-374",
+				"src/main/session-index.ts:432-435"
 			],
 			"syncCommit": "dcf9c6cdc212b48f66fc7f21247b42e729d37dc8",
 			"verifySkill": ".omp/skills/session-listing-verify/SKILL.md"

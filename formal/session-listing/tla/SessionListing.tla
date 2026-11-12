@@ -279,7 +279,7 @@ Tick ==
 ----------------------------------------------------------------------------
 \* ===== the index's rows change: the index reads again and tells main, which calls sessionsChanged() =====
 
-\* @code src/main/session-index.ts:437-440 #notifyChange: the watch saw a new session file; the shared list reads again
+\* @code src/main/session-index.ts:432-435 #notifyChange: the watch saw a new session file; the shared list reads again
 \* @code src/main/ipc.ts:598-606 sessionIndex.onListChange -> remoteDevices.hostSessionsChanged() -> sessionsChanged()
 IdxCreate(s) ==
     /\ ~Busy
@@ -288,7 +288,7 @@ IdxCreate(s) ==
     /\ UNCHANGED <<file, pendReg, rec, snap, hs, lkv, hsl, ip, fd, post, nChanges, nTicks, nDrops, nForeign, seen>>
 
 \* A journal write (by `by` = "host": a turn appended) or a rename (by a device: the host renamed it for that device).
-\* @code src/main/session-index.ts:437-440 #notifyChange / relist() (src/main/session-index.ts:195-197) after a rename
+\* @code src/main/session-index.ts:432-435 #notifyChange / relist() (src/main/session-index.ts:264-266) after a rename
 \* @code src/main/remote/host-services.ts:2315-2316 a device's rename: the title is in the journal, sessionIndex.relist()
 \* @code src/main/ipc.ts:1458-1463 SESSIONS_RENAME: remoteDevices.hostSessionsStale(device) once the host answered
 IdxBump(s, by) ==
@@ -299,7 +299,7 @@ IdxBump(s, by) ==
     /\ UNCHANGED <<file, pendReg, rec, snap, hs, lkv, hsl, ip, fd, nChanges, nTicks, nDrops, nForeign, seen>>
 
 \* A session is deleted (by the host's own window, or by a device: the host deletes it, then main of that device marks its copy stale).
-\* @code src/main/session-index.ts:246-255 deleteSession -> #notifyChange
+\* @code src/main/session-index.ts:320-329 deleteSession -> #notifyChange
 \* @code src/main/remote/host-services.ts:2282-2291 #deleteSession (a device's delete takes the host's path)
 \* @code src/main/ipc.ts:472-484 SESSIONS_DELETE: remoteDevices.request(sessions.delete), then hostSessionsStale(device)
 IdxDelete(s, by) ==
@@ -310,7 +310,7 @@ IdxDelete(s, by) ==
     /\ UNCHANGED <<file, pendReg, rec, snap, hs, lkv, hsl, ip, fd, nChanges, nTicks, nDrops, nForeign, seen>>
 
 \* A session moves to another folder: its old path is gone, a new path is listed.
-\* @code src/main/session-index.ts:276-289 moveSession -> #notifyChange
+\* @code src/main/session-index.ts:360-374 moveSession -> #notifyChange
 \* @code src/main/remote/host-services.ts:1107-1112 sessions.move
 \* @code src/main/ipc.ts:1473-1482 SESSIONS_MOVE: remoteDevices.request(sessions.move), then hostSessionsStale(device)
 IdxMove(s, t, by) ==
