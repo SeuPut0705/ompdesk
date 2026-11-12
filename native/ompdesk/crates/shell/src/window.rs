@@ -32,6 +32,17 @@ fn native_handle(window: &Window) -> isize {
     return window.window_handle() as isize;
 }
 
+/// A window that cannot take focus (`setFocusable(false)`) never reports focus.
+fn focusable(window: &Window) -> bool {
+    #[cfg(windows)]
+    return shell_core::sys::winops::is_focusable(native_handle(window));
+    #[cfg(not(windows))]
+    return {
+        let _ = window;
+        true
+    };
+}
+
 fn rect_of(r: &Rect) -> Value {
     rect_json(r.x, r.y, r.width, r.height)
 }
@@ -95,7 +106,7 @@ fn state_json(entry: &Snap) -> Value {
         "normalBounds": normal.unwrap_or_else(|| rect_of(&bounds)),
         "contentBounds": rect_of(&content),
         "visible": window.is_visible() != 0,
-        "focused": window.is_active() != 0,
+        "focused": window.is_active() != 0 && focusable(window),
         "minimized": minimized,
         "maximized": maximized,
         "fullscreen": fullscreen,
@@ -742,7 +753,7 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
             // A window that cannot take focus (the e2e harness's) is shown without activation too.
             #[cfg(windows)]
             if !shell_core::sys::winops::is_focusable(hwnd) {
-                shell_core::sys::winops::show_no_activate(hwnd);
+                window.show();
             } else {
                 window.show();
                 window.activate();
@@ -756,8 +767,15 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
             }
         }
         "showInactive" => {
+            // Views' own `show` activates; with WS_EX_NOACTIVATE held for the call it does not, and Views still
+            // records the window as visible.
             #[cfg(windows)]
-            shell_core::sys::winops::show_no_activate(hwnd);
+            {
+                let was = shell_core::sys::winops::is_focusable(hwnd);
+                shell_core::sys::winops::set_focusable(hwnd, false);
+                window.show();
+                shell_core::sys::winops::set_focusable(hwnd, was);
+            }
             #[cfg(not(windows))]
             window.show();
         }

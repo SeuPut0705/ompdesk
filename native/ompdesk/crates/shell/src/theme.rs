@@ -1,6 +1,6 @@
 //! `theme.setSource` and `theme.changed`: the OS colour scheme with Electron's `themeSource` override on top. CEF pages
 //! follow the OS scheme on their own; the override is Node's mirror only (the cef crate has no per-browser colour-scheme
-//! setter, so `prefers-color-scheme` in a page keeps following the OS).
+//! setter, so the override reaches each page as CDP media emulation of `prefers-color-scheme`).
 
 use std::cell::RefCell;
 
@@ -62,10 +62,43 @@ pub fn handle(call: Call) {
             crate::ui::run(move || {
                 STATE.with(|s| s.borrow_mut().source = source);
                 refresh();
+                apply_all();
                 let now = snapshot(source);
                 call.ok(json!({ "dark": now["dark"], "highContrast": now["highContrast"], "inverted": now["inverted"] }));
             });
         }
         _ => call.unsupported(),
+    }
+}
+
+/// The `prefers-color-scheme` a page should see: the override, or the OS's own when the source is `system`.
+fn media_value() -> &'static str {
+    STATE.with(|s| match s.borrow().source {
+        ThemeSource::System => "",
+        ThemeSource::Light => "light",
+        ThemeSource::Dark => "dark",
+    })
+}
+
+/// Pushes the theme source into one page (UI thread). A page that exists before the first `setSource` is left alone.
+pub fn apply_to(wc_id: u64) {
+    let value = media_value();
+    if value.is_empty() && STATE.with(|s| s.borrow().last.is_none()) {
+        return;
+    }
+    let params = json!({ "features": [{ "name": "prefers-color-scheme", "value": value }] });
+    crate::cdp::send(
+        wc_id,
+        "Emulation.setEmulatedMedia",
+        Some(params),
+        None,
+        |_| {},
+    );
+}
+
+fn apply_all() {
+    let ids: Vec<u64> = crate::state::ui_state(|u| u.wcs.keys().copied().collect());
+    for id in ids {
+        apply_to(id);
     }
 }

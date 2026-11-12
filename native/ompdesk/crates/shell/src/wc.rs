@@ -272,6 +272,7 @@ wrap_life_span_handler! {
             }
             log("wc.created", json!({ "wcId": wc_id, "browser": browser.identifier() }));
             session::apply_user_agent(wc_id);
+            crate::theme::apply_to(wc_id);
             push_state(wc_id);
         }
 
@@ -605,6 +606,24 @@ wrap_permission_handler! {
     }
 }
 
+wrap_keyboard_handler! {
+    struct ShellKeyboard {
+        wc_id: u64,
+    }
+    impl KeyboardHandler {
+        /// Keys the page did not take never become browser shortcuts (Ctrl+W closing the page, Ctrl+T/N, F5…): the app's
+        /// own shortcuts live in the page. Alt combinations stay with the system (Alt+F4 closes the window).
+        fn on_key_event(&self, _browser: Option<&mut Browser>, event: Option<&KeyEvent>, _os_event: Option<&mut cef::sys::MSG>) -> i32 {
+            let Some(event) = event else { return 0 };
+            let _ = self.wc_id;
+            const CTRL: u32 = 1 << 2;
+            const ALT: u32 = 1 << 3;
+            let f5 = event.windows_key_code == 0x74;
+            i32::from((event.modifiers & CTRL != 0 && event.modifiers & ALT == 0 && event.is_system_key == 0) || f5)
+        }
+    }
+}
+
 wrap_render_handler! {
     struct ShellRender {
         wc_id: u64,
@@ -690,6 +709,10 @@ wrap_client! {
 
         fn permission_handler(&self) -> Option<PermissionHandler> {
             Some(ShellPermission::new(self.wc_id))
+        }
+
+        fn keyboard_handler(&self) -> Option<KeyboardHandler> {
+            (self.role != 2).then(|| ShellKeyboard::new(self.wc_id))
         }
 
         fn render_handler(&self) -> Option<RenderHandler> {
