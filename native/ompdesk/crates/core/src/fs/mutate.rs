@@ -335,6 +335,33 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn reads_the_time_main_sends_to_the_bit() {
+        // `{time}` writes the digits JavaScript's `JSON.stringify` does: the shortest that read back the same.
+        let changed: Vec<f64> = (0..1_000_000_000_u32)
+            .step_by(999_983)
+            .map(|nanos| 1_762_920_000_000.0 + f64::from(nanos) / 1_000_000.0)
+            .filter(|time| {
+                let params: Params = serde_json::from_str(&format!(
+                    r#"{{"root":"/w","request":{{"op":"write","path":"a","expectedMtimeMs":{time}}},"resolved":"/w/a","maxWriteBytes":1}}"#
+                ))
+                .unwrap();
+                let Some(Mutation::Existing(Existing::Write {
+                    expected_mtime_ms, ..
+                })) = parse(&params.request, true)
+                else {
+                    panic!("a write")
+                };
+                expected_mtime_ms.to_bits() != time.to_bits()
+            })
+            .collect();
+        assert_eq!(
+            changed,
+            Vec::<f64>::new(),
+            "times that reached the write changed"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn joins_as_node_path_does() {

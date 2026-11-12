@@ -23,8 +23,10 @@ workspace = true
 # and its kill, `net` is the control socket (a Unix socket, a Windows named pipe).
 tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync", "process", "time", "macros", "net"] }
 # The wire: one JSON object per line. `raw_value` hands a request's params to its handler unparsed.
+# `float_roundtrip` reads a number as its digits say, as `JSON.parse` does: the default parse is best effort (one
+# time in ten with sub-millisecond digits one bit off), and a time main sends or a kept file holds is compared `==`.
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
+serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
 # Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
 icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).

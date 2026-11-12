@@ -874,4 +874,43 @@ console.log(JSON.stringify(Object.fromEntries(fs.readdirSync(root).map(
         assert_eq!(node.h, Some(vec![("16777231:42".to_owned(), 8192)]));
         assert!(node.d.contains_key("b"));
     }
+
+    #[test]
+    fn keeps_a_directory_time_through_the_kept_file_to_the_bit() {
+        let node = |m: f64, d: BTreeMap<String, Node>| Node {
+            m,
+            i: 1,
+            f: 0,
+            h: None,
+            d,
+            x: false,
+        };
+        let times: Vec<f64> = (0..1_000_000_000_u32)
+            .step_by(999_983)
+            .map(|nanos| 1_762_920_000_000.0 + f64::from(nanos) / 1_000_000.0)
+            .collect();
+        let children = times
+            .iter()
+            .enumerate()
+            .map(|(index, time)| (index.to_string(), node(*time, BTreeMap::new())))
+            .collect();
+        let file = SizesFile {
+            v: Some(1.0),
+            full_at: Some(0.0),
+            read_at: Some(0.0),
+            roots: BTreeMap::from([("/r".to_owned(), Root::Tree(node(times[101], children)))]),
+        };
+        let kept: SizesFile = serde_json::from_slice(&serde_json::to_vec(&file).unwrap()).unwrap();
+        let Some(Root::Tree(root)) = kept.roots.get("/r") else {
+            panic!("a tree")
+        };
+        assert_eq!(root.m.to_bits(), times[101].to_bits());
+        let changed: Vec<f64> = times
+            .iter()
+            .enumerate()
+            .filter(|(index, time)| root.d[&index.to_string()].m.to_bits() != time.to_bits())
+            .map(|(_, time)| *time)
+            .collect();
+        assert_eq!(changed, Vec::<f64>::new(), "times that came back changed");
+    }
 }
