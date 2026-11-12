@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::task::{Context, Waker};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -345,10 +346,19 @@ impl Conn {
         };
         let done = self.done.clone();
         let id = id.clone();
-        self.requests.spawn(async move {
+        let mut request = Box::pin(async move {
             let result = router::handle(link, connection, id.clone(), frame).await;
             let _ = done.send((id, result));
         });
+        // What a request does before its first wait (its ask of main) happens in line order, as the TypeScript's
+        // synchronous call did; a task started by the scheduler would let a later line's ask overtake.
+        if request
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+        {
+            self.requests.spawn(request);
+        }
         None
     }
 }
@@ -514,7 +524,7 @@ mod tests {
     use crate::control::{Tuning, link::Ask};
     use std::io;
     use std::pin::Pin;
-    use std::task::{Context, Poll};
+    use std::task::Poll;
 
     struct BrokenWriter;
 
@@ -565,5 +575,43 @@ mod tests {
         );
         // `client` still owns the input: the server ended on its failed output, not an EOF.
         assert!(client.write_all(b"x").await.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn requests_sent_together_reach_main_in_line_order() {
+        let (asks, mut heard) = mpsc::unbounded_channel();
+        let link = Link::new(Tuning::default(), move |ask| {
+            let _ = asks.send(ask);
+        });
+        let serving = Serving {
+            link,
+            token: "token".into(),
+            home: "/home".into(),
+            caller_prefix: "".into(),
+            hello_timeout: Duration::from_secs(10),
+            max_in_flight: 16,
+            half_close: false,
+        };
+        let (mut client, reader) = tokio::io::duplex(64 * 1024);
+        let (_shutdown, closed) = watch::channel(false);
+        let served = tokio::spawn(serve(serving, 1, reader, tokio::io::sink(), closed));
+        let mut lines =
+            String::from("{\"id\":1,\"method\":\"hello\",\"token\":\"token\",\"protocol\":1}\n");
+        let sent: Vec<String> = (2..18).map(|id| format!("\"tool{id}\"")).collect();
+        for (index, tool) in sent.iter().enumerate() {
+            lines.push_str(&format!(
+                "{{\"id\":{},\"method\":\"tool\",\"tool\":{tool}}}\n",
+                index + 2
+            ));
+        }
+        client.write_all(lines.as_bytes()).await.unwrap();
+        let mut ran = Vec::new();
+        while ran.len() < sent.len() {
+            if let Some(Ask::Run { tool, .. }) = heard.recv().await {
+                ran.push(tool.get().to_owned());
+            }
+        }
+        assert_eq!(ran, sent);
+        served.abort();
     }
 }

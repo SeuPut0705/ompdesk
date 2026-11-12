@@ -238,9 +238,8 @@ describe("control socket", () => {
 				answered.push(await client.next());
 			}
 			expect(most).toBe(2);
-			expect(answered).toEqual(
-				expect.arrayContaining([2, 3, 4, 5, 6].map(id => expect.objectContaining({ id, ok: true }))),
-			);
+			// Requests on one connection start in the order their lines came, so held answers come back in it.
+			expect(answered).toMatchObject([2, 3, 4, 5, 6].map(id => ({ id, ok: true })));
 			expect(backend.runs).toHaveLength(5);
 		});
 
