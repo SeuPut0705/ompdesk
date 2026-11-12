@@ -9,7 +9,7 @@ import {
 	type ScheduleDraft,
 	type SchedulesState,
 } from "../shared/schedules";
-import { core } from "./core/process";
+import { core, stopCore } from "./core/process";
 import type { OmpResolution } from "./omp-runtime";
 import {
 	ompRunLauncher,
@@ -328,6 +328,27 @@ describe("ScheduleService on a core that dies", () => {
 		expect(state.schedules.map(schedule => schedule.id)).toEqual([id]);
 		await launched(1);
 		await service.dispose();
+	});
+});
+
+describe("ScheduleService at a quit", () => {
+	it("keeps a change asked for as the app quits: the journal holds it once dispose settled, and a fresh core reads it", async () => {
+		const dir = await tempDir();
+		const { launch } = fakeLauncher();
+		const { service } = harness(dir, launch);
+		await service.start();
+		// The save is on its way when the quit comes: the teardown disposes, and stops the core once that settled.
+		const saved = service.command({ action: "save", draft: draft(dir, { name: "Saved at the quit" }) });
+		await service.dispose();
+		// Written already: main's exit ends the core at once on Windows, whatever it still had to do.
+		expect(await readFile(join(dir, "schedules.json"), "utf8")).toContain("Saved at the quit");
+		await stopCore();
+		expect((await saved).schedules.map(schedule => schedule.name)).toEqual(["Saved at the quit"]);
+
+		const { service: relaunched } = harness(dir, launch);
+		await relaunched.start();
+		expect(relaunched.state().schedules.map(schedule => schedule.name)).toEqual(["Saved at the quit"]);
+		await relaunched.dispose();
 	});
 });
 
