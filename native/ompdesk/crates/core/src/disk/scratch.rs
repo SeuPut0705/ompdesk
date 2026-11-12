@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use super::sizes;
 use super::tree::{fault, live, remove};
+use crate::fs::disk::linked;
 use crate::server::{Fault, Scope};
 
 /// How far past the tag a path is looked for on its line.
@@ -47,6 +48,28 @@ fn tag_of(dir: &Path) -> Result<String, Fault> {
             ),
         )),
     }
+}
+
+/// A folder whose own entry or scratch root is a link (a symlink, a junction, any reparse point) is kept whole: what
+/// is behind the link is not this app's, so nothing there is read or removed. A folder that is gone is no link.
+fn unlinked(dir: &Path) -> Result<(), Fault> {
+    for (path, what) in [
+        (dir, "it"),
+        (dir.parent().unwrap_or(dir), "its scratch root"),
+    ] {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if linked(&meta) => {
+                return Err(Fault::new(
+                    "scratch_kept",
+                    format!("{what} is a link to another folder"),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(fault(&error, "lstat", path)),
+        }
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -81,6 +104,7 @@ fn walk(dir: &Path, facts: &mut Facts, scope: &Scope) -> Result<(), Fault> {
 pub fn facts(dir: &str, scope: &Scope) -> Result<Facts, Fault> {
     let dir = Path::new(dir);
     tag_of(dir)?;
+    unlinked(dir)?;
     let meta = fs::symlink_metadata(dir).map_err(|error| fault(&error, "lstat", dir))?;
     let mut facts = Facts {
         newest_ms: mtime_ms(&meta),
@@ -134,7 +158,8 @@ fn percent_decoded(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Every start of `after` (what follows the tag and a slash on its line) that is a file in the folder is named.
+/// Every start of `after` (what follows the tag and a slash on its line) that is a file in the folder is named: a
+/// file reached through real folders only, so a link and what is behind it are never named.
 fn files_named(after: &str, dir: &Path, keep: &mut BTreeSet<String>) {
     let after = after.replace('\\', "/");
     for (end, _) in after.char_indices().skip(1).chain([(after.len(), ' ')]) {
@@ -149,11 +174,19 @@ fn files_named(after: &str, dir: &Path, keep: &mut BTreeSet<String>) {
         if parts.is_empty() || parts.contains(&"..") {
             continue;
         }
-        let path = parts
-            .iter()
-            .fold(dir.to_owned(), |path, part| path.join(part));
-        if fs::symlink_metadata(&path).is_ok_and(|meta| !meta.is_dir()) {
-            keep.insert(fold(&parts.join("/")));
+        let mut path = dir.to_owned();
+        for (at, part) in parts.iter().enumerate() {
+            path.push(part);
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                break;
+            };
+            let last = at + 1 == parts.len();
+            if linked(&meta) || (last && !meta.is_file()) || (!last && !meta.is_dir()) {
+                break;
+            }
+            if last {
+                keep.insert(fold(&parts.join("/")));
+            }
         }
     }
 }
@@ -352,6 +385,7 @@ pub fn sweep(dir: &str, sessions: &[String], scope: &Scope) -> Result<Swept, Fau
     live(scope)?;
     let dir = Path::new(dir);
     let tag = tag_of(dir)?;
+    unlinked(dir)?;
     let keep = named(dir, &tag, sessions, scope)?;
     let mut swept = Swept::default();
     if keep.is_empty() {
@@ -570,5 +604,121 @@ mod tests {
         assert!(sweep(&w.dir.to_string_lossy(), &[], &scope).is_err());
         assert_eq!(left(&w).len(), 7);
         fs::remove_dir_all(&w.root).unwrap();
+    }
+
+    /// A link to `target` at `at`: a symlink on POSIX, a junction on Windows (a folder link that needs no privilege).
+    fn link(target: &Path, at: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, at).unwrap();
+        #[cfg(windows)]
+        crate::sys::junction(target, at).unwrap();
+    }
+
+    /// Every file under `dir` with its contents, never through a link.
+    fn contents(dir: &Path) -> Vec<(String, Vec<u8>)> {
+        fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if fs::symlink_metadata(&path).unwrap().is_dir() {
+                    walk(&path, base, out);
+                } else {
+                    let name = path.strip_prefix(base).unwrap().to_string_lossy();
+                    out.push((name.replace('\\', "/"), fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, dir, &mut out);
+        out.sort();
+        out
+    }
+
+    /// The folder, or the scratch root above it, is a link to a folder elsewhere holding a sentinel, and a reply names
+    /// a file through the link: reading when it last changed, the sweep of a deleted session and the idle sweep are
+    /// all refused (`scratch_kept`), and the link and everything it points at stay as they were.
+    #[test]
+    fn keeps_a_folder_or_scratch_root_that_is_a_link_and_touches_nothing_behind_it() {
+        for root_linked in [false, true] {
+            let w = world(if root_linked {
+                "scratch-root-link"
+            } else {
+                "scratch-folder-link"
+            });
+            let elsewhere = w.root.join("elsewhere");
+            let (moved, linked) = if root_linked {
+                (elsewhere.clone(), w.root.join("scratch"))
+            } else {
+                (elsewhere.join(TAG), w.dir.clone())
+            };
+            fs::create_dir_all(moved.parent().unwrap()).unwrap();
+            fs::rename(&linked, &moved).unwrap();
+            fs::write(moved.join("sentinel.txt"), "keep me").unwrap();
+            link(&moved, &linked);
+            let before = contents(&elsewhere);
+            assert!(before.iter().any(|(name, _)| name.ends_with("notes.txt")));
+
+            let dir = w.dir.to_string_lossy().into_owned();
+            write_session(&w, &[text("assistant", &format!("![shot]({dir}/a.png)"))]);
+            let scope = Scope::detached();
+            let session = w.session.to_string_lossy().into_owned();
+            assert_eq!(facts(&dir, &scope).unwrap_err().code, "scratch_kept");
+            assert_eq!(
+                sweep(&dir, &[session], &scope).unwrap_err().code,
+                "scratch_kept"
+            );
+            assert_eq!(sweep(&dir, &[], &scope).unwrap_err().code, "scratch_kept");
+
+            assert!(
+                fs::symlink_metadata(&linked)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink()
+            );
+            assert_eq!(contents(&elsewhere), before);
+            fs::remove_dir_all(&w.root).unwrap();
+        }
+    }
+
+    /// A link inside the folder is removed as a link, also when a reply names a file through it: what it points at
+    /// stays.
+    #[test]
+    fn removes_a_link_inside_the_folder_as_a_link() {
+        let w = world("scratch-inner-link");
+        let outside = w.root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("sentinel.txt"), "keep me").unwrap();
+        fs::write(outside.join("shot.png"), "png").unwrap();
+        link(&outside, &w.dir.join("checkout"));
+        let before = contents(&outside);
+
+        let dir = w.dir.to_string_lossy().into_owned();
+        write_session(
+            &w,
+            &[text(
+                "assistant",
+                &format!("![a]({dir}/a.png) ![b]({dir}/checkout/shot.png)"),
+            )],
+        );
+        let swept = sweep(
+            &dir,
+            &[w.session.to_string_lossy().into_owned()],
+            &Scope::detached(),
+        )
+        .unwrap();
+        assert_eq!(swept.kept, 1);
+        assert!(fs::symlink_metadata(w.dir.join("checkout")).is_err());
+        assert_eq!(left(&w), ["a.png"]);
+        assert_eq!(contents(&outside), before);
+
+        // The deleted session's sweep takes the folder with its link, and still nothing behind it.
+        let again = world("scratch-inner-link");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("sentinel.txt"), "keep me").unwrap();
+        fs::write(outside.join("shot.png"), "png").unwrap();
+        link(&outside, &again.dir.join("checkout"));
+        sweep(&again.dir.to_string_lossy(), &[], &Scope::detached()).unwrap();
+        assert!(!again.dir.exists());
+        assert_eq!(contents(&outside), before);
+        fs::remove_dir_all(&again.root).unwrap();
     }
 }

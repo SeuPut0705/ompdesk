@@ -144,16 +144,28 @@ fn kind(entry: &fs::DirEntry) -> io::Result<Kind> {
 fn kind(entry: &fs::DirEntry) -> io::Result<Kind> {
     use std::os::windows::fs::MetadataExt;
     const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
-    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     // A directory entry's metadata on Windows comes from the listing itself: no extra call, no link followed.
-    let attributes = entry.metadata()?.file_attributes();
-    Ok(if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+    let meta = entry.metadata()?;
+    Ok(if linked(&meta) {
         Kind::Link
-    } else if attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+    } else if meta.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0 {
         Kind::Dir
     } else {
         Kind::File
     })
+}
+
+/// Whether an entry's own metadata (`lstat`, a listing's) is a link: a symlink, and on Windows any reparse point (a
+/// junction, a mount point, a cloud placeholder), which a walk never enters.
+pub fn linked(meta: &Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    meta.file_type().is_symlink()
 }
 
 /// Whether two entries are one (`lstat` device and inode), which a case-only rename on a case-insensitive disk

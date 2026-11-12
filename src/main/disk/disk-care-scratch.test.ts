@@ -220,6 +220,40 @@ describe("disk care: session scratch folders", () => {
 	);
 
 	it(
+		"keeps a folder that is a link whole, in a run and when its session is deleted, and touches nothing behind it",
+		async () => {
+			const s = await scratch();
+			const dir = path.join(w.root, "scratch", TAG);
+			const shown = await session("linked", `![After](${path.join(dir, "shots", "after.png")})`);
+			await folder(s, TAG, shown);
+			// The folder is swapped for a link (a junction on Windows) to a folder elsewhere with a file of its own.
+			const elsewhere = path.join(w.root, "elsewhere");
+			await fs.rename(dir, elsewhere);
+			await write(elsewhere, "sentinel.txt", "keep me\n");
+			await fs.symlink(elsewhere, dir, "junction");
+			const files = [
+				"sentinel.txt",
+				"shots/after.png",
+				"shots/unused.png",
+				"test-results/out.log",
+				"checkout/src/a.ts",
+			];
+
+			const state = await w.care(undefined, { scratch: s.care }).run("user");
+			await s.care.sessionDeleted(shown);
+			for (const file of files) expect(await exists(path.join(elsewhere, file)), file).toBe(true);
+			expect((await fs.lstat(dir)).isSymbolicLink()).toBe(true);
+			expect(state.lastRun?.kept).toBe(1);
+			expect(logged("kept")).toEqual([
+				{ path: dir, reason: "it is a link to another folder" },
+				{ path: dir, reason: "it is a link to another folder" },
+			]);
+			expect(logged("failed")).toEqual([]);
+		},
+		SLOW,
+	);
+
+	it(
 		"follows a session moved to another folder, and takes a folder whose sessions are gone without waiting",
 		async () => {
 			// Not idle: a folder with no session left waits for nothing.

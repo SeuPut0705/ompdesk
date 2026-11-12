@@ -72,7 +72,11 @@ export class ScratchCare {
 			try {
 				await this.#remove(dir, tag, [], "its session was deleted");
 			} catch (error) {
-				this.#deps.log("failed", { step: "scratch", path: dir, error: errorText(error) });
+				if (error instanceof CoreError && error.code === "scratch_kept") {
+					this.#deps.log("kept", { path: dir, reason: error.message });
+				} else {
+					this.#deps.log("failed", { step: "scratch", path: dir, error: errorText(error) });
+				}
 			}
 		}
 	}
