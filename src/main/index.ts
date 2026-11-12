@@ -54,6 +54,7 @@ import {
 import { AI_MEMORY_TERMINAL_PREF } from "../shared/ai-memory";
 import { REA_PREF, reaEnabled } from "../shared/builtin-mcp";
 import { COMPUTER_USE_PREF } from "../shared/computer-use";
+import { CREDIT_SPEND_PREF } from "../shared/credit-spend";
 import { DEFAULT_BROWSER_PREF } from "../shared/default-browser";
 import {
 	APP_AUTO_UPDATE_PREF,
@@ -954,6 +955,7 @@ app.whenReady().then(() => {
 		delegationPref: () => prefsStore().get(DELEGATION_PREF),
 		accountRotationPref: () => prefsStore().get(ACCOUNT_ROTATION_PREF),
 		accountRotationLedger: join(app.getPath("userData"), ACCOUNT_ROTATION_LEDGER_FILE),
+		creditSpendPref: () => prefsStore().get(CREDIT_SPEND_PREF),
 		ompdeskRolesFile: join(app.getPath("userData"), OMPDESK_ROLES_FILE),
 		launchProfilesPref: () => prefsStore().get("launchProfiles"),
 		// ai-memory's `session-end` (the handoff) needs omp's own shutdown, which only a closed stdin triggers.
@@ -1122,6 +1124,15 @@ app.whenReady().then(() => {
 				return omp.ok ? bridgeHealth.supports(omp.runtime.version, "accountRotation") : null;
 			},
 		}),
+		creditSpend: {
+			read: () => prefsStore().get(CREDIT_SPEND_PREF),
+			write: enabled => {
+				prefsStore().set(CREDIT_SPEND_PREF, enabled);
+				// Tabs on a paired host follow the host's own pref.
+				for (const tab of sidecarPool.allSidecars()) if (!tab.device) tab.syncCreditSpend?.();
+				devices.hostCreditSpendChanged();
+			},
+		},
 	});
 	// This computer as a host: paired devices' tabs run here through the same factory.
 	const prefs = prefsStore();

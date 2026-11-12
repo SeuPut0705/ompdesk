@@ -320,7 +320,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // omp 18.19.0's Liquid AI provider mark (12 Nov 2026, `provider-marks.ts`: the composer's model chip draws a provider's
 // mark, so the table of marks is the first screen) and the two strings of a ChatGPT account's unlimited credits in the
 // English catalog: measured 2,198,582 on c5d23902 by ci.yml's build, 571 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_198_582;
+// A fallback that stands in for the chosen model (12 Nov 2026: the composer's model chip keeps the chosen model and
+// marks the stand-in, `stores/model.ts` `chosenModelOf`, two strings) and the credit use switch's strings in the
+// English catalog (the row itself is Settings', off the first screen): measured 2,199,241 on the working tree,
+// 659 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_199_241;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

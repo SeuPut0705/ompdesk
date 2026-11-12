@@ -7,6 +7,7 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { CREDIT_SPEND_ENV } from "../../resources/gui-bridge/credit-spend-core";
 import { MCP_AUTH_ENV, MCP_CWD_ENV, MCP_HUB_ENV } from "../../resources/gui-bridge/mcp-hub-contracts";
 import type { AutoTitleSettings } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { AGENT_DESKTOP_ENV, COMPUTER_USE_ENV } from "../../resources/gui-bridge/modes/computer-use-contracts";
@@ -46,6 +47,7 @@ export const SESSION_OWNED_ENV = [
 	"OMP_GUI_DELEGATION",
 	"OMP_GUI_ACCOUNT_ROTATION",
 	"OMP_GUI_ACCOUNT_ROTATION_STATE",
+	CREDIT_SPEND_ENV,
 	OMPDESK_ROLES_ENV,
 	"OMP_GUI_REA_ROOT",
 	MCP_HUB_ENV,
@@ -105,6 +107,8 @@ export interface SessionSettings {
 	readonly accountRotation?: AccountRotationMode;
 	/** The even-rotation ledger every local omp shares. */
 	readonly accountRotationLedger?: string;
+	/** Settings › Models & accounts › Credit use: a spent plan may run on credits and extra usage. */
+	readonly creditSpend?: boolean;
 	/** The OMPdesk model-role picks every local omp shares. */
 	readonly ompdeskRolesFile?: string;
 	readonly browser?: AgentBrowser;
@@ -156,6 +160,7 @@ export function sessionEnv(launch: OmpLaunch): Record<string, string> {
 	if (settings.delegation && settings.delegation !== "default") env.OMP_GUI_DELEGATION = settings.delegation;
 	if (settings.accountRotation) env.OMP_GUI_ACCOUNT_ROTATION = settings.accountRotation;
 	if (settings.accountRotationLedger) env.OMP_GUI_ACCOUNT_ROTATION_STATE = settings.accountRotationLedger;
+	if (settings.creditSpend !== undefined) env[CREDIT_SPEND_ENV] = settings.creditSpend ? "1" : "0";
 	if (settings.ompdeskRolesFile) env[OMPDESK_ROLES_ENV] = settings.ompdeskRolesFile;
 	if (builtin.root) env.OMP_GUI_REA_ROOT = builtin.root;
 	if (settings.browser) env[DEFAULT_BROWSER_ENV] = agentBrowserEnv(settings.browser);

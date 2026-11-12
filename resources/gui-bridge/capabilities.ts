@@ -33,6 +33,7 @@ export const FEATURES = {
 	userProfile: "User profile (name, experience)",
 	visuals: "Diagram instructions (Mermaid, SVG)",
 	accountRotation: "Account rotation (even, quota re-rank at turn start)",
+	creditSpend: "Credit use off: an account whose plan is spent does not run on credits or extra usage",
 	thinkingDefault: "Auto thinking by default",
 	delegation: "Delegation strength (Solo to Swarm)",
 	mcp: "MCP servers",
@@ -530,6 +531,27 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			],
 			"@oh-my-pi/pi-ai/usage/registry": ["defaultRankingStrategy()"],
 			[`${AGENT}/session/credential-pin`]: ["credentialPinHash()"],
+		},
+	},
+	/**
+	 * credit-spend.ts: while credit use is off, ChatGPT's usage provider is stock's own wrapped as a runtime override
+	 * (`usage.providerFor`, `usage.setProvider`, `usage.removeProvider`), and every request key stock resolves
+	 * (`keys.getWithCredential`) is checked against the account's own report (`credentials.list`, `usage.report`) and
+	 * Claude's last answer for the session's account (`oauth.accounts`); a refusal carries stock's retry hint.
+	 */
+	creditSpend: {
+		pkg: ["AgentRegistry.global()", "AgentRegistry.prototype.get()"],
+		session: [
+			"modelRegistry.authStorage.keys.getWithCredential()",
+			"modelRegistry.authStorage.usage.providerFor()",
+			"modelRegistry.authStorage.usage.setProvider()",
+			"modelRegistry.authStorage.usage.removeProvider()",
+			"modelRegistry.authStorage.usage.report()",
+			"modelRegistry.authStorage.credentials.list()",
+			"modelRegistry.authStorage.oauth.accounts()",
+		],
+		modules: {
+			"@oh-my-pi/pi-ai/utils/retry-after": ["appendRetryAfterHint()"],
 		},
 	},
 	/** session-dump.ts: the two session methods `/dump all` and `/dump anon` run, called directly for their zip. */

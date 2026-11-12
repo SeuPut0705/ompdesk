@@ -37,6 +37,8 @@
  *   (the host's own pref: the model its "Find more evidence" runs on, one value for every view of the host)
  *   `host.accountRotation.get {}` / `host.accountRotation.set {mode}` → AccountRotationState
  *   (the host's own pref; its sessions follow it)
+ *   `host.creditSpend.get {}` / `host.creditSpend.set {enabled}` → CreditSpendState
+ *   (the host's own pref; its sessions follow it from their next request)
  * - OMPdesk on the host: `host.desktop.get {}` → HostDesktopState (version, updater state,
  *   theme and language), `host.desktop.update {action: "check"|"download"|"install"|"restart-now"|"postpone"}` →
  *   HostDesktopState (install restarts the host; refused with `host_busy` while anything runs there, except
@@ -100,6 +102,7 @@
 import { z } from "zod";
 import { ACCOUNT_ROTATION_MODES, type AccountRotationState } from "../../shared/account-rotation";
 import type { BuiltinReaState } from "../../shared/builtin-mcp";
+import type { CreditSpendState } from "../../shared/credit-spend";
 import { codedError, isIpcErrorCode } from "../../shared/ipc-error-codes";
 import type {
 	CustomModelEffort,
@@ -740,6 +743,9 @@ export const BuiltinReaStateSchema: z.ZodType<BuiltinReaState> = z.object({
 
 /** `host.localEngines.*` reply: whether the host looks for local inference engines. */
 export const LocalEngineDetectStateSchema: z.ZodType<LocalEngineDetectState> = z.object({ enabled: z.boolean() });
+
+/** `host.creditSpend.*` reply: whether a spent plan on the host may run on credits and extra usage. */
+export const CreditSpendStateSchema: z.ZodType<CreditSpendState> = z.object({ enabled: z.boolean() });
 
 /** `host.modelSetup.status` reply: whether this device's research runs on the host, and its last tool call. */
 export const ModelSetupStatusSchema: z.ZodType<ModelSetupStatus> = z.object({

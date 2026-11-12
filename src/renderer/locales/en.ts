@@ -4364,6 +4364,11 @@ export const en: Record<string, string> = {
 	"sidecar.project": "Project: {cwd}",
 	"sidecar.restart": "Restart",
 
+	// Settings › Models & accounts: credit use (providers/CreditSpendRow.tsx)
+	"providers.creditSpend.label": "Credit use",
+	"providers.creditSpend.desc":
+		"Off: once an account's plan limit is used up, OMPdesk counts it as limited and moves on to another account or your fallback models instead of running on ChatGPT credits or Claude extra usage. On: accounts keep running on credits and extra usage, as omp does by itself. OMPdesk never buys or tops up credits; a provider's auto top-up fires only when credits are spent, so it cannot fire from OMPdesk while this is off, and when on it follows your billing setting at the provider, which OMPdesk can't see or change.",
+
 	// Settings › Models & providers: account rotation (providers/RotationModeControl.tsx)
 	"providers.rotation.label": "Account rotation",
 	"providers.rotation.quota": "Quota-based",
@@ -4405,6 +4410,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.outputStyle": "Reply style",
 	"bridgeHealth.feature.userProfile": "Profile (name, experience)",
 	"bridgeHealth.feature.accountRotation": "Even account rotation",
+	"bridgeHealth.feature.creditSpend": "Credit use off (a spent plan doesn't run on credits)",
 	"bridgeHealth.feature.thinkingDefault": "Auto thinking by default",
 	"bridgeHealth.feature.delegation": "Delegation strength",
 	"bridgeHealth.feature.mcp": "MCP servers",

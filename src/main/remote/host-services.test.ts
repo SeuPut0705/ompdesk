@@ -104,6 +104,7 @@ class FakeHostSidecar extends EventEmitter {
 	autoTitleSyncs = 0;
 	judgeAssistSyncs = 0;
 	accountRotationSyncs = 0;
+	creditSpendSyncs = 0;
 	commands: RpcCommand[] = [];
 	readonly rpcClient = {
 		command: async (command: RpcCommand): Promise<RpcResponse> => {
@@ -162,6 +163,9 @@ class FakeHostSidecar extends EventEmitter {
 	}
 	syncAccountRotation(): void {
 		this.accountRotationSyncs++;
+	}
+	syncCreditSpend(): void {
+		this.creditSpendSyncs++;
 	}
 	dispose(): void {
 		this.disposed = true;
@@ -316,6 +320,8 @@ function fakeMachine() {
 		setAccountRotation: vi.fn(
 			async (mode: AccountRotationMode): Promise<AccountRotationState> => ({ mode, evenSupported: true }),
 		),
+		creditSpend: vi.fn(async () => ({ enabled: false })),
+		setCreditSpend: vi.fn(async (enabled: boolean) => ({ enabled })),
 		builtinRea: vi.fn(async () => ({ enabled: true, available: true })),
 		setBuiltinRea: vi.fn(async (enabled: boolean) => ({ enabled, available: true })),
 		localEngineDetect: vi.fn(async () => ({ enabled: true })),
@@ -969,6 +975,17 @@ describe("LocalHostServices", () => {
 		services.syncAccountRotation();
 		expect(sidecars.map(sidecar => sidecar.accountRotationSyncs)).toEqual([1, 1]);
 		expect(local.tab.accountRotationSyncs).toBe(0);
+	});
+
+	it("pushes this machine's credit-use switch to every tab it hosts, leaving the local pool to its own fan-out", async () => {
+		const { services, sidecars, local } = setup();
+		const x = new FakeConnection(peer("device-x"));
+		const y = new FakeConnection(peer("device-y"));
+		await services.call(x.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, x);
+		await services.call(y.peer, "tab.open", { rtab: "t1", cwd: workDir, fresh: true }, y);
+		services.syncCreditSpend();
+		expect(sidecars.map(sidecar => sidecar.creditSpendSyncs)).toEqual([1, 1]);
+		expect(local.tab.creditSpendSyncs).toBe(0);
 	});
 
 	it("renames a session through this machine's own live tab; a delete closes that tab when idle and refuses only while it runs a turn", async () => {

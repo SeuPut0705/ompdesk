@@ -4359,6 +4359,11 @@ export const ko: Record<string, string> = {
 	"sidecar.project": "프로젝트: {cwd}",
 	"sidecar.restart": "다시 시작",
 
+	// Settings › Models & accounts: credit use (providers/CreditSpendRow.tsx)
+	"providers.creditSpend.label": "크레딧 사용",
+	"providers.creditSpend.desc":
+		"끄면 계정의 요금제 한도를 다 쓴 뒤 그 계정을 한도에 걸린 것으로 보고, ChatGPT 크레딧이나 Claude 추가 사용량으로 이어 쓰지 않고 다른 계정이나 대체 모델로 넘어가요. 켜면 omp 기본 동작대로 크레딧과 추가 사용량으로 계속 써요. OMPdesk는 크레딧을 사거나 충전하지 않아요. 프로바이더의 자동충전은 크레딧을 써야만 일어나서 이 설정이 꺼져 있으면 OMPdesk 때문에 일어나지 않고, 켜면 프로바이더의 결제 설정을 따르는데 OMPdesk는 그 설정을 보거나 바꿀 수 없어요.",
+
 	// Settings › Models & providers: account rotation (providers/RotationModeControl.tsx)
 	"providers.rotation.label": "계정 순환",
 	"providers.rotation.quota": "한도 순환",
@@ -4400,6 +4405,7 @@ export const ko: Record<string, string> = {
 	"bridgeHealth.feature.outputStyle": "답변 스타일",
 	"bridgeHealth.feature.userProfile": "프로필(이름, 경험)",
 	"bridgeHealth.feature.accountRotation": "균등 계정 순환",
+	"bridgeHealth.feature.creditSpend": "크레딧 사용 끄기 (한도를 다 쓴 요금제는 크레딧으로 이어 쓰지 않음)",
 	"bridgeHealth.feature.thinkingDefault": "기본 자동 사고 수준",
 	"bridgeHealth.feature.delegation": "위임 강도",
 	"bridgeHealth.feature.mcp": "MCP 서버",

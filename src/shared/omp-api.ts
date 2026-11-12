@@ -33,6 +33,7 @@ import type {
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { CreditSpendState } from "./credit-spend";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
 import type { DiskCareState } from "./disk-care";
 import type { ExtensionUpdateState } from "./extension-update";
@@ -756,6 +757,11 @@ export function createOmpApi(transport: OmpTransport): TransportOmpApi {
 				transport.invoke(IPC_COMMANDS.LOCAL_ENGINES_GET, device) as Promise<LocalEngineDetectState>,
 			set: (enabled: boolean, device?: string) =>
 				transport.invoke(IPC_COMMANDS.LOCAL_ENGINES_SET, enabled, device) as Promise<LocalEngineDetectState>,
+		},
+		creditSpend: {
+			get: (device?: string) => transport.invoke(IPC_COMMANDS.CREDIT_SPEND_GET, device) as Promise<CreditSpendState>,
+			set: (enabled: boolean, device?: string) =>
+				transport.invoke(IPC_COMMANDS.CREDIT_SPEND_SET, enabled, device) as Promise<CreditSpendState>,
 		},
 		hostDesktop: {
 			get: (device?: string) => transport.invoke(IPC_COMMANDS.HOST_DESKTOP_GET, device) as Promise<HostDesktopState>,

@@ -25,6 +25,7 @@ import type {
 } from "./ai-memory";
 import type { BuiltinReaState } from "./builtin-mcp";
 import type { CliToolId, CliUpdateState } from "./cli-update";
+import type { CreditSpendState } from "./credit-spend";
 import type { AgentBrowserStatus, ChromiumBrowserId } from "./default-browser";
 import type { DiagnosticBundleRequest, DiagnosticBundleResult } from "./diagnostic-bundle";
 import type { DiskCareState } from "./disk-care";
@@ -337,6 +338,10 @@ export const IPC_COMMANDS = {
 	LOCAL_ENGINES_GET: "local-engines:get",
 	/** Switch that detection on or off there; it lists or drops the engines' models by itself */
 	LOCAL_ENGINES_SET: "local-engines:set",
+	/** Whether a spent plan on the focused tab's machine may run on credits and extra usage (`CreditSpendState`); `device` absent = this computer */
+	CREDIT_SPEND_GET: "credit-spend:get",
+	/** Switch credit use on or off there; its live sessions follow from their next request */
+	CREDIT_SPEND_SET: "credit-spend:set",
 	/** OMPdesk on the focused tab's machine (HostDesktopState); `device` absent = this computer */
 	HOST_DESKTOP_GET: "host-desktop:get",
 	/** Drive that machine's updater (HostUpdateAction) */
@@ -2549,6 +2554,11 @@ export interface OmpApi {
 	localEngines: {
 		get(device?: string): Promise<LocalEngineDetectState>;
 		set(enabled: boolean, device?: string): Promise<LocalEngineDetectState>;
+	};
+	/** Credit use (credits, extra usage past the plan) of the machine that runs the focused session. */
+	creditSpend: {
+		get(device?: string): Promise<CreditSpendState>;
+		set(enabled: boolean, device?: string): Promise<CreditSpendState>;
 	};
 	/** OMPdesk on a paired host (`device`), or this computer when absent. */
 	hostDesktop: {

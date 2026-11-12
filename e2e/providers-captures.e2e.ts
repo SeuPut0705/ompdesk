@@ -96,6 +96,18 @@ for (const [size, options] of Object.entries(SIZES))
 					animations: "disabled",
 					path: path.join(SHOTS ?? "", `providers-${size}-${lang}.png`),
 				});
+				// Credit use: one switch under account rotation, off by default, switched both ways on the harness.
+				const credit = page.locator("[data-credit-spend]");
+				await expect(credit).toHaveAttribute("data-credit-spend", "off");
+				await credit.scrollIntoViewIfNeeded();
+				await page.locator("#settings-models-rotation").screenshot({
+					animations: "disabled",
+					path: path.join(SHOTS ?? "", `credit-spend-${size}-${lang}.png`),
+				});
+				await credit.locator('[role="switch"]').click();
+				await expect(credit).toHaveAttribute("data-credit-spend", "on");
+				await credit.locator('[role="switch"]').click();
+				await expect(credit).toHaveAttribute("data-credit-spend", "off");
 				// The account that holds two kinds of reset pass: its ticket opens the dialog with one card per kind.
 				await list.locator('[data-provider-account="2"] [data-reset-passes] button').click();
 				const dialog = page.locator('[role="dialog"]');

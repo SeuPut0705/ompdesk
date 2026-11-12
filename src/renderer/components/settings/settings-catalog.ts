@@ -464,6 +464,14 @@ export const GUI_SEARCH_ITEMS: readonly GuiSearchItem[] = [
 		aliases: "accountRotation quota even rotation 계정 순환",
 	},
 	{
+		id: "creditSpend",
+		section: "models",
+		sub: "rotation",
+		rowId: "setting-models-creditSpend",
+		labelKey: "providers.creditSpend.label",
+		aliases: "creditSpend credits extra usage overage auto top-up billing 크레딧 추가 사용량 자동충전 요금",
+	},
+	{
 		id: "reset-passes",
 		section: "models",
 		sub: "reset-passes",

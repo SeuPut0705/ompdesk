@@ -16,6 +16,7 @@ import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-c
 import { parseAccountRotationPref } from "../shared/account-rotation";
 import { agentControlEnabled } from "../shared/agent-control";
 import { reaEnabled, reaExtensionArgs } from "../shared/builtin-mcp";
+import { creditSpendEnabled } from "../shared/credit-spend";
 import { parseDefaultBrowser, resolveAgentBrowser } from "../shared/default-browser";
 import { eccEnabled } from "../shared/ecc";
 import { pstackEnabled } from "../shared/pstack";
@@ -92,6 +93,8 @@ export interface LocalSidecarDeps {
 	accountRotationPref: () => unknown;
 	/** The even-rotation ledger file every omp on this machine shares. */
 	accountRotationLedger: string;
+	/** The stored Settings › Models & accounts credit-use switch (`creditSpend`), read per use. */
+	creditSpendPref?: () => unknown;
 	/** The OMPdesk model-role picks file every omp on this machine shares. */
 	ompdeskRolesFile?: string;
 	/** The stored per-workspace launch profiles (`launchProfiles`), read per spawn. */
@@ -250,6 +253,7 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			},
 			accountRotation: () => parseAccountRotationPref(deps.accountRotationPref()),
 			accountRotationLedger: deps.accountRotationLedger,
+			...(deps.creditSpendPref ? { creditSpend: () => creditSpendEnabled(deps.creditSpendPref?.()) } : {}),
 			...(deps.ompdeskRolesFile ? { ompdeskRolesFile: deps.ompdeskRolesFile } : {}),
 			launchProfiles: deps.launchProfilesPref,
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),

@@ -38,6 +38,7 @@ const FULL: OmpLaunch = {
 		delegation: "swarm",
 		accountRotation: "even",
 		accountRotationLedger: "/ud/rotation.json",
+		creditSpend: false,
 		ompdeskRolesFile: "/ud/roles.json",
 		browser: { kind: "ego" },
 	},
@@ -60,6 +61,12 @@ describe("omp launch", () => {
 			sessionEnv({ ...bare, settings: { delegation: "default", userProfile: { name: "", experience: null } } }),
 		).toEqual({});
 		expect(ompArgs(bare)).toEqual(["--mode", "rpc-ui"]);
+	});
+
+	it("passes the credit-use switch both ways, so an omp never falls back to a default the person did not pick", () => {
+		const bare: OmpLaunch = { open: "default", builtin: { args: [] }, userFlags: [], settings: {} };
+		expect(sessionEnv({ ...bare, settings: { creditSpend: false } })).toEqual({ OMP_GUI_CREDIT_SPEND: "0" });
+		expect(sessionEnv({ ...bare, settings: { creditSpend: true } })).toEqual({ OMP_GUI_CREDIT_SPEND: "1" });
 	});
 
 	it("opens a tab's session by the one rule, for every combination of what the tab knows", () => {

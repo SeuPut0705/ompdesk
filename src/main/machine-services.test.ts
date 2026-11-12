@@ -88,6 +88,10 @@ function localMachine(
 		read: () => undefined,
 		write: () => {},
 	},
+	creditSpend: ConstructorParameters<typeof LocalMachine>[0]["creditSpend"] = {
+		read: () => undefined,
+		write: () => {},
+	},
 ) {
 	return new LocalMachine({
 		stats: { port, fetch },
@@ -96,6 +100,7 @@ function localMachine(
 		benchmarkOmp: async () => ({ ok: false, error: "omp missing" }),
 		benchmarkEnv: async () => ({}),
 		accountRotation,
+		creditSpend,
 		localEngines,
 		modelSetupPick,
 		builtinRea,
@@ -214,6 +219,43 @@ describe("machineFor", () => {
 			statsText,
 		});
 		await expect(garbled.accountRotation()).rejects.toThrow();
+	});
+
+	it("reads and writes a paired host's own credit-use switch and checks the reply", async () => {
+		const host = fakeHost((method, params) =>
+			method === "host.creditSpend.set" && typeof params === "object" && params !== null && "enabled" in params
+				? { enabled: params.enabled }
+				: { enabled: false },
+		);
+		const remote = new RemoteMachine({ request: host.request, device: "host-b", statsText });
+		await expect(remote.creditSpend()).resolves.toEqual({ enabled: false });
+		await expect(remote.setCreditSpend(true)).resolves.toEqual({ enabled: true });
+		expect(host.calls.map(({ method, params }) => ({ method, params }))).toEqual([
+			{ method: "host.creditSpend.get", params: {} },
+			{ method: "host.creditSpend.set", params: { enabled: true } },
+		]);
+		const garbled = new RemoteMachine({
+			request: fakeHost(() => ({ enabled: "yes" })).request,
+			device: "host-b",
+			statsText,
+		});
+		await expect(garbled.creditSpend()).rejects.toThrow();
+	});
+
+	it("reads this computer's credit-use switch as off unless stored on, and stores a change through its deps", async () => {
+		const writes: boolean[] = [];
+		const machine = (value: unknown) =>
+			localMachine(0, "scheduled", undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+				read: () => value,
+				write: enabled => writes.push(enabled),
+			});
+		for (const value of [undefined, null, "true", 1, false]) {
+			await expect(machine(value).creditSpend()).resolves.toEqual({ enabled: false });
+		}
+		await expect(machine(true).creditSpend()).resolves.toEqual({ enabled: true });
+		await machine(undefined).setCreditSpend(true);
+		expect(writes).toEqual([true]);
+		await expect(machine(undefined).setCreditSpend("yes" as unknown as boolean)).rejects.toThrow(/credit use/);
 	});
 
 	it("routes built-in REA to the paired host and validates its reply", async () => {

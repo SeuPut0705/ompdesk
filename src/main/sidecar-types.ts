@@ -74,6 +74,8 @@ export interface SidecarLike extends Pick<EventEmitter, "on" | "off" | "once" | 
 	syncHostTools(): void;
 	/** Push this machine's account-rotation setting to the live omp (the omp's own machine decides). */
 	syncAccountRotation(): void;
+	/** Local sidecars only: push this machine's credit-use switch to the live omp. */
+	syncCreditSpend?(): void;
 	dispose(): void;
 	/** Local sidecars: hold the first spawn at `starting` until `gate` settles (worktree.onStart). */
 	setStartGate?(gate: SidecarStartGate): void;

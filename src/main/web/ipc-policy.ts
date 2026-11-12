@@ -287,6 +287,8 @@ export const IPC_POLICY: Record<IpcChannel, ChannelPolicy> = {
 	[C.BUILTIN_REA_SET]: { dir: "invoke", permission: "settings-write", mode: "pass" },
 	[C.LOCAL_ENGINES_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
 	[C.LOCAL_ENGINES_SET]: { dir: "invoke", permission: "settings-write", mode: "pass" },
+	[C.CREDIT_SPEND_GET]: { dir: "invoke", permission: "workspace", mode: "pass" },
+	[C.CREDIT_SPEND_SET]: { dir: "invoke", permission: "accounts-admin", mode: "pass" },
 
 	// The tab's project and files.
 	[C.SIDECAR_RESTART]: { dir: "invoke", permission: "workspace", mode: "pass" },

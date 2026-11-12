@@ -508,6 +508,7 @@ const ModelSetupRunParams = z.object({ request: ModelSetupRequestSchema });
 const AccountRotationSetParams = z.object({ mode: z.enum(ACCOUNT_ROTATION_MODES) });
 const BuiltinReaSetParams = z.object({ enabled: z.boolean() });
 const LocalEnginesSetParams = z.object({ enabled: z.boolean() });
+const CreditSpendSetParams = z.object({ enabled: z.boolean() });
 const TerminalParams = z.object({ rtab: Rtab, operation: z.object({ action: z.string() }).passthrough() });
 const DesktopUpdateParams = z.object({ action: z.enum(HOST_UPDATE_ACTIONS) });
 /** A session's worktree binding (`IpcTabWorktree`), as the device's agent names it for `host.git.*`. */
@@ -1338,6 +1339,10 @@ export class LocalHostServices implements HostServices {
 				return this.#deps.machine.accountRotation();
 			case "host.accountRotation.set":
 				return this.#deps.machine.setAccountRotation(parse(AccountRotationSetParams, method, params).mode);
+			case "host.creditSpend.get":
+				return this.#deps.machine.creditSpend();
+			case "host.creditSpend.set":
+				return this.#deps.machine.setCreditSpend(parse(CreditSpendSetParams, method, params).enabled);
 			case "host.builtinRea.get":
 				return this.#deps.machine.builtinRea();
 			case "host.builtinRea.set":
@@ -1552,6 +1557,11 @@ export class LocalHostServices implements HostServices {
 	/** This machine's account-rotation setting changed: the tabs it runs for paired devices follow it. */
 	syncAccountRotation(): void {
 		for (const tab of this.#tabs.values()) tab.sidecar.syncAccountRotation();
+	}
+
+	/** This machine's credit-use switch changed: the tabs it runs for paired devices follow it. */
+	syncCreditSpend(): void {
+		for (const tab of this.#tabs.values()) tab.sidecar.syncCreditSpend?.();
 	}
 
 	/** Memory for a device that may still use this computer; a revoked or blocked one is refused. */

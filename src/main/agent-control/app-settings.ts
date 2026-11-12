@@ -376,6 +376,7 @@ export const ROW_NOT_WRITTEN: Readonly<Record<string, RowDecision>> = {
 	remote: { covered: "remote.connect" },
 	mobileWeb: { covered: "mobile_web.set_enabled" },
 	hostAppearance: { never: "a paired host's look; the person's own choice" },
+	creditSpend: { never: "running an account on paid credits or extra usage spends the person's money" },
 	accounts: { covered: "accounts.provider_sign_in" },
 	custom: { never: "custom providers set endpoints and credentials" },
 	modelOverrides: { never: "model overrides change limits and wire behavior of providers" },

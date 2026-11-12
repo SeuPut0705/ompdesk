@@ -334,6 +334,11 @@ export interface SidecarOptions {
 	accountRotation?: () => AccountRotationMode;
 	/** The even-rotation ledger every local omp shares (`OMP_GUI_ACCOUNT_ROTATION_STATE`). */
 	accountRotationLedger?: string;
+	/**
+	 * Settings › Models & accounts › Credit use (prefs `creditSpend`, default off), passed as `OMP_GUI_CREDIT_SPEND` on
+	 * every spawn and pushed by `syncCreditSpend()`. Absent: the bridge's default (off).
+	 */
+	creditSpend?: () => boolean;
 	/** The OMPdesk model-role picks every local omp shares (`OMP_GUI_OMPDESK_ROLES`, ompdesk-role-contracts.ts). */
 	ompdeskRolesFile?: string;
 	/**
@@ -632,6 +637,7 @@ export class SidecarManager extends EventEmitter {
 			delegation: options.delegation?.(),
 			accountRotation: options.accountRotation?.(),
 			accountRotationLedger: options.accountRotationLedger,
+			creditSpend: options.creditSpend?.(),
 			ompdeskRolesFile: options.ompdeskRolesFile,
 			browser: this.#defaultBrowser,
 		};
@@ -1036,6 +1042,7 @@ export class SidecarManager extends EventEmitter {
 							this.syncAutoTitle();
 							this.syncJudgeAssist();
 							this.syncAccountRotation();
+							this.syncCreditSpend();
 							void bridge.request("stream_metadata.start").catch(error => {
 								// An omp that ended or restarted meanwhile closed its bridge: nothing is missing.
 								if (this.#isLive(generation))
@@ -1385,6 +1392,12 @@ export class SidecarManager extends EventEmitter {
 	syncAccountRotation(): void {
 		const mode = this.#options.accountRotation?.();
 		if (mode) void this.#bridge?.request("account_rotation_set", { mode }).catch(() => {});
+	}
+
+	/** Push the credit-use switch to this omp (gui-bridge `credit_spend_set`); its next request follows. */
+	syncCreditSpend(): void {
+		const enabled = this.#options.creditSpend?.();
+		if (enabled !== undefined) void this.#bridge?.request("credit_spend_set", { enabled }).catch(() => {});
 	}
 
 	/** Send a side-channel frame (bypasses command queue). */

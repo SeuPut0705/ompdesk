@@ -781,6 +781,11 @@ export class RemoteDevices {
 		this.#deps.services.syncAccountRotation();
 	}
 
+	/** This machine's credit-use switch changed: tabs it hosts for devices follow it. */
+	hostCreditSpendChanged(): void {
+		this.#deps.services.syncCreditSpend();
+	}
+
 	#quotaChanged(): void {
 		if (this.#quotaTimer || this.#disposed) return;
 		this.#quotaTimer = setTimeout(() => {

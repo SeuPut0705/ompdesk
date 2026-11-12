@@ -16,6 +16,7 @@ import {
 	parseAccountRotationPref,
 } from "../shared/account-rotation";
 import type { BuiltinReaState } from "../shared/builtin-mcp";
+import { type CreditSpendState, creditSpendEnabled } from "../shared/credit-spend";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -50,6 +51,7 @@ import type { OmpUpdater } from "./omp-updater";
 import {
 	AccountRotationStateSchema,
 	BuiltinReaStateSchema,
+	CreditSpendStateSchema,
 	HOST_STATS_TIMEOUT_MS,
 	HostDesktopStateSchema,
 	LINK_SLACK_MS,
@@ -92,6 +94,10 @@ export interface MachineServices {
 	accountRotation(): Promise<AccountRotationState>;
 	/** Store the mode; every session this machine runs follows from its next prompt. */
 	setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState>;
+	/** prefs `creditSpend` of this machine: whether a spent plan may run on credits and extra usage. */
+	creditSpend(): Promise<CreditSpendState>;
+	/** Store the switch; every omp this machine runs follows from its next request. */
+	setCreditSpend(enabled: boolean): Promise<CreditSpendState>;
 	builtinRea(): Promise<BuiltinReaState>;
 	setBuiltinRea(enabled: boolean): Promise<BuiltinReaState>;
 	/** Whether that machine looks for local inference engines (FreeToken, colibri) and lists their models by itself. */
@@ -164,6 +170,12 @@ export interface LocalMachineDeps {
 	benchmarkOmp: () => Promise<OmpResolution>;
 	benchmarkEnv: () => Promise<NodeJS.ProcessEnv>;
 	accountRotation: AccountRotationDeps;
+	creditSpend: {
+		/** The stored pref `CREDIT_SPEND_PREF`, unparsed. */
+		read(): unknown;
+		/** Store the pref and push it to every live omp this machine runs (its own tabs and the ones it hosts). */
+		write(enabled: boolean): void;
+	};
 	localEngines: {
 		/** The stored pref `LOCAL_ENGINE_DETECT_PREF`, unparsed. */
 		read(): unknown;
@@ -336,6 +348,16 @@ export class LocalMachine implements MachineServices {
 		if (!isAccountRotationMode(mode)) throw codedError("invalid_preference_key", "Invalid account rotation");
 		this.#deps.accountRotation.write(mode);
 		return this.accountRotation();
+	}
+
+	async creditSpend(): Promise<CreditSpendState> {
+		return { enabled: creditSpendEnabled(this.#deps.creditSpend.read()) };
+	}
+
+	async setCreditSpend(enabled: boolean): Promise<CreditSpendState> {
+		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid credit use preference");
+		this.#deps.creditSpend.write(enabled);
+		return this.creditSpend();
 	}
 
 	async localEngineDetect(): Promise<LocalEngineDetectState> {
@@ -542,6 +564,14 @@ export class RemoteMachine implements MachineServices {
 
 	async setAccountRotation(mode: AccountRotationMode): Promise<AccountRotationState> {
 		return AccountRotationStateSchema.parse(await this.#request<unknown>("host.accountRotation.set", { mode }));
+	}
+
+	async creditSpend(): Promise<CreditSpendState> {
+		return CreditSpendStateSchema.parse(await this.#request<unknown>("host.creditSpend.get", {}));
+	}
+
+	async setCreditSpend(enabled: boolean): Promise<CreditSpendState> {
+		return CreditSpendStateSchema.parse(await this.#request<unknown>("host.creditSpend.set", { enabled }));
 	}
 
 	async builtinRea(): Promise<BuiltinReaState> {

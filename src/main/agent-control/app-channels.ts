@@ -71,6 +71,7 @@ const SESSION_TOOLS = "the ompdesk_session_* tools cover sessions and tabs";
 const OPERATOR = "credentials, pairing, network exposure, installs or machine setup: the person does this in Settings";
 const CREDENTIALS = "reveals a password or opens the person's private data";
 const DENY = "no agent action for this channel; refused by default";
+const SPEND = "whether an account runs on paid credits is the person's money: only they switch it in Settings";
 
 const C = IPC_COMMANDS;
 const E = IPC_EVENTS;
@@ -166,6 +167,8 @@ export const AGENT_CHANNELS: Record<IpcChannel, ChannelRisk> = {
 	[C.BUILTIN_REA_SET]: sensitive("app.undo", hostPrefRow(REA_PREF)),
 	[C.LOCAL_ENGINES_GET]: read("settings.get", hostPrefRow(LOCAL_ENGINE_DETECT_PREF)),
 	[C.LOCAL_ENGINES_SET]: change(settingActionId("localEngines")),
+	[C.CREDIT_SPEND_GET]: never(SPEND),
+	[C.CREDIT_SPEND_SET]: never(SPEND),
 	[C.SIDECAR_RESTART]: never(DENY),
 	[C.SIDECAR_STATUS_GET]: never(DENY),
 	[C.SIDECAR_SELECT_PROJECT]: never(DENY),

@@ -46,6 +46,7 @@ import {
 import { SettingsAdvanced, SettingsSection } from "../SettingsLayout";
 import { AccountPoolsEditor } from "./AccountPoolsEditor";
 import { ProviderGroupItem } from "./ConnectedRow";
+import { CreditSpendRow } from "./CreditSpendRow";
 import { CustomProviderForm } from "./CustomProviderForm";
 import { LocalEnginesRow } from "./LocalEnginesRow";
 import { ModelOverrides } from "./ModelOverrides";
@@ -554,6 +555,7 @@ export function ProvidersSection({
 						id="settings-models-rotation"
 					>
 						<RotationModeControl device={device} />
+						<CreditSpendRow device={device} />
 					</div>
 				)}
 

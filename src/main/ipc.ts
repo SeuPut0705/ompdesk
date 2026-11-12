@@ -39,6 +39,7 @@ import {
 } from "../shared/agent-control";
 import { REA_PREF } from "../shared/builtin-mcp";
 import { COMPUTER_USE_PREF, isComputerUseEngine } from "../shared/computer-use";
+import { CREDIT_SPEND_PREF } from "../shared/credit-spend";
 import {
 	type AgentBrowserStatus,
 	CHROMIUM_BROWSER_IDS,
@@ -2068,6 +2069,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			}
 			return deps.machine.setLocalEngineDetect(payload.value).then(() => prefChanged(caller.win, payload.key));
 		}
+		if (payload.key === CREDIT_SPEND_PREF) {
+			if (typeof payload.value !== "boolean")
+				throw codedError("invalid_preference_key", "Invalid credit use preference");
+			return deps.machine.setCreditSpend(payload.value).then(() => prefChanged(caller.win, payload.key));
+		}
 		// `undefined` clears the key: electron-store rejects set(key, undefined) with
 		// "Use `delete()` to clear values", which broke the one-time prompt-history
 		// migration on every launch and with it loading the composer's ↑ history.
@@ -2315,6 +2321,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			throw codedError("invalid_preference_key", "Invalid local engine detection preference");
 		}
 		return machineFor(caller, device).setLocalEngineDetect(enabled);
+	});
+	ipc.handle(IPC_COMMANDS.CREDIT_SPEND_GET, (caller, device?: unknown) => machineFor(caller, device).creditSpend());
+	ipc.handle(IPC_COMMANDS.CREDIT_SPEND_SET, (caller, enabled: unknown, device?: unknown) => {
+		if (typeof enabled !== "boolean") throw codedError("invalid_preference_key", "Invalid credit use preference");
+		return machineFor(caller, device).setCreditSpend(enabled);
 	});
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_GET, (caller, device?: unknown) => machineFor(caller, device).desktop());
 	ipc.handle(IPC_COMMANDS.HOST_DESKTOP_UPDATE, (caller, action: unknown, device?: unknown) => {
