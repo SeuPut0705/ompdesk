@@ -96,6 +96,7 @@ const AREAS: readonly Area[] = [
 	{ name: "typed-prompts", features: ["typedPrompts"], load: () => import("./typed-prompts") },
 	{ name: "answer-first", features: ["answerFirst"], load: () => import("./answer-first") },
 	{ name: "recent-models", features: ["recentModels"], load: () => import("./recent-models") },
+	{ name: "model-choice", features: ["modelChoice"], load: () => import("./model-choice") },
 	{ name: "input-history", features: ["inputHistory"], load: () => import("./input-history") },
 	{ name: "worktree-lifecycle", features: ["worktreeLifecycle"], load: () => import("./worktree-lifecycle") },
 	{ name: "stream-metadata", features: ["streamMetadata"], load: () => import("./stream-metadata") },

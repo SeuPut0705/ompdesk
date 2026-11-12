@@ -39,7 +39,7 @@ import type { ComposerInputMode } from "../../../lib/input-modes";
 import { actionKbd, composerFollowUpChord, formatShortcut } from "../../../lib/keymap";
 import { useComposerStore } from "../../../stores/composer";
 import { useFirstRunStore } from "../../../stores/first-run";
-import { useModelStore } from "../../../stores/model";
+import { chosenModelOf, useModelStore } from "../../../stores/model";
 import { useSessionStore } from "../../../stores/session";
 import { useSettingsStore } from "../../../stores/settings";
 import { useUiStore } from "../../../stores/ui";
@@ -133,7 +133,10 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 }: ComposerToolbarProps) {
 	const t = useT();
 	const isStreaming = useSessionStore(s => s.isStreaming);
-	const model = useModelStore(s => s.model);
+	/** The person's model, also while a fallback answers in its place: the chip never shows the stand-in as picked. */
+	const model = useModelStore(chosenModelOf);
+	/** The model answering in its place while a fallback runs the session (`chosenModel` set); null otherwise. */
+	const standIn = useModelStore(s => (s.chosenModel ? s.model : null));
 	const settingUp = useFirstRunStore(s => s.phase !== "idle");
 	const openModelPicker = useUiStore(s => s.openModelPicker);
 	/** Agent `stt.enabled` setting: microphone dictation button in the composer. */
@@ -157,6 +160,14 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 		model && !settingUp ? chipModelName({ id: model.provider, name: model.provider }, modelLabel) : modelLabel;
 	const thinking = useThinkingSelector();
 	const chipThinking = thinking === "auto" && supportsThinking ? t("input.thinking.name.auto") : thinkingName;
+	/** Said in the chip's tooltip and name while a fallback answers: the turn runs on it, the person's model stays. */
+	const standInLine =
+		standIn && !settingUp
+			? t(isStreaming ? "input.modelStandIn" : "input.modelStoodIn", {
+					model: standIn.name || standIn.id,
+					chosen: modelLabel,
+				})
+			: null;
 	const slot = sendSlot({
 		recording: dictationPhase === "recording",
 		editingQueued,
@@ -402,7 +413,12 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 						model
 							? settingUp
 								? t("input.modelTooltip", { id: model.id })
-								: t("input.modelTooltipThinking", { name: modelLabel, id: model.id, level: thinkingName })
+								: [
+										t("input.modelTooltipThinking", { name: modelLabel, id: model.id, level: thinkingName }),
+										standInLine,
+									]
+										.filter(Boolean)
+										.join(" · ")
 							: t("input.model")
 					}
 					shortcut={actionKbd("model.select", keymapOverrides)}
@@ -410,17 +426,22 @@ export const ComposerToolbar = memo(function ComposerToolbar({
 					<Button
 						aria-label={
 							model && !settingUp
-								? t("input.modelLabelThinking", { model: modelLabel, level: thinkingName })
+								? [t("input.modelLabelThinking", { model: modelLabel, level: thinkingName }), standInLine]
+										.filter(Boolean)
+										.join(". ")
 								: t("input.modelLabel", { model: modelLabel })
 						}
 						className="omp-composer-chip omp-composer-fold-4 min-w-0 max-w-64"
 						data-model-chip
+						data-model-standin={standInLine ? "" : undefined}
 						icon={
 							model && !settingUp ? (
-								<ProviderMark
-									className="size-(--sc-icon-md)"
-									provider={{ id: model.provider, name: model.provider }}
-								/>
+								<span className="omp-model-mark">
+									<ProviderMark
+										className="size-(--sc-icon-md)"
+										provider={{ id: model.provider, name: model.provider }}
+									/>
+								</span>
 							) : (
 								<Cpu aria-hidden />
 							)

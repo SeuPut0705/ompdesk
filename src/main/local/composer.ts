@@ -12,6 +12,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { BridgeJobItem, BridgeJobRow } from "../../../resources/gui-bridge/jobs-contracts";
 import type {
+	ModelInfo,
 	RpcActiveTool,
 	RpcActiveToolsResult,
 	RpcAsyncJobItem,
@@ -61,13 +62,13 @@ function jobItem(item: BridgeJobItem): RpcAsyncJobItem {
 	};
 }
 
-/** Bridge extras, or undefined when the bridge is down, fails or stalls. */
-async function stateExtras(ctx: LocalCommandContext): Promise<StateExtras | undefined> {
+/** A bridge read for `get_state`, or undefined when the bridge is down, fails or stalls. */
+async function stateRead<T>(ctx: LocalCommandContext, method: string): Promise<T | undefined> {
 	if (!ctx.bridge.connected) return undefined;
 	const stop = new AbortController();
 	const timeout = delay(STATE_EXTRAS_TIMEOUT_MS, undefined, { signal: stop.signal }).catch(() => undefined);
 	try {
-		return await Promise.race([ctx.bridge.request<StateExtras>("composer.state").catch(() => undefined), timeout]);
+		return await Promise.race([ctx.bridge.request<T>(method).catch(() => undefined), timeout]);
 	} finally {
 		stop.abort();
 	}
@@ -121,10 +122,12 @@ function briefState(state: RpcSessionState): RpcSessionState {
 
 export const handlers: Record<string, LocalHandler> = {
 	get_state: async (command, ctx) => {
-		const [whole, levels, extras] = await Promise.all([
+		const [whole, levels, extras, choice] = await Promise.all([
 			ctx.send<RpcSessionState>({ type: "get_state" }),
 			ctx.send<{ levels?: string[] }>({ type: "get_available_thinking_levels" }).catch(() => undefined),
-			stateExtras(ctx),
+			stateRead<StateExtras>(ctx, "composer.state"),
+			// The person's model while a fallback answers (bridge model-choice.ts): what the composer shows as chosen.
+			stateRead<{ chosen: ModelInfo | null }>(ctx, "model_choice"),
 		]);
 		const state = command.brief === true ? briefState(whole) : whole;
 		const result: RpcSessionState = {
@@ -140,6 +143,7 @@ export const handlers: Record<string, LocalHandler> = {
 			ultrafastEnabled: extras?.ultrafastEnabled ?? false,
 		};
 		if (extras?.agentsPausedAt !== undefined) result.agentsPausedAt = extras.agentsPausedAt;
+		if (choice?.chosen) result.chosenModel = choice.chosen;
 		return result;
 	},
 
@@ -303,7 +307,10 @@ export const handlers: Record<string, LocalHandler> = {
 	set_thinking_level: async (command, ctx) => {
 		const level = z.string().min(1).parse(command.level);
 		await ctx.send({ type: "set_thinking_level", level });
-		const [state, extras] = await Promise.all([ctx.send<RpcSessionState>({ type: "get_state" }), stateExtras(ctx)]);
+		const [state, extras] = await Promise.all([
+			ctx.send<RpcSessionState>({ type: "get_state" }),
+			stateRead<StateExtras>(ctx, "composer.state"),
+		]);
 		const result: RpcThinkingLevelState = {
 			thinkingLevel: state.thinkingLevel,
 			thinkingConfigured: extras?.thinkingConfigured ?? (level === "auto" ? "auto" : state.thinkingLevel),

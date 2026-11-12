@@ -399,6 +399,12 @@ export function runRpcUi(): void {
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	};
+	// `OMP_GUI_TEST_STAND_IN=1`: a retry fallback runs the session (stock's live model is GPT-6.1 SOL) while the
+	// person's model stays the fixture's; the bridge's `model_choice` names it until a pick ends the stand-in, as
+	// stock's `setModel` does (e2e/fallback-chip.e2e.ts).
+	let standIn: { provider: string; id: string; name: string } | null =
+		process.env.OMP_GUI_TEST_STAND_IN === "1" ? { provider: model.provider, id: model.id, name: model.name } : null;
+	if (standIn) Object.assign(model, { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT-6.1 SOL" });
 	const lanes: Record<"steering" | "followUp", string[]> = { steering: [], followUp: [] };
 	let isStreaming = false;
 	/** The thinking selector and effort; `fixture reply actions` turns stock auto on and classifies the turn high. */
@@ -1182,8 +1188,10 @@ export function runRpcUi(): void {
 		: [];
 	const catalogModels = () => {
 		const claude = (modelsData || firstRunSignIn) && anthropicSignedIn ? claudeModels : [];
-		if (!openRouterModels || !apiKeyProviders.has("openrouter")) return [model, ...claude, ...fallbackModels];
-		return [model, ...claude, ...routerModels, ...(claude.length > 0 ? [discoveredClaude] : [])];
+		// While a fallback stands in, the person's own model is still one the picker lists.
+		const own = standIn ? [{ ...model, ...standIn }, model] : [model];
+		if (!openRouterModels || !apiKeyProviders.has("openrouter")) return [...own, ...claude, ...fallbackModels];
+		return [...own, ...claude, ...routerModels, ...(claude.length > 0 ? [discoveredClaude] : [])];
 	};
 	const accountQuota: Record<
 		number,
@@ -1836,6 +1844,7 @@ export function runRpcUi(): void {
 			write({ type: "token_rate", rate: 64 });
 			return null;
 		},
+		model_choice: () => ({ chosen: standIn }),
 		"composer.state": () => ({
 			cwd: process.cwd(),
 			autoRetryEnabled: true,
@@ -2749,7 +2758,10 @@ export function runRpcUi(): void {
 		model_roles: () => ({
 			roles: ROLE_META.map(meta => ({
 				...meta,
-				source: "default",
+				// A fallback stands in for the model the person saved as their default (`OMP_GUI_TEST_STAND_IN`).
+				...(standIn && meta.id === "default"
+					? { model: `${standIn.provider}/${standIn.id}`, source: "global" }
+					: { source: "default" }),
 				candidates: [{ provider: "fixture", id: "local-fixture", name: "Local fixture", kind: "chat" }],
 			})),
 		}),
@@ -5609,13 +5621,19 @@ T_{\\text{请求}} = T_{\\text{排队等待}} + T_{\\text{网络传输}} + T_{\\
 				model.id = model.id === "local-fixture" ? "local-fixture-alt" : "local-fixture";
 				ok({ model, thinkingLevel: "medium", isScoped: false });
 				break;
-			case "set_model":
+			case "set_model": {
+				const ended = standIn;
+				standIn = null;
+				if (ended) Object.assign(model, ended);
 				Object.assign(
 					model,
 					catalogModels().find(entry => entry.id === text("modelId")) ?? { id: text("modelId") },
 				);
 				ok(model);
+				// Stock announces the switch away from a stand-in; every view of the tab reads its state again.
+				if (ended) write({ type: "model_changed" });
 				break;
+			}
 			case "get_entries": {
 				const leafId = activeLeafId;
 				if (command.since === undefined) {

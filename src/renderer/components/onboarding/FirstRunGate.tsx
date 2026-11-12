@@ -12,7 +12,7 @@ import { useT } from "../../lib/i18n";
 import { useTabRpc } from "../../lib/tab-rpc";
 import { FIRST_RUN_STEP_PREF, isResumableFirstRunStep, useFirstRunStore } from "../../stores/first-run";
 import { useMachineSetupStore } from "../../stores/machine-setup";
-import { useModelStore } from "../../stores/model";
+import { chosenModelOf, useModelStore } from "../../stores/model";
 import { focusedTabDevice } from "../../stores/remote";
 import { useSessionStore } from "../../stores/session";
 import { useTabsStore } from "../../stores/tabs";
@@ -117,7 +117,7 @@ export function FirstRunGate() {
 					providers,
 					configs,
 					models: catalogResult.value.models,
-					current: useModelStore.getState().model,
+					current: chosenModelOf(useModelStore.getState()),
 				});
 				if (outcome.kind === "switched" && outcome.from) {
 					toast({

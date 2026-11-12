@@ -61,6 +61,7 @@ export const FEATURES = {
 	typedPrompts: "Prompts a person typed, told to the omp (memory recall, answering first)",
 	answerFirst: "A person's message that joins a running turn is answered in text before the next tool call",
 	recentModels: "Recent models in the model picker",
+	modelChoice: "The person's model on the composer while a fallback model runs the session",
 	inputHistory: "Shared prompt history",
 	accountPools: "Agent account pools",
 	worktreeLifecycle: "Per-session worktrees (worktree.onStart / onExit)",
@@ -1357,6 +1358,20 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 		modules: {
 			[`${AGENT}/modes/model-browser-source`]: ["createModelBrowserSource()"],
 			[`${AGENT}/session/agent-storage`]: ["AgentStorage.prototype.getModelUsageOrder()"],
+		},
+	},
+	/** model-choice.ts: the session's own model while a retry fallback (or another temporary switch) runs it. */
+	modelChoice: {
+		session: [
+			"model",
+			"modelRegistry",
+			"sessionManager.getLastModelChangeRole()",
+			"sessionManager.getLeafId()",
+			"sessionManager.buildSessionContext()",
+		],
+		modules: {
+			[`${AGENT}/session/session-context`]: ["getRestorableSessionModels()"],
+			[`${AGENT}/config/model-resolver`]: ["resolveSessionModelSelector()"],
 		},
 	},
 	accountPools: {

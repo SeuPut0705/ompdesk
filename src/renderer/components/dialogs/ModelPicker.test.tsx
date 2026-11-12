@@ -3,7 +3,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelInfo } from "../../../shared/rpc-types";
-import { I18nProvider } from "../../lib/i18n";
+import { I18nProvider, translate } from "../../lib/i18n";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -94,6 +94,18 @@ afterEach(async () => {
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useUiStore.setState({ modelPickerOpen: false });
+});
+
+describe("ModelPicker while a fallback answers", () => {
+	it("checks the person's model, never the stand-in that answers", async () => {
+		useModelStore.setState({ model: MODELS[1], chosenModel: MODELS[0] });
+		await mount();
+		const checked = Array.from(document.querySelectorAll('[data-model-group] [role="option"]'))
+			.filter(option => option.querySelector(`[aria-label="${translate("modelPicker.current")}"]`))
+			.map(option => String(option.textContent));
+		expect(checked.length).toBeGreaterThan(0);
+		expect(checked.every(text => text.includes("Claude") && !text.includes("GPT-5"))).toBe(true);
+	});
 });
 
 describe("ModelPicker Recent group", () => {

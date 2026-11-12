@@ -3768,6 +3768,25 @@ html[data-input="touch"] [data-update-notice] {
 	min-width: 0;
 }
 
+/* While a fallback model answers in place of the person's (`data-model-standin`), a small dot sits on the chip's mark.
+   Decorative and absolutely placed: it moves nothing; the chip's tooltip and name say it in words. */
+.omp-model-mark {
+	position: relative;
+	display: inline-flex;
+}
+
+.omp-composer-chip[data-model-standin] .omp-model-mark::after {
+	content: "";
+	position: absolute;
+	top: -2px;
+	right: -2px;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--sc-radius-full);
+	background: var(--sc-warning);
+	pointer-events: none;
+}
+
 .omp-composer-model-label,
 .omp-composer-chip .omp-composer-control-label {
 	min-width: 0;

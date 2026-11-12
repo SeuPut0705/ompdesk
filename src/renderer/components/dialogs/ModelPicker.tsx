@@ -29,7 +29,7 @@ import { isImeKeyEvent } from "../../lib/ime";
 import { listboxTarget } from "../../lib/listbox-nav";
 import { runManualMaintenance } from "../../lib/messages";
 import { useTabRpc } from "../../lib/tab-rpc";
-import { useModelStore } from "../../stores/model";
+import { chosenModelOf, useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useRuntimeTabId } from "../../stores/session-runtime-context";
 import { toast, toastError } from "../../stores/toast";
@@ -75,7 +75,8 @@ export function ModelPicker() {
 	const openProviders = useUiStore(state => state.openProviders);
 	const availableModels = useModelStore(state => state.availableModels);
 	const catalogProviders = useModelStore(state => state.providers);
-	const current = useModelStore(state => state.model);
+	// The person's model is checked, also while a fallback answers in its place.
+	const current = useModelStore(chosenModelOf);
 	const supportsThinking = useModelStore(state => state.availableThinkingLevels.length > 0);
 	const refreshAvailableModels = useModelStore(state => state.refreshAvailableModels);
 	// Live session usage: models whose window is smaller render with an
@@ -317,7 +318,7 @@ export function ModelPicker() {
 			// the switch that emits no model_changed at all — re-picking the current
 			// model is a server-side no-op, so the event channel can never heal a
 			// stale label.
-			if (tabId) applyModelInfo(response.data, tabId);
+			if (tabId) applyModelInfo(response.data, tabId, { picked: true });
 			// Compaction rewrote the transcript — rehydrate so the chat and the
 			// context bar reflect the compacted session, not just the new model.
 			if (overContext) await hydrateSession();

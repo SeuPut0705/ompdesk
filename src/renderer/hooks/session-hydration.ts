@@ -222,12 +222,14 @@ function asModelInfo(value: unknown): ModelInfo | undefined {
  * `config_update` frames both carry the sidecar's live model. This is the only
  * channel for a switch that emits no `model_changed` at all — re-selecting the
  * current provider+id is a no-op server-side, so without it a stale label can
- * never be corrected.
+ * never be corrected. A pick (`picked`) is the person's choice too: stock's `set_model` ends a fallback's stand-in.
  */
-export function applyModelInfo(model: unknown, tabId: string | null): void {
+export function applyModelInfo(model: unknown, tabId: string | null, options?: { picked: true }): void {
 	const info = asModelInfo(model);
 	if (!info || !tabId) return;
-	withSessionRuntime(tabId, () => useModelStore.setState({ model: info }));
+	withSessionRuntime(tabId, () =>
+		useModelStore.setState(options?.picked ? { model: info, chosenModel: null } : { model: info }),
+	);
 }
 
 type HydrationGuard = () => boolean;

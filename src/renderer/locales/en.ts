@@ -820,6 +820,8 @@ export const en: Record<string, string> = {
 	"input.more.interruptImmediateDesc":
 		"Interrupt running tools as soon as a steer arrives, instead of waiting for them.",
 	"input.modelLabelThinking": "Model: {model}, thinking {level}. Change model",
+	"input.modelStandIn": "This turn runs on {model} in place of {chosen}",
+	"input.modelStoodIn": "The last turn ran on {model} in place of {chosen}",
 	"input.runChip.chords": "Plan {plan} · Cycle thinking {thinking}",
 	"input.send.tipSteer": "Steer now · {chord} queues for after",
 	"input.send.tipFollowUp": "Queue for after the turn",
@@ -4431,6 +4433,7 @@ export const en: Record<string, string> = {
 	"bridgeHealth.feature.typedPrompts": "Prompts a person typed, told to the agent",
 	"bridgeHealth.feature.answerFirst": "A message sent into a running turn is answered first",
 	"bridgeHealth.feature.recentModels": "Recent models in the model picker",
+	"bridgeHealth.feature.modelChoice": "Your model stays on the composer while a fallback model answers",
 	"bridgeHealth.feature.inputHistory": "Shared prompt history",
 	"bridgeHealth.feature.accountPools": "Agent account pools",
 	"bridgeHealth.feature.worktreeLifecycle": "Per-session worktrees",

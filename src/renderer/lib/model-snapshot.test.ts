@@ -74,4 +74,14 @@ describe("model snapshot", () => {
 		expect(shown.getState().availableModels.map(m => m.id)).toEqual(["z"]);
 		expect(shown.getState().model?.id).toBe("z");
 	});
+
+	it("keeps the person's model, not a fallback that answers, for the session's next first frame", () => {
+		const live = createModelStore();
+		live.setState({ availableModels: [model("a"), model("b")], model: model("b"), chosenModel: model("a") });
+		writeModelSnapshot(undefined, "path:/s", live.getState());
+		const next = createModelStore();
+		seedModelStore(next, undefined, "path:/s");
+		expect(next.getState().model?.id).toBe("a");
+		expect(next.getState().chosenModel).toBeNull();
+	});
 });

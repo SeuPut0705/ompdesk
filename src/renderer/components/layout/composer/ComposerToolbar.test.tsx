@@ -303,6 +303,32 @@ describe("model chip", () => {
 		expect(tip).toContain("Claude Sonnet 5.5");
 		expect(tip).toContain(resolved);
 	});
+
+	it("keeps the person's model while a fallback answers, and says the turn runs on the stand-in", async () => {
+		const fable = { provider: "anthropic", id: "claude-fable-5-2", name: "Claude Fable 5.2" };
+		const sol = { provider: "openai-codex", id: "gpt-6.1-sol", name: "GPT-6.1 SOL" };
+		// What main's get_state reports while stock runs the stand-in: `model` answers, `chosenModel` is the pick.
+		useModelStore.setState({ model: sol, chosenModel: fable, availableThinkingLevels: [] });
+		useSessionStore.setState({ isStreaming: true });
+		await render();
+		const chip = () => container.querySelector("button[data-model-chip]") as unknown as HTMLElement;
+		expect(chip().querySelector(".omp-composer-model-label")?.textContent).toBe("Fable 5.2");
+		expect(chip().hasAttribute("data-model-standin")).toBe(true);
+		const runs = translate("input.modelStandIn", { model: "GPT-6.1 SOL", chosen: "Claude Fable 5.2" });
+		expect(chip().getAttribute("aria-label")).toContain(runs);
+		expect(await tooltipOf(chip())).toContain(runs);
+
+		await act(async () => useSessionStore.setState({ isStreaming: false }));
+		expect(chip().getAttribute("aria-label")).toContain(
+			translate("input.modelStoodIn", { model: "GPT-6.1 SOL", chosen: "Claude Fable 5.2" }),
+		);
+
+		// Stock went back to the person's model: the mark and the sentence go, the name stays.
+		await act(async () => useModelStore.setState({ model: fable, chosenModel: null }));
+		expect(chip().hasAttribute("data-model-standin")).toBe(false);
+		expect(chip().querySelector(".omp-composer-model-label")?.textContent).toBe("Fable 5.2");
+		expect(chip().getAttribute("aria-label")).not.toContain("GPT-6.1 SOL");
+	});
 });
 
 describe("tooltips with chords", () => {

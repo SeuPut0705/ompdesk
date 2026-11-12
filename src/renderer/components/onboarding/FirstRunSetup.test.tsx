@@ -175,6 +175,21 @@ describe("FirstRunGate", () => {
 		expect(rpc.setModelRole).not.toHaveBeenCalled();
 	});
 
+	it("pins the person's model, never a fallback that answers for it, when no default is saved", async () => {
+		const sonnet: ModelInfo = {
+			provider: "acme",
+			id: "acme-sonnet-5",
+			name: "Acme Sonnet 5",
+			contextWindow: 200_000,
+		};
+		catalog = { ...catalog, providers: [acme], models: [opus, sonnet] };
+		useModelStore.setState({ model: sonnet, chosenModel: opus });
+		useSessionStore.getState().setStatus("ready", "/tmp/project");
+		await mount(<FirstRunGate />);
+		expect(rpc.setModel).not.toHaveBeenCalled();
+		expect(rpc.setModelRole).toHaveBeenCalledWith("default", "acme/acme-opus-5");
+	});
+
 	it("shows the provider step from static rows while a just-installed omp starts, then the live list", async () => {
 		catalog = { ...catalog, providers: [apple, anthropic], models: [onDevice] };
 		useMachineSetupStore.setState({ ompInstalled: true, takeover: false });

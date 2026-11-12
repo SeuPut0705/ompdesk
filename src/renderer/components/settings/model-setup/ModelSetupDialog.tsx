@@ -22,7 +22,7 @@ import { cx, formatUsd } from "../../../lib/format";
 import { useLang, useT } from "../../../lib/i18n";
 import { openExternal } from "../../../lib/open-external";
 import { useTabRpc } from "../../../lib/tab-rpc";
-import { useModelStore } from "../../../stores/model";
+import { chosenModelOf, useModelStore } from "../../../stores/model";
 import { useFocusedTabDevice } from "../../../stores/remote";
 import { useSessionStore } from "../../../stores/session";
 import { toast } from "../../../stores/toast";
@@ -96,7 +96,7 @@ export function ModelSetupDialog() {
 	const device = useFocusedTabDevice();
 	const runDevice = useRef<string | undefined>(undefined);
 	const sidecarReady = useSessionStore(state => state.status) === "ready";
-	const activeModel = useModelStore(state => state.model);
+	const activeModel = useModelStore(chosenModelOf);
 	const providers = useModelStore(state => state.providers);
 	const reports = useUsageReports();
 

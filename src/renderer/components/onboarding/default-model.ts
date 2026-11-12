@@ -35,7 +35,7 @@ export async function readDefaultModelRole(tabRpc: TabRpc): Promise<string | nul
 export async function applyDefaultModel(tabRpc: TabRpc, tabId: string | null, model: ModelInfo): Promise<void> {
 	const switched = await tabRpc.setModel(model.provider, model.id);
 	if (!switched.success) throw new Error(switched.error ?? "set_model failed");
-	applyModelInfo(switched.data, tabId);
+	applyModelInfo(switched.data, tabId, { picked: true });
 	await persistDefaultModel(tabRpc, model);
 }
 

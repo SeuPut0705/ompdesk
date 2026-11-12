@@ -93,6 +93,21 @@ describe("get_state", () => {
 		const state = await handlers.get_state({ type: "get_state" }, fakeContext({ bridge: {} }));
 		expect(state).toMatchObject({ cwd: "/spawn", agentsPaused: false });
 	});
+
+	it("names the person's model beside stock's while a fallback answers, and nothing otherwise", async () => {
+		const fable = { provider: "anthropic", id: "claude-fable-5-2", name: "Claude Fable 5.2" };
+		const running = { ...STOCK_STATE, model: { provider: "openai-codex", id: "gpt-6.1-sol" } };
+		const during = await handlers.get_state(
+			{ type: "get_state" },
+			fakeContext({ stock: { get_state: running }, bridge: { model_choice: { chosen: fable } } }),
+		);
+		expect(during).toMatchObject({ model: running.model, chosenModel: fable });
+		const own = await handlers.get_state(
+			{ type: "get_state" },
+			fakeContext({ stock: { get_state: running }, bridge: { model_choice: { chosen: null } } }),
+		);
+		expect(own).not.toHaveProperty("chosenModel");
+	});
 });
 
 describe("stock composer authority", () => {

@@ -5,7 +5,7 @@
  * catalog generation is never restored, so a live read always wins the generation check.
  */
 import type { ModelInfo, ProviderInfo } from "../../shared/rpc-types";
-import type { ModelSelection, ModelStore } from "../stores/model";
+import { chosenModelOf, type ModelSelection, type ModelStore } from "../stores/model";
 import { snapshotNs, snapshots } from "./snapshot-cache";
 
 export const MODEL_WRITE_DELAY_MS = 1500;
@@ -61,6 +61,8 @@ export function writeModelSnapshot(device: string | undefined, sessionKey: strin
 	if (sessionKey && state.model) {
 		const selection: Partial<ModelSelection> = {};
 		for (const field of SELECTION_FIELDS) Object.assign(selection, { [field]: state[field] });
+		// A fallback that answers is never what the session reopens on: the next first frame names the person's model.
+		selection.model = chosenModelOf(state);
 		snapshots().write("models", ns, selectionKey(sessionKey), selection);
 	}
 }

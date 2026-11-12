@@ -15,6 +15,11 @@ import { toastError } from "./toast";
 
 export interface ModelStore {
 	model: ModelInfo | null;
+	/**
+	 * The person's model while stock runs the session on a stand-in (a retry fallback; `get_state.chosenModel`): what
+	 * the composer shows as chosen and every restart starts on. Null while `model`, the one answering, is their own.
+	 */
+	chosenModel: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
 	/** Configured selector ("auto" or a level) — what the composer picker checks, vs the effective `thinkingLevel`. */
 	thinkingConfigured: ThinkingLevel | "auto" | undefined;
@@ -66,6 +71,7 @@ export interface ModelStore {
 /** What the composer's model chip, thinking control and fast-mode switch read. */
 const SELECTION_KEYS = [
 	"model",
+	"chosenModel",
 	"thinkingLevel",
 	"thinkingConfigured",
 	"availableThinkingLevels",
@@ -84,6 +90,7 @@ export type ModelSelection = Pick<ModelStore, (typeof SELECTION_KEYS)[number]>;
 export function snapshotModelSelection(state: RpcSessionState): ModelSelection {
 	return {
 		model: state.model ?? null,
+		chosenModel: state.chosenModel ?? null,
 		thinkingLevel: state.thinkingLevel,
 		thinkingConfigured: state.thinkingConfigured,
 		availableThinkingLevels: state.availableThinkingLevels ?? [],
@@ -95,6 +102,11 @@ export function snapshotModelSelection(state: RpcSessionState): ModelSelection {
 		slowModeEnabled: state.slowModeEnabled ?? false,
 		slowModeScope: state.slowModeScope,
 	};
+}
+
+/** The model the person chose for the session: the one a fallback stands in for, else the one answering. */
+export function chosenModelOf(state: Pick<ModelStore, "model" | "chosenModel">): ModelInfo | null {
+	return state.chosenModel ?? state.model;
 }
 
 /** True when nothing wrote the selection between two reads of one store. */
@@ -114,6 +126,7 @@ interface CatalogSnapshot {
 
 const initialState = {
 	model: null as ModelInfo | null,
+	chosenModel: null as ModelInfo | null,
 	thinkingLevel: undefined as ThinkingLevel | undefined,
 	thinkingConfigured: undefined as ThinkingLevel | "auto" | undefined,
 	thinkingAutoResolved: undefined as ThinkingLevel | undefined,

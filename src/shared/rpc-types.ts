@@ -1618,6 +1618,12 @@ export interface ModelInfo {
 
 export interface RpcSessionState {
 	model?: ModelInfo | null;
+	/**
+	 * OMPdesk's own: the person's model while stock runs the session on a stand-in (a retry fallback), read by the
+	 * bridge from the session's journal (`model_choice`). The composer shows it as the chosen model and every restart
+	 * starts on it; `model` stays the model that answers. Absent while `model` is the person's own.
+	 */
+	chosenModel?: ModelInfo | null;
 	thinkingLevel: ThinkingLevel | undefined;
 	/** Configured selector: "auto" while auto mode is active, else the effective level. */
 	thinkingConfigured?: ThinkingLevel | "auto";
