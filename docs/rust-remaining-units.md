@@ -299,7 +299,7 @@ The owner's call: the units above move in batches, one session per batch, checke
 | **P Shell prototype** | the three candidates of the ledger against its pass list, the Electron-to-new-shell update included | nothing: runs beside B1 and B2 (12 Nov 2026 19:4x) | B1, B2, W1, H1 |
 | **W1 Web, cut over** | 8b, 8d, 8e | B2 | P, H1 |
 | **H1 Hubs: entry and omp** | 9a, 9b, 9c | landed 12 Nov 2026 after P passed on Windows (macOS pending) | P, W1 |
-| **H2 Hubs: pool and resume** | 9d, 9e, 9f | H1 | none (shares `ipc.ts`/`index.ts` wiring) |
+| **H2 Hubs: pool and resume** | 9d, 9e, 9f, built on the hub (main calls the core synchronously; ledger › H2's base) instead of §1.2's snapshots or mirrors: the pool's same-tick callers stay unchanged | H1 | none (shares `ipc.ts`/`index.ts` wiring) |
 | **H3 Hubs: agent control** | 9g, 9h, 9i, 9j, 9k | H2; built now on branch `omp/agent/rust-batch-agent-control` (stacked on H2), lands after H2 | H4a, W2 |
 | **H4a App control** | 9l (two units) | H2; built now on the same branch as H3, lands after H2 | H3 |
 | **H4b Autopilot** | 9m, 9n | H3; built now on the same branch, lands after H3 and H4a as its own batch | W2 |
