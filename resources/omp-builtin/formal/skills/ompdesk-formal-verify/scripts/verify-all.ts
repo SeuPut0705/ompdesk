@@ -11,7 +11,8 @@
 //                   A model's tier is its manifest `tier`; an id ending in `-deep` is `deep` unless it says otherwise.
 //                   `--only <id>` runs that model whatever its tier.
 //                   Inside a fast model, a matrix run with `"tier": "deep"` is skipped by `--tier fast` (and runs with
-//                   `--tier deep` or `--only`), so a model keeps its quick runs in the inner loop.
+//                   `--tier deep`, or with `--only` and no `--tier`), so a model keeps its quick runs in the inner
+//                   loop; `--only <id> --tier fast` runs that model's quick runs alone.
 //   --stamp         after a model passed everything, write the current HEAD into its `syncCommit`. The sha only has
 //                   to hold the covered code: the model files may be uncommitted or not exist at it. Refused while
 //                   the covered code (the covered functions and ranges, not whole files) has uncommitted changes or a
@@ -45,6 +46,8 @@ export interface Args {
 	stamp: boolean;
 	allowDirty: boolean;
 	tier: "fast" | "deep";
+	/** `--tier` was given: with `--only`, it decides the matrix's runs instead of running them all. */
+	tierGiven: boolean;
 	strictDrift: boolean;
 	skipMutations: boolean;
 }
@@ -55,6 +58,7 @@ export function parseArgs(argv: string[]): Args {
 		stamp: false,
 		allowDirty: false,
 		tier: "fast",
+		tierGiven: false,
 		strictDrift: false,
 		skipMutations: false,
 	};
@@ -68,6 +72,7 @@ export function parseArgs(argv: string[]): Args {
 			const tier = argv[++i];
 			if (tier !== "fast" && tier !== "deep") throw new UsageError(`--tier is fast or deep\n${USAGE}`);
 			args.tier = tier;
+			args.tierGiven = true;
 		} else if (arg === "--stamp") args.stamp = true;
 		else if (arg === "--allow-dirty") args.allowDirty = true;
 		else if (arg === "--strict-drift") args.strictDrift = true;
@@ -79,6 +84,11 @@ export function parseArgs(argv: string[]): Args {
 	if (!args.dir) throw new UsageError(USAGE);
 	if (args.allowDirty && !args.stamp) throw new UsageError(`--allow-dirty goes with --stamp\n${USAGE}`);
 	return args;
+}
+
+/** Which of a model's matrix runs to keep: `--only` alone runs them all, an explicit `--tier` always decides. */
+export function matrixTier(args: Pick<Args, "only" | "tier" | "tierGiven">): "fast" | "deep" {
+	return args.only && !args.tierGiven ? "deep" : args.tier;
 }
 
 /** `drift` passes the run (a prompt to look, not a failure) but is never printed as `ok`. */
@@ -163,7 +173,7 @@ async function verifyModel(model: ModelEntry, formalDir: string, codeRoot: strin
 		if (model.matrix) {
 			let plan: MatrixPlan;
 			try {
-				plan = matrixForTier(path.join(dir, model.matrix), args.only ? "deep" : args.tier);
+				plan = matrixForTier(path.join(dir, model.matrix), matrixTier(args));
 			} catch (error) {
 				add("TLC matrix", "fail", error instanceof Error ? error.message : String(error));
 				return result;

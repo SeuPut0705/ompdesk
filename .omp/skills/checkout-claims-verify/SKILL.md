@@ -33,7 +33,7 @@ bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims             
 bunx vitest run src/main/checkout-claims.test.ts                                # the generated sequences
 ```
 
-`--only` includes deep matrix runs even with `--tier fast`; the bundled runner documents this at `resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/verify-all.ts:12-14` and selects it at line 166.
+`--only` alone includes the deep matrix runs; `--only checkout-claims --tier fast` runs its quick runs only (`matrixTier` in the bundled `verify-all.ts`).
 
 - `PASS`, exit 0: no counterexample within the bounds. Not a proof the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. The trace lists each step with its `@code` location.
@@ -57,4 +57,4 @@ Replay the trace against the code, step by step, by its `@code` tags. A step the
 
 ## Moving the sync commit
 
-Only after the checks passed on the committed code: `bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --stamp` (includes deep runs). For fast-tier stamping, run `bun <tools-dir>/scripts/verify-all.ts formal --tier fast --stamp`. If only checkout-claims was reviewed, retain only its change in `formal/manifest.json`; preserve every other model's previous `syncCommit` and `syncDiff`.
+Only after the checks passed on the committed code: `bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --stamp` (includes deep runs; add `--tier fast` to stamp on its quick runs). If only checkout-claims was reviewed, retain only its change in `formal/manifest.json`; preserve every other model's previous `syncCommit` and `syncDiff`.

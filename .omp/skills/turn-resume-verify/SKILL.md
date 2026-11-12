@@ -34,7 +34,7 @@ Sync commit: `bae7e092a2`. This is the commit at which the verification was last
 bun <tools-dir>/scripts/verify-all.ts formal --only turn-resume
 ```
 
-It takes about 30 minutes with the deep run (matrix of 15 runs, 27 mutations, tag check, drift); `--tier fast` skips the deep ones. Read the result like this:
+With `--only` alone it runs the deep runs too: two of them take about 47 minutes each (measured 12 Nov 2026), past an hour in all. Add `--tier fast` (`--only turn-resume --tier fast`) to run the quick runs, mutations, tags and drift in about 40 minutes. Read the result like this:
 - `PASS`, exit 0: no counterexample within the bounds above. It does not mean the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. A violation prints a trace with one row per step: the action, its `@code` location and the variables that changed.
 - `DRIFT:` note under the drift line: covered files differ from the sync commit, so the model needs another look (CI adds `--strict-drift` and fails on it). A sync commit that is not in this repository fails.
