@@ -1,15 +1,14 @@
-import type { ChildProcess } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { type ElectronApplication, _electron as electron } from "playwright";
+import type { ElectronApplication } from "playwright";
 import { assertAppBuilt } from "../scripts/e2e-app-entry";
 import { writeFakeOmp } from "../src/main/test-fake-omp";
 import { withoutGitSelectors } from "../src/shared/git-env";
 import type { SetupItemId } from "../src/shared/setup";
-import { processesBelow, waitForProcessesToExit } from "./process-tree";
+import { exitShellApp, launchShell } from "./fixture/shell-launch";
 
 /**
  * Install the fake omp in `sidecar-fixture.ts` under `dir` for `OMP_GUI_OMP`,
@@ -101,7 +100,7 @@ export interface LaunchOptions {
 }
 
 /**
- * What `launchApp` hands Electron: the built app (`out/main/index.js`) on `project` with its own userData, omp
+ * What `launchApp` hands the shell's launcher (`electron.launch`'s options; `fixture/shell-launch.ts`): the built app (`out/main/index.js`) on `project` with its own userData, omp
  * agent and config dirs, no omp profile, and the fake omp (`fixtureOmp`) unless `env` names `OMP_GUI_OMP`.
  * `ELECTRON_RUN_AS_NODE`, which an Electron-hosted runner exports, never reaches the app.
  */
@@ -138,9 +137,12 @@ export async function appLaunchOptions(
 	};
 }
 
-/** Launch the built app as {@link appLaunchOptions} describes. */
+/**
+ * Launch the built app as {@link appLaunchOptions} describes: `ompdesk-shell` (CEF) running `out/main/index.js` under Node,
+ * connected to as `fixture/shell-launch.ts` says. The result has the surface the specs use of `ElectronApplication`.
+ */
 export async function launchApp(options: LaunchOptions): Promise<ElectronApplication> {
-	return electron.launch(await appLaunchOptions(options));
+	return (await launchShell(await appLaunchOptions(options))) as unknown as ElectronApplication;
 }
 
 /**
@@ -424,67 +426,13 @@ export async function walkRemotePicker(picker: Locator, folder: string): Promise
 	}
 }
 
-/** How long a running main process gets to act on `exitApp` before it is killed. */
-const EXIT_GRACE_MS = 10_000;
-
 /**
- * Exit the app, bypassing the production quit confirmation, and wait until the
- * process is gone so Chromium stops writing the profile before it is removed.
- * The exit is scheduled after `evaluate` returns: exiting inside it races the
- * reply ("Resulting promise was garbage collected") and can mask a test's error.
- * A main process whose thread is stuck never runs the evaluate; it is killed
- * after a grace period, so the test reports its own failure instead of the
- * worker teardown timing out.
- *
- * On Windows a process keeps the folder it works in from being removed, and the launcher exits before the app
- * under it has: main, Chromium's helpers, the omp it started, that omp's MCP servers and the git it ran wind
- * down for another ~0.1 s (measured: the omp and its `npx` chain were alive when `exitApp` returned, and the
- * spec's `fs.rm(profile)` failed `EBUSY` on `project`, 5 of 24 runs of `real-core.e2e.ts`). So the processes
- * below the launcher are listed before the exit and waited for after it; one still running after the grace
- * period is killed.
+ * Exit the app, bypassing the production quit confirmation, and wait until the process tree is gone so Chromium
+ * stops writing the profile before it is removed (`exitShellApp`, `fixture/shell-launch.ts`: main's own
+ * `app.exit(0)`, a stuck main killed after a grace period, on Windows every process the app started waited for).
  */
 export async function exitApp(app: ElectronApplication): Promise<void> {
-	// A killed app (a spec's crash) has closed its Playwright connection: `process()` then throws, and a `finally`
-	// that cleans up after it would replace the test's own error with that one (nightly 39510409009).
-	let child: ChildProcess;
-	try {
-		child = app.process();
-	} catch {
-		return;
-	}
-	if (!child || child.exitCode !== null || child.signalCode !== null) return;
-	const owned = child.pid === undefined ? [] : processesBelow(child.pid);
-	const exited = Promise.withResolvers<void>();
-	child.once("exit", () => exited.resolve());
-	const quit = app.evaluate(({ app }) => {
-		setImmediate(() => app.exit(0));
-	});
-	const stuck = Promise.withResolvers<"stuck">();
-	const timer = setTimeout(() => stuck.resolve("stuck"), EXIT_GRACE_MS);
-	try {
-		if ((await Promise.race([quit, stuck.promise])) === "stuck") {
-			quit.catch(() => undefined);
-			child.kill("SIGKILL");
-		}
-	} catch (error) {
-		// A spec that killed the app (SIGKILL) and then failed ends here with the app gone: wait for the launcher below
-		// rather than let "Target closed" replace the spec's own failure in the report.
-		if (!String(error).includes("has been closed")) throw error;
-	} finally {
-		clearTimeout(timer);
-	}
-	// `app.exit(0)` was asked and answered, yet the app can stay: nightly 41931516185's judge-preview-check finished every
-	// assertion in 2.3 s and then waited here until the 90 s test timeout (its trace ends at exitApp's evaluate). The wait
-	// is bounded like the ask above: a late app is killed and the spec goes on, with a line saying so.
-	const late = Promise.withResolvers<"late">();
-	const lateTimer = setTimeout(() => late.resolve("late"), EXIT_GRACE_MS);
-	if ((await Promise.race([exited.promise.then(() => "exited" as const), late.promise])) === "late") {
-		console.warn(`[exitApp] the app did not exit ${EXIT_GRACE_MS} ms after app.exit(0); killed it`);
-		child.kill("SIGKILL");
-		await exited.promise;
-	}
-	clearTimeout(lateTimer);
-	await waitForProcessesToExit(owned, EXIT_GRACE_MS);
+	await exitShellApp(app as unknown as Parameters<typeof exitShellApp>[0]);
 }
 
 /** What a drawn box and a finger each reach, in CSS px. */
