@@ -465,6 +465,11 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 			this.#op("setIcon", { path });
 		}
 
+		/** `win.capturePage`: the window's page, as `webContents.capturePage` (the frame is not part of it). */
+		capturePage(rect?: Rect): ReturnType<WebContents["capturePage"]> {
+			return this.webContents.capturePage(rect);
+		}
+
 		loadURL(
 			url: string,
 			options?: { userAgent?: string; httpReferrer?: string; extraHeaders?: string },

@@ -671,6 +671,13 @@ describe("webContents", () => {
 		expect(cdp.at(-1)).toMatchObject({ method: "Input.insertText", params: { text: "한" } });
 	});
 
+	it("BrowserWindow.capturePage is the page's capture", async () => {
+		const win = new electron.BrowserWindow({});
+		fake.answers.set("wc.cdp.send", () => ({ result: { data: PNG_1X1.toString("base64") } }));
+		const image = await win.capturePage({ x: 0, y: 0, width: 5, height: 5 });
+		expect(image.getSize()).toEqual({ width: 1, height: 1 });
+	});
+
 	it("takes a capture again at a smaller scale instead of resizing a bitmap", async () => {
 		const { webContents } = new electron.BrowserWindow({});
 		fake.answers.set("wc.cdp.send", params => {
