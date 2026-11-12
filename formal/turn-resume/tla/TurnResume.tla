@@ -22,9 +22,14 @@
 (* tabs, quit freeze, tab close.                                              *)
 EXTENDS Integers, FiniteSets
 
-CONSTANTS Tabs, MaxStarts, MaxAttempts, MaxFlaps, MaxSess, MaxCancels
+CONSTANTS Tabs, MaxStarts, MaxAttempts, MaxFlaps, MaxSess, MaxCancels,
+          Limits           \* {} or {"limit"}: whether a run may end at a provider's limit (isLimitError)
 
-Kinds == {"dns", "net", "transient", "fatal"}
+\* "limit": the run ended at a provider's limit. It is armed, held and fired as a `transient` failure is (the same
+\* ArmedRetry, the same end table), except that its look holds it while the tab runs (FireStart). The safety configs
+\* leave it out (`Limits = {}`): every behaviour of a limit wait is a transient one that skips the busy drop, and the only
+\* safety property that reads the kind, NoGiveUp, speaks of net and transient failures (SCOPE.md › The limit wait).
+Kinds == {"dns", "net", "transient", "fatal"} \cup Limits
 Os == 1..MaxStarts
 Gens == 0..8                \* cancel generations (cancels[t]); TypeOK checks 8 is never exceeded
 LaunchO == 0                \* the outcome id of a relaunch's continuation (no run of this process failed for it)
@@ -71,19 +76,19 @@ UserLive(t) == run[t] = "running" /\ last[t] = 0 /\ userRun[t]
 \* (one Ends_<check> per place the code looks). turn-resume-ends.test.ts compares both sets with the table exactly:
 \* a row in one and not the other fails. Rows the model keeps constant: gone, frozen, fileWritten (SCOPE.md). =====
 
-\* @code src/main/turn-resume-ends.ts:88-92 a run none of the hold's own (`ownRun`) and not the failed one still ending
+\* @code src/main/turn-resume-ends.ts:90-94 a run none of the hold's own (`ownRun`) and not the failed one still ending
 End_personsRun(t, ownRun) == run[t] = "running" /\ last[t] = 0 /\ ~ownRun
-\* @code src/main/turn-resume-ends.ts:93-97
+\* @code src/main/turn-resume-ends.ts:95-99
 End_stopped(t) == stopped[t]
-\* @code src/main/turn-resume-ends.ts:55-63 movedSince: another session or branch since `since` was recorded (sg only grows)
+\* @code src/main/turn-resume-ends.ts:57-65 movedSince: another session or branch since `since` was recorded (sg only grows)
 End_moved(t, since) == sg[t] > since
-\* @code src/main/turn-resume-ends.ts:103-107 the person prompted since the continuation started (pk, rk)
+\* @code src/main/turn-resume-ends.ts:105-109 the person prompted since the continuation started (pk, rk)
 End_personsPrompt(seen) == seen
-\* @code src/main/turn-resume-ends.ts:116-120 the tab's last run is no longer the failure the hold is for
+\* @code src/main/turn-resume-ends.ts:118-122 the tab's last run is no longer the failure the hold is for
 End_otherOutcome(t, o) == last[t] # o
-\* @code src/main/turn-resume-ends.ts:121-130 the connection wait holds the tab (peer, device, no file: constants here)
+\* @code src/main/turn-resume-ends.ts:123-136 the connection wait holds the tab (peer, device, no file: constants here)
 End_notRetryable(t) == awaiting[t]
-\* @code src/main/turn-resume-ends.ts:131-135 the tab runs
+\* @code src/main/turn-resume-ends.ts:137-141 the tab runs
 End_busy(t) == run[t] = "running"
 
 Ends_wait(t) == End_personsRun(t, FALSE) \/ End_moved(t, wsg[t])
@@ -152,9 +157,9 @@ Init ==
 ----------------------------------------------------------------------------
 \* ===== the relaunch =====
 
-\* @code src/main/turn-resume.ts:1011-1043 launch(): the marker finds its tab (layout, unwritten, opened) and is kept as a launch marker (#pending)
-\* @code src/main/turn-resume.ts:1045-1056 each marker's continuation holds (offline) or runs (online) with the tab's session file and `touched` (HeldWait.since / #run's `since`)
-\* @code src/main/autopilot.ts:1099-1100 #onReady: a launch marker means the run waits for the continuation's goalSettled (`apWait`)
+\* @code src/main/turn-resume.ts:1441-1473 launch(): the marker finds its tab (layout, unwritten, opened) and is kept as a launch marker (#pending)
+\* @code src/main/turn-resume.ts:1475-1486 each marker's continuation holds (offline) or runs (online) with the tab's session file and `touched` (HeldWait.since / #run's `since`)
+\* @code src/main/autopilot.ts:1133-1134 #onReady: a launch marker means the run waits for the continuation's goalSettled (`apWait`)
 Launch(t) ==
     /\ Idle /\ ~launched /\ ~online /\ nStarts = 0 /\ run[t] = "idle" /\ ~awaiting[t]
     /\ launched' = TRUE
@@ -172,9 +177,9 @@ Launch(t) ==
 ----------------------------------------------------------------------------
 \* ===== pool events: each is followed by the `sync()` the pool triggers =====
 
-\* @code src/main/ipc.ts:778-783 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:1957-1964 a device's, a view's through its window tab), before the command is sent
-\* @code src/main/sidecar-run-state.ts:156-160 agent_start: a new run clears lastRun, stopped, retry
-\* @code src/main/turn-resume.ts:550-553 sync() starts: judge every fact
+\* @code src/main/ipc.ts:876-879 the person's prompt: personsPrompt -> SidecarPool.notePrompted (host-services.ts:2263-2269 a device's, a view's through its window tab), before the command is sent
+\* @code src/main/sidecar-run-state.ts:193-197 agent_start: a new run clears lastRun, stopped, retry
+\* @code src/main/turn-resume.ts:618-621 sync() starts: judge every fact
 UserPrompt(t) ==
     /\ Idle /\ run[t] = "idle" /\ ready /\ nStarts < MaxStarts       \* a prompt reaches an omp that is up (also while a continuation is on its way: A11 closed)
     /\ pk' = [pk EXCEPT ![t] = pk[t] \/ runWait[t] >= 0]               \* a continuation on its way (`#run`'s `prompted`) sees the count move
@@ -188,8 +193,8 @@ UserPrompt(t) ==
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<kindOf, sg, awaiting, ready, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched, mvV, runSg, bad7, bad8>>
 
-\* @code src/main/sidecar-run-state.ts:165-166 agent_end sets lastRun to the run's outcome (the run may still be settling)
-\* @code src/main/turn-resume.ts:550-553 sync() starts
+\* @code src/main/sidecar-run-state.ts:202-203 agent_end sets lastRun to the run's outcome (the run may still be settling)
+\* @code src/main/turn-resume.ts:618-621 sync() starts
 EndRun(t, k) ==
     /\ Idle /\ run[t] = "running" /\ last[t] = 0
     /\ runWait[t] < 0 /\ ~restoring[t]     \* A13 (not modeled): a run's end, and so a second `#run` of the tab, waits for the continuation on its way
@@ -199,16 +204,16 @@ EndRun(t, k) ==
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<run, stopped, sg, awaiting, userRun, ready, nStarts, retryIn, store, resV, monV, rp, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/sidecar-run-state.ts:156-172 the run settles (background work done)
-\* @code src/main/turn-resume.ts:550-553 sync() starts
+\* @code src/main/sidecar-run-state.ts:193-209 the run settles (background work done)
+\* @code src/main/turn-resume.ts:618-621 sync() starts
 Settle(t) ==
     /\ Idle /\ run[t] = "running" /\ last[t] # 0
     /\ run' = [run EXCEPT ![t] = "idle"]
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<last, kindOf, stopped, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/sidecar-pool.ts:2241-2246 noteStopped: Stop pressed (a run or the probe row)
-\* @code src/main/turn-resume.ts:550-553 sync() starts
+\* @code src/main/sidecar-pool.ts:2541-2546 noteStopped: Stop pressed (a run or the probe row)
+\* @code src/main/turn-resume.ts:618-621 sync() starts
 UserStop(t) ==
     /\ Idle /\ ~stopped[t] /\ (run[t] = "running" \/ probing[t] # 0)
     /\ stopped' = [stopped EXCEPT ![t] = TRUE]
@@ -216,15 +221,15 @@ UserStop(t) ==
     /\ pc' = "s_watch" /\ ct' = t
     /\ UNCHANGED <<run, last, kindOf, sg, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, rp, bad1, bad2, bad2h, bad6, sentFor, calledOffH, launched, mvV, runSg, pk, rk, bad7, bad8>>
 
-\* @code src/main/turn-resume.ts:227-244 trackMove: a TOUCH_COMMANDS command goes out and is marked in flight (MovesInFlight.begin); `touched` counts it only at its answer
-\* @code src/main/ipc.ts:968-979 the window tab's move command; src/main/remote/host-services.ts:1956-1991 a device's
+\* @code src/main/turn-resume.ts:256-273 trackMove: a TOUCH_COMMANDS command goes out and is marked in flight (MovesInFlight.begin); `touched` counts it only at its answer
+\* @code src/main/ipc.ts:1063-1075 the window tab's move command; src/main/remote/host-services.ts:2276-2300 a device's
 MoveSend(t, k) ==
     /\ Idle /\ mv[t] = "none" /\ sg[t] < MaxSess
     /\ mv' = [mv EXCEPT ![t] = k]          \* k = "moves": the answer will count (or it times out); "stays": cancelled or failed
     /\ UNCHANGED <<poolV, resV, rg, restoring, restGen, rsg, apWait, runSg, pk, rk, monV, ctlV, histV>>
 
-\* @code src/main/sidecar-pool.ts:2261-2266 noteTouched (called by trackMove at the answer, a timed-out command included: movesTabUnknown), then onRunningChange -> sync()
-\* @code src/main/turn-resume.ts:227-244 trackMove: `end()` runs after `touched` counted, so every continuation waiting in movesSettled resumes then (RunGo)
+\* @code src/main/sidecar-pool.ts:2561-2566 noteTouched (called by trackMove at the answer, a timed-out command included: movesTabUnknown), then onRunningChange -> sync()
+\* @code src/main/turn-resume.ts:256-273 trackMove: `end()` runs after `touched` counted, so every continuation waiting in movesSettled resumes then (RunGo)
 MoveReply(t) ==
     /\ Idle /\ mv[t] # "none"
     /\ mv' = [mv EXCEPT ![t] = "none"]
@@ -241,8 +246,8 @@ MoveReply(t) ==
 
 \* Environment: the tab's session moves and no sync() follows (a path that does not tell the resume rules: the model
 \* drops the sync() a held wait's file move now triggers, so the continuations' own re-check must hold without it).
-\* @code src/main/sidecar-pool.ts:2064-2072 #registerSessionFile: a window tab's file moves (a paired device's switch through a view)
-\* @code src/main/remote/host-services.ts:1698-1703 a device's own hosted tab reports another session file
+\* @code src/main/sidecar-pool.ts:2293-2301 #registerSessionFile: a window tab's file moves (a paired device's switch through a view)
+\* @code src/main/remote/host-services.ts:1987-1995 a device's own hosted tab reports another session file
 FileMoved(t) ==
     /\ Idle /\ sg[t] + (IF mv[t] = "moves" THEN 1 ELSE 0) < MaxSess
     /\ sg' = [sg EXCEPT ![t] = sg[t] + 1]
@@ -251,7 +256,7 @@ FileMoved(t) ==
     /\ UNCHANGED <<run, last, kindOf, stopped, awaiting, userRun, ready, nStarts, nO, retryIn, store, resV, monV, ctlV,
                    bad1, bad2, bad2h, bad6, sentFor, launched, mvV, runSg, pk, rk, bad7, bad8>>
 
-\* @code src/main/turn-resume.ts:967-989 cancelWait / #dropWait: a held launch continuation tells Autopilot `cancelled` (goalSettled); a restore in flight is called off by the generation
+\* @code src/main/turn-resume.ts:1394-1419 cancelWait / #dropWait: a held launch continuation tells Autopilot `cancelled` (goalSettled); a restore in flight is called off by the generation
 Cancel(t) ==
     /\ Idle /\ nCancels < MaxCancels
     /\ (waiting[t] \/ probing[t] # 0 \/ armO[t] # 0 \/ restoring[t])
@@ -269,7 +274,7 @@ Cancel(t) ==
                    waitFor, wsg, psg, armSg, armAtt, armId, planning, attempts, judged, runWait, runFor, fireId, nUnready,
                    mv, rg, restoring, restGen, rsg, runSg, pk, rk, monV, rp, bad1, bad2, bad2h, bad6, bad7, bad8, sentFor, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:863-868 the `retry` command lands: stock starts the retried run (agent_start), or has nothing to retry
+\* @code src/main/turn-resume.ts:1229-1234 the `retry` command lands: stock starts the retried run (agent_start), or has nothing to retry
 RetryTaken(t) ==
     /\ Idle /\ retryIn[t]
     /\ retryIn' = [retryIn EXCEPT ![t] = FALSE]
@@ -280,7 +285,7 @@ RetryTaken(t) ==
           /\ userRun' = [userRun EXCEPT ![t] = FALSE]
           /\ nStarts' = nStarts + 1
           /\ UNCHANGED <<own, attempts, mvV, runSg, pk, rk, bad7, bad8>>
-       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:765-768: nothing started, the chain is over
+       \/ /\ own' = [own EXCEPT ![t] = FALSE]      \* turn-resume.ts:1049-1052: nothing started, the chain is over
           /\ attempts' = [attempts EXCEPT ![t] = 0]
           /\ UNCHANGED <<run, last, stopped, userRun, nStarts, mvV, runSg, pk, rk, bad7, bad8>>
     /\ pc' = "s_watch" /\ ct' = t
@@ -295,8 +300,8 @@ Unready ==
                    waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels, attempts, own,
                    judged, runWait, runFor, fireId, nCancels, monV, ctlV, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/turn-resume.ts:470-494 whenReady: the sidecar's status becomes ready; its resolution is a microtask, so every #run waiting on it continues in this same macrotask (RunGo)
-\* @code src/main/turn-resume.ts:844-853 #run: a continuation also waits in movesSettled while a move is on its way; it resumes with MoveReply instead
+\* @code src/main/turn-resume.ts:1134-1158 whenReady: the sidecar's status becomes ready; its resolution is a microtask, so every #run waiting on it continues in this same macrotask (RunGo)
+\* @code src/main/turn-resume.ts:1194-1203 #run: a continuation also waits in movesSettled while a move is on its way; it resumes with MoveReply instead
 Boot ==
     /\ Idle /\ ~ready
     /\ ready' = TRUE
@@ -304,10 +309,10 @@ Boot ==
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, nStarts, nO, retryIn, store, resV, mv, restoring, restGen, rsg,
                    apWait, runSg, pk, rk, monV, ctlV, histV>>
 
-\* @code src/main/turn-resume.ts:829-860 #run after whenReady and movesSettled: the session, branch and the person's prompts are checked again (holdEnd "continuing") and the cancel generation; a moved or cancelled continuation sends nothing
-\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("continuing"): moved ends every hold of the tab (dropWait), personsPrompt ends this continuation
-\* @code src/main/turn-resume.ts:863-894 send(): the launch's `restore_interrupted`, or stock `retry` for a failed turn
-\* @code src/main/turn-resume.ts:854-860 a call-off ends the run: goalSettled `cancelled` reaches Autopilot (apWait)
+\* @code src/main/turn-resume.ts:1165-1223 #run after whenReady and movesSettled: the session, branch and the person's prompts are checked again (holdEnd "continuing") and the cancel generation; a moved or cancelled continuation sends nothing
+\* @code src/main/turn-resume-ends.ts:75-157 holdEnd("continuing"): moved ends every hold of the tab (dropWait), personsPrompt ends this continuation
+\* @code src/main/turn-resume.ts:1229-1265 send(): the launch's `restore_interrupted`, or stock `retry` for a failed turn
+\* @code src/main/turn-resume.ts:1204-1223 a call-off ends the run: goalSettled `cancelled` reaches Autopilot (apWait)
 RunGo(t) ==
     /\ pc = "idle" /\ t \in rg
     /\ rg' = rg \ {t}
@@ -338,8 +343,8 @@ RunGo(t) ==
                    awaiting, waiting, waitFor, wsg, probing, psg, armO, armSg, armAtt, armId, planning, cancels, judged, runFor,
                    fireId, nCancels, nUnready, mv, runSg, monV, ctlV, bad6, calledOff, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:895 send("retry") after the restore answered (also :903 the unwritten prompt, :914 the goal resume): `await stale()` waits for a move in flight, then a moved or called-off tab sends nothing
-\* @code src/main/turn-resume.ts:941-945 the run ends (continues = the restore went on with the turn, no retry is sent): goalSettled
+\* @code src/main/turn-resume.ts:1264 send("retry") after the restore answered (also :1272 the unwritten prompt, :1289 the goal resume): `await stale()` waits for a move in flight, then a moved or called-off tab sends nothing
+\* @code src/main/turn-resume.ts:1324-1328 the run ends (continues = the restore went on with the turn, no retry is sent): goalSettled
 RestoreDone(t, c) ==
     /\ Idle /\ restoring[t] /\ ~Moving(t)
     /\ restoring' = [restoring EXCEPT ![t] = FALSE]
@@ -365,8 +370,8 @@ RestoreDone(t, c) ==
 ----------------------------------------------------------------------------
 \* ===== sync(): the synchronous judge chain for the tab `ct` =====
 
-\* @code src/main/turn-resume.ts:737-743 #watchScheduledRetry: a user run ends the chain; an armed retry that no longer holds is dropped
-\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("armed"): personsRun, stopped, moved, otherOutcome, notRetryable (S_Watch's `newUser \/ ~HoldsArm`)
+\* @code src/main/turn-resume.ts:1017-1023 #watchScheduledRetry: a user run ends the chain; an armed retry that no longer holds is dropped
+\* @code src/main/turn-resume-ends.ts:75-157 holdEnd("armed"): personsRun, stopped, moved, otherOutcome, notRetryable (S_Watch's `newUser \/ ~HoldsArm`)
 S_Watch ==
     /\ pc = "s_watch"
     /\ LET t == ct
@@ -379,11 +384,11 @@ S_Watch ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, armSg, armAtt, armId, planning, own, judged, runWait, runFor,
                    fireId, nCancels, nUnready, monV, ct, rp, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/turn-resume.ts:601-606 #judge: the person's new run or Stop on a probe, a move on a held wait: #ends("wait" | "probe") ends it (dropWait)
-\* @code src/main/turn-resume-ends.ts:88-97 HOLD_ENDS personsRun (wait, probe), stopped (probe)
-\* @code src/main/turn-resume-ends.ts:98-102 HOLD_ENDS moved (wait)
-\* @code src/main/turn-resume-ends.ts:55-63 movedSince: `touched` or the session file the hold was taken on changed
-\* @code src/main/turn-resume.ts:972-989 #dropWait
+\* @code src/main/turn-resume.ts:734-739 #judge: the person's new run or Stop on a probe, a move on a held wait: #ends("wait" | "probe") ends it (dropWait)
+\* @code src/main/turn-resume-ends.ts:90-99 HOLD_ENDS personsRun (wait, probe), stopped (probe)
+\* @code src/main/turn-resume-ends.ts:100-104 HOLD_ENDS moved (wait)
+\* @code src/main/turn-resume-ends.ts:57-65 movedSince: `touched` or the session file the hold was taken on changed
+\* @code src/main/turn-resume.ts:1399-1419 #dropWait
 S_NewRun ==
     /\ pc = "s_newrun"
     /\ LET t == ct
@@ -399,10 +404,10 @@ S_NewRun ==
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, retryIn, store, waitFor, wsg, psg, armSg, armAtt,
                    armId, planning, attempts, judged, runWait, runFor, fireId, nCancels, nUnready, mv, rg, restoring, restGen, rsg, runSg, pk, rk, monV, ct, rp, histV>>
 
-\* @code src/main/turn-resume.ts:611-634 #judge: the run's final outcome decides: hold, probe the lookup, or plan a scheduled retry
-\* @code src/main/turn-resume.ts:642-647 #verifyNetwork: show the wait, ask ConnectivityMonitor.verify (one probe per host, shared)
-\* @code src/main/turn-resume.ts:702-717 #planRetry: transient failures await stock `retry.enabled` before arming
-\* @code src/main/turn-resume.ts:809-813 #hold: the wait records the session and branch it holds for
+\* @code src/main/turn-resume.ts:744-767 #judge: the run's final outcome decides: hold, probe the lookup, or plan a scheduled retry
+\* @code src/main/turn-resume.ts:775-780 #verifyNetwork: show the wait, ask ConnectivityMonitor.verify (one probe per host, shared)
+\* @code src/main/turn-resume.ts:876-921 #planRetry: a transient failure awaits stock `retry.enabled`, a limit (kind `limit`) `#readLimit`, before arming
+\* @code src/main/turn-resume.ts:1109-1113 #hold: the wait records the session and branch it holds for
 S_Judge ==
     /\ pc = "s_judge"
     /\ LET t == ct
@@ -434,7 +439,8 @@ S_Judge ==
                          /\ vW' = vW \cup {<<t, o>>}
                          /\ UNCHANGED <<waiting, waitFor, wsg, planning, attempts, online, recovering, probingM, timer, vRes, link,
                                         defOK, hostOK, aLink, flaps, mvV, runSg, pk, rk, bad7, bad8>>
-                   \/ /\ ~awaiting[t] /\ kindOf[o] \in {"net", "transient"} /\ (online \/ kindOf[o] = "transient")
+                   \/ /\ ~awaiting[t] /\ kindOf[o] \in {"net", "transient"} \cup Limits
+                      /\ (online \/ kindOf[o] \in {"transient"} \cup Limits)
                          /\ UNCHANGED <<waiting, waitFor, wsg, probing, psg, awaiting, monV, mvV, runSg, pk, rk, bad7, bad8>>
                          /\ IF ~MayRetry(t, o)
                                THEN UNCHANGED <<planning, attempts, mvV, runSg, pk, rk, bad7, bad8>>
@@ -442,7 +448,7 @@ S_Judge ==
                                     /\ UNCHANGED attempts
     /\ UNCHANGED <<poolV, armO, armSg, armAtt, armId, cancels, runWait, runFor, fireId, nCancels, nUnready, ct, rp, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/turn-resume.ts:572-578 sync(): deriveMarkers writes the marker file (awaitingConnection wins, then Stop, then running)
+\* @code src/main/turn-resume.ts:644-650 sync(): deriveMarkers writes the marker file (awaitingConnection wins, then Stop, then running)
 S_Marker ==
     /\ pc = "s_marker"
     /\ store' = [store EXCEPT ![ct] =
@@ -454,8 +460,8 @@ S_Marker ==
 ----------------------------------------------------------------------------
 \* ===== TurnResume continuations =====
 
-\* @code src/main/turn-resume.ts:647-663 the probe answered: Stop/Cancel/new run/session change ended it, else hold (unreachable) or plan a retry
-\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("probeAnswer"): gone, frozen, stopped, moved, fileWritten, otherOutcome
+\* @code src/main/turn-resume.ts:780-796 the probe answered: Stop/Cancel/new run/session change ended it, else hold (unreachable) or plan a retry
+\* @code src/main/turn-resume-ends.ts:75-157 holdEnd("probeAnswer"): gone, frozen, stopped, moved, fileWritten, otherOutcome
 VerifyThen(t, o, reachable) ==
     /\ Idle /\ <<t, o, reachable>> \in vRes
     /\ vRes' = vRes \ {<<t, o, reachable>>}
@@ -482,8 +488,8 @@ VerifyThen(t, o, reachable) ==
                                runWait, runFor, fireId, nCancels, nUnready, rp, histV, mvV, runSg, pk, rk>>
     /\ UNCHANGED <<poolV, vN, vLink0, vW, online, recovering, probingM, timer, link, defOK, hostOK, aLink, flaps, mvV, runSg, pk, rk, bad7, bad8>>
 
-\* @code src/main/turn-resume.ts:711-716 #planRetry's continuation after `await #stockRetryOn`; #arm shows the row and starts the timer
-\* @code src/main/turn-resume.ts:719-735 #arm
+\* @code src/main/turn-resume.ts:893-920 #planRetry's continuation after `await #stockRetryOn` (a limit: `await #readLimit`); #arm shows the row and starts the timer
+\* @code src/main/turn-resume.ts:927-957 #arm
 PlanResume(t, o, gen, used) ==
     /\ Idle /\ <<t, o, gen, used>> \in planning
     /\ planning' = planning \ {<<t, o, gen, used>>}
@@ -496,10 +502,12 @@ PlanResume(t, o, gen, used) ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, cancels, attempts, own, judged, runWait, runFor, fireId,
                    nCancels, nUnready, monV, ctlV, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/turn-resume.ts:746-754 #fire: the timer ran; re-check everything before asking stock's retry setting
-\* @code src/main/turn-resume-ends.ts:73-151 holdEnd("firing"): the armed rows and busy (`run[t] = "idle" /\ HoldsArm(t)`)
+\* @code src/main/turn-resume.ts:1026-1038 #fire: the timer ran; re-check everything before asking stock's retry setting
+\* @code src/main/turn-resume-ends.ts:75-157 holdEnd("firing"): the armed rows and busy (`run[t] = "idle" /\ HoldsArm(t)`)
+\* @code src/main/turn-resume.ts:981-989 #look: a limit wait's timer syncs, then holds the wait while the tab runs (`#awaitLook` again) and reaches #fire only on an idle tab
 FireStart(t) ==
     /\ Idle /\ armO[t] # 0 /\ fireId[t] < 0 /\ ~Moving(t)     \* #fire: `await movesSettled` before it looks
+    /\ ~(kindOf[armO[t]] \in Limits /\ run[t] = "running")    \* #look: a limit wait outlasts the failed turn's background work
     /\ IF ~Ends_firing(t)
           THEN /\ fireId' = [fireId EXCEPT ![t] = armId[t]]
                /\ UNCHANGED <<cancels, armO, attempts, mvV, runSg, pk, rk, bad7, bad8>>
@@ -510,8 +518,8 @@ FireStart(t) ==
     /\ UNCHANGED <<poolV, awaiting, waiting, waitFor, wsg, probing, psg, armSg, armAtt, armId, planning, own, judged, runWait, runFor,
                    nCancels, nUnready, monV, ctlV, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/turn-resume.ts:751-769 #fire after `await #stockRetryOn`: re-check, release the row, then hold and sync() (offline) or #run for the armed session (online)
-\* @code src/main/turn-resume.ts:809-813 #hold: the wait records the armed retry's session and branch
+\* @code src/main/turn-resume.ts:1031-1053 #fire after `await #stockRetryOn`: re-check, release the row, then hold and sync() (offline) or #run for the armed session (online)
+\* @code src/main/turn-resume.ts:1109-1113 #hold: the wait records the armed retry's session and branch
 FireResume(t) ==
     /\ Idle /\ fireId[t] >= 0
     /\ fireId' = [fireId EXCEPT ![t] = -1]
@@ -551,8 +559,8 @@ FireResume(t) ==
     /\ UNCHANGED <<run, last, kindOf, stopped, sg, userRun, ready, nStarts, nO, store, probing, psg, armSg, armAtt, armId,
                    planning, judged, nCancels, nUnready, mvV, monV, bad6, calledOff, calledOffH, launched>>
 
-\* @code src/main/turn-resume.ts:816-826 flush(): every held tab leaves the wait and runs its continuation with the wait's `since`
-\* @code src/main/turn-resume.ts:829-860 #run: capture the cancel generation; a wait whose tab moved since is dropped (holdEnd "continuing": moved); with a ready sidecar and no move in flight the first command goes out in the same macrotask, else the continuation waits (runWait; Boot / MoveReply resume it)
+\* @code src/main/turn-resume.ts:1116-1126 flush(): every held tab leaves the wait and runs its continuation with the wait's `since`
+\* @code src/main/turn-resume.ts:1165-1223 #run: capture the cancel generation; a wait whose tab moved since is dropped (holdEnd "continuing": moved); with a ready sidecar and no move in flight the first command goes out in the same macrotask, else the continuation waits (runWait; Boot / MoveReply resume it)
 FlushStep ==
     /\ pc = "flush"
     /\ pc' = rp /\ rp' = "idle"
@@ -588,8 +596,8 @@ FlushStep ==
 ----------------------------------------------------------------------------
 \* ===== ConnectivityMonitor =====
 
-\* @code src/main/connectivity.ts:127-138 #check: the probe answered; unreachable takes the state offline and starts the recovery loop
-\* @code src/main/connectivity.ts:140-146 #reachable: the default way out or the host answers
+\* @code src/main/connectivity.ts:193-206 #check: the probe answered; unreachable takes the state offline and starts the recovery loop
+\* @code src/main/connectivity.ts:207-211 #reachable: the default way out or the host answers
 MProbeDone ==
     /\ Idle /\ vN > 0
     /\ LET reach == vLink0 /\ (defOK \/ hostOK)
@@ -603,14 +611,14 @@ MProbeDone ==
     /\ vW' = {} /\ vN' = 0
     /\ UNCHANGED <<poolV, resV, probingM, vLink0, link, defOK, hostOK, aLink, flaps, ctlV, bad1, bad2, bad2h, sentFor, calledOff, calledOffH, launched, mvV, runSg, pk, rk, bad7, bad8>>
 
-\* @code src/main/connectivity.ts:159-165 #attempt starts: one recovery probe at a time
+\* @code src/main/connectivity.ts:259-266 #attempt starts: one recovery probe at a time
 TimerFire ==
     /\ Idle /\ timer /\ ~probingM
     /\ timer' = FALSE /\ probingM' = TRUE /\ aLink' = link
     /\ UNCHANGED <<poolV, resV, online, recovering, vN, vLink0, vW, vRes, link, defOK, hostOK, flaps, ctlV, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/connectivity.ts:166-176 #attempt resolves: reachable ends the recovery and the state goes online; else try again in 2 s
-\* @code src/main/connectivity.ts:148-152 #set(online): `changed` runs turnResume.connectivityChanged() = flush()
+\* @code src/main/connectivity.ts:266-276 #attempt resolves: reachable ends the recovery and the state goes online; else try again in 2 s
+\* @code src/main/connectivity.ts:220-226 #set(online): `changed` runs turnResume.connectivityChanged() = flush()
 AttemptDone ==
     /\ Idle /\ probingM
     /\ probingM' = FALSE
@@ -623,7 +631,7 @@ AttemptDone ==
                        /\ UNCHANGED <<online, recovering, pc, rp, mvV, runSg, pk, rk, bad7, bad8>>
     /\ UNCHANGED <<poolV, resV, vN, vLink0, vW, vRes, link, defOK, hostOK, aLink, flaps, ct, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/connectivity.ts:74-82 report(true): while recovering the probe decides, else the state goes online at once
+\* @code src/main/connectivity.ts:136-145 report(true): while recovering the probe decides, else the state goes online at once
 ReportOnline ==
     /\ Idle /\ ~link
     /\ link' = TRUE
@@ -636,7 +644,7 @@ ReportOnline ==
                /\ UNCHANGED <<probingM, timer, aLink, mvV, runSg, pk, rk, bad7, bad8>>
     /\ UNCHANGED <<poolV, resV, recovering, vN, vLink0, vW, vRes, defOK, hostOK, flaps, ct, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/connectivity.ts:74-77 report(false): the state goes offline (net.isOnline() poll or a window's `offline` event)
+\* @code src/main/connectivity.ts:136-141 report(false): the state goes offline (net.isOnline() poll or a window's `offline` event)
 LinkDown ==
     /\ Idle /\ link /\ flaps < MaxFlaps
     /\ link' = FALSE /\ online' = FALSE /\ flaps' = flaps + 1
@@ -649,7 +657,7 @@ LinkUpMissed ==
     /\ link' = TRUE
     /\ UNCHANGED <<poolV, resV, online, recovering, probingM, timer, vN, vLink0, vW, vRes, defOK, hostOK, aLink, flaps, ctlV, histV, mvV, runSg, pk, rk>>
 
-\* @code src/main/connectivity.ts:169-201 #armReprobe/#reprobe: an offline state no probe loop is recovering asks the resolver again every
+\* @code src/main/connectivity.ts:228-252 #armReprobe/#reprobe: an offline state no probe loop is recovering asks the resolver again every
 \* REPROBE_INTERVAL_MS (15 s, so a held continuation is released within 17.5 s of the network answering); an answer goes online
 \* and `changed` runs flush(). One atomic step: the probe's answer is the world as it is when the step runs (CORRESPONDENCE A14).
 Reprobe ==
@@ -720,6 +728,10 @@ Fairness ==
 
 Spec == Init /\ [][Next]_vars /\ Fairness
 SpecNoFair == Init /\ [][Next]_vars
+\* Spec, plus the failed turn's background work eventually ends (ASSUMPTION A-settle, SCOPE.md): a limit wait holds while it
+\* runs, so without it the wait may rightly hold for ever. A result of that work starts a turn of its own in the code, which
+\* ends the wait as any new run does; the model has no such turn.
+SpecSettles == Spec /\ SF_vars(\E t \in Tabs : Settle(t))
 
 ----------------------------------------------------------------------------
 \* ===== Properties (protocol level, frozen: Properties.md) =====
@@ -768,6 +780,13 @@ NoGiveUp == [][\A t \in Tabs :
           /\ kindOf[probing[t]] # "fatal" /\ ~Ends_probeAnswer(t, probing[t]))
           => planning' # planning]_vars
 
+\* P13 (the limit wait, 12 Nov 2026): a turn that ended at a provider's limit goes on by itself: stock `retry` is sent for
+\* it, unless the person pressed Stop. Under SpecSettles, with no new prompt, move or Cancel (MC_live_limit.cfg). A limit
+\* never armed (as before af976b2b) and a look that lets the wait go while background work keeps the tab running (as
+\* before b0c90dd3) are the mutations that break it.
+LimitWaitGoesOn == \A t \in Tabs, o \in Os :
+    (last[t] = o /\ kindOf[o] \in Limits) ~> (o \in sentFor \/ stopped[t])
+
 \* Sanity (must FAIL): the interesting states are reachable.
 NeverWaits == \A t \in Tabs : ~waiting[t]
 NeverRetries == sentFor = {}
@@ -780,4 +799,5 @@ NeverDeferredByMove == \A t \in Tabs : ~(runWait[t] >= 0 /\ ready)
 NeverPromptedDeferred == \A t \in Tabs : ~pk[t]
 NeverPromptedRestore == \A t \in Tabs : ~rk[t]
 NeverArmedPastCount == \A t \in Tabs : ~(armO[t] # 0 /\ armAtt[t] > MaxAttempts)
+NeverLimitHeldBusy == \A t \in Tabs : ~(armO[t] # 0 /\ kindOf[armO[t]] \in Limits /\ run[t] = "running")
 =============================================================================

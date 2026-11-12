@@ -19,7 +19,8 @@
 		"NoSendWhileMoveInFlight",
 		"GoalHeard",
 		"NoSendAfterPersonsPrompt",
-		"NoGiveUp"
+		"NoGiveUp",
+		"LimitWaitGoesOn"
 	],
 	"waive": {
 		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
@@ -267,6 +268,33 @@
 			"replace": "/\\ FALSE /\\ Idle /\\ ~online /\\ ~recovering",
 			"breaks": "WaitEnds",
 			"config": "MC_live_wait.cfg"
+		},
+		{
+			"name": "limit-look-fires-while-busy",
+			"why": "The limit wait as before b0c90dd3 (12 Nov 2026): #look reaches #fire while the failed turn's background work keeps the tab running, stillHolds ends it as `busy` and the turn never goes on.",
+			"file": "TurnResume.tla",
+			"search": "    /\\ ~(kindOf[armO[t]] \\in Limits /\\ run[t] = \"running\")    \\* #look: a limit wait outlasts the failed turn's background work\n",
+			"replace": "",
+			"breaks": "LimitWaitGoesOn",
+			"config": "MC_live_limit.cfg"
+		},
+		{
+			"name": "limit-never-armed",
+			"why": "#planRetry refuses every limit, as the scheduled retry did before af976b2b (NOT_TRANSIENT): a turn that ended at a provider's limit sits until the person comes back.",
+			"file": "TurnResume.tla",
+			"search": "                         /\\ IF ~MayRetry(t, o)\n",
+			"replace": "                         /\\ IF ~MayRetry(t, o) \\/ kindOf[o] \\in Limits\n",
+			"breaks": "LimitWaitGoesOn",
+			"config": "MC_live_limit.cfg"
+		},
+		{
+			"name": "remove-fairness-settle",
+			"why": "Nothing says the failed turn's background work ever ends (assumption A-settle): the limit wait then rightly holds for ever, so the property needs it.",
+			"file": "TurnResume.tla",
+			"search": "SpecSettles == Spec /\\ SF_vars(\\E t \\in Tabs : Settle(t))",
+			"replace": "SpecSettles == Spec",
+			"breaks": "LimitWaitGoesOn",
+			"config": "MC_live_limit.cfg"
 		}
 	]
 }
