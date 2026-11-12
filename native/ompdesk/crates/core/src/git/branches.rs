@@ -92,24 +92,13 @@ async fn dirtiness(git: &Git, cwd: &str) -> Result<Dirt, Fault> {
     Ok(count_dirt(&git.text_with(cwd, &args, slow()).await?))
 }
 
-/// A count as JSON writes it from a JS number: a whole one has no fraction digits.
-fn whole<S: serde::Serializer>(value: &f64, out: S) -> Result<S::Ok, S::Error> {
-    if value.fract() == 0.0 && value.abs() < 9e15 {
-        out.serialize_i64(*value as i64)
-    } else {
-        out.serialize_f64(*value)
-    }
-}
-
 /// A tracked file that differs from where the branch left the parent. The one definition, for git and for agent
-/// control (which reads it back from main's JSON): counts are numbers as in the TypeScript.
+/// control (which reads it back from main's JSON).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct FileChange {
     pub path: String,
-    #[serde(serialize_with = "whole")]
-    pub added: f64,
-    #[serde(serialize_with = "whole")]
-    pub removed: f64,
+    pub added: u64,
+    pub removed: u64,
 }
 
 /// `Number(count) || 0` of a count git printed (digits, or `-` for a binary file).
@@ -126,8 +115,8 @@ fn numstat(output: &str) -> Vec<FileChange> {
             let (added, removed, file) = (fields.next()?, fields.next()?, fields.next()?);
             (!file.is_empty()).then(|| FileChange {
                 path: file.to_owned(),
-                added: count(added) as f64,
-                removed: count(removed) as f64,
+                added: count(added),
+                removed: count(removed),
             })
         })
         .collect()
@@ -486,18 +475,18 @@ pub struct BranchFacts {
     /// The parent checkout's current branch; none while its HEAD is detached.
     #[serde(default)]
     pub base_branch: Option<String>,
-    #[serde(default, serialize_with = "whole")]
-    pub commits_ahead: f64,
+    #[serde(default)]
+    pub commits_ahead: u64,
     #[serde(default)]
     pub files: Vec<FileChange>,
     #[serde(default)]
     pub files_truncated: bool,
-    #[serde(default, serialize_with = "whole")]
-    pub uncommitted: f64,
-    #[serde(default, serialize_with = "whole")]
-    pub untracked: f64,
-    #[serde(default, serialize_with = "whole")]
-    pub base_uncommitted: f64,
+    #[serde(default)]
+    pub uncommitted: usize,
+    #[serde(default)]
+    pub untracked: usize,
+    #[serde(default)]
+    pub base_uncommitted: usize,
     #[serde(default)]
     pub merged: bool,
 }
@@ -524,12 +513,12 @@ pub async fn facts(git: &Git, worktree: &WorktreeRef) -> Result<BranchFacts, Fau
     Ok(BranchFacts {
         branch: worktree.branch.clone(),
         base_branch: base.branch,
-        commits_ahead: count(&ahead) as f64,
+        commits_ahead: count(&ahead),
         files,
         files_truncated,
-        uncommitted: own.tracked as f64,
-        untracked: own.untracked as f64,
-        base_uncommitted: parent.tracked as f64,
+        uncommitted: own.tracked,
+        untracked: own.untracked,
+        base_uncommitted: parent.tracked,
         merged: landed,
     })
 }

@@ -345,14 +345,14 @@ impl AgentControl {
             if !facts.merged {
                 unlanded.push(format!(
                     "{} commit(s) not in the base or its upstream",
-                    number(facts.commits_ahead)
+                    number(facts.commits_ahead as f64)
                 ));
             }
-            if facts.uncommitted != 0.0 {
-                unlanded.push(format!("{} uncommitted file(s)", number(facts.uncommitted)));
+            if facts.uncommitted != 0 {
+                unlanded.push(format!("{} uncommitted file(s)", number(facts.uncommitted as f64)));
             }
-            if facts.untracked != 0.0 {
-                unlanded.push(format!("{} untracked file(s)", number(facts.untracked)));
+            if facts.untracked != 0 {
+                unlanded.push(format!("{} untracked file(s)", number(facts.untracked as f64)));
             }
         }
         format!(

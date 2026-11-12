@@ -282,21 +282,21 @@ fn facts_of(value: &Value) -> BranchFacts {
     BranchFacts {
         branch: s(&value["branch"]),
         base_branch: value["baseBranch"].as_str().map(str::to_owned),
-        commits_ahead: value["commitsAhead"].as_f64().unwrap(),
+        commits_ahead: value["commitsAhead"].as_u64().unwrap(),
         files: value["files"]
             .as_array()
             .unwrap()
             .iter()
             .map(|file| FileChange {
                 path: s(&file["path"]),
-                added: file["added"].as_f64().unwrap(),
-                removed: file["removed"].as_f64().unwrap(),
+                added: file["added"].as_u64().unwrap(),
+                removed: file["removed"].as_u64().unwrap(),
             })
             .collect(),
         files_truncated: value["filesTruncated"].as_bool().unwrap(),
-        uncommitted: value["uncommitted"].as_f64().unwrap(),
-        untracked: value["untracked"].as_f64().unwrap(),
-        base_uncommitted: value["baseUncommitted"].as_f64().unwrap(),
+        uncommitted: value["uncommitted"].as_u64().unwrap() as usize,
+        untracked: value["untracked"].as_u64().unwrap() as usize,
+        base_uncommitted: value["baseUncommitted"].as_u64().unwrap() as usize,
         merged: value["merged"].as_bool().unwrap(),
     }
 }
@@ -341,7 +341,7 @@ fn custody_agrees_with_a_report_whose_files_are_all_in_its_committed_change() {
 fn custody_never_calls_a_file_missing_when_untracked_files_or_a_cut_list_could_hold_it() {
     let new = ["src/new.ts".to_owned()];
     let untracked = BranchFacts {
-        untracked: 1.0,
+        untracked: 1,
         ..base_facts()
     };
     assert!(
@@ -360,7 +360,7 @@ fn custody_never_calls_a_file_missing_when_untracked_files_or_a_cut_list_could_h
 fn custody_never_calls_a_file_missing_from_a_landed_branch() {
     let landed = BranchFacts {
         merged: true,
-        commits_ahead: 0.0,
+        commits_ahead: 0,
         files: vec![],
         ..base_facts()
     };

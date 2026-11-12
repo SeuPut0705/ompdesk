@@ -1493,22 +1493,22 @@ pub fn merge_problem(worktree: &WorktreeRef, facts: &BranchFacts) -> Option<Stri
             worktree.base_cwd
         ));
     };
-    if facts.uncommitted > 0.0 {
+    if facts.uncommitted > 0 {
         return Some(format!(
             "{} has {} uncommitted file(s) in {}; ask that session to commit them first (ompdesk_session_send).",
             worktree.branch,
-            number(facts.uncommitted),
+            number(facts.uncommitted as f64),
             worktree.path
         ));
     }
-    if facts.base_uncommitted > 0.0 {
+    if facts.base_uncommitted > 0 {
         return Some(format!(
             "{} has {} uncommitted file(s); commit or stash them first so the merge cannot mix with them.",
             worktree.base_cwd,
-            number(facts.base_uncommitted)
+            number(facts.base_uncommitted as f64)
         ));
     }
-    if facts.merged || facts.commits_ahead == 0.0 {
+    if facts.merged || facts.commits_ahead == 0 {
         return Some(format!(
             "{} has nothing to merge into {base}.",
             worktree.branch

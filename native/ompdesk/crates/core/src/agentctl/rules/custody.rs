@@ -33,15 +33,15 @@ pub fn custody_of(facts: &BranchFacts, reported: &[String]) -> Custody {
             facts.base_branch.as_deref().unwrap_or("the base")
         )
     }];
-    if facts.uncommitted != 0.0 {
+    if facts.uncommitted != 0 {
         parts.push(format!("{} uncommitted file(s)", facts.uncommitted));
     }
-    if facts.untracked != 0.0 {
+    if facts.untracked != 0 {
         parts.push(format!("{} untracked file(s)", facts.untracked));
     }
     // Untracked files are no part of `files` (tracked only), a cut list cannot tell, and a landed branch is measured
     // from its tip: only a complete, untracked-free change that has not landed can say a reported file is missing.
-    let missing: Vec<&String> = if facts.merged || facts.files_truncated || facts.untracked > 0.0 {
+    let missing: Vec<&String> = if facts.merged || facts.files_truncated || facts.untracked > 0 {
         Vec::new()
     } else {
         reported
@@ -61,12 +61,12 @@ pub fn custody_of(facts: &BranchFacts, reported: &[String]) -> Custody {
         parts.push(format!("reported but unchanged: {}", listed()));
     }
     let mut gaps: Vec<String> = Vec::new();
-    if facts.uncommitted != 0.0 || facts.untracked != 0.0 {
+    if facts.uncommitted != 0 || facts.untracked != 0 {
         let mut counts: Vec<String> = Vec::new();
-        if facts.uncommitted != 0.0 {
+        if facts.uncommitted != 0 {
             counts.push(format!("{} uncommitted", facts.uncommitted));
         }
-        if facts.untracked != 0.0 {
+        if facts.untracked != 0 {
             counts.push(format!("{} untracked", facts.untracked));
         }
         gaps.push(format!(
