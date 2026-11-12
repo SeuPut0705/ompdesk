@@ -184,6 +184,7 @@ pub fn registry() -> Registry {
     crate::ssh::register(&mut registry);
     crate::stock::register(&mut registry);
     crate::upkeep::register(&mut registry);
+    crate::care::register(&mut registry);
     registry
 }
 

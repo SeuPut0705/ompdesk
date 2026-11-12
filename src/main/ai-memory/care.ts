@@ -1,121 +1,115 @@
 /**
- * Memory's own upkeep beyond learning (upkeep.ts): units that tidy what is stored, run by themselves, quietly.
+ * Memory's own upkeep beyond learning (upkeep.ts): units that tidy what is stored, run by themselves, quietly. The work
+ * is the core's (`native/ompdesk/crates/core/src/care/`: `engine.rs` the schedule, the state file, the recording client
+ * and the undo; `units.rs` the three units; `backfill.rs`, `curate.rs`, `judge.rs`, `freshness.rs` what they do):
  *
  * - once after every OMPdesk update (the version in `care.json` differs), every unit runs again from the start;
  * - then on a schedule: a unit that finished runs again once its interval has passed, one that did not finish (the
  *   backfill walks its journals a budget at a time) goes on at the next tick;
  * - throttled: one unit per tick, ticks every 15 minutes, the first a few minutes after the server came up.
  *
- * Every page change a unit makes goes through the client this module hands it, which records it (title, the wiki
+ * Every page change a unit makes goes through the recording client of the core, which records it (title, the wiki
  * checkpoint that still holds the page as it was) so Settings › Memory › Maintenance can show one line and undo it
- * through the page's restore. A page the person brought back that way is the person's: no unit touches it again
- * (the wrapper answers `pinned` for it, which every unit already reads as "leave it").
+ * through the page's restore. A page the person brought back that way is the person's: no unit touches it again.
+ *
+ * This file keeps the timers (each tick is one request to the core) and answers what the core asks of main: in
+ * production the omp to run (`omp`); a test's fake client and its own units are asked for through `core-asks.ts`. The production configuration (the sessions folder, this computer's device id, how to judge,
+ * git's rules) travels with every tick.
  */
-import { readFile } from "node:fs/promises";
-import type { AiMemoryCareSummary, AiMemoryProjectRef } from "../../shared/ai-memory";
-import { writeFileAtomic } from "../atomic-file";
+import type { AiMemoryCareSummary } from "../../shared/ai-memory";
+import { core } from "../core/process";
+import { gitRunner } from "../local/git/exec";
 import type { AiMemoryClient } from "./client";
+import { type AskHandler, answerAsks, type CoreSide, collatorLocale, coreSide, onLog, serviceName } from "./core-asks";
+import type { OmpLaunch } from "./distill-model";
 
 export const CARE_TICK_MS = 15 * 60_000;
 const FIRST_TICK_MS = 5 * 60_000;
-/** Changes older than this leave the Maintenance line (they stay in the pages' own history). */
-const SHOWN_MS = 7 * 24 * 60 * 60_000;
-const CHANGES_KEPT = 100;
-const KEPT_MAX = 500;
-/** A unit that threw tries again after this long, not every tick. */
-const RETRY_MS = 60 * 60_000;
+/** A tick is one unit's step: a backfill budget of journals, a judge run (180 s) or the checks of every project. */
+const TICK_TIMEOUT_MS = 30 * 60_000;
+const SUMMARY_TIMEOUT_MS = 30_000;
+/** An undo restores every page of the line, one request to the server each. */
+const UNDO_TIMEOUT_MS = 10 * 60_000;
+/** One call a test's unit makes on its client. */
+const UNIT_CALL_TIMEOUT_MS = 60_000;
 
 export type CareUnitName = "backfill" | "curate" | "fresh";
 export type CareClient = Pick<AiMemoryClient, "retirePage" | "feedback">;
 
+/** A test's own unit (the real three are the core's). */
 export interface CareUnit {
 	name: CareUnitName;
 	/** How long after it last finished it runs again; null: only after an update. */
 	everyMs: number | null;
 	/**
 	 * One bounded step. `done` false: more is left for the next tick. `written`: conclusions added (backfill). `memo` is
-	 * the unit's own record, kept in `care.json` across ticks and launches whatever the step ended in.
+	 * the unit's own record, kept in `care.json` across ticks and launches; what the unit changes in it comes back to
+	 * the core with the step's answer (a unit that throws leaves it as it was).
 	 */
 	run(client: CareClient, memo: Record<string, unknown>): Promise<{ done: boolean; written?: number }>;
 }
 
-interface CareChange extends AiMemoryProjectRef {
-	path: string;
-	title: string;
-	action: "retired" | "flagged";
-	/** The checkpoint read just before the change: the page as it stood, which undo restores. */
-	rev: string;
-	at: string;
-	undone?: boolean;
-}
-
-interface CareState {
-	version: string;
-	units: Partial<Record<CareUnitName, { at: string; done: boolean; failed?: boolean }>>;
-	/** `workspace/project/path` of pages the person restored: never changed by a unit again. */
-	kept: string[];
-	changes: CareChange[];
-	/** Conclusions the backfill added, with when (for the line). */
-	backfills: { at: string; written: number }[];
-	memo: Partial<Record<CareUnitName, Record<string, unknown>>>;
+/** How production judges a pair of pages (`care/judge.rs`: Jev through stock's judge chain, then the cheap model). */
+export interface CareJudge {
+	/** Settings › Agent behavior's judge switch (`judgeAssistEnabled(prefs.judgeAssist)`), read per tick. */
+	enabled: () => boolean;
+	/** `resources/gui-bridge/memory-judge-host.ts`. */
+	hostFile: string;
+	/** An empty folder for omp to run in: a repository's would load its AGENTS.md. */
+	cwd: string;
 }
 
 export interface CareDeps {
+	/** The real client (the core reads the server itself) or a test's fake (every call is asked of it). */
 	client: Pick<AiMemoryClient, "retirePage" | "feedback" | "page" | "headCheckpoint" | "restorePage">;
-	units: CareUnit[];
+	/** A test's own units; production runs the three of the core (backfill, curate, fresh). */
+	units?: CareUnit[];
 	/** The running OMPdesk's version: a new one runs every unit again. */
 	version: string;
 	/** `<userData>/ai-memory/care.json`. */
 	stateFile: string;
 	log: (message: string, details: Record<string, string | number | boolean | null>) => void;
+	/** The stock sessions folder the backfill reads journals from (`sessionIndex.sessionsDir`). */
+	sessionsDir?: string;
+	/** This computer's device id: the origin backfilled conclusions are written under (sync.ts `selfId`). */
+	origin?: () => string;
+	judge?: CareJudge;
+	/** How omp starts (`core-asks.ts ompLaunch()`); the core runs the judge's omp itself. */
+	omp?: () => Promise<OmpLaunch>;
+	/** The clock the core reads while a request runs (a test drives it); the system's without it. */
 	now?: () => number;
 	tickMs?: number;
 	firstTickMs?: number;
 }
 
-const keyOf = (ref: AiMemoryProjectRef & { path: string }) => `${ref.workspace}/${ref.project}/${ref.path}`;
-
-async function readState(file: string): Promise<CareState> {
-	const empty: CareState = { version: "", units: {}, kept: [], changes: [], backfills: [], memo: {} };
-	try {
-		const parsed = JSON.parse(await readFile(file, "utf8")) as Partial<CareState>;
-		return {
-			version: typeof parsed.version === "string" ? parsed.version : "",
-			units: parsed.units && typeof parsed.units === "object" ? parsed.units : {},
-			kept: Array.isArray(parsed.kept) ? parsed.kept.filter(key => typeof key === "string") : [],
-			changes: Array.isArray(parsed.changes) ? parsed.changes : [],
-			backfills: Array.isArray(parsed.backfills) ? parsed.backfills : [],
-			memo: parsed.memo && typeof parsed.memo === "object" ? parsed.memo : {},
-		};
-	} catch {
-		return empty;
-	}
-}
-
-async function writeState(file: string, state: CareState): Promise<void> {
-	await writeFileAtomic(file, JSON.stringify(state));
+/** `value[key]` when `value` is an object holding it. */
+function field(value: unknown, key: string): unknown {
+	return value !== null && typeof value === "object" && key in value ? Reflect.get(value, key) : undefined;
 }
 
 export class MemoryCare {
 	readonly #deps: CareDeps;
+	readonly #service = serviceName();
+	readonly #side: CoreSide;
 	#timer: NodeJS.Timeout | null = null;
 	#first: NodeJS.Timeout | null = null;
-	#running: Promise<unknown> | null = null;
 	#disposed = false;
+	/** Ends the answers of the core's asks and the log lines of this service; null before the first request. */
+	#unlisten: (() => void) | null = null;
 
 	constructor(deps: CareDeps) {
 		this.#deps = deps;
-	}
-
-	get #now(): number {
-		return (this.#deps.now ?? Date.now)();
+		const answers: Record<string, AskHandler> = {};
+		if (deps.units) answers.unit = params => this.#runUnit(params);
+		if (deps.omp) answers.omp = () => deps.omp?.();
+		this.#side = coreSide(deps.client, answers);
 	}
 
 	ready(): void {
 		if (this.#disposed || this.#timer) return;
-		this.#first = setTimeout(() => void this.tick(), this.#deps.firstTickMs ?? FIRST_TICK_MS);
+		this.#first = setTimeout(() => void this.#safeTick(), this.#deps.firstTickMs ?? FIRST_TICK_MS);
 		this.#first.unref();
-		this.#timer = setInterval(() => void this.tick(), this.#deps.tickMs ?? CARE_TICK_MS);
+		this.#timer = setInterval(() => void this.#safeTick(), this.#deps.tickMs ?? CARE_TICK_MS);
 		this.#timer.unref();
 	}
 
@@ -129,156 +123,113 @@ export class MemoryCare {
 	dispose(): void {
 		this.#disposed = true;
 		this.pause();
+		if (!this.#unlisten) return;
+		this.#unlisten();
+		this.#unlisten = null;
+		// What the core remembered of this service goes with it; a core that is gone has nothing to forget.
+		void core()
+			.call("care.close", { service: this.#service })
+			.catch(() => {});
 	}
 
-	/** One unit's step, the first one due; null when none is. Never rejects. Public for the tests. */
-	async tick(): Promise<CareUnitName | null> {
-		if (this.#running) return null;
-		const run = this.#tick();
-		this.#running = run;
+	async #safeTick(): Promise<void> {
 		try {
-			return await run;
-		} finally {
-			this.#running = null;
-		}
-	}
-
-	async #tick(): Promise<CareUnitName | null> {
-		const state = await readState(this.#deps.stateFile);
-		if (state.version !== this.#deps.version) {
-			state.version = this.#deps.version;
-			state.units = {};
-		}
-		const now = this.#now;
-		const unit = this.#deps.units.find(candidate => {
-			const last = state.units[candidate.name];
-			if (!last) return true;
-			if (last.failed) return now - Date.parse(last.at) >= RETRY_MS;
-			if (!last.done) return true;
-			return candidate.everyMs !== null && now - Date.parse(last.at) >= candidate.everyMs;
-		});
-		if (!unit) {
-			await writeState(this.#deps.stateFile, state);
-			return null;
-		}
-		const changes: CareChange[] = [];
-		const memo = state.memo[unit.name] ?? {};
-		state.memo[unit.name] = memo;
-		try {
-			const result = await unit.run(this.#recording(state, changes), memo);
-			state.units[unit.name] = { at: new Date(now).toISOString(), done: result.done };
-			if (result.written) state.backfills.push({ at: new Date(now).toISOString(), written: result.written });
+			await this.tick();
 		} catch (error) {
-			// Tried again after RETRY_MS, not every tick; what it finished before failing stays recorded.
-			state.units[unit.name] = { at: new Date(now).toISOString(), done: false, failed: true };
 			this.#deps.log("care-failed", {
-				unit: unit.name,
+				unit: "tick",
 				detail: error instanceof Error ? error.message : String(error),
 			});
 		}
-		state.changes = [...state.changes, ...changes].slice(-CHANGES_KEPT);
-		state.backfills = state.backfills.filter(entry => now - Date.parse(entry.at) < SHOWN_MS);
-		await writeState(this.#deps.stateFile, state);
-		return unit.name;
 	}
 
-	/** The client a unit gets: changes are recorded with what undo needs; the person's restored pages are left alone. */
-	#recording(state: CareState, changes: CareChange[]): CareClient {
-		const { client } = this.#deps;
-		const kept = new Set(state.kept);
-		const before = async (ref: AiMemoryProjectRef & { path: string }) => {
-			const [rev, page] = await Promise.all([client.headCheckpoint(), client.page(ref).catch(() => null)]);
-			return { rev, title: page?.title || ref.path };
-		};
-		const record = (
-			ref: AiMemoryProjectRef & { path: string },
-			action: CareChange["action"],
-			seen: { rev: string; title: string },
-		) =>
-			changes.push({
-				workspace: ref.workspace,
-				project: ref.project,
-				path: ref.path,
-				title: seen.title,
-				action,
-				rev: seen.rev,
-				at: new Date(this.#now).toISOString(),
-			});
+	/** One request's members: the service, what main answers, the server, and the clock. */
+	#request(): Record<string, unknown> {
+		if (!this.#unlisten) {
+			const stopAsks = answerAsks(this.#service, this.#side.handlers);
+			const stopLog = onLog(this.#service, (message, details) => this.#deps.log(message, details));
+			this.#unlisten = () => {
+				stopAsks();
+				stopLog();
+			};
+		}
 		return {
-			retirePage: async ref => {
-				if (kept.has(keyOf(ref))) return "pinned";
-				const seen = await before(ref);
-				const result = await client.retirePage(ref);
-				if (result === "retired") record(ref, "retired", seen);
-				return result;
-			},
+			service: this.#service,
+			...this.#side.wire(),
+			locale: collatorLocale(),
+			...(this.#deps.now ? { now: this.#deps.now() } : {}),
+		};
+	}
+
+	/** A test's unit, run for the core: its client calls go back to the core's recording client of this run. */
+	async #runUnit(params: unknown): Promise<{ done: boolean; written?: number; memo: Record<string, unknown> }> {
+		const run = field(params, "run");
+		const name = field(params, "name");
+		const memoIn = field(params, "memo");
+		const unit = this.#deps.units?.find(candidate => candidate.name === name);
+		if (!unit) throw new Error(`No unit named ${String(name)}`);
+		const memo: Record<string, unknown> = memoIn !== null && typeof memoIn === "object" ? { ...memoIn } : {};
+		const call = async (op: string, args: unknown[]): Promise<unknown> =>
+			(
+				await core().call(
+					"care.unitCall",
+					{ service: this.#service, run, op, args },
+					{ timeoutMs: UNIT_CALL_TIMEOUT_MS },
+				)
+			).result;
+		const client: CareClient = {
+			retirePage: async ref => (await call("retirePage", [ref])) as "retired" | "pinned" | "changed",
 			feedback: async (ref, signal) => {
-				if (signal === "stale" || signal === "wrong") {
-					// Refused, not skipped: a unit that logs its change on success then logs nothing for it.
-					if (kept.has(keyOf(ref))) throw new Error("the person put this page back; it stays as it is");
-					const seen = await before(ref);
-					await client.feedback(ref, signal);
-					record(ref, "flagged", seen);
-					return;
-				}
-				await client.feedback(ref, signal);
+				await call("feedback", [ref, signal]);
 			},
 		};
+		const result = await unit.run(client, memo);
+		return { ...result, memo };
+	}
+
+	/** One unit's step, the first one due; null when none is. Public for the tests. */
+	async tick(): Promise<CareUnitName | null> {
+		const deps = this.#deps;
+		const production = deps.units
+			? { units: deps.units.map(unit => ({ name: unit.name, everyMs: unit.everyMs })) }
+			: {
+					sessionsDir: deps.sessionsDir ?? "",
+					origin: deps.origin?.() ?? "",
+					...(deps.judge
+						? { judge: { enabled: deps.judge.enabled(), hostFile: deps.judge.hostFile, cwd: deps.judge.cwd } }
+						: {}),
+					// A git that is not installed is git not knowing: the freshness check finds no checkout.
+					git: await gitRunner().catch(() => null),
+				};
+		const answer = await core().call<CareUnitName | null>(
+			"care.tick",
+			{ ...this.#request(), stateFile: deps.stateFile, version: deps.version, ...production },
+			{ timeoutMs: TICK_TIMEOUT_MS },
+		);
+		return answer.result;
 	}
 
 	/** The Maintenance line: what the units changed in the last week and not undone. Null when nothing. */
 	async summary(): Promise<AiMemoryCareSummary | null> {
-		const state = await readState(this.#deps.stateFile);
-		const now = this.#now;
-		const shown = state.changes.filter(change => !change.undone && now - Date.parse(change.at) < SHOWN_MS);
-		const backfilled = state.backfills.reduce((sum, entry) => sum + entry.written, 0);
-		if (!shown.length && !backfilled) return null;
-		const times = [...shown.map(change => change.at), ...state.backfills.map(entry => entry.at)].sort();
-		return {
-			at: times.at(-1) ?? new Date(now).toISOString(),
-			retired: shown.filter(change => change.action === "retired").length,
-			flagged: shown.filter(change => change.action === "flagged").length,
-			backfilled,
-			pages: shown.map(change => ({
-				workspace: change.workspace,
-				project: change.project,
-				path: change.path,
-				title: change.title,
-			})),
-		};
+		const answer = await core().call<AiMemoryCareSummary | null>(
+			"care.summary",
+			{ ...this.#request(), stateFile: this.#deps.stateFile },
+			{ timeoutMs: SUMMARY_TIMEOUT_MS },
+		);
+		return answer.result;
 	}
 
 	/**
 	 * Puts back every page shown on the line as it stood before the change (the page's restore from that checkpoint, a
 	 * new version without the expiry or the flag) and keeps each from the units from now on. Returns how many came back.
+	 * It waits for a tick that is running.
 	 */
 	async undo(): Promise<number> {
-		await this.#running;
-		const state = await readState(this.#deps.stateFile);
-		const now = this.#now;
-		let restored = 0;
-		for (const change of state.changes) {
-			if (change.undone || now - Date.parse(change.at) >= SHOWN_MS || !change.rev) continue;
-			try {
-				await this.#deps.client.restorePage(change, change.rev);
-			} catch (error) {
-				this.#deps.log("care-failed", {
-					unit: "undo",
-					path: change.path,
-					detail: error instanceof Error ? error.message : String(error),
-				});
-				continue;
-			}
-			change.undone = true;
-			restored += 1;
-			state.kept = [...new Set([...state.kept, keyOf(change)])].slice(-KEPT_MAX);
-			this.#deps.log("care-undo", {
-				project: `${change.workspace}/${change.project}`,
-				path: change.path,
-				action: change.action,
-			});
-		}
-		await writeState(this.#deps.stateFile, state);
-		return restored;
+		const answer = await core().call<number>(
+			"care.undo",
+			{ ...this.#request(), stateFile: this.#deps.stateFile },
+			{ timeoutMs: UNDO_TIMEOUT_MS },
+		);
+		return answer.result;
 	}
 }

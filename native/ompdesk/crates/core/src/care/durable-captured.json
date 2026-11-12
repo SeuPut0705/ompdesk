@@ -1,0 +1,178 @@
+[
+	{
+		"path": "decisions/a.md",
+		"durable": true
+	},
+	{
+		"path": "_rules/x.md",
+		"durable": true
+	},
+	{
+		"path": "gotchas/g.md",
+		"durable": true
+	},
+	{
+		"path": "procedures/p.md",
+		"durable": true
+	},
+	{
+		"path": "preferences/q.md",
+		"durable": true
+	},
+	{
+		"path": "profile/me.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/sub/a.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/a.txt",
+		"durable": false
+	},
+	{
+		"path": "decisions/.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/a.MD",
+		"durable": false
+	},
+	{
+		"path": "sessions/a.md",
+		"durable": false
+	},
+	{
+		"path": "notes/a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions",
+		"durable": false
+	},
+	{
+		"path": "decisions/",
+		"durable": false
+	},
+	{
+		"path": "decisions//a.md",
+		"durable": false
+	},
+	{
+		"path": "/decisions/a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions/./a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions/../a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions/a/../b.md",
+		"durable": false
+	},
+	{
+		"path": "decisions\\a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions/a\\b.md",
+		"durable": false
+	},
+	{
+		"path": "",
+		"durable": false
+	},
+	{
+		"path": "a.md",
+		"durable": false
+	},
+	{
+		"path": "md",
+		"durable": false
+	},
+	{
+		"path": ".md",
+		"durable": false
+	},
+	{
+		"path": "decisions/a.md ",
+		"durable": false
+	},
+	{
+		"path": " decisions/a.md",
+		"durable": false
+	},
+	{
+		"path": "Decisions/a.md",
+		"durable": false
+	},
+	{
+		"path": "decisions/한글.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/😀.md",
+		"durable": true
+	},
+	{
+		"path": "_global/x.md",
+		"durable": false
+	},
+	{
+		"path": "profile/.md",
+		"durable": true
+	},
+	{
+		"path": "preferences/a/b/c/d.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/.hidden.md",
+		"durable": true
+	},
+	{
+		"path": "decisions/..md",
+		"durable": true
+	},
+	{
+		"path": "decisions/a..md",
+		"durable": true
+	},
+	{
+		"path": "decisions/..",
+		"durable": false
+	},
+	{
+		"path": "decisions/.",
+		"durable": false
+	},
+	{
+		"path": "gotchas/a.md\n",
+		"durable": false
+	},
+	{
+		"path": "gotchas/a.md\u0000",
+		"durable": false
+	},
+	{
+		"path": "_rules/rules.md",
+		"durable": true
+	},
+	{
+		"path": "procedures/x/",
+		"durable": false
+	},
+	{
+		"path": "profile//",
+		"durable": false
+	},
+	{
+		"path": "_rules/.md.md",
+		"durable": true
+	}
+]

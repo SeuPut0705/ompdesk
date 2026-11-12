@@ -24,8 +24,7 @@ import { join } from "node:path";
 import { core } from "../core/process";
 import type { AiMemoryClient } from "./client";
 import { type AskHandler, answerAsks, type CoreSide, collatorLocale, coreSide, onLog, serviceName } from "./core-asks";
-import type { DistillMessage } from "./distill";
-import type { ModelResult, OmpLaunch } from "./distill-model";
+import type { DistillMessage, ModelResult, OmpLaunch } from "./distill-model";
 import type { RetitleClient, RetitleReport } from "./retitle";
 
 export const UPKEEP_TICK_MS = 15 * 60_000;

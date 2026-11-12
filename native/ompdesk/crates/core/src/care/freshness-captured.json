@@ -1,0 +1,1885 @@
+[
+	{
+		"markdown": "Uses `src/main/a.ts` and src/main/b.ts:44 with `someCodeSymbol()`.\nSee https://github.com/x/y/blob/main/src/main/url.ts and ~/work/src/main/home.ts.\nGlobs src/main/*.ts and <src/main/tpl.ts>.\nWe deleted `src/main/said-removed.ts` and `removedSymbolName` last week.\n```sh\ngit rm src/main/in-fence.ts\nbun run scripts/run-me.ts\n```\nGeneric words like `error` and `TypeScript` and `snake_case_name` and `a.b`.",
+		"paths": [
+			"src/main/a.ts",
+			"src/main/b.ts",
+			"scripts/run-me.ts"
+		],
+		"symbols": [
+			"someCodeSymbol",
+			"snake_case_name"
+		]
+	},
+	{
+		"markdown": "---\ntitle: x\n---\nSee src/a.ts and `fooBarBaz`.",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "---\r\ntitle: x\r\n---\r\nSee src/a.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\ntitle: src/in-front.ts\n---",
+		"paths": [
+			"src/in-front.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\ntitle: src/in-front.ts\n---\n",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "---\n---\nsrc/after-empty.ts\n---\nsrc/later.ts",
+		"paths": [
+			"src/later.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\n\n---\nsrc/after-blank.ts",
+		"paths": [
+			"src/after-blank.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm1.ts\n---\nsrc/fm2.ts\n---\nsrc/fm3.ts",
+		"paths": [
+			"src/fm2.ts",
+			"src/fm3.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "--- \nsrc/not-fm.ts\n---\nsrc/x.ts",
+		"paths": [
+			"src/not-fm.ts",
+			"src/x.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": " ---\nsrc/not-fm.ts\n---\nsrc/x.ts",
+		"paths": [
+			"src/not-fm.ts",
+			"src/x.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "text\n---\nsrc/mid.ts\n---\nsrc/y.ts",
+		"paths": [
+			"src/mid.ts",
+			"src/y.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\r\nsrc/fm.ts\n---\nsrc/z.ts",
+		"paths": [
+			"src/z.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\r\n---\r\nsrc/z.ts",
+		"paths": [
+			"src/z.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\r---\nsrc/z.ts",
+		"paths": [
+			"src/fm.ts",
+			"src/z.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\n----\nsrc/w.ts",
+		"paths": [
+			"src/fm.ts",
+			"src/w.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\n---x\nsrc/w.ts\n---\nsrc/v.ts",
+		"paths": [
+			"src/v.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\n---\r\nsrc/q.ts",
+		"paths": [
+			"src/q.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\n---\r",
+		"paths": [
+			"src/fm.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "---\nsrc/fm.ts\n---\n\n\nsrc/p.ts",
+		"paths": [
+			"src/p.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "see http://example.com/src/a.ts here src/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "HTTPS://EXAMPLE.com/src/c.ts src/d.ts",
+		"paths": [
+			"src/d.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "1http://x.com/src/e.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "x1http://x.com/src/e.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "(https://x.com/src/f.ts) src/g.ts",
+		"paths": [
+			"src/g.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "한글https://x.com/src/h.ts 뒤 src/i.ts",
+		"paths": [
+			"src/i.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "svn+ssh://host/src/j.ts and git.v2://h/src/k.ts and a-b://c/src/l.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "ftp:/src/m.ts :// src/n.ts s://src/o.ts",
+		"paths": [
+			"src/n.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "https://x.com/a https://y.com/b src/p.ts",
+		"paths": [
+			"src/p.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "https://\nsrc/q.ts",
+		"paths": [
+			"src/q.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "https:// src/r.ts",
+		"paths": [
+			"src/r.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "We removed src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "Removed src/b.ts and DELETED src/c.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "It was Deleted: src/d.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "deletes src/e.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "delete src/f.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "undeleted src/g.ts and redeleted src/h.ts",
+		"paths": [
+			"src/g.ts",
+			"src/h.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "deleting src/i.ts",
+		"paths": [
+			"src/i.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "dropped src/j.ts, no longer src/k.ts, gone src/l.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "nolonger src/m.ts and no  longer src/n.ts and no longer src/o.ts",
+		"paths": [
+			"src/m.ts",
+			"src/n.ts",
+			"src/o.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "No Longer used: src/p.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "retired src/q.ts replaced src/r.ts obsolete src/s.ts deprecated src/t.ts renamed src/u.ts moved src/v.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "goner src/w.ts, ungone src/x.ts, _gone src/y.ts, gone_ src/z.ts",
+		"paths": [
+			"src/w.ts",
+			"src/x.ts",
+			"src/y.ts",
+			"src/z.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "moved-src/aa.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "the moved",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "moved.",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "2moved src/ab.ts",
+		"paths": [
+			"src/ab.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "moved2 src/ac.ts",
+		"paths": [
+			"src/ac.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "한글moved src/ad.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "movedí src/ae.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "ſmoved removeḋ src/af.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "deleteſ src/ag.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "Keep goneK src/ah.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "삭제 src/a1.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "파일을 제거했다 src/a2.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "없앴다 src/a3.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "없어졌다 src/a4.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "사라진 src/a5.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "대체 src/a6.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "폐기 src/a7.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "이동 src/a8.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "이름을 바꿨다 src/a9.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "이름을  바꿨다 src/b1.ts",
+		"paths": [
+			"src/b1.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "이름 바꿨다 src/b2.ts",
+		"paths": [
+			"src/b2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "없다 src/b3.ts 없는 src/b4.ts",
+		"paths": [
+			"src/b3.ts",
+			"src/b4.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "삭제 `src/c1.ts`\nsrc/c2.ts",
+		"paths": [
+			"src/c2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "the `moved` word and src/d1.ts",
+		"paths": [
+			"src/d1.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "the path src/moved/x.ts and src/deleted-file.ts and src/removed_y.ts",
+		"paths": [
+			"src/moved/x.ts",
+			"src/deleted-file.ts",
+			"src/removed_y.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "the moved/path and src/e1.ts",
+		"paths": [
+			"src/e1.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "see a/removed/b src/e2.ts",
+		"paths": [
+			"src/e2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "line with removed in `code removed` and src/e3.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "URL https://x.com/removed and src/e4.ts",
+		"paths": [
+			"src/e4.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "rm src/e5.ts",
+		"paths": [
+			"src/e5.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\ngit rm src/f1.ts\ngit  mv src/f2.ts\n$ rm src/f3.ts\n$rm src/f4.ts\n$   rmdir src/f5.ts\nmkdir src/f6\ntouch src/f7.ts\nrmx src/f8.ts\nrm-rf src/f9.ts\ngit rmx src/f10.ts\ngit rm\ngitrm src/f11.ts\ngit\trm src/f12.ts\n  rm src/f13.ts\n\trm src/f14.ts\nRM src/f15.ts\nmvsrc src/f16.ts\nmv src/f17.ts\ngit mv\ngit mv-x src/f18.ts\ntouch_ src/f19.ts\nrm\nrm.src/f20.ts\n```",
+		"paths": [
+			"src/f8.ts",
+			"src/f10.ts",
+			"src/f11.ts",
+			"src/f15.ts",
+			"src/f16.ts",
+			"src/f19.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "outside rm src/g1.ts\n```\ninside src/g2.ts\n```\nafter rm src/g3.ts",
+		"paths": [
+			"src/g1.ts",
+			"src/g2.ts",
+			"src/g3.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "~~~\nrm src/h1.ts\nsrc/h2.ts\n~~~\nsrc/h3.ts",
+		"paths": [
+			"src/h2.ts",
+			"src/h3.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\n~~~\nsrc/i1.ts\n~~~\n```\nsrc/i2.ts",
+		"paths": [
+			"src/i1.ts",
+			"src/i2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "~~~\n```\nsrc/j1.ts\n```\n~~~\nsrc/j2.ts",
+		"paths": [
+			"src/j1.ts",
+			"src/j2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```sh\nsrc/k1.ts\n```\n```\nsrc/k2.ts",
+		"paths": [
+			"src/k1.ts",
+			"src/k2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\nsrc/l1.ts `fooBarBaz`\n```\n`fooBarBaz` src/l2.ts",
+		"paths": [
+			"src/l1.ts",
+			"src/l2.ts"
+		],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "   ```\nsrc/m1.ts\n   ```\nsrc/m2.ts",
+		"paths": [
+			"src/m1.ts",
+			"src/m2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "　```\nsrc/n1.ts\n```\nsrc/n2.ts",
+		"paths": [
+			"src/n1.ts",
+			"src/n2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "````\nsrc/o1.ts\n````\nsrc/o2.ts",
+		"paths": [
+			"src/o1.ts",
+			"src/o2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "text ```\nsrc/p1.ts",
+		"paths": [
+			"src/p1.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\nunclosed\nrm src/q1.ts\nsrc/q2.ts",
+		"paths": [
+			"src/q2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "``` trailing\nsrc/r1.ts\n``` trailing\nsrc/r2.ts",
+		"paths": [
+			"src/r1.ts",
+			"src/r2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\r\nrm src/s1.ts\r\nsrc/s2.ts\r\n```\r\nsrc/s3.ts",
+		"paths": [
+			"src/s2.ts",
+			"src/s3.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\n$ git rm src/t1.ts\n$ src/t2.ts\n```",
+		"paths": [
+			"src/t2.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "```\n$\nrm\n```\nsrc/u1.ts",
+		"paths": [
+			"src/u1.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "./src/a.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "../src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": ".../src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "x./src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "/src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "~/src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "a/src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "a.src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "_src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "-src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "+src/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "@src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": ":src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "<src/b.ts>",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "{src/b.ts}",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "$src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "*src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "(src/b.ts)",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "[src/b.ts]",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "'src/b.ts' \"src/c.ts\"",
+		"paths": [
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "한글src/b.ts 한글 src/c.ts",
+		"paths": [
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "😀src/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": " src/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/b.ts:12 src/c.ts, src/d.ts. src/e.ts; src/f.ts)",
+		"paths": [
+			"src/b.ts",
+			"src/c.ts",
+			"src/d.ts",
+			"src/e.ts",
+			"src/f.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/b.ts.",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/b.ts..",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/b..ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/../b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a/../b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/.hidden.ts",
+		"paths": [
+			"src/.hidden.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a/.hidden",
+		"paths": [
+			"src/a/.hidden"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a/.b.c",
+		"paths": [
+			"src/a/.b.c"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/dir/",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/dir/ and src/dir/file",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/dir/file.ts/",
+		"paths": [
+			"src/dir/file.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/dir/file.ts/more.ts",
+		"paths": [
+			"src/dir/file.ts/more.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/dir/sub/ text",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts* src/b.ts< src/c.ts{ src/d.ts$ src/e.ts[ src/f.ts]",
+		"paths": [
+			"src/f.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts/ src/b/ src/c.d/",
+		"paths": [
+			"src/a.ts",
+			"src/c.d"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts_ src/b.ts- src/c.ts+ src/d.ts@",
+		"paths": [
+			"src/b.ts",
+			"src/c.ts",
+			"src/d.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a-b_c.d+e@f/g.h.ts",
+		"paths": [
+			"src/a-b_c.d+e@f/g.h.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.t src/b.tsx src/c.1 src/d.a1 src/e.abcdefgh src/f.abcdefghi src/g.a_b src/h.A1B2C3D4 src/i.",
+		"paths": [
+			"src/a.t",
+			"src/b.tsx",
+			"src/d.a1",
+			"src/e.abcdefgh",
+			"src/h.A1B2C3D4"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/noext src/also.",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts,src/b.ts;src/c.ts|src/d.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts",
+			"src/d.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts)src/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/ a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/_",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/_.ts",
+		"paths": [
+			"src/_.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/.ts",
+		"paths": [
+			"src/.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/-.ts",
+		"paths": [
+			"src/-.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src//a.ts",
+		"paths": [
+			"src//a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a//b.ts",
+		"paths": [
+			"src/a//b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a/./b.ts",
+		"paths": [
+			"src/a/./b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/한글.ts src/a/한글.md",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a\tb.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/😀.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "srcx/a.ts xsrc/b.ts Src/c.ts SRC/d.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts src/a.ts src/a.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "resources/a.ts scripts/b.sh e2e/c.ts native/d.rs docs/e.md build/f.js tests/g.ts test/h.ts packages/i/j.ts",
+		"paths": [
+			"resources/a.ts",
+			"scripts/b.sh",
+			"e2e/c.ts",
+			"native/d.rs",
+			"docs/e.md",
+			"build/f.js",
+			"tests/g.ts",
+			"test/h.ts",
+			"packages/i/j.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "lib/a.ts other/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "lib/a.ts other/b.ts",
+		"roots": [
+			"lib"
+		],
+		"paths": [
+			"lib/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "lib/a.ts other/b.ts src/c.ts",
+		"roots": [
+			"lib",
+			"other"
+		],
+		"paths": [
+			"lib/a.ts",
+			"other/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "lib/a.ts src/b.ts",
+		"roots": [
+			"src",
+			"lib",
+			"lib"
+		],
+		"paths": [
+			"lib/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": ".github/workflows/ci.yml x.github/y.yml",
+		"roots": [
+			".github"
+		],
+		"paths": [
+			".github/workflows/ci.yml"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a.b/c.ts axb/c.ts",
+		"roots": [
+			"a.b"
+		],
+		"paths": [
+			"a.b/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "c+/d.ts cc/e.ts",
+		"roots": [
+			"c+"
+		],
+		"paths": [
+			"c+/d.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a|b/c.ts a/d.ts b/e.ts",
+		"roots": [
+			"a|b"
+		],
+		"paths": [
+			"a|b/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "(x)/a.ts x/b.ts",
+		"roots": [
+			"(x)"
+		],
+		"paths": [
+			"(x)/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "[x]/a.ts x/b.ts",
+		"roots": [
+			"[x]"
+		],
+		"paths": [
+			"[x]/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a-b/c.ts a_b/d.ts",
+		"roots": [
+			"a-b"
+		],
+		"paths": [
+			"a-b/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "한글/파일.ts",
+		"roots": [
+			"한글"
+		],
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "srcx/a.ts src/b.ts",
+		"roots": [
+			"srcx"
+		],
+		"paths": [
+			"srcx/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "ab/c.ts a/d.ts abc/e.ts",
+		"roots": [
+			"a",
+			"ab",
+			"abc"
+		],
+		"paths": [
+			"ab/c.ts",
+			"a/d.ts",
+			"abc/e.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a/b.ts",
+		"roots": [
+			"src/a"
+		],
+		"paths": [
+			"src/a/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "pkg/a/b.ts pkg/c.ts",
+		"roots": [
+			"pkg/a",
+			"pkg"
+		],
+		"paths": [
+			"pkg/a/b.ts",
+			"pkg/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "pkg/a/b.ts pkg/c.ts",
+		"roots": [
+			"pkg",
+			"pkg/a"
+		],
+		"paths": [
+			"pkg/a/b.ts",
+			"pkg/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a/b.ts",
+		"roots": [
+			""
+		],
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "/b.ts x/y.ts",
+		"roots": [
+			""
+		],
+		"paths": [
+			"/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "A/b.ts a/c.ts",
+		"roots": [
+			"a"
+		],
+		"paths": [
+			"a/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "lib/a.ts",
+		"roots": [],
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "a\nb/c.ts",
+		"roots": [
+			"b"
+		],
+		"paths": [
+			"b/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/file0.ts src/file1.ts src/file2.ts src/file3.ts src/file4.ts src/file5.ts src/file6.ts src/file7.ts src/file8.ts src/file9.ts src/file10.ts src/file11.ts src/file12.ts src/file13.ts src/file14.ts src/file15.ts src/file16.ts src/file17.ts src/file18.ts src/file19.ts src/file20.ts src/file21.ts src/file22.ts src/file23.ts src/file24.ts src/file25.ts src/file26.ts src/file27.ts src/file28.ts src/file29.ts src/file30.ts src/file31.ts src/file32.ts src/file33.ts src/file34.ts src/file35.ts src/file36.ts src/file37.ts src/file38.ts src/file39.ts src/file40.ts src/file41.ts src/file42.ts src/file43.ts src/file44.ts",
+		"paths": [
+			"src/file0.ts",
+			"src/file1.ts",
+			"src/file2.ts",
+			"src/file3.ts",
+			"src/file4.ts",
+			"src/file5.ts",
+			"src/file6.ts",
+			"src/file7.ts",
+			"src/file8.ts",
+			"src/file9.ts",
+			"src/file10.ts",
+			"src/file11.ts",
+			"src/file12.ts",
+			"src/file13.ts",
+			"src/file14.ts",
+			"src/file15.ts",
+			"src/file16.ts",
+			"src/file17.ts",
+			"src/file18.ts",
+			"src/file19.ts",
+			"src/file20.ts",
+			"src/file21.ts",
+			"src/file22.ts",
+			"src/file23.ts",
+			"src/file24.ts",
+			"src/file25.ts",
+			"src/file26.ts",
+			"src/file27.ts",
+			"src/file28.ts",
+			"src/file29.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/file0.ts\nsrc/file1.ts\nsrc/file2.ts\nsrc/file3.ts\nsrc/file4.ts\nsrc/file5.ts\nsrc/file6.ts\nsrc/file7.ts\nsrc/file8.ts\nsrc/file9.ts\nsrc/file10.ts\nsrc/file11.ts\nsrc/file12.ts\nsrc/file13.ts\nsrc/file14.ts\nsrc/file15.ts\nsrc/file16.ts\nsrc/file17.ts\nsrc/file18.ts\nsrc/file19.ts\nsrc/file20.ts\nsrc/file21.ts\nsrc/file22.ts\nsrc/file23.ts\nsrc/file24.ts\nsrc/file25.ts\nsrc/file26.ts\nsrc/file27.ts\nsrc/file28.ts\nsrc/file29.ts\nsrc/file30.ts\nsrc/file31.ts\nsrc/file32.ts\nsrc/file33.ts\nsrc/file34.ts\nsrc/file35.ts\nsrc/file36.ts\nsrc/file37.ts\nsrc/file38.ts\nsrc/file39.ts\nsrc/file40.ts\nsrc/file41.ts\nsrc/file42.ts\nsrc/file43.ts\nsrc/file44.ts",
+		"paths": [
+			"src/file0.ts",
+			"src/file1.ts",
+			"src/file2.ts",
+			"src/file3.ts",
+			"src/file4.ts",
+			"src/file5.ts",
+			"src/file6.ts",
+			"src/file7.ts",
+			"src/file8.ts",
+			"src/file9.ts",
+			"src/file10.ts",
+			"src/file11.ts",
+			"src/file12.ts",
+			"src/file13.ts",
+			"src/file14.ts",
+			"src/file15.ts",
+			"src/file16.ts",
+			"src/file17.ts",
+			"src/file18.ts",
+			"src/file19.ts",
+			"src/file20.ts",
+			"src/file21.ts",
+			"src/file22.ts",
+			"src/file23.ts",
+			"src/file24.ts",
+			"src/file25.ts",
+			"src/file26.ts",
+			"src/file27.ts",
+			"src/file28.ts",
+			"src/file29.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "`someCodeSymbol0` `someCodeSymbol1` `someCodeSymbol2` `someCodeSymbol3` `someCodeSymbol4` `someCodeSymbol5` `someCodeSymbol6` `someCodeSymbol7` `someCodeSymbol8` `someCodeSymbol9` `someCodeSymbol10` `someCodeSymbol11` `someCodeSymbol12` `someCodeSymbol13` `someCodeSymbol14` `someCodeSymbol15` `someCodeSymbol16` `someCodeSymbol17` `someCodeSymbol18` `someCodeSymbol19`",
+		"paths": [],
+		"symbols": [
+			"someCodeSymbol0",
+			"someCodeSymbol1",
+			"someCodeSymbol2",
+			"someCodeSymbol3",
+			"someCodeSymbol4",
+			"someCodeSymbol5",
+			"someCodeSymbol6",
+			"someCodeSymbol7",
+			"someCodeSymbol8",
+			"someCodeSymbol9",
+			"someCodeSymbol10",
+			"someCodeSymbol11"
+		]
+	},
+	{
+		"markdown": "`someCodeSymbol0` src/f0.ts\n`someCodeSymbol1` src/f1.ts\n`someCodeSymbol2` src/f2.ts\n`someCodeSymbol3` src/f3.ts\n`someCodeSymbol4` src/f4.ts\n`someCodeSymbol5` src/f5.ts\n`someCodeSymbol6` src/f6.ts\n`someCodeSymbol7` src/f7.ts\n`someCodeSymbol8` src/f8.ts\n`someCodeSymbol9` src/f9.ts\n`someCodeSymbol10` src/f10.ts\n`someCodeSymbol11` src/f11.ts\n`someCodeSymbol12` src/f12.ts\n`someCodeSymbol13` src/f13.ts\n`someCodeSymbol14` src/f14.ts\n`someCodeSymbol15` src/f15.ts\n`someCodeSymbol16` src/f16.ts\n`someCodeSymbol17` src/f17.ts\n`someCodeSymbol18` src/f18.ts\n`someCodeSymbol19` src/f19.ts",
+		"paths": [
+			"src/f0.ts",
+			"src/f1.ts",
+			"src/f2.ts",
+			"src/f3.ts",
+			"src/f4.ts",
+			"src/f5.ts",
+			"src/f6.ts",
+			"src/f7.ts",
+			"src/f8.ts",
+			"src/f9.ts",
+			"src/f10.ts",
+			"src/f11.ts",
+			"src/f12.ts",
+			"src/f13.ts",
+			"src/f14.ts",
+			"src/f15.ts",
+			"src/f16.ts",
+			"src/f17.ts",
+			"src/f18.ts",
+			"src/f19.ts"
+		],
+		"symbols": [
+			"someCodeSymbol0",
+			"someCodeSymbol1",
+			"someCodeSymbol2",
+			"someCodeSymbol3",
+			"someCodeSymbol4",
+			"someCodeSymbol5",
+			"someCodeSymbol6",
+			"someCodeSymbol7",
+			"someCodeSymbol8",
+			"someCodeSymbol9",
+			"someCodeSymbol10",
+			"someCodeSymbol11"
+		]
+	},
+	{
+		"markdown": "src/f0.ts src/f1.ts src/f2.ts src/f3.ts src/f4.ts src/f5.ts src/f6.ts src/f7.ts src/f8.ts src/f9.ts src/f10.ts src/f11.ts src/f12.ts src/f13.ts src/f14.ts src/f15.ts src/f16.ts src/f17.ts src/f18.ts src/f19.ts src/f20.ts src/f21.ts src/f22.ts src/f23.ts src/f24.ts src/f25.ts src/f26.ts src/f27.ts src/f28.ts src/f29.ts src/f30.ts src/f0.ts src/f1.ts",
+		"paths": [
+			"src/f0.ts",
+			"src/f1.ts",
+			"src/f2.ts",
+			"src/f3.ts",
+			"src/f4.ts",
+			"src/f5.ts",
+			"src/f6.ts",
+			"src/f7.ts",
+			"src/f8.ts",
+			"src/f9.ts",
+			"src/f10.ts",
+			"src/f11.ts",
+			"src/f12.ts",
+			"src/f13.ts",
+			"src/f14.ts",
+			"src/f15.ts",
+			"src/f16.ts",
+			"src/f17.ts",
+			"src/f18.ts",
+			"src/f19.ts",
+			"src/f20.ts",
+			"src/f21.ts",
+			"src/f22.ts",
+			"src/f23.ts",
+			"src/f24.ts",
+			"src/f25.ts",
+			"src/f26.ts",
+			"src/f27.ts",
+			"src/f28.ts",
+			"src/f29.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "`someCodeSymbol` `SomeType` `some_thing` `A_B_C_D` `aB` `abcdE` `abcdeF` `getValue()` `getValue(x)` `x()`",
+		"paths": [],
+		"symbols": [
+			"someCodeSymbol",
+			"SomeType",
+			"some_thing",
+			"A_B_C_D",
+			"abcdeF",
+			"getValue"
+		]
+	},
+	{
+		"markdown": "`snake_case_name` `snake__case` `_leading_under` `trailing_under_` `with_9_digits` `9digit_start` `UPPER_SNAKE_CASE` `Mixed_Case_Name`",
+		"paths": [],
+		"symbols": [
+			"snake_case_name",
+			"with_9_digits",
+			"UPPER_SNAKE_CASE",
+			"Mixed_Case_Name"
+		]
+	},
+	{
+		"markdown": "`$jquery` `dollarSign$x` `a$bB$cC` `_privateFn` `__dunder__` `camelCase$` `camel$Case` `sym.bol` `sym-bol` `sym bol`",
+		"paths": [],
+		"symbols": [
+			"dollarSign$x",
+			"a$bB$cC",
+			"_privateFn",
+			"camelCase$"
+		]
+	},
+	{
+		"markdown": "`GitHub` `TypeScript` `JavaScript` `OpenAI` `VSCode` `MacBook` `iPhone` `GitLab` `Github` `typescript`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`  paddedSymbolName  ` `\tpaddedTab\t` ` nbspSymbol ` `　ideoSpaceFn　`",
+		"paths": [],
+		"symbols": [
+			"paddedSymbolName",
+			"paddedTab",
+			"nbspSymbol",
+			"ideoSpaceFn"
+		]
+	},
+	{
+		"markdown": "`longSymbolNameButBelowSixty` `aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB` `aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB` `aBaBaB` `abcDe`",
+		"paths": [],
+		"symbols": [
+			"longSymbolNameButBelowSixty",
+			"aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB",
+			"aBaBaB"
+		]
+	},
+	{
+		"markdown": "`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB` and `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "`aBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaBaB` and `fooBarBaz` and `bazQuxQuux`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx``someSymbolName`",
+		"paths": [],
+		"symbols": [
+			"someSymbolName"
+		]
+	},
+	{
+		"markdown": "``someSymbolName`` `` `someOther`",
+		"paths": [],
+		"symbols": [
+			"someSymbolName",
+			"someOther"
+		]
+	},
+	{
+		"markdown": "`a` `ab` `abc`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`` `someSymbolName",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "someSymbolName` and `anotherSymbolName` `",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`someSymbolName\nanotherSymbolName`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`someSymbolName()` `someSymbolName()()` `someSymbolName( )` `someSymbolName ()` `()` `someSymbolName()`",
+		"paths": [],
+		"symbols": [
+			"someSymbolName"
+		]
+	},
+	{
+		"markdown": "`한글Symbol` `symbolName한글` `symbolNameé` `symbolK`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀` `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "`😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀` `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "`😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀` `fooBarBaz` `bazQuxQuux`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz",
+			"bazQuxQuux"
+		]
+	},
+	{
+		"markdown": "`한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한` `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "`한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한` `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "`abcdEf` `abcdEf` `abcdEf`",
+		"paths": [],
+		"symbols": [
+			"abcdEf"
+		]
+	},
+	{
+		"markdown": "`someCodeSymbol` in text `src/x/y.ts` and `src/z.ts`",
+		"paths": [
+			"src/x/y.ts",
+			"src/z.ts"
+		],
+		"symbols": [
+			"someCodeSymbol"
+		]
+	},
+	{
+		"markdown": "`src/inline-path.ts`",
+		"paths": [
+			"src/inline-path.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "`rm src/inline.ts` and src/outside.ts",
+		"paths": [
+			"src/inline.ts",
+			"src/outside.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "`removed` and `deletedSymbolName` and `someSymbolName`",
+		"paths": [],
+		"symbols": [
+			"deletedSymbolName",
+			"someSymbolName"
+		]
+	},
+	{
+		"markdown": "symbol fooBarBaz not in backticks",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`fooBarBaz` removed",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`fooBarBaz` and ` ` and `fooBarBaz`",
+		"paths": [],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "```\n`fooBarBaz`\n```\n`fooBazQux`",
+		"paths": [],
+		"symbols": [
+			"fooBazQux"
+		]
+	},
+	{
+		"markdown": "`ABC_DEF` `A_B` `ab_cd_ef` `Ab_Cd` `ab_cD` `a_b_c_d_e` `abc__def` `abcdef_` `abcdef12` `abcDef12`",
+		"paths": [],
+		"symbols": [
+			"ABC_DEF",
+			"ab_cd_ef",
+			"a_b_c_d_e",
+			"abcDef12"
+		]
+	},
+	{
+		"markdown": "`a1B2c3` `aB1cD2` `AbCdEf` `ABCDEF` `abcdef` `ABCdef` `abCDEF` `ab_` `_ab_cd` `_abCd_`",
+		"paths": [],
+		"symbols": [
+			"aB1cD2",
+			"AbCdEf",
+			"abCDEF",
+			"_abCd_"
+		]
+	},
+	{
+		"markdown": "`foo.barBaz` `foo:barBaz` `foo-barBaz` `foo/barBaz` `foo barBaz` `foo,barBaz` `barBaz;`",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "`someSymbolName` `\\someSymbolName` `someSymbolName\\`",
+		"paths": [],
+		"symbols": [
+			"someSymbolName"
+		]
+	},
+	{
+		"markdown": "",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "\n",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "\r\n",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts\r\nsrc/b.ts\r\nsrc/c.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts\rsrc/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts\r\r\nsrc/b.ts\r\n\r\nsrc/c.ts\r",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts\n\n\nsrc/b.ts\n",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "removed\nsrc/a.ts\nsrc/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts removed\nsrc/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts removed src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.tsremoved src/b.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "﻿src/a.ts ﻿`fooBarBaz`",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "﻿```\nsrc/a.ts\n```\nsrc/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": " ```\nsrc/a.ts\n```\nsrc/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "text",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "# Heading\n\n- item `src/main/a.ts`\n- item `fooBarBaz()`\n\n> quote src/b.ts\n\n| a | b |\n| src/c.ts | `bazQuxQuux` |",
+		"paths": [
+			"src/main/a.ts",
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": [
+			"fooBarBaz",
+			"bazQuxQuux"
+		]
+	},
+	{
+		"markdown": "[link](src/a.ts) [x](https://x.com/src/b.ts) ![img](docs/c.png)",
+		"paths": [
+			"src/a.ts",
+			"docs/c.png"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "[link](src/a.ts#L10) src/b.ts#L5 src/c.ts?x=1 src/d.ts=1 src/e.ts&f",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts",
+			"src/d.ts",
+			"src/e.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "**src/a.ts** _src/b.ts_ ~~src/c.ts~~ *src/d.ts*",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts→src/b.ts src/c.ts → src/d.ts src/e.ts->src/f.ts src/g.ts=>src/h.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts",
+			"src/d.ts",
+			"src/e.ts",
+			"src/f.ts",
+			"src/g.ts",
+			"src/h.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "한글 설명: src/a.ts 파일과 `fooBarBaz` 함수",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": [
+			"fooBarBaz"
+		]
+	},
+	{
+		"markdown": "한글 삭제: src/a.ts",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts 삭제 아님? 아니 삭제",
+		"paths": [],
+		"symbols": []
+	},
+	{
+		"markdown": "src/main/a.ts\nsrc/main/a.ts\nscripts/b.ts\nsrc/main/a.ts",
+		"paths": [
+			"src/main/a.ts",
+			"scripts/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a.ts src/ x/src/y.ts srcs/a.ts src.ts src/a.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "moved\nmoved src/a.ts\nsrc/b.ts",
+		"paths": [
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "a\u0000b src/a.ts\u0000 src/b.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "\\src/a.ts src\\b.ts",
+		"paths": [
+			"src/a.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.ts?query src/b.ts#frag src/c.ts%20 src/d%20e.ts",
+		"paths": [
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/App.tsx src/a.jsx src/b.d.ts src/c.test.ts src/d.min.js src/e.tar.gz src/f.spec.tsx",
+		"paths": [
+			"src/App.tsx",
+			"src/a.jsx",
+			"src/b.d.ts",
+			"src/c.test.ts",
+			"src/d.min.js",
+			"src/e.tar.gz",
+			"src/f.spec.tsx"
+		],
+		"symbols": []
+	},
+	{
+		"markdown": "src/a.TS src/b.Ts src/C.MD src/d.H src/e.c",
+		"paths": [
+			"src/a.TS",
+			"src/b.Ts",
+			"src/C.MD",
+			"src/d.H",
+			"src/e.c"
+		],
+		"symbols": []
+	}
+]

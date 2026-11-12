@@ -4,9 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AiMemoryPage, AiMemoryPageRef } from "../../shared/ai-memory";
-import { stopCore } from "../core/process";
-import { configureNativeBin } from "../native-bin";
-import { checkFreshness, type FreshnessClient, type FreshnessLogDetails, namedItems } from "./freshness";
+import { checkFreshness, type FreshnessClient, type FreshnessLogDetails } from "./freshness";
 
 const PROJECT = { workspace: "default", project: "demo" };
 let root: string;
@@ -110,26 +108,6 @@ function fake(pages: Record<string, { kind: string; markdown: string; pinned?: b
 	};
 	return client;
 }
-
-describe("namedItems", () => {
-	it("takes repo paths and code symbols, not URLs, home paths, globs, shell removal or lines about a removal", () => {
-		const items = namedItems(
-			[
-				"Uses `src/main/a.ts` and src/main/b.ts:44 with `someCodeSymbol()`.",
-				"See https://github.com/x/y/blob/main/src/main/url.ts and ~/work/src/main/home.ts.",
-				"Globs src/main/*.ts and <src/main/tpl.ts>.",
-				"We deleted `src/main/said-removed.ts` and `removedSymbolName` last week.",
-				"```sh",
-				"git rm src/main/in-fence.ts",
-				"bun run scripts/run-me.ts",
-				"```",
-				"Generic words like `error` and `TypeScript` and `snake_case_name` and `a.b`.",
-			].join("\n"),
-		);
-		expect(items.paths.sort()).toEqual(["scripts/run-me.ts", "src/main/a.ts", "src/main/b.ts"]);
-		expect(items.symbols.sort()).toEqual(["snake_case_name", "someCodeSymbol"]);
-	});
-});
 
 describe("checkFreshness", () => {
 	let logs: { message: string; details: FreshnessLogDetails }[];
@@ -260,31 +238,6 @@ describe("checkFreshness", () => {
 		});
 		const report = await checkFreshness({ client, project: PROJECT, flagged: {}, maxChanges: 1, log: () => {} });
 		expect(report.retired).toHaveLength(1);
-	});
-
-	it("ends the check when the core loses the verdict and its remaining pickaxe budget", async () => {
-		const client = fake({
-			"decisions/a.md": { kind: "decision", markdown: "`legacyWidgetBuild`" },
-			"decisions/b.md": { kind: "decision", markdown: "`legacyTwinValue`" },
-		});
-		const page = client.page.bind(client);
-		const read: string[] = [];
-		client.page = async ref => {
-			read.push(ref.path);
-			await stopCore();
-			configureNativeBin({ packaged: false, resourcesPath: join(root, "no-core") });
-			return page(ref);
-		};
-		try {
-			const report = await run(client);
-			expect(report).toMatchObject({ checked: 1, errors: 1, retired: [], flagged: [] });
-			expect(read).toEqual(["decisions/a.md"]);
-			expect(client.retired).toEqual([]);
-			expect(client.flaggedPaths).toEqual([]);
-		} finally {
-			configureNativeBin({ packaged: false, resourcesPath: resolve(__dirname, "../../../resources") });
-			await stopCore();
-		}
 	});
 
 	it("does nothing when no session folder is a live checkout", async () => {

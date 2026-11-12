@@ -5,7 +5,12 @@
  * reading of omp's event lines); this file hands it how omp starts.
  */
 import { core } from "../core/process";
-import type { DistillMessage } from "./distill";
+
+/** The system prompt and the text on stdin of one model call. */
+export interface DistillMessage {
+	system: string;
+	user: string;
+}
 
 export interface ModelResult {
 	text: string;
