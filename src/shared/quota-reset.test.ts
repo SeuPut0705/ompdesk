@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	isBillingCap,
@@ -86,6 +87,27 @@ describe("isLimitWording and isBillingCap", () => {
 		]) {
 			expect(isLimitWording(message)).toBe(false);
 			expect(isBillingCap(message)).toBe(false);
+		}
+	});
+});
+
+/**
+ * The core keeps a second copy of these rules (`native/ompdesk/crates/core/src/resume/text.rs`: turn resume judges a failed
+ * turn with it); both copies answer the rows captured from this one.
+ */
+describe("the rows the core's copy is held to", () => {
+	const rows = JSON.parse(
+		readFileSync(
+			new URL("../../native/ompdesk/crates/core/src/resume/classifiers-captured.json", import.meta.url),
+			"utf8",
+		),
+	) as Array<{ message?: string; billing: boolean; retryAfter: number | null }>;
+
+	it("answers billing cap and retry-after as the captured rows say", () => {
+		expect(rows.length).toBeGreaterThan(60);
+		for (const row of rows) {
+			expect(isBillingCap(row.message), row.message).toBe(row.billing);
+			expect(retryAfterMs(row.message) ?? null, row.message).toBe(row.retryAfter);
 		}
 	});
 });

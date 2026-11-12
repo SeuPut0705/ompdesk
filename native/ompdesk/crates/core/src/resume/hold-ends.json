@@ -1,0 +1,22 @@
+{
+	"checks": {
+		"wait": "S_NewRun",
+		"probe": "S_NewRun",
+		"probeAnswer": "VerifyThen",
+		"armed": "S_Watch",
+		"firing": "FireResume",
+		"continuing": "RunGo"
+	},
+	"ends": {
+		"gone": { "checks": ["probeAnswer", "armed", "firing"] },
+		"frozen": { "checks": ["probeAnswer", "armed", "firing"] },
+		"personsRun": { "checks": ["wait", "probe", "armed"] },
+		"stopped": { "checks": ["probe", "probeAnswer", "armed", "firing"] },
+		"moved": { "checks": ["wait", "probeAnswer", "armed", "firing", "continuing"] },
+		"personsPrompt": { "checks": ["continuing"] },
+		"fileWritten": { "checks": ["probeAnswer"] },
+		"otherOutcome": { "checks": ["probeAnswer", "armed", "firing"] },
+		"notRetryable": { "checks": ["armed", "firing"] },
+		"busy": { "checks": ["firing"] }
+	}
+}

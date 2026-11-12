@@ -1,0 +1,1234 @@
+[
+	{
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": " ",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "fetch failed: getaddrinfo ENOTFOUND api.anthropic.com",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "api.anthropic.com",
+		"retryAfter": null
+	},
+	{
+		"message": "Connection error.",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "read ECONNRESET",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "The network connection was lost (network error)",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "stream ended before message_stop",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "429 usage limit reached for this account",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "401 invalid x-api-key",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "529 overloaded_error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "context length exceeded",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Couldn't reach api.anthropic.com (getaddrinfo ENOTFOUND)",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "api.anthropic.com",
+		"retryAfter": null
+	},
+	{
+		"message": "Couldn't reach API.Example.COM (getaddrinfo ENOTFOUND api.example.com)",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "api.example.com",
+		"retryAfter": null
+	},
+	{
+		"message": "OAuth token refresh failed for provider anthropic: anthropic request to https://api.anthropic.com/v1/oauth/token failed: ECONNREFUSED: Unable to connect. Is the computer able to access the url?",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "api.anthropic.com",
+		"retryAfter": null
+	},
+	{
+		"message": "getaddrinfo EAI_AGAIN",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "getaddrinfo ENOTFOUND localhost",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "getaddrinfo ENOTFOUND a..b",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "getaddrinfo ENOTFOUND -x.example.com",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "-x.example.com",
+		"retryAfter": null
+	},
+	{
+		"message": "connect ECONNREFUSED 127.0.0.1:443",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "connection refused",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "ENETUNREACH",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "EHOSTUNREACH 10.0.0.1",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": "",
+		"retryAfter": null
+	},
+	{
+		"message": "socket hang up",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "socket connection was closed unexpectedly",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "other side closed",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "websocket closed 1006",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "WebSocket error",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "reset before headers",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "request timed out",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "request time out",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "timeout while waiting",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "terminated",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "you appear to be offline",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "no internet",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "503 Service unavailable",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "500 Internal Server Error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "500000 tokens",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "http 502",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Error 504 gateway",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "520",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "524: origin",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "529",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "service-unavailable",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "server_error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "internal error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "provider returned error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "overloaded",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "429 rate limit exceeded",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Rate-limit hit",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "rate_limit_error",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "rate.limit",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "too many requests",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "You exceeded your current quota",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "usage limit reached",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "GoUsageLimitError: out",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "FreeUsageLimitError",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "ResourceExhausted: quota",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "429",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "4290",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "402 Payment required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "out of credit",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "add more credit",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Please top up",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "top-up",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "insufficient funds",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "insufficient_quota",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "available balance is too low",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "out of budget",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "billing hard limit reached",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "You exceeded your credits",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "not enough credits remaining",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "credits are exhausted",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "credit depleted",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "usage_pricing_required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "prepaid balance used up",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "prepaid balance is exhausted",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "spending limit reached",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "spend_cap",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "spend cap",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "usage credits are required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "credits_required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "429 usage limit: insufficient credits",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "rate limit: billing issue",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": true,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "401 unauthorized",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "403 forbidden",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "400 bad request",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "invalid api key",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "invalid_x-api-key",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Invalid x-api-key",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "authentication failed",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "not logged in",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "log in required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "login required",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "no api key",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "token has expired",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "token expired",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "prompt is too long",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "context window exceeded",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "context_length_exceeded",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "maximum context length",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "too many tokens",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "input is too long",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "exceeds the model's context",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "exceed the maximum",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "certificate has expired",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "self-signed certificate",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "self signed",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "unable to verify the first certificate",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "unable_to_get_issuer_cert",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "SSL error",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "ssl",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "TLS handshake",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "ERR_TLS_CERT",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "cert_has_expired",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "DEPTH_ZERO_SELF_SIGNED_CERT",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "err_cert_authority_invalid",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "429 rate limit retry-after-ms=1500",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": 1500
+	},
+	{
+		"message": "rate limit retry-after-ms: 30000",
+		"network": false,
+		"transient": false,
+		"limit": true,
+		"billing": false,
+		"host": null,
+		"retryAfter": 30000
+	},
+	{
+		"message": "retry-after-ms=0",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "retry-after-ms=abc",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "retry-after-ms = 12",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": 12
+	},
+	{
+		"message": "x retry-after-ms=99999999999999999999",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": 100000000000000000000
+	},
+	{
+		"message": "server error: retry delay 3s",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "you can retry your request",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "try your request again",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "please retry your request",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "ended without a response",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "stream ended before a terminal response event",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "http2 request did not get a response",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "upstream connect error",
+		"network": false,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "Ünïcödé network error",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "network\nerror",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "network€error",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "NETWORK-ERROR",
+		"network": true,
+		"transient": true,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "something unrelated",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	},
+	{
+		"message": "The model refused",
+		"network": false,
+		"transient": false,
+		"limit": false,
+		"billing": false,
+		"host": null,
+		"retryAfter": null
+	}
+]
