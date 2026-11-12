@@ -21,6 +21,10 @@ runs:
         src/main/control-socket/router.test.ts
         src/main/control-socket/events.test.ts
         src/main/control-socket/cli.test.ts
+        src/main/tailscale/cli.test.ts
+        src/main/tailscale/locate.test.ts
+        src/main/tailscale/service.test.ts
+        src/main/tailscale/tailnet.test.ts
         src/main/checkout-peers*.test.ts
         src/main/git-fingerprints*.test.ts
         src/main/ai-memory/freshness*.test.ts
@@ -29,4 +33,5 @@ runs:
         src/main/local/git/scm.test.ts
         src/main/local/git/worktree.test.ts
         src/main/local/git/exec-gh.test.ts
+        src/main/workspace-fs*.test.ts
         src/main/disk/*.test.ts
