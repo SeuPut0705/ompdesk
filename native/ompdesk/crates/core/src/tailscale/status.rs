@@ -28,17 +28,17 @@ pub enum Backend {
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     /// `BackendState` as Tailscale spelled it.
-    backend_state: String,
-    backend: Backend,
+    pub(super) backend_state: String,
+    pub(super) backend: Backend,
     /// `Version` without the build suffix (`1.104.1-t…` is `1.104.1`).
-    version: Option<String>,
+    pub(super) version: Option<String>,
     /// The sign-in page while `NeedsLogin`.
-    auth_url: Option<String>,
+    pub(super) auth_url: Option<String>,
     /// This machine's MagicDNS name without its trailing dot.
-    dns_name: Option<String>,
+    pub(super) dns_name: Option<String>,
     user_id: Option<Number>,
     /// `User[Self.UserID].LoginName`: this computer's tailnet user.
-    login: Option<String>,
+    pub(super) login: Option<String>,
     cert_domains: Vec<String>,
     /// `CurrentTailnet.MagicDNSEnabled`; none when the document does not say.
     magic_dns: Option<bool>,
@@ -46,9 +46,9 @@ pub struct Status {
     capabilities: Vec<String>,
     key_expiry: Option<String>,
     /// A newer Tailscale exists.
-    update_available: bool,
+    pub(super) update_available: bool,
     /// Host names of this user's online phones and tablets.
-    phones: Vec<String>,
+    pub(super) phones: Vec<String>,
     /// This machine's tailnet addresses (`TailscaleIPs`).
     self_ips: Vec<String>,
     /// This machine's node (`Self.ID`, the stable ID `whois` reports).

@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { loginUrlAllowed, startTailscaleApp, TailscaleCli } from "./cli";
+import { startTailscaleApp, TailscaleCli } from "./cli";
 import type { LocatedTailscale } from "./locate";
 import { answer, defaultTailscaleScenario, fakeTailscaleCli } from "./test-fake-tailscale";
 
@@ -161,19 +161,5 @@ describe("starting the Tailscale app", () => {
 			code: 1,
 			line: "This Tailscale has no app to start: start its daemon (tailscaled) yourself",
 		});
-	});
-});
-
-describe("loginUrlAllowed", () => {
-	it("only allows https on Tailscale's login host or the tailnet's control host", () => {
-		expect(loginUrlAllowed("https://login.tailscale.com/a/x", null)).toBe(true);
-		expect(loginUrlAllowed("https://LOGIN.tailscale.com/a/x", null)).toBe(true);
-		expect(loginUrlAllowed("http://login.tailscale.com/a/x", null)).toBe(false);
-		expect(loginUrlAllowed("https://login.tailscale.com.evil.example/a", null)).toBe(false);
-		expect(loginUrlAllowed("https://user:pw@login.tailscale.com/a", null)).toBe(false);
-		expect(loginUrlAllowed("javascript:alert(1)", null)).toBe(false);
-		expect(loginUrlAllowed("https://hs.example.org/register/x", null)).toBe(false);
-		expect(loginUrlAllowed("https://hs.example.org/register/x", "hs.example.org")).toBe(true);
-		expect(loginUrlAllowed("not a url", "hs.example.org")).toBe(false);
 	});
 });

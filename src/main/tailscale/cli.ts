@@ -27,7 +27,7 @@ export const WHOIS_TIMEOUT_MS = 4_000;
 const CORE_SLACK_MS = 2_000 + 5_000;
 
 /** Main's environment now, with `extra` over it, as the plain strings a request carries. */
-function mainEnv(extra: Record<string, string> = {}): Record<string, string> {
+export function mainEnv(extra: Record<string, string> = {}): Record<string, string> {
 	const env: Record<string, string> = {};
 	for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
 	return { ...env, ...extra };
@@ -224,23 +224,6 @@ export class TailscaleCli {
 			off: false,
 		}));
 	}
-}
-
-/**
- * Whether `openExternal` may be given `url` for a sign-in: https on Tailscale's own login host, or on the host of
- * the control server this tailnet signs in to (`controlHost`, a self-hosted one). Nothing else is ever opened. Main's
- * own check of what it hands Electron, read while a status is applied.
- */
-export function loginUrlAllowed(url: string, controlHost: string | null): boolean {
-	let parsed: URL;
-	try {
-		parsed = new URL(url);
-	} catch {
-		return false;
-	}
-	if (parsed.protocol !== "https:" || parsed.username || parsed.password) return false;
-	const host = parsed.hostname.toLowerCase();
-	return host === "login.tailscale.com" || (controlHost !== null && host === controlHost.toLowerCase());
 }
 
 /**
