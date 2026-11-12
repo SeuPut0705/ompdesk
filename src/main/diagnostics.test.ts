@@ -82,7 +82,7 @@ describe("buildDiagnosticsReport", () => {
 		const report = buildDiagnosticsReport(INPUT);
 		expect(report).toContain("OMPdesk: 0.35.1");
 		expect(report).toContain("omp: 18.11.1");
-		expect(report).toContain("Electron: 36.4.0, Chrome 136.0.7103.113, Node 22.16.0");
+		expect(report).toContain("Shell: 36.4.0, Chrome 136.0.7103.113, Node 22.16.0");
 		expect(report).toContain("OS: darwin 26.0.1 (kernel 25.0.0), arm64");
 		expect(report).toContain("- bun (required): present; present 1.2.19 (~/.bun/bin/bun)");
 		expect(report).toContain("- gh: failed; missing; failed: network exit 6");

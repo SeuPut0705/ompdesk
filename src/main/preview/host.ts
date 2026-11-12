@@ -40,17 +40,18 @@ import {
 	previewUrl,
 	VISUAL_SCHEME,
 } from "../../shared/preview";
+import { encodeImage, fitImage } from "../shell-host/image";
 import { applyAcceptLanguages, seedSpellchecker } from "../system-languages";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { IpcCaller, IpcRegistry } from "../web/ipc-registry";
 import { DIALOG_CHANNEL, dialogRequestSchema, dialogReturnValue } from "../web/preview-dialog";
 import { InputMapper, InputSequence, previewStreamBatchSchema } from "../web/preview-input";
 import { streamProfile } from "../web/preview-pacer";
-import { type OsrPage, PageStream, POLL_MAX_WAIT_MS } from "../web/preview-stream";
+import { type OsrPage, PageStream, type PaintImage, POLL_MAX_WAIT_MS } from "../web/preview-stream";
 import { PreviewRelayExtension, relayExtensionUrl } from "./agent-relay";
 import { applyPreviewLayout, fitPreviewFrame, MIN_FRAME_SCALE } from "./layout";
 import { PAGE_WORLD, pageCall } from "./page-scripts";
-import { judgeImage, PREVIEW_CHECK_SETTLE_MS, withDeadline } from "./preview-check";
+import { judgeImage, PREVIEW_CHECK_IMAGE_MAX, PREVIEW_CHECK_SETTLE_MS, withDeadline } from "./preview-check";
 import { localRelaySocket, type RelaySocket } from "./relay-socket";
 import { visualMayNavigate } from "./visual-navigation";
 import type { VisualPages, VisualStore } from "./visuals";
@@ -187,11 +188,25 @@ interface PreviewOwner {
 	tunnel: (tabId?: string) => RelaySocket | null;
 }
 
+/** A paint as the stream sees it: its size now, its JPEG when a frame goes out (the shell holds the pixels). */
+function paintImage(image: NativeImage): PaintImage {
+	return {
+		isEmpty: () => image.isEmpty(),
+		getSize: () => image.getSize(),
+		async jpeg({ quality, width }) {
+			const size = image.getSize();
+			const target = width !== undefined && width < size.width ? width : size.width;
+			const data = await encodeImage(image, { format: "jpeg", quality, width: target });
+			return { data, width: target, height: Math.max(1, Math.round((size.height * target) / size.width)) };
+		},
+	};
+}
+
 /** An offscreen page as the stream sees it: its paints, its frame rate, and whether it paints at all. */
 function osrPage(contents: WebContents): OsrPage {
 	return {
 		onPaint(listener) {
-			const handler = (_event: unknown, _dirty: unknown, image: NativeImage) => listener(image);
+			const handler = (_event: unknown, _dirty: unknown, image: NativeImage) => listener(paintImage(image));
 			contents.on("paint", handler);
 			return () => {
 				if (!contents.isDestroyed()) contents.off("paint", handler);
@@ -951,7 +966,7 @@ export function registerPreviewHost(
 			width: Math.max(1, Math.round(rect.width * factor)),
 			height: Math.max(1, Math.round(rect.height * factor)),
 		});
-		const image = shot.getSize().width > REGION_MAX_WIDTH ? shot.resize({ width: REGION_MAX_WIDTH }) : shot;
+		const image = await fitImage(shot, { width: REGION_MAX_WIDTH });
 		return { image: image.toPNG().toString("base64"), elements };
 	});
 
@@ -1148,7 +1163,12 @@ export function registerPreviewHost(
 							shown.page.contents.capturePage().catch(() => null),
 							Math.max(CAPTURE_MIN_MS, deadline - Date.now()),
 						);
-						return picture ? judgeImage(picture) : null;
+						// The page captures once more at the bound: `judgeImage` only ever sees a picture within it.
+						return picture
+							? judgeImage(
+									await fitImage(picture, { width: PREVIEW_CHECK_IMAGE_MAX, height: PREVIEW_CHECK_IMAGE_MAX }),
+								)
+							: null;
 					}
 				} else if (!onScreenVisualPage(visualId, version) && Date.now() - started >= appearMs) {
 					// No window has put it on screen within what the caller allows (preview-check.ts): waiting longer would only delay the tool.

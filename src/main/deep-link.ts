@@ -38,13 +38,7 @@ export function setupDeepLinks(windowManager: WindowManager, spawnWindow: SpawnW
 	// Register as the default omp:// handler, except in test runs (OMP_GUI_HEADLESS):
 	// that LaunchServices entry belongs to the user's installed OMPdesk. Links
 	// still arrive through open-url / second-instance below either way.
-	if (process.env.OMP_GUI_HEADLESS !== "1") {
-		if (process.defaultApp && process.argv.length >= 2) {
-			app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [process.argv[1]]);
-		} else {
-			app.setAsDefaultProtocolClient(PROTOCOL);
-		}
-	}
+	if (process.env.OMP_GUI_HEADLESS !== "1") app.setAsDefaultProtocolClient(PROTOCOL);
 
 	handler = url => handleDeepLink(url, windowManager, spawnWindow);
 	for (const url of beforeSetup.splice(0)) handler(url);
@@ -55,9 +49,8 @@ export function setupDeepLinks(windowManager: WindowManager, spawnWindow: SpawnW
 	// over its argv. Only omp:// URLs used to be read, so a workspace path was
 	// dropped and the launch did nothing at all.
 	app.on("second-instance", (_event, argv) => {
-		// In dev, argv[0] is Electron and argv[1] the app directory — both real
-		// directories that would otherwise be mistaken for the requested one.
-		const request = parseLaunchArgv(argv.slice(process.defaultApp ? 2 : 1), PROTOCOL);
+		// argv[0] is the other launch's executable: a real file, never the requested directory.
+		const request = parseLaunchArgv(argv.slice(1), PROTOCOL);
 		if (request.kind === "url") handleDeepLink(request.url, windowManager, spawnWindow);
 		else if (request.kind === "path") handleOpenPath(request.path, windowManager, spawnWindow);
 		else showWindow(windowManager.getTargetWindow());

@@ -201,6 +201,7 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { accessibilityTrusted, readClipboardText, screenRecordingGranted } from "./shell-host/shell-calls";
 import { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
@@ -210,6 +211,7 @@ import { StatsClient } from "./stats-client";
 import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { seedSpellchecker } from "./system-languages";
+import { shellEngine, systemVersion } from "./system-version";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts, type TabLayoutDrop } from "./tab-layout";
 import { startTailscaleApp } from "./tailscale/cli";
 import { locateTailscale } from "./tailscale/locate";
@@ -363,7 +365,7 @@ exitWithLauncher(process.env, () => app.exit(0));
  * bundle (out/main/index.js → ../..), not app.getAppPath(): that is the
  * project root under `electron-vite dev` but `out/main` when Electron is
  * launched on the bundle directly (e2e, `electron out/main/index.js`).
- * Packaged apps ship gui-bridge outside the asar (`extraResources`) because
+ * Packaged apps ship gui-bridge beside the app (`extraResources`) because
  * omp, a separate process, loads it with `-e`.
  */
 const devResourcesDir = join(__dirname, "..", "..", "resources");
@@ -417,9 +419,9 @@ function prefsStore(): Store<MainPrefs> {
 }
 
 function resolveExplicitStartupCwd(): string | undefined {
-	// `electron <main.js> <dir>` (dev, e2e) carries the script path; a packaged
-	// app (`ompdesk.app/…/ompdesk <dir>`) does not. Flags (`--user-data-dir=…`) are skipped.
-	const explicitCwd = process.argv.slice(process.defaultApp ? 2 : 1).find(arg => !arg.startsWith("-"));
+	// Node runs `<main.js> <the shell's own arguments>`: argv[0] is node and argv[1] the bundle. Flags
+	// (`--user-data-dir=…`) are skipped.
+	const explicitCwd = process.argv.slice(2).find(arg => !arg.startsWith("-"));
 	return explicitCwd && existsSync(explicitCwd) ? explicitCwd : undefined;
 }
 
@@ -1491,8 +1493,8 @@ app.whenReady().then(async () => {
 		agentDesktop: async () =>
 			(await agentDesktopToRun({ toolsDir, bundleDir: agentDesktopBundle, platform }))?.path ?? null,
 		run: async (executable, args) => (await promisify(execFile)(executable, [...args], { timeout: 30_000 })).stdout,
-		accessibilityTrusted: prompt => systemPreferences.isTrustedAccessibilityClient(prompt),
-		screenGranted: () => systemPreferences.getMediaAccessStatus("screen") === "granted",
+		accessibilityTrusted: prompt => accessibilityTrusted(prompt),
+		screenGranted: () => screenRecordingGranted(),
 		openPane: url => shell.openExternal(url),
 	});
 	// Only a packaged, non-headless app asks on its own: a dev or test launch must never raise a system prompt. After
@@ -1577,13 +1579,13 @@ app.whenReady().then(async () => {
 		system: () => ({
 			appVersion: appVersion(),
 			packaged: app.isPackaged,
-			electron: process.versions.electron ?? "?",
+			electron: shellEngine(),
 			chrome: process.versions.chrome ?? "?",
 			node: process.versions.node ?? "?",
 			platform: process.platform,
 			arch: process.arch,
 			osRelease: release(),
-			osVersion: process.getSystemVersion(),
+			osVersion: systemVersion(),
 			language: deviceLanguage() ?? null,
 		}),
 		setupState: () => setup.state(),
@@ -1948,7 +1950,7 @@ app.whenReady().then(async () => {
 	registerAiMemoryIpc(ipc, aiMemory, {
 		openExternal: url => shell.openExternal(url),
 		openPath: path => shell.openPath(path),
-		readClipboard: () => clipboard.readText(),
+		readClipboard: () => readClipboardText(),
 		writeClipboard: text => clipboard.writeText(text),
 		care: () => aiMemoryCare,
 	});

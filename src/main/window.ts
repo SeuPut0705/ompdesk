@@ -3,7 +3,7 @@
  * Creates sandboxed BrowserWindows with persisted state via electron-store.
  */
 
-import * as fs from "node:original-fs";
+import * as fs from "node:fs";
 import { release } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, Menu, type MessageBoxOptions, nativeTheme, screen, shell } from "electron";
@@ -88,7 +88,8 @@ export type SpawnWindow = (
 export class WindowManager {
 	#records = new Map<number, WindowRecord>();
 	#store: Store<StoreSchema>;
-	#resourceArchivePath = app.isPackaged ? join(process.resourcesPath, "app.asar") : null;
+	/** The renderer entry the packaged app serves its windows from: an update replaces it. */
+	#resourceEntryPath = app.isPackaged ? join(app.getAppPath(), "out", "renderer", "index.html") : null;
 	#launchResourceIdentity = this.#readResourceIdentity();
 	#resourceRestartScheduled = false;
 	#windowClosedListeners = new Set<(record: WindowRecord) => void>();
@@ -155,12 +156,12 @@ export class WindowManager {
 			// macOS draws the window's icon from the bundle; Windows (and its dev run) takes a file.
 			...(process.platform === "darwin" ? {} : { icon: appIconPath() }),
 			...windowChromeOptions(process.platform, nativeTheme.shouldUseDarkColors, mica),
+			// The shell injects `window.omp` (out/preload/shell.js) into every window of this session itself.
 			webPreferences: {
 				contextIsolation: true,
 				nodeIntegration: false,
 				sandbox: true,
 				spellcheck: true,
-				preload: join(__dirname, "../preload/index.cjs"),
 			},
 		});
 
@@ -372,9 +373,9 @@ export class WindowManager {
 	}
 
 	#readResourceIdentity(): ApplicationResourceIdentity | null {
-		if (this.#resourceArchivePath === null) return null;
+		if (this.#resourceEntryPath === null) return null;
 		try {
-			const stats = fs.statSync(this.#resourceArchivePath);
+			const stats = fs.statSync(this.#resourceEntryPath);
 			return {
 				device: stats.dev,
 				inode: stats.ino,

@@ -1,15 +1,15 @@
 /**
- * JS dialogs of a viewer's offscreen page. Electron has no hook for `alert`, `confirm` and `prompt`: a page
- * without a window to show them on stays blocked in them for good, and CDP's `Page.javascriptDialogOpening`
- * needs a debugger on the page, which would turn the `choose` gate off (C143). So the viewers' two sessions
- * carry one fixed preload that does nothing but replace those three functions in the page's main world, before
- * any page script runs, with calls that ask main synchronously (`ipcRenderer.sendSync`) and so block the page
- * exactly as a real dialog does, until the viewer answers on its phone (`PageStream.openDialog`).
+ * JS dialogs of a viewer's offscreen page. A page without a window to show `alert`, `confirm` and `prompt` on stays
+ * blocked in them for good, and CDP's `Page.javascriptDialogOpening` needs a debugger on the page, which would turn
+ * the `choose` gate off (C143). So the viewers' two sessions carry one fixed script that does nothing but replace
+ * those three functions in the page's main world, before any page script runs, with calls that ask main
+ * synchronously (`__ompdeskSendSync`, which the shell gives a registered preload script and which the script takes
+ * and removes, so the page never sees it) and so block the page exactly as a real dialog does, until the viewer
+ * answers on its phone (`PageStream.openDialog`).
  *
- * It is the one exception to the preview's "no preload": it runs in an isolated world with nothing exposed to
- * the page (no `require`, no `ipcRenderer`, no bridge object), only the three replaced functions, which can say
- * no more than the text of a dialog. `beforeunload` is not a dialog here: main lets the page leave
- * (`will-prevent-unload`). Main answers the channel only for a page it streams, and always answers.
+ * It is the one exception to the preview's "no preload": nothing else is exposed to the page, only the three
+ * replaced functions, which can say no more than the text of a dialog. `beforeunload` is not a dialog here: main
+ * lets the page leave (`will-prevent-unload`). Main answers the channel only for a page it streams, and always answers.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -37,24 +37,23 @@ export function dialogReturnValue(
 	return answer.accept ? (answer.text ?? request.initial ?? "") : null;
 }
 
-export const DIALOG_PRELOAD_SOURCE = `"use strict";
-const { contextBridge, ipcRenderer } = require("electron");
-const clip = (value) => String(value === undefined || value === null ? "" : value).slice(0, ${MESSAGE_MAX});
-const ask = (kind, message, initial) =>
-	ipcRenderer.sendSync(${JSON.stringify(DIALOG_CHANNEL)}, { kind, message: clip(message), initial: initial === null ? null : clip(initial) });
-contextBridge.executeInMainWorld({
-	func: call => {
-		window.alert = message => {
-			call("alert", message, null);
-		};
-		window.confirm = message => call("confirm", message, null) === true;
-		window.prompt = (message, initial) => {
-			const answer = call("prompt", message, initial === undefined ? "" : initial);
-			return typeof answer === "string" ? answer : null;
-		};
-	},
-	args: [ask],
-});
+export const DIALOG_PRELOAD_SOURCE = `(() => {
+	"use strict";
+	const send = globalThis.__ompdeskSendSync;
+	delete globalThis.__ompdeskSendSync;
+	if (typeof send !== "function") return;
+	const clip = value => String(value === undefined || value === null ? "" : value).slice(0, ${MESSAGE_MAX});
+	const ask = (kind, message, initial) =>
+		send(${JSON.stringify(DIALOG_CHANNEL)}, { kind, message: clip(message), initial: initial === null ? null : clip(initial) });
+	window.alert = message => {
+		ask("alert", message, null);
+	};
+	window.confirm = message => ask("confirm", message, null) === true;
+	window.prompt = (message, initial) => {
+		const answer = ask("prompt", message, initial === undefined ? "" : initial);
+		return typeof answer === "string" ? answer : null;
+	};
+})();
 `;
 
 /** Write the preload under `<userData>/web-preview/` (a session loads it from a real file) and return its path. */

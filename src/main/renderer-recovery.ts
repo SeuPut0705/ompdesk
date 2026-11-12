@@ -10,9 +10,9 @@ export interface ApplicationResourceIdentity {
 }
 
 /**
- * A packaged app must never reload renderer files through an archive that was
- * replaced after launch. Electron can otherwise combine the old ASAR index
- * with bytes from the new archive and serve an asset chunk as index.html.
+ * A packaged app must never reload renderer files that an update replaced after
+ * launch: the new `index.html` names asset chunks the page this run loaded does not
+ * have, and a reload would serve one of them as the page itself.
  */
 export function applicationResourcesChanged(
 	launchIdentity: ApplicationResourceIdentity | null,

@@ -30,16 +30,12 @@
  */
 
 import { execFile, spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { app, BrowserWindow, net, powerMonitor, shell } from "electron";
+import { app, BrowserWindow, net, shell } from "electron";
 import type { AppUpdater, UpdateInfo } from "electron-updater";
 import pkg from "electron-updater";
-// Not node:fs: Electron's fs treats `app.asar` as a directory, so a recursive rm
-// of a staged bundle fails with ENOTEMPTY and leaves the archive behind; every
-// later download then died sweeping that leftover (a skipped update could never
-// be skipped). Nothing here reads inside an archive.
-import * as fs from "original-fs";
 import type { UpdateAuthTestResult, UpdateInstallMode, UpdateStatus } from "../shared/ipc-types";
 import { IPC_COMMANDS, IPC_EVENTS } from "../shared/ipc-types";
 import { AutoInstallScheduler, type InstallTrigger } from "./app-auto-update";
@@ -51,6 +47,7 @@ import { mainT } from "./i18n";
 import type { MainTextKey } from "./i18n-text";
 import { OmpNsisUpdater } from "./nsis-updater";
 import { writeRuntimeLog } from "./runtime-log";
+import { systemIdleSeconds } from "./shell-host/shell-calls";
 import {
 	checkRepoAccess,
 	clearUpdateToken,
@@ -162,6 +159,19 @@ let checkAsked = false;
 const macTransfer = new SingleTransfer();
 /** Installs a downloaded update by itself at a quiet moment (Settings › Updates & about); null before `setupUpdater`. */
 let autoInstall: AutoInstallScheduler | null = null;
+/**
+ * Seconds without keyboard or mouse input, read from the shell just before each look (`tickAutoInstall`): the answer
+ * comes from another process, so the scheduler's synchronous facts hold the last one. It can only be older than the
+ * moment of the decision, never ahead of it, so a person who just touched the computer is never taken for idle.
+ */
+let idleSeconds = 0;
+
+/** Samples the idle time, then lets the scheduler decide; a failed sample counts as "not idle". */
+async function tickAutoInstall(): Promise<void> {
+	idleSeconds = await systemIdleSeconds().catch(() => 0);
+	autoInstall?.tick();
+}
+
 /** The probe's background-work ask, for a click on "Restart & install"; null before `setupUpdater`. */
 let askBackgroundWork: (() => Promise<BackgroundWork>) | null = null;
 /** Each tick's look at the facts; a dev run shortens the countdown with OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS. */
@@ -416,7 +426,7 @@ function detectInstallMode(): UpdateInstallMode {
 	}
 
 	// Ad-hoc or certificate-signed alike: the release ships a DMG, not the ZIP Squirrel needs.
-	ownBundle = swappableBundle(app.isPackaged ? macBundlePath(process.execPath) : undefined);
+	ownBundle = swappableBundle(app.isPackaged ? macBundlePath(app.getPath("exe")) : undefined);
 	return ownBundle ? "relaunch" : "manual";
 }
 
@@ -474,7 +484,8 @@ function launchSwap(
 			log,
 			startMarkPath(),
 			update.version,
-			...process.argv.slice(1),
+			// What the reopened app is launched with: the shell's own arguments (argv[0] is node, argv[1] the bundle).
+			...process.argv.slice(2),
 		],
 		{ detached: true, stdio: "ignore" },
 	);
@@ -976,7 +987,7 @@ export function updateInstallMode(): UpdateInstallMode {
 
 /** Pref `appAutoUpdate` changed: look at once instead of at the next tick. */
 export function appAutoUpdatePrefChanged(): void {
-	autoInstall?.tick();
+	void tickAutoInstall();
 }
 
 /** The automatic install's "Later" (the notice here, a paired page's or a paired computer's). */
@@ -1006,7 +1017,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 				planWaiting: probe.planWaiting(),
 				compacting: probe.compacting(),
 				focused: BrowserWindow.getAllWindows().some(win => win.isFocused()),
-				idleMs: powerMonitor.getSystemIdleTime() * 1000,
+				idleMs: idleSeconds * 1000,
 			};
 		},
 		countdownMs: Number(process.env.OMP_DEV_UPDATE_AUTO_COUNTDOWN_MS) || undefined,
@@ -1019,7 +1030,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			install: () => restartIntoUpdate("auto"),
 		},
 	});
-	setInterval(() => autoInstall?.tick(), AUTO_INSTALL_TICK_MS).unref();
+	setInterval(() => void tickAutoInstall(), AUTO_INSTALL_TICK_MS).unref();
 	// Installs interrupted by older builds keyed the partial by process id, which
 	// nothing could ever continue — those orphans are the only debris a startup
 	// sweep can identify for sure.

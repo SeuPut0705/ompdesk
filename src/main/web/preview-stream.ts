@@ -5,9 +5,9 @@
  * The viewer (a phone) asks `poll({ack})`: the answer is the next frame, held until the pacer
  * (`preview-pacer.ts`) lets one go — never before the viewer acknowledged the last — or a dialog, or an empty
  * answer after `wait` so the socket keeps talking. The paint handler only keeps the newest image and wakes a
- * waiting poll; the JPEG is made when the pacer says send (`toJPEG` is synchronous on main: spike S2 measured
- * 6 ms for a phone frame at 2×, 194 KB), so a page painting at 60 fps costs 12 encodes a second at most, and a
- * still page none. Nothing here touches Electron: the page is an `OsrPage`, so the pacing is tested with a fake.
+ * waiting poll; the JPEG is made when the pacer says send (the shell encodes it from the frame it still holds, spike
+ * S2 measured 6 ms for a phone frame at 2×, 194 KB), so a page painting at 60 fps costs 12 encodes a second at most,
+ * and a still page none. Nothing here touches the shell: the page is an `OsrPage`, so the pacing is tested with a fake.
  */
 import type {
 	PreviewBounds,
@@ -27,12 +27,18 @@ export const DIALOG_TIMEOUT_MS = 60_000;
 /** A page that opens more dialogs than this in the window is flooding the phone: the rest are dismissed unseen. */
 export const DIALOG_FLOOD = { count: 5, windowMs: 10_000 };
 
-/** What a paint hands over: the NativeImage's size, its JPEG, and a smaller copy. */
+/** The JPEG of a paint, and the size it came out at. */
+export interface EncodedFrame {
+	data: Buffer;
+	width: number;
+	height: number;
+}
+
+/** What a paint hands over: the image's size, and its JPEG on request, scaled down to `width` when it is wider. */
 export interface PaintImage {
 	isEmpty(): boolean;
 	getSize(): { width: number; height: number };
-	toJPEG(quality: number): Buffer;
-	resize(options: { width: number; quality?: "good" | "better" | "best" }): PaintImage;
+	jpeg(options: { quality: number; width?: number }): Promise<EncodedFrame>;
 }
 
 /** The slice of an offscreen `WebContents` the stream uses. */
@@ -101,6 +107,12 @@ export class PageStream {
 	#painting = true;
 	#visible = true;
 	#disposed = false;
+	/** A frame is being encoded: no second one starts, and no poll waits for a timer meanwhile. */
+	#encoding = false;
+	/** Counts the moments the frame being encoded stopped being current (`refresh`, `dispose`). */
+	#epoch = 0;
+	/** A frame the pacer counted as sent whose poll had gone: the next poll takes it. */
+	#parked: PreviewStreamFrame | null = null;
 	readonly #stopPaint: () => void;
 	readonly #dialogs: Array<{ id: number; request: DialogRequest }> = [];
 	readonly #pending = new Map<
@@ -168,6 +180,8 @@ export class PageStream {
 	refresh(): void {
 		if (this.#disposed) return;
 		this.#latest = null;
+		this.#parked = null;
+		this.#epoch += 1;
 		this.#pacer.markUrgent();
 		if (!this.#page.isDestroyed()) this.#page.invalidate();
 	}
@@ -184,65 +198,86 @@ export class PageStream {
 		}
 		this.#pacer.ack(request.ack);
 		this.#release({ frame: null, dialogs: [] });
-		const ready = this.#take();
-		if (ready) return Promise.resolve(ready);
 		const wait = Math.min(Math.max(0, request.wait ?? POLL_MAX_WAIT_MS), POLL_MAX_WAIT_MS);
 		const { promise, resolve } = Promise.withResolvers<PreviewStreamPoll>();
 		const timer = setTimeout(() => this.#release({ frame: null, dialogs: [] }), wait);
 		this.#waiter = { resolve, timer };
-		this.#arm();
+		void this.#kick();
 		return promise;
 	}
 
 	/** Answer the waiting poll (the newest request supersedes an older one: a reconnected viewer has no use for it). */
-	#release(poll: PreviewStreamPoll): void {
+	#release(poll: PreviewStreamPoll): boolean {
 		const waiter = this.#waiter;
-		if (!waiter) return;
+		if (!waiter) return false;
 		this.#waiter = null;
 		clearTimeout(waiter.timer);
 		waiter.resolve(poll);
+		return true;
+	}
+
+	/** Takes what may go now and gives it to the waiting poll; with nothing to send, waits for the pacer. */
+	async #kick(): Promise<void> {
+		const ready = await this.#take();
+		if (!ready) {
+			this.#arm();
+			return;
+		}
+		if (this.#release(ready)) return;
+		// The poll left while the frame was being made: what it took is kept for the next one.
+		this.#dialogs.unshift(...ready.dialogs.map(({ id, ...request }) => ({ id, request })));
+		this.#parked = ready.frame ?? this.#parked;
 	}
 
 	/** What a poll may carry right now: queued dialogs, and a frame when the pacer allows one. */
-	#take(): PreviewStreamPoll | null {
+	async #take(): Promise<PreviewStreamPoll | null> {
 		const dialogs = this.#dialogs.splice(0).map(({ id, request }) => ({ id, ...request }));
-		const frame = this.#visible ? this.#frame() : null;
+		const parked = this.#parked;
+		this.#parked = null;
+		const frame = parked ?? (this.#visible ? await this.#frame() : null);
 		return frame || dialogs.length > 0 ? { frame, dialogs } : null;
 	}
 
-	#frame(): PreviewStreamFrame | null {
+	async #frame(): Promise<PreviewStreamFrame | null> {
 		const image = this.#latest;
-		if (!image || this.#page.isDestroyed()) return null;
+		if (!image || this.#page.isDestroyed() || this.#encoding) return null;
 		if (this.#pacer.readiness().state !== "ready") return null;
-		const started = performance.now();
-		const size = image.getSize();
-		const cap = this.#geometry.pixelWidth;
-		const sized = cap > 0 && size.width > cap * 1.02 ? image.resize({ width: cap, quality: "good" }) : image;
-		const jpeg = sized.toJPEG(this.#pacer.quality());
-		this.#encodeMs += performance.now() - started;
-		const { width, height } = sized.getSize();
-		this.#bytes += jpeg.length;
-		this.#sent += 1;
-		return {
-			seq: this.#pacer.sent(),
-			tab: this.#tab,
-			width,
-			height,
-			rect: this.#geometry.rect,
-			jpeg: jpeg.toString("base64"),
-		};
+		this.#encoding = true;
+		const epoch = this.#epoch;
+		try {
+			const started = performance.now();
+			const cap = this.#geometry.pixelWidth;
+			const wide = cap > 0 && image.getSize().width > cap * 1.02;
+			const encoded = await image.jpeg({ quality: this.#pacer.quality(), ...(wide ? { width: cap } : {}) });
+			this.#encodeMs += performance.now() - started;
+			// The page navigated or the viewer left while the shell encoded: the frame shows what is gone.
+			if (this.#disposed || epoch !== this.#epoch) return null;
+			this.#bytes += encoded.data.length;
+			this.#sent += 1;
+			return {
+				seq: this.#pacer.sent(),
+				tab: this.#tab,
+				width: encoded.width,
+				height: encoded.height,
+				rect: this.#geometry.rect,
+				jpeg: encoded.data.toString("base64"),
+			};
+		} catch {
+			// The shell could not encode this paint (the page went away): the next paint is tried instead.
+			return null;
+		} finally {
+			this.#encoding = false;
+		}
 	}
 
 	/** A poll is waiting: deliver when the pacer allows, else look again when it will. */
 	#arm(): void {
-		if (!this.#waiter || this.#disposed) return;
+		if (!this.#waiter || this.#disposed || this.#encoding) return;
 		clearTimeout(this.#schedule);
 		this.#schedule = undefined;
 		const deliver = () => {
 			this.#schedule = undefined;
-			const ready = this.#take();
-			if (ready) this.#release(ready);
-			else this.#arm();
+			void this.#kick();
 		};
 		if (this.#dialogs.length > 0) {
 			deliver();
@@ -315,6 +350,8 @@ export class PageStream {
 		this.#release({ frame: null, dialogs: [] });
 		for (const [id] of [...this.#pending]) this.answerDialog(id, { accept: false, text: null });
 		this.#latest = null;
+		this.#parked = null;
+		this.#epoch += 1;
 		this.#dialogs.length = 0;
 	}
 }

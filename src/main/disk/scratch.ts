@@ -12,7 +12,7 @@
  * Reading and removing are the core's (`crates/core/src/disk/scratch.rs`); what is in use is main's.
  */
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
+import { promises as fs } from "node:fs";
 import { DISK_CARE_ARTIFACT_IDLE_DAYS } from "../../shared/disk-care";
 import { CoreError } from "../core/process";
 import { coreHeld } from "../local/git/exec";

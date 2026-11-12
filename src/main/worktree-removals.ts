@@ -7,7 +7,7 @@
  */
 
 import * as path from "node:path";
-import * as fs from "original-fs";
+import * as fs from "node:fs";
 import { isInside } from "./local/git/parse";
 import { LocalCommandError } from "./local/types";
 

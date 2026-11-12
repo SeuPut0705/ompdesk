@@ -14,7 +14,7 @@
  */
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
+import { promises as fs } from "node:fs";
 import { withoutGitSelectors } from "../shared/git-env";
 import { gitRaw } from "./local/git/exec";
 import { prepareWorktree } from "./local/git/worktree-seed";

@@ -9,7 +9,7 @@
  * until they open it again (`add`); a removed project's sessions are not touched.
  */
 import * as path from "node:path";
-import { promises as fs } from "original-fs";
+import { promises as fs } from "node:fs";
 import type { SessionInfo } from "../shared/ipc-types";
 import {
 	type AutopilotRun,

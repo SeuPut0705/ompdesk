@@ -12,7 +12,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, clipboard, dialog, type Notification, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, type Notification, screen, shell } from "electron";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -193,6 +193,7 @@ import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import { readClipboardText } from "./shell-host/shell-calls";
 import { updateSidebarPrefs } from "./sidebar-prefs";
 import type { SidebarProjects } from "./sidebar-projects";
 import { deviceLanguage } from "./sidecar-factory";
@@ -201,6 +202,7 @@ import type { SidecarLike } from "./sidecar-types";
 import { registerSshToolsIpc } from "./ssh/ipc";
 import { markStartupFromRenderer } from "./startup-timing";
 import { stockHelperRequest } from "./stock-helper";
+import { shellEngine } from "./system-version";
 import { closeWindowTab, type TabReleaseDeps } from "./tab-release";
 import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
@@ -649,7 +651,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			return;
 		}
 		const result = executeGuiHostTool(request.toolName, request.arguments);
-		reply(result ?? `Host tool "${request.toolName}" is not registered`, result === undefined);
+		const settle = (text: string | undefined) =>
+			reply(text ?? `Host tool "${request.toolName}" is not registered`, text === undefined);
+		// The clipboard is read from the shell's process: that one answers later.
+		if (result instanceof Promise)
+			void result.then(settle, (error: unknown) =>
+				reply(error instanceof Error ? error.message : String(error), true),
+			);
+		else settle(result);
 	};
 	// A paired host took a host tool result: a control call's record may now be forgotten in time (call-journal.ts).
 	sidecarPool.hostReplyDelivered = id => agentControl.acknowledge(id);
@@ -1877,7 +1886,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		arch: process.arch,
 		deviceLanguage: deviceLanguage() ?? null,
 		osRelease: os.release(),
-		electron: process.versions.electron ?? "?",
+		electron: shellEngine(),
 		chrome: process.versions.chrome ?? "?",
 		node: process.versions.node ?? "?",
 	}));
@@ -2798,7 +2807,7 @@ function textToolResult(text: string): { content: Array<{ type: "text"; text: st
 }
 
 /** Execute GUI-registered host tools. Returns undefined for unknown tools. */
-function executeGuiHostTool(name: string, args: Record<string, unknown>): string | undefined {
+function executeGuiHostTool(name: string, args: Record<string, unknown>): string | undefined | Promise<string> {
 	switch (name) {
 		case "gui_open_url": {
 			const url = typeof args.url === "string" ? args.url : "";
@@ -2815,7 +2824,7 @@ function executeGuiHostTool(name: string, args: Record<string, unknown>): string
 			return "Notification shown";
 		}
 		case "gui_clipboard_read": {
-			return clipboard.readText();
+			return readClipboardText();
 		}
 		default:
 			return undefined;

@@ -26,12 +26,11 @@ class FakeImage implements PaintImage {
 	getSize() {
 		return { width: this.width, height: this.height };
 	}
-	toJPEG(quality: number): Buffer {
+	async jpeg(options: { quality: number; width?: number }) {
 		FakeImage.encodes += 1;
-		return Buffer.alloc(Math.round(this.width * this.height * (quality / 1000)), 1);
-	}
-	resize(options: { width: number }): PaintImage {
-		return new FakeImage(options.width, Math.round((this.height * options.width) / this.width));
+		const width = options.width !== undefined && options.width < this.width ? options.width : this.width;
+		const height = Math.round((this.height * width) / this.width);
+		return { data: Buffer.alloc(Math.round(width * height * (options.quality / 1000)), 1), width, height };
 	}
 }
 

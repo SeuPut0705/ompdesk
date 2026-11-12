@@ -7,7 +7,7 @@
  */
 
 import path from "node:path";
-import { promises as fsp } from "original-fs";
+import { promises as fsp } from "node:fs";
 
 /**
  * Types that start code when opened, on any platform (a repo's `run.bat` is revealed on a Mac too). Scripts an
