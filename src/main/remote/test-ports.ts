@@ -3,7 +3,9 @@
  * Playwright side can import it.
  */
 import { createServer, type Server } from "node:net";
-import { REMOTE_PORT_SPAN } from "./address";
+
+/** How many ports a host tries from its first (the core's `address::REMOTE_PORT_SPAN`). */
+export const REMOTE_PORT_SPAN = 5;
 
 /** First port of the bands, below every OS's ephemeral range (macOS and Windows 49152-65535, Linux 32768-60999). */
 const FIRST_PORT = 20_000;

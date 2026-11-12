@@ -20,12 +20,12 @@ import {
 	TAB_EVENT,
 } from "./app-protocol";
 import { probeHost } from "./client";
-import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
 import { type Computer, DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
+import { generateKeyPair } from "./test-legacy-peer";
 import { WAKE_CHECK_MS } from "./wire";
 
 const rig = new DevicesRig();
@@ -333,9 +333,10 @@ describe("a host link after the computer wakes or the network returns", () => {
 		relay.silence.on = true;
 
 		a.devices.wake("resume");
+		// The check runs in the core on its own clock; this side's clock moves by the same window.
 		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
 
-		expect(a.devices.state().hosts[0]?.state).not.toBe("online");
+		await until(a, state => state.hosts[0]?.state !== "online");
 	});
 
 	it("the tailnet poll wakes a link at once when its host's node comes back online", async () => {
@@ -380,8 +381,8 @@ describe("code-paired computers", () => {
 		const bDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-b-"));
 		const aDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-a-"));
 		dirs.push(bDir, aDir);
-		const hostIdentity = loadIdentity(bDir);
-		const deviceIdentity = loadIdentity(aDir);
+		const hostIdentity = await loadIdentity(bDir);
+		const deviceIdentity = await loadIdentity(aDir);
 		new PeerStore(bDir).put({
 			deviceId: deviceIdentity.deviceId,
 			name: "Laptop",
@@ -424,8 +425,8 @@ describe("code-paired computers", () => {
 		const bDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-b-"));
 		const aDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-legacy-a-"));
 		dirs.push(bDir, aDir);
-		const hostIdentity = loadIdentity(bDir);
-		const deviceIdentity = loadIdentity(aDir);
+		const hostIdentity = await loadIdentity(bDir);
+		const deviceIdentity = await loadIdentity(aDir);
 		new PeerStore(bDir).put({
 			deviceId: deviceIdentity.deviceId,
 			name: "Laptop",

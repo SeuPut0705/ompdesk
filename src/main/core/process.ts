@@ -110,6 +110,9 @@ export interface CoreProcessOptions {
 	timeoutMs?: number;
 }
 
+/** The event `on` hears, with no data, when a running core ended (crash, kill, `stop`). */
+export const CORE_EXITED = "core.exited";
+
 interface Frame {
 	id?: number;
 	ok?: boolean;
@@ -205,7 +208,7 @@ export class CoreProcess {
 	readonly #stopping = new Set<ChildProcessWithoutNullStreams>();
 	/** Resolves once a core ended and every process it started is gone (or past `GROUP_GONE_MS`). */
 	readonly #gone = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
-	readonly #listeners = new Map<string, Set<(data: unknown) => void>>();
+	readonly #listeners = new Map<string, Set<(data: unknown, bin: Uint8Array | null) => void>>();
 	readonly #binary: () => string;
 	readonly #log: (line: string) => void;
 	readonly #timeoutMs: number;
@@ -221,8 +224,8 @@ export class CoreProcess {
 		return this.#child?.pid ?? null;
 	}
 
-	/** Subscribes to an event the core sends; returns the unsubscribe. */
-	on(event: string, listener: (data: unknown) => void): () => void {
+	/** Subscribes to an event the core sends (`bin`: the raw bytes it carried, else null); returns the unsubscribe. */
+	on(event: string, listener: (data: unknown, bin: Uint8Array | null) => void): () => void {
 		let listeners = this.#listeners.get(event);
 		if (!listeners) {
 			listeners = new Set();
@@ -259,6 +262,17 @@ export class CoreProcess {
 		if (signal?.aborted) cancel();
 		else signal?.addEventListener("abort", cancel, { once: true });
 		return promise as Promise<CoreAnswer<T>>;
+	}
+
+	/**
+	 * Hands the core work it never answers, handled in the order pushed (a remote link's messages). Starts the core
+	 * like a request; a push to a core that ended is lost with whatever it was for.
+	 */
+	push(method: string, params: unknown, bin?: Uint8Array): void {
+		const child = this.#start();
+		const tail = bin ? `,"bin":${bin.byteLength}` : "";
+		child.stdin.write(`{"push":${JSON.stringify(method)},"params":${JSON.stringify(params, wellFormed)}${tail}}\n`);
+		if (bin) child.stdin.write(bin);
 	}
 
 	/**
@@ -321,7 +335,7 @@ export class CoreProcess {
 
 	#receive(child: ChildProcessWithoutNullStreams, frame: Frame, bin: Uint8Array | null): void {
 		if (typeof frame.event === "string") {
-			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data);
+			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data, bin);
 			return;
 		}
 		if (typeof frame.id !== "number") return;
@@ -363,6 +377,8 @@ export class CoreProcess {
 			}
 		}
 		if (!expected) this.#log(error.message);
+		// What lived in that core (a remote link, a listener) is gone with it.
+		for (const listener of this.#listeners.get(CORE_EXITED) ?? []) listener(null, null);
 		const waiting = [...this.#pending].filter(([, pending]) => pending.child === child);
 		for (const [id, pending] of waiting) {
 			this.#pending.delete(id);

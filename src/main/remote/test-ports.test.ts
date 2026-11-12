@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REMOTE_PORT_SPAN } from "./address";
-import { freePortRun } from "./test-ports";
+import { freePortRun, REMOTE_PORT_SPAN } from "./test-ports";
 
 function touching(runs: readonly number[]): string[] {
 	const sorted = [...runs].sort((a, b) => a - b);

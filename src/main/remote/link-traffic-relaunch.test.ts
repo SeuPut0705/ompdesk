@@ -23,10 +23,9 @@ import { createSubagentTranscripts, type SubagentTranscripts } from "../../rende
 import type { AgentMessage, RpcCommand, RpcResponse } from "../../shared/rpc-types";
 import { SidecarManager } from "../sidecar";
 import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
-import { closeSessions, openSession } from "./link-traffic-test-rig";
+import { closeSessions, onHostLinkTraffic, openSession } from "./link-traffic-test-rig";
 import type { RemoteSidecar } from "./remote-sidecar";
 import type { Computer } from "./test-devices";
-import { Link, type TrafficHandler } from "./wire";
 
 const PRINT = process.env.OMP_GUI_LINK_TRAFFIC === "1";
 const OUT = process.env.OMP_GUI_TRANSCRIPT_READS_OUT;
@@ -138,26 +137,22 @@ function countWire(): Wire {
 	const wire: Wire = { tx: 0, requests: 0, byCommand: new Map() };
 	const asked = new Map<number, string>();
 	const add = (kind: string, bytes: number) => wire.byCommand.set(kind, (wire.byCommand.get(kind) ?? 0) + bytes);
-	const original = Link.prototype.onTraffic;
-	vi.spyOn(Link.prototype, "onTraffic").mockImplementation(function (this: Link, handler: TrafficHandler) {
-		original.call(this, (direction, message, bytes) => {
-			const wireMessage = message as {
-				t?: string;
-				id?: number;
-				method?: string;
-				params?: { command?: { type?: string } };
-			};
-			if (direction === "rx" && wireMessage.t === "req" && typeof wireMessage.id === "number") {
-				wire.requests++;
-				asked.set(wireMessage.id, wireMessage.params?.command?.type ?? wireMessage.method ?? "?");
-			} else if (direction === "tx") {
-				wire.tx += bytes;
-				if (wireMessage.t === "res" && typeof wireMessage.id === "number")
-					add(asked.get(wireMessage.id) ?? "?", bytes);
-				else add(wireMessage.t ?? "?", bytes);
-			}
-			handler(direction, message, bytes);
-		});
+	onHostLinkTraffic((direction, message, bytes) => {
+		const wireMessage = message as {
+			t?: string;
+			id?: number;
+			method?: string;
+			params?: { command?: { type?: string } };
+		};
+		if (direction === "rx" && wireMessage.t === "req" && typeof wireMessage.id === "number") {
+			wire.requests++;
+			asked.set(wireMessage.id, wireMessage.params?.command?.type ?? wireMessage.method ?? "?");
+		} else if (direction === "tx") {
+			wire.tx += bytes;
+			if (wireMessage.t === "res" && typeof wireMessage.id === "number")
+				add(asked.get(wireMessage.id) ?? "?", bytes);
+			else add(wireMessage.t ?? "?", bytes);
+		}
 	});
 	return wire;
 }

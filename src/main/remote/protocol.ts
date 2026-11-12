@@ -1,17 +1,13 @@
 /**
- * Message shapes of the remote-device protocol, validated at the socket
- * boundary. `HANDSHAKE_VERSION` is the `v` of probe/auth-init;
- * `PROTOCOL_VERSION` is the `protocol` of the encrypted hello.
+ * Message shapes of the remote-device protocol that main reads: the device's hello and what it can read, requests,
+ * answers and events on a link. The handshake's own messages (probe, auth-init, auth-resp, the host's hello) and
+ * their versions are the core's (`crates/core/src/remote/handshake.rs`).
  *
  * Version 2 has no pairing: who may connect is the host's Tailscale check
  * (`tailscale whois` of the peer's tailnet address), and each side pins the
  * other's static key on first contact (the host per Tailscale node).
  */
 import { z } from "zod";
-import { authTranscript, isRawKey } from "./crypto";
-
-export const HANDSHAKE_VERSION = 2;
-export const PROTOCOL_VERSION = 1;
 
 /**
  * Why a host refused a connection (`auth-fail` or a probe's `error`):
@@ -34,39 +30,7 @@ export const REFUSAL_CODES = [
 ] as const;
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
 
-const rawKey = z.string().refine(isRawKey, "not a raw X25519 key");
-const deviceId = z.string().min(1).max(64);
 const deviceName = z.string().max(256);
-
-/** First frame of any connection; `v` is checked before the full shape. */
-export const Opening = z.object({ t: z.enum(["probe", "auth-init"]), v: z.unknown() });
-
-export const ErrorMessage = z.object({ t: z.literal("error"), code: z.string().max(64) });
-
-/** A probe passed the host's check: who answers, so a list can show it before connecting. */
-export const ProbeReply = z.discriminatedUnion("t", [
-	z.object({ t: z.literal("probe-ok"), deviceId, name: deviceName, appVersion: z.string().max(64) }),
-	ErrorMessage,
-]);
-
-export const AuthInit = z.object({
-	t: z.literal("auth-init"),
-	v: z.number(),
-	deviceId,
-	name: deviceName,
-	ephPub: rawKey,
-	staticPub: rawKey,
-});
-export type AuthInit = z.infer<typeof AuthInit>;
-
-export const AuthReply = z.discriminatedUnion("t", [
-	z.object({ t: z.literal("auth-resp"), deviceId, name: deviceName, ephPub: rawKey, staticPub: rawKey }),
-	z.object({ t: z.literal("auth-fail"), code: z.string().max(64) }),
-	ErrorMessage,
-]);
-
-/** Any hello; `protocol` is checked before the side-specific shape. */
-export const HelloVersion = z.object({ t: z.literal("hello"), protocol: z.unknown() });
 
 /**
  * `slimEvents`: the device rebuilds slimmed `events` and `subagentFrame` messages (`link-events.ts`). It is a
@@ -247,17 +211,6 @@ export const SLIM_LOG_NAMES: Readonly<Record<keyof LinkSlim, string>> = {
 	sessionLists: "sessions",
 };
 
-export const HostHelloMessage = z.object({
-	t: z.literal("hello"),
-	protocol: z.number(),
-	appVersion: z.string().max(64),
-	name: deviceName,
-	platform: z.string().max(32),
-	ompVersion: z.string().max(64).nullable(),
-	home: z.string(),
-	sep: z.string().max(1),
-});
-
 export const WireRequest = z.object({
 	t: z.literal("req"),
 	id: z.number().int().nonnegative(),
@@ -296,21 +249,3 @@ export const WireResponse = z.discriminatedUnion("ok", [
 ]);
 
 export const WireEvent = z.object({ t: z.literal("evt"), event: z.string().min(1).max(128), data: z.unknown() });
-
-export interface AuthParty {
-	deviceId: string;
-	ephPub: string;
-	staticPub: string;
-}
-
-/** The auth transcript hash: client (A) fields, then host (B) fields. */
-export function authTranscriptOf(client: AuthParty, host: AuthParty): Buffer {
-	return authTranscript([
-		client.deviceId,
-		client.ephPub,
-		client.staticPub,
-		host.deviceId,
-		host.ephPub,
-		host.staticPub,
-	]);
-}

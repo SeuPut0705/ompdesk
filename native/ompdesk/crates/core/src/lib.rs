@@ -16,6 +16,7 @@ pub mod memory;
 pub mod models;
 pub mod omp;
 pub mod procs;
+pub mod remote;
 pub mod routines;
 mod run;
 pub mod schedules;
@@ -26,6 +27,7 @@ pub mod stock;
 pub mod supervise;
 mod sys;
 pub mod tailscale;
+pub mod web;
 pub mod wire;
 
 pub use server::{registry, serve};

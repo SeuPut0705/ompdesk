@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import type { ElectronApplication } from "playwright";
+import { stopCore } from "../src/main/core/process";
 import { HostStore } from "../src/main/remote/hosts-store";
 import { loadIdentity } from "../src/main/remote/identity";
 import { PeerStore } from "../src/main/remote/peers-store";
@@ -309,8 +310,10 @@ test("refuses a login the host does not allow and a blocked node, finds a host o
 		});
 		const clientProfile = await makeRemoteProfile(parent, "a", { language: "en", theme: "light", port: base });
 		// Both identities exist before launch, so each side can hold a record an older release paired by code.
-		const hostIdentity = loadIdentity(hostProfile.desktop);
-		const clientIdentity = loadIdentity(clientProfile.desktop);
+		const hostIdentity = await loadIdentity(hostProfile.desktop);
+		const clientIdentity = await loadIdentity(clientProfile.desktop);
+		// The identities live in each profile's file; the core this runner started to make them is not needed again.
+		await stopCore();
 		new PeerStore(hostProfile.desktop).put({
 			deviceId: clientIdentity.deviceId,
 			name: "Laptop A",
