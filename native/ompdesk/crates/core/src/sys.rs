@@ -1,7 +1,30 @@
-//! The only unsafe code: asking a child process to end, as node's `child.kill()` does with SIGTERM, and (Windows) the
-//! job object that ends this process's children with it, the computer's physical memory and its process list, and a
-//! folder tree's changes from `ReadDirectoryChangesW`.
+//! The only unsafe code: asking a child process to end with SIGTERM and (Windows) the job object that ends its
+//! children with it, physical memory and process reads, `ReadDirectoryChangesW`, and the system random generator.
 #![allow(unsafe_code)]
+
+/// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
+#[cfg(unix)]
+pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
+    use std::io::Read;
+    std::fs::File::open("/dev/urandom")?.read_exact(bytes)
+}
+
+/// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
+#[cfg(windows)]
+pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
+    // No import library names this DLL, so the linker is told the DLL itself (what std does for its own hash keys).
+    #[link(name = "bcryptprimitives", kind = "raw-dylib")]
+    unsafe extern "system" {
+        fn ProcessPrng(data: *mut u8, length: usize) -> i32;
+    }
+    // SAFETY: `bytes` is valid for writes of its whole length, which is all the call writes.
+    if unsafe { ProcessPrng(bytes.as_mut_ptr(), bytes.len()) } == 0 {
+        return Err(std::io::Error::other(
+            "the system's random generator failed",
+        ));
+    }
+    Ok(())
+}
 
 /// Sends SIGTERM to `pid`, a child this process has not reaped yet (so the id still names it).
 #[cfg(unix)]

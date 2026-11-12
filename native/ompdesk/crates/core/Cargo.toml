@@ -18,10 +18,10 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-# The process's base: requests run concurrently (a slow listing never holds a small read behind it); later units
-# bring sockets. Only the features used: `process` and `time` run git with its timeout, `macros` joins and races
-# a git's pipes, its exit and its kill.
-tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync", "process", "time", "macros"] }
+# The process's base: requests run concurrently (a slow listing never holds a small read behind it). Only the
+# features used: `process` and `time` run git with its timeout, `macros` joins and races a git's pipes, its exit
+# and its kill, `net` is the control socket (a Unix socket, a Windows named pipe).
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sync", "process", "time", "macros", "net"] }
 # The wire: one JSON object per line. `raw_value` hands a request's params to its handler unparsed.
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -54,4 +54,5 @@ notify = { version = "8", default-features = false, features = ["macos_fsevent"]
 same-file = "1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "sync"] }
+# `test-util`: the control socket's waits and timeouts are tested on a paused clock, as the TypeScript's were on fake timers.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "sync", "test-util"] }

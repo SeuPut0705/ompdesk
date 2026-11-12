@@ -95,6 +95,15 @@ impl Events {
             let _ = frames.send(Frame::event(event, data));
         }
     }
+
+    /// Whether this sends to a live output that is not `other`'s: what one `serve` left running is none of another's.
+    pub fn reaches_another(&self, other: &Events) -> bool {
+        match (self.frames.upgrade(), other.frames.upgrade()) {
+            (Some(mine), Some(theirs)) => !mine.same_channel(&theirs),
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
 }
 
 /// What a handler is given.
@@ -161,6 +170,7 @@ pub fn registry() -> Registry {
     crate::gh::register(&mut registry);
     crate::memory::register(&mut registry);
     crate::sessions::register(&mut registry);
+    crate::control::register(&mut registry);
     registry
 }
 
@@ -234,7 +244,15 @@ where
         }
         while tasks.try_join_next().is_some() {}
     };
-    while tasks.join_next().await.is_some() {}
+    // Listeners outlive their starting request, but not the input. Check again as each in-flight request ends,
+    // including one that was still binding a listener when EOF arrived.
+    let ending = Events {
+        frames: frames.downgrade(),
+    };
+    crate::control::close_all(&ending).await;
+    while tasks.join_next().await.is_some() {
+        crate::control::close_all(&ending).await;
+    }
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;
     read_result.and(written)

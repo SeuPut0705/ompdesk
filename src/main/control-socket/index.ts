@@ -1,22 +1,17 @@
-/**
- * Starts the local control socket: anything on this computer that holds the token (a terminal omp, a script, another
- * agent CLI) can drive OMPdesk the way its own agents do with the `ompdesk_*` tools. The app works without it: a
- * failed start is one log line and a null handle.
- */
-
+/** Starts the core's local control socket; a failed start is one log line and a null handle. */
 import { CONTROL_PROTOCOL_VERSION } from "../../shared/control-protocol";
 import type { ControlBackend } from "./backend";
-import { controlEndpoint, prepareControlDir, readOrCreateToken, removeEndpoint, writeEndpoint } from "./endpoint";
+import { controlEndpoint, prepareControlDir, readOrCreateToken } from "./endpoint";
 import { setControlEndpoint } from "./env";
-import { EventHub } from "./events";
-import { ControlRouter } from "./router";
-import { ControlServer } from "./server";
+import { ControlServer, type ControlTuning } from "./server";
 
 export interface ControlSocketOptions {
 	userData: string;
 	backend: ControlBackend;
 	platform?: NodeJS.Platform;
 	log?: (line: string) => void;
+	/** Shorter beats and limits for parity tests against the real core. */
+	tuning?: ControlTuning;
 }
 
 export interface ControlSocketHandle {
@@ -30,18 +25,24 @@ export async function startControlSocket({
 	backend,
 	platform = process.platform,
 	log = () => undefined,
+	tuning,
 }: ControlSocketOptions): Promise<ControlSocketHandle | null> {
 	const { dir, socket, socketDir } = controlEndpoint(userData, platform);
-	// Known before the first await: a session spawned while the socket comes up is still told where to find it.
+	// Known before the first await: a session spawned while the socket comes up can still find it.
 	setControlEndpoint({ socket, dir });
 	let server: ControlServer | undefined;
 	try {
-		const exposed = prepareControlDir(dir);
-		if (socketDir) prepareControlDir(socketDir);
-		const token = readOrCreateToken(dir, { exposed });
-		server = new ControlServer({ token, router: new ControlRouter(backend, new EventHub(backend)) });
+		const exposed = await prepareControlDir(dir);
+		if (socketDir) await prepareControlDir(socketDir);
+		const token = await readOrCreateToken(dir, { exposed });
+		server = new ControlServer({
+			token,
+			backend,
+			tuning,
+			log,
+			publish: { dir, endpoint: { version: CONTROL_PROTOCOL_VERSION, socket, pid: process.pid } },
+		});
 		await server.listen(socket);
-		writeEndpoint(dir, { version: CONTROL_PROTOCOL_VERSION, socket, pid: process.pid });
 	} catch (error) {
 		await server?.close();
 		setControlEndpoint(null);
@@ -54,7 +55,6 @@ export async function startControlSocket({
 		dir,
 		async close() {
 			await running.close();
-			removeEndpoint(dir, socket);
 			setControlEndpoint(null);
 		},
 	};

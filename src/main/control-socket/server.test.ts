@@ -4,17 +4,17 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
-	mkdtempSync,
 	readFileSync,
 	rmSync,
 	statSync,
 	symlinkSync,
+	watch,
 	writeFileSync,
 } from "node:fs";
-import { connect, type Socket } from "node:net";
+import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	CONTROL_DIR_ENV,
 	CONTROL_PROTOCOL_VERSION,
@@ -23,135 +23,34 @@ import {
 	MAX_FRAME_BYTES,
 	TOKEN_FILE,
 } from "../../shared/control-protocol";
-import type { ToolOutcome } from "../agent-control/service";
-import type { TabActivity } from "../sidecar-pool";
-import type { ControlBackend, OutsideCaller, SessionView } from "./backend";
-import {
-	ControlDirRefused,
-	controlEndpoint,
-	prepareControlDir,
-	readOrCreateToken,
-	removeEndpoint,
-	writeEndpoint,
-} from "./endpoint";
+import { core, stopCore } from "../core/process";
+import { ControlRig, LineClient, TestBackend } from "./control-test-rig";
+import { ControlDirRefused, controlEndpoint, prepareControlDir, readOrCreateToken } from "./endpoint";
 import { controlEnvFor } from "./env";
-import { EventHub } from "./events";
 import { startControlSocket } from "./index";
-import { ControlRouter } from "./router";
 import { ControlServer } from "./server";
+
+// The listener, connections, auth and limits are the core's (native/ompdesk/crates/core/src/control): every case here
+// runs main's `startControlSocket` or `ControlServer` over the real core and a real socket or named pipe.
 
 const posix = process.platform !== "win32";
 
-class FakeBackend implements ControlBackend {
-	readonly calls: { caller: OutsideCaller; tool: string; args: unknown }[] = [];
-
-	async run(caller: OutsideCaller, tool: string, args: unknown): Promise<ToolOutcome> {
-		this.calls.push({ caller, tool, args });
-		return { text: `ran ${tool} ${JSON.stringify(args)}`, isError: false };
-	}
-
-	async resolve(): Promise<SessionView> {
-		throw new Error("no such session");
-	}
-
-	view(): SessionView | null {
-		return null;
-	}
-
-	views(): SessionView[] {
-		return [];
-	}
-
-	observe(_listener: (activity: TabActivity) => void): () => void {
-		return () => undefined;
-	}
-
-	onOutsideMail(): () => void {
-		return () => undefined;
-	}
-
-	readonly released: string[] = [];
-	release(caller: OutsideCaller): void {
-		this.released.push(caller.id);
-	}
-}
-
-class Client {
-	readonly socket: Socket;
-	readonly closed: Promise<void>;
-	#buffer = "";
-	readonly #lines: unknown[] = [];
-	#waiting: ((line: unknown) => void) | undefined;
-
-	private constructor(socket: Socket) {
-		this.socket = socket;
-		socket.setEncoding("utf8");
-		socket.on("data", (text: string) => {
-			this.#buffer += text;
-			for (let end = this.#buffer.indexOf("\n"); end >= 0; end = this.#buffer.indexOf("\n")) {
-				this.#lines.push(JSON.parse(this.#buffer.slice(0, end)));
-				this.#buffer = this.#buffer.slice(end + 1);
-			}
-			this.#flush();
-		});
-		socket.on("error", () => undefined);
-		this.closed = new Promise<void>(resolve => socket.on("close", () => resolve()));
-	}
-
-	static async open(path: string): Promise<Client> {
-		const socket = connect(path);
-		await new Promise<void>((resolve, reject) => {
-			socket.once("connect", resolve);
-			socket.once("error", reject);
-		});
-		return new Client(socket);
-	}
-
-	#flush(): void {
-		const waiting = this.#waiting;
-		if (waiting && this.#lines.length > 0) {
-			this.#waiting = undefined;
-			waiting(this.#lines.shift());
-		}
-	}
-
-	send(frame: unknown): void {
-		this.socket.write(`${JSON.stringify(frame)}\n`);
-	}
-
-	next(): Promise<unknown> {
-		return new Promise(resolve => {
-			this.#waiting = resolve;
-			this.#flush();
-		});
-	}
-
-	close(): void {
-		this.socket.destroy();
-	}
-}
-
 describe("control socket", () => {
+	const rig = new ControlRig();
 	let userData: string;
-	const clients: Client[] = [];
-	const open = async (path: string): Promise<Client> => {
-		const client = await Client.open(path);
-		clients.push(client);
-		return client;
-	};
 
 	beforeEach(() => {
-		userData = mkdtempSync(join(tmpdir(), "ompdesk-ctl-"));
+		userData = rig.tempDir();
 	});
-	afterEach(() => {
-		for (const client of clients.splice(0)) client.close();
+	afterEach(async () => {
+		await rig.cleanup();
 		delete process.env[CONTROL_SOCKET_ENV];
 		delete process.env[CONTROL_DIR_ENV];
-		rmSync(userData, { recursive: true, force: true });
 	});
+	afterAll(() => stopCore());
 
-	async function start(backend = new FakeBackend()) {
-		const handle = await startControlSocket({ userData, backend });
+	async function start(backend = new TestBackend()) {
+		const handle = await rig.start({ userData, backend });
 		if (handle === null) throw new Error("control socket did not start");
 		const token = readFileSync(join(handle.dir, TOKEN_FILE), "utf8").trim();
 		return { handle, token, backend };
@@ -160,259 +59,195 @@ describe("control socket", () => {
 	describe("requests", () => {
 		it("answers hello and a tool call over a real connection, naming the caller", async () => {
 			const { handle, token, backend } = await start();
-			try {
-				const client = await open(handle.socket);
-				client.send({
-					id: 1,
-					method: "hello",
-					token,
-					protocol: CONTROL_PROTOCOL_VERSION,
-					caller: "my-script",
-					cwd: userData,
-				});
-				const hello = await client.next();
-				expect(hello).toMatchObject({ id: 1, ok: true, result: { protocol: CONTROL_PROTOCOL_VERSION } });
-				client.send({ id: 2, method: "tool", tool: "ompdesk_sessions", args: { scope: "app" } });
-				expect(await client.next()).toEqual({
-					id: 2,
-					ok: true,
-					result: { text: 'ran ompdesk_sessions {"scope":"app"}', isError: false },
-				});
-				expect(backend.calls).toEqual([
-					{
-						caller: {
-							id: expect.stringMatching(/^outside:my-script#\d+$/),
-							name: "my-script",
-							title: 'outside process "my-script" (self-declared)',
-							cwd: userData,
-						},
-						tool: "ompdesk_sessions",
-						args: { scope: "app" },
+			const client = await rig.open(handle.socket);
+			client.send({
+				id: 1,
+				method: "hello",
+				token,
+				protocol: CONTROL_PROTOCOL_VERSION,
+				caller: "my-script",
+				cwd: userData,
+			});
+			const hello = await client.next();
+			expect(hello).toMatchObject({ id: 1, ok: true, result: { protocol: CONTROL_PROTOCOL_VERSION } });
+			client.send({ id: 2, method: "tool", tool: "ompdesk_sessions", args: { scope: "app" } });
+			expect(await client.next()).toEqual({
+				id: 2,
+				ok: true,
+				result: { text: 'ran ompdesk_sessions {"scope":"app"}', isError: false },
+			});
+			expect(backend.runs).toEqual([
+				{
+					caller: {
+						id: expect.stringMatching(/^outside:my-script#\d+$/),
+						name: "my-script",
+						title: 'outside process "my-script" (self-declared)',
+						cwd: userData,
 					},
-				]);
-				expect((hello as { result: { caller: string } }).result.caller).toBe(backend.calls[0]?.caller.id);
-			} finally {
-				await handle.close();
-			}
+					tool: "ompdesk_sessions",
+					args: { scope: "app" },
+				},
+			]);
+			expect(hello).toMatchObject({ result: { caller: backend.runs[0]?.caller.id } });
 		});
 
 		it("falls back to the default caller name and the home folder for a bad name or folder", async () => {
 			const { handle, token, backend } = await start();
-			try {
-				const client = await open(handle.socket);
-				client.send({
-					id: 1,
-					method: "hello",
-					token,
-					protocol: CONTROL_PROTOCOL_VERSION,
-					caller: "Not Allowed!",
-					cwd: "relative/dir",
-				});
-				await client.next();
-				client.send({ id: 2, method: "tool", tool: "ompdesk_sessions" });
-				await client.next();
-				expect(backend.calls[0]?.caller.id).toMatch(/^outside:cli#\d+$/);
-				expect(backend.calls[0]?.caller.cwd).toBe(homedir());
-			} finally {
-				await handle.close();
-			}
+			const client = await rig.open(handle.socket);
+			client.send({
+				id: 1,
+				method: "hello",
+				token,
+				protocol: CONTROL_PROTOCOL_VERSION,
+				caller: "Not Allowed!",
+				cwd: "relative/dir",
+			});
+			await client.next();
+			client.send({ id: 2, method: "tool", tool: "ompdesk_sessions" });
+			await client.next();
+			expect(backend.runs[0]?.caller.id).toMatch(/^outside:cli#\d+$/);
+			expect(backend.runs[0]?.caller.cwd).toBe(homedir());
 		});
 
 		it("gives every connection its own caller, whatever name it claims, and lets it go when it closes", async () => {
 			const { handle, token, backend } = await start();
-			try {
-				const ids: string[] = [];
-				for (const id of [1, 2]) {
-					const client = await open(handle.socket);
-					client.send({ id, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION, caller: "ci" });
-					await client.next();
-					client.send({ id: 10 + id, method: "tool", tool: "ompdesk_sessions" });
-					await client.next();
-					ids.push(backend.calls.at(-1)?.caller.id ?? "");
-				}
-				expect(ids[0]).not.toBe(ids[1]);
-				clients[0]?.close();
-				await vi.waitFor(() => expect(backend.released).toEqual([ids[0]]));
-			} finally {
-				await handle.close();
+			const ids: string[] = [];
+			const opened = [];
+			for (const id of [1, 2]) {
+				const client = await rig.open(handle.socket);
+				opened.push(client);
+				client.send({ id, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION, caller: "ci" });
+				await client.next();
+				client.send({ id: 10 + id, method: "tool", tool: "ompdesk_sessions" });
+				await client.next();
+				ids.push(backend.runs.at(-1)?.caller.id ?? "");
 			}
+			expect(ids[0]).not.toBe(ids[1]);
+			opened[0]?.close();
+			await backend.until(() => backend.released.length > 0);
+			expect(backend.released).toEqual([ids[0]]);
 		});
 
 		it("answers a second hello with bad_request and keeps the connection", async () => {
 			const { handle, token } = await start();
-			try {
-				const client = await open(handle.socket);
-				const hello = { method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION };
-				client.send({ id: 1, ...hello });
-				await client.next();
-				client.send({ id: 2, ...hello });
-				expect(await client.next()).toMatchObject({ id: 2, ok: false, error: { code: "bad_request" } });
-				client.send({ id: 3, method: "tool", tool: "ompdesk_sessions" });
-				expect(await client.next()).toMatchObject({ id: 3, ok: true });
-			} finally {
-				await handle.close();
-			}
+			const client = await rig.open(handle.socket);
+			const hello = { method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION };
+			client.send({ id: 1, ...hello });
+			await client.next();
+			client.send({ id: 2, ...hello });
+			expect(await client.next()).toMatchObject({ id: 2, ok: false, error: { code: "bad_request" } });
+			client.send({ id: 3, method: "tool", tool: "ompdesk_sessions" });
+			expect(await client.next()).toMatchObject({ id: 3, ok: true });
 		});
 
 		it("answers later requests concurrently, each with its own id", async () => {
 			const { handle, token } = await start();
-			try {
-				const client = await open(handle.socket);
-				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
-				await client.next();
-				client.send({ id: 5, method: "state", session: "nope" });
-				expect(await client.next()).toMatchObject({ id: 5, ok: false, error: { code: "session_not_found" } });
-				client.send({ id: 6, method: "no-such-method" });
-				expect(await client.next()).toMatchObject({ id: 6, ok: false, error: { code: "unknown_method" } });
-			} finally {
-				await handle.close();
-			}
+			const client = await rig.open(handle.socket);
+			client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+			await client.next();
+			client.send({ id: 5, method: "state", session: "nope" });
+			expect(await client.next()).toMatchObject({ id: 5, ok: false, error: { code: "session_not_found" } });
+			client.send({ id: 6, method: "no-such-method" });
+			expect(await client.next()).toMatchObject({ id: 6, ok: false, error: { code: "unknown_method" } });
 		});
 	});
 
 	describe("authentication", () => {
 		it("refuses a wrong token, a missing token and a first request that is not hello, then closes", async () => {
 			const { handle, token } = await start();
-			try {
-				const wrong = `${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`;
-				const first: unknown[] = [
-					{ id: 1, method: "hello", token: wrong, protocol: CONTROL_PROTOCOL_VERSION },
-					{ id: 2, method: "hello", protocol: CONTROL_PROTOCOL_VERSION },
-					{ id: 3, method: "hello", token: "short", protocol: CONTROL_PROTOCOL_VERSION },
-					{ id: 4, method: "tool", tool: "ompdesk_sessions" },
-				];
-				for (const frame of first) {
-					const client = await open(handle.socket);
-					client.send(frame);
-					expect(await client.next()).toMatchObject({
-						id: (frame as { id: number }).id,
-						ok: false,
-						error: { code: "unauthorized" },
-					});
-					await client.closed;
-				}
-				const garbage = await open(handle.socket);
-				garbage.socket.write("this is not json\n");
-				expect(await garbage.next()).toMatchObject({ ok: false, error: { code: "unauthorized" } });
-				await garbage.closed;
-			} finally {
-				await handle.close();
+			const wrong = `${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`;
+			const first = [
+				{ id: 1, method: "hello", token: wrong, protocol: CONTROL_PROTOCOL_VERSION },
+				{ id: 2, method: "hello", protocol: CONTROL_PROTOCOL_VERSION },
+				{ id: 3, method: "hello", token: "short", protocol: CONTROL_PROTOCOL_VERSION },
+				{ id: 4, method: "tool", tool: "ompdesk_sessions" },
+			];
+			for (const frame of first) {
+				const client = await rig.open(handle.socket);
+				client.send(frame);
+				expect(await client.next()).toMatchObject({ id: frame.id, ok: false, error: { code: "unauthorized" } });
+				await client.closed;
 			}
+			const garbage = await rig.open(handle.socket);
+			garbage.socket.write("this is not json\n");
+			expect(await garbage.next()).toMatchObject({ ok: false, error: { code: "unauthorized" } });
+			await garbage.closed;
 		});
 
 		it("answers a protocol mismatch and closes", async () => {
 			const { handle, token } = await start();
-			try {
-				const client = await open(handle.socket);
-				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION + 1 });
-				expect(await client.next()).toMatchObject({ id: 1, ok: false, error: { code: "protocol_mismatch" } });
-				await client.closed;
-			} finally {
-				await handle.close();
-			}
+			const client = await rig.open(handle.socket);
+			client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION + 1 });
+			expect(await client.next()).toMatchObject({ id: 1, ok: false, error: { code: "protocol_mismatch" } });
+			await client.closed;
 		});
 
 		it("ends a connection that sends no hello in time", async () => {
-			const server = new ControlServer({
-				token: randomBytes(32).toString("hex"),
-				router: new ControlRouter(new FakeBackend(), new EventHub(new FakeBackend())),
-				helloTimeoutMs: 1,
-			});
-			const path = posix ? join(userData, "s.sock") : `\\\\.\\pipe\\ompdesk-test-${randomBytes(8).toString("hex")}`;
-			await server.listen(path);
-			try {
-				const client = await open(path);
-				await client.closed;
-			} finally {
-				await server.close();
-			}
+			const path = await rig.serve(new TestBackend(), { helloTimeoutMs: 1 });
+			const client = await rig.open(path);
+			await client.closed;
 		});
 
 		it("refuses a request line over the frame limit and closes", async () => {
 			const { handle, token } = await start();
-			try {
-				const client = await open(handle.socket);
-				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
-				await client.next();
-				client.socket.write("x".repeat(MAX_FRAME_BYTES + 1));
-				expect(await client.next()).toMatchObject({ ok: false, error: { code: "bad_request" } });
-				await client.closed;
-			} finally {
-				await handle.close();
-			}
+			const client = await rig.open(handle.socket);
+			client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+			await client.next();
+			client.socket.write("x".repeat(MAX_FRAME_BYTES + 1));
+			expect(await client.next()).toMatchObject({ ok: false, error: { code: "bad_request" } });
+			await client.closed;
 		});
 	});
 
 	describe("limits", () => {
-		const pipe = () =>
-			posix ? join(userData, "s.sock") : `\\\\.\\pipe\\ompdesk-test-${randomBytes(8).toString("hex")}`;
-		const token = randomBytes(32).toString("hex");
-		async function serve(backend: FakeBackend, limits: { maxConnections?: number; maxInFlight?: number }) {
-			const server = new ControlServer({
-				token,
-				router: new ControlRouter(backend, new EventHub(backend)),
-				...limits,
-			});
-			const path = pipe();
-			await server.listen(path);
-			return { server, path };
-		}
+		const hello = { method: "hello", token: rig.token, protocol: CONTROL_PROTOCOL_VERSION };
 
 		it("turns away a connection past the cap and keeps the others", async () => {
-			const { server, path } = await serve(new FakeBackend(), { maxConnections: 2 });
-			try {
-				const kept = [await open(path), await open(path)];
-				const third = await open(path);
-				expect(await third.next()).toMatchObject({ ok: false, error: { code: "unavailable" } });
-				await third.closed;
-				kept[0]?.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
-				expect(await kept[0]?.next()).toMatchObject({ id: 1, ok: true });
-			} finally {
-				await server.close();
-			}
+			const path = await rig.serve(new TestBackend(), { maxConnections: 2 });
+			const kept = [await rig.open(path), await rig.open(path)];
+			const third = await rig.open(path);
+			expect(await third.next()).toMatchObject({ ok: false, error: { code: "unavailable" } });
+			await third.closed;
+			kept[0]?.send({ id: 1, ...hello });
+			expect(await kept[0]?.next()).toMatchObject({ id: 1, ok: true });
 		});
 
 		it("never runs more than its cap of a connection's requests at once, and answers them all", async () => {
-			const backend = new FakeBackend();
+			const backend = new TestBackend();
 			let running = 0;
 			let most = 0;
-			const held: (() => void)[] = [];
-			backend.run = async (caller, tool, args) => {
-				backend.calls.push({ caller, tool, args });
+			const held: PromiseWithResolvers<void>[] = [];
+			backend.onRun = async () => {
 				most = Math.max(most, ++running);
-				await new Promise<void>(resolve => held.push(resolve));
+				const hold = Promise.withResolvers<void>();
+				held.push(hold);
+				await hold.promise;
 				running--;
 				return { text: "done", isError: false };
 			};
-			const { server, path } = await serve(backend, { maxInFlight: 2 });
-			try {
-				const client = await open(path);
-				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
-				await client.next();
-				for (const id of [2, 3, 4, 5, 6]) client.send({ id, method: "tool", tool: "ompdesk_sessions" });
-				const answered: unknown[] = [];
-				while (answered.length < 5) {
-					await vi.waitFor(() => expect(held.length).toBeGreaterThan(answered.length));
-					held[answered.length]?.();
-					answered.push(await client.next());
-				}
-				expect(most).toBe(2);
-				expect(backend.calls).toHaveLength(5);
-			} finally {
-				await server.close();
+			const path = await rig.serve(backend, { maxInFlight: 2 });
+			const client = await rig.open(path);
+			client.send({ id: 1, ...hello });
+			await client.next();
+			for (const id of [2, 3, 4, 5, 6]) client.send({ id, method: "tool", tool: "ompdesk_sessions" });
+			const answered: unknown[] = [];
+			for (let n = 0; n < 5; n++) {
+				// Both slots taken before one is let go: the next request starts only once an answer frees one.
+				await backend.until(() => backend.runs.length >= Math.min(n + 2, 5));
+				held[n]?.resolve();
+				answered.push(await client.next());
 			}
+			expect(most).toBe(2);
+			expect(answered).toMatchObject([2, 3, 4, 5, 6].map(id => ({ id, ok: true })));
+			expect(backend.runs).toHaveLength(5);
 		});
 
 		it("refuses an unauthenticated line past a small limit", async () => {
-			const { server, path } = await serve(new FakeBackend(), {});
-			try {
-				const client = await open(path);
-				client.socket.write("x".repeat(70 * 1024));
-				expect(await client.next()).toMatchObject({ ok: false, error: { code: "bad_request" } });
-				await client.closed;
-			} finally {
-				await server.close();
-			}
+			const path = await rig.serve(new TestBackend());
+			const client = await rig.open(path);
+			client.socket.write("x".repeat(70 * 1024));
+			expect(await client.next()).toMatchObject({ ok: false, error: { code: "bad_request" } });
+			await client.closed;
 		});
 	});
 
@@ -427,24 +262,30 @@ describe("control socket", () => {
 				],
 				{ stdio: ["ignore", "pipe", "inherit"] },
 			);
-			await new Promise<void>(resolve => child.stdout.once("data", () => resolve()));
+			const { promise, resolve } = Promise.withResolvers<void>();
+			child.stdout.once("data", () => resolve());
+			await promise;
 			return child;
 		}
 
 		it("does not start over a socket another live process listens on, and leaves it", async () => {
 			const { dir, socket } = controlEndpoint(userData);
-			prepareControlDir(dir);
+			await prepareControlDir(dir);
 			const other = await listener(socket);
 			try {
 				const lines: string[] = [];
 				expect(
-					await startControlSocket({ userData, backend: new FakeBackend(), log: line => lines.push(line) }),
+					await startControlSocket({ userData, backend: new TestBackend(), log: line => lines.push(line) }),
 				).toBeNull();
 				expect(lines.join("")).toContain("in use");
 				expect(existsSync(socket)).toBe(true);
-				await new Promise<void>((resolve, reject) =>
-					connect(socket).once("connect", resolve).once("error", reject),
-				);
+				const reached = Promise.withResolvers<void>();
+				const probe = connect(socket).once("connect", reached.resolve).once("error", reached.reject);
+				try {
+					await reached.promise;
+				} finally {
+					probe.destroy();
+				}
 			} finally {
 				other.kill();
 			}
@@ -465,7 +306,7 @@ describe("control socket", () => {
 
 	describe("lifecycle", () => {
 		it("tells this computer's own spawns where it listens, never through process.env, and stops once closed", async () => {
-			const starting = startControlSocket({ userData, backend: new FakeBackend() });
+			const starting = rig.start({ userData, backend: new TestBackend() });
 			const own = controlEnvFor(false);
 			expect(own[CONTROL_SOCKET_ENV]).toBeTruthy();
 			expect(own[CONTROL_DIR_ENV]).toBeTruthy();
@@ -494,13 +335,23 @@ describe("control socket", () => {
 			if (posix) expect(existsSync(handle.socket)).toBe(false);
 		});
 
+		it("leaves endpoint.json on close once it names another socket", async () => {
+			const { handle } = await start();
+			const endpointFile = join(handle.dir, ENDPOINT_FILE);
+			// A newer OMPdesk published its own socket meanwhile: that file is not this one's to delete.
+			const newer = `${JSON.stringify({ version: CONTROL_PROTOCOL_VERSION, socket: "/new/socket", pid: 1 })}\n`;
+			writeFileSync(endpointFile, newer);
+			await handle.close();
+			expect(readFileSync(endpointFile, "utf8")).toBe(newer);
+		});
+
 		it("starts without the socket, clears the environment and logs once when the folder cannot be made", async () => {
 			const blocker = join(userData, "file");
 			writeFileSync(blocker, "not a folder");
 			const lines: string[] = [];
 			const handle = await startControlSocket({
 				userData: blocker,
-				backend: new FakeBackend(),
+				backend: new TestBackend(),
 				log: line => lines.push(line),
 			});
 			expect(handle).toBeNull();
@@ -512,15 +363,11 @@ describe("control socket", () => {
 	describe.skipIf(!posix)("owner-only access", () => {
 		it("makes the socket, folder, token and endpoint readable by this user only", async () => {
 			const { handle } = await start();
-			try {
-				const mode = (path: string): number => statSync(path).mode & 0o777;
-				expect(mode(handle.socket)).toBe(0o600);
-				expect(mode(handle.dir)).toBe(0o700);
-				expect(mode(join(handle.dir, TOKEN_FILE))).toBe(0o600);
-				expect(mode(join(handle.dir, ENDPOINT_FILE))).toBe(0o600);
-			} finally {
-				await handle.close();
-			}
+			const mode = (path: string): number => statSync(path).mode & 0o777;
+			expect(mode(handle.socket)).toBe(0o600);
+			expect(mode(handle.dir)).toBe(0o700);
+			expect(mode(join(handle.dir, TOKEN_FILE))).toBe(0o600);
+			expect(mode(join(handle.dir, ENDPOINT_FILE))).toBe(0o600);
 		});
 
 		it("repairs a folder and a token that were open to others, and replaces the token they may have read", async () => {
@@ -554,39 +401,39 @@ describe("control socket", () => {
 			expect(second.token).toBe(first.token);
 		});
 
-		it("replaces a token file another user owns", () => {
+		it("replaces a token file another user owns", async () => {
 			const dir = join(userData, "control");
-			prepareControlDir(dir);
+			await prepareControlDir(dir);
 			const token = randomBytes(32).toString("hex");
 			writeFileSync(join(dir, TOKEN_FILE), token, { mode: 0o600 });
 			const other = (process.getuid?.() ?? 0) + 1;
-			expect(readOrCreateToken(dir, { getuid: () => other })).not.toBe(token);
+			expect(await readOrCreateToken(dir, { getuid: () => other })).not.toBe(token);
 		});
 
-		it("replaces a damaged token with a fresh one", () => {
+		it("replaces a damaged token with a fresh one", async () => {
 			const dir = join(userData, "control");
-			prepareControlDir(dir);
+			await prepareControlDir(dir);
 			writeFileSync(join(dir, TOKEN_FILE), "garbage");
-			const token = readOrCreateToken(dir);
+			const token = await readOrCreateToken(dir);
 			expect(token).toMatch(/^[0-9a-f]{64}$/);
-			expect(readOrCreateToken(dir)).toBe(token);
+			expect(await readOrCreateToken(dir)).toBe(token);
 		});
 
-		it("refuses a folder owned by another user and one that is a link", () => {
+		it("refuses a folder owned by another user and one that is a link", async () => {
 			const dir = join(userData, "control");
-			expect(() => prepareControlDir(dir, { getuid: () => (process.getuid?.() ?? 0) + 1 })).toThrow(
+			await expect(prepareControlDir(dir, { getuid: () => (process.getuid?.() ?? 0) + 1 })).rejects.toThrow(
 				ControlDirRefused,
 			);
 			const real = join(userData, "real");
 			mkdirSync(real);
 			const link = join(userData, "link");
 			symlinkSync(real, link);
-			expect(() => prepareControlDir(link)).toThrow(ControlDirRefused);
+			await expect(prepareControlDir(link)).rejects.toThrow(ControlDirRefused);
 		});
 
 		it("replaces the socket file a dead OMPdesk left behind", async () => {
 			const { dir, socket } = controlEndpoint(userData);
-			prepareControlDir(dir);
+			await prepareControlDir(dir);
 			const dead = spawn(
 				process.execPath,
 				[
@@ -596,21 +443,20 @@ describe("control socket", () => {
 				],
 				{ stdio: ["ignore", "pipe", "inherit"] },
 			);
-			await new Promise<void>(resolve => dead.stdout.once("data", () => resolve()));
-			const exited = new Promise<void>(resolve => dead.once("exit", () => resolve()));
+			const up = Promise.withResolvers<void>();
+			dead.stdout.once("data", () => up.resolve());
+			await up.promise;
+			const exited = Promise.withResolvers<void>();
+			dead.once("exit", () => exited.resolve());
 			dead.kill("SIGKILL");
-			await exited;
+			await exited.promise;
 			expect(existsSync(socket)).toBe(true);
 
 			const { handle, token } = await start();
-			try {
-				expect(handle.socket).toBe(socket);
-				const client = await open(socket);
-				client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
-				expect(await client.next()).toMatchObject({ id: 1, ok: true });
-			} finally {
-				await handle.close();
-			}
+			expect(handle.socket).toBe(socket);
+			const client = await rig.open(socket);
+			client.send({ id: 1, method: "hello", token, protocol: CONTROL_PROTOCOL_VERSION });
+			expect(await client.next()).toMatchObject({ id: 1, ok: true });
 		});
 
 		it("moves the socket under the temp folder when the path would not fit a socket address", () => {
@@ -623,6 +469,66 @@ describe("control socket", () => {
 		});
 	});
 
+	describe("the core's lifetime", () => {
+		it("closes a listener whose bind was still pending when close was called", async () => {
+			const path = rig.socketPath();
+			const server = new ControlServer({ token: rig.token, backend: new TestBackend() });
+			const opening = server.listen(path);
+			const closing = server.close();
+			await Promise.all([opening, closing]);
+			await expect(LineClient.open(path)).rejects.toThrow();
+		});
+		it("closes the listener when the core's input ends, keeps the token, and does not start the core again on close", async () => {
+			const { handle, token } = await start();
+			const endpointFile = join(handle.dir, ENDPOINT_FILE);
+			expect(existsSync(endpointFile)).toBe(true);
+			// Main's quit teardown: the core's stdin ends, it closes what it serves and exits.
+			await stopCore();
+			expect(existsSync(endpointFile)).toBe(false);
+			if (posix) expect(existsSync(handle.socket)).toBe(false);
+			await expect(LineClient.open(handle.socket)).rejects.toThrow();
+			expect(readFileSync(join(handle.dir, TOKEN_FILE), "utf8").trim()).toBe(token);
+			await handle.close();
+			expect(core().pid).toBeNull();
+		});
+
+		it("listens again at the same address after the core is killed, releasing the callers it had", async () => {
+			const { handle, token, backend } = await start();
+			const endpointFile = join(handle.dir, ENDPOINT_FILE);
+			const old = await rig.connect(handle.socket, { token });
+			expect(await old.client.call({ method: "tool", tool: "ompdesk_sessions" })).toMatchObject({ ok: true });
+			const pid = core().pid;
+			if (pid === null) throw new Error("no core runs");
+			const published = Promise.withResolvers<void>();
+			const endpointChanged = watch(handle.dir, (_event, file) => {
+				if (file === ENDPOINT_FILE) published.resolve();
+			});
+			endpointChanged.once("error", published.reject);
+			try {
+				process.kill(pid);
+				await Promise.all([old.client.closed, published.promise]);
+			} finally {
+				endpointChanged.close();
+			}
+			await backend.until(() => backend.released.length > 0);
+			expect(backend.released).toEqual([old.caller.id]);
+
+			// Publishing endpoint.json follows the new bind; wait on that event, not a retry timer.
+			const fresh = await rig.connect(handle.socket, { token });
+			expect(core().pid).not.toBe(pid);
+			expect(fresh.caller.id).toMatch(/^outside:cli#\d+$/);
+			expect(fresh.caller.id).not.toBe(old.caller.id);
+			expect(await fresh.client.call({ method: "tool", tool: "ompdesk_sessions" })).toMatchObject({ ok: true });
+			expect(backend.runs.at(-1)?.caller.id).toBe(fresh.caller.id);
+			expect(readFileSync(join(handle.dir, TOKEN_FILE), "utf8").trim()).toBe(token);
+			expect(JSON.parse(readFileSync(endpointFile, "utf8"))).toEqual({
+				version: CONTROL_PROTOCOL_VERSION,
+				socket: handle.socket,
+				pid: process.pid,
+			});
+		});
+	});
+
 	describe("endpoint files", () => {
 		it("names a different unguessable pipe on every call on Windows", () => {
 			const first = controlEndpoint(userData, "win32");
@@ -630,16 +536,6 @@ describe("control socket", () => {
 			expect(first.socket).toMatch(/^\\\\\.\\pipe\\ompdesk-[0-9a-f]{32}$/);
 			expect(second.socket).not.toBe(first.socket);
 			expect(first.dir).toBe(join(userData, "control"));
-		});
-
-		it("removes endpoint.json only while it still names that socket", () => {
-			const dir = join(userData, "control");
-			prepareControlDir(dir);
-			writeEndpoint(dir, { version: CONTROL_PROTOCOL_VERSION, socket: "/new/socket", pid: 1 });
-			removeEndpoint(dir, "/old/socket");
-			expect(existsSync(join(dir, ENDPOINT_FILE))).toBe(true);
-			removeEndpoint(dir, "/new/socket");
-			expect(existsSync(join(dir, ENDPOINT_FILE))).toBe(false);
 		});
 	});
 });
