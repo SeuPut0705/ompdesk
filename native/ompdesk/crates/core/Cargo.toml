@@ -38,6 +38,16 @@ url = "2"
 # git past its timeout or its output cap to end (`sys.rs`).
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The sessions tree's one recursive watch (`sessions/source.rs`). FSEvents is CoreFoundation and CoreServices calls,
+# a run loop thread and a C callback: unsafe code no machine but a Mac can run, which `sys.rs` would otherwise carry
+# untested from the Windows computers that also develop this crate. notify (CC0-1.0; on macOS it links
+# objc2-core-foundation, objc2-core-services, notify-types, bitflags, log, walkdir and same-file) makes one
+# FSEventStream for the one path watched (file events, no latency) and reports the system's "events were dropped" as
+# a rescan. Windows reads ReadDirectoryChangesW itself (`sys.rs`): notify's backend there reports nothing of a buffer
+# overflow and silently stops watching a deleted root (read in 8.2.2's `windows.rs`).
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+
 [target.'cfg(windows)'.dependencies]
 # A rename's "is the target the source itself" (a case-only rename) needs the file's identity, which std keeps
 # unstable on Windows (`windows_by_handle`).

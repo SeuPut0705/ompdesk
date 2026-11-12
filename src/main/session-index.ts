@@ -1,15 +1,22 @@
 /**
- * Watches session JSONL changes for sidebar invalidation. Listing/classification
- * and deletion run stock storage under omp's Bun, without a live tab.
+ * This computer's saved sessions: the list (stock storage under omp's Bun, without a live tab), a session's GUI chat
+ * label, deletion, moves, content search, and the change reports that keep the sidebar current.
+ *
+ * What reads the sessions tree by OMPdesk's own rules is in the core process (`native/ompdesk/crates/core/src/sessions`):
+ * the one recursive watch of the tree with its settle, the legacy chat flag read from a session file's head once per
+ * session id, and which rows of a list are kept (one per session id). This file keeps who asks: the call into stock
+ * for the list, the tombstones, a window's folder filter (node's `path.resolve`), the shared numbered copy
+ * (`SessionListShare`, whose order and diff are `src/shared` code the page runs too) and the content search.
  */
-import { existsSync, type FSWatcher, watch } from "node:fs";
-import { lstat, open, stat } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { z } from "zod";
 import { codedError } from "../shared/ipc-error-codes";
 import type { SessionContentMatch, SessionInfo, SessionKind } from "../shared/ipc-types";
 import type { AgentMessage } from "../shared/rpc-types";
 import { compareSessionRows, type SessionListDelta, type VersionedSessionList } from "../shared/session-list-delta";
 import { agentDir } from "./agent-paths";
+import { core } from "./core/process";
 import { deletedSessions } from "./deleted-sessions";
 import { OmpUnavailableError } from "./omp-availability";
 import { StampedLru } from "./session-cache";
@@ -29,29 +36,36 @@ const SEARCH_CACHE_BYTES = 64 * 1024 * 1024;
 /** Files read concurrently during a content search (bounds FD pressure). */
 const SEARCH_BATCH = 16;
 /**
- * Session files sit at most three segments below the root: `<project>/<id>.jsonl` and a subagent's
- * `<project>/<session>/<id>.jsonl`. A subagent's own subagents, one level deeper, are not listed.
- */
-const SESSION_FILE_SEGMENTS = 3;
-/** Project and session directories, whose creation, removal or rename (stock's cwd-encoding migration) moves sessions. */
-const SESSION_DIR_SEGMENTS = 2;
-/** A path is reported once it has had no event for this long: an agent appends in bursts, and one report a burst is enough. */
-const SETTLE_MS = 300;
-/** While the sessions root does not exist yet, how often to look for it. */
-const ROOT_POLL_MS = 1000;
-/**
  * The OS starts delivering a moment after the watch is made: a file written in that moment is never reported, so the
  * shared list (read once per change) is read once more this long after the watch starts.
  */
 const WATCH_WARMUP_MS = 2000;
 
+/** The core's events and answers for an index (`sessions/mod.rs`). */
+const watchingEvent = z.object({ index: z.string(), watching: z.boolean(), missed: z.boolean() });
+const changedEvent = z.object({ index: z.string(), names: z.array(z.string()).nullable() });
+const listedAnswer = z.object({ listed: z.array(z.object({ row: z.number(), chat: z.boolean() })) });
+const kindAnswer = z.object({ chat: z.boolean().nullable() });
+
+let indexes = 0;
+
 export class SessionIndex {
-	#watcher: FSWatcher | null = null;
-	#rootPoll: NodeJS.Timeout | undefined;
-	/** Paths with an unsettled event, each with its settle timer. */
-	#settling = new Map<string, NodeJS.Timeout>();
-	/** `mtime:size` each path had when it was last reported: an event that changed neither (access time) reports nothing. */
-	#reported = new Map<string, string>();
+	/** This index's name in the core, which holds its watch and the chat flags it read. */
+	readonly #id = `${process.pid}.${++indexes}`;
+	/** Between `start()` and `stop()`. */
+	#started = false;
+	/** The core's events this index listens to while started. */
+	#subscriptions: Array<() => void> = [];
+	/** Whether the core says the tree is watched now. */
+	#watching = false;
+	/** The core process the watch was asked of (a core that ends takes its watches with it); null: none, or the ask failed. */
+	#watchCore: number | null = null;
+	/** Whether a watch was asked for since `start()`: a second ask means an earlier watch was lost. */
+	#asked = false;
+	/** Changes may have gone unseen between two watches: reported as "anything" once the tree is watched again. */
+	#missed = false;
+	/** Whether the core may hold anything of this index. */
+	#inCore = false;
 	#textCache = new StampedLru<{ raw: string; lower: string }>(
 		SEARCH_CACHE_BYTES,
 		text => text.raw.length + text.lower.length,
@@ -61,11 +75,6 @@ export class SessionIndex {
 	/** GUI-side chat labels for sessions whose header carries no kind (stock omp writes none). */
 	#isChat: (sessionId: string) => boolean;
 	#store: StockSessionStore;
-	/**
-	 * Each listed session file's legacy chat flag, with the session id its header named: a header never changes, so a
-	 * list (asked for after every settled append while an agent streams) reads each file's head once, not each time.
-	 */
-	#legacyChat = new Map<string, { id: string; chat: boolean }>();
 	/** The global list, read once per change while the tree is watched and shared by every asker. */
 	readonly #share = new SessionListShare(() => this.#readAll());
 	#warmup: NodeJS.Timeout | undefined;
@@ -101,61 +110,120 @@ export class SessionIndex {
 	}
 
 	/**
-	 * Starts watching: one recursive OS watch of the whole tree (FSEvents on macOS, ReadDirectoryChangesW on Windows).
-	 * Never a watch per directory (chokidar's way): libuv's macOS backend keeps one FSEvents stream for all of them
-	 * and recreates it, from "now", whenever a watched directory is added or removed, so each new session's artifact
-	 * directory dropped the new and removed session files of the whole tree that the old stream had not delivered
-	 * yet. The OS starts delivering a moment after this returns: every reader lists the sessions when it opens, and
-	 * the shared list is read once more after {@link WATCH_WARMUP_MS} for a file written in that moment.
+	 * Starts watching: the core's one recursive OS watch of the whole tree (FSEvents on macOS, ReadDirectoryChangesW
+	 * on Windows; why never a watch per directory: `sessions/source.rs`). A root that is not there yet (omp has saved
+	 * no session) is looked for every second and watched once it is made. The OS starts delivering a moment after
+	 * the watch is made: every reader lists the sessions when it opens, and the shared list is read once more after
+	 * {@link WATCH_WARMUP_MS} for a file written in that moment.
 	 */
 	start(): void {
-		let watcher: FSWatcher;
-		try {
-			watcher = watch(this.#sessionsDir, { recursive: true }, (_event, name) => this.#observe(name));
-		} catch (error) {
-			if (error instanceof Error && "code" in error && error.code === "ENOENT") this.#awaitRoot();
-			else console.warn(`[session-index] not watching ${this.#sessionsDir}: ${error}`);
-			return;
-		}
-		watcher.on("error", error => {
-			console.warn(`[session-index] watcher stopped: ${error.message}`);
-			watcher.close();
-			if (this.#watcher === watcher) this.#watcher = null;
+		if (this.#started) return;
+		this.#started = true;
+		const events = core();
+		this.#subscriptions = [
+			events.on("sessions.watching", data => this.#onWatching(data)),
+			events.on("sessions.changed", data => this.#onChanged(data)),
+			// A core that started after the one the watch was asked of holds no watch.
+			events.on("ready", () => this.#watched()),
+		];
+		this.#watch();
+	}
+
+	/** Asks the core to watch the tree; it says when the watch began (`sessions.watching`). */
+	#watch(): void {
+		// Not the first ask: the watch before it ended with its core or never began, and what changed meanwhile is only
+		// seen by a fresh list.
+		this.#missed ||= this.#asked;
+		this.#asked = true;
+		this.#watching = false;
+		this.#inCore = true;
+		const asked = core().call("sessions.watch", { index: this.#id, root: resolve(this.#sessionsDir) });
+		const pid = core().pid;
+		this.#watchCore = pid;
+		asked.catch((error: unknown) => {
+			console.warn(
+				`[session-index] not watching ${this.#sessionsDir}: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			// Unwatched, so every ask reads; the next ask (or the next core) asks for the watch again.
+			if (this.#watchCore === pid) this.#watchCore = null;
 		});
-		this.#watcher = watcher;
-		clearTimeout(this.#warmup);
-		// A list nobody read yet is read whole by its first reader, after this moment anyway.
-		this.#warmup = setTimeout(() => this.#share.held() && this.#share.changed(), WATCH_WARMUP_MS);
-		this.#warmup.unref?.();
 	}
 
 	/**
-	 * No sessions root yet (omp has saved no session): looks for it until it is made, then watches it. A poll, not a
-	 * watch of the parent, whose own FSEvents stream could start after the root was made and never report it.
+	 * Whether the tree is watched now. The core that held the watch may be gone (a core restarts on its next request,
+	 * without its watches), or the ask may have failed: the watch is asked for again.
 	 */
-	#awaitRoot(): void {
-		this.#rootPoll = setInterval(() => {
-			if (!existsSync(this.#sessionsDir)) return;
-			clearInterval(this.#rootPoll);
-			this.#rootPoll = undefined;
-			this.start();
-			// What omp wrote before the watch began is only seen by a fresh list.
+	#watched(): boolean {
+		if (!this.#started) return false;
+		if (this.#watchCore === null || core().pid !== this.#watchCore) {
+			this.#watch();
+			return false;
+		}
+		return this.#watching;
+	}
+
+	/** The core's watch of this index began (`watching`), or ended by itself and is being tried again. */
+	#onWatching(data: unknown): void {
+		const event = watchingEvent.safeParse(data);
+		if (!event.success || event.data.index !== this.#id || !this.#started) return;
+		this.#watching = event.data.watching;
+		clearTimeout(this.#warmup);
+		if (!event.data.watching) {
+			// What had not settled yet is never reported, and nothing is until the tree is watched again.
 			this.#notifyChange();
-		}, ROOT_POLL_MS);
+			return;
+		}
+		// A list nobody read yet is read whole by its first reader, after this moment anyway.
+		this.#warmup = setTimeout(() => this.#share.held() && this.#share.changed(), WATCH_WARMUP_MS);
+		this.#warmup.unref?.();
+		// What was written while nothing watched (before the root was made, between two watches) is only seen by a
+		// fresh list.
+		if (event.data.missed || this.#missed) {
+			this.#missed = false;
+			this.#notifyChange();
+		}
+	}
+
+	/**
+	 * The core's report: session files, or project or session directories, that appeared, changed or vanished, once
+	 * their writes settled (every path due at the same moment in one report); no names when the OS dropped changes
+	 * (a Windows buffer overflow, FSEvents asking for a rescan), so anything may have changed.
+	 */
+	#onChanged(data: unknown): void {
+		const event = changedEvent.safeParse(data);
+		if (!event.success || event.data.index !== this.#id || !this.#started) return;
+		const { names } = event.data;
+		if (names === null) {
+			this.#notifyChange();
+			return;
+		}
+		for (const name of names) {
+			const path = join(this.#sessionsDir, name);
+			if (path.endsWith(".jsonl")) this.#textCache.delete(path);
+			this.onChange?.(path);
+		}
+		this.#share.changed();
 	}
 
 	stop(): void {
-		this.#watcher?.close();
-		this.#watcher = null;
-		clearInterval(this.#rootPoll);
+		this.#started = false;
+		for (const unsubscribe of this.#subscriptions.splice(0)) unsubscribe();
 		clearTimeout(this.#warmup);
-		this.#rootPoll = undefined;
-		for (const timer of this.#settling.values()) clearTimeout(timer);
-		this.#settling.clear();
-		this.#reported.clear();
+		this.#watching = false;
+		this.#watchCore = null;
+		this.#asked = false;
+		this.#missed = false;
+		// Only a running core holds anything of this index: none is started to forget nothing.
+		if (this.#inCore && core().pid !== null) {
+			core()
+				.call("sessions.close", { index: this.#id })
+				.catch(() => {
+					// A core that ended has forgotten it already.
+				});
+		}
+		this.#inCore = false;
 		this.#store.stop();
 		this.#textCache.clear();
-		this.#legacyChat.clear();
 	}
 
 	/**
@@ -177,11 +245,11 @@ export class SessionIndex {
 
 	/**
 	 * The global list and its version, read once per change and shared (the rows are the copy every asker gets: never
-	 * changed in place). Unwatched (no root yet, a watch that stopped, an index never started) nothing says when a file
-	 * changes, so every ask reads.
+	 * changed in place). Unwatched (no root yet, a watch that ended, a core that could not start, an index never
+	 * started) nothing says when a file changes, so every ask reads.
 	 */
 	async listShared(): Promise<VersionedSessionList> {
-		if (this.#watcher === null) this.#share.stale();
+		if (!this.#watched()) this.#share.stale();
 		try {
 			return await this.#share.current();
 		} catch (error) {
@@ -197,38 +265,43 @@ export class SessionIndex {
 		this.#share.changed();
 	}
 
-	/** Every session file once (deleted ones never), chat-labelled, newest first, one row per session id. */
+	/**
+	 * Every session file once (deleted ones never), chat-labelled, newest first, one row per session id: stock moves
+	 * sessions between its old and new directory names for a cwd (`-AiProject-x` → `home-x-<hash>`), and meanwhile one
+	 * id is a file in both; the core keeps the first, which in this order is the newest copy, and reads each kept
+	 * file's legacy chat flag.
+	 */
 	async #readAll(): Promise<SessionInfo[]> {
 		const deleted = deletedSessions();
 		const infos = (await this.#store.list()).filter(info => !deleted.has(info.path));
-		await Promise.all(
-			infos.map(async info => {
-				if (this.#isChat(info.id) || (await this.#listedLegacyChat(info))) info.kind = "chat";
-			}),
-		);
+		if (infos.length === 0) return infos;
 		infos.sort(compareSessionRows);
-		// Dedupe by session id: the agent migrates sessions between legacy and
-		// current cwd-directory encodings (e.g. `-AiProject-x` → `home-x-<hash>`),
-		// and during that window the same session id can exist as a file in both
-		// directories. After the modified-desc sort, the first occurrence of each
-		// id is the newest copy — keep it and drop the stale duplicates so one
-		// session never renders as two sidebar rows.
-		const seen = new Set<string>();
-		return infos.filter(info => {
-			if (!info.id || seen.has(info.id)) return false;
-			seen.add(info.id);
-			return true;
+		this.#inCore = true;
+		const { result } = await core().call("sessions.listed", {
+			index: this.#id,
+			rows: infos.map(info => ({ path: info.path, id: info.id })),
+		});
+		return listedAnswer.parse(result).listed.flatMap(({ row, chat }) => {
+			const info = infos[row];
+			if (!info) return [];
+			if (chat || this.#isChat(info.id)) info.kind = "chat";
+			return [info];
 		});
 	}
 
-	/** GUI chat labels are an overlay: stock sessions have no chat-kind concept. */
+	/**
+	 * GUI chat labels are an overlay: stock sessions have no chat-kind concept. The legacy one is a flag in the file's
+	 * header that stock's listing deliberately does not expose; the core reads it. Only this presentation overlay is
+	 * read there, never stock metadata or lifecycle.
+	 */
 	async kindFor(sessionPath: string): Promise<SessionKind> {
 		try {
 			const infos = await this.#store.listDirectory(sessionPath);
 			const info = infos.find(row => resolve(row.path) === resolve(sessionPath));
-			return info && (this.#isChat(info.id) || (await this.#legacyChatKind(sessionPath)) === true)
-				? "chat"
-				: "agent";
+			if (!info) return "agent";
+			if (this.#isChat(info.id)) return "chat";
+			const { result } = await core().call("sessions.kind", { path: resolve(sessionPath) });
+			return kindAnswer.parse(result).chat === true ? "chat" : "agent";
 		} catch {
 			return "agent";
 		}
@@ -355,98 +428,9 @@ export class SessionIndex {
 		}
 	}
 
-	/**
-	 * One raw watch event. A session file at most three segments down, or a non-hidden entry at most two down (a
-	 * project or session directory appearing, vanishing or renamed; hidden entries there are stock's lock and
-	 * staging files), is reported once it settles. Anything else (tool output, plans) is not looked at.
-	 */
-	#observe(name: string | null): void {
-		if (name === null) {
-			// The OS gave up on naming what changed (a Windows buffer overflow): anything may have.
-			this.#notifyChange();
-			return;
-		}
-		const segments = name.split(/[\\/]/);
-		const base = segments[segments.length - 1];
-		const watched = base.endsWith(".jsonl")
-			? segments.length <= SESSION_FILE_SEGMENTS
-			: segments.length <= SESSION_DIR_SEGMENTS && base !== "" && !base.startsWith(".");
-		if (!watched) return;
-		const path = join(this.#sessionsDir, name);
-		clearTimeout(this.#settling.get(path));
-		this.#settling.set(
-			path,
-			setTimeout(() => {
-				this.#settling.delete(path);
-				void this.#settle(path);
-			}, SETTLE_MS),
-		);
-	}
-
-	/**
-	 * Reports a settled path unless it still has the `mtime:size` it was last reported with; a session file's
-	 * cached text goes with it. Each event names its path, so nothing else is stat'ed: an agent streaming into one
-	 * file never walks the tree.
-	 */
-	async #settle(path: string): Promise<void> {
-		const session = path.endsWith(".jsonl");
-		let signature: string | null = null;
-		try {
-			const info = await lstat(path);
-			// Beside the session files only directories move sessions; any other file there is not one.
-			if (!session && !info.isDirectory()) return;
-			signature = `${info.mtimeMs}:${info.size}`;
-		} catch {
-			/* Gone: deleted, or renamed away with the sessions in it. */
-		}
-		if (this.#watcher === null) return;
-		if (signature === null) {
-			this.#reported.delete(path);
-			this.#legacyChat.delete(path);
-		} else if (this.#reported.get(path) === signature) return;
-		else this.#reported.set(path, signature);
-		if (session) this.#textCache.delete(path);
-		this.#notifyChange(path);
-	}
-
-	/** `#legacyChatKind` of a listed session, read from its file only the first time this session is listed there. */
-	async #listedLegacyChat(info: SessionInfo): Promise<boolean> {
-		const known = this.#legacyChat.get(info.path);
-		if (known?.id === info.id) return known.chat;
-		const chat = await this.#legacyChatKind(info.path);
-		// No header read (unreadable, or not written yet): asked again next time.
-		if (chat !== undefined) this.#legacyChat.set(info.path, { id: info.id, chat });
-		return chat === true;
-	}
-
-	/** Legacy GUI-only header flag; stock session-listing deliberately does not expose it. Undefined: no header read.
-	 * Read only this presentation overlay, never derive stock metadata or lifecycle.
-	 */
-	async #legacyChatKind(filePath: string): Promise<boolean | undefined> {
-		try {
-			const fh = await open(filePath, "r");
-			try {
-				const buffer = Buffer.alloc(4096);
-				const { bytesRead } = await fh.read(buffer, 0, buffer.length, 0);
-				for (const line of buffer.toString("utf8", 0, bytesRead).split("\n")) {
-					try {
-						const entry = JSON.parse(line) as { type?: string; kind?: string };
-						if (entry.type === "session") return entry.kind === "chat";
-					} catch {
-						/* A partial final line is not a header. */
-					}
-				}
-			} finally {
-				await fh.close();
-			}
-		} catch {
-			/* Missing/unreadable files have no GUI label. */
-		}
-		return undefined;
-	}
-
-	#notifyChange(path?: string): void {
-		this.onChange?.(path);
+	/** Anything may have changed. */
+	#notifyChange(): void {
+		this.onChange?.();
 		this.#share.changed();
 	}
 }

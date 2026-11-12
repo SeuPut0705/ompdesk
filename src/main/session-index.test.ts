@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
+import { core } from "./core/process";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { ompPackageRoot } from "./omp-runtime";
 import { SessionIndex } from "./session-index";
@@ -206,34 +207,50 @@ describe("SessionIndex watcher", () => {
 		};
 		index.start();
 		// Resolves on the report itself; the timer is only the deadline. No fake clock: the OS watcher runs on real time.
-		const reportedWithin = (file: string, ms: number) =>
-			new Promise<boolean>(done => {
-				const finish = (value: boolean) => {
-					clearTimeout(timer);
-					wakers.delete(check);
-					done(value);
-				};
-				const check = () => {
-					if (reports.includes(file)) finish(true);
-				};
-				const timer = setTimeout(() => finish(false), ms);
-				wakers.add(check);
-				check();
-			});
+		const within = (seen: () => boolean, ms: number) => {
+			const { promise, resolve } = Promise.withResolvers<boolean>();
+			const finish = (value: boolean) => {
+				clearTimeout(timer);
+				wakers.delete(check);
+				resolve(value);
+			};
+			const check = () => {
+				if (seen()) finish(true);
+			};
+			const timer = setTimeout(() => finish(false), ms);
+			wakers.add(check);
+			check();
+			return promise;
+		};
+		/** `since`: only reports from that place in `reports` on count. */
+		const reportedWithin = (file: string, ms: number, since = 0) => within(() => reports.includes(file, since), ms);
 		return {
 			reports,
-			/** The OS starts delivering a moment after start() (FSEvents on macOS): a probe is rewritten until reported. */
-			async live(): Promise<void> {
-				const probe = path.join(dir, "probe.jsonl");
+			/**
+			 * The OS starts delivering a moment after start() (FSEvents on macOS): a probe is rewritten until reported.
+			 * Also proves, later in a test, that the watch still names what changes.
+			 */
+			async live(name = "probe.jsonl"): Promise<void> {
+				const probe = path.join(dir, name);
+				const since = reports.length;
 				const deadline = performance.now() + REPORT_MS;
 				do await fs.appendFile(probe, "{}\n");
-				while (!(await reportedWithin(probe, 1000)) && performance.now() < deadline);
-				expect(reports).toContain(probe);
+				while (!(await reportedWithin(probe, 1000, since)) && performance.now() < deadline);
+				expect(reports.slice(since)).toContain(probe);
 			},
 			/** Each file is reported within REPORT_MS (one deadline for all). */
 			async reported(...files: string[]): Promise<void> {
 				await Promise.all(files.map(file => reportedWithin(file, REPORT_MS)));
 				expect(reports).toEqual(expect.arrayContaining(files));
+			},
+			/** Each file is reported after place `mark` of `reports`, within REPORT_MS (one deadline for all). */
+			async since(mark: number, ...files: string[]): Promise<void> {
+				await Promise.all(files.map(file => reportedWithin(file, REPORT_MS, mark)));
+				expect(reports.slice(mark)).toEqual(expect.arrayContaining(files));
+			},
+			/** `seen` holds within `ms`; it is asked again at every report. */
+			async seen(seen: () => boolean, ms: number): Promise<void> {
+				expect(await within(seen, ms)).toBe(true);
 			},
 		};
 	}
@@ -301,5 +318,97 @@ describe("SessionIndex watcher", () => {
 		await watch.live();
 		await fs.writeFile(path.join(dir, "project-x", "second.jsonl"), "{}\n");
 		await watch.reported(path.join(dir, "project-x", "second.jsonl"));
+	});
+
+	// What follows is what "no change is lost" rests on: each case is a way a watch could drop one.
+	it("reports both names of a session file renamed in place", { timeout: 3 * REPORT_MS + 5000 }, async () => {
+		const dir = await sessionsRoot();
+		await fs.mkdir(path.join(dir, "project-x"));
+		const watch = watchSessions(dir);
+		await watch.live();
+		const from = path.join(dir, "project-x", "old.jsonl");
+		const to = path.join(dir, "project-x", "new.jsonl");
+		await fs.writeFile(from, "{}\n");
+		await watch.reported(from);
+		const mark = watch.reports.length;
+		await fs.rename(from, to);
+		await watch.since(mark, from, to);
+	});
+
+	it("reports a deleted project directory and the sessions in it, then the next session", {
+		timeout: 3 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = await sessionsRoot();
+		const project = path.join(dir, "project-x");
+		const session = path.join(project, "one.jsonl");
+		const subagent = path.join(project, "session-one", "sub.jsonl");
+		await fs.mkdir(path.dirname(subagent), { recursive: true });
+		await fs.writeFile(session, "{}\n");
+		await fs.writeFile(subagent, "{}\n");
+		const watch = watchSessions(dir);
+		await watch.live();
+		const mark = watch.reports.length;
+		await fs.rm(project, { recursive: true });
+		await watch.since(mark, project, session, subagent);
+		await fs.mkdir(path.join(dir, "project-y"));
+		await fs.writeFile(path.join(dir, "project-y", "two.jsonl"), "{}\n");
+		await watch.reported(path.join(dir, "project-y", "two.jsonl"));
+	});
+
+	it("names every file of a burst of 1 000 writes, or says that anything may have changed", {
+		timeout: 6 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = await sessionsRoot();
+		for (let n = 0; n < 10; n++) await fs.mkdir(path.join(dir, `project-${n}`));
+		const watch = watchSessions(dir);
+		await watch.live();
+		const mark = watch.reports.length;
+		const files = Array.from({ length: 1000 }, (_, n) => path.join(dir, `project-${n % 10}`, `session-${n}.jsonl`));
+		await Promise.all(files.map(file => fs.writeFile(file, "{}\n")));
+		await watch.seen(() => {
+			const since = new Set(watch.reports.slice(mark));
+			return since.has(ANYTHING) || files.every(file => since.has(file));
+		}, 4 * REPORT_MS);
+		// Whatever the OS dropped, the watch names what comes after.
+		await watch.live("after.jsonl");
+	});
+
+	it("says anything may have changed when the sessions root is deleted, and again once it is remade", {
+		timeout: 4 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = path.join(await sessionsRoot(), "sessions");
+		await fs.mkdir(path.join(dir, "project-x"), { recursive: true });
+		await fs.writeFile(path.join(dir, "project-x", "one.jsonl"), "{}\n");
+		const watch = watchSessions(dir);
+		await watch.live();
+		let mark = watch.reports.length;
+		await fs.rm(dir, { recursive: true });
+		await watch.since(mark, ANYTHING);
+		// Written while nothing watches: no report names it, the one for the new watch covers it.
+		mark = watch.reports.length;
+		await fs.mkdir(path.join(dir, "project-x"), { recursive: true });
+		await fs.writeFile(path.join(dir, "project-x", "between.jsonl"), "{}\n");
+		await watch.since(mark, ANYTHING);
+		await watch.live("after.jsonl");
+	});
+
+	it("watches again in the next core when the core that held the watch ended", {
+		timeout: 4 * REPORT_MS + 5000,
+	}, async () => {
+		const dir = await sessionsRoot();
+		const watch = watchSessions(dir);
+		await watch.live();
+		const held = core().pid;
+		if (held === null) throw new Error("no core holds the watch");
+		// Answers only when its core ends.
+		const ended = core().call("core.echo", { waitFor: `session-index-${process.pid}` });
+		const mark = watch.reports.length;
+		process.kill(held);
+		await expect(ended).rejects.toThrow(/exited/);
+		// Written while no core runs: the next core's watch cannot name it.
+		await fs.writeFile(path.join(dir, "between.jsonl"), "{}\n");
+		await core().call("core.echo", {});
+		await watch.since(mark, ANYTHING);
+		await watch.live("after.jsonl");
 	});
 });

@@ -8,6 +8,7 @@ pub mod git;
 pub mod memory;
 mod run;
 pub mod server;
+pub mod sessions;
 mod sys;
 pub mod wire;
 

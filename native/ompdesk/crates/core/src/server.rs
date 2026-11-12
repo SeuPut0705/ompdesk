@@ -1,7 +1,8 @@
 //! Methods and dispatch. A handler is an async function from a request's params (and its `bin` tail) to a result or
 //! a coded error. Requests run concurrently and are answered in completion order; at end of input the server waits
 //! for the ones in flight, then returns. A `{"cancel": id}` frame stops the request `id` where its handler looks
-//! (every git it runs, `Scope`), and a request answers only once every process it started has ended.
+//! (every git it runs, `Scope`), and a request answers only once every process it started has ended. What a request
+//! leaves running on purpose (a watch) reports through `Events` and ends with the process.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -80,11 +81,28 @@ impl Scope {
     }
 }
 
+/// Sends events to main. It outlives the request that was given it (a watch one request starts reports until another
+/// stops it), and holds the output only weakly: once the input ended and the requests in flight answered, nothing
+/// left running keeps the connection open, and an event sent after that is dropped.
+#[derive(Clone)]
+pub struct Events {
+    frames: mpsc::WeakUnboundedSender<Frame>,
+}
+
+impl Events {
+    pub fn send<T: Serialize>(&self, event: &str, data: &T) {
+        if let Some(frames) = self.frames.upgrade() {
+            let _ = frames.send(Frame::event(event, data));
+        }
+    }
+}
+
 /// What a handler is given.
 pub struct Call {
     pub params: Box<RawValue>,
     pub bin: Option<Vec<u8>>,
     pub scope: Scope,
+    pub events: Events,
 }
 
 impl Call {
@@ -142,6 +160,7 @@ pub fn registry() -> Registry {
     crate::git::register(&mut registry);
     crate::gh::register(&mut registry);
     crate::memory::register(&mut registry);
+    crate::sessions::register(&mut registry);
     registry
 }
 
@@ -199,9 +218,12 @@ where
                 // Registered before the next frame is read, so a cancel that follows always finds it.
                 let cancel = Arc::new(watch::channel(false).0);
                 in_flight(&requests).insert(request.id, Arc::clone(&cancel));
+                let events = Events {
+                    frames: frames.downgrade(),
+                };
                 tasks.spawn(async move {
                     let id = request.id;
-                    let frame = match answer(&registry, request, cancel).await {
+                    let frame = match answer(&registry, request, cancel, events).await {
                         Ok(reply) => Frame::result(id, &reply.result, reply.bin),
                         Err(fault) => Frame::error(id, &fault.code, &fault.message),
                     };
@@ -222,6 +244,7 @@ async fn answer(
     registry: &Registry,
     request: wire::Request,
     cancel: Arc<watch::Sender<bool>>,
+    events: Events,
 ) -> Result<Reply, Fault> {
     let Some(handler) = registry.get(&request.method) else {
         return Err(Fault::new(
@@ -237,6 +260,7 @@ async fn answer(
             cancel,
             _alive: alive,
         },
+        events,
     };
     // Its own task, so a panic fails this request instead of the connection.
     let outcome = match tokio::spawn(handler(call)).await {
