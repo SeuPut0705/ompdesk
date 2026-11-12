@@ -6,7 +6,8 @@
  * host answering a device: the status as the bridge keeps it, and a refusal to control).
  */
 import { AUTOPILOT_BRIDGE_METHODS } from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import { gitRaw } from "./git/exec";
+import { CoreError } from "../core/process";
+import { coreGit } from "./git/exec";
 import { LocalCommandError, type LocalHandler } from "./types";
 
 const BRIDGE_METHODS: readonly string[] = Object.values(AUTOPILOT_BRIDGE_METHODS);
@@ -25,17 +26,19 @@ export const handlers: Record<string, LocalHandler> = {
 		if (typeof root !== "string" || root.length === 0) throw new LocalCommandError("Invalid root.", "invalid_root");
 		const base = ref(command.base, "base branch");
 		const branch = ref(command.branch, "branch");
-		const counted = await gitRaw(root, ["rev-list", "--left-right", "--count", `${base}...${branch}`, "--"], {
-			timeoutMs: 30_000,
-		}).catch(() => null);
-		if (counted?.code !== 0) {
+		return coreGit<{ ahead: number; behind: number }>(
+			"git.autopilotBranchStatus",
+			{ root, base, branch },
+			0,
+			30_000,
+		).catch((error: unknown) => {
 			throw new LocalCommandError(
-				`Could not compare ${branch} with ${base}: ${counted?.stderr.trim() || "git failed"}`,
+				error instanceof CoreError && error.code === "git_failed"
+					? error.message
+					: `Could not compare ${branch} with ${base}: git failed`,
 				"git_failed",
 			);
-		}
-		const [behind = 0, ahead = 0] = counted.stdout.toString("utf8").trim().split(/\s+/).map(Number);
-		return { ahead, behind };
+		});
 	},
 	autopilot_bridge: async (command, ctx) => {
 		const method = command.method;

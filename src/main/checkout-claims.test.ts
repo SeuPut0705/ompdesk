@@ -118,10 +118,10 @@ class World {
 		members: () => [this.a, this.b],
 		place: async () => ({ toplevel: TOP, commonDir: `${TOP}/.git` }),
 		hiddenPaths: () => new Set(),
-		gitStatus: async () => {
+		gitStatus: async (_top, asked) => {
 			for (const event of this.during.splice(0)) event();
 			if (this.gitFails) throw new Error("git timed out");
-			return this.dirty ? " M src/f.ts\0" : "";
+			return this.dirty ? asked : [];
 		},
 	});
 

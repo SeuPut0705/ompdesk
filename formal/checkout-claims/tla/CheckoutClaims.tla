@@ -201,7 +201,7 @@ BWrite ==
 
 LedgerStatus == [held |-> stamp # 0, st |-> stamp, pending |-> Writing, inst |-> inst, fresh |-> TRUE]
 
-\* @code src/main/checkout-peers.ts:316-323 #statusOf: A's answer, or the last one when its bridge does not answer in time
+\* @code src/main/checkout-peers.ts:314-321 #statusOf: A's answer, or the last one when its bridge does not answer in time
 PassStatus ==
     /\ phase = "idle"
     /\ \/ /\ inflight = {}   \* the bridge answers its requests in order
@@ -211,7 +211,7 @@ PassStatus ==
     /\ UNCHANGED <<listing, committed, proposal, view, viewKey>>
     /\ UNCHANGED ledgerVars /\ UNCHANGED <<dirty, aWrote, landed, commitIds, world, restarts, inflight>> /\ UNCHANGED bVars
 
-\* @code src/main/checkout-peers.ts:174-190 #pass: git status of the claimed paths, or a failure
+\* @code src/main/checkout-peers.ts:170-192 #pass: the core's presence verdict for the claimed paths, or a failure
 PassGit ==
     /\ phase = "git"
     /\ \/ listing' = IF dirty THEN "dirty" ELSE "clean"
@@ -231,7 +231,7 @@ Verdict(k, l, before) ==
     ELSE IF l = "clean" THEN "committed"
     ELSE "keep"
 
-\* @code src/main/checkout-peers.ts:191-230 #pass: the judgment, synchronous after git answered
+\* @code src/main/checkout-peers.ts:193-228 #pass: the judgment, synchronous after git answered
 PassJudge ==
     /\ phase = "judge"
     /\ LET v == Verdict(known, listing, committed)
@@ -250,7 +250,7 @@ PassJudge ==
     /\ UNCHANGED ledgerVars /\ UNCHANGED <<dirty, aWrote, landed, commitIds, world, restarts>>
     /\ UNCHANGED <<bview, bkey, shown, cleaned>>
 
-\* @code src/main/checkout-peers.ts:326-338 #retire: the bridge answers its claims after the retire, which main keeps; no answer in time keeps what main had
+\* @code src/main/checkout-peers.ts:324-336 #retire: the bridge answers its claims after the retire, which main keeps; no answer in time keeps what main had
 PassRetired ==
     /\ phase = "retire"
     /\ \/ /\ proposal \notin inflight /\ proposal.inst = inst
@@ -260,7 +260,7 @@ PassRetired ==
     /\ UNCHANGED <<known, listing, committed, proposal, view, viewKey>>
     /\ UNCHANGED ledgerVars /\ UNCHANGED <<dirty, aWrote, landed, commitIds, world, restarts, inflight>> /\ UNCHANGED bVars
 
-\* @code src/main/checkout-peers.ts:345-359 #send: B is told, unless its bridge does not answer
+\* @code src/main/checkout-peers.ts:343-357 #send: B is told, unless its bridge does not answer
 PassSend ==
     /\ phase = "send"
     /\ \/ /\ bview' = view /\ bkey' = viewKey

@@ -16,7 +16,7 @@ import { type FSWatcher, watch } from "node:fs";
 import * as path from "node:path";
 import type { RpcGitFingerprint } from "../shared/rpc-types";
 import { getGitFingerprint } from "./local/git/changes";
-import { gitRaw } from "./local/git/exec";
+import { coreGit } from "./local/git/exec";
 import { isInside } from "./local/git/parse";
 
 /** An answer older than this is read again even with no event: the safety net for a change the OS did not report. */
@@ -146,22 +146,8 @@ export class GitFingerprints {
 }
 
 /** The worktree root, git directory and common git directory of `cwd`, absolute; null outside a repository. */
-async function locateCheckout(cwd: string): Promise<string[] | null> {
-	const result = await gitRaw(cwd, [
-		"rev-parse",
-		"--path-format=absolute",
-		"--show-toplevel",
-		"--absolute-git-dir",
-		"--git-common-dir",
-	]);
-	if (result.code !== 0) return null;
-	const dirs = result.stdout
-		.toString("utf8")
-		.split("\n")
-		.map(line => line.trim())
-		.filter(Boolean)
-		.map(dir => path.resolve(dir));
-	return dirs.length === 3 ? dirs : null;
+function locateCheckout(cwd: string): Promise<string[] | null> {
+	return coreGit("git.checkoutDirs", { cwd }, 1);
 }
 
 function watchTree(dir: string, changed: () => void, failed: () => void): FSWatcher {

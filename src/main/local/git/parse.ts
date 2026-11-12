@@ -2,28 +2,6 @@
 import * as path from "node:path";
 import { GUI_WORKTREE_BRANCH_PREFIX } from "../../../shared/worktree-branch";
 
-export interface GitStatusEntry {
-	path: string;
-	oldPath?: string;
-	index: string;
-	worktree: string;
-}
-
-/** Parse `git status --porcelain=v1 -z` without splitting paths on whitespace. */
-export function parseGitStatus(text: string): GitStatusEntry[] {
-	const records = text.split("\0");
-	const entries: GitStatusEntry[] = [];
-	for (let i = 0; i < records.length; i++) {
-		const record = records[i] ?? "";
-		if (record.length < 4) continue;
-		const index = record[0] ?? " ";
-		const worktree = record[1] ?? " ";
-		const oldPath = index === "R" || index === "C" || worktree === "R" || worktree === "C" ? records[++i] : undefined;
-		entries.push({ path: record.slice(3), oldPath, index, worktree });
-	}
-	return entries;
-}
-
 /** A branch or tag name git accepts (`git check-ref-format --branch` rules, checked without spawning git). */
 export function isValidRefName(name: string): boolean {
 	return (

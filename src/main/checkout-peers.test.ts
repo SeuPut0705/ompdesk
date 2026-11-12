@@ -10,7 +10,7 @@ import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { CheckoutPeers } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
 import { CheckoutLedger } from "../../resources/gui-bridge/modes/checkout-peers-core";
-import { type CheckoutMember, CheckoutPeerCoordinator, readCheckoutPlace, readGitStatus } from "./checkout-peers";
+import { type CheckoutMember, CheckoutPeerCoordinator, readCheckoutClaims, readCheckoutPlace } from "./checkout-peers";
 import { readOriginFacts } from "./local/git/origin";
 
 let dir: string;
@@ -66,13 +66,14 @@ function member(
 	};
 }
 
-/** `git status --porcelain=v1 -z` of the given entries (`"?? a.ts"`, `"R  new.ts\0old.ts"`). */
-const porcelain = (...entries: string[]) => entries.map(entry => `${entry}\0`).join("");
+/** What git holds of the asked paths, as `readCheckoutClaims` answers: the asked ones among `held` (spelled with `/`, in NFC). */
+const heldOf = (asked: string[], held: string[]) =>
+	asked.filter(rel => held.includes(rel.split(path.sep).join("/").normalize("NFC")));
 
 function coordinator(
 	members: () => CheckoutMember[],
 	hidden = new Set<string>(),
-	gitStatus: (toplevel: string, paths: string[]) => Promise<string> = () =>
+	gitStatus: (toplevel: string, paths: string[]) => Promise<string[]> = () =>
 		Promise.reject(new Error("git is not available")),
 ) {
 	return new CheckoutPeerCoordinator({
@@ -156,18 +157,18 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 	it("drops a file git no longer lists, from the peer's files and from what both changed, and says it again once it is dirty again", async () => {
 		const a = member("a", main, [src("both.ts"), src("a.ts")]);
 		const b = member("b", main, [src("both.ts"), src("b.ts")]);
-		let listed = porcelain("?? src/a.ts", " M src/b.ts");
+		let listed = ["src/a.ts", "src/b.ts"];
 		const peers = coordinator(
 			() => [a, b],
 			new Set(),
-			async () => listed,
+			async (_top, asked) => heldOf(asked, listed),
 		);
 		await peers.refresh();
 		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({ id: "b", files: [src("b.ts")] });
 		expect(a.sent.at(-1)?.worktree[0]?.shared).toBeUndefined();
 		expect(b.sent.at(-1)?.worktree[0]).toMatchObject({ id: "a", files: [src("a.ts")] });
 
-		listed = porcelain("?? src/a.ts", " M src/b.ts", " M src/both.ts");
+		listed = ["src/a.ts", "src/b.ts", "src/both.ts"];
 		await peers.refresh();
 		expect(a.sent.at(-1)?.worktree[0]).toMatchObject({
 			files: [src("both.ts"), src("b.ts")],
@@ -188,7 +189,7 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		await coordinator(
 			() => [a, b],
 			new Set(),
-			async () => porcelain("R  src/new.ts\0src/old.ts", " D src/gone.ts"),
+			async (_top, asked) => heldOf(asked, ["src/new.ts", "src/old.ts", "src/gone.ts"]),
 		).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([src("new.ts"), src("old.ts"), src("gone.ts")]);
 	});
@@ -204,7 +205,7 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		const top = fs.realpathSync.native(repo);
 		const a = member("a", top);
 		const b = member("b", top, [path.join(top, "committed.ts"), path.join(top, "fresh.ts")]);
-		await coordinator(() => [a, b], new Set(), readGitStatus).refresh();
+		await coordinator(() => [a, b], new Set(), readCheckoutClaims).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([path.join(top, "fresh.ts")]);
 	});
 
@@ -230,20 +231,20 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 	it("never brings back a committed claim when another session changes that file later", async () => {
 		const a = ledgerMember("a", main);
 		const b = ledgerMember("b", main);
-		let listed = porcelain(" M src/f.ts");
+		let listed = ["src/f.ts"];
 		const peers = coordinator(
 			() => [a.fake, b.fake],
 			new Set(),
-			async () => listed,
+			async (_top, asked) => heldOf(asked, listed),
 		);
 		a.edit(src("f.ts"));
 		await peers.refresh();
 		expect(b.fake.sent.at(-1)?.worktree[0]?.files).toEqual([src("f.ts")]);
 		// A commits f: clean. Then B changes f: dirty again, and it is B's, never A's.
-		listed = porcelain();
+		listed = [];
 		await peers.refresh();
 		b.edit(src("f.ts"));
-		listed = porcelain(" M src/f.ts");
+		listed = ["src/f.ts"];
 		await peers.refresh();
 		expect(b.fake.sent.at(-1)?.worktree[0]?.files).toEqual([]);
 		expect(a.fake.sent.at(-1)?.worktree[0]?.files).toEqual([src("f.ts")]);
@@ -266,19 +267,19 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 			},
 		});
 		const other = member("o", top);
-		let listed = porcelain();
+		let listed: string[] = [];
 		const peers = new CheckoutPeerCoordinator({
 			members: () => [writer, other],
 			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
 			hiddenPaths: () => new Set(),
-			gitStatus: async () => listed,
+			gitStatus: async (_top, asked) => heldOf(asked, listed),
 		});
 		// `sleep 8; echo changed > src/t.ts`: claimed at the hook, the file still clean while main takes a pass.
 		ledger.call("bash", { command: "sleep 8; echo changed > src/t.ts" }, top, undefined, host, "c1");
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/t.ts`]);
 		expect(ledger.claims.files).toEqual([`${top}/src/t.ts`]);
-		listed = porcelain(" M src/t.ts");
+		listed = ["src/t.ts"];
 		ledger.settle("c1");
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/t.ts`]);
@@ -302,15 +303,15 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 			},
 		});
 		const other = member("o", top);
-		let listed = porcelain(" M src/f.ts");
+		let listed = ["src/f.ts"];
 		let onGit = () => {};
 		const peers = new CheckoutPeerCoordinator({
 			members: () => [writer, other],
 			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
 			hiddenPaths: () => new Set(),
-			gitStatus: async () => {
+			gitStatus: async (_top, asked) => {
 				onGit();
-				return listed;
+				return heldOf(asked, listed);
 			},
 		});
 		ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e1");
@@ -323,7 +324,7 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/f.ts`]);
 		// The person commits the earlier edit while the write still runs, and the busy omp does not answer.
-		listed = porcelain();
+		listed = [];
 		answering = false;
 		await peers.refresh();
 		expect(other.sent.at(-1)?.worktree[0]?.files).toEqual([`${top}/src/f.ts`]);
@@ -349,7 +350,7 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 			hiddenPaths: () => new Set(),
 			gitStatus: async () => {
 				if (failing) throw new Error("git timed out");
-				return porcelain();
+				return [];
 			},
 		});
 		// A claim restored by an earlier restart (stamp 1) is committed: main retires it.
@@ -381,15 +382,15 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 			},
 		});
 		const other = member("o", top);
-		let listed = porcelain();
+		let listed: string[] = [];
 		let onGit = () => {};
 		const peers = new CheckoutPeerCoordinator({
 			members: () => [writer, other],
 			place: async () => ({ toplevel: top, commonDir: `${top}/.git` }),
 			hiddenPaths: () => new Set(),
-			gitStatus: async () => {
+			gitStatus: async (_top, asked) => {
 				onGit();
-				return listed;
+				return heldOf(asked, listed);
 			},
 		});
 		ledger.call("edit", { path: "src/f.ts" }, top, undefined, host, "e1");
@@ -402,7 +403,7 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 		await peers.refresh();
 		ledger.settle("e2", "", { isError: true });
 		// The other session then changes f: that change is its own, never this session's.
-		listed = porcelain(" M src/f.ts");
+		listed = ["src/f.ts"];
 		await peers.refresh();
 		expect(ledger.claims.files).toEqual([]);
 		expect(other.sent.at(-1)?.worktree[0]?.files ?? []).toEqual([]);
@@ -467,14 +468,14 @@ describe("checkout peers: a committed file is no longer a claim", () => {
 	it("tells another worktree's session the files of its peer in its own paths, and what both changed", async () => {
 		const a = member("a", main, [src("x.ts"), src("y.ts")]);
 		const c = member("c", linked, [src("x.ts", linked), src("z.ts", linked)]);
-		const lists: Record<string, string> = {
-			[main]: porcelain("?? src/x.ts", "?? src/y.ts"),
-			[linked]: porcelain("?? src/x.ts", "?? src/z.ts"),
+		const lists: Record<string, string[]> = {
+			[main]: ["src/x.ts", "src/y.ts"],
+			[linked]: ["src/x.ts", "src/z.ts"],
 		};
 		await coordinator(
 			() => [a, c],
 			new Set(),
-			async top => lists[top] ?? "",
+			async (top, asked) => heldOf(asked, lists[top] ?? []),
 		).refresh();
 		expect(a.sent.at(-1)?.repo).toEqual([
 			{
@@ -591,15 +592,15 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 			},
 		);
 		const x = scripted("x", main);
-		let listed = porcelain(" M src/live.ts", " M src/gone.ts");
+		let listed = ["src/live.ts", "src/gone.ts"];
 		const peers = coordinator(
 			() => [stuck, x],
 			new Set(),
-			async () => listed,
+			async (_top, asked) => heldOf(asked, listed),
 		);
 		await peers.refresh();
 		hang = true;
-		listed = porcelain(" M src/live.ts");
+		listed = ["src/live.ts"];
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const pass = peers.refresh();
 		await vi.advanceTimersByTimeAsync(5_000);
@@ -613,7 +614,7 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		const peers = coordinator(
 			() => [a, b],
 			new Set(),
-			async () => "",
+			async () => [],
 		);
 		await peers.refresh();
 		expect(a.sent).toHaveLength(1);
@@ -635,7 +636,7 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 			new Set(),
 			async (top, paths) => {
 				asked.push({ top, paths: [...paths].sort() });
-				return "";
+				return [];
 			},
 		);
 		await peers.refresh();
@@ -654,11 +655,11 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 			stamps: [...scratch.map((_, index) => index + 1), ...real.map((_, index) => 100 + index)],
 		});
 		const a = scripted("a", main);
-		const listed = porcelain(...real.map(file => `?? ${path.relative(main, file).split(path.sep).join("/")}`));
+		const listed = real.map(file => path.relative(main, file).split(path.sep).join("/"));
 		await coordinator(
 			() => [a, b],
 			new Set(),
-			async () => listed,
+			async (_top, asked) => heldOf(asked, listed),
 		).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual(real);
 		expect(b.retired.flatMap(entry => entry.files.map(claim => claim.file)).sort()).toEqual([...scratch].sort());
@@ -675,7 +676,7 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		await coordinator(
 			() => [a, b],
 			new Set(),
-			async () => porcelain("?? src/old/x.ts", " M lib"),
+			async (_top, asked) => heldOf(asked, ["src/old", "lib/src/f.ts"]),
 		).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([folder, inSubmodule]);
 		expect(b.retired).toEqual([{ instance: "i1", files: [{ file: src("gone.ts"), stamp: 3 }] }]);
@@ -690,7 +691,7 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		await coordinator(
 			() => [a, b],
 			new Set(),
-			async () => porcelain(`?? src/${nfc}`),
+			async (_top, asked) => heldOf(asked, [`src/${nfc}`]),
 		).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([path.join(main, "src", nfd)]);
 		expect(b.retired).toEqual([]);
@@ -702,7 +703,7 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		await coordinator(
 			() => [a, b],
 			new Set(),
-			async () => "",
+			async () => [],
 		).refresh();
 		expect(a.sent.at(-1)?.worktree[0]?.files).toEqual([src("q.ts"), src("p.ts")]);
 		expect(b.retired).toEqual([]);
@@ -723,9 +724,9 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		const peers = coordinator(
 			() => [a, b],
 			new Set(),
-			async () => {
+			async (_top, asked) => {
 				if (failing) throw new Error("git timed out");
-				return porcelain("?? src/d.ts");
+				return heldOf(asked, ["src/d.ts"]);
 			},
 		);
 		await peers.refresh();
@@ -772,14 +773,9 @@ describe("checkout peers: what main keeps, asks and waits for", () => {
 		fs.writeFileSync(path.join(sup, "one.ts"), "1\n");
 		fs.writeFileSync(path.join(sup, "two.ts"), "2\n");
 		const top = fs.realpathSync.native(sup);
-		const listed = (text: string) =>
-			text
-				.split("\0")
-				.filter(Boolean)
-				.map(entry => entry.slice(3))
-				.sort();
-		expect(listed(await readGitStatus(top, ["one.ts"]))).toEqual(["one.ts"]);
-		expect(listed(await readGitStatus(top, ["one.ts", path.join("lib", "src", "f.ts")]))).toEqual(["lib", "one.ts"]);
-		expect(listed(await readGitStatus(top, ["*.ts"]))).toEqual([]);
+		expect(await readCheckoutClaims(top, ["one.ts"])).toEqual(["one.ts"]);
+		const inSubmodule = path.join("lib", "src", "f.ts");
+		expect(await readCheckoutClaims(top, ["one.ts", inSubmodule, "two-gone.ts"])).toEqual(["one.ts", inSubmodule]);
+		expect(await readCheckoutClaims(top, ["*.ts"])).toEqual([]);
 	});
 });

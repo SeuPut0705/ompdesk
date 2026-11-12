@@ -5,24 +5,13 @@ import {
 	guiWorktreeCandidate,
 	isInside,
 	isSafeRelativePath,
-	parseGitStatus,
 	renderPrompt,
 	worktreeSlug,
 } from "./parse";
 
 // parseStatusV2 and newFileDiff moved to the core process with their cases (native/ompdesk/crates/core/src/git/parse.rs),
-// parsePrUnifiedDiff, rollupChecks and rollupCounts with theirs (native/ompdesk/crates/core/src/gh/pr.rs).
-
-describe("parseGitStatus", () => {
-	it("keeps spaces in paths and pairs renames with their origin", () => {
-		const text = " M a file.ts\0R  new.ts\0old.ts\0?? dir/x y\0";
-		expect(parseGitStatus(text)).toEqual([
-			{ path: "a file.ts", oldPath: undefined, index: " ", worktree: "M" },
-			{ path: "new.ts", oldPath: "old.ts", index: "R", worktree: " " },
-			{ path: "dir/x y", oldPath: undefined, index: "?", worktree: "?" },
-		]);
-	});
-});
+// parsePrUnifiedDiff, rollupChecks and rollupCounts with theirs (native/ompdesk/crates/core/src/gh/pr.rs), parseGitStatus
+// with the shared checkout's reading of it (native/ompdesk/crates/core/src/git/checkout.rs).
 
 describe("path guards", () => {
 	it("rejects absolute, NUL and traversal paths", () => {

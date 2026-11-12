@@ -12,12 +12,15 @@
 //! carries that code.
 
 mod branches;
+mod checkout;
+mod freshness;
 mod origin;
 mod orphans;
 pub(crate) mod parse;
 pub(crate) mod read;
 pub(crate) mod run;
 mod scm;
+mod triggers;
 mod unlanded;
 mod worktree;
 
@@ -304,7 +307,138 @@ struct OrphanRemoveParams {
     keep_branch: bool,
 }
 
+#[derive(Deserialize)]
+struct RoutineHeadParams {
+    git: Runner,
+    repo: String,
+    branch: String,
+}
+
+#[derive(Deserialize)]
+struct RoutineCommitsParams {
+    git: Runner,
+    repo: String,
+    from: String,
+    to: String,
+}
+
+#[derive(Deserialize)]
+struct AutopilotStatusParams {
+    git: Runner,
+    root: String,
+    base: String,
+    branch: String,
+}
+
+#[derive(Deserialize)]
+struct CheckoutStatusParams {
+    git: Runner,
+    toplevel: String,
+    paths: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FreshnessCheckoutParams {
+    git: Runner,
+    cwds: Vec<String>,
+    timeout_ms: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FreshnessVerdictParams {
+    git: Runner,
+    checkout: String,
+    #[serde(rename = "ref")]
+    reference: String,
+    page: freshness::Named,
+    state: Option<freshness::State>,
+    timeout_ms: u64,
+}
+
 pub fn register(registry: &mut Registry) {
+    registry.add("git.freshnessCheckout", |call| {
+        Box::pin(async move {
+            let FreshnessCheckoutParams {
+                git,
+                cwds,
+                timeout_ms,
+            } = call.params()?;
+            Reply::json(&freshness::checkout(&Git::new(git, call.scope), &cwds, timeout_ms).await)
+        })
+    });
+    registry.add("git.freshnessVerdict", |call| {
+        Box::pin(async move {
+            let FreshnessVerdictParams {
+                git,
+                checkout,
+                reference,
+                page,
+                state,
+                timeout_ms,
+            } = call.params()?;
+            Reply::json(
+                &freshness::verdict(
+                    &Git::new(git, call.scope),
+                    &checkout,
+                    &reference,
+                    &page,
+                    state,
+                    timeout_ms,
+                )
+                .await,
+            )
+        })
+    });
+    registry.add("git.checkoutStatus", |call| {
+        Box::pin(async move {
+            let CheckoutStatusParams {
+                git,
+                toplevel,
+                paths,
+            } = call.params()?;
+            Reply::json(&checkout::status(&Git::new(git, call.scope), &toplevel, &paths).await?)
+        })
+    });
+    registry.add("git.checkoutDirs", |call| {
+        Box::pin(async move {
+            let At { git, cwd } = call.params()?;
+            Reply::json(&checkout::dirs(&Git::new(git, call.scope), &cwd).await?)
+        })
+    });
+    registry.add("git.routineHead", |call| {
+        Box::pin(async move {
+            let RoutineHeadParams { git, repo, branch } = call.params()?;
+            Reply::json(&triggers::routine_head(&Git::new(git, call.scope), &repo, &branch).await?)
+        })
+    });
+    registry.add("git.routineCommits", |call| {
+        Box::pin(async move {
+            let RoutineCommitsParams {
+                git,
+                repo,
+                from,
+                to,
+            } = call.params()?;
+            Reply::json(
+                &triggers::routine_commits(&Git::new(git, call.scope), &repo, &from, &to).await?,
+            )
+        })
+    });
+    registry.add("git.autopilotBranchStatus", |call| {
+        Box::pin(async move {
+            let AutopilotStatusParams {
+                git,
+                root,
+                base,
+                branch,
+            } = call.params()?;
+            Reply::json(
+                &triggers::branch_status(&Git::new(git, call.scope), &root, &base, &branch).await?,
+            )
+        })
+    });
     registry.add("git.repoRoot", |call| {
         Box::pin(async move {
             let At { git, cwd } = call.params()?;

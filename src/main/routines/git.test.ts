@@ -17,6 +17,7 @@ beforeEach(async () => {
 	await initRepo(repo);
 });
 afterEach(async () => {
+	await settleReads();
 	vi.useRealTimers();
 	for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
 });
@@ -28,30 +29,26 @@ async function commit(message: string, file = "f.txt"): Promise<string> {
 	return gitSync(repo, "rev-parse", "--short", "HEAD");
 }
 
-/** Lets a read that is already in flight (real git processes) settle, then runs the next tick. */
+const reads = new Set<Promise<unknown>>();
+
+function track<T>(work: Promise<T>): Promise<T> {
+	const ended = work.finally(() => reads.delete(ended));
+	reads.add(ended);
+	return ended;
+}
+
+async function settleReads(): Promise<void> {
+	while (reads.size > 0) await Promise.allSettled([...reads]);
+}
+
 async function tick(): Promise<void> {
 	await vi.advanceTimersByTimeAsync(SCHEDULE_TICK_MS);
-	await vi.waitFor(() => expect(settled()).toBe(true));
+	await settleReads();
 }
-let busy = 0;
-const settled = () => busy === 0;
+
 const counting = {
-	head: async (r: string, b: string) => {
-		busy++;
-		try {
-			return await gitPort.head(r, b);
-		} finally {
-			busy--;
-		}
-	},
-	commits: async (r: string, from: string, to: string) => {
-		busy++;
-		try {
-			return await gitPort.commits(r, from, to);
-		} finally {
-			busy--;
-		}
-	},
+	head: (r: string, b: string) => track(gitPort.head(r, b)),
+	commits: (r: string, from: string, to: string) => track(gitPort.commits(r, from, to)),
 };
 
 describe("git source on a real repository", () => {
@@ -130,7 +127,7 @@ describe("git source on a real repository", () => {
 
 		state.running = false;
 		source.runEnded?.();
-		await vi.waitFor(() => expect(settled()).toBe(true));
+		await settleReads();
 		await tick();
 		expect(fired).toEqual([]);
 

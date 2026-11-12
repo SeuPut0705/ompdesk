@@ -20,8 +20,7 @@ import {
 	type CheckoutPeer,
 	type CheckoutPeers,
 } from "../../resources/gui-bridge/modes/checkout-peers-contracts";
-import { gitRaw } from "./local/git/exec";
-import { parseGitStatus } from "./local/git/parse";
+import { coreGit } from "./local/git/exec";
 
 /** One live omp on this computer. */
 export interface CheckoutMember {
@@ -53,8 +52,8 @@ export interface CheckoutPeersDeps {
 	place(cwd: string): Promise<CheckoutPlace | null>;
 	/** Session files the user hid from agents (Sidebar › hide from other agents). */
 	hiddenPaths(): Set<string>;
-	/** `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level, limited to `paths` (relative to it); rejects when git fails or is too slow. */
-	gitStatus(toplevel: string, paths: string[]): Promise<string>;
+	/** The asked paths (relative to a worktree top level) git still holds as uncommitted (`readCheckoutClaims`); rejects when git fails or is too slow. */
+	gitStatus(toplevel: string, paths: string[]): Promise<string[]>;
 	now?: () => number;
 }
 
@@ -62,9 +61,6 @@ export interface CheckoutPeersDeps {
 const PLACE_TTL_MS = 30_000;
 /** Every request of a pass to a member's bridge: one omp that does not answer never holds the others back. */
 const REQUEST_TIMEOUT_MS = 2_000;
-const GIT_STATUS_TIMEOUT_MS = 5_000;
-/** The command line of one `git status` stays far below Windows' 32 767 characters. */
-const GIT_ARGS_BUDGET = 6_000;
 /** A burst of `checkout_files` frames (one per file a session writes) costs one pass. */
 const FILES_DEBOUNCE_MS = 250;
 /** Besides tab activity, a pass runs this often: a tab that became ready, a hidden session or a new worktree moves no tab. */
@@ -184,7 +180,13 @@ export class CheckoutPeerCoordinator {
 									}
 						// No claim in this worktree: nothing to ask git, and nothing to retire.
 						if (asked.size === 0) return [top, new Set<string>()] as const;
-						return [top, await this.#deps.gitStatus(top, [...asked]).then(listedPaths, () => null)] as const;
+						return [
+							top,
+							await this.#deps.gitStatus(top, [...asked]).then(
+								held => new Set(held),
+								() => null,
+							),
+						] as const;
 					}),
 				),
 			);
@@ -208,11 +210,7 @@ export class CheckoutPeerCoordinator {
 							fresh,
 							inside: claim.norm !== null,
 							stamped: stamp !== undefined,
-							git: !gitSays
-								? "unknown"
-								: claim.norm !== null && holds(gitSays, claim.norm)
-									? "listed"
-									: "unlisted",
+							git: !gitSays ? "unknown" : claim.norm !== null && gitSays.has(claim.norm) ? "listed" : "unlisted",
 							committedBefore: stamp !== undefined && before?.has(key) === true,
 						});
 						if (verdict.kind === "shown") kept.push(claim);
@@ -444,91 +442,13 @@ async function claimsOf(status: MemberStatus, toplevel: string): Promise<Claim[]
 	);
 }
 
-/** `git status` of a worktree top level, limited to `paths` (relative to it, literal). */
-async function statusOf(toplevel: string, paths: string[]): Promise<string> {
-	const chunks: string[][] = [];
-	let size = 0;
-	for (const spec of paths) {
-		if (chunks.length === 0 || size + spec.length > GIT_ARGS_BUDGET) {
-			chunks.push([]);
-			size = 0;
-		}
-		chunks[chunks.length - 1]?.push(spec);
-		size += spec.length + 1;
-	}
-	const outputs = await Promise.all(
-		chunks.map(async chunk => {
-			const result = await gitRaw(
-				toplevel,
-				["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ...chunk],
-				{ timeoutMs: GIT_STATUS_TIMEOUT_MS, maxBytes: 16 * 1024 * 1024 },
-			);
-			if (result.code !== 0 || result.truncated) throw new Error(result.stderr.trim() || "git status failed");
-			return result.stdout.toString("utf8");
-		}),
-	);
-	return outputs.join("");
-}
-
-/** The submodule roots of a worktree (relative to it), from its `.gitmodules`. */
-async function submoduleRoots(toplevel: string): Promise<string[]> {
-	const result = await gitRaw(
-		toplevel,
-		["config", "-f", ".gitmodules", "-z", "--get-regexp", "^submodule\\..*\\.path$"],
-		{
-			timeoutMs: GIT_STATUS_TIMEOUT_MS,
-		},
-	);
-	if (result.code !== 0) return [];
-	return result.stdout
-		.toString("utf8")
-		.split("\0")
-		.flatMap(entry => {
-			const value = entry.slice(entry.indexOf("\n") + 1);
-			return entry.includes("\n") && value ? [path.normalize(value)] : [];
-		});
-}
-
 /**
- * `git status --porcelain=v1 -z --untracked-files=all` of a worktree top level, asked only about `paths` (relative to
- * it): a full-tree status of a large repository costs seconds of CPU, and only the claimed paths matter. Git does not
- * look inside a submodule for a path in it, so a path nothing lists is asked again through the submodule that holds it.
+ * Git asked only about `paths` (relative to the worktree top level) and, for a path nothing lists, through the
+ * submodule that holds it (the core's `git.checkoutStatus`). Rejects when git fails, runs past 5 s or lists past
+ * 16 MiB: the claims' state is then unknown.
  */
-export async function readGitStatus(toplevel: string, paths: string[]): Promise<string> {
-	const specs = [...new Set(paths.map(spec => spec.split(path.sep).join("/")))];
-	let text = await statusOf(toplevel, specs);
-	const listed = listedPaths(text);
-	const unlisted = paths.filter(spec => !holds(listed, path.normalize(spec).normalize("NFC")));
-	if (unlisted.length === 0) return text;
-	const roots = (await submoduleRoots(toplevel)).filter(root =>
-		unlisted.some(spec => path.normalize(spec).startsWith(root + path.sep)),
-	);
-	if (roots.length > 0)
-		text += await statusOf(
-			toplevel,
-			roots.map(root => root.split(path.sep).join("/")),
-		);
-	return text;
-}
-
-/** The paths git lists as changed in a worktree (both of a rename), relative to its top level, in NFC. */
-function listedPaths(status: string): Set<string> {
-	const listed = new Set<string>();
-	for (const entry of parseGitStatus(status)) {
-		listed.add(path.normalize(entry.path).normalize("NFC"));
-		if (entry.oldPath) listed.add(path.normalize(entry.oldPath).normalize("NFC"));
-	}
-	return listed;
-}
-
-/** `rel` is still uncommitted: git lists it, anything under it (a folder), or a path that contains it (a submodule, a folder). */
-function holds(listed: Set<string>, rel: string): boolean {
-	if (listed.has(rel)) return true;
-	for (let dir = path.dirname(rel); dir !== "." && dir !== path.dirname(dir); dir = path.dirname(dir))
-		if (listed.has(dir)) return true;
-	const prefix = rel + path.sep;
-	for (const entry of listed) if (entry.startsWith(prefix)) return true;
-	return false;
+export function readCheckoutClaims(toplevel: string, paths: string[]): Promise<string[]> {
+	return coreGit("git.checkoutStatus", { toplevel, paths }, 1);
 }
 
 /** `file` relative to `toplevel`; null when it lies outside (a path spelled through a symlink is resolved before giving up). */

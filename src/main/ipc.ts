@@ -147,8 +147,8 @@ import {
 	CHECKOUT_PEERS_SWEEP_MS,
 	type CheckoutMember,
 	CheckoutPeerCoordinator,
+	readCheckoutClaims,
 	readCheckoutPlace,
-	readGitStatus,
 } from "./checkout-peers";
 import { createControlBackend } from "./control-socket/backend";
 import { startControlSocket } from "./control-socket/index";
@@ -1308,7 +1308,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		place: cwd => readCheckoutPlace(cwd, readOriginFacts),
 		hiddenPaths: () => agentHiddenPaths(prefsStore.get(AGENT_HIDDEN_PREFS_KEY)),
-		gitStatus: readGitStatus,
+		gitStatus: readCheckoutClaims,
 	});
 	const refreshCheckoutPeers = () => void checkoutPeers.refresh();
 	deps.checkoutFilesRef.current = sidecar => checkoutPeers.filesChanged(sidecar);

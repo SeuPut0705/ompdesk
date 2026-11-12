@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AiMemoryPage, AiMemoryPageRef } from "../../shared/ai-memory";
+import { stopCore } from "../core/process";
+import { configureNativeBin } from "../native-bin";
 import { checkFreshness, type FreshnessClient, type FreshnessLogDetails, namedItems } from "./freshness";
 
 const PROJECT = { workspace: "default", project: "demo" };
@@ -258,6 +260,31 @@ describe("checkFreshness", () => {
 		});
 		const report = await checkFreshness({ client, project: PROJECT, flagged: {}, maxChanges: 1, log: () => {} });
 		expect(report.retired).toHaveLength(1);
+	});
+
+	it("ends the check when the core loses the verdict and its remaining pickaxe budget", async () => {
+		const client = fake({
+			"decisions/a.md": { kind: "decision", markdown: "`legacyWidgetBuild`" },
+			"decisions/b.md": { kind: "decision", markdown: "`legacyTwinValue`" },
+		});
+		const page = client.page.bind(client);
+		const read: string[] = [];
+		client.page = async ref => {
+			read.push(ref.path);
+			await stopCore();
+			configureNativeBin({ packaged: false, resourcesPath: join(root, "no-core") });
+			return page(ref);
+		};
+		try {
+			const report = await run(client);
+			expect(report).toMatchObject({ checked: 1, errors: 1, retired: [], flagged: [] });
+			expect(read).toEqual(["decisions/a.md"]);
+			expect(client.retired).toEqual([]);
+			expect(client.flaggedPaths).toEqual([]);
+		} finally {
+			configureNativeBin({ packaged: false, resourcesPath: resolve(__dirname, "../../../resources") });
+			await stopCore();
+		}
 	});
 
 	it("does nothing when no session folder is a live checkout", async () => {

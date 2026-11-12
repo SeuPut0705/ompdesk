@@ -21606,7 +21606,7 @@ authors as stated in the repository listed above.
 
 OMPdesk native binaries: statically linked Rust crates
 
-Cargo.lock SHA-256: e358c3d8c209b1a20a8130837f79fefcf0ec4b3dfec12151a7b9a5c6f05f12df
+Cargo.lock SHA-256: bb4029b71e1abde64a0b6a4804b12642fad3944c8f89904691ab354afd05ee4d
 
 The binaries OMPdesk builds from its own Rust source in native/ompdesk (shipped under ompdesk-bin/) link the
 crates below. Set: normal dependencies of every workspace crate for aarch64-apple-darwin and

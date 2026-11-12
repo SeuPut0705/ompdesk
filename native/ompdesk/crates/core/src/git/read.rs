@@ -47,7 +47,7 @@ pub(crate) fn resolve(base: &str, path: &str) -> String {
 }
 
 /// `path.isAbsolute`: on Windows a leading separator or a drive with one counts too.
-fn is_absolute(path: &str) -> bool {
+pub(super) fn is_absolute(path: &str) -> bool {
     if cfg!(windows) {
         let bytes = path.as_bytes();
         matches!(bytes.first(), Some(b'/' | b'\\'))

@@ -1,7 +1,11 @@
 /**
  * Decisions, gotchas and procedures that name repo files or code symbols the repo no longer has. The page is checked
  * against the project's main checkout (resolved from its sessions' cwds, the default branch read with read-only git,
- * never the working tree, never a fetch). Every named item is `exists`, `deleted` (git history deleted it), `moved`
+ * never the working tree, never a fetch). The core process runs that git (`native/ompdesk/crates/core/src/git/
+ * freshness.rs`): `git.freshnessCheckout` finds the checkout, its ref and the ref's top-level folders, and
+ * `git.freshnessVerdict` judges one page. Each verdict answers the check's state (what git said of each name, the
+ * `git log -S` runs left), which is handed unread to the next page's verdict, so a name is asked once per check and
+ * the pickaxe budget is the check's. Every named item is `exists`, `deleted` (git history deleted it), `moved`
  * (history renamed it and the new name exists) or `unknown` (history never held it: an external name, an example,
  * a file of an unmerged branch).
  * A page whose names are all deleted (no moved, no existing, no never-seen path) is retired through the restorable
@@ -9,24 +13,25 @@
  * A pinned page is the owner's: flagged at most. A line that says the name was removed ("deleted `x.ts`") records
  * the removal and does not count as naming it.
  */
-import { existsSync } from "node:fs";
-import { basename, dirname, isAbsolute } from "node:path";
 import type { AiMemoryPage, AiMemoryPageRef, AiMemoryProjectRef, AiMemorySession } from "../../shared/ai-memory";
-import { type ExecResult, gitRaw } from "../local/git/exec";
+import { coreGit } from "../local/git/exec";
 
 export const FRESHNESS_KINDS = ["decision", "gotcha", "procedure"] as const;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_MAX_CHANGES = 10;
-/** `git log -S` walks the whole history (1-2 s here): a run spends at most this many on symbols. */
-const PICKAXE_BUDGET = 8;
 const MAX_PATHS = 30;
 const MAX_SYMBOLS = 12;
 const SESSION_WINDOW = 50;
+/** Each git's timeout. */
 const GIT_TIMEOUT_MS = 20_000;
+/** The checkout's gits past one per session folder: `symbolic-ref`, up to four `rev-parse` and `ls-tree`. */
+const CHECKOUT_ROUNDS = 6;
+/** Gits a page's paths may run one after another: `cat-file`, `log`, `show`, the new name's `cat-file`. */
+const PATH_ROUNDS = 4;
+/** A page's symbols: `grep`, then `log -S`. */
+const SYMBOL_ROUNDS = 2;
 /** Top-level directories that count as repo paths even when the ref no longer has them (a deleted top-level dir). */
 const BASE_ROOTS = ["src", "resources", "scripts", "e2e", "native", "docs", "build", "tests", "test", "packages"];
-
-export type NameStatus = "exists" | "deleted" | "moved" | "unknown";
 
 export interface FreshnessClient {
 	pages(project: AiMemoryProjectRef): Promise<AiMemoryPageRef[]>;
@@ -136,120 +141,19 @@ export function namedItems(markdown: string, roots: readonly string[] = BASE_ROO
 	return { paths: [...paths].slice(0, MAX_PATHS), symbols: [...symbols].slice(0, MAX_SYMBOLS) };
 }
 
-/** Read-only git against one checkout: no locks taken, no working tree touched, no network. */
-class RepoReader {
-	#pickaxeLeft = PICKAXE_BUDGET;
-	readonly #cache = new Map<string, Promise<NameStatus>>();
-	constructor(
-		readonly checkout: string,
-		readonly ref: string,
-	) {}
-
-	async #git(args: string[]): Promise<ExecResult | null> {
-		try {
-			return await gitRaw(this.checkout, args, { timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: "0" } });
-		} catch {
-			return null;
-		}
-	}
-
-	async roots(): Promise<string[]> {
-		const out = await this.#git(["ls-tree", "-d", "--name-only", this.ref]);
-		return out?.code === 0 ? out.stdout.toString("utf8").split("\n").filter(Boolean) : [];
-	}
-
-	pathStatus(path: string): Promise<NameStatus> {
-		return this.#memo(`p:${path}`, async () => {
-			if (await this.#exists(path)) return "exists";
-			const deleted = await this.#git(["log", "--diff-filter=D", "--format=%H", "-1", this.ref, "--", path]);
-			const commit = deleted?.code === 0 ? deleted.stdout.toString("utf8").trim() : "";
-			if (!commit) return "unknown";
-			const shown = await this.#git(["show", "-M", "--name-status", "--format=", commit]);
-			for (const line of (shown?.stdout.toString("utf8") ?? "").split("\n")) {
-				const [status, from, to] = line.split("\t");
-				if (status?.startsWith("R") && from === path && to && (await this.#exists(to))) return "moved";
-			}
-			return "deleted";
-		});
-	}
-
-	symbolStatus(symbol: string): Promise<NameStatus> {
-		return this.#memo(`s:${symbol}`, async () => {
-			const found = await this.#git(["grep", "-w", "-q", "-F", "-e", symbol, this.ref]);
-			if (!found || found.code === 0) return "exists";
-			if (found.code !== 1 || this.#pickaxeLeft <= 0) return "unknown";
-			this.#pickaxeLeft -= 1;
-			const past = await this.#git(["log", `-S${symbol}`, "--format=%H", "-1", this.ref]);
-			return past?.code === 0 && past.stdout.toString("utf8").trim() ? "deleted" : "unknown";
-		});
-	}
-
-	async #exists(path: string): Promise<boolean> {
-		return (await this.#git(["cat-file", "-e", `${this.ref}:${path}`]))?.code === 0;
-	}
-
-	#memo(key: string, compute: () => Promise<NameStatus>): Promise<NameStatus> {
-		let hit = this.#cache.get(key);
-		if (!hit) {
-			hit = compute();
-			this.#cache.set(key, hit);
-		}
-		return hit;
-	}
-}
-
-async function resolveRef(checkout: string): Promise<string | null> {
-	const git = async (args: string[]): Promise<string | null> => {
-		try {
-			const out = await gitRaw(checkout, args, { timeoutMs: GIT_TIMEOUT_MS, env: { GIT_OPTIONAL_LOCKS: "0" } });
-			return out.code === 0 ? out.stdout.toString("utf8").trim() : null;
-		} catch {
-			return null;
-		}
-	};
-	const origin = await git(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]);
-	for (const candidate of [origin, "main", "master", "HEAD"]) {
-		if (candidate && (await git(["rev-parse", "--verify", "-q", `${candidate}^{commit}`]))) return candidate;
-	}
-	return null;
-}
-
-/** The project's main checkout: the newest session folder that still exists, taken to the checkout holding the repo's `.git`. */
-export async function mainCheckout(sessions: readonly Pick<AiMemorySession, "cwd">[]): Promise<string | null> {
-	const tried = new Set<string>();
-	for (const { cwd } of sessions) {
-		if (!cwd || !isAbsolute(cwd) || tried.has(cwd) || !existsSync(cwd)) continue;
-		tried.add(cwd);
-		try {
-			const out = await gitRaw(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-				timeoutMs: GIT_TIMEOUT_MS,
-				env: { GIT_OPTIONAL_LOCKS: "0" },
-			});
-			const common = out.code === 0 ? out.stdout.toString("utf8").trim() : "";
-			if (common && basename(common) === ".git" && existsSync(dirname(common))) return dirname(common);
-		} catch {
-			// not a repo, or git is missing: the next folder
-		}
-	}
-	return null;
+/** `git.freshnessCheckout`: the main checkout, the ref its names are read at, the ref's top-level folders. */
+interface CheckoutFacts {
+	checkout: string;
+	ref: string;
+	roots: string[];
 }
 
 interface Verdict {
 	action: "retire" | "flag" | "leave";
+	/** The names that are gone (deleted or moved), paths first. */
 	gone: string[];
-}
-
-async function judgePage(items: NamedItems, repo: Pick<RepoReader, "pathStatus" | "symbolStatus">): Promise<Verdict> {
-	const [paths, symbols] = await Promise.all([
-		Promise.all(items.paths.map(async name => [name, await repo.pathStatus(name)] as const)),
-		Promise.all(items.symbols.map(async name => [name, await repo.symbolStatus(name)] as const)),
-	]);
-	const all = [...paths, ...symbols];
-	const gone = all.filter(([, status]) => status === "deleted" || status === "moved").map(([name]) => name);
-	if (gone.length === 0) return { action: "leave", gone };
-	const blocked = all.some(([, status]) => status === "exists" || status === "moved");
-	const unseenPath = paths.some(([, status]) => status === "unknown");
-	return { action: blocked || unseenPath ? "flag" : "retire", gone };
+	/** The check's state after this page: the core's, passed to the next verdict as it came. */
+	state: unknown;
 }
 
 export async function checkFreshness(deps: FreshnessDeps): Promise<FreshnessReport> {
@@ -267,13 +171,17 @@ export async function checkFreshness(deps: FreshnessDeps): Promise<FreshnessRepo
 		flagged: [],
 		errors: 0,
 	};
-	const checkout = await mainCheckout(await client.sessions(project, SESSION_WINDOW));
-	const ref = checkout ? await resolveRef(checkout) : null;
-	if (!checkout || !ref) return report;
-	report.checkout = checkout;
-	report.ref = ref;
-	const repo = new RepoReader(checkout, ref);
-	const roots = await repo.roots();
+	const cwds = (await client.sessions(project, SESSION_WINDOW)).map(session => session.cwd);
+	// A git that fails is git not knowing, and so is a core that cannot answer: no checkout, nothing checked.
+	const facts = await coreGit<CheckoutFacts | null>(
+		"git.freshnessCheckout",
+		{ cwds, timeoutMs: GIT_TIMEOUT_MS },
+		0,
+		(new Set(cwds).size + CHECKOUT_ROUNDS) * GIT_TIMEOUT_MS,
+	).catch(() => null);
+	if (!facts) return report;
+	report.checkout = facts.checkout;
+	report.ref = facts.ref;
 	const candidates = (await client.pages(project)).filter(page =>
 		(FRESHNESS_KINDS as readonly string[]).includes(page.kind ?? ""),
 	);
@@ -288,12 +196,26 @@ export async function checkFreshness(deps: FreshnessDeps): Promise<FreshnessRepo
 		flagged[key] = page.id;
 		log("care-fresh", logDetails(project, change));
 	};
+	let state: unknown = null;
 	for (const candidate of candidates.slice(0, maxPages)) {
 		if (report.retired.length + report.flagged.length >= maxChanges) break;
 		try {
 			const page = await client.page({ ...project, path: candidate.path });
 			report.checked += 1;
-			const verdict = await judgePage(namedItems(page.markdown, roots), repo);
+			const items = namedItems(page.markdown, facts.roots);
+			const rounds = items.paths.length > 0 ? PATH_ROUNDS : items.symbols.length > 0 ? SYMBOL_ROUNDS : 0;
+			const verdict = await coreGit<Verdict>(
+				"git.freshnessVerdict",
+				{ checkout: facts.checkout, ref: facts.ref, page: items, state, timeoutMs: GIT_TIMEOUT_MS },
+				0,
+				rounds * GIT_TIMEOUT_MS,
+			).catch(() => null);
+			if (!verdict) {
+				// Its consumed budget is unknown after a lost answer; do not spend that budget again.
+				report.errors += 1;
+				break;
+			}
+			state = verdict.state;
 			if (verdict.action === "leave") continue;
 			const change: FreshnessChange = {
 				path: page.path,

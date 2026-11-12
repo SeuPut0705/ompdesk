@@ -1,0 +1,4946 @@
+{
+ "posix": {
+  "listed": [
+   [
+    " M a.ts\u0000",
+    [
+     "a.ts"
+    ]
+   ],
+   [
+    "?? dir/x y\u0000",
+    [
+     "dir/x y"
+    ]
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    [
+     "new.ts",
+     "old.ts"
+    ]
+   ],
+   [
+    " R n\u0000o\u0000",
+    [
+     "n",
+     "o"
+    ]
+   ],
+   [
+    "MM café.ts\u0000",
+    [
+     "café.ts"
+    ]
+   ],
+   [
+    "?? lib\u0000",
+    [
+     "lib"
+    ]
+   ],
+   [
+    "?? src/deep/\u0000",
+    [
+     "src/deep/"
+    ]
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    [
+     "a/b/c.ts"
+    ]
+   ],
+   [
+    "?? é.ts\u0000",
+    [
+     "é.ts"
+    ]
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    [
+     "x"
+    ]
+   ],
+   [
+    " M ../up\u0000",
+    [
+     "../up"
+    ]
+   ],
+   [
+    "C  copy\u0000",
+    [
+     "copy"
+    ]
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    [
+     "line\nbreak.ts"
+    ]
+   ],
+   [
+    " M a\\b.ts\u0000",
+    [
+     "a\\b.ts"
+    ]
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    [
+     "a/b/c.ts"
+    ]
+   ]
+  ],
+  "holds": [
+   [
+    " M a.ts\u0000",
+    "a.ts",
+    true
+   ],
+   [
+    " M a.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "dir/x y",
+    true
+   ],
+   [
+    "?? dir/x y\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "new.ts",
+    true
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "old.ts",
+    true
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "n",
+    true
+   ],
+   [
+    " R n\u0000o\u0000",
+    "o",
+    true
+   ],
+   [
+    " R n\u0000o\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "src",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "x",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "..",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "copy",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "q",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "café.ts",
+    true
+   ],
+   [
+    "MM café.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "lib/src/f.ts",
+    true
+   ],
+   [
+    "?? lib\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "src",
+    true
+   ],
+   [
+    "?? src/deep/\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts/d",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "é.ts",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "é.ts",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "n",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "o",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "src",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "x",
+    true
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "..",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "copy",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "q",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "n",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "o",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "src",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "x",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "..",
+    true
+   ],
+   [
+    " M ../up\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "q",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "n",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "o",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "src",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "x",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "..",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "copy",
+    true
+   ],
+   [
+    "C  copy\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "q",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "line\nbreak.ts",
+    true
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a\\b.ts",
+    true
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts/d",
+    true
+   ]
+  ],
+  "normalize": [
+   [
+    "a/b",
+    "a/b"
+   ],
+   [
+    "a//b/",
+    "a/b/"
+   ],
+   [
+    "./a",
+    "a"
+   ],
+   [
+    "a/../..",
+    ".."
+   ],
+   [
+    "../x/./y",
+    "../x/y"
+   ],
+   [
+    "",
+    "."
+   ],
+   [
+    "a\\b",
+    "a\\b"
+   ],
+   [
+    "lib/",
+    "lib/"
+   ],
+   [
+    "/abs/x",
+    "/abs/x"
+   ],
+   [
+    "a/./b/../c",
+    "a/c"
+   ],
+   [
+    "C:\\x\\..\\y",
+    "C:\\x\\..\\y"
+   ],
+   [
+    "sub\\dir",
+    "sub\\dir"
+   ]
+  ],
+  "submodules": [
+   [
+    "submodule.lib.path\nlib\u0000",
+    [
+     "lib"
+    ]
+   ],
+   [
+    "submodule.a.path\nvendor/a\u0000submodule.b.path\nx\\y\u0000",
+    [
+     "vendor/a",
+     "x\\y"
+    ]
+   ],
+   [
+    "",
+    []
+   ],
+   [
+    "bad\u0000",
+    []
+   ],
+   [
+    "submodule.e.path\n\u0000",
+    []
+   ],
+   [
+    "submodule.n.path\nline\nnext\u0000",
+    [
+     "line\nnext"
+    ]
+   ],
+   [
+    "submodule.d.path\n./d/\u0000",
+    [
+     "d/"
+    ]
+   ]
+  ]
+ },
+ "win32": {
+  "listed": [
+   [
+    " M a.ts\u0000",
+    [
+     "a.ts"
+    ]
+   ],
+   [
+    "?? dir/x y\u0000",
+    [
+     "dir\\x y"
+    ]
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    [
+     "new.ts",
+     "old.ts"
+    ]
+   ],
+   [
+    " R n\u0000o\u0000",
+    [
+     "n",
+     "o"
+    ]
+   ],
+   [
+    "MM café.ts\u0000",
+    [
+     "café.ts"
+    ]
+   ],
+   [
+    "?? lib\u0000",
+    [
+     "lib"
+    ]
+   ],
+   [
+    "?? src/deep/\u0000",
+    [
+     "src\\deep\\"
+    ]
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    [
+     "a\\b\\c.ts"
+    ]
+   ],
+   [
+    "?? é.ts\u0000",
+    [
+     "é.ts"
+    ]
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    [
+     "x"
+    ]
+   ],
+   [
+    " M ../up\u0000",
+    [
+     "..\\up"
+    ]
+   ],
+   [
+    "C  copy\u0000",
+    [
+     "copy"
+    ]
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    [
+     "line\nbreak.ts"
+    ]
+   ],
+   [
+    " M a\\b.ts\u0000",
+    [
+     "a\\b.ts"
+    ]
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    [
+     "a\\b\\c.ts"
+    ]
+   ]
+  ],
+  "holds": [
+   [
+    " M a.ts\u0000",
+    "a.ts",
+    true
+   ],
+   [
+    " M a.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "dir/x y",
+    true
+   ],
+   [
+    "?? dir/x y\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? dir/x y\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "new.ts",
+    true
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "old.ts",
+    true
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "R  new.ts\u0000old.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "n",
+    true
+   ],
+   [
+    " R n\u0000o\u0000",
+    "o",
+    true
+   ],
+   [
+    " R n\u0000o\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "src",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "x",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "..",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "copy",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "q",
+    false
+   ],
+   [
+    " R n\u0000o\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "café.ts",
+    true
+   ],
+   [
+    "MM café.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "MM café.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "lib/src/f.ts",
+    true
+   ],
+   [
+    "?? lib\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? lib\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "src",
+    true
+   ],
+   [
+    "?? src/deep/\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? src/deep/\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "A  a/b/c.ts\u0000",
+    "a/b/c.ts/d",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "é.ts",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "é.ts",
+    true
+   ],
+   [
+    "?? é.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? é.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "n",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "o",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "src",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "x",
+    true
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "..",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "copy",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "q",
+    false
+   ],
+   [
+    "AB\u0000 M x\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "n",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "o",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "src",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "x",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "..",
+    true
+   ],
+   [
+    " M ../up\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "q",
+    false
+   ],
+   [
+    " M ../up\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "n",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "o",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "src",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "x",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "..",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "copy",
+    true
+   ],
+   [
+    "C  copy\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "q",
+    false
+   ],
+   [
+    "C  copy\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "line\nbreak.ts",
+    true
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    "?? line\nbreak.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a",
+    true
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a\\b.ts",
+    true
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a\\b.ts\u0000",
+    "a/b/c.ts/d",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "dir/x y",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "new.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "old.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "n",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "o",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "café.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "lib/src/f.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "src",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "src/deep/f.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "é.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "x",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "..",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "copy",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "line\nbreak.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a\\b.ts",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts",
+    true
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "q",
+    false
+   ],
+   [
+    " M a//b/./c.ts\u0000",
+    "a/b/c.ts/d",
+    true
+   ]
+  ],
+  "normalize": [
+   [
+    "a/b",
+    "a\\b"
+   ],
+   [
+    "a//b/",
+    "a\\b\\"
+   ],
+   [
+    "./a",
+    "a"
+   ],
+   [
+    "a/../..",
+    ".."
+   ],
+   [
+    "../x/./y",
+    "..\\x\\y"
+   ],
+   [
+    "",
+    "."
+   ],
+   [
+    "a\\b",
+    "a\\b"
+   ],
+   [
+    "lib/",
+    "lib\\"
+   ],
+   [
+    "/abs/x",
+    "\\abs\\x"
+   ],
+   [
+    "a/./b/../c",
+    "a\\c"
+   ],
+   [
+    "C:\\x\\..\\y",
+    "C:\\y"
+   ],
+   [
+    "sub\\dir",
+    "sub\\dir"
+   ]
+  ],
+  "submodules": [
+   [
+    "submodule.lib.path\nlib\u0000",
+    [
+     "lib"
+    ]
+   ],
+   [
+    "submodule.a.path\nvendor/a\u0000submodule.b.path\nx\\y\u0000",
+    [
+     "vendor\\a",
+     "x\\y"
+    ]
+   ],
+   [
+    "",
+    []
+   ],
+   [
+    "bad\u0000",
+    []
+   ],
+   [
+    "submodule.e.path\n\u0000",
+    []
+   ],
+   [
+    "submodule.n.path\nline\nnext\u0000",
+    [
+     "line\nnext"
+    ]
+   ],
+   [
+    "submodule.d.path\n./d/\u0000",
+    [
+     "d\\"
+    ]
+   ]
+  ]
+ },
+ "chunks": [
+  [
+   [],
+   []
+  ],
+  [
+   [
+    "a"
+   ],
+   [
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "xx",
+     "units": 5999
+    }
+   ],
+   [
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "xx",
+     "units": 6000
+    }
+   ],
+   [
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "xx",
+     "units": 6001
+    },
+    "b"
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "xx",
+     "units": 2999
+    },
+    {
+     "repeat": "xx",
+     "units": 2999
+    },
+    "c"
+   ],
+   [
+    2,
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "xx",
+     "units": 3000
+    },
+    {
+     "repeat": "xx",
+     "units": 3000
+    }
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  [
+   [
+    "src/file-0.ts",
+    "src/file-1.ts",
+    "src/file-2.ts",
+    "src/file-3.ts",
+    "src/file-4.ts",
+    "src/file-5.ts",
+    "src/file-6.ts",
+    "src/file-7.ts",
+    "src/file-8.ts",
+    "src/file-9.ts",
+    "src/file-10.ts",
+    "src/file-11.ts",
+    "src/file-12.ts",
+    "src/file-13.ts",
+    "src/file-14.ts",
+    "src/file-15.ts",
+    "src/file-16.ts",
+    "src/file-17.ts",
+    "src/file-18.ts",
+    "src/file-19.ts",
+    "src/file-20.ts",
+    "src/file-21.ts",
+    "src/file-22.ts",
+    "src/file-23.ts",
+    "src/file-24.ts",
+    "src/file-25.ts",
+    "src/file-26.ts",
+    "src/file-27.ts",
+    "src/file-28.ts",
+    "src/file-29.ts",
+    "src/file-30.ts",
+    "src/file-31.ts",
+    "src/file-32.ts",
+    "src/file-33.ts",
+    "src/file-34.ts",
+    "src/file-35.ts",
+    "src/file-36.ts",
+    "src/file-37.ts",
+    "src/file-38.ts",
+    "src/file-39.ts",
+    "src/file-40.ts",
+    "src/file-41.ts",
+    "src/file-42.ts",
+    "src/file-43.ts",
+    "src/file-44.ts",
+    "src/file-45.ts",
+    "src/file-46.ts",
+    "src/file-47.ts",
+    "src/file-48.ts",
+    "src/file-49.ts",
+    "src/file-50.ts",
+    "src/file-51.ts",
+    "src/file-52.ts",
+    "src/file-53.ts",
+    "src/file-54.ts",
+    "src/file-55.ts",
+    "src/file-56.ts",
+    "src/file-57.ts",
+    "src/file-58.ts",
+    "src/file-59.ts",
+    "src/file-60.ts",
+    "src/file-61.ts",
+    "src/file-62.ts",
+    "src/file-63.ts",
+    "src/file-64.ts",
+    "src/file-65.ts",
+    "src/file-66.ts",
+    "src/file-67.ts",
+    "src/file-68.ts",
+    "src/file-69.ts",
+    "src/file-70.ts",
+    "src/file-71.ts",
+    "src/file-72.ts",
+    "src/file-73.ts",
+    "src/file-74.ts",
+    "src/file-75.ts",
+    "src/file-76.ts",
+    "src/file-77.ts",
+    "src/file-78.ts",
+    "src/file-79.ts",
+    "src/file-80.ts",
+    "src/file-81.ts",
+    "src/file-82.ts",
+    "src/file-83.ts",
+    "src/file-84.ts",
+    "src/file-85.ts",
+    "src/file-86.ts",
+    "src/file-87.ts",
+    "src/file-88.ts",
+    "src/file-89.ts",
+    "src/file-90.ts",
+    "src/file-91.ts",
+    "src/file-92.ts",
+    "src/file-93.ts",
+    "src/file-94.ts",
+    "src/file-95.ts",
+    "src/file-96.ts",
+    "src/file-97.ts",
+    "src/file-98.ts",
+    "src/file-99.ts",
+    "src/file-100.ts",
+    "src/file-101.ts",
+    "src/file-102.ts",
+    "src/file-103.ts",
+    "src/file-104.ts",
+    "src/file-105.ts",
+    "src/file-106.ts",
+    "src/file-107.ts",
+    "src/file-108.ts",
+    "src/file-109.ts",
+    "src/file-110.ts",
+    "src/file-111.ts",
+    "src/file-112.ts",
+    "src/file-113.ts",
+    "src/file-114.ts",
+    "src/file-115.ts",
+    "src/file-116.ts",
+    "src/file-117.ts",
+    "src/file-118.ts",
+    "src/file-119.ts",
+    "src/file-120.ts",
+    "src/file-121.ts",
+    "src/file-122.ts",
+    "src/file-123.ts",
+    "src/file-124.ts",
+    "src/file-125.ts",
+    "src/file-126.ts",
+    "src/file-127.ts",
+    "src/file-128.ts",
+    "src/file-129.ts",
+    "src/file-130.ts",
+    "src/file-131.ts",
+    "src/file-132.ts",
+    "src/file-133.ts",
+    "src/file-134.ts",
+    "src/file-135.ts",
+    "src/file-136.ts",
+    "src/file-137.ts",
+    "src/file-138.ts",
+    "src/file-139.ts",
+    "src/file-140.ts",
+    "src/file-141.ts",
+    "src/file-142.ts",
+    "src/file-143.ts",
+    "src/file-144.ts",
+    "src/file-145.ts",
+    "src/file-146.ts",
+    "src/file-147.ts",
+    "src/file-148.ts",
+    "src/file-149.ts",
+    "src/file-150.ts",
+    "src/file-151.ts",
+    "src/file-152.ts",
+    "src/file-153.ts",
+    "src/file-154.ts",
+    "src/file-155.ts",
+    "src/file-156.ts",
+    "src/file-157.ts",
+    "src/file-158.ts",
+    "src/file-159.ts",
+    "src/file-160.ts",
+    "src/file-161.ts",
+    "src/file-162.ts",
+    "src/file-163.ts",
+    "src/file-164.ts",
+    "src/file-165.ts",
+    "src/file-166.ts",
+    "src/file-167.ts",
+    "src/file-168.ts",
+    "src/file-169.ts",
+    "src/file-170.ts",
+    "src/file-171.ts",
+    "src/file-172.ts",
+    "src/file-173.ts",
+    "src/file-174.ts",
+    "src/file-175.ts",
+    "src/file-176.ts",
+    "src/file-177.ts",
+    "src/file-178.ts",
+    "src/file-179.ts",
+    "src/file-180.ts",
+    "src/file-181.ts",
+    "src/file-182.ts",
+    "src/file-183.ts",
+    "src/file-184.ts",
+    "src/file-185.ts",
+    "src/file-186.ts",
+    "src/file-187.ts",
+    "src/file-188.ts",
+    "src/file-189.ts",
+    "src/file-190.ts",
+    "src/file-191.ts",
+    "src/file-192.ts",
+    "src/file-193.ts",
+    "src/file-194.ts",
+    "src/file-195.ts",
+    "src/file-196.ts",
+    "src/file-197.ts",
+    "src/file-198.ts",
+    "src/file-199.ts",
+    "src/file-200.ts",
+    "src/file-201.ts",
+    "src/file-202.ts",
+    "src/file-203.ts",
+    "src/file-204.ts",
+    "src/file-205.ts",
+    "src/file-206.ts",
+    "src/file-207.ts",
+    "src/file-208.ts",
+    "src/file-209.ts",
+    "src/file-210.ts",
+    "src/file-211.ts",
+    "src/file-212.ts",
+    "src/file-213.ts",
+    "src/file-214.ts",
+    "src/file-215.ts",
+    "src/file-216.ts",
+    "src/file-217.ts",
+    "src/file-218.ts",
+    "src/file-219.ts",
+    "src/file-220.ts",
+    "src/file-221.ts",
+    "src/file-222.ts",
+    "src/file-223.ts",
+    "src/file-224.ts",
+    "src/file-225.ts",
+    "src/file-226.ts",
+    "src/file-227.ts",
+    "src/file-228.ts",
+    "src/file-229.ts",
+    "src/file-230.ts",
+    "src/file-231.ts",
+    "src/file-232.ts",
+    "src/file-233.ts",
+    "src/file-234.ts",
+    "src/file-235.ts",
+    "src/file-236.ts",
+    "src/file-237.ts",
+    "src/file-238.ts",
+    "src/file-239.ts",
+    "src/file-240.ts",
+    "src/file-241.ts",
+    "src/file-242.ts",
+    "src/file-243.ts",
+    "src/file-244.ts",
+    "src/file-245.ts",
+    "src/file-246.ts",
+    "src/file-247.ts",
+    "src/file-248.ts",
+    "src/file-249.ts",
+    "src/file-250.ts",
+    "src/file-251.ts",
+    "src/file-252.ts",
+    "src/file-253.ts",
+    "src/file-254.ts",
+    "src/file-255.ts",
+    "src/file-256.ts",
+    "src/file-257.ts",
+    "src/file-258.ts",
+    "src/file-259.ts",
+    "src/file-260.ts",
+    "src/file-261.ts",
+    "src/file-262.ts",
+    "src/file-263.ts",
+    "src/file-264.ts",
+    "src/file-265.ts",
+    "src/file-266.ts",
+    "src/file-267.ts",
+    "src/file-268.ts",
+    "src/file-269.ts",
+    "src/file-270.ts",
+    "src/file-271.ts",
+    "src/file-272.ts",
+    "src/file-273.ts",
+    "src/file-274.ts",
+    "src/file-275.ts",
+    "src/file-276.ts",
+    "src/file-277.ts",
+    "src/file-278.ts",
+    "src/file-279.ts",
+    "src/file-280.ts",
+    "src/file-281.ts",
+    "src/file-282.ts",
+    "src/file-283.ts",
+    "src/file-284.ts",
+    "src/file-285.ts",
+    "src/file-286.ts",
+    "src/file-287.ts",
+    "src/file-288.ts",
+    "src/file-289.ts",
+    "src/file-290.ts",
+    "src/file-291.ts",
+    "src/file-292.ts",
+    "src/file-293.ts",
+    "src/file-294.ts",
+    "src/file-295.ts",
+    "src/file-296.ts",
+    "src/file-297.ts",
+    "src/file-298.ts",
+    "src/file-299.ts",
+    "src/file-300.ts",
+    "src/file-301.ts",
+    "src/file-302.ts",
+    "src/file-303.ts",
+    "src/file-304.ts",
+    "src/file-305.ts",
+    "src/file-306.ts",
+    "src/file-307.ts",
+    "src/file-308.ts",
+    "src/file-309.ts",
+    "src/file-310.ts",
+    "src/file-311.ts",
+    "src/file-312.ts",
+    "src/file-313.ts",
+    "src/file-314.ts",
+    "src/file-315.ts",
+    "src/file-316.ts",
+    "src/file-317.ts",
+    "src/file-318.ts",
+    "src/file-319.ts",
+    "src/file-320.ts",
+    "src/file-321.ts",
+    "src/file-322.ts",
+    "src/file-323.ts",
+    "src/file-324.ts",
+    "src/file-325.ts",
+    "src/file-326.ts",
+    "src/file-327.ts",
+    "src/file-328.ts",
+    "src/file-329.ts",
+    "src/file-330.ts",
+    "src/file-331.ts",
+    "src/file-332.ts",
+    "src/file-333.ts",
+    "src/file-334.ts",
+    "src/file-335.ts",
+    "src/file-336.ts",
+    "src/file-337.ts",
+    "src/file-338.ts",
+    "src/file-339.ts",
+    "src/file-340.ts",
+    "src/file-341.ts",
+    "src/file-342.ts",
+    "src/file-343.ts",
+    "src/file-344.ts",
+    "src/file-345.ts",
+    "src/file-346.ts",
+    "src/file-347.ts",
+    "src/file-348.ts",
+    "src/file-349.ts",
+    "src/file-350.ts",
+    "src/file-351.ts",
+    "src/file-352.ts",
+    "src/file-353.ts",
+    "src/file-354.ts",
+    "src/file-355.ts",
+    "src/file-356.ts",
+    "src/file-357.ts",
+    "src/file-358.ts",
+    "src/file-359.ts",
+    "src/file-360.ts",
+    "src/file-361.ts",
+    "src/file-362.ts",
+    "src/file-363.ts",
+    "src/file-364.ts",
+    "src/file-365.ts",
+    "src/file-366.ts",
+    "src/file-367.ts",
+    "src/file-368.ts",
+    "src/file-369.ts",
+    "src/file-370.ts",
+    "src/file-371.ts",
+    "src/file-372.ts",
+    "src/file-373.ts",
+    "src/file-374.ts",
+    "src/file-375.ts",
+    "src/file-376.ts",
+    "src/file-377.ts",
+    "src/file-378.ts",
+    "src/file-379.ts",
+    "src/file-380.ts",
+    "src/file-381.ts",
+    "src/file-382.ts",
+    "src/file-383.ts",
+    "src/file-384.ts",
+    "src/file-385.ts",
+    "src/file-386.ts",
+    "src/file-387.ts",
+    "src/file-388.ts",
+    "src/file-389.ts",
+    "src/file-390.ts",
+    "src/file-391.ts",
+    "src/file-392.ts",
+    "src/file-393.ts",
+    "src/file-394.ts",
+    "src/file-395.ts",
+    "src/file-396.ts",
+    "src/file-397.ts",
+    "src/file-398.ts",
+    "src/file-399.ts",
+    "src/file-400.ts",
+    "src/file-401.ts",
+    "src/file-402.ts",
+    "src/file-403.ts",
+    "src/file-404.ts",
+    "src/file-405.ts",
+    "src/file-406.ts",
+    "src/file-407.ts",
+    "src/file-408.ts",
+    "src/file-409.ts",
+    "src/file-410.ts",
+    "src/file-411.ts",
+    "src/file-412.ts",
+    "src/file-413.ts",
+    "src/file-414.ts",
+    "src/file-415.ts",
+    "src/file-416.ts",
+    "src/file-417.ts",
+    "src/file-418.ts",
+    "src/file-419.ts",
+    "src/file-420.ts",
+    "src/file-421.ts",
+    "src/file-422.ts",
+    "src/file-423.ts",
+    "src/file-424.ts",
+    "src/file-425.ts",
+    "src/file-426.ts",
+    "src/file-427.ts",
+    "src/file-428.ts",
+    "src/file-429.ts",
+    "src/file-430.ts",
+    "src/file-431.ts",
+    "src/file-432.ts",
+    "src/file-433.ts",
+    "src/file-434.ts",
+    "src/file-435.ts",
+    "src/file-436.ts",
+    "src/file-437.ts",
+    "src/file-438.ts",
+    "src/file-439.ts",
+    "src/file-440.ts",
+    "src/file-441.ts",
+    "src/file-442.ts",
+    "src/file-443.ts",
+    "src/file-444.ts",
+    "src/file-445.ts",
+    "src/file-446.ts",
+    "src/file-447.ts",
+    "src/file-448.ts",
+    "src/file-449.ts",
+    "src/file-450.ts",
+    "src/file-451.ts",
+    "src/file-452.ts",
+    "src/file-453.ts",
+    "src/file-454.ts",
+    "src/file-455.ts",
+    "src/file-456.ts",
+    "src/file-457.ts",
+    "src/file-458.ts",
+    "src/file-459.ts",
+    "src/file-460.ts",
+    "src/file-461.ts",
+    "src/file-462.ts",
+    "src/file-463.ts",
+    "src/file-464.ts",
+    "src/file-465.ts",
+    "src/file-466.ts",
+    "src/file-467.ts",
+    "src/file-468.ts",
+    "src/file-469.ts",
+    "src/file-470.ts",
+    "src/file-471.ts",
+    "src/file-472.ts",
+    "src/file-473.ts",
+    "src/file-474.ts",
+    "src/file-475.ts",
+    "src/file-476.ts",
+    "src/file-477.ts",
+    "src/file-478.ts",
+    "src/file-479.ts",
+    "src/file-480.ts",
+    "src/file-481.ts",
+    "src/file-482.ts",
+    "src/file-483.ts",
+    "src/file-484.ts",
+    "src/file-485.ts",
+    "src/file-486.ts",
+    "src/file-487.ts",
+    "src/file-488.ts",
+    "src/file-489.ts",
+    "src/file-490.ts",
+    "src/file-491.ts",
+    "src/file-492.ts",
+    "src/file-493.ts",
+    "src/file-494.ts",
+    "src/file-495.ts",
+    "src/file-496.ts",
+    "src/file-497.ts",
+    "src/file-498.ts",
+    "src/file-499.ts",
+    "src/file-500.ts",
+    "src/file-501.ts",
+    "src/file-502.ts",
+    "src/file-503.ts",
+    "src/file-504.ts",
+    "src/file-505.ts",
+    "src/file-506.ts",
+    "src/file-507.ts",
+    "src/file-508.ts",
+    "src/file-509.ts",
+    "src/file-510.ts",
+    "src/file-511.ts",
+    "src/file-512.ts",
+    "src/file-513.ts",
+    "src/file-514.ts",
+    "src/file-515.ts",
+    "src/file-516.ts",
+    "src/file-517.ts",
+    "src/file-518.ts",
+    "src/file-519.ts",
+    "src/file-520.ts",
+    "src/file-521.ts",
+    "src/file-522.ts",
+    "src/file-523.ts",
+    "src/file-524.ts",
+    "src/file-525.ts",
+    "src/file-526.ts",
+    "src/file-527.ts",
+    "src/file-528.ts",
+    "src/file-529.ts",
+    "src/file-530.ts",
+    "src/file-531.ts",
+    "src/file-532.ts",
+    "src/file-533.ts",
+    "src/file-534.ts",
+    "src/file-535.ts",
+    "src/file-536.ts",
+    "src/file-537.ts",
+    "src/file-538.ts",
+    "src/file-539.ts",
+    "src/file-540.ts",
+    "src/file-541.ts",
+    "src/file-542.ts",
+    "src/file-543.ts",
+    "src/file-544.ts",
+    "src/file-545.ts",
+    "src/file-546.ts",
+    "src/file-547.ts",
+    "src/file-548.ts",
+    "src/file-549.ts",
+    "src/file-550.ts",
+    "src/file-551.ts",
+    "src/file-552.ts",
+    "src/file-553.ts",
+    "src/file-554.ts",
+    "src/file-555.ts",
+    "src/file-556.ts",
+    "src/file-557.ts",
+    "src/file-558.ts",
+    "src/file-559.ts",
+    "src/file-560.ts",
+    "src/file-561.ts",
+    "src/file-562.ts",
+    "src/file-563.ts",
+    "src/file-564.ts",
+    "src/file-565.ts",
+    "src/file-566.ts",
+    "src/file-567.ts",
+    "src/file-568.ts",
+    "src/file-569.ts",
+    "src/file-570.ts",
+    "src/file-571.ts",
+    "src/file-572.ts",
+    "src/file-573.ts",
+    "src/file-574.ts",
+    "src/file-575.ts",
+    "src/file-576.ts",
+    "src/file-577.ts",
+    "src/file-578.ts",
+    "src/file-579.ts",
+    "src/file-580.ts",
+    "src/file-581.ts",
+    "src/file-582.ts",
+    "src/file-583.ts",
+    "src/file-584.ts",
+    "src/file-585.ts",
+    "src/file-586.ts",
+    "src/file-587.ts",
+    "src/file-588.ts",
+    "src/file-589.ts",
+    "src/file-590.ts",
+    "src/file-591.ts",
+    "src/file-592.ts",
+    "src/file-593.ts",
+    "src/file-594.ts",
+    "src/file-595.ts",
+    "src/file-596.ts",
+    "src/file-597.ts",
+    "src/file-598.ts",
+    "src/file-599.ts",
+    "src/file-600.ts",
+    "src/file-601.ts",
+    "src/file-602.ts",
+    "src/file-603.ts",
+    "src/file-604.ts",
+    "src/file-605.ts",
+    "src/file-606.ts",
+    "src/file-607.ts",
+    "src/file-608.ts",
+    "src/file-609.ts",
+    "src/file-610.ts",
+    "src/file-611.ts",
+    "src/file-612.ts",
+    "src/file-613.ts",
+    "src/file-614.ts",
+    "src/file-615.ts",
+    "src/file-616.ts",
+    "src/file-617.ts",
+    "src/file-618.ts",
+    "src/file-619.ts",
+    "src/file-620.ts",
+    "src/file-621.ts",
+    "src/file-622.ts",
+    "src/file-623.ts",
+    "src/file-624.ts",
+    "src/file-625.ts",
+    "src/file-626.ts",
+    "src/file-627.ts",
+    "src/file-628.ts",
+    "src/file-629.ts",
+    "src/file-630.ts",
+    "src/file-631.ts",
+    "src/file-632.ts",
+    "src/file-633.ts",
+    "src/file-634.ts",
+    "src/file-635.ts",
+    "src/file-636.ts",
+    "src/file-637.ts",
+    "src/file-638.ts",
+    "src/file-639.ts",
+    "src/file-640.ts",
+    "src/file-641.ts",
+    "src/file-642.ts",
+    "src/file-643.ts",
+    "src/file-644.ts",
+    "src/file-645.ts",
+    "src/file-646.ts",
+    "src/file-647.ts",
+    "src/file-648.ts",
+    "src/file-649.ts",
+    "src/file-650.ts",
+    "src/file-651.ts",
+    "src/file-652.ts",
+    "src/file-653.ts",
+    "src/file-654.ts",
+    "src/file-655.ts",
+    "src/file-656.ts",
+    "src/file-657.ts",
+    "src/file-658.ts",
+    "src/file-659.ts",
+    "src/file-660.ts",
+    "src/file-661.ts",
+    "src/file-662.ts",
+    "src/file-663.ts",
+    "src/file-664.ts",
+    "src/file-665.ts",
+    "src/file-666.ts",
+    "src/file-667.ts",
+    "src/file-668.ts",
+    "src/file-669.ts",
+    "src/file-670.ts",
+    "src/file-671.ts",
+    "src/file-672.ts",
+    "src/file-673.ts",
+    "src/file-674.ts",
+    "src/file-675.ts",
+    "src/file-676.ts",
+    "src/file-677.ts",
+    "src/file-678.ts",
+    "src/file-679.ts",
+    "src/file-680.ts",
+    "src/file-681.ts",
+    "src/file-682.ts",
+    "src/file-683.ts",
+    "src/file-684.ts",
+    "src/file-685.ts",
+    "src/file-686.ts",
+    "src/file-687.ts",
+    "src/file-688.ts",
+    "src/file-689.ts",
+    "src/file-690.ts",
+    "src/file-691.ts",
+    "src/file-692.ts",
+    "src/file-693.ts",
+    "src/file-694.ts",
+    "src/file-695.ts",
+    "src/file-696.ts",
+    "src/file-697.ts",
+    "src/file-698.ts",
+    "src/file-699.ts",
+    "src/file-700.ts",
+    "src/file-701.ts",
+    "src/file-702.ts",
+    "src/file-703.ts",
+    "src/file-704.ts",
+    "src/file-705.ts",
+    "src/file-706.ts",
+    "src/file-707.ts",
+    "src/file-708.ts",
+    "src/file-709.ts",
+    "src/file-710.ts",
+    "src/file-711.ts",
+    "src/file-712.ts",
+    "src/file-713.ts",
+    "src/file-714.ts",
+    "src/file-715.ts",
+    "src/file-716.ts",
+    "src/file-717.ts",
+    "src/file-718.ts",
+    "src/file-719.ts",
+    "src/file-720.ts",
+    "src/file-721.ts",
+    "src/file-722.ts",
+    "src/file-723.ts",
+    "src/file-724.ts",
+    "src/file-725.ts",
+    "src/file-726.ts",
+    "src/file-727.ts",
+    "src/file-728.ts",
+    "src/file-729.ts",
+    "src/file-730.ts",
+    "src/file-731.ts",
+    "src/file-732.ts",
+    "src/file-733.ts",
+    "src/file-734.ts",
+    "src/file-735.ts",
+    "src/file-736.ts",
+    "src/file-737.ts",
+    "src/file-738.ts",
+    "src/file-739.ts",
+    "src/file-740.ts",
+    "src/file-741.ts",
+    "src/file-742.ts",
+    "src/file-743.ts",
+    "src/file-744.ts",
+    "src/file-745.ts",
+    "src/file-746.ts",
+    "src/file-747.ts",
+    "src/file-748.ts",
+    "src/file-749.ts",
+    "src/file-750.ts",
+    "src/file-751.ts",
+    "src/file-752.ts",
+    "src/file-753.ts",
+    "src/file-754.ts",
+    "src/file-755.ts",
+    "src/file-756.ts",
+    "src/file-757.ts",
+    "src/file-758.ts",
+    "src/file-759.ts",
+    "src/file-760.ts",
+    "src/file-761.ts",
+    "src/file-762.ts",
+    "src/file-763.ts",
+    "src/file-764.ts",
+    "src/file-765.ts",
+    "src/file-766.ts",
+    "src/file-767.ts",
+    "src/file-768.ts",
+    "src/file-769.ts",
+    "src/file-770.ts",
+    "src/file-771.ts",
+    "src/file-772.ts",
+    "src/file-773.ts",
+    "src/file-774.ts",
+    "src/file-775.ts",
+    "src/file-776.ts",
+    "src/file-777.ts",
+    "src/file-778.ts",
+    "src/file-779.ts",
+    "src/file-780.ts",
+    "src/file-781.ts",
+    "src/file-782.ts",
+    "src/file-783.ts",
+    "src/file-784.ts",
+    "src/file-785.ts",
+    "src/file-786.ts",
+    "src/file-787.ts",
+    "src/file-788.ts",
+    "src/file-789.ts",
+    "src/file-790.ts",
+    "src/file-791.ts",
+    "src/file-792.ts",
+    "src/file-793.ts",
+    "src/file-794.ts",
+    "src/file-795.ts",
+    "src/file-796.ts",
+    "src/file-797.ts",
+    "src/file-798.ts",
+    "src/file-799.ts",
+    "src/file-800.ts",
+    "src/file-801.ts",
+    "src/file-802.ts",
+    "src/file-803.ts",
+    "src/file-804.ts",
+    "src/file-805.ts",
+    "src/file-806.ts",
+    "src/file-807.ts",
+    "src/file-808.ts",
+    "src/file-809.ts",
+    "src/file-810.ts",
+    "src/file-811.ts",
+    "src/file-812.ts",
+    "src/file-813.ts",
+    "src/file-814.ts",
+    "src/file-815.ts",
+    "src/file-816.ts",
+    "src/file-817.ts",
+    "src/file-818.ts",
+    "src/file-819.ts",
+    "src/file-820.ts",
+    "src/file-821.ts",
+    "src/file-822.ts",
+    "src/file-823.ts",
+    "src/file-824.ts",
+    "src/file-825.ts",
+    "src/file-826.ts",
+    "src/file-827.ts",
+    "src/file-828.ts",
+    "src/file-829.ts",
+    "src/file-830.ts",
+    "src/file-831.ts",
+    "src/file-832.ts",
+    "src/file-833.ts",
+    "src/file-834.ts",
+    "src/file-835.ts",
+    "src/file-836.ts",
+    "src/file-837.ts",
+    "src/file-838.ts",
+    "src/file-839.ts",
+    "src/file-840.ts",
+    "src/file-841.ts",
+    "src/file-842.ts",
+    "src/file-843.ts",
+    "src/file-844.ts",
+    "src/file-845.ts",
+    "src/file-846.ts",
+    "src/file-847.ts",
+    "src/file-848.ts",
+    "src/file-849.ts",
+    "src/file-850.ts",
+    "src/file-851.ts",
+    "src/file-852.ts",
+    "src/file-853.ts",
+    "src/file-854.ts",
+    "src/file-855.ts",
+    "src/file-856.ts",
+    "src/file-857.ts",
+    "src/file-858.ts",
+    "src/file-859.ts",
+    "src/file-860.ts",
+    "src/file-861.ts",
+    "src/file-862.ts",
+    "src/file-863.ts",
+    "src/file-864.ts",
+    "src/file-865.ts",
+    "src/file-866.ts",
+    "src/file-867.ts",
+    "src/file-868.ts",
+    "src/file-869.ts",
+    "src/file-870.ts",
+    "src/file-871.ts",
+    "src/file-872.ts",
+    "src/file-873.ts",
+    "src/file-874.ts",
+    "src/file-875.ts",
+    "src/file-876.ts",
+    "src/file-877.ts",
+    "src/file-878.ts",
+    "src/file-879.ts",
+    "src/file-880.ts",
+    "src/file-881.ts",
+    "src/file-882.ts",
+    "src/file-883.ts",
+    "src/file-884.ts",
+    "src/file-885.ts",
+    "src/file-886.ts",
+    "src/file-887.ts",
+    "src/file-888.ts",
+    "src/file-889.ts",
+    "src/file-890.ts",
+    "src/file-891.ts",
+    "src/file-892.ts",
+    "src/file-893.ts",
+    "src/file-894.ts",
+    "src/file-895.ts",
+    "src/file-896.ts",
+    "src/file-897.ts",
+    "src/file-898.ts",
+    "src/file-899.ts",
+    "src/file-900.ts",
+    "src/file-901.ts",
+    "src/file-902.ts",
+    "src/file-903.ts",
+    "src/file-904.ts",
+    "src/file-905.ts",
+    "src/file-906.ts",
+    "src/file-907.ts",
+    "src/file-908.ts",
+    "src/file-909.ts",
+    "src/file-910.ts",
+    "src/file-911.ts",
+    "src/file-912.ts",
+    "src/file-913.ts",
+    "src/file-914.ts",
+    "src/file-915.ts",
+    "src/file-916.ts",
+    "src/file-917.ts",
+    "src/file-918.ts",
+    "src/file-919.ts",
+    "src/file-920.ts",
+    "src/file-921.ts",
+    "src/file-922.ts",
+    "src/file-923.ts",
+    "src/file-924.ts",
+    "src/file-925.ts",
+    "src/file-926.ts",
+    "src/file-927.ts",
+    "src/file-928.ts",
+    "src/file-929.ts",
+    "src/file-930.ts",
+    "src/file-931.ts",
+    "src/file-932.ts",
+    "src/file-933.ts",
+    "src/file-934.ts",
+    "src/file-935.ts",
+    "src/file-936.ts",
+    "src/file-937.ts",
+    "src/file-938.ts",
+    "src/file-939.ts",
+    "src/file-940.ts",
+    "src/file-941.ts",
+    "src/file-942.ts",
+    "src/file-943.ts",
+    "src/file-944.ts",
+    "src/file-945.ts",
+    "src/file-946.ts",
+    "src/file-947.ts",
+    "src/file-948.ts",
+    "src/file-949.ts",
+    "src/file-950.ts",
+    "src/file-951.ts",
+    "src/file-952.ts",
+    "src/file-953.ts",
+    "src/file-954.ts",
+    "src/file-955.ts",
+    "src/file-956.ts",
+    "src/file-957.ts",
+    "src/file-958.ts",
+    "src/file-959.ts",
+    "src/file-960.ts",
+    "src/file-961.ts",
+    "src/file-962.ts",
+    "src/file-963.ts",
+    "src/file-964.ts",
+    "src/file-965.ts",
+    "src/file-966.ts",
+    "src/file-967.ts",
+    "src/file-968.ts",
+    "src/file-969.ts",
+    "src/file-970.ts",
+    "src/file-971.ts",
+    "src/file-972.ts",
+    "src/file-973.ts",
+    "src/file-974.ts",
+    "src/file-975.ts",
+    "src/file-976.ts",
+    "src/file-977.ts",
+    "src/file-978.ts",
+    "src/file-979.ts",
+    "src/file-980.ts",
+    "src/file-981.ts",
+    "src/file-982.ts",
+    "src/file-983.ts",
+    "src/file-984.ts",
+    "src/file-985.ts",
+    "src/file-986.ts",
+    "src/file-987.ts",
+    "src/file-988.ts",
+    "src/file-989.ts",
+    "src/file-990.ts",
+    "src/file-991.ts",
+    "src/file-992.ts",
+    "src/file-993.ts",
+    "src/file-994.ts",
+    "src/file-995.ts",
+    "src/file-996.ts",
+    "src/file-997.ts",
+    "src/file-998.ts",
+    "src/file-999.ts"
+   ],
+   [
+    381,
+    375,
+    244
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "😀",
+     "units": 6000
+    },
+    "a"
+   ],
+   [
+    1,
+    1
+   ]
+  ],
+  [
+   [
+    {
+     "repeat": "😀",
+     "units": 3000
+    },
+    {
+     "repeat": "😀",
+     "units": 3000
+    }
+   ],
+   [
+    1,
+    1
+   ]
+  ]
+ ]
+}
