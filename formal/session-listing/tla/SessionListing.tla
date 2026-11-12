@@ -389,7 +389,7 @@ LinkBack(d) == MarkStale(d)
 StaleAfterSet(st) == st
 
 \* @code src/main/remote/host-session-list.ts:63-79 hostChanged(data): apply, ignore, note, or mark stale
-\* @code src/main/remote/devices.ts:974-978 the host's sessions.changed event -> link.sessions.hostChanged(data)
+\* @code src/main/remote/devices.ts:949-953 the host's sessions.changed event -> link.sessions.hostChanged(data)
 \* @code src/main/session-list-share.ts:63-70 set(rows): the applied list becomes the copy, no fresher than before (F4), handed on like a read
 \* @code src/main/session-list-share.ts:47-49 stale(); src/main/remote/host-session-list.ts:82-85 stale() also tells the windows (a bare event)
 HostEvent(d, i) ==
@@ -428,10 +428,10 @@ HostEvent(d, i) ==
 \* after that loop: the reply's frame resolves the read's promise (HostReplyArrive), the frames behind it in the same drain
 \* run (HostEvent: a delta of the held version applies), and only then the read continues (HostReplyResume). The model lets any
 \* number of events run between the two (a superset of the frames of one drain).
-\* @code native/ompdesk/crates/core/src/remote/link.rs:495-550 drain: the core opens a link's frames in order and hands each to main as one event, through the one writer
+\* @code native/ompdesk/crates/core/src/remote/link.rs:503-561 drain: the core opens a link's frames in order and hands each to main as one event, through the one writer
 \* @code src/main/core/process.ts:159-196 FrameReader.push: delivers every frame of a chunk synchronously, the listener returns before any promise continues
 \* @code src/main/remote/wire.ts:158-163 Link.deliver: a link's message reaches its listener in the same synchronous call
-\* @code src/main/remote/client.ts:595-612 #onMessage: the reply's frame resolves the pending request of `sessions.list`
+\* @code src/main/remote/client.ts:403-420 #onMessage: the reply's frame resolves the pending request of `sessions.list`
 HostReplyArrive(d, i) ==
     /\ ~Busy
     /\ RepOk(lk[d], i, LinkMode) /\ lk[d][i].kind = "reply" /\ rp[d] = NoMsg /\ Len(ip[d]) + 3 <= MaxCh
@@ -468,7 +468,7 @@ HostReplyResume(d) ==
 \* ===== the link =====
 
 \* The connection drops: what was in flight is lost, a read of the host fails (and so does the window's ask).
-\* @code src/main/remote/devices.ts:957-972 client.on("state"): a link that is not online
+\* @code src/main/remote/devices.ts:925-948 client.on("state"): a link that is not online
 \* @code src/main/remote/host-session-list.ts:87-114 #read throws; its finally still runs
 LinkDrop(d) ==
     /\ ~Busy
@@ -484,7 +484,7 @@ LinkDrop(d) ==
     /\ UNCHANGED <<tr, an, hs, dv, drows, hver, rp, goneD, fd, post, nChanges, nIdx, nTicks, nForeign, seen>>
 
 \* The link is back: the copy may have missed changes, so it is stale (the windows are told).
-\* @code src/main/remote/devices.ts:957-972 client.on("state") online: link.sessions.stale()
+\* @code src/main/remote/devices.ts:925-948 client.on("state") online: link.sessions.stale()
 LinkUp(d) ==
     /\ ~Busy
     /\ ~up[d] /\ Len(ip[d]) + 1 <= MaxCh
@@ -507,7 +507,7 @@ Violates(c, rows) ==
     /\ IF c[1] = "ren" THEN rows[c[2]] # NoRow /\ rows[c[2]].j < c[3] ELSE rows[c[2]] # NoRow
 
 \* @code src/renderer/stores/session-list.ts:164-206 refresh(): a read in flight queues one more, else the global feed reads the numbered list
-\* @code src/main/remote/devices.ts:548-552 hostSessions -> HostSessionList.current()
+\* @code src/main/remote/devices.ts:636-640 hostSessions -> HostSessionList.current()
 \* `nd`: what a delete, rename or move just done through this device needs the next ask to show (NoNeed: nothing new).
 RefreshFx(d, nd) ==
     LET n == IF nd # NoNeed THEN nd ELSE need[d]
@@ -608,7 +608,7 @@ FeedRetry(d) ==
 \* @code src/main/ipc.ts:472-484 SESSIONS_DELETE: remoteDevices.hostSessionsStale(device)
 \* @code src/main/ipc.ts:1458-1463 SESSIONS_RENAME: remoteDevices.hostSessionsStale(device)
 \* @code src/main/ipc.ts:1473-1482 SESSIONS_MOVE: remoteDevices.hostSessionsStale(device)
-\* @code src/main/remote/devices.ts:562-564 hostSessionsStale -> HostSessionList.stale()
+\* @code src/main/remote/devices.ts:650-652 hostSessionsStale -> HostSessionList.stale()
 PostMain(d) ==
     /\ ~Busy
     /\ post[d][1] = "main" /\ Len(ip[d]) + 1 <= MaxCh
