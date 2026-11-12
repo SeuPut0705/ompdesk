@@ -1,42 +1,57 @@
-//! The hub: one thread that runs the subsystems whose rules call one another in the same tick, as they did in main's
-//! one JavaScript thread (the sidecar pool and turn resume, batch H2: `docs/rust-remaining-units.md` §2.4, 9d–9f).
+//! The hub: one thread that runs the subsystems whose rules main calls synchronously and that call one another in the
+//! same tick, as they did in main's one JavaScript thread (the sidecar pool and turn resume, batch H2:
+//! `docs/rust-remaining-units.md` §2.4, 9d–9f).
 //!
-//! A JavaScript handler runs to its end, then every promise continuation it made ready runs, and only then does the
-//! next message (an IPC call, a socket's data, a timer) start. The hub keeps that order: a job (one request from main)
-//! runs to its end on the hub thread, then the hub yields once, so the local tasks the job woke (the continuations of
-//! its `async` rules) run before the next job starts. Subsystems hold their state in `Rc<RefCell<…>>` on this thread
-//! and call one another directly; one rule borrows another's state only for a moment and never across a call out,
-//! because a JavaScript rule may re-enter another (the pool's `onRunningChange` runs turn resume's `sync`, which sets
-//! the pool's `awaitingConnection`).
+//! **Main waits for every call.** Main's code reads the pool in the same tick it changed it (179 call sites, event
+//! listeners that change and read), so main's thread blocks on each call (`Atomics.wait`, `src/main/core/hub.ts`)
+//! while a worker thread of main holds the connection. A call is a job that runs to its end here and answers with
+//! every item it made before its answer; the core never waits on main inside one (it could not answer: main waits),
+//! so a question to main (`Out::ask`) is asked only from an async continuation, which runs after the call answered.
 //!
-//! An instance (one `SidecarPool`, one `TurnResume`, one `ConnectivityMonitor` of main's) is opened by `hub.open`,
-//! which answers only when the instance is closed, so main learns of a lost core by its rejection. Main names the id.
-//! Everything an instance tells main goes out as items of one `hub.out` event per instance and flush, in order; the
-//! answer of the request that caused them comes after them, so main's mirror holds a request's effects by the time
-//! its caller reads the answer. An item may ask main a question (`ask`), answered by `hub.answer`.
+//! **JavaScript's order.** A job (a call, or a wake of a timer or of an answer from elsewhere) is a macrotask: it runs
+//! to its end, then every task it made ready runs until none is (the microtasks), then what they told main goes out,
+//! and only then does the next job start. Tasks are this thread's own (`spawn`), polled by `drain`; a tokio timer or
+//! channel they await wakes them from any thread.
 //!
-//! Requests: `hub.open {id, kind, opts}` → `{}` once closed; `hub.call {to, method, params}` → the method's value;
-//! `hub.close {id}`; `hub.answer {ask, value?, error?}`. Event: `hub.out {to, items: [...]}`.
+//! **What goes to main.** One ordered list per connection: items an instance pushes (`hub.out {to, items}`, consecutive
+//! items of one instance in one frame) and answers (`{id, ok, result|error}`), in the order they were made, and after
+//! each job with its microtasks a `{"tick": true}`. Main handles what came before its call's answer inside the call,
+//! and what came after it, up to the tick, in a microtask after the call returned: the order JavaScript gave a method's
+//! own code and the promise continuations it woke.
+//!
+//! **Connection.** Main names a private socket (Unix) or pipe (Windows) and a token in the core's environment
+//! (`OMPDESK_HUB`, `OMPDESK_HUB_TOKEN`); the core listens there from its start (`listen_from_env`). The first line of a
+//! connection is `{"token": …}`; a connection without the token is closed. An instance belongs to the connection that
+//! opened it and closes with it.
+//!
+//! Requests (one JSON object per line): `hub.open {id, kind, opts}`, `hub.call {to, method, params}`,
+//! `hub.close {id}`, `hub.answer {ask, value?, error?}`.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::task::{Context, Wake, Waker};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
-use tokio::sync::{mpsc, oneshot};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::server::{Answer, Call, Events, Fault, Registry, Reply};
+use crate::server::Fault;
 
+mod listen;
+mod probe;
 #[cfg(test)]
 mod tests;
+
+pub use listen::listen_from_env;
 
 /// A future that lives on the hub thread.
 pub type LocalFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
-/// What a method answers: at once, or once its `async` rule is done (its continuation runs on the hub thread).
+/// What a method answers: at once, or once its `async` rule is done.
 pub enum Outcome {
     Now(Result<Value, Fault>),
     Later(LocalFuture<Result<Value, Fault>>),
@@ -48,7 +63,7 @@ impl Outcome {
     }
 
     pub fn done() -> Outcome {
-        Outcome::Now(Ok(Value::Object(Default::default())))
+        Outcome::Now(Ok(Value::Null))
     }
 
     pub fn fault(code: &'static str, message: impl Into<String>) -> Outcome {
@@ -73,78 +88,182 @@ pub struct Kind {
     pub open: fn(id: u64, opts: &RawValue, out: Out) -> Result<(), Fault>,
     /// Runs `method` of instance `id`.
     pub call: fn(id: u64, method: &str, params: &RawValue) -> Outcome,
-    /// Forgets instance `id` (its timers and tasks end with it).
+    /// Forgets instance `id` (its tasks see it gone and end).
     pub close: fn(id: u64),
 }
 
 /// Every kind the hub runs.
 fn kinds() -> &'static [Kind] {
     &[
-        #[cfg(test)]
-        tests::PROBE_KIND,
+        probe::KIND,
+        crate::pool::KIND,
+        crate::resume::RESUME_KIND,
+        crate::resume::CONNECTIVITY_KIND,
     ]
 }
 
-// ---- the thread ---------------------------------------------------------------------------------------------------
+// ---- the executor -------------------------------------------------------------------------------------------------
 
 type Job = Box<dyn FnOnce() + Send>;
 
+/// Woken tasks, by id: a waker may run on any thread.
+struct Ready {
+    ids: Mutex<VecDeque<u64>>,
+    notify: Notify,
+}
+
+static READY: LazyLock<Arc<Ready>> = LazyLock::new(|| {
+    Arc::new(Ready {
+        ids: Mutex::default(),
+        notify: Notify::new(),
+    })
+});
+
+struct TaskWaker {
+    id: u64,
+}
+
+impl Wake for TaskWaker {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        let ready = &*READY;
+        ready
+            .ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push_back(self.id);
+        ready.notify.notify_one();
+    }
+}
+
+#[derive(Default)]
+struct Tasks {
+    next: u64,
+    /// A task's future; `None` while it is being polled.
+    live: HashMap<u64, Option<LocalFuture<()>>>,
+}
+
+thread_local! {
+    static TASKS: RefCell<Tasks> = RefCell::default();
+}
+
 static JOBS: LazyLock<mpsc::UnboundedSender<Job>> = LazyLock::new(|| {
-    let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
+    let (jobs, queue) = mpsc::unbounded_channel::<Job>();
     let started = std::thread::Builder::new()
         .name("ompdesk-hub".into())
-        .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(runtime) => runtime,
-                Err(error) => {
-                    eprintln!("ompdesk-core: the hub cannot start its runtime: {error}");
-                    return;
-                }
-            };
-            let local = tokio::task::LocalSet::new();
-            local.block_on(&runtime, async move {
-                while let Some(job) = queue.recv().await {
-                    job();
-                    // The continuations the job made ready run before the next job, as microtasks do.
-                    tokio::task::yield_now().await;
-                }
-            });
-        });
+        .spawn(move || run(queue));
     if let Err(error) = started {
         eprintln!("ompdesk-core: the hub thread did not start: {error}");
     }
     jobs
 });
 
-/// Runs `job` on the hub thread, after every job posted before it.
+fn run(mut queue: mpsc::UnboundedReceiver<Job>) {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("ompdesk-core: the hub cannot start its runtime: {error}");
+            return;
+        }
+    };
+    runtime.block_on(async move {
+        let ready = Arc::clone(&READY);
+        loop {
+            tokio::select! {
+                biased;
+                job = queue.recv() => match job {
+                    Some(job) => job(),
+                    None => break,
+                },
+                () = ready.notify.notified() => {}
+            }
+            drain();
+            flush();
+        }
+    });
+}
+
+/// Polls every ready task until none is: the microtasks of the job that just ran.
+fn drain() {
+    loop {
+        let next = READY
+            .ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pop_front();
+        let Some(id) = next else { return };
+        // Taken out while it is polled: polling may spawn or wake other tasks.
+        let future =
+            TASKS.with(|tasks| tasks.borrow_mut().live.get_mut(&id).and_then(Option::take));
+        let Some(mut future) = future else { continue };
+        let waker = Waker::from(Arc::new(TaskWaker { id }));
+        let mut context = Context::from_waker(&waker);
+        let done = future.as_mut().poll(&mut context).is_ready();
+        TASKS.with(|tasks| {
+            let mut tasks = tasks.borrow_mut();
+            if done {
+                tasks.live.remove(&id);
+            } else if let Some(slot) = tasks.live.get_mut(&id) {
+                *slot = Some(future);
+            }
+        });
+    }
+}
+
+/// Runs `job` on the hub thread after every job posted before it.
 pub fn post(job: impl FnOnce() + Send + 'static) {
     let _ = JOBS.send(Box::new(job));
 }
 
-/// Starts a task on the hub thread; call only from it.
-pub fn spawn<F: Future<Output = ()> + 'static>(task: F) {
-    tokio::task::spawn_local(task);
+/// Starts a task on the hub thread (call only from it); it first runs in this job's microtasks.
+pub fn spawn(task: impl Future<Output = ()> + 'static) {
+    let id = TASKS.with(|tasks| {
+        let mut tasks = tasks.borrow_mut();
+        tasks.next += 1;
+        let id = tasks.next;
+        tasks.live.insert(id, Some(Box::pin(task)));
+        id
+    });
+    Arc::new(TaskWaker { id }).wake();
 }
 
-// ---- instances and what they tell main ----------------------------------------------------------------------------
+// ---- connections, instances and what goes to main -----------------------------------------------------------------
+
+type ConnId = u64;
+
+enum Line {
+    Items {
+        to: u64,
+        items: Vec<Value>,
+    },
+    Answer {
+        id: u64,
+        result: Result<Value, Fault>,
+    },
+}
+
+struct Conn {
+    lines: mpsc::UnboundedSender<String>,
+    /// What this connection is owed, in the order it was made.
+    pending: Vec<Line>,
+}
 
 struct Instance {
     kind: &'static Kind,
-    events: Events,
-    /// Items not yet sent.
-    items: Vec<Value>,
-    /// Answers `hub.open` when the instance closes.
-    closed: Option<oneshot::Sender<()>>,
+    conn: ConnId,
 }
 
 #[derive(Default)]
 struct Hub {
+    conns: HashMap<ConnId, Conn>,
+    next_conn: ConnId,
     instances: HashMap<u64, Instance>,
-    /// Answers waiting for the flush that sends what their request made.
-    replies: Vec<(oneshot::Sender<Result<Value, Fault>>, Result<Value, Fault>)>,
     /// Asks waiting for main, with the instance that asked: its close fails them.
     asks: HashMap<u64, (u64, oneshot::Sender<Result<Value, Fault>>)>,
     next_ask: u64,
@@ -152,59 +271,81 @@ struct Hub {
 
 thread_local! {
     static HUB: RefCell<Hub> = RefCell::default();
-    static FLUSH_PENDING: Cell<bool> = const { Cell::new(false) };
 }
 
 fn with_hub<T>(work: impl FnOnce(&mut Hub) -> T) -> T {
     HUB.with(|hub| work(&mut hub.borrow_mut()))
 }
 
-/// Sends what is buffered once the work that is ready now is done.
-fn schedule_flush() {
-    if FLUSH_PENDING.with(|pending| pending.replace(true)) {
-        return;
-    }
-    spawn(async {
-        flush();
-    });
-}
-
-/// Sends every instance's buffered items, then the answers whose effects they were.
-pub fn flush() {
-    FLUSH_PENDING.with(|pending| pending.set(false));
-    let (sends, replies) = with_hub(|hub| {
-        let sends: Vec<(Events, u64, Vec<Value>)> = hub
-            .instances
-            .iter_mut()
-            .filter(|(_, instance)| !instance.items.is_empty())
-            .map(|(id, instance)| {
-                (
-                    instance.events.clone(),
-                    *id,
-                    std::mem::take(&mut instance.items),
-                )
-            })
-            .collect();
-        (sends, std::mem::take(&mut hub.replies))
-    });
-    let mut sends = sends;
-    // Instances flush in the order they were opened, so one main reads the same order every time.
-    sends.sort_by_key(|(_, id, _)| *id);
-    for (events, to, items) in sends {
-        events.send("hub.out", &OutFrame { to, items });
-    }
-    for (reply, result) in replies {
-        let _ = reply.send(result);
-    }
+#[derive(Serialize)]
+struct ItemsFrame<'a> {
+    event: &'static str,
+    data: ItemsData<'a>,
 }
 
 #[derive(Serialize)]
-struct OutFrame {
+struct ItemsData<'a> {
     to: u64,
-    items: Vec<Value>,
+    items: &'a [Value],
 }
 
-/// An instance's way to tell main things. Cheap to copy; items to an instance that closed are dropped.
+#[derive(Serialize)]
+struct ErrorBody<'a> {
+    code: &'a str,
+    message: &'a str,
+}
+
+/// Writes what every connection is owed.
+fn flush() {
+    with_hub(|hub| {
+        for conn in hub.conns.values_mut() {
+            let wrote = !conn.pending.is_empty();
+            for line in conn.pending.drain(..) {
+                let text = match line {
+                    Line::Items { to, items } => serde_json::to_string(&ItemsFrame {
+                        event: "hub.out",
+                        data: ItemsData { to, items: &items },
+                    }),
+                    Line::Answer {
+                        id,
+                        result: Ok(value),
+                    } => serde_json::to_string(
+                        &serde_json::json!({"id": id, "ok": true, "result": value}),
+                    ),
+                    Line::Answer {
+                        id,
+                        result: Err(fault),
+                    } => serde_json::to_string(&serde_json::json!({
+                        "id": id,
+                        "ok": false,
+                        "error": ErrorBody { code: &fault.code, message: &fault.message },
+                    })),
+                };
+                match text {
+                    Ok(text) => {
+                        let _ = conn.lines.send(text);
+                    }
+                    Err(error) => eprintln!("ompdesk-core: a hub line did not serialize: {error}"),
+                }
+            }
+            // The end of a job and its microtasks: what main's caller reads after its answer up to here ran in
+            // microtasks of the call, and main hands it over as such.
+            if wrote {
+                let _ = conn.lines.send(r#"{"tick":true}"#.to_owned());
+            }
+        }
+    });
+}
+
+fn answer(conn: ConnId, id: u64, result: Result<Value, Fault>) {
+    with_hub(|hub| {
+        if let Some(conn) = hub.conns.get_mut(&conn) {
+            conn.pending.push(Line::Answer { id, result });
+        }
+    });
+}
+
+/// An instance's way to tell main things. Cheap to copy; items of an instance that closed are dropped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Out {
     id: u64,
@@ -215,7 +356,12 @@ impl Out {
         self.id
     }
 
-    /// Buffers `item` (an object with a `k`); it goes out with the next flush, after every item before it.
+    /// Whether the instance is still open.
+    pub fn open(self) -> bool {
+        with_hub(|hub| hub.instances.contains_key(&self.id))
+    }
+
+    /// Queues `item` (an object with a `k`) after everything this connection is owed so far.
     pub fn push<T: Serialize>(self, item: &T) {
         let value = match serde_json::to_value(item) {
             Ok(value) => value,
@@ -224,25 +370,52 @@ impl Out {
                 return;
             }
         };
-        let pushed = with_hub(|hub| match hub.instances.get_mut(&self.id) {
-            Some(instance) => {
-                instance.items.push(value);
-                true
+        with_hub(|hub| {
+            let Some(conn) = hub.instances.get(&self.id).map(|instance| instance.conn) else {
+                return;
+            };
+            let Some(conn) = hub.conns.get_mut(&conn) else {
+                return;
+            };
+            match conn.pending.last_mut() {
+                Some(Line::Items { to, items }) if *to == self.id => items.push(value),
+                _ => conn.pending.push(Line::Items {
+                    to: self.id,
+                    items: vec![value],
+                }),
             }
-            None => false,
         });
-        if pushed {
-            schedule_flush();
-        }
     }
 
-    /// Asks main `q` (an item `{k: "ask", ask, q, ...payload}`); resolves with main's answer, or fails when the
-    /// instance closes first.
+    /// Asks main `q` and waits for what main's handler returns at once (an item `{k: "ask", ask, q, sync: true,
+    /// …payload}`): main answers it before it does anything else, also while it waits for the call this is part of.
+    /// A method that awaits this suspends there, and what main does meanwhile (a sidecar that emits as it is started,
+    /// a hook) reaches the hub as nested calls, as a listener ran inside the TypeScript method. Resolves with main's
+    /// answer, or fails `closed` once the instance closes first.
     pub fn ask<T: Serialize>(self, q: &str, payload: &T) -> LocalFuture<Result<Value, Fault>> {
+        self.ask_with(q, payload, true)
+    }
+
+    /// Asks main `q` for something it answers later (a promise of main's: an RPC command, a probe). Never awaited
+    /// inside a synchronous call: main cannot answer while it waits for that call.
+    pub fn ask_later<T: Serialize>(
+        self,
+        q: &str,
+        payload: &T,
+    ) -> LocalFuture<Result<Value, Fault>> {
+        self.ask_with(q, payload, false)
+    }
+
+    fn ask_with<T: Serialize>(
+        self,
+        q: &str,
+        payload: &T,
+        sync: bool,
+    ) -> LocalFuture<Result<Value, Fault>> {
         let (answer, answered) = oneshot::channel();
         let mut item = match serde_json::to_value(payload) {
             Ok(Value::Object(map)) => map,
-            Ok(Value::Null) => Default::default(),
+            Ok(Value::Null) => serde_json::Map::new(),
             Ok(_) | Err(_) => {
                 return Box::pin(async {
                     Err(Fault::new("internal", "an ask's payload is no object"))
@@ -257,6 +430,7 @@ impl Out {
         item.insert("k".into(), Value::from("ask"));
         item.insert("ask".into(), Value::from(ask));
         item.insert("q".into(), Value::from(q));
+        item.insert("sync".into(), Value::from(sync));
         self.push(&Value::Object(item));
         Box::pin(async move {
             answered.await.unwrap_or_else(|_| {
@@ -273,169 +447,44 @@ fn kind_of(name: &str) -> Option<&'static Kind> {
     kinds().iter().find(|kind| kind.name == name)
 }
 
-/// Closes instance `id`: its kind forgets it, its `hub.open` answers.
+/// Closes instance `id`: its asks fail, its kind forgets it.
 fn close_instance(id: u64) {
     let instance = with_hub(|hub| {
         // Dropping an ask's sender fails it: nobody will answer for an instance that is gone.
         hub.asks.retain(|_, (asker, _)| *asker != id);
         hub.instances.remove(&id)
     });
-    if let Some(mut instance) = instance {
+    if let Some(instance) = instance {
         (instance.kind.close)(id);
-        if let Some(closed) = instance.closed.take() {
-            let _ = closed.send(());
-        }
     }
 }
 
 // ---- requests -----------------------------------------------------------------------------------------------------
 
-pub fn register(registry: &mut Registry) {
-    registry.add("hub.open", open);
-    registry.add("hub.call", call);
-    registry.add("hub.close", close);
-    registry.add("hub.answer", answer);
-}
-
-fn failed(fault: Fault) -> Answer {
-    Box::pin(async move { Err(fault) })
+#[derive(Deserialize)]
+struct Request {
+    id: u64,
+    method: String,
+    params: Box<RawValue>,
 }
 
 #[derive(Deserialize)]
 struct OpenParams {
     id: u64,
     kind: String,
-    #[serde(default = "empty_object")]
     opts: Box<RawValue>,
-}
-
-fn empty_object() -> Box<RawValue> {
-    RawValue::from_string("{}".into()).expect("{} is JSON")
-}
-
-#[derive(Serialize)]
-struct Done {}
-
-fn open(call: Call) -> Answer {
-    let params: OpenParams = match call.params() {
-        Ok(params) => params,
-        Err(fault) => return failed(fault),
-    };
-    let Some(kind) = kind_of(&params.kind) else {
-        return failed(Fault::new(
-            "unknown_kind",
-            format!("The hub runs no {}", params.kind),
-        ));
-    };
-    let (opened, opened_answer) = oneshot::channel::<Result<(), Fault>>();
-    let (closed, closed_answer) = oneshot::channel();
-    let events = call.events.clone();
-    post(move || {
-        let id = params.id;
-        let exists = with_hub(|hub| hub.instances.contains_key(&id));
-        if exists {
-            let _ = opened.send(Err(Fault::new(
-                "instance_open",
-                format!("Instance {id} is already open"),
-            )));
-            return;
-        }
-        with_hub(|hub| {
-            hub.instances.insert(
-                id,
-                Instance {
-                    kind,
-                    events,
-                    items: Vec::new(),
-                    closed: Some(closed),
-                },
-            )
-        });
-        match (kind.open)(id, &params.opts, Out { id }) {
-            Ok(()) => {
-                let _ = opened.send(Ok(()));
-            }
-            Err(fault) => {
-                with_hub(|hub| hub.instances.remove(&id));
-                let _ = opened.send(Err(fault));
-            }
-        }
-    });
-    Box::pin(async move {
-        match opened_answer.await {
-            Ok(Ok(())) => {}
-            Ok(Err(fault)) => return Err(fault),
-            Err(_) => return Err(Fault::new("hub_gone", "The hub thread is gone")),
-        }
-        let _ = closed_answer.await;
-        Reply::json(&Done {})
-    })
 }
 
 #[derive(Deserialize)]
 struct CallParams {
     to: u64,
     method: String,
-    #[serde(default = "empty_object")]
     params: Box<RawValue>,
-}
-
-fn call(call: Call) -> Answer {
-    let params: CallParams = match call.params() {
-        Ok(params) => params,
-        Err(fault) => return failed(fault),
-    };
-    let (reply, answered) = oneshot::channel();
-    // Posted here, before the server reads the next line: the hub runs main's calls in the order main made them.
-    post(move || {
-        let kind = with_hub(|hub| hub.instances.get(&params.to).map(|instance| instance.kind));
-        let Some(kind) = kind else {
-            let _ = reply.send(Err(Fault::new(
-                "no_instance",
-                format!("No instance {}", params.to),
-            )));
-            return;
-        };
-        match (kind.call)(params.to, &params.method, &params.params) {
-            Outcome::Now(result) => answer_after_flush(reply, result),
-            Outcome::Later(future) => spawn(async move {
-                let result = future.await;
-                answer_after_flush(reply, result);
-            }),
-        }
-    });
-    Box::pin(async move {
-        let value = answered
-            .await
-            .unwrap_or_else(|_| Err(Fault::new("hub_gone", "The hub thread is gone")))?;
-        Reply::json(&value)
-    })
-}
-
-fn answer_after_flush(reply: oneshot::Sender<Result<Value, Fault>>, result: Result<Value, Fault>) {
-    with_hub(|hub| hub.replies.push((reply, result)));
-    schedule_flush();
 }
 
 #[derive(Deserialize)]
 struct CloseParams {
     id: u64,
-}
-
-fn close(call: Call) -> Answer {
-    let params: CloseParams = match call.params() {
-        Ok(params) => params,
-        Err(fault) => return failed(fault),
-    };
-    let (reply, answered) = oneshot::channel();
-    post(move || {
-        close_instance(params.id);
-        answer_after_flush(reply, Ok(Value::Object(Default::default())));
-    });
-    Box::pin(async move {
-        let _ = answered.await;
-        Reply::json(&Done {})
-    })
 }
 
 #[derive(Deserialize)]
@@ -455,46 +504,147 @@ struct AnswerError {
     message: String,
 }
 
-fn answer(call: Call) -> Answer {
-    let params: AnswerParams = match call.params() {
-        Ok(params) => params,
-        Err(fault) => return failed(fault),
+/// Runs one request on the hub thread. Its answer is queued now (`Now`) or by its continuation (`Later`).
+fn handle(conn: ConnId, request: Request) {
+    let id = request.id;
+    let outcome = match request.method.as_str() {
+        "hub.open" => Outcome::Now(open(conn, &request.params)),
+        "hub.call" => match params::<CallParams>(&request.params) {
+            Ok(call) => {
+                let kind =
+                    with_hub(|hub| hub.instances.get(&call.to).map(|instance| instance.kind));
+                match kind {
+                    Some(kind) => (kind.call)(call.to, &call.method, &call.params),
+                    None => Outcome::fault("no_instance", format!("No instance {}", call.to)),
+                }
+            }
+            Err(fault) => Outcome::Now(Err(fault)),
+        },
+        "hub.close" => Outcome::Now(params::<CloseParams>(&request.params).map(|close| {
+            close_instance(close.id);
+            Value::Null
+        })),
+        "hub.answer" => Outcome::Now(params::<AnswerParams>(&request.params).map(|params| {
+            let waiting = with_hub(|hub| hub.asks.remove(&params.ask));
+            // An answer to an ask nobody waits for any more (its instance closed) is dropped.
+            if let Some((_, waiting)) = waiting {
+                let result = match params.error {
+                    Some(error) => Err(Fault::new(
+                        error.code.unwrap_or_else(|| "main_error".into()),
+                        error.message,
+                    )),
+                    None => Ok(params.value),
+                };
+                let _ = waiting.send(result);
+            }
+            Value::Null
+        })),
+        other => Outcome::fault("no_method", format!("The hub has no method {other}")),
     };
-    let (reply, answered) = oneshot::channel();
-    post(move || {
-        let waiting = with_hub(|hub| hub.asks.remove(&params.ask));
-        // An answer to an ask nobody waits for any more (its instance closed) is dropped.
-        if let Some((_, waiting)) = waiting {
-            let result = match params.error {
-                Some(error) => Err(Fault::new(
-                    error.code.unwrap_or_else(|| "main_error".into()),
-                    error.message,
-                )),
-                None => Ok(params.value),
-            };
-            let _ = waiting.send(result);
-        }
-        answer_after_flush(reply, Ok(Value::Object(Default::default())));
-    });
-    Box::pin(async move {
-        let _ = answered.await;
-        Reply::json(&Done {})
-    })
+    match outcome {
+        Outcome::Now(result) => answer(conn, id, result),
+        Outcome::Later(future) => spawn(async move {
+            let result = future.await;
+            answer(conn, id, result);
+        }),
+    }
 }
 
-/// Ends every instance opened over `events`' output (the connection ended): their `hub.open` requests are moot.
-pub fn close_all(events: &Events) {
-    let events = events.clone();
+fn open(conn: ConnId, params: &RawValue) -> Result<Value, Fault> {
+    let params: OpenParams = self::params(params)?;
+    let kind = kind_of(&params.kind)
+        .ok_or_else(|| Fault::new("unknown_kind", format!("The hub runs no {}", params.kind)))?;
+    let id = params.id;
+    if with_hub(|hub| hub.instances.contains_key(&id)) {
+        return Err(Fault::new(
+            "instance_open",
+            format!("Instance {id} is already open"),
+        ));
+    }
+    with_hub(|hub| hub.instances.insert(id, Instance { kind, conn }));
+    if let Err(fault) = (kind.open)(id, &params.opts, Out { id }) {
+        with_hub(|hub| hub.instances.remove(&id));
+        return Err(fault);
+    }
+    Ok(Value::Null)
+}
+
+/// Serves one connection of main's: its requests run on the hub thread in the order their lines came, its answers
+/// and items go out in the order they were made. Returns when the connection ends; its instances close then.
+/// With `token`, the first line must be `{"token": token}`, or the connection is closed unserved.
+pub async fn serve_conn<R, W>(reader: R, mut writer: W, token: Option<String>)
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
+    if let Some(token) = token {
+        #[derive(Deserialize)]
+        struct Hello {
+            token: String,
+        }
+        let read = reader.read_line(&mut line).await;
+        let hello = serde_json::from_str::<Hello>(line.trim_end());
+        let proved = matches!(read, Ok(n) if n > 0)
+            && hello
+                .is_ok_and(|hello| crate::control::conn::token_matches(Some(hello.token), &token));
+        if !proved {
+            eprintln!("ompdesk-core: the hub closed a connection without its token");
+            return;
+        }
+    }
+    let (lines, mut outgoing) = mpsc::unbounded_channel::<String>();
+    let (registered, conn) = oneshot::channel();
+    post(move || {
+        let conn = with_hub(|hub| {
+            hub.next_conn += 1;
+            let conn = hub.next_conn;
+            hub.conns.insert(
+                conn,
+                Conn {
+                    lines,
+                    pending: Vec::new(),
+                },
+            );
+            conn
+        });
+        let _ = registered.send(conn);
+    });
+    let Ok(conn) = conn.await else { return };
+    let writing = tokio::spawn(async move {
+        while let Some(mut line) = outgoing.recv().await {
+            line.push('\n');
+            if writer.write_all(line.as_bytes()).await.is_err() {
+                return;
+            }
+        }
+        let _ = writer.flush().await;
+    });
+    loop {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        match serde_json::from_str::<Request>(line.trim_end()) {
+            Ok(request) => post(move || handle(conn, request)),
+            Err(error) => eprintln!("ompdesk-core: the hub skipped a line: {error}"),
+        }
+    }
     post(move || {
         let ids: Vec<u64> = with_hub(|hub| {
             hub.instances
                 .iter()
-                .filter(|(_, instance)| !instance.events.reaches_another(&events))
+                .filter(|(_, instance)| instance.conn == conn)
                 .map(|(id, _)| *id)
                 .collect()
         });
         for id in ids {
             close_instance(id);
         }
+        // Dropping the sender ends the writer once it wrote what was owed.
+        with_hub(|hub| hub.conns.remove(&conn));
     });
+    let _ = writing.await;
 }
