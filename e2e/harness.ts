@@ -146,6 +146,16 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
 }
 
 /**
+ * The system clipboard's text, read in main. Electron's `clipboard.readText()` is synchronous; the shell cannot answer
+ * one (main asks it over a socket), so the shim's module has `readTextAsync()` for it.
+ */
+export function readClipboardText(app: ElectronApplication): Promise<string> {
+	return app.evaluate(({ clipboard }) =>
+		(clipboard as unknown as { readTextAsync(): Promise<string> }).readTextAsync(),
+	);
+}
+
+/**
  * Machine setup's back-off ledger (`<userData>/setup-state.json`, `SetupService`) with three automatic misses
  * today for each of `items`, so the launch leaves them alone ("Paused after failed attempts"). Each miss names
  * the version that made it: the ledger ignores another version's misses (a fixed release repairs at its first

@@ -421,6 +421,7 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 	const remember = (chunk: Buffer, isStderr: boolean) => {
 		const text = chunk.toString();
 		tail = (tail + text).slice(-TAIL_BYTES);
+		if (env.OMP_GUI_E2E_SHELL_LOG === "1") process.stderr.write(`[shell ${child.pid}] ${text}`);
 		if (!isStderr) return;
 		stderr = (stderr + text).slice(-TAIL_BYTES);
 		// The app quit by itself (its own `app.quit()`): Node now waits for the attached debugger, so let go of it.
