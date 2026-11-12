@@ -12,7 +12,7 @@
 //! stderr, node's error text, `spawn <bin> ENOENT`, `-c timed out after 60000ms`); a refusal the TypeScript coded
 //! carries that code.
 
-mod branches;
+pub mod branches;
 mod checkout;
 pub(crate) mod freshness;
 mod origin;

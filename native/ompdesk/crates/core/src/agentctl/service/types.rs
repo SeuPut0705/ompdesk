@@ -819,36 +819,7 @@ pub struct ScheduleCreated {
 
 // ---- git facts --------------------------------------------------------------------------------------------------
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileChange {
-    pub path: String,
-    pub added: f64,
-    pub removed: f64,
-}
-
-/// `BranchFacts`.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BranchFacts {
-    pub branch: String,
-    #[serde(default)]
-    pub base_branch: Option<String>,
-    #[serde(default)]
-    pub commits_ahead: f64,
-    #[serde(default)]
-    pub files: Vec<FileChange>,
-    #[serde(default)]
-    pub files_truncated: bool,
-    #[serde(default)]
-    pub uncommitted: f64,
-    #[serde(default)]
-    pub untracked: f64,
-    #[serde(default)]
-    pub base_uncommitted: f64,
-    #[serde(default)]
-    pub merged: bool,
-}
+pub use crate::git::branches::{BranchFacts, FileChange};
 
 /// What merging a branch would do, without doing it (`MergePrediction`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
