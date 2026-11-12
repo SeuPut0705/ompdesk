@@ -91,8 +91,8 @@ export interface WebContentsOptions {
 }
 
 /** Where `loadFile` finds the renderer the shell serves as `app://ompdesk/`. */
-export function rendererRoot(appPath: string): string {
-	return join(appPath, "out", "renderer");
+export function rendererRoot(facts: { appPath: string; rendererRoot?: string }): string {
+	return facts.rendererRoot ?? join(facts.appPath, "out", "renderer");
 }
 
 export class WebContents extends EventEmitter implements PageRecord {
@@ -248,7 +248,7 @@ export class WebContents extends EventEmitter implements PageRecord {
 
 	/** The renderer the shell serves (`out/renderer/…` as `app://ompdesk/…`); any other file by its `file:` URL. */
 	loadFile(filePath: string, options: { query?: Record<string, string>; hash?: string } = {}): Promise<void> {
-		const root = rendererRoot(this.#host.facts.appPath);
+		const root = rendererRoot(this.#host.facts);
 		const inside = relative(root, filePath);
 		const base =
 			inside === "" || inside.startsWith("..") || inside.includes(":")

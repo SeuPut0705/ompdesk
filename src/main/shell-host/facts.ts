@@ -53,6 +53,8 @@ export interface HostFacts {
 	resourcesPath: string;
 	appPath: string;
 	isPackaged: boolean;
+	/** The renderer folder the shell serves as `app://ompdesk/` (the running bundle's `../renderer`); absent: `<appPath>/out/renderer`. */
+	rendererRoot?: string;
 	argv: string[];
 	locale: { appLocale: string; systemLocale: string; preferredLanguages: string[] };
 	displays: DisplayFact[];

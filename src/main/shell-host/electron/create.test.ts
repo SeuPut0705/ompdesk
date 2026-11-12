@@ -553,6 +553,17 @@ describe("webContents", () => {
 		expect((last?.params.args as { url: string } | undefined)?.url).toBe("file:///C:/elsewhere/page.html");
 	});
 
+	it("maps loadFile through the renderer root the shell serves, when it names one", async () => {
+		node.close();
+		shell.close();
+		await boot({ ...FACTS, rendererRoot: "C:/repo/out-abc/renderer" });
+		await ready();
+		const { webContents } = new electron.BrowserWindow({});
+		void webContents.loadFile("C:/repo/out-abc/renderer/index.html", { query: { slot: "0" } });
+		await settle();
+		expect(fake.callsOf("wc.op").at(-1)?.params).toMatchObject({ args: { url: "app://ompdesk/index.html?slot=0" } });
+	});
+
 	it("sends wc.send as an event, in order, and not after the page is gone", async () => {
 		const { webContents } = new electron.BrowserWindow({});
 		webContents.send("a", 1, { b: 2 });

@@ -57,6 +57,7 @@ pushed event.
   resourcesPath: string,        // `process.resourcesPath`: packaged <install>/resources, unpackaged: <appDir>/resources
   appPath: string,              // `app.getAppPath()`: the folder holding out/main/index.js (package.json beside it)
   isPackaged: boolean,
+  rendererRoot?: string,        // the renderer folder served as app://ompdesk/ (dirname(entry)/../renderer); absent: <appPath>/out/renderer
   argv: string[],               // the shell's own argv, exe first (what a second launch would send as `argv`)
   locale: { appLocale, systemLocale, preferredLanguages: string[] },
   displays: Display[], primaryDisplayId: number,
