@@ -1810,11 +1810,15 @@ app.whenReady().then(async () => {
 		stateFile: join(app.getPath("userData"), "ai-memory", "care.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});
-	// Memory shared between the person's paired computers (src/main/ai-memory/sync.ts): durable pages and session
-	// conclusions, over the remote link. This computer serves `host.memory.*` to the devices allowed to use it, and
-	// syncs with every host it is connected to when the link comes up, when memory comes up, and every few minutes.
+	// Memory shared between the person's paired computers (the core's memsync, src/main/ai-memory/sync.ts): durable
+	// pages and session conclusions, over the remote link. This computer serves `host.memory.*` to the devices allowed
+	// to use it, and syncs with every host it is connected to when the link comes up, when memory comes up, and every
+	// few minutes.
 	const memoryReady = (): boolean => aiMemory.state().phase === "ready";
-	const memoryHost = { store: memoryClient, ready: memoryReady, selfId: () => devices.deviceId };
+	const memoryHost = {
+		server: () => (memoryReady() ? memoryClient.server() : null),
+		selfId: () => devices.deviceId,
+	};
 	hostServices.attachMemory({
 		pull: (peer, params) => servePull(memoryHost, peer, params),
 		push: (peer, params) => servePush(memoryHost, peer, params),
@@ -1908,7 +1912,7 @@ app.whenReady().then(async () => {
 	aiMemorySync.start();
 	// The term corpus of memory recall's coverage gate: read at memory-ready (onState above) and every ten minutes.
 	recallTerms = new RecallTermsIndex({
-		store: memoryClient,
+		server: () => memoryClient.server(),
 		file: recallTermsFile,
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
 	});

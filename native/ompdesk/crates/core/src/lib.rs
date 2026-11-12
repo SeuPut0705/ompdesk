@@ -13,6 +13,7 @@ pub mod git;
 mod http;
 mod json;
 pub mod memory;
+mod memsync;
 pub mod models;
 pub mod omp;
 pub mod procs;

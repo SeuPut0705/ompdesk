@@ -17,9 +17,9 @@
 //!
 //! Names: `memory.*` is this computer's RAM (`memory/`), so the memory server's methods are `aimemory.*`.
 
-mod client;
-mod ops;
-mod value;
+pub(crate) mod client;
+pub(crate) mod ops;
+pub(crate) mod value;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
