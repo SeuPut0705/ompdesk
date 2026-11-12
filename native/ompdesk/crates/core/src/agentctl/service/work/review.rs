@@ -35,7 +35,7 @@ fn js_num(value: f64) -> Value {
 /// `epochMs`: a time as milliseconds, from an ISO string or a number; None when it is neither.
 fn epoch_ms(value: Option<&Value>) -> Option<f64> {
     let ms = match value? {
-        Value::String(text) => crate::care::date_parse(text)? as f64,
+        Value::String(text) => crate::schedules::rules::date_parse(text, &crate::schedules::rules::Local)? as f64,
         Value::Number(number) => number.as_f64()?,
         _ => return None,
     };
@@ -242,27 +242,27 @@ impl AgentControl {
             .await
         {
             Ok(facts) => {
-                let clean = facts.uncommitted == 0.0 && facts.untracked == 0.0;
+                let clean = facts.uncommitted == 0 && facts.untracked == 0;
                 if facts.merged && clean && !running && !failed && !waiting {
                     self.mem().conflicts.remove(&tab.tab_id);
                     return None;
                 }
                 item.insert("branch".into(), json!(facts.branch));
                 item.insert("baseBranch".into(), json!(facts.base_branch));
-                item.insert("commitsAhead".into(), js_num(facts.commits_ahead));
+                item.insert("commitsAhead".into(), json!(facts.commits_ahead));
                 item.insert("files".into(), json!(facts.files.len()));
                 item.insert(
                     "added".into(),
-                    js_num(facts.files.iter().map(|file| file.added).sum()),
+                    json!(facts.files.iter().map(|file| file.added).sum::<u64>()),
                 );
                 item.insert(
                     "removed".into(),
-                    js_num(facts.files.iter().map(|file| file.removed).sum()),
+                    json!(facts.files.iter().map(|file| file.removed).sum::<u64>()),
                 );
                 // Untracked files are work the branch does not hold yet either.
                 item.insert(
                     "uncommitted".into(),
-                    js_num(facts.uncommitted + facts.untracked),
+                    json!(facts.uncommitted + facts.untracked),
                 );
                 Some(Value::Object(item))
             }

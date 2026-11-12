@@ -335,16 +335,16 @@ impl AgentControl {
             }));
         }
         if let Some(at) = &args.at {
-            let Some(ms) = crate::care::date_parse(at) else {
+            let Some(ms) = crate::schedules::rules::date_parse(at, &crate::schedules::rules::Local) else {
                 return Err(Fail::other("Invalid time value"));
             };
             return Ok(Some(ScheduleFrequency::Once {
-                at: crate::care::iso_of(ms as f64),
+                at: crate::schedules::rules::iso(ms),
             }));
         }
         if let Some(minutes) = args.in_minutes {
             return Ok(Some(ScheduleFrequency::Once {
-                at: crate::care::iso_of(self.now() + minutes * 60_000.0),
+                at: crate::schedules::rules::iso((self.now() + minutes * 60_000.0) as i64),
             }));
         }
         let Some(on) = &args.on else {

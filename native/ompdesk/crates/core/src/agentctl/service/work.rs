@@ -167,8 +167,8 @@ impl AgentControl {
                 match &facts {
                     Err(reason) => lines.push(format!("  could not read its branch: {reason}")),
                     Ok(facts) => {
-                        let added: f64 = facts.files.iter().map(|file| file.added).sum();
-                        let removed: f64 = facts.files.iter().map(|file| file.removed).sum();
+                        let added: f64 = facts.files.iter().map(|file| file.added as f64).sum();
+                        let removed: f64 = facts.files.iter().map(|file| file.removed as f64).sum();
                         let shown = facts
                             .files
                             .iter()
@@ -177,8 +177,8 @@ impl AgentControl {
                                 format!(
                                     "{} +{} −{}",
                                     file.path,
-                                    number(file.added),
-                                    number(file.removed)
+                                    number(file.added as f64),
+                                    number(file.removed as f64)
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -188,7 +188,7 @@ impl AgentControl {
                         } else {
                             String::new()
                         };
-                        let to_merge = !facts.merged && facts.commits_ahead > 0.0;
+                        let to_merge = !facts.merged && facts.commits_ahead > 0;
                         let prediction = match &read {
                             Err(reason) => MergePrediction::Unknown {
                                 reason: reason.clone(),
@@ -220,16 +220,16 @@ impl AgentControl {
                             "  branch {} → {}: {} commit(s) ahead, {} file(s) changed (+{} −{}){}",
                             facts.branch,
                             facts.base_branch.as_deref().unwrap_or("(detached)"),
-                            number(facts.commits_ahead),
+                            number(facts.commits_ahead as f64),
                             facts.files.len(),
-                            number(added),
-                            number(removed),
+                            added,
+                            removed,
                             if facts.merged { ", already merged" } else { "" }
                         ));
                         lines.push(format!(
                             "  uncommitted {}, untracked {}{}",
-                            number(facts.uncommitted),
-                            number(facts.untracked),
+                            number(facts.uncommitted as f64),
+                            number(facts.untracked as f64),
                             if shown.is_empty() {
                                 String::new()
                             } else {
