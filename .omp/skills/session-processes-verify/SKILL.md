@@ -1,6 +1,6 @@
 ---
 name: session-processes-verify
-description: "Checks that OMPdesk ends only the processes of a tab that is gone, never those of an open tab, and forgets no tag with running processes. Use when changing src/main/session-processes.ts, SidecarManager.dispose or the tag's spawn in src/main/sidecar.ts, the sweep's keep set or frozen in src/main/index.ts, or when asked whether closing a tab, a quit or a relaunch can kill a live session's processes or leave a finished one's behind."
+description: "Checks that OMPdesk ends only the processes of a tab that is gone, never those of an open tab, and forgets no tag with running processes. Use when changing src/main/session-processes.ts, Lane::dispose / when_all_exited in native/ompdesk/crates/core/src/sidecar/lane.rs, the pool's release_entry (native/ompdesk/crates/core/src/pool/windows.rs) or the tag's spawn in native/ompdesk/crates/core/src/sidecar/lane.rs, the sweep's keep set or frozen in src/main/index.ts, or when asked whether closing a tab, a quit or a relaunch can kill a live session's processes or leave a finished one's behind."
 ---
 
 # Session processes verification
@@ -13,7 +13,7 @@ OMPdesk ends a tag's processes only when the tab that held the tag was closed ou
 
 | Check id | Tool | Covers | Model |
 |---|---|---|---|
-| `session-processes` | TLC 1.8.0 | `src/main/session-processes.ts` (`open`, `close`, `sessionReleased`, `sweep`, `#endEntry`), `SidecarManager.dispose` | `formal/session-processes/tla/SessionProcesses.tla`, `@code` tags on each action |
+| `session-processes` | TLC 1.8.0 | `src/main/session-processes.ts` (`open`, `close`, `sessionReleased`, `sweep`, `#endEntry`), `native/ompdesk/crates/core/src/sidecar/lane.rs` `Lane::dispose`, `when_all_exited`; the pool's `release_entry` (`pool/windows.rs`) | `formal/session-processes/tla/SessionProcesses.tla`, `@code` tags on each action |
 
 Sync commit: see `syncCommit` of `session-processes` in `formal/manifest.json` (the manifest wins).
 

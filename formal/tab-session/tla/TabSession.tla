@@ -47,7 +47,7 @@ VARIABLES
 
 vars == <<path, isNew, written, proc, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/launch.rs:59-70 session_open: a written session is reopened; a tab with a session stock never wrote, or a new tab, starts a new one; else omp's own choice
+\* @code native/ompdesk/crates/core/src/sidecar/launch.rs:59-70 launch::session_open: a written session is reopened; a tab with a session stock never wrote, or a new tab, starts a new one; else omp's own choice
 OpenOf(p, n, w) ==
     IF p # NoS /\ p \in w THEN [k |-> "session", f |-> p]
     ELSE IF n \/ p # NoS THEN [k |-> "new"]
@@ -83,8 +83,8 @@ Init ==
     /\ moved = FALSE
     /\ gated = FALSE
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:984-1006 launch: the lane builds the launch from session_open(path, is_new); main answers how to start; stock opens it
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1031-1121 start_process: the omp starts (the launch's synchronous remainder)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1011-1033 Lane::launch: the lane builds the launch from session_open(path, is_new); main answers how to start; stock opens it
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1067-1157 Lane::start_process: the omp starts (the launch's synchronous remainder)
 Spawn ==
     /\ proc = "none" /\ spawns < MaxSpawns
     /\ LET o == OpenOf(path, isNew, written) IN
@@ -100,7 +100,7 @@ Spawn ==
     /\ spawns' = spawns + 1
     /\ UNCHANGED <<path, isNew, written, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1458-1504 handle_ready (the old code also cleared #resumeSessionPath here, a10eb6877 cleared #isNew)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1502-1548 Lane::handle_ready: handle_ready (the old code also cleared #resumeSessionPath here, a10eb6877 cleared #isNew)
 Ready ==
     /\ proc = "booting"
     /\ proc' = "ready"
@@ -108,7 +108,7 @@ Ready ==
     /\ isNew' = IF ClearNewAt = "ready" THEN FALSE ELSE isNew
     /\ UNCHANGED <<written, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1390-1453 observe: the get_state the ready status sends (the lane's own, after_answered) names the session; the pool's tab learns it from the same answer (sidecar.session / sidecar.tabSession)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1434-1497 Lane::observe: the get_state the ready status sends (the lane's own, after_answered) names the session; the pool's tab learns it from the same answer (sidecar.session / sidecar.tabSession)
 Observe ==
     /\ proc = "ready"
     /\ path' = IF OldCode THEN path ELSE onOmp
@@ -124,39 +124,39 @@ Write ==
     /\ written' = written \cup {onOmp}
     /\ UNCHANGED <<path, isNew, proc, onOmp, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1686-1723 on_child_exit: the child's exit, then
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1780-1835 attempt_restart: spawns again on the same state
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1737-1774 Lane::on_child_exit: the child's exit, then
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1831-1886 Lane::attempt_restart: spawns again on the same state
 Crash ==
     /\ proc \in {"booting", "ready"}
     /\ proc' = "none" /\ onOmp' = NoS
     /\ UNCHANGED <<path, isNew, written, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1962-1981 restart: restart() with no session: machine setup's start, the desktop slot, an omp update (pool passes its tab's file), a manual Restart
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:2013-2032 Lane::restart: restart() with no session: machine setup's start, the desktop slot, an omp update (pool passes its tab's file), a manual Restart
 Restart ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = IF OldCode THEN NoS ELSE path
     /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, shown, moved, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1962-1981 restart: restart(undefined, f): the person opens a stored session in the tab
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:2013-2032 Lane::restart: restart(undefined, f): the person opens a stored session in the tab
 Open(f) ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = f /\ shown' = f /\ moved' = FALSE
     /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1962-1981 restart: restart(cwd): the tab moves to another folder (ipc SIDECAR_SET_PROJECT)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:2013-2032 Lane::restart: restart(cwd): the tab moves to another folder (ipc SIDECAR_SET_PROJECT)
 Move ==
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = NoS /\ shown' = NoS /\ moved' = TRUE
     /\ UNCHANGED <<isNew, written, lastOpen, used, spawns, named, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1627-1648 on_gated: the start gate (worktree-lifecycle.ts) between a new tab's first `ready` and its ready status: the tab's session begins in the worktree, a new one, so is_new = true; restart(cwd)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1678-1699 Lane::on_gated: the start gate (worktree-lifecycle.ts) between a new tab's first `ready` and its ready status: the tab's session begins in the worktree, a new one, so is_new = true; restart(cwd)
 GateMove ==
     /\ proc = "ready" /\ spawns = 1 /\ lastOpen.k = "new" /\ ~gated
     /\ proc' = "none" /\ onOmp' = NoS
     /\ path' = NoS /\ isNew' = TRUE /\ shown' = NoS /\ named' = FALSE /\ gated' = TRUE
     /\ UNCHANGED <<written, lastOpen, used, spawns, moved>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1390-1453 observe: switch_session inside the running omp (sidebar open in the same tab, `sessions.ts` local handler); its response names no file, the pool takes the requested one (ipc.ts:991-993)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1434-1497 Lane::observe: switch_session inside the running omp (sidebar open in the same tab, `sessions.ts` local handler); its response names no file, the pool takes the requested one (ipc.ts:991-993)
 Switch(f) ==
     /\ proc = "ready" /\ f # onOmp
     /\ onOmp' = f /\ shown' = f /\ named' = TRUE /\ moved' = FALSE
@@ -164,7 +164,7 @@ Switch(f) ==
     /\ isNew' = IF LearnsChange THEN FALSE ELSE isNew
     /\ UNCHANGED <<written, proc, lastOpen, used, spawns, gated>>
 
-\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1390-1453 observe: new_session inside the running omp (the composer's new session, /new); its file is unknown until the next get_state
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1434-1497 Lane::observe: new_session inside the running omp (the composer's new session, /new); its file is unknown until the next get_state
 NewSession ==
     /\ proc = "ready"
     /\ \E id \in NewIds \ used : onOmp' = id /\ used' = used \cup {id}

@@ -1,6 +1,6 @@
 ---
 name: tab-session-verify
-description: "Checks that every spawn of a tab's omp opens the session the tab shows: a crash, machine setup, the desktop slot, an omp update or the person opening a stored session never puts the tab on a new empty session or another conversation. Use when changing sessionOpen in src/main/omp-launch.ts, or #sessionPath / #isNew, restart, #observeResponse, #handleReady, #attemptRestart or #spawn in src/main/sidecar.ts; or when asked whether a restart can lose a tab's conversation."
+description: "Checks that every spawn of a tab's omp opens the session the tab shows: a crash, machine setup, the desktop slot, an omp update or the person opening a stored session never puts the tab on a new empty session or another conversation. Use when changing session_open in native/ompdesk/crates/core/src/sidecar/launch.rs, or session_path / is_new, restart, observe, handle_ready, on_gated, attempt_restart or start_process in native/ompdesk/crates/core/src/sidecar/lane.rs; or when asked whether a restart can lose a tab's conversation."
 ---
 
 # Tab session verification
@@ -15,7 +15,7 @@ If it breaks, a restart nobody asked to change the session puts the tab on a new
 
 | Check id | Tool | Covers | Model |
 |---|---|---|---|
-| `tab-session` | TLC 1.8.0 | `src/main/omp-launch.ts#sessionOpen`; `src/main/sidecar.ts` `SidecarManager`: `restart`, `#observeResponse`, `#handleReady`, `#attemptRestart`, `#spawn` | `formal/tab-session/tla/TabSession.tla` (`@code` tags on every action) |
+| `tab-session` | TLC 1.8.0 | `native/ompdesk/crates/core/src/sidecar/launch.rs#session_open`; `native/ompdesk/crates/core/src/sidecar/lane.rs` `Lane`: `launch`, `start_process`, `restart`, `observe`, `handle_ready`, `on_gated`, `on_child_exit`, `attempt_restart` | `formal/tab-session/tla/TabSession.tla` (`@code` tags on every action) |
 
 Sync commit: see `syncCommit` of `tab-session` in `formal/manifest.json` (the manifest wins).
 
@@ -42,7 +42,7 @@ Matrix of 7 runs (two that must pass, three code variants that must fail, two sa
 
 ## Does my change touch this?
 
-Yes when it changes which session a spawn opens, how a `switch_session` / `new_session` response or the start gate updates the tab's session (`sessionOpen`, the `--session` / `--config` choice), when `#sessionPath` or `#isNew` are written (`grep -n "#sessionPath\|#isNew" src/main/sidecar.ts`), what `restart(cwd?, resumeSessionPath?)` does with its arguments, or adds a path that spawns omp without `#spawn`.
+Yes when it changes which session a spawn opens, how a `switch_session` / `new_session` response or the start gate updates the tab's session (`session_open`, the `--session` / `--config` choice), when `session_path` or `is_new` are written (`grep -n "session_path\|is_new" native/ompdesk/crates/core/src/sidecar/lane.rs`), what `Lane::restart(cwd, resume_session_path)` does with its arguments, or adds a path that spawns omp without `start_process`. The lane's functions are tagged by name: after an edit run `bun formal/retag-core.ts` and the tags follow.
 
 ## A failure: real bug or modeling error?
 
@@ -50,7 +50,7 @@ Replay the trace on the real code with `src/main/session-launch-parity.test.ts` 
 
 ## Updating the verification for an intended change
 
-1. Change the model from the code: each action keeps its `@code` tag; one synchronous block of `SidecarManager` is one action.
+1. Change the model from the code: each action keeps its `@code` tag; one message of the lane (`Lane`'s inbox, `sidecar/lane.rs`) is one action.
 2. Change a frozen property (`formal/tab-session/Properties.md`) only for an intended change of the promise, with the old and new text and the evidence.
 3. Add a mutation to `formal/tab-session/tla/mutations.json` for each new guard; keep the bug-mode runs in `matrix.json` failing.
 
