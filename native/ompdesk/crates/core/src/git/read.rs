@@ -618,7 +618,9 @@ mod tests {
 
     #[test]
     fn spells_paths_as_node_resolves_them() {
-        assert_eq!(native("/a//b/./c/"), "/a/b/c");
+        // This system's separators: node's win32 `path.resolve` spells them `\`.
+        let spelled = if cfg!(windows) { r"\a\b\c" } else { "/a/b/c" };
+        assert_eq!(native("/a//b/./c/"), spelled);
         assert!(is_absolute("/x"));
         assert!(!is_absolute("relative/root"));
     }
