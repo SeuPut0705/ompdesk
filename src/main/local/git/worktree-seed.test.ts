@@ -6,15 +6,10 @@ import { itWithFileSymlinks } from "../../test-symlinks";
 import type { BridgeClient } from "../types";
 import { gitSync, initRepo, pathExists } from "./test-repos";
 import { createWorktree } from "./worktree";
-import {
-	type CopyFile,
-	cloningCopier,
-	includePattern,
-	runWorktreeHook,
-	SEED_MAX_BYTES,
-	seedWorktree,
-	WORKTREE_HOOK_SCRIPTS,
-} from "./worktree-seed";
+import { runWorktreeHook, seedWorktree, WORKTREE_HOOK_SCRIPTS } from "./worktree-seed";
+
+/** The core's byte budget for a seed on a volume that cannot clone (`SEED_MAX_BYTES` in `git/seed.rs`). */
+const SEED_MAX_BYTES = 50 * 1024 * 1024;
 
 let scratch: string;
 let repo: string;
@@ -46,37 +41,8 @@ async function freshWorktree(name: string): Promise<string> {
 	return target;
 }
 
-/** A filesystem without reflinks: the forced clone is refused, a plain copy works. */
-const noReflink: CopyFile = async (from, to, mode) => {
-	if (mode !== undefined && mode & fs.constants.COPYFILE_FICLONE_FORCE) throw new Error("ENOTSUP: no reflink");
-	await fs.copyFile(from, to, mode);
-};
-
-/** Whether this machine's temp volume clones (APFS, btrfs, XFS reflink), as the seed will find out itself. */
-async function canClone(): Promise<boolean> {
-	const probe = path.join(scratch, ".clone-probe");
-	await fs.writeFile(probe, "x");
-	try {
-		await cloningCopier()(probe, `${probe}.copy`, fs.constants.COPYFILE_FICLONE_FORCE);
-		return true;
-	} catch {
-		return false;
-	} finally {
-		await fs.rm(probe, { force: true });
-		await fs.rm(`${probe}.copy`, { force: true });
-	}
-}
-
-describe("includePattern", () => {
-	it("refuses absolute, parent, .git and negated entries", () => {
-		expect(includePattern("/etc/passwd")).toEqual({ refused: "absolute" });
-		expect(includePattern("../x")).toEqual({ refused: "outside" });
-		expect(includePattern("a/.git/config")).toEqual({ refused: "git" });
-		expect(includePattern("!.env")).toEqual({ refused: "negation" });
-		expect(includePattern("# note")).toBeNull();
-		expect(includePattern("config/")).toEqual({ pattern: "config" });
-	});
-});
+/** A filesystem without reflinks: every clone is refused, a plain copy works. */
+const noReflink = { pretendClones: 0 };
 
 describe("seedWorktree", () => {
 	it("copies ignored files and globs, never a tracked one, and reports the rest", async () => {
@@ -123,7 +89,7 @@ describe("seedWorktree", () => {
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
 		const target = await freshWorktree("budget");
 
-		const report = await seedWorktree(repo, target, { copyFile: noReflink });
+		const report = await seedWorktree(repo, target, noReflink);
 
 		expect(report).toMatchObject({ copied: 1, cloned: false });
 		expect(report?.skipped).toEqual([{ path: "b.bin", reason: "budget" }]);
@@ -137,7 +103,7 @@ describe("seedWorktree", () => {
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
 		const target = await freshWorktree("big-first");
 
-		const report = await seedWorktree(repo, target, { copyFile: noReflink });
+		const report = await seedWorktree(repo, target, noReflink);
 
 		expect(report).toMatchObject({ copied: 0, cloned: false });
 		expect(report?.skipped).toEqual([{ path: "a.bin", reason: "budget" }]);
@@ -151,11 +117,12 @@ describe("seedWorktree", () => {
 		await fs.writeFile(path.join(repo, "b.bin"), Buffer.alloc(SEED_MAX_BYTES + 1));
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
 		const target = await freshWorktree("clone");
-		const clones = await canClone();
 
 		const report = await seedWorktree(repo, target);
 
-		if (clones) {
+		// Whether this machine's temp volume clones (APFS, btrfs, XFS reflink) is the seed's to find out; a Mac's does.
+		if (process.platform === "darwin") expect(report?.cloned).toBe(true);
+		if (report?.cloned) {
 			expect(report).toMatchObject({ copied: 2, cloned: true });
 			expect(report?.skipped).toEqual([]);
 			expect((await fs.stat(path.join(target, "b.bin"))).size).toBe(SEED_MAX_BYTES + 1);
@@ -172,18 +139,9 @@ describe("seedWorktree", () => {
 		await fs.writeFile(path.join(repo, "d.bin"), Buffer.alloc(1));
 		await fs.writeFile(path.join(repo, ".worktreeinclude"), "*.bin\n");
 		const target = await freshWorktree("clone-then-not");
-		let clones = 0;
-		const flaky: CopyFile = async (from, to, mode) => {
-			if (mode !== undefined && mode & fs.constants.COPYFILE_FICLONE_FORCE) {
-				if (clones++ > 0) throw new Error("ENOTSUP: no clone across this mount");
-				await fs.copyFile(from, to);
-				return;
-			}
-			expect(mode).toBe(0);
-			await fs.copyFile(from, to);
-		};
 
-		const report = await seedWorktree(repo, target, { copyFile: flaky });
+		// The first file clones, every later clone is refused: no clone across this mount.
+		const report = await seedWorktree(repo, target, { pretendClones: 1 });
 
 		expect(report).toMatchObject({ copied: 2, cloned: false });
 		expect(report?.skipped).toEqual([
@@ -247,7 +205,7 @@ describe("seedWorktree", () => {
 		expect(await fs.readFile(path.join(repo, "conf", "app.json"), "utf8")).toBe("{}\n");
 	});
 	itWithFileSymlinks(
-		"copies an ignored file link on Windows, where making a file symlink needs Developer Mode",
+		"copies an ignored file link on Windows, where making a file symlink needs Developer Mode, and recreates it elsewhere",
 		async () => {
 			await fs.writeFile(path.join(repo, "real.env"), "A=1\n");
 			await fs.writeFile(path.join(repo, ".gitignore"), "*.env\n");
@@ -255,15 +213,11 @@ describe("seedWorktree", () => {
 			await fs.symlink(path.join(repo, "real.env"), path.join(repo, "link.env"));
 			await fs.writeFile(path.join(repo, ".worktreeinclude"), "link.env\n");
 			const target = await freshWorktree("filelink");
-			const platform = Object.getOwnPropertyDescriptor(process, "platform");
-			Object.defineProperty(process, "platform", { value: "win32" });
-			try {
-				const report = await seedWorktree(repo, target);
-				expect(report?.skipped).toEqual([]);
-			} finally {
-				if (platform) Object.defineProperty(process, "platform", platform);
-			}
-			expect((await fs.lstat(path.join(target, "link.env"))).isSymbolicLink()).toBe(false);
+
+			const report = await seedWorktree(repo, target);
+
+			expect(report?.skipped).toEqual([]);
+			expect((await fs.lstat(path.join(target, "link.env"))).isSymbolicLink()).toBe(process.platform !== "win32");
 			expect(await fs.readFile(path.join(target, "link.env"), "utf8")).toBe("A=1\n");
 		},
 	);
@@ -309,6 +263,35 @@ describe("seedWorktree", () => {
 			expect(report?.skipped).toContainEqual({ path: "conf/.env", reason: "destination_outside" });
 		},
 	);
+});
+
+describe.skipIf(process.platform !== "win32")("worktree hook on Windows", () => {
+	it("runs the .cmd script, the worktree's own before the main checkout's, and logs to the worktree's git dir", async () => {
+		await fs.mkdir(path.join(repo, ".ompdesk"));
+		await fs.writeFile(
+			path.join(repo, WORKTREE_HOOK_SCRIPTS.setup),
+			"@echo setup in %CD%\r\n@echo %OMPDESK_HOOK%>from-hook.txt\r\n",
+		);
+		// A space in the folder: the script's path goes through cmd.exe's quoting.
+		const target = path.join(scratch, "cmd hook");
+		gitSync(repo, "worktree", "add", "-q", "-b", "cmd-hook", target);
+
+		const fromPrimary = await runWorktreeHook("setup", { primary: repo, worktree: target, cwd: target });
+
+		expect(fromPrimary).toMatchObject({ ok: true, exitCode: 0, script: ".ompdesk\\worktree-setup.cmd" });
+		expect(fromPrimary?.outputTail).toContain(`setup in ${target}`);
+		expect((await fs.readFile(path.join(target, "from-hook.txt"), "utf8")).trim()).toBe("setup");
+		const gitDir = gitSync(target, "rev-parse", "--absolute-git-dir");
+		expect(fromPrimary?.logPath).toBe(path.join(gitDir, "ompdesk-worktree-setup.log"));
+		expect(await fs.readFile(fromPrimary?.logPath ?? "", "utf8")).toContain("setup in");
+
+		await fs.mkdir(path.join(target, ".ompdesk"), { recursive: true });
+		await fs.writeFile(path.join(target, WORKTREE_HOOK_SCRIPTS.setup), "@echo own\r\n@exit /b 4\r\n");
+		const fromWorktree = await runWorktreeHook("setup", { primary: repo, worktree: target, cwd: target });
+		expect(fromWorktree).toMatchObject({ ok: false, exitCode: 4 });
+		expect(fromWorktree?.outputTail).toContain("own");
+		expect(await runWorktreeHook("pre-merge", { primary: repo, worktree: target, cwd: target })).toBeNull();
+	});
 });
 
 describe.skipIf(process.platform === "win32")("worktree setup hook", () => {
