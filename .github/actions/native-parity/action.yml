@@ -120,3 +120,4 @@ runs:
         src/main/turn-resume-ends.test.ts
         src/main/connectivity.test.ts
         src/main/autopilot-restart-resume.test.ts
+        src/main/autopilot*.test.ts
