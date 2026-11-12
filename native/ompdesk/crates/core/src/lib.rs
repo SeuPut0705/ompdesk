@@ -14,6 +14,7 @@ mod http;
 mod json;
 pub mod memory;
 pub mod models;
+pub mod omp;
 pub mod procs;
 pub mod routines;
 mod run;

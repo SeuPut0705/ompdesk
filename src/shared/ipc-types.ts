@@ -632,8 +632,8 @@ export type RuntimeErrorSource =
 	| "process-priority"
 	/**
 	 * Omps an earlier launch left running, stopped before this launch's tabs start (src/main/omp-processes.ts):
-	 * `details.pids`. A failed creation-time lookup also lands here (`level: "warn"`): `phase`, `cause` (`timeout`,
-	 * `error`, `gave-up`), `durationMs`, `pids`, `attempt`.
+	 * `details.pids`. A reap the core could not answer also lands here (`level: "warn"`): `phase`, `cause` (`timeout`,
+	 * `error`), `error`.
 	 */
 	| "omp-reap"
 	/**

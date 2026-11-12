@@ -1,5 +1,4 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { setTimeout as delay } from "node:timers/promises";
 
 /**
  * How long an omp gets to end by itself once its stop began (SIGTERM; on Windows its stdin ended) before it is killed.
@@ -9,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
  */
 export const STOP_GRACE_MS = 5_000;
 /** After the kill, how long the stop still waits for the exit (a process in uninterruptible sleep outlasts SIGKILL). */
-const KILL_WAIT_MS = 2_000;
+export const KILL_WAIT_MS = 2_000;
 /**
  * What stock's exit writes to stderr when it waits on one thing alone (`@oh-my-pi/pi-utils` postmortem.ts: the hold's
  * message, then "(up to N s)…"; matched without the ellipsis, whose three bytes a relayed pipe may split). The hold
@@ -23,8 +22,6 @@ const EXIT_HOLD = /\(up to (\d+) s\)/g;
 const HOLD_SLACK_MS = 2_000;
 /** The longest a stop is held for an omp's exit hold, whatever it asks for (stock's longest is 125 s). */
 export const STOP_HOLD_MAX_MS = 130_000;
-/** How often a stop of a pid this app is not the parent of looks whether it is gone. */
-const PID_POLL_MS = 100;
 
 /**
  * How every omp is spawned: on POSIX in a process group of its own (`detached`), so the kill at the end of a stop takes
@@ -106,16 +103,6 @@ async function withinGrace(done: Promise<void>, ms: number, heldUntil: () => num
 	}
 }
 
-/** Whether `pid` names a live process (one owned by another user answers `EPERM`). */
-export function pidAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
-
 /**
  * Kills `pid` and what it started, now. POSIX: SIGKILL to its process group (`OMP_SPAWN_GROUP`), else the pid alone
  * (an omp an older OMPdesk spawned in its own group). Windows: `taskkill /T /F` (omp runs behind a `.cmd`/`.exe` shim
@@ -175,33 +162,4 @@ export function stopOmp(child: ChildProcess, options: StopOptions = {}): Promise
 	})();
 	stops.set(child, stop);
 	return stop;
-}
-
-/**
- * Stops an omp this app did not spawn in this run (one an earlier instance left behind, `omp-processes.ts`): the same
- * steps as `stopOmp` over a bare pid. No `exit` event reaches a process that is not the parent, so the OS is asked for
- * the pid every `PID_POLL_MS`. Resolves once the pid is gone, or after the kill's wait, with whether it is gone.
- */
-export async function stopOmpPid(pid: number): Promise<boolean> {
-	const goneWithin = async (ms: number): Promise<boolean> => {
-		for (const until = Date.now() + ms; Date.now() < until; ) {
-			if (!pidAlive(pid)) return true;
-			await delay(PID_POLL_MS);
-		}
-		return !pidAlive(pid);
-	};
-	if (!pidAlive(pid)) return true;
-	if (process.platform !== "win32") {
-		try {
-			process.kill(pid, "SIGTERM");
-		} catch {}
-		if (await goneWithin(STOP_GRACE_MS)) return true;
-	}
-	console.warn(`[omp-stop] leftover omp ${pid} still runs: killing it`);
-	killTree(pid, () => {
-		try {
-			process.kill(pid);
-		} catch {}
-	});
-	return goneWithin(KILL_WAIT_MS);
 }

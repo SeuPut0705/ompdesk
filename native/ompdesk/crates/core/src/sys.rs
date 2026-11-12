@@ -66,6 +66,21 @@ pub fn signal_group(group: u32, force: bool) -> bool {
     unsafe { libc::kill(-group, signal) == 0 }
 }
 
+/// Whether `pid` names a process, as `kill(pid, 0)` tells: one this user may not signal counts, and so does a zombie
+/// its parent has not reaped. Never pid 0 or one past `pid_t`, which `kill` reads as a whole process group.
+#[cfg(unix)]
+pub fn alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: kill only reads its two integer arguments, and signal 0 sends nothing.
+    let found = unsafe { libc::kill(pid, 0) == 0 };
+    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
 /// SIGTERM and SIGINT, held for `wait` instead of ending this process.
 #[cfg(unix)]
 pub struct StopSignals(libc::sigset_t);
@@ -646,7 +661,7 @@ pub fn physical_memory() -> std::io::Result<(u64, u64)> {
 }
 
 #[cfg(windows)]
-pub use process_list::{Process, ask_to_close, processes, resume_process};
+pub use process_list::{Process, ask_to_close, process_started_ms, processes, resume_process};
 
 /// This computer's processes: a Toolhelp32 snapshot with each one's working set (`memory.processes`) and, for
 /// `procs.*`, its start and a handle to read its environment and command line and to end it.
@@ -1008,6 +1023,29 @@ mod process_list {
             // SAFETY: the handle is open with PROCESS_TERMINATE.
             unsafe { TerminateProcess(self.0.as_raw_handle(), 1) != 0 }
         }
+    }
+
+    /// When the running process `pid` started, in ms since the Unix epoch (`GetProcessTimes`, the value `Get-Process`
+    /// shows as `StartTime`): the same number however often it is asked, so two readings of one process compare
+    /// exactly. None when no process with that id runs; an error when one does and this user may not ask it.
+    pub fn process_started_ms(pid: u32) -> io::Result<Option<u64>> {
+        const ERROR_INVALID_PARAMETER: i32 = 87;
+        let Some(process) = open_handle(pid, PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE)
+        else {
+            let error = io::Error::last_os_error();
+            return if error.raw_os_error() == Some(ERROR_INVALID_PARAMETER) {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        };
+        // SAFETY: the handle is open with SYNCHRONIZE; a wait of 0 ms only looks.
+        if unsafe { WaitForSingleObject(process.as_raw_handle(), 0) } == WAIT_OBJECT_0 {
+            return Ok(None);
+        }
+        started_ms(&process)
+            .map(Some)
+            .ok_or_else(io::Error::last_os_error)
     }
 
     /// Whether two zero UTF-16 units in a row (the block's end) are in `bytes` at or after byte `from`, or straddle it.

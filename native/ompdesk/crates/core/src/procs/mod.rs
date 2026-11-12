@@ -326,6 +326,95 @@ fn descendants(rows: &[Row], roots: &[usize]) -> BTreeSet<usize> {
     found
 }
 
+/// What a process that is gone left behind, by index: each process whose parent id is `pid`, that started at or after
+/// `started_ms` (when the gone one did), and that no process holding `pid` now started. Windows keeps a dead parent's
+/// id in its children and hands the id to a later process, which did not start what is older than itself. A start
+/// that could not be read never makes an orphan.
+#[cfg(any(windows, test))]
+fn orphans(rows: &[Row], pid: u32, started_ms: u64) -> Vec<usize> {
+    (0..rows.len())
+        .filter(|&index| {
+            let row = &rows[index];
+            row.ppid == pid
+                && row.pid != pid
+                && row.started_ms.is_some_and(|started| started >= started_ms)
+                && !rows
+                    .iter()
+                    .any(|holder| holder.pid == pid && begot(holder, row))
+        })
+        .collect()
+}
+
+/// Every process of this computer at one moment, each opened to end it where this user may: what `taskkill /t`
+/// walks, read without it (which needs WMI). A process is ended through the handle taken here, so a pid that names
+/// another process later is never hit.
+#[cfg(windows)]
+pub(crate) struct Snapshot {
+    rows: Vec<Row>,
+}
+
+#[cfg(windows)]
+impl Snapshot {
+    pub(crate) fn take() -> std::io::Result<Snapshot> {
+        let rows = crate::sys::processes(true)?
+            .into_iter()
+            .map(|entry| Row {
+                pid: entry.pid,
+                ppid: entry.parent,
+                bytes: entry.working_set,
+                started_ms: entry.started_ms,
+                name: entry.image,
+                tag: None,
+                args: Vec::new(),
+                process: entry.process,
+            })
+            .collect();
+        Ok(Snapshot { rows })
+    }
+
+    pub(crate) fn pid(&self, index: usize) -> u32 {
+        self.rows[index].pid
+    }
+
+    /// The process `pid` that started at `started_ms`, if it runs.
+    pub(crate) fn find(&self, pid: u32, started_ms: u64) -> Option<usize> {
+        self.rows
+            .iter()
+            .position(|row| row.pid == pid && row.started_ms == Some(started_ms))
+    }
+
+    /// What the process `pid` that started at `started_ms` and is gone left behind (`orphans`), of that only the
+    /// processes whose command line holds `text`. One whose command line cannot be read is not among them.
+    pub(crate) fn orphans_holding(&self, pid: u32, started_ms: u64, text: &str) -> Vec<usize> {
+        orphans(&self.rows, pid, started_ms)
+            .into_iter()
+            .filter(|&index| {
+                self.rows[index]
+                    .process
+                    .as_ref()
+                    .and_then(crate::sys::Process::command_line)
+                    .is_some_and(|line| String::from_utf16_lossy(&line).contains(text))
+            })
+            .collect()
+    }
+
+    /// `root` and every process it started, and so on down, each taken out of the snapshot to end it, the root first.
+    /// Empty when the root cannot be opened to end it; a descendant that cannot be is left out.
+    pub(crate) fn take_tree(&mut self, root: usize) -> Vec<crate::sys::Process> {
+        let found = descendants(&self.rows, &[root]);
+        let Some(first) = self.rows[root].process.take() else {
+            return Vec::new();
+        };
+        let mut tree = vec![first];
+        tree.extend(
+            found
+                .into_iter()
+                .filter_map(|index| self.rows[index].process.take()),
+        );
+        tree
+    }
+}
+
 /// A process one round ends.
 struct Target {
     pid: u32,
@@ -561,7 +650,7 @@ async fn scan(
 /// Reads a process's environment and arguments by its pid.
 #[cfg(unix)]
 #[derive(Default)]
-struct Reader {
+pub(crate) struct Reader {
     /// `KERN_PROCARGS2`'s buffer (`KERN_ARGMAX` bytes), kept from one process to the next.
     #[cfg(target_os = "macos")]
     buffer: Vec<u8>,
@@ -580,7 +669,7 @@ impl Reader {
         tag_in(self.procargs(pid)?.environment, env)
     }
 
-    fn arguments(&mut self, pid: u32) -> Vec<String> {
+    pub(crate) fn arguments(&mut self, pid: u32) -> Vec<String> {
         self.procargs(pid).map_or_else(Vec::new, |procargs| {
             procargs
                 .arguments
@@ -598,7 +687,7 @@ impl Reader {
         tag_in(environ.split(|byte| *byte == 0), env)
     }
 
-    fn arguments(&mut self, pid: u32) -> Vec<String> {
+    pub(crate) fn arguments(&mut self, pid: u32) -> Vec<String> {
         let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
             return Vec::new();
         };
@@ -1391,6 +1480,44 @@ mod tests {
         assert_eq!(at(&rows, &plan.kept), [80, 81, 82]);
         assert_eq!(at(&rows, &plan.targets), [83, 84]);
         assert!(plan.own.is_empty());
+    }
+
+    #[test]
+    fn finds_what_a_gone_process_left_and_not_what_a_later_holder_of_its_id_started() {
+        let left = || {
+            let mut unread = row(94, 70, 0, None);
+            unread.started_ms = None;
+            vec![
+                // 70 started at 1 000 and is gone: these are what it left.
+                row(90, 70, 1_000, None),
+                row(91, 70, 1_500, None),
+                // Older than the gone 70: an earlier holder of the id started it.
+                row(92, 70, 900, None),
+                // Another parent.
+                row(93, 71, 1_500, None),
+                unread,
+            ]
+        };
+        let rows = left();
+        assert_eq!(at(&rows, &orphans(&rows, 70, 1_000)), [90, 91]);
+
+        // A later program took the id 70 at 2 000 and started 95: 90 and 91 are older than it, 95 is its own.
+        let mut reused = left();
+        reused.push(row(70, 1, 2_000, None));
+        reused.push(row(95, 70, 2_100, None));
+        assert_eq!(at(&reused, &orphans(&reused, 70, 1_000)), [90, 91]);
+
+        // The process itself still runs: what it started is its own, not left behind.
+        let mut running = left();
+        running.push(row(70, 1, 1_000, None));
+        assert!(orphans(&running, 70, 1_000).is_empty());
+
+        // A holder of the id whose start cannot be read may have started any of them: none is taken for an orphan.
+        let mut unknown = row(70, 1, 0, None);
+        unknown.started_ms = None;
+        let mut held = left();
+        held.push(unknown);
+        assert!(orphans(&held, 70, 1_000).is_empty());
     }
 
     fn procargs(count: i32, rest: &[u8]) -> Vec<u8> {
