@@ -7,7 +7,11 @@ on:
     paths: ["native/shell-prototype/move/**", "native/shell-prototype/migrate/**", ".github/workflows/shell-proto-keychain.yml"]
 jobs:
   keychain:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
