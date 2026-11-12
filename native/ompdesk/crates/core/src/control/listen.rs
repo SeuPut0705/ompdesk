@@ -303,5 +303,14 @@ mod windows {
         }
         drop(listening);
         serve.end().await;
+        // A dropped instance whose connect or read was pending closes its handle only once the runtime takes the
+        // cancellation's completion, and a client can still connect to it until then: the close is done when no
+        // instance of the name is left.
+        let gone = async {
+            while crate::sys::pipe_has_instance(&path) {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        };
+        let _ = tokio::time::timeout(super::conn::LINGER, gone).await;
     }
 }

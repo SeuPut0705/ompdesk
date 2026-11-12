@@ -243,6 +243,23 @@ pub fn stdio_not_inherited() {
     }
 }
 
+/// Whether any instance of the named pipe `name` is still open, connected or not. `WaitNamedPipeW` connects nothing:
+/// it fails `ERROR_FILE_NOT_FOUND` at once when no instance exists, and only waits (1 ms here) while all are busy.
+#[cfg(windows)]
+pub fn pipe_has_instance(name: &str) -> bool {
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn WaitNamedPipeW(name: *const u16, timeout_ms: u32) -> i32;
+    }
+    let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call, which only reads it.
+    if unsafe { WaitNamedPipeW(wide.as_ptr(), 1) } != 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(ERROR_FILE_NOT_FOUND)
+}
+
 #[cfg(windows)]
 pub use job::ProcessTree;
 

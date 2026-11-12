@@ -657,3 +657,31 @@ async fn asks_main_to_watch_only_while_somebody_needs_it() {
     settle().await;
     assert!(asked(&mut main).is_empty());
 }
+
+/// A pipe instance dropped with its connect pending closes its handle only once the runtime takes the cancellation;
+/// until then a client could still connect. The listener's close returns only after that.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_pipe_takes_no_client() {
+    for round in 0..200 {
+        let path = format!(r"\\.\pipe\ompdesk-core-test-{}-{round}", std::process::id());
+        let main = Main::new(Tuning::default());
+        let serving = Serving {
+            link: Arc::clone(&main.link),
+            token: "5".repeat(64).into(),
+            home: "/the/home".into(),
+            caller_prefix: "".into(),
+            hello_timeout: Duration::from_secs(10),
+            max_in_flight: 16,
+            half_close: false,
+        };
+        let listening = super::listen::listen(&path, serving, 4).await.unwrap();
+        tokio::task::yield_now().await;
+        listening.close().await;
+        let client = tokio::net::windows::named_pipe::ClientOptions::new().open(&path);
+        assert!(
+            client.is_err(),
+            "round {round}: a client connected after the close"
+        );
+    }
+}
