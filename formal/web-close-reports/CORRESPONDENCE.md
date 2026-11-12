@@ -9,9 +9,9 @@
 | `Deliver(c)` | the core's `Host::receive` (refuses an ended connection) → `Host::dispatch` → `web.call` → main's `WsRouter.call` → `#dispatch` → `registry.invoke` → `ipc.ts` `FILE_EDIT_REPORT` → `FileEditReports.report` | no `await` before the handler for a frame without picture blocks; the handler accepts only that shape (`parseFileEditReport`: exactly one `{dirtyTabId}`), so a frame whose upload `#dispatch` awaits is refused (pinned: `ws-router.test.ts` "hands a Files-edit report to main within the frame…" and "never lets a report outlive its connection, even one whose arguments carry a picture…") |
 | `Write` / `Forget` | `FileEditReports.report` / `forget`: one connection's entry | Map set/delete |
 | `Edits(t)` | `FileEditReports.edits` | pure read |
-| `CloseStep(t)` | `tabCloseStep` (`src/main/agent-control/tab-close.ts`) minus `looked`/`userTouched` | pure |
-| `CloseDecide(t)` | `AgentControl.#closeTab` reads `host.tabs()` (each tab's `webEdits` from `edits`, `host.ts` `#controlTab`) and applies `tabCloseStep` | synchronous until `await host.release` |
-| `CloseRelease(t)` | `host.release` → `closeWindowTab` → `await refreshExitPolicy` → `stillClosable()` (`tabCloseStep` on the store now) → `closeTabTerminals` → `SidecarPool.releaseTab` | split from the decision (awaits in between); the re-check and the release are one synchronous run |
+| `CloseStep(t)` | `tab_close_step` (`native/ompdesk/crates/core/src/agentctl/rules/tab_close.rs`, the core's one close rule) minus `looked`/`userTouched` | pure |
+| `CloseDecide(t)` | the core's `close_tab` (`native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs`) reads the snapshot's tabs (each tab's `webEdits` from `edits`, `host.ts` `#controlTab`, pushed to the core) and applies `tab_close_step` | synchronous until `await host.release` |
+| `CloseRelease(t)` | `host.release` → `closeWindowTab` → `await refreshExitPolicy` → `stillClosable()` (`edits(...) !== "dirty"` on the store now, `host.ts` `release`) → `closeTabTerminals` → `SidecarPool.releaseTab` | split from the decision (awaits in between); the re-check and the release are one synchronous run |
 
 ## Abstractions that could hide a bug
 
@@ -22,4 +22,4 @@
 
 ## Closed gap: a report during the release's awaits
 
-Before `stillClosable`, a dirty report that landed after `#closeTab` decided and before `releaseTab` ran (during `refreshExitPolicy`) did not stop the release (`NoLateDirtyRelease` failed, 7 steps). `closeWindowTab` now asks `stillClosable` right after that await, and `AgentControlHost.release` builds it as `tabCloseStep` on the store's word at that moment; nothing awaits between the re-check and `releaseTab`. The `no-recheck-before-release` mutation puts the gap back and must be detected.
+Before `stillClosable`, a dirty report that landed after `close_tab` decided and before `releaseTab` ran (during `refreshExitPolicy`) did not stop the release (`NoLateDirtyRelease` failed, 7 steps). `closeWindowTab` now asks `stillClosable` right after that await, and `AgentControlHost.release` builds it as `edits(...) !== "dirty"` on the store's word at that moment; nothing awaits between the re-check and `releaseTab`. The `no-recheck-before-release` mutation puts the gap back and must be detected.

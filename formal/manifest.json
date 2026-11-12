@@ -64,16 +64,16 @@
 			"mutations": "mutations.json",
 			"covers": [
 				"src/main/web/file-edit-reports.ts",
-				"src/main/agent-control/tab-close.ts",
+				"native/ompdesk/crates/core/src/agentctl/rules/tab_close.rs",
 				"src/renderer/web/FileEditReporter.tsx",
 				"native/ompdesk/crates/core/src/web/router.rs#finish",
 				"native/ompdesk/crates/core/src/web/router.rs#receive",
 				"native/ompdesk/crates/core/src/web/router.rs#dispatch",
 				"src/main/web/ws-router.ts#WsRouter.connections",
 				"src/main/web/ws-router.ts#WsRouter.call",
-				"src/main/agent-control/service.ts:3327-3339",
+				"native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs:138-177",
 				"src/main/tab-release.ts#closeWindowTab",
-				"src/main/agent-control/host.ts:1370-1380"
+				"src/main/agent-control/host.ts:HOSTRANGE"
 			],
 			"syncCommit": "609d618d33bcc2adc4bcc0371a06fb41326bb467",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"

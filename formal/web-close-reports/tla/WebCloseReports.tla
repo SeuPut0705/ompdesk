@@ -6,7 +6,7 @@
  * in at most one tab (`edit`), and a current connection; a reconnect is a fresh connection id. The page sends its
  * dirty tab on every change and right after its connection opens (`FileEditReporter`). Main keeps the latest report
  * per connection (`FileEditReports`), forgets a connection when it ends, and an agent's close reads that store
- * (`tabCloseStep`): it keeps a tab some report names, releases any other.
+ * (`tab_close_step`): it keeps a tab some report names, releases any other.
  *
  * Frames from page to main are FIFO per connection; frames of a connection that ended are refused.
  *)
@@ -80,7 +80,7 @@ Edits(t) ==
        ELSE IF reported # {} THEN "clean"
        ELSE "unreported"
 
-\* @code src/main/agent-control/tab-close.ts:31-36 tabCloseStep (looked/userTouched are outside this model)
+\* @code native/ompdesk/crates/core/src/agentctl/rules/tab_close.rs:57-67 tab_close_step (looked/userTouched, and the in-use check, are outside this model)
 CloseStep(t) == IF Edits(t) = "dirty" THEN "keep" ELSE "release"
 
 \* A page whose current connection is live, greeted and has nothing in flight: main has its word.
@@ -154,7 +154,7 @@ Handle(c) ==
     /\ UNCHANGED <<edit, conn, live, greeted, q, deciding, released, edits, bad, late, refused>>
 
 \* An agent's close reads the tab (its `webEdits` from the store) and decides.
-\* @code src/main/agent-control/service.ts:3327-3336 #closeTab: snapshot, tabCloseStep, keep or start the release
+\* @code native/ompdesk/crates/core/src/agentctl/service/sessions/stop.rs:138-177 close_tab: snapshot, tab_close_step, keep or start the release
 CloseDecide(t) ==
     /\ t \notin released \cup deciding
     /\ IF CloseStep(t) = "release"
@@ -168,7 +168,7 @@ CloseDecide(t) ==
 \* The release lands after awaits (host.release, closeWindowTab's refreshExitPolicy); reports may arrive meanwhile.
 \* Right after the await, with no await before the release, the one rule decides again on what the store says now.
 \* @code src/main/tab-release.ts:38-41 refreshExitPolicy, stillClosable, closeTabTerminals, releaseTab
-\* @code src/main/agent-control/host.ts:1370-1380 release: stillReleasable = tabCloseStep on the store's word then
+\* @code src/main/agent-control/host.ts:HOSTRANGE release: the re-check reads the store's word then (`edits(...) !== "dirty"`)
 CloseRelease(t) ==
     /\ t \in deciding
     /\ deciding' = deciding \ {t}

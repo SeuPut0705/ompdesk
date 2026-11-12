@@ -18,7 +18,7 @@ The bugs live in orders: a reload overlapping its predecessor, a drop between a 
 
 ## In the model
 
-`FileEditReporter` (send on change and on `open`), `WsRouter` attach, receive and detach, `onConnectionEnded` → `FileEditReports.forget`, the `FILE_EDIT_REPORT` handler → `report`, `edits`, `tabCloseStep`, `#closeTab`'s decision and the release after its awaits with its re-check (`stillClosable`).
+`FileEditReporter` (send on change and on `open`), `WsRouter` attach, receive and detach, `onConnectionEnded` → `FileEditReports.forget`, the `FILE_EDIT_REPORT` handler → `report`, `edits`, `tab_close_step`, the core's `close_tab` decision and the release after its awaits with its re-check (`stillClosable`).
 
 ## Not in the model
 
