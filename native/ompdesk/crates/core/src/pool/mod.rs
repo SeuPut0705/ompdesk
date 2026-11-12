@@ -1,5 +1,7 @@
 //! The sidecar pool (was `src/main/sidecar-pool.ts`'s rules and state; units 9d and 9e): a hub instance of kind `pool`.
 
+mod split;
+
 use serde_json::value::RawValue;
 
 use crate::hub::{Kind, Out, Outcome};
