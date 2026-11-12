@@ -218,7 +218,7 @@ pub async fn listen(
 /// these listeners stay open.
 pub async fn close_listeners(host: u64) {
     let listeners: Vec<JoinHandle<()>> = match super::state().hosts.get_mut(&host) {
-        Some(entry) => entry.listeners.drain(..).collect(),
+        Some(entry) => std::mem::take(&mut entry.listeners),
         None => Vec::new(),
     };
     for listener in listeners {
