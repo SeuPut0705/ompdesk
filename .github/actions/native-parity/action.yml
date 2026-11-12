@@ -50,6 +50,10 @@ runs:
         src/main/git-fingerprints*.test.ts
         src/main/ai-memory/client.test.ts
         src/main/ai-memory/service.test.ts
+        src/main/ai-memory/care.test.ts
+        src/main/ai-memory/backfill.test.ts
+        src/main/ai-memory/curate.test.ts
+        src/main/ai-memory/memory-judge.test.ts
         src/main/ai-memory/freshness*.test.ts
         src/main/ai-memory/upkeep.test.ts
         src/main/ai-memory/retitle.test.ts
