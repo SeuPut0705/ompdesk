@@ -1,7 +1,7 @@
 //! Disk care's disk work and gits (was the logic of `src/main/disk/`): folder sizes and the reading kept between runs
 //! (`sizes`), which ignored paths a project makes again (`regenerable`), a worktree's facts (`facts`), saving,
-//! archiving, restoring and dropping (`saved`), and clearing a tool's cache (`cache`), each step one request main
-//! sends (`disk.*`). Main keeps the order of the steps, its state (the saved records, the last run), what is in use
+//! archiving, restoring and dropping (`saved`), clearing a tool's cache (`cache`) and a session's scratch folder
+//! (`scratch`), each step one request main sends (`disk.*`). Main keeps the order of the steps, its state (the saved records, the last run), what is in use
 //! (open tabs, the removal claim, the running tools), the secret check (the central redactor is TypeScript), the
 //! repository lock around each step, and where things are (the user data folder, the home, the session folders, the
 //! caches). A request that runs git carries main's runner (`git`); a cancelled request starts no more disk work and
@@ -12,6 +12,7 @@ mod cache;
 mod facts;
 mod regenerable;
 mod saved;
+mod scratch;
 mod sizes;
 pub(crate) mod tree;
 
@@ -99,6 +100,14 @@ struct BlobParams {
 struct ClearParams {
     kind: cache::Kind,
     dir: String,
+}
+
+#[derive(Deserialize)]
+struct ScratchParams {
+    dir: String,
+    /// The session files whose replies may name the folder's files; absent to only read the folder.
+    #[serde(default)]
+    sessions: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -265,6 +274,20 @@ pub fn register(registry: &mut Registry) {
             let ClearParams { kind, dir } = call.params()?;
             let scope = call.scope;
             Reply::json(&blocking(move || cache::clear(kind, &dir, &scope)).await??)
+        })
+    });
+    registry.add("disk.scratchFacts", |call| {
+        Box::pin(async move {
+            let ScratchParams { dir, .. } = call.params()?;
+            let scope = call.scope;
+            Reply::json(&blocking(move || scratch::facts(&dir, &scope)).await??)
+        })
+    });
+    registry.add("disk.scratchSweep", |call| {
+        Box::pin(async move {
+            let ScratchParams { dir, sessions } = call.params()?;
+            let scope = call.scope;
+            Reply::json(&blocking(move || scratch::sweep(&dir, &sessions, &scope)).await??)
         })
     });
     registry.add("disk.saveCheck", |call| {

@@ -15,7 +15,9 @@
  *    rebase or merge, not locked: saved to a branch and the private archive, then the folder goes
  *    (`saveAndRemoveWorktree`); the Work tree view restores it.
  * 4. The app's HTTP cache past `HTTP_CACHE_MAX_BYTES` (update downloads filled it) is cleared through Electron.
- * 5. The tools' caches (`caches.ts`, one table: Bun's install cache, Bun's runtime transpiler cache, npm's cache), each
+ * 5. Closed sessions' scratch folders (`scratch.ts`): whole once their sessions are gone, else what no reply shows
+ *    once idle `DISK_CARE_ARTIFACT_IDLE_DAYS` with no tab on their tag and no process carrying it.
+ * 6. The tools' caches (`caches.ts`, one table: Bun's install cache, Bun's runtime transpiler cache, npm's cache), each
  *    cleared past its own bound while no process that needs it runs.
  *
  * Left to stock or alone, by measurement (AGENTS.md › Disk care): omp logs (stock prunes to one per process and day
@@ -55,6 +57,7 @@ import {
 	type SavedWorktreeStore,
 	saveAndRemoveWorktree,
 } from "./saved-worktrees";
+import type { ScratchCare } from "./scratch";
 import { TreeSizes } from "./tree-sizes";
 import { diskBytes, measureDiskUsage } from "./usage";
 import {
@@ -78,6 +81,8 @@ export interface DiskCareDeps extends OrphanDeps {
 	userData: string;
 	saved: SavedWorktreeStore;
 	clearHttpCache(): Promise<void>;
+	/** The sessions' scratch folders; absent: none kept (tests of the other steps). */
+	scratch?: Pick<ScratchCare, "root" | "sweep">;
 	/** How the cache step finds, asks and runs the tools whose caches it bounds. */
 	cacheTools: CacheTools;
 	/** The caches bounded (default `REGENERABLE_CACHES`; a test lowers the bounds). */
@@ -217,6 +222,14 @@ export class DiskCare {
 			const left = listed.repos.flatMap(entry => entry.worktrees).filter(orphan => !removed.has(orphan.path));
 			await this.#saveIdle(left, preRead, folders, tally);
 		});
+		await step("scratch", async () => {
+			// As the worktree steps: only where the tabs this process sees are the app's.
+			if (!this.#deps.scratch || !this.#deps.worktrees) return;
+			const swept = await this.#deps.scratch.sweep();
+			for (const bytes of swept.removed) tally.add("scratch", bytes);
+			tally.kept += swept.kept;
+			tally.failed += swept.failed;
+		});
 		// One reading of the measured folders per run, kept for the next: what did not change is not read again.
 		const sizes = new TreeSizes(path.join(this.#deps.userData, "disk-care", "sizes.json"), this.#now);
 		await sizes.load();
@@ -233,6 +246,7 @@ export class DiskCare {
 					userData: this.#deps.userData,
 					worktreeRoot: worktreeRoot ?? path.join(this.#deps.userData, "no-worktrees"),
 					caches,
+					...(this.#deps.scratch ? { scratchRoot: this.#deps.scratch.root } : {}),
 				},
 				sizes,
 			);

@@ -80,6 +80,7 @@ export const FEATURES = {
 	defaultBrowser: "Default browser for agents: ego-browser, the user's own browser or built-in (prompt section)",
 	computerUse: "Computer use engine: agent-desktop, falling back to the built-in prelude (prompt section, notice)",
 	backgroundChecks: "Long checks run as background jobs (prompt section)",
+	scratch: "A scratch folder per session for throwaway files (prompt section)",
 	checkoutPeers: "Sessions sharing a checkout (prompt section and git guard)",
 	xdevNotice: "No xd:// device listed twice in a request (mount notice)",
 	contextHookIdle: "Model requests not copied while the message filters have nothing to drop (recap, mount notice)",
@@ -475,6 +476,8 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 			[`${AGENT}/mcp/manager`]: ["MCPManager.instance()", "MCPManager.prototype.waitForStartup()"],
 		},
 	},
+	/** modes/scratch.ts: only the public `before_agent_start` hook; no internals to probe. */
+	scratch: {},
 	/** modes/background-checks.ts: reads stock `async.enabled` by id. */
 	backgroundChecks: {
 		pkg: ["Settings.instance"],

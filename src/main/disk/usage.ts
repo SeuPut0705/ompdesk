@@ -20,19 +20,23 @@ export interface DiskUsageOptions {
 	worktreeRoot: string;
 	/** The tools' caches this computer has (`locateCaches`), each its own part. */
 	caches: readonly LocatedCache[];
+	/** Where the sessions' scratch folders are (`session-scratch.ts`); absent: none kept. */
+	scratchRoot?: string;
 }
 
 /** Where OMPdesk's disk goes; each part is measured on its own (the worktree root is no part of the others). */
 function diskParts(options: DiskUsageOptions): [DiskPartId, string[]][] {
 	const omp = path.join(os.homedir(), ".omp");
-	return [
+	const parts: [DiskPartId, string[]][] = [
 		["worktrees", [options.worktreeRoot]],
 		["sessions", [path.join(agentDir(), "sessions")]],
 		["ompLogs", [path.join(omp, "logs")]],
 		["stats", [path.join(omp, "stats.db"), path.join(omp, "stats.db-wal"), path.join(omp, "stats.db-shm")]],
 		["appData", [options.userData]],
-		...options.caches.map(({ cache, dir }): [DiskPartId, string[]] => [cache.part, [dir]]),
 	];
+	if (options.scratchRoot) parts.push(["scratch", [options.scratchRoot]]);
+	for (const { cache, dir } of options.caches) parts.push([cache.part, [dir]]);
+	return parts;
 }
 
 /**

@@ -19,7 +19,8 @@ export type DiskPartId =
 	| "appData"
 	| "bunCache"
 	| "bunTranspilerCache"
-	| "npmCache";
+	| "npmCache"
+	| "scratch";
 
 export interface DiskUsagePart {
 	id: DiskPartId;
@@ -41,7 +42,8 @@ export interface DiskUsage {
  * - `http-cache`: the app's own HTTP cache cleared past its size bound;
  * - `bun-cache`: Bun's install cache cleared past its size bound while no install ran;
  * - `bun-transpiler-cache`: Bun's runtime transpiler cache cleared past its size bound;
- * - `npm-cache`: npm's cache cleared past its size bound while no npm ran.
+ * - `npm-cache`: npm's cache cleared past its size bound while no npm ran;
+ * - `scratch`: a closed session's scratch folder removed, or its files no reply shows.
  */
 export type DiskCareActionKind =
 	| "artifacts"
@@ -50,7 +52,8 @@ export type DiskCareActionKind =
 	| "http-cache"
 	| "bun-cache"
 	| "bun-transpiler-cache"
-	| "npm-cache";
+	| "npm-cache"
+	| "scratch";
 
 export type DiskCareTrigger = "launch" | "daily" | "user" | "agent";
 
@@ -68,7 +71,10 @@ export interface DiskCareRunSummary {
 	/** Sum of `actions[].bytes`. */
 	freedBytes: number;
 	actions: DiskCareActionTotal[];
-	/** Idle worktrees and caches past their bound left in place this run, each with its reason in the runtime log. */
+	/**
+	 * Idle worktrees, caches past their bound and idle scratch folders left in place this run, each with its reason in
+	 * the runtime log.
+	 */
 	kept: number;
 	failed: number;
 }

@@ -713,6 +713,7 @@ export class SidecarManager extends EventEmitter {
 			settings: this.#settings(),
 			...(this.#options.promptOrigin ? { origin: this.#options.promptOrigin } : {}),
 			...(this.#processes ? { processTag: this.#processes.tag } : {}),
+			...(this.#processes?.scratch ? { scratchDir: this.#processes.scratch } : {}),
 		};
 		const args = ompArgs(launch);
 		const bridgeAddress = launch.bridge?.address ?? null;

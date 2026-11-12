@@ -6,9 +6,9 @@ import { codedError, ipcErrorCode } from "../shared/ipc-error-codes";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import {
 	deleteSession,
+	onSessionDeleted,
 	recordSessionDelete,
 	type SessionTabs,
-	setSessionDeletedListener,
 	setSessionDeleteLog,
 } from "./session-mutations";
 
@@ -114,7 +114,7 @@ describe("deleteSession", () => {
 
 	it("tells what else keeps the session that it is gone, only once its file is deleted", async () => {
 		const told: string[] = [];
-		setSessionDeletedListener((sessionPath, device) => void told.push(`${sessionPath} ${device ?? "local"}`));
+		const stop = onSessionDeleted((sessionPath, device) => void told.push(`${sessionPath} ${device ?? "local"}`));
 		try {
 			await deleteSession(tabs(true).fake, "/s/g.jsonl", "host-b", async () => {});
 			await deleteSession(tabs(false).fake, "/s/h.jsonl", undefined, async () => {}).catch(() => undefined);
@@ -123,7 +123,7 @@ describe("deleteSession", () => {
 			}).catch(() => undefined);
 			expect(told).toEqual(["/s/g.jsonl host-b"]);
 		} finally {
-			setSessionDeletedListener(null);
+			stop();
 		}
 	});
 });

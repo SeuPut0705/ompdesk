@@ -33,6 +33,7 @@ import { z } from "zod";
 import { writeFileAtomicDeferred } from "./atomic-file";
 import { core } from "./core/process";
 import { SESSION_TAG_ENV } from "./omp-launch";
+import type { SessionScratch } from "./session-scratch";
 
 /** The file in userData that names every tab's tag. */
 export const SESSION_PROCESSES_FILE = "session-processes.json";
@@ -146,6 +147,8 @@ interface TagEntry {
 /** A tab's hold on its tag. */
 export interface SessionProcessHandle {
 	readonly tag: string;
+	/** The tab's scratch folder, named by its tag (session-scratch.ts); absent where none is kept. */
+	readonly scratch?: string;
 	/** The tab moved: another folder, another session file. */
 	update(facts: Partial<SessionProcessFacts>): void;
 	/** The tab's omp now (undefined: none runs). */
@@ -173,6 +176,8 @@ export interface SessionProcessesDeps {
 	now?(): number;
 	/** Runs `run` after `ms` (default: an unref'd timer). */
 	later?(run: () => void, ms: number): void;
+	/** The folder each tag gets for its tab's throwaway files, and which sessions it served. */
+	scratch?: Pick<SessionScratch, "open" | "session">;
 }
 
 /** What the launch's sweep keeps. */
@@ -242,10 +247,13 @@ export class SessionProcesses {
 		}
 		this.#save();
 		const held = entry;
+		const scratch = this.#deps.scratch?.open(held.record.tag, facts.sessionPath) ?? undefined;
 		return {
 			tag: held.record.tag,
+			...(scratch !== undefined ? { scratch } : {}),
 			update: next => {
 				if (held.state !== "live") return;
+				if (next.sessionPath !== undefined) this.#deps.scratch?.session(held.record.tag, next.sessionPath);
 				const record = { ...held.record, ...next };
 				if (
 					record.cwd === held.record.cwd &&
@@ -303,6 +311,13 @@ export class SessionProcesses {
 			}, options.hostedGraceMs);
 		}
 		await Promise.all(now.map(entry => this.#endEntry(entry, "relaunch")));
+	}
+
+	/** The tags a tab holds now, or the last launch left for a tab that may still take them over. */
+	held(): Set<string> {
+		return new Set(
+			[...this.#entries.values()].filter(entry => entry.state !== "ending").map(entry => entry.record.tag),
+		);
 	}
 
 	/** Every tag this app knows and whose it is. */

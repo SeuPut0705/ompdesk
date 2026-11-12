@@ -190,13 +190,7 @@ import { normalizeRuntimeErrorReport, tailLogLines } from "./runtime-log-core";
 import { fileNameOf, readRemoteFile, type SaveCopyRemote, saveCopy } from "./save-copy";
 import type { RunProcess, ScheduleService } from "./schedules";
 import type { SessionIndex } from "./session-index";
-import {
-	deleteSession,
-	moveSession,
-	recordSessionDelete,
-	renameSession,
-	setSessionDeletedListener,
-} from "./session-mutations";
+import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
 import { updateSidebarPrefs } from "./sidebar-prefs";
@@ -2014,7 +2008,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	// A deleted session leaves the closed-children record (its opener's family) with its file, also
 	// when a paired device asked the delete; a delete before this rule left its record, which goes now.
-	setSessionDeletedListener(() => agentControl.forgetDeleted());
+	onSessionDeleted(() => agentControl.forgetDeleted());
 	agentControl.forgetDeleted();
 	ipc.handle(IPC_COMMANDS.PREFS_SET, (caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {

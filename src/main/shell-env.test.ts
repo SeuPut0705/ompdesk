@@ -10,6 +10,8 @@ import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-p
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import type { AccountRotationMode } from "../shared/account-rotation";
 import { ompBunDefaults } from "./omp-runtime";
+import { SessionProcesses } from "./session-processes";
+import { SessionScratch } from "./session-scratch";
 import {
 	resetLoginShellEnvCache,
 	resolveEditorCommand,
@@ -832,6 +834,59 @@ describe("SidecarManager spawn env", () => {
 				if (value === undefined) delete process.env[key];
 				else process.env[key] = value;
 			}
+			await fs.rm(tempDir, RM_TEMP);
+		}
+	});
+	it("gives a tab's omp a scratch folder of its own, named by its tag and made before it starts", async () => {
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-sidecar-scratch-"));
+		const envPath = path.join(tempDir, "env.json");
+		const binaryPath = await writeFakeOmp(
+			tempDir,
+			`import * as fs from "node:fs/promises";\nawait fs.writeFile(${JSON.stringify(envPath)}, JSON.stringify({ tag: process.env.OMP_GUI_SESSION_TAG, scratch: process.env.OMP_GUI_SCRATCH, made: (await fs.stat(process.env.OMP_GUI_SCRATCH ?? "")).isDirectory(), temp: [process.env.TMPDIR, process.env.TEMP, process.env.TMP] }));\nprocess.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");\n${ANSWERS_COMMANDS}\n`,
+		);
+		// What a dev run started from another OMPdesk session's shell would inherit: never this tab's.
+		const inherited = process.env.OMP_GUI_SCRATCH;
+		process.env.OMP_GUI_SCRATCH = path.join(tempDir, "another-session");
+		const scratch = new SessionScratch(path.join(tempDir, "session-scratch.json"), path.join(tempDir, "scratch"), {
+			log: () => {},
+		});
+		const sidecar = new SidecarManager({
+			omp: async () => ({
+				ok: true,
+				runtime: { bin: binaryPath, version: "18.8.0", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+			}),
+			cwd: tempDir,
+			sessionProcesses: new SessionProcesses(path.join(tempDir, "session-processes.json"), {
+				frozen: () => true,
+				log: () => {},
+				scratch,
+			}),
+		});
+		try {
+			sidecar.start();
+			await expect
+				.poll(() => fs.readFile(envPath, "utf8").catch(() => ""), { timeout: 5_000, interval: 25 })
+				.not.toBe("");
+			const seen = JSON.parse(await fs.readFile(envPath, "utf8")) as {
+				tag: string;
+				scratch: string;
+				made: boolean;
+				temp: Array<string | null>;
+			};
+			expect(seen.tag).toMatch(/^[0-9a-f]{32}$/);
+			expect(seen.scratch).toBe(path.join(tempDir, "scratch", seen.tag));
+			expect(seen.made).toBe(true);
+			// The temp folder stays the user's: tools keep their shared caches and short socket paths there.
+			expect(seen.temp.map(value => value ?? undefined)).toEqual([
+				process.env.TMPDIR,
+				process.env.TEMP,
+				process.env.TMP,
+			]);
+			expect(scratch.records().map(record => record.tag)).toEqual([seen.tag]);
+		} finally {
+			sidecar.dispose();
+			if (inherited === undefined) delete process.env.OMP_GUI_SCRATCH;
+			else process.env.OMP_GUI_SCRATCH = inherited;
 			await fs.rm(tempDir, RM_TEMP);
 		}
 	});

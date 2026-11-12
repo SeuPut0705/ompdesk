@@ -1331,7 +1331,7 @@ export const APP_ACTIONS: readonly AppAction[] = [
 		id: "disk.status",
 		area: "updates",
 		description:
-			"How much disk OMPdesk uses on this computer (worktrees, sessions, logs, stats, app data, the Bun and npm caches) and what the last disk cleanup freed.",
+			"How much disk OMPdesk uses on this computer (worktrees, sessions, logs, stats, app data, session scratch files, the Bun and npm caches) and what the last disk cleanup freed.",
 		args: NO_ARGS,
 		tier: "read",
 		run: async ctx => ({ text: diskText((await ctx.invoke(C.DISK_CARE_GET_STATE)) as DiskCareState) }),

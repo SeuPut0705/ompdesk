@@ -131,6 +131,7 @@ import { currentDiagnosticsReport, type DiagnosticsDeps, registerDiagnosticsIpc 
 import { systemCacheTools } from "./disk/caches";
 import { DiskCare, registerDiskCareIpc } from "./disk/care";
 import { SavedWorktreeStore, setSavedWorktreeStore } from "./disk/saved-worktrees";
+import { ScratchCare } from "./disk/scratch";
 import { registerExtensionUpdateIpc } from "./ext-update/ipc";
 import { ExtensionUpdater } from "./ext-update/updater";
 import { EMPTY_APPLY_PLAN } from "./extension-reload";
@@ -189,8 +190,9 @@ import { ompRunLauncher, ScheduleService } from "./schedules";
 import { whenSessionFree } from "./session-free";
 import { SessionIndex } from "./session-index";
 import { SessionKindStore } from "./session-kinds";
-import { setSessionDeleteLog } from "./session-mutations";
-import { SESSION_PROCESSES_FILE, SessionProcesses } from "./session-processes";
+import { onSessionDeleted, setSessionDeleteLog } from "./session-mutations";
+import { listTaggedProcesses, SESSION_PROCESSES_FILE, SessionProcesses } from "./session-processes";
+import { defaultScratchRoot, SESSION_SCRATCH_FILE, SessionScratch } from "./session-scratch";
 import { SessionSummaries, type SummarySource } from "./session-summaries";
 import { SettleWatch } from "./settle-watch";
 import { registerSetupIpc } from "./setup/ipc";
@@ -917,9 +919,23 @@ app.whenReady().then(() => {
 	);
 	// Whose the processes a tab's omp starts are: they end once the tab is closed, and this launch ends what the
 	// sessions the last one did not bring back left running (session-processes.ts).
+	const diskCareLog = (message: string, details: Record<string, unknown>): void =>
+		writeRuntimeLog({
+			source: "disk-care",
+			message,
+			details: { level: message === "failed" ? "error" : "info", ...details },
+		});
+	// A scratch folder per tab for the files its agent makes only to do the work, named by the tab's tag
+	// (session-scratch.ts). A launch on a profile of its own (a test, `--user-data-dir`) keeps them in that profile.
+	const sessionScratch = new SessionScratch(
+		join(app.getPath("userData"), SESSION_SCRATCH_FILE),
+		userDataDirectory ? join(app.getPath("userData"), "scratch") : defaultScratchRoot(),
+		{ log: (message, details) => diskCareLog("failed", { step: "scratch", reason: message, ...details }) },
+	);
 	const sessionProcesses = new SessionProcesses(join(app.getPath("userData"), SESSION_PROCESSES_FILE), {
 		frozen: () => quitApproved(),
 		log: (message, details) => writeRuntimeLog({ source: "session-processes", message, details }),
+		scratch: sessionScratch,
 	});
 	const createLocalSidecar = localSidecarFactory({
 		bridgeDir,
@@ -2182,6 +2198,17 @@ app.whenReady().then(() => {
 	const diskCareDir = join(app.getPath("userData"), "disk-care");
 	const savedWorktrees = new SavedWorktreeStore(diskCareDir);
 	setSavedWorktreeStore(savedWorktrees);
+	const scratchCare = new ScratchCare({
+		store: sessionScratch,
+		heldTags: () => sessionProcesses.held(),
+		processes: listTaggedProcesses,
+		sessionFiles: async () => (await sessionIndex.list("global")).map(info => info.path),
+		log: diskCareLog,
+	});
+	// A deleted session's replies are never shown again: the folder that served only it goes with it.
+	onSessionDeleted((sessionPath, device) => {
+		if (device === undefined) void scratchCare.sessionDeleted(sessionPath);
+	});
 	const care = new DiskCare({
 		bridge: tablessWorktreeBridge,
 		openFolders: sessionOpenFolders,
@@ -2193,16 +2220,12 @@ app.whenReady().then(() => {
 		saved: savedWorktrees,
 		clearHttpCache: () => session.defaultSession.clearCache(),
 		cacheTools: systemCacheTools(),
+		scratch: scratchCare,
 		automatic: app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1",
 		worktrees:
 			(app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") ||
 			process.env.OMP_GUI_TEST_DISK_CARE_WORKTREES === "1",
-		log: (message, details) =>
-			writeRuntimeLog({
-				source: "disk-care",
-				message,
-				details: { level: message === "failed" ? "error" : "info", ...details },
-			}),
+		log: diskCareLog,
 		broadcast: state => {
 			for (const win of BrowserWindow.getAllWindows()) {
 				if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.DISK_CARE_STATE, state);

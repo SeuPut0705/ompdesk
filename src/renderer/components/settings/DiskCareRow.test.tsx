@@ -34,7 +34,10 @@ function diskState(partial: Partial<DiskCareState> = {}): DiskCareState {
 			total: 12 * GB,
 			parts: [
 				{ id: "worktrees", bytes: 8 * GB, path: "/w" },
+				{ id: "scratch", bytes: 1 * GB, path: "/s" },
 				{ id: "bunCache", bytes: 2 * GB, path: "/b" },
+				{ id: "bunTranspilerCache", bytes: 7 * GB, path: "/t" },
+				{ id: "npmCache", bytes: 3 * GB, path: "/n" },
 			],
 		},
 		lastRun: {
@@ -100,6 +103,36 @@ describe("DiskCareRow", () => {
 		const info = document.body.textContent ?? "";
 		expect(info).toContain(`${translate("diskCare.part.worktrees")}: 8.0 GB`);
 		expect(info).toContain(translate("diskCare.action.artifacts", { count: 4, size: "3.0 GB" }));
+	});
+
+	it("lists the session scratch files and each tool's cache as parts, and what was left in place", async () => {
+		await mount(
+			diskState({
+				lastRun: {
+					trigger: "daily",
+					startedAt: 1,
+					endedAt: 2,
+					freedBytes: 8 * GB,
+					actions: [
+						{ kind: "bun-transpiler-cache", count: 1, bytes: 7 * GB },
+						{ kind: "scratch", count: 3, bytes: 1 * GB },
+					],
+					kept: 2,
+					failed: 0,
+				},
+			}),
+		);
+		const info = document.body.textContent ?? "";
+		for (const line of [
+			`${translate("diskCare.part.scratch")}: 1.0 GB`,
+			`${translate("diskCare.part.bunCache")}: 2.0 GB`,
+			`${translate("diskCare.part.bunTranspilerCache")}: 7.0 GB`,
+			`${translate("diskCare.part.npmCache")}: 3.0 GB`,
+			translate("diskCare.action.bun-transpiler-cache", { count: 1, size: "7.0 GB" }),
+			translate("diskCare.action.scratch", { count: 3, size: "1.0 GB" }),
+			translate("diskCare.kept", { count: 2 }),
+		])
+			expect(info, line).toContain(line);
 	});
 
 	it("runs disk care from the button and is off while a run goes", async () => {

@@ -570,7 +570,7 @@ export type RuntimeErrorSource =
 	| "ai-memory"
 	/**
 	 * Disk care (src/main/disk/care.ts): `message` is run (a summary), artifacts, worktree-landed, worktree-saved,
-	 * kept (`details.reason`), http-cache, bun-cache, bun-transpiler-cache, npm-cache or failed; `details` names the
+	 * kept (`details.reason`), http-cache, bun-cache, bun-transpiler-cache, npm-cache, scratch or failed; `details` names the
 	 * path and the bytes it took.
 	 */
 	| "disk-care"

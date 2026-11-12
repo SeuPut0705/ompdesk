@@ -53,19 +53,21 @@ export async function deleteSession(
 	await deleteStored();
 	// Gone for good: no layout, marker, device or index may bring it back (deleted-sessions.ts).
 	deletedSessions().add(sessionPath, device);
-	deletedListener?.(sessionPath, device);
+	for (const listener of deletedListeners) listener(sessionPath, device);
 	tellDevices?.();
 }
 
 type SessionDeletedListener = (sessionPath: string, device: string | undefined) => void;
-let deletedListener: SessionDeletedListener | null = null;
+const deletedListeners = new Set<SessionDeletedListener>();
 
 /**
  * What else holds a deleted session and must let it go once its file is gone (ipc.ts: the closed-children record that
- * kept it in its opener's family); null stops it.
+ * kept it in its opener's family; index.ts: its scratch folder). `device`: the paired host the file was on, absent
+ * for a file of this computer. Returns the call that stops it.
  */
-export function setSessionDeletedListener(listener: SessionDeletedListener | null): void {
-	deletedListener = listener;
+export function onSessionDeleted(listener: SessionDeletedListener): () => void {
+	deletedListeners.add(listener);
+	return () => void deletedListeners.delete(listener);
 }
 
 type SessionDeleteLog = (outcome: "deleted" | "refused" | "failed", details: Record<string, string>) => void;

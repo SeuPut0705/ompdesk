@@ -16,6 +16,7 @@ import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation
 import { JUDGE_ASSIST_ENV } from "../../resources/gui-bridge/modes/judge-assist-contracts";
 import { MEMORY_ENV } from "../../resources/gui-bridge/modes/memory-recall-contracts";
 import type { NextPromptSettings } from "../../resources/gui-bridge/modes/next-prompt-contracts";
+import { SCRATCH_ENV } from "../../resources/gui-bridge/modes/scratch-core";
 import type { UserProfile } from "../../resources/gui-bridge/modes/user-profile-contracts";
 import { OMPDESK_ROLES_ENV } from "../../resources/gui-bridge/ompdesk-role-contracts";
 import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-contracts";
@@ -62,6 +63,7 @@ export const SESSION_OWNED_ENV = [
 	"OMP_GUI_ECC",
 	MEMORY_ENV,
 	SESSION_TAG_ENV,
+	SCRATCH_ENV,
 ] as const;
 
 /** `env` without any variable a session owns (`SESSION_OWNED_ENV`). */
@@ -135,6 +137,8 @@ export interface OmpLaunch {
 	readonly origin?: PromptOriginEnv;
 	/** The tab's process tag (`SESSION_TAG_ENV`); absent: its processes are not followed (tests). */
 	readonly processTag?: string;
+	/** The tab's scratch folder (`SCRATCH_ENV`, session-scratch.ts); absent: the agent is told of none. */
+	readonly scratchDir?: string;
 }
 
 /**
@@ -173,5 +177,6 @@ export function sessionEnv(launch: OmpLaunch): Record<string, string> {
 	if (builtin.root) env.OMP_GUI_REA_ROOT = builtin.root;
 	if (settings.browser) env[DEFAULT_BROWSER_ENV] = agentBrowserEnv(settings.browser);
 	if (launch.processTag) env[SESSION_TAG_ENV] = launch.processTag;
+	if (launch.scratchDir) env[SCRATCH_ENV] = launch.scratchDir;
 	return { ...env, ...builtin.env };
 }
