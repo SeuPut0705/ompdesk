@@ -30,7 +30,6 @@ import { WebWindows } from "../web/web-client-window";
 import { type RouterSocket, type Timers, WsRouter } from "../web/ws-router";
 import type { HostConnection } from "./host-server";
 import { LocalHostServices } from "./host-services";
-import { LinkTraffic, type TrafficWindow } from "./link-traffic";
 import type { PeerInfo } from "./peers-store";
 import { slimOf } from "./protocol";
 import { Link } from "./wire";
@@ -147,8 +146,6 @@ class ReplaySidecar extends EventEmitter {
 class Sink {
 	bytes = 0;
 	messages = 0;
-	/** A computer's link counter. */
-	traffic?: LinkTraffic;
 	#hash: Hash | null = null;
 	constructor(readonly hashing: boolean) {}
 	add(data: string | Uint8Array): void {
@@ -161,7 +158,6 @@ class Sink {
 		this.bytes = 0;
 		this.messages = 0;
 		this.#hash = this.hashing ? createHash("sha256") : null;
-		this.traffic?.take();
 	}
 	digest(): string {
 		return this.#hash?.digest("hex").slice(0, 16) ?? "";
@@ -201,18 +197,22 @@ class SinkSocket implements RouterSocket {
 	terminate(): void {}
 }
 
-/** A computer's link: the host's real Link over a socket that keeps what was written. */
-class SinkNetSocket extends EventEmitter {
-	constructor(readonly sink: Sink) {
-		super();
+/**
+ * A computer's link: main's real `Link`, which hands each message's JSON to the core (framing, deflate and sealing are
+ * the core's, off this thread). Its number names no link in the core, which drops what it gets; the sink keeps the
+ * JSON main handed over, so a run before and a run after can still compare what each computer got.
+ */
+class SinkLink extends Link {
+	constructor(
+		id: number,
+		readonly sink: Sink,
+	) {
+		super(id);
 	}
-	setNoDelay(): void {}
-	write(frame: Buffer): boolean {
-		this.sink.add(frame);
-		return true;
+	override send(message: object): void {
+		super.send(message);
+		this.sink.add(JSON.stringify(message));
 	}
-	end(): void {}
-	destroy(): void {}
 }
 
 class Connection implements HostConnection {
@@ -376,12 +376,8 @@ async function rig(
 	for (let index = 0; index < COMPUTERS; index++) {
 		const sink = new Sink(hashing);
 		receivers.computers.push(sink);
-		const link = new Link(new SinkNetSocket(sink) as never);
-		link.secure(key(index), key(index + 100));
-		// What `logLinkTraffic` counts on every host link, kept here so the report can say what crossed.
-		const traffic = new LinkTraffic();
-		link.onTraffic((direction, message, bytes) => traffic.record(direction, message, bytes));
-		sink.traffic = traffic;
+		const link = new SinkLink(-(index + 1), sink);
+		link.deflateSent({ context: true });
 		const peer: PeerInfo = {
 			deviceId: `computer-${index}`,
 			name: `Computer ${index}`,
@@ -409,8 +405,6 @@ interface Replay {
 	items: number;
 	events: number;
 	receivers: Record<keyof Receivers, Array<{ bytes: number; messages: number; hash: string }>>;
-	/** What the first computer's link carried, by kind. */
-	link?: TrafficWindow;
 }
 
 /** Replays the stream on fake timers, the recorded gaps included, and measures this thread's CPU over it. */
@@ -466,7 +460,6 @@ async function replay(items: Item[], options: { hashing: boolean; profile?: Insp
 				pages: summary(receivers.pages),
 				computers: summary(receivers.computers),
 			},
-			link: receivers.computers[0]?.traffic?.take(),
 		};
 	} finally {
 		vi.useRealTimers();
@@ -508,7 +501,7 @@ function readProfile(profile: { nodes: ProfileNode[]; samples: number[]; timeDel
 		["link deflate", node => /^deflated/.test(node.callFrame.functionName) && fromFile(node, "wire.ts")],
 		["link seal", node => node.callFrame.functionName === "seal" && fromFile(node, "wire.ts")],
 		["link send (JSON, frame)", node => node.callFrame.functionName === "send" && fromFile(node, "wire.ts")],
-		["link traffic count", node => fromFile(node, "link-traffic.ts")],
+		["link to the core (JSON, pipe)", node => fromFile(node, "process.ts")],
 		["link encode", node => fromFile(node, "link-events.ts")],
 		["web frame (coalesce, JSON)", node => node.callFrame.functionName === "flush" && fromFile(node, "ws-router.ts")],
 		["window clone (Electron stand-in)", node => node.callFrame.functionName === "serialize"],
@@ -595,7 +588,6 @@ describe.skipIf(!OUT)("one busy tab's fan-out", () => {
 			cpuMsPer1000Events: Math.round((median(cpu) / first.events) * 1000 * 100) / 100,
 			wallMsMedian: median(runs.map(run => run.wallMs)),
 			bytes: checked.receivers,
-			link: checked.link,
 			profile,
 		};
 		writeFileSync(path.join(OUT, `${LABEL}.json`), `${JSON.stringify(report, null, "\t")}\n`);

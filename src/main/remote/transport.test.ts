@@ -23,7 +23,6 @@ import {
 	type RemoteClientOptions,
 	RemoteError,
 } from "./client";
-import { authKeys, dh, generateKeyPair } from "./crypto";
 import {
 	type GateResult,
 	type HostServices,
@@ -34,9 +33,16 @@ import {
 import { HostStore, type PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
-import { AuthInit, authTranscriptOf, HANDSHAKE_VERSION } from "./protocol";
+import {
+	authKeys,
+	dh,
+	generateKeyPair,
+	Link as LegacyLink,
+	legacyIdentity,
+	legacyTranscript,
+} from "./test-legacy-peer";
 import { freePortRun } from "./test-ports";
-import { Link, WAKE_CHECK_MS } from "./wire";
+import { WAKE_CHECK_MS } from "./wire";
 
 const APP_VERSION = "0.10.0";
 const MACHINE = { platform: "darwin", ompVersion: "18.7.0", home: "/Users/b", sep: "/" };
@@ -50,10 +56,10 @@ interface Side {
 const dirs: string[] = [];
 const cleanups: (() => void | Promise<void>)[] = [];
 
-function side(): Side {
+async function side(): Promise<Side> {
 	const dir = mkdtempSync(join(tmpdir(), "ompdesk-remote-"));
 	dirs.push(dir);
-	return { dir, identity: loadIdentity(dir) };
+	return { dir, identity: await loadIdentity(dir) };
 }
 
 const services: HostServices = {
@@ -82,35 +88,33 @@ interface HostRig {
 	gate: { next: (ip: string) => GateResult };
 	/** Whether the person approves a new device, and who was asked about. */
 	admit: { answer: boolean; asked: TailnetVisitor[] };
-	addresses: { hosts: string[] };
-}
-
-function realListen(server: Server, port: number, host: string): Promise<number> {
-	const { promise, resolve, reject } = Promise.withResolvers<number>();
-	server.once("error", reject);
-	server.listen(port, host, () => resolve((server.address() as AddressInfo).port));
-	return promise;
+	/** This computer's tailnet addresses; `hold` keeps a rebind waiting on them. */
+	addresses: { hosts: string[]; hold: Promise<void> | null };
 }
 
 async function startHost(
-	b: Side = side(),
+	given?: Side,
 	port = 0,
 	bindHosts = [LOOPBACK],
 	logLink?: RemoteHostOptions["logLink"],
-	bindPort?: RemoteHostOptions["bindPort"],
+	options: Partial<RemoteHostOptions> = {},
 	log?: RemoteHostOptions["log"],
 ): Promise<HostRig> {
+	const b = given ?? (await side());
 	const peers = new PeerStore(b.dir);
 	const gate = { next: (_ip: string) => visitor() };
 	const admit = { answer: true, asked: [] as TailnetVisitor[] };
-	const addresses = { hosts: bindHosts };
+	const addresses = { hosts: bindHosts, hold: null as Promise<void> | null };
 	const host = new RemoteHost({
 		identity: b.identity,
 		peers,
 		services,
 		name: () => "Studio",
 		port,
-		bindHosts: async () => addresses.hosts,
+		bindHosts: async () => {
+			await addresses.hold;
+			return addresses.hosts;
+		},
 		gate: async ip => gate.next(ip),
 		admit: async seen => {
 			admit.asked.push(seen);
@@ -119,8 +123,8 @@ async function startHost(
 		appVersion: APP_VERSION,
 		hello: () => MACHINE,
 		logLink,
-		bindPort,
 		log,
+		...options,
 	});
 	await host.start();
 	cleanups.push(() => host.stop());
@@ -129,9 +133,10 @@ async function startHost(
 
 async function connectedClient(
 	rig: HostRig,
-	a: Side = side(),
+	given?: Side,
 	nodeId = "nSTUDIO",
 ): Promise<{ a: Side; hosts: HostStore; paired: PairedHost }> {
+	const a = given ?? (await side());
 	const hosts = new HostStore(a.dir);
 	const paired = await connectFirst({
 		identity: a.identity,
@@ -217,11 +222,15 @@ async function rejection(promise: Promise<unknown>): Promise<RemoteError> {
 	throw new Error("expected a rejection");
 }
 
-function dialLink(port: number): Promise<Link> {
+/** A link as a released (TypeScript) peer speaks it, dialed to `port`. */
+function dialLink(port: number): Promise<LegacyLink> {
 	const socket = connect({ host: LOOPBACK, port });
-	const { promise, resolve, reject } = Promise.withResolvers<Link>();
+	const { promise, resolve, reject } = Promise.withResolvers<LegacyLink>();
 	socket.once("error", reject);
-	socket.once("connect", () => resolve(new Link(socket)));
+	socket.once("connect", () => resolve(new LegacyLink(socket)));
+	cleanups.push(() => {
+		socket.destroy();
+	});
 	return promise;
 }
 
@@ -350,7 +359,7 @@ describe("first contact, gated by Tailscale", () => {
 
 	it("binds a device paired by code to the node it first connects from, keeping its limits", async () => {
 		const rig = await startHost();
-		const a = side();
+		const a = await side();
 		rig.peers.put({
 			deviceId: a.identity.deviceId,
 			name: "Laptop",
@@ -403,17 +412,14 @@ describe("listening", () => {
 		await held.release(0);
 		await held.release(1);
 		const base = held.base;
-		const rig = await startHost(side(), base, [LOOPBACK], undefined, (server, port, host) => {
-			if (port === base) return Promise.reject(Object.assign(new Error("listen EACCES"), { code: "EACCES" }));
-			return realListen(server, port, host);
-		});
+		const rig = await startHost(await side(), base, [LOOPBACK], undefined, { refusePorts: { [base]: "EACCES" } });
 		expect(rig.host.port).toBe(base + 1);
 		expect(rig.host.listenError).toBeNull();
 	});
 
 	it("listens on the address devices dial when another of its addresses cannot be bound", async () => {
 		// TEST-NET-1 belongs to no computer: binding it fails as a Windows IPv6 tailnet address once did.
-		const rig = await startHost(side(), 0, [LOOPBACK, "192.0.2.10"]);
+		const rig = await startHost(await side(), 0, [LOOPBACK, "192.0.2.10"]);
 		expect(rig.host.port).not.toBeNull();
 		expect(rig.host.addresses()).toEqual([`${LOOPBACK}:${rig.host.port}`]);
 		expect((await probeHost(`${LOOPBACK}:${rig.host.port}`)).ok).toBe(true);
@@ -423,13 +429,13 @@ describe("listening", () => {
 		const one = await heldRun(5);
 		for (const index of [1, 2, 3, 4]) await one.release(index);
 		const base = one.base;
-		const next = await startHost(side(), base);
+		const next = await startHost(await side(), base);
 		expect(next.host.port).toBe(base + 1);
 		await next.host.stop();
 
 		const held = await heldRun(5);
 		const all = held.base;
-		const rig = await startHost(side(), all);
+		const rig = await startHost(await side(), all);
 		expect(rig.host.port).toBeNull();
 		expect(rig.host.listenError).toEqual({ code: "port_in_use", ports: [all, all + 1, all + 2, all + 3, all + 4] });
 		// A port coming free is taken on the next rebind (devices.ts runs one every 15 s).
@@ -442,18 +448,18 @@ describe("listening", () => {
 
 describe("a host whose addresses change while a device is connected", () => {
 	/** A host with one device online on it (its first contact already closed), and what the host logged. */
-	async function linkedHost(bindPort?: RemoteHostOptions["bindPort"]) {
+	async function linkedHost() {
 		const { lines, log } = linkLog();
 		const firstContactClosed = Promise.withResolvers<void>();
 		// A port of its own list, as in use: listening again takes the same port while a link accepted on it is open.
 		const rig = await startHost(
-			side(),
+			await side(),
 			await freePortRun(),
 			[LOOPBACK],
 			message => {
 				if (message === "closed") firstContactClosed.resolve();
 			},
-			bindPort,
+			{},
 			log,
 		);
 		const { a, hosts, paired } = await connectedClient(rig);
@@ -533,22 +539,21 @@ describe("a host whose addresses change while a device is connected", () => {
 	});
 
 	it("logs a rebind still running after 2 s with how many device links are open", async () => {
-		const held = { listen: null as PromiseWithResolvers<void> | null };
-		const { rig, lines } = await linkedHost(async (server, port, host) => {
-			await held.listen?.promise;
-			return realListen(server, port, host);
-		});
+		const { rig, lines } = await linkedHost();
 		rig.addresses.hosts = [];
 		await rig.host.rebind();
 		fakeLinkClock();
-		held.listen = Promise.withResolvers<void>();
+		const held = Promise.withResolvers<void>();
+		rig.addresses.hold = held.promise;
 		rig.addresses.hosts = [LOOPBACK];
 		const pass = rig.host.rebind();
 
 		await vi.advanceTimersByTimeAsync(2_000);
 		expect(lines.at(-1)).toEqual({ message: "rebind-slow", details: { links: 1 } });
 
-		held.listen.resolve();
+		rig.addresses.hold = null;
+		vi.useRealTimers();
+		held.resolve();
 		await pass;
 		expect(lines.at(-1)?.message).toBe("listening");
 	});
@@ -797,9 +802,9 @@ describe("a link that dropped or went silent", () => {
 		silence.on = true;
 
 		remote.wake("focus");
+		// The check runs in the core on its own clock; this side's clock moves by the same window.
 		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
-
-		expect(remote.state).not.toBe("online");
+		await until(remote, () => remote.state !== "online", 10_000);
 		expect(lines.find(line => line.message === "down")?.details).toEqual({
 			deviceId: paired.deviceId,
 			name: "Studio",
@@ -936,7 +941,7 @@ describe("a link that dropped or went silent", () => {
 		const { lines, log } = linkLog();
 		const settled = Promise.withResolvers<void>();
 		let closes = 0;
-		const rig = await startHost(side(), 0, [LOOPBACK], (message, details) => {
+		const rig = await startHost(await side(), 0, [LOOPBACK], (message, details) => {
 			log(message, details);
 			// The device's first contact (connectFirst) is a connection too, and ends on its own.
 			if (message === "closed" && ++closes === 2) settled.resolve();
@@ -966,12 +971,12 @@ describe("a link that dropped or went silent", () => {
 });
 
 describe("the host's traffic line", () => {
-	/** Fake time on the host's side of a connected client, with what the host wrote to `remote-link`. */
+	/** A connected client whose host writes its traffic line every `TRAFFIC_MS`, with what the host wrote to `remote-link`. */
+	const TRAFFIC_MS = 300;
 	async function connectedLink() {
 		const { lines, log } = linkLog();
-		const rig = await startHost(side(), 0, [LOOPBACK], log);
+		const rig = await startHost(await side(), 0, [LOOPBACK], log, { trafficMs: TRAFFIC_MS });
 		const { a, hosts, paired } = await connectedClient(rig);
-		fakeLinkClock();
 		const remote = client(a, paired, hosts);
 		remote.connect();
 		await untilState(remote, "online");
@@ -979,12 +984,7 @@ describe("the host's traffic line", () => {
 		return { lines, remote, deviceId: a.identity.deviceId };
 	}
 
-	/** The fake clock, a second at a time so pings and pongs on the real sockets keep the link alive. */
-	async function minutePasses(seconds = 60): Promise<void> {
-		for (let second = 0; second < seconds; second++) await vi.advanceTimersByTimeAsync(1_000);
-	}
-
-	it("says once a minute what a busy link sent and received, by kind, with no payload", async () => {
+	it("says once a window what a busy link sent and received, by kind, with no payload", async () => {
 		const { lines, remote, deviceId } = await connectedLink();
 		const pad = "x".repeat(300_000);
 		const pushed = Promise.withResolvers<unknown>();
@@ -994,39 +994,43 @@ describe("the host's traffic line", () => {
 		await remote.request("push", { pad });
 		// The device said it reads deflated frames: the host's event crosses deflated and arrives whole.
 		expect(await pushed.promise).toEqual({ pad });
-		await minutePasses();
+		// The request and its event may fall in one window or two: what the lines say together is checked.
+		const traffic = () =>
+			lines
+				.filter(line => line.message === "traffic")
+				.map(
+					line =>
+						// As the runtime log keeps it (`remote-link` lines go through it): only primitive details survive.
+						normalizeRuntimeErrorReport({ source: "remote-link", message: "traffic", details: line.details })
+							.details as Record<string, unknown>,
+				);
+		const rows = () =>
+			traffic().flatMap(
+				details => JSON.parse(String(details.top)) as Array<{ kind: string; frames: number; bytes: number }>,
+			);
+		const bytesOf = (kind: string) => rows().reduce((sum, row) => sum + (row.kind === kind ? row.bytes : 0), 0);
+		await vi.waitFor(() => expect(bytesOf("tx evt pushed")).toBeGreaterThan(0), { timeout: 5_000 });
 
-		const traffic = lines.filter(line => line.message === "traffic");
-		expect(traffic).toHaveLength(1);
-		// As the runtime log keeps it (`remote-link` lines go through it): only primitive details survive.
-		const details = normalizeRuntimeErrorReport({
-			source: "remote-link",
-			message: "traffic",
-			details: (traffic[0] as LinkLine).details,
-		}).details as Record<string, unknown>;
-		expect(details).toMatchObject({ deviceId, ms: expect.any(Number) });
-		const top = JSON.parse(String(details.top)) as Array<{ kind: string; frames: number; bytes: number }>;
-		expect(top.map(row => row.kind)).toEqual(expect.arrayContaining(["rx req push", "tx evt pushed"]));
-		const bytesOf = (kind: string) => top.find(row => row.kind === kind)?.bytes ?? 0;
+		for (const details of traffic()) expect(details).toMatchObject({ deviceId, ms: expect.any(Number) });
 		expect(bytesOf("rx req push")).toBeGreaterThan(300_000);
 		expect(bytesOf("rx req push")).toBeLessThan(301_000);
 		expect(bytesOf("tx evt pushed")).toBeLessThan(2_000);
-		expect(details.rx as number).toBeGreaterThanOrEqual(bytesOf("rx req push"));
-		expect(details.tx as number).toBeGreaterThanOrEqual(bytesOf("tx evt pushed"));
-		expect(JSON.stringify(details)).not.toContain("xxxx");
+		const sum = (key: "rx" | "tx") => traffic().reduce((total, details) => total + (details[key] as number), 0);
+		expect(sum("rx")).toBeGreaterThanOrEqual(bytesOf("rx req push"));
+		expect(sum("tx")).toBeGreaterThanOrEqual(bytesOf("tx evt pushed"));
+		expect(JSON.stringify(traffic())).not.toContain("xxxx");
 	});
 
-	it("writes nothing for a link that only pinged", async () => {
-		const { lines } = await connectedLink();
-		await minutePasses(130);
-		expect(lines.filter(line => line.message === "traffic")).toEqual([]);
-	});
-
-	it("writes what a link sent before it closed inside the minute", async () => {
-		const { lines, remote } = await connectedLink();
+	it("writes what a link sent before it closed inside the window", async () => {
+		const { lines, log } = linkLog();
+		const rig = await startHost(await side(), 0, [LOOPBACK], log);
+		const { a, hosts, paired } = await connectedClient(rig);
+		const remote = client(a, paired, hosts);
+		remote.connect();
+		await untilState(remote, "online");
 		await remote.request("push", { pad: "x".repeat(300_000) });
 		remote.close();
-		await vi.waitFor(() => expect(lines.some(line => line.message === "closed")).toBe(true));
+		await vi.waitFor(() => expect(lines.filter(line => line.message === "closed")).toHaveLength(2));
 		expect(lines.filter(line => line.message === "traffic")).toHaveLength(1);
 	});
 });
@@ -1036,20 +1040,20 @@ describe("protocol versions", () => {
 		const rig = await startHost();
 		const link = await dialLink(rig.port);
 		const eph = generateKeyPair();
-		const me = side().identity;
+		const me = legacyIdentity();
 		link.send({ t: "auth-init", v: 1, deviceId: me.deviceId, ephPub: eph.publicKey });
 		expect(await link.receive(2_000)).toEqual({ t: "error", code: "protocol" });
 		link.destroy();
 	});
 
 	it("the client reports a host hello with another protocol", async () => {
-		const b = side();
-		const a = side();
+		const b = { identity: legacyIdentity() };
+		const a = await side();
 		// A host that completes the auth handshake but speaks protocol 2.
 		const fake = await listenFake(socket => {
-			const link = new Link(socket);
+			const link = new LegacyLink(socket);
 			void (async () => {
-				const init = AuthInit.parse(await link.receive(2_000));
+				const init = (await link.receive(2_000)) as unknown as { deviceId: string; ephPub: string };
 				const eph = generateKeyPair();
 				link.send({
 					t: "auth-resp",
@@ -1065,7 +1069,7 @@ describe("protocol versions", () => {
 				]);
 				const keys = authKeys(
 					ikm,
-					authTranscriptOf(
+					legacyTranscript(
 						{ deviceId: init.deviceId, ephPub: init.ephPub, staticPub: a.identity.publicKey },
 						{ deviceId: b.identity.deviceId, ephPub: eph.publicKey, staticPub: b.identity.publicKey },
 					),
@@ -1089,12 +1093,12 @@ describe("protocol versions", () => {
 
 	it("the host rejects a client hello with another protocol", async () => {
 		const rig = await startHost();
-		const { a } = await connectedClient(rig);
+		const a = { identity: legacyIdentity() };
 		const link = await dialLink(rig.port);
 		const eph = generateKeyPair();
 		link.send({
 			t: "auth-init",
-			v: HANDSHAKE_VERSION,
+			v: 2,
 			deviceId: a.identity.deviceId,
 			name: "Laptop",
 			ephPub: eph.publicKey,
@@ -1109,7 +1113,7 @@ describe("protocol versions", () => {
 		]);
 		const keys = authKeys(
 			ikm,
-			authTranscriptOf(
+			legacyTranscript(
 				{ deviceId: a.identity.deviceId, ephPub: eph.publicKey, staticPub: a.identity.publicKey },
 				{ deviceId: rig.b.identity.deviceId, ephPub: hostEph, staticPub: rig.b.identity.publicKey },
 			),

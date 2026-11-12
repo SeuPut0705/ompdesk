@@ -2,7 +2,8 @@
 //! job object that ends its children with it and the one that ends an ssh or a supervised command with its whole
 //! tree, physical memory and process reads, a junction, reading and ending other processes (their environment and
 //! command line, `WM_CLOSE`, SIGKILL), `ReadDirectoryChangesW`, the system random generator, and (POSIX) a supervised
-//! command's session and process group and the stop signals its supervisor waits for.
+//! command's session and process group and the stop signals its supervisor waits for, and (Windows) a loopback
+//! dial that fails at once when refused.
 #![allow(unsafe_code)]
 
 /// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
@@ -27,6 +28,55 @@ pub fn random(bytes: &mut [u8]) -> std::io::Result<()> {
         ));
     }
     Ok(())
+}
+
+/// Windows answers a refused connect by sending its SYN again (about 2 s on loopback). libuv turns those retries off
+/// for a loopback peer, so node's dial to a closed local port failed at once; a remote link's dial does the same
+/// (`remote/dial.rs`). Best effort: a Windows before 10.0.16299 refuses the option and keeps the retries.
+#[cfg(windows)]
+pub fn no_syn_retries(socket: std::os::windows::io::RawSocket) {
+    #[repr(C)]
+    struct InitialRto {
+        rtt: u16,
+        max_syn_retransmissions: u8,
+    }
+    // _WSAIOW(IOC_VENDOR, 17) and TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS, as libuv's `uv__tcp_try_connect` sets them.
+    const SIO_TCP_INITIAL_RTO: u32 = 0x9800_0011;
+    const NO_SYN_RETRANSMISSIONS: u8 = 0xFE;
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn WSAIoctl(
+            socket: usize,
+            code: u32,
+            input: *const std::ffi::c_void,
+            input_length: u32,
+            output: *mut std::ffi::c_void,
+            output_length: u32,
+            returned: *mut u32,
+            overlapped: *mut std::ffi::c_void,
+            routine: *mut std::ffi::c_void,
+        ) -> i32;
+    }
+    let parameters = InitialRto {
+        rtt: u16::from(NO_SYN_RETRANSMISSIONS),
+        max_syn_retransmissions: NO_SYN_RETRANSMISSIONS,
+    };
+    let mut returned = 0u32;
+    // SAFETY: `socket` is an open socket the caller owns; the input is a valid struct of the size passed; no output,
+    // no overlapped call; `returned` is valid for the write.
+    unsafe {
+        WSAIoctl(
+            socket as usize,
+            SIO_TCP_INITIAL_RTO,
+            (&raw const parameters).cast(),
+            std::mem::size_of::<InitialRto>() as u32,
+            std::ptr::null_mut(),
+            0,
+            &raw mut returned,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+    }
 }
 
 /// Sends SIGTERM to `pid`, a child this process has not reaped yet (so the id still names it).

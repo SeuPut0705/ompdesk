@@ -215,7 +215,7 @@ async fn transfer(
             total,
         },
     );
-    let actual = format!("{:x}", digest.finalize());
+    let actual = crate::hex(&digest.finalize());
     if actual != params.sha256 {
         return Err(Stop::Fault(Fault::new(
             "checksum",

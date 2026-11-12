@@ -110,6 +110,9 @@ export interface CoreProcessOptions {
 	timeoutMs?: number;
 }
 
+/** The event `on` hears, with no data, when a running core ended (crash, kill, `stop`). */
+export const CORE_EXITED = "core.exited";
+
 interface Frame {
 	id?: number;
 	ok?: boolean;
@@ -268,6 +271,17 @@ export class CoreProcess {
 	}
 
 	/**
+	 * Hands the core work it never answers, handled in the order pushed (a remote link's messages). Starts the core
+	 * like a request; a push to a core that ended is lost with whatever it was for.
+	 */
+	push(method: string, params: unknown, bin?: Uint8Array): void {
+		const child = this.#start();
+		const tail = bin ? `,"bin":${bin.byteLength}` : "";
+		child.stdin.write(`{"push":${JSON.stringify(method)},"params":${JSON.stringify(params, wellFormed)}${tail}}\n`);
+		if (bin) child.stdin.write(bin);
+	}
+
+	/**
 	 * Ends the core: its stdin closes, it answers what it holds and exits; after 5 s it is killed with every process it
 	 * started. Resolves once it and they are gone.
 	 */
@@ -370,6 +384,8 @@ export class CoreProcess {
 			}
 		}
 		if (!expected) this.#log(error.message);
+		// What lived in that core (a remote link, a listener) is gone with it.
+		for (const listener of this.#listeners.get(CORE_EXITED) ?? []) listener(null, null);
 		const waiting = [...this.#pending].filter(([, pending]) => pending.child === child);
 		for (const [id, pending] of waiting) {
 			this.#pending.delete(id);

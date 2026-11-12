@@ -1,29 +1,22 @@
 /**
  * The host side (B) of remote devices: a TCP server on this computer's tailnet addresses only, that lets in the
- * devices Tailscale vouches for and serves their requests through `HostServices`. No Electron imports.
+ * devices Tailscale vouches for and serves their requests through `HostServices`. No Electron imports. The listener,
+ * the handshake and the links run in the core (`crates/core/src/remote/host.rs`), which asks main at each decision:
+ * `gate` (who connects), `bind` (the device record), `open` (the device's hello and the host's answer).
  *
  * Who may connect is decided per connection by `gate` (the integration asks `tailscale whois` about the peer's
  * address: an allowed login, a node that is not blocked). The first authenticated connection of a device pins its
  * static key to its Tailscale node; later ones must come from that node with that key. A node holds one device.
  */
 import { EventEmitter } from "node:events";
-import { type AddressInfo, createServer, isIPv4, type Server, type Socket } from "node:net";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
-import { formatAddress, remotePortCandidates } from "./address";
+import { core } from "../core/process";
 import { DEVICE_RENAME_EVENT, HOST_NAME_EVENT, NAME_METHODS, NameParams } from "./app-protocol";
-import { authKeys, dh, generateKeyPair } from "./crypto";
 import type { Identity } from "./identity";
-import { logLinkTraffic } from "./link-traffic";
 import type { PeerInfo, PeerStore } from "./peers-store";
 import {
-	AuthInit,
-	authTranscriptOf,
 	ClientHello,
-	HANDSHAKE_VERSION,
-	HelloVersion,
 	type LinkSlim,
-	Opening,
-	PROTOCOL_VERSION,
 	type RefusalCode,
 	SLIM_LOG_NAMES,
 	slimOf,
@@ -31,9 +24,8 @@ import {
 	tabHolderOf,
 	WireRequest,
 } from "./protocol";
-import { Link, type WireMessage } from "./wire";
+import { Link, type Liveness, type WireMessage } from "./wire";
 
-const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** A rebind still running this long is logged once (`rebind-slow`), with the device links open meanwhile. */
 const REBIND_SLOW_MS = 2_000;
 
@@ -91,8 +83,11 @@ export interface RemoteHostOptions {
 	bindHosts: () => Promise<string[]>;
 	/** First port tried; defaults to `OMP_GUI_REMOTE_PORT` or 47821, then its successors (address.ts). */
 	port?: number;
-	/** Bind a server (tests stand in for the system refusing a port); resolves the port it listens on. */
-	bindPort?: (server: Server, port: number, host: string) => Promise<number>;
+	/** Tests: ports the system refuses, with the code it answers (`EACCES`), as Windows' excluded ranges do. */
+	refusePorts?: Record<number, string>;
+	/** Tests: the links' ping and dead timers, and how often the traffic line is written. */
+	liveness?: Liveness;
+	trafficMs?: number;
 	/** Decide who connects, from the peer's address (`::ffff:` already stripped). */
 	gate: (ip: string) => Promise<GateResult>;
 	/** A device the host never saw: may it be recorded? Resolves false to refuse it `declined`. */
@@ -158,41 +153,60 @@ function errorPayload(error: unknown): { code: string; message: string; holder?:
 	return { code: ipcErrorCode(error) ?? own ?? "remote_error", message, ...(holder ? { holder } : {}) };
 }
 
-function listen(server: Server, port: number, host: string): Promise<number> {
-	const { promise, resolve, reject } = Promise.withResolvers<number>();
-	server.once("error", reject);
-	server.listen(port, host, () => {
-		server.off("error", reject);
-		resolve((server.address() as AddressInfo).port);
+/** The core's question at one step of a device connection's handshake (`remote.ask`). */
+export interface HostAsk {
+	call: number;
+	kind: "gate" | "bind" | "open";
+	host: number;
+	link: number;
+	ip?: string;
+	init?: { deviceId: string; name: string; staticPub: string };
+	visitor?: TailnetVisitor;
+	deviceId?: string;
+	hello?: unknown;
+}
+
+const hosts = new Map<number, RemoteHost>();
+let nextHost = 0;
+let routed = false;
+
+/** The core's asks and log lines reach the host they name. */
+function route(): void {
+	if (routed) return;
+	routed = true;
+	const process = core();
+	process.on("remote.ask", data => {
+		const ask = data as HostAsk;
+		const host = hosts.get(ask.host);
+		const answer = (result: unknown) =>
+			void process.call("remote.answer", { call: ask.call, result }).catch(() => undefined);
+		if (!host) answer(ask.kind === "open" ? null : { code: "protocol" });
+		else
+			host.answerAsk(ask).then(answer, error => {
+				console.warn(`[remote] ${ask.kind} failed: ${error instanceof Error ? error.message : String(error)}`);
+				answer(ask.kind === "open" ? null : { code: "protocol" });
+			});
 	});
-	return promise;
-}
-
-function close(server: Server): Promise<void> {
-	const { promise, resolve } = Promise.withResolvers<void>();
-	server.close(() => resolve());
-	return promise;
-}
-
-/**
- * The port cannot be had on this computer, so the next one is tried: taken (EADDRINUSE), or reserved by the system
- * (EACCES: Windows' excluded port ranges for Hyper-V, WSL and Docker).
- */
-function portUnavailable(error: unknown): boolean {
-	return error instanceof Error && "code" in error && (error.code === "EADDRINUSE" || error.code === "EACCES");
-}
-
-function errorCode(error: unknown): string {
-	return error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : String(error);
+	process.on("remote.log", data => {
+		const { host, event, details } = data as { host: number; event: string; details: Record<string, unknown> };
+		hosts.get(host)?.logged(event, details);
+	});
+	process.on("remote.traffic", data => {
+		const { link, details } = data as { link: number; details: Record<string, unknown> };
+		for (const host of hosts.values()) host.traffic(link, details);
+	});
+	// After its last traffic line: a link this side destroyed still says what it carried.
+	process.on("remote.closed", data => {
+		for (const host of hosts.values()) host.forgetLink((data as { link: number }).link);
+	});
 }
 
 export class RemoteHost {
 	readonly #opts: RemoteHostOptions;
 	readonly #now: () => number;
 	readonly #emitter = new EventEmitter();
-	readonly #links = new Set<Link>();
+	readonly #id = ++nextHost;
 	readonly #connections = new Set<PeerConnection>();
-	#servers: Server[] = [];
 	/** The tailnet addresses it was asked to listen on (a rebind with the same ones changes nothing). */
 	#bound: string[] = [];
 	/** Those it listens on now: the one devices dial, and the others that took the same port. */
@@ -201,13 +215,18 @@ export class RemoteHost {
 	#listenError: ListenError | null = null;
 	#running = false;
 	#binding: Promise<void> | null = null;
-	#loggedPort: number | null = null;
 	/** What the last `listening`/`not-listening` line said: a rebind that ends the same writes nothing. */
 	#loggedListen: string | null = null;
+	/** Each connection in its handshake, by the core's link number: when it was taken in, and its device record. */
+	readonly #arriving = new Map<number, { acceptedAt: number; peer?: PeerInfo }>();
+	/** Each device link's device, until the core says the link ended (its last traffic line comes before that). */
+	readonly #linkDevices = new Map<number, string>();
 
 	constructor(opts: RemoteHostOptions) {
 		this.#opts = opts;
 		this.#now = opts.now ?? Date.now;
+		route();
+		hosts.set(this.#id, this);
 	}
 
 	/** The listening TCP port, or null while not listening. */
@@ -246,10 +265,8 @@ export class RemoteHost {
 			const wanted = [...new Set(await this.#opts.bindHosts().catch(() => []))].sort();
 			if (!this.#running) return;
 			const same = wanted.length === this.#bound.length && wanted.every((host, i) => host === this.#bound[i]);
-			if (same && (this.#servers.length > 0 || wanted.length === 0)) return;
-			this.#closeServers();
-			this.#listenError = null;
-			if (wanted.length > 0) await this.#listenOn(wanted);
+			if (same && (this.#port !== null || wanted.length === 0)) return;
+			await this.#listenOn(wanted);
 			this.#logListen(wanted.length, this.#now() - began);
 			this.#emitter.emit("listenChanged");
 		} finally {
@@ -272,78 +289,49 @@ export class RemoteHost {
 	}
 
 	/**
-	 * The first candidate port free on the address devices dial (its IPv4 tailnet address, `#hostAddresses` in
-	 * devices.ts), then the same port on the others where they take it: an address that refuses it (a Windows IPv6
-	 * tailnet address that answered EADDRINUSE for every port) never keeps the host off the one devices use.
+	 * Stops listening, then listens on `hosts` (none: nowhere): the first candidate port free on the address devices
+	 * dial (its IPv4 tailnet address, `#hostAddresses` in devices.ts), then the same port on the others where they
+	 * take it. Links accepted on the old listeners stay open: the core never waits for them, which once held the
+	 * rebind (and every later one) for as long as one device stayed connected, while the host listened nowhere.
 	 */
 	async #listenOn(hosts: string[]): Promise<void> {
-		const candidates = this.#opts.port === undefined ? remotePortCandidates() : remotePortCandidates(this.#opts.port);
-		const dialed = hosts.find(host => isIPv4(host)) ?? hosts[0];
-		if (dialed === undefined) return;
-		const bind = this.#opts.bindPort ?? listen;
-		const skipped: string[] = [];
-		for (const candidate of candidates) {
-			const server = createServer(socket => this.#accept(socket));
-			let port: number;
-			try {
-				port = await bind(server, candidate, dialed);
-			} catch (error) {
-				if (server.listening) await close(server);
-				if (portUnavailable(error)) {
-					skipped.push(`${candidate} ${errorCode(error)}`);
-					continue;
-				}
-				// Not a port of its own (the address left this computer meanwhile): the next rebind tries again.
-				this.#opts.log?.("listen-failed", { code: errorCode(error) });
-				return;
-			}
-			const servers = [server];
-			const listening = [dialed];
-			for (const host of hosts) {
-				if (host === dialed) continue;
-				const other = createServer(socket => this.#accept(socket));
-				try {
-					await bind(other, port, host);
-					servers.push(other);
-					listening.push(host);
-				} catch (error) {
-					if (other.listening) await close(other);
-					this.#opts.log?.("listen-skipped", { port, family: isIPv4(host) ? 4 : 6, code: errorCode(error) });
-				}
-			}
-			this.#servers = servers;
-			this.#bound = hosts;
-			this.#listening = listening;
-			this.#port = port;
-			if (candidate !== candidates[0] && this.#loggedPort !== port) {
-				this.#loggedPort = port;
-				this.#opts.log?.("port", { port, wanted: candidates[0], skipped: skipped.join(", ") });
-			}
-			return;
-		}
-		this.#opts.log?.("port-unavailable", { skipped: skipped.join(", ") });
-		this.#listenError = { code: "port_in_use", ports: candidates };
-	}
-
-	/**
-	 * Stops listening at once and leaves every link accepted on these listeners open: `server.close` calls back only
-	 * once each of them ended, so awaiting it held the rebind (and every later one, which shares it) for as long as one
-	 * device stayed connected, and the host listened nowhere until the app restarted.
-	 */
-	#closeServers(): void {
-		const servers = this.#servers;
-		this.#servers = [];
 		this.#bound = [];
 		this.#listening = [];
 		this.#port = null;
-		for (const server of servers) server.close();
+		this.#listenError = null;
+		const { result } = await core().call<{
+			port: number | null;
+			listening: string[];
+			listenError: ListenError | null;
+		}>("remote.hostListen", {
+			host: this.#id,
+			identity: this.#opts.identity.deviceId,
+			addresses: hosts,
+			port: this.#opts.port,
+			portSetting: process.env.OMP_GUI_REMOTE_PORT,
+			appVersion: this.#opts.appVersion,
+			traffic: this.#opts.logLink !== undefined,
+			...(this.#opts.trafficMs !== undefined ? { trafficMs: this.#opts.trafficMs } : {}),
+			...(this.#opts.liveness ? { liveness: this.#opts.liveness } : {}),
+			...(this.#opts.refusePorts ? { refuse: this.#opts.refusePorts } : {}),
+		});
+		this.#port = result.port;
+		this.#listening = result.listening;
+		this.#listenError = result.listenError;
+		if (result.port !== null) this.#bound = hosts;
 	}
 
 	async stop(): Promise<void> {
 		this.#running = false;
 		await this.#binding?.catch(() => undefined);
-		for (const link of [...this.#links]) link.destroy();
-		this.#closeServers();
+		for (const conn of [...this.#connections]) conn.link.destroy();
+		await core()
+			.call("remote.hostStop", { host: this.#id })
+			.catch(() => undefined);
+		this.#arriving.clear();
+		this.#bound = [];
+		this.#listening = [];
+		this.#port = null;
 		this.#listenError = null;
 		this.#loggedListen = null;
 	}
@@ -352,7 +340,7 @@ export class RemoteHost {
 	addresses(): string[] {
 		const port = this.#port;
 		if (port === null) return [];
-		return this.#listening.map(host => formatAddress({ host, port }));
+		return this.#listening.map(host => (host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`));
 	}
 
 	/** Peers with at least one live authenticated connection, with the OMPdesk version their newest one runs. */
@@ -383,50 +371,44 @@ export class RemoteHost {
 		this.#emitter.off(event, fn);
 	}
 
-	#accept(socket: Socket): void {
-		const ip = (socket.remoteAddress ?? "").replace(/^::ffff:/i, "");
-		const acceptedAt = this.#now();
-		const link = new Link(socket);
-		this.#links.add(link);
-		link.onClose(() => this.#links.delete(link));
-		this.#handshake(link, ip, acceptedAt).catch(() => link.destroy());
+	/** A line the core wrote about this host's listener (`port`, `listen-skipped`, ...). */
+	logged(event: string, details: Record<string, unknown>): void {
+		this.#opts.log?.(event, details);
 	}
 
-	#refuse(link: Link, t: "auth-fail" | "error", code: RefusalCode, ip: string): void {
-		this.#opts.log?.("refused", { code, ip });
-		link.send({ t, code });
-		link.close();
+	/** A device link's traffic line, if the link is one of this host's. */
+	traffic(link: number, details: Record<string, unknown>): void {
+		const deviceId = this.#linkDevices.get(link);
+		if (deviceId !== undefined) this.#opts.logLink?.("traffic", { deviceId, ...details });
 	}
 
-	async #handshake(link: Link, ip: string, acceptedAt: number): Promise<void> {
-		const first = await link.receive(HANDSHAKE_TIMEOUT_MS);
-		const opening = Opening.safeParse(first);
-		if (!opening.success) {
-			link.destroy();
-			return;
+	/** The core ended the link: no more lines come for it. */
+	forgetLink(link: number): void {
+		this.#linkDevices.delete(link);
+	}
+
+	/** The core's question at one step of a connection's handshake. */
+	async answerAsk(ask: HostAsk): Promise<unknown> {
+		if (ask.kind === "gate") {
+			this.#arriving.set(ask.link, { acceptedAt: this.#now() });
+			const gate = await this.#opts.gate(ask.ip ?? "");
+			if (!gate.ok) return this.#refused(ask, gate.code);
+			return { visitor: gate.visitor, name: this.#opts.name() };
 		}
-		if (opening.data.v !== HANDSHAKE_VERSION) {
-			link.send({ t: "error", code: "protocol" });
-			link.close();
-			return;
+		if (ask.kind === "bind") {
+			const bound = ask.init && ask.visitor ? await this.#bindDevice(ask.init, ask.visitor) : "protocol";
+			if (typeof bound === "string") return this.#refused(ask, bound);
+			const arriving = this.#arriving.get(ask.link);
+			if (arriving) arriving.peer = bound;
+			return { staticPub: bound.staticPub, name: this.#opts.name() };
 		}
-		const gate = await this.#opts.gate(ip);
-		if (opening.data.t === "probe") {
-			if (!gate.ok) return this.#refuse(link, "error", gate.code, ip);
-			link.send({
-				t: "probe-ok",
-				deviceId: this.#opts.identity.deviceId,
-				name: this.#opts.name(),
-				appVersion: this.#opts.appVersion,
-			});
-			link.close();
-			return;
-		}
-		const init = AuthInit.parse(first);
-		if (!gate.ok) return this.#refuse(link, "auth-fail", gate.code, ip);
-		const bound = await this.#bindDevice(init, gate.visitor);
-		if (typeof bound === "string") return this.#refuse(link, "auth-fail", bound, ip);
-		await this.#auth(link, init, bound, acceptedAt);
+		return this.#open(ask);
+	}
+
+	#refused(ask: HostAsk, code: RefusalCode): { code: RefusalCode } {
+		this.#arriving.delete(ask.link);
+		this.#opts.log?.("refused", { code, ip: ask.ip ?? "" });
+		return { code };
 	}
 
 	/**
@@ -434,7 +416,10 @@ export class RemoteHost {
 	 * refused until that record is removed here, so nobody gets a fresh record (and quota) by changing keys. A
 	 * record from a code-paired release (no node yet) binds to the first node it connects from with its old key.
 	 */
-	async #bindDevice(init: AuthInit, visitor: TailnetVisitor): Promise<PeerInfo | RefusalCode> {
+	async #bindDevice(
+		init: { deviceId: string; name: string; staticPub: string },
+		visitor: TailnetVisitor,
+	): Promise<PeerInfo | RefusalCode> {
 		const { peers } = this.#opts;
 		const conflict = (): boolean => {
 			const held = peers.byNode(visitor.nodeId);
@@ -468,82 +453,49 @@ export class RemoteHost {
 		return peer;
 	}
 
-	/** Auth, host side: key agreement over both static and both ephemeral keys, then hellos. */
-	async #auth(link: Link, init: AuthInit, peer: PeerInfo, acceptedAt: number): Promise<void> {
-		const { identity, peers } = this.#opts;
-		const eph = generateKeyPair();
-		link.send({
-			t: "auth-resp",
-			deviceId: identity.deviceId,
-			name: this.#opts.name(),
-			ephPub: eph.publicKey,
-			staticPub: identity.publicKey,
-		});
-		// DH(eA,eB) || DH(sA,eB) || DH(eA,sB), computed from B's side.
-		const ikm = Buffer.concat([
-			dh(eph.privateKey, init.ephPub),
-			dh(eph.privateKey, peer.staticPub),
-			dh(identity.privateKey, init.ephPub),
-		]);
-		const keys = authKeys(
-			ikm,
-			authTranscriptOf(
-				{ deviceId: init.deviceId, ephPub: init.ephPub, staticPub: peer.staticPub },
-				{ deviceId: identity.deviceId, ephPub: eph.publicKey, staticPub: identity.publicKey },
-			),
-		);
-		link.secure(keys.ba, keys.ab);
-		const first = await link.receive(HANDSHAKE_TIMEOUT_MS);
-		const version = HelloVersion.parse(first);
-		if (version.protocol !== PROTOCOL_VERSION) {
-			link.send({ t: "error", code: "protocol" });
-			link.close();
-			return;
-		}
-		const hello = ClientHello.parse(first);
-		// Removed or blocked while the handshake ran.
-		if (!peers.get(peer.deviceId)) {
-			link.destroy();
-			return;
-		}
-		link.send({
-			t: "hello",
-			protocol: PROTOCOL_VERSION,
-			appVersion: this.#opts.appVersion,
-			name: this.#opts.name(),
-			...this.#opts.hello(),
-		});
+	/**
+	 * The device's hello arrived, encrypted: check it, answer the host's hello and take the connection. Null drops it
+	 * (a hello this build cannot read, a device removed or blocked while the handshake ran).
+	 */
+	#open(ask: HostAsk): { hello: Record<string, unknown>; deflate: boolean; context: boolean } | null {
+		const arriving = this.#arriving.get(ask.link);
+		this.#arriving.delete(ask.link);
+		const parsed = ClientHello.safeParse(ask.hello);
+		const peer = arriving?.peer;
+		if (!parsed.success || !peer || !this.#opts.peers.get(peer.deviceId)) return null;
+		const hello = parsed.data;
+		const { peers } = this.#opts;
+		const answer = { appVersion: this.#opts.appVersion, name: this.#opts.name(), ...this.#opts.hello() };
 		const current = peers.update(peer.deviceId, { name: hello.name, lastSeenAt: this.#now() }) ?? peer;
+		const link = new Link(ask.link);
 		const conn = new PeerConnection(link, current, slimOf(hello), hello.appVersion);
-		if (conn.slim.deflate) link.deflateSent({ context: conn.slim.deflateContext });
+		this.#linkDevices.set(ask.link, current.deviceId);
 		this.#connections.add(conn);
 		const openedAt = this.#now();
 		// The device's build and what it can read: a busy traffic line is read against them (whole frames to an older
 		// device cost tens of times what slim ones do).
 		this.#opts.logLink?.("open", {
 			deviceId: current.deviceId,
-			ms: openedAt - acceptedAt,
+			ms: openedAt - (arriving?.acceptedAt ?? openedAt),
 			appVersion: conn.appVersion,
 			slim: slimNames(conn.slim),
 		});
-		const { logLink } = this.#opts;
-		if (logLink)
-			logLinkTraffic(link, {
-				now: this.#now,
-				log: details => logLink("traffic", { deviceId: current.deviceId, ...details }),
-			});
 		link.onClose(() => {
 			this.#opts.logLink?.("closed", {
-				deviceId: current.deviceId,
+				deviceId: conn.peer.deviceId,
 				reason: link.closeReason ?? "closed",
 				ms: this.#now() - openedAt,
 			});
 			this.#disconnected(conn);
 		});
 		link.listen(message => this.#onMessage(conn, message));
-		this.#emitter.emit("peersChanged");
-		this.#emitter.emit("connectionsChanged");
-		this.#opts.peerOpened?.(current.deviceId);
+		// Told once the core has the answer: the hello goes out before anything else on the link.
+		queueMicrotask(() => {
+			this.#emitter.emit("peersChanged");
+			this.#emitter.emit("connectionsChanged");
+			this.#opts.peerOpened?.(current.deviceId);
+		});
+		return { hello: answer, deflate: conn.slim.deflate, context: conn.slim.deflateContext };
 	}
 
 	#disconnected(conn: PeerConnection): void {

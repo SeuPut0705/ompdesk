@@ -13,6 +13,7 @@ import type { TailnetPeer } from "../tailscale/whois";
 import { WebBlocks } from "../web/blocks-store";
 import { RemoteDevices } from "./devices";
 import type { LocalHostServices } from "./host-services";
+import { loadIdentity } from "./identity";
 import { freePortRun } from "./test-ports";
 
 export const LOGIN = "me@example.com";
@@ -121,6 +122,7 @@ export class DevicesRig {
 		};
 		const devices = new RemoteDevices({
 			userData: dir,
+			identity: await loadIdentity(dir),
 			appVersion: "1.0.0",
 			prefs: { get: key => prefs.get(key), set: (key, value) => prefs.set(key, value) },
 			broadcast: (channel, data) => {

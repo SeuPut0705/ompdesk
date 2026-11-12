@@ -9,6 +9,7 @@
  * installed browsers. A browser that is not installed (`bunx playwright install chromium webkit`) skips its cases.
  * This runs in the node project because the e2e project's global setup needs the built app, which a WebCrypto check does not.
  */
+import type { JsonWebKey as NodeJsonWebKey } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -59,7 +60,7 @@ async function inPage(count: number): Promise<Made> {
 	}
 	const jwk = async (key: CryptoKey) => {
 		const { kty, crv, x, y } = await crypto.subtle.exportKey("jwk", key);
-		return { kty, crv, x, y } as JsonWebKey;
+		return { kty, crv, x, y } as NodeJsonWebKey;
 	};
 	return { publicKeyJwk: await jwk(pair.publicKey), otherPublicKeyJwk: await jwk(other.publicKey), proofs };
 }

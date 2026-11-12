@@ -269,7 +269,7 @@ function send(port: number, request: Request, extra: Header[]): Promise<Raw> {
 				const at = line.indexOf(":");
 				return [line.slice(0, at), line.slice(at + 1).trim()];
 			});
-			let rest = data.subarray(end + 4);
+			let rest: Buffer = data.subarray(end + 4);
 			const chunked = parsed.some(([k, v]) => k.toLowerCase() === "transfer-encoding" && /chunked/i.test(v));
 			if (request.method === "HEAD") rest = Buffer.alloc(0);
 			else if (chunked) rest = dechunk(rest);

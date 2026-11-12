@@ -50,6 +50,7 @@ import {
 	SIDEBAR_PROJECTS_STATE,
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
+import { core } from "../core/process";
 import type { ModelWaitTracker } from "../model-wait-count";
 import type { RelaySocket } from "../preview/relay-socket";
 import type { TailnetNode, TailscaleStatus } from "../tailscale/status";
@@ -57,7 +58,6 @@ import { isTailnetAddress } from "../tailscale/tailnet";
 import type { TailnetPeer } from "../tailscale/whois";
 import type { ResumeMarker } from "../turn-resume";
 import type { WebBlocks } from "../web/blocks-store";
-import { formatAddress, parseAddress, remotePortCandidates } from "./address";
 import {
 	AUTOPILOT_NOTICE_EVENT,
 	AutopilotNoticeEvent,
@@ -103,7 +103,7 @@ import { type GateResult, type HostMachineInfo, RemoteHost, type TailnetVisitor 
 import type { LocalHostServices } from "./host-services";
 import { HostSessionList } from "./host-session-list";
 import { HostStore, type PairedHost } from "./hosts-store";
-import { type Identity, loadIdentity } from "./identity";
+import type { Identity } from "./identity";
 import { ImageBlobCache } from "./image-blob-cache";
 import { type KeepAwakeBlocker, KeepAwakePolicy } from "./keep-awake";
 import { LinkRelaySocket } from "./link-relay-socket";
@@ -158,6 +158,8 @@ export interface TailnetAccess {
 
 export interface RemoteDevicesDeps {
 	userData: string;
+	/** This computer's remote identity, loaded by the core before the devices start (`loadIdentity`). */
+	identity: Identity;
 	appVersion: string;
 	prefs: { get(key: string): unknown; set(key: string, value: unknown): void };
 	/** Send to every window. */
@@ -231,6 +233,8 @@ export class RemoteDevices {
 	readonly #deps: RemoteDevicesDeps;
 	readonly #now: () => number;
 	readonly #identity: Identity;
+	/** The code-paired hosts' migration under way: one at a time, as two polls may overlap. */
+	#migrating: Promise<void> | null = null;
 	readonly #peers: PeerStore;
 	readonly #hosts: HostStore;
 	/** Every host's subagent pictures this device read, by content address: one folder for all tabs and hosts. */
@@ -265,7 +269,7 @@ export class RemoteDevices {
 	constructor(deps: RemoteDevicesDeps) {
 		this.#deps = deps;
 		this.#now = deps.now ?? Date.now;
-		this.#identity = loadIdentity(deps.userData);
+		this.#identity = deps.identity;
 		this.#peers = new PeerStore(deps.userData);
 		this.#hosts = new HostStore(deps.userData);
 		this.#imageBlobs = new ImageBlobCache(path.join(deps.userData, "remote-image-blobs"));
@@ -814,7 +818,18 @@ export class RemoteDevices {
 		const status = phase === "ready" ? await this.#deps.tailnet.status() : null;
 		if (status?.login) this.#deps.adoptLogin(status.login);
 		if (status?.selfName) this.#tailnetName = status.selfName;
-		if (status) this.#migrateHosts(status);
+		if (status) {
+			this.#migrating ??= this.#migrateHosts(status)
+				.catch(error =>
+					console.warn(
+						`[remote] host migration failed: ${error instanceof Error ? error.message : String(error)}`,
+					),
+				)
+				.finally(() => {
+					this.#migrating = null;
+				});
+			await this.#migrating;
+		}
 		if (status) this.#wakeReturnedHosts(status);
 		await this.#host?.rebind();
 		if (phase !== this.#phase) {
@@ -844,13 +859,16 @@ export class RemoteDevices {
 	 * the node, the host its key: a different key is refused); the rest are forgotten (named once in Settings). Runs
 	 * once Tailscale is up.
 	 */
-	#migrateHosts(status: TailscaleStatus): void {
+	async #migrateHosts(status: TailscaleStatus): Promise<void> {
 		if (typeof this.#deps.prefs.get(MIGRATED_KEY) === "number") return;
 		const forgotten: string[] = [];
 		const candidates = status.peers.filter(peer => peer.login !== null);
 		for (const host of this.#hosts.list()) {
 			if (host.nodeId !== null) continue;
-			const stored = new Set(host.addresses.map(address => parseAddress(address)?.host).filter(Boolean));
+			const { result: storedHosts } = await core().call<Array<string | null>>("remote.hostsOf", {
+				addresses: host.addresses,
+			});
+			const stored = new Set(storedHosts.filter(Boolean));
 			const name = host.name.trim().toLowerCase();
 			const node =
 				candidates.find(peer => peer.ips.some(ip => stored.has(ip))) ??
@@ -961,10 +979,13 @@ export class RemoteDevices {
 		const ip = node.ips.find(candidate => isIPv4(candidate)) ?? node.ips.find(candidate => isIP(candidate) !== 0);
 		if (!ip) return { address: null, probe: { ok: false, code: "unreachable" } };
 		const last = this.#found.get(node.nodeId);
-		const candidates = remotePortCandidates().map(port => formatAddress({ host: ip, port }));
-		const addresses = last && candidates.includes(last) ? [last, ...candidates.filter(a => a !== last)] : candidates;
+		const { result: addresses } = await core().call<string[]>("remote.addresses", {
+			ip,
+			first: last,
+			portSetting: process.env.OMP_GUI_REMOTE_PORT,
+		});
 		// This computer itself (a test's two apps on one address) is passed over.
-		const found = await probeAny(addresses, answer => answer.ok && answer.deviceId === this.#identity.deviceId);
+		const found = await probeAny(addresses, this.#identity.deviceId);
 		if (found.address) this.#found.set(node.nodeId, found.address);
 		else this.#found.delete(node.nodeId);
 		return found;
@@ -1030,8 +1051,12 @@ export class RemoteDevices {
 		const ip = node?.ips.find(candidate => isIPv4(candidate)) ?? node?.ips[0];
 		if (!ip) return [];
 		const found = this.#found.get(host.nodeId);
-		const addresses = remotePortCandidates().map(port => formatAddress({ host: ip, port }));
-		return found && addresses.includes(found) ? [found, ...addresses.filter(a => a !== found)] : addresses;
+		const { result } = await core().call<string[]>("remote.addresses", {
+			ip,
+			first: found,
+			portSetting: process.env.OMP_GUI_REMOTE_PORT,
+		});
+		return result;
 	}
 
 	#link(deviceId: string): void {

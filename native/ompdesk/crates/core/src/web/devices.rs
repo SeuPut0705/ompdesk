@@ -103,26 +103,6 @@ fn sha256_hex(text: &str) -> String {
     hex(&Sha256::digest(text.as_bytes()))
 }
 
-/// 16 random bytes in lowercase Crockford base32 (`randomDeviceId`).
-fn random_device_id() -> String {
-    let mut bytes = [0u8; 16];
-    sys::random(&mut bytes).expect("the system's random generator");
-    const ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
-    let (mut out, mut acc, mut bits) = (String::new(), 0u32, 0u32);
-    for byte in bytes {
-        acc = (acc << 8) | u32::from(byte);
-        bits += 8;
-        while bits >= 5 {
-            bits -= 5;
-            out.push(ALPHABET[((acc >> bits) & 31) as usize] as char);
-        }
-    }
-    if bits > 0 {
-        out.push(ALPHABET[((acc << (5 - bits)) & 31) as usize] as char);
-    }
-    out
-}
-
 /// The first `max` UTF-16 units of `text`, never splitting a character.
 fn take_units(text: &str, max: usize) -> String {
     let mut units = 0;
@@ -238,7 +218,7 @@ impl Devices for MemoryDevices {
         let secret = base64url(&secret);
         let name = take_units(init.name.trim_matches(super::auth::js_space), NAME_MAX);
         let device = Device {
-            device_id: random_device_id(),
+            device_id: crate::remote::crypto::random_device_id(),
             name: if name.is_empty() {
                 "Phone".to_owned()
             } else {
