@@ -149,12 +149,12 @@ export async function launchApp(options: LaunchOptions): Promise<ElectronApplica
  * Machine setup's back-off ledger (`<userData>/setup-state.json`, `SetupService`) with three automatic misses
  * today for each of `items`, so the launch leaves them alone ("Paused after failed attempts"). Each miss names
  * the version that made it: the ledger ignores another version's misses (a fixed release repairs at its first
- * launch), and the built app launched as a script runs as Electron's default app, whose `app.getVersion()` is
- * Electron's own. A ledger without it read as an older version's and the launch installed the items at once.
+ * launch), and the built app launched unpackaged takes its `app.getVersion()` from the checkout's package.json. A
+ * ledger without it read as an older version's and the launch installed the items at once.
  */
 export async function seedSetupBackoff(desktop: string, items: readonly SetupItemId[]): Promise<void> {
-	const electronPackage = JSON.parse(await readFile(path.resolve("node_modules/electron/package.json"), "utf8"));
-	const missed = { failures: 3, lastAttempt: Date.now(), app: String(electronPackage.version) };
+	const appPackage = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+	const missed = { failures: 3, lastAttempt: Date.now(), app: String(appPackage.version) };
 	await writeFile(
 		path.join(desktop, "setup-state.json"),
 		JSON.stringify(Object.fromEntries(items.map(item => [item, missed]))),
