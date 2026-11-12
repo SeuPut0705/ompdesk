@@ -39,6 +39,7 @@ import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
+import { lastReports, showReport } from "./last-reports";
 import { compactModelRoles } from "./model-role-contracts";
 import { releaseDelegationForWrite } from "./modes/delegation";
 import { OMPDESK_ROLES } from "./ompdesk-role-contracts";
@@ -502,30 +503,6 @@ async function resetProjector(
  * the TUI's own polls would otherwise spend the account's probes for nothing.
  */
 const REFRESH_FRESH_MS = 60_000;
-
-/**
- * The last report read per stored account (`provider\0credentialId`). Stock's
- * `usage.invalidate` drops its own last-good copy, so an account whose
- * refreshed probe the provider rate-limits reads as no report until stock
- * probes it again (pi-ai auth/usage-cache.ts `clearReports`; stock's last-good
- * retention, `USAGE_LAST_GOOD_RETENTION_MS`, covers only uninvalidated
- * failures). The GUI shows this one instead, with its own `fetchedAt`, so the
- * age says how old it is; for at most {@link REPORT_RETAIN_MS}, and never for
- * an account that is gone. Stock's ranking keeps its own view.
- */
-const lastReports = new Map<string, UsageReport>();
-const REPORT_RETAIN_MS = 10 * 60_000;
-
-/** The report to show for one stored account: stock's, else the last one read while still recent. */
-function showReport(provider: string, credentialId: number, report: UsageReport | null): UsageReport | null {
-	const key = `${provider}\0${credentialId}`;
-	if (report) {
-		lastReports.set(key, report);
-		return report;
-	}
-	const last = lastReports.get(key);
-	return last && Date.now() - last.fetchedAt < REPORT_RETAIN_MS ? last : null;
-}
 
 /** `UsageReport` in src/shared/rpc-types.ts, minus the limits' shape this module owns (shapeLimit). */
 interface WireUsageReport {

@@ -264,6 +264,22 @@ describe("reset passes on provider accounts", () => {
 		});
 	});
 
+	it("says what to do when the provider's check failed and no recent read could stand in", async () => {
+		await mountAccounts([limited]);
+		redeemResetPass.mockResolvedValueOnce(ok("redeem_reset_pass", { ok: false, code: "stale_offer", message: "" }));
+		await act(async () => button(translate("resetPasses.useFor", { account: "home@example.com" }))?.click());
+		const confirm = Array.from(document.body.querySelectorAll('[role="dialog"] button')).find(
+			candidate => (candidate.textContent ?? "").trim() === translate("resetPasses.use"),
+		) as HTMLButtonElement | undefined;
+		await act(async () => confirm?.click());
+
+		expect(toasts().at(-1)).toMatchObject({
+			variant: "warning",
+			title: translate("resetPasses.failed"),
+			detail: translate("resetPasses.outcome.staleRead"),
+		});
+	});
+
 	describe("an account that holds more than one kind of pass", () => {
 		const fable = {
 			clears: ["anthropic:5h", "anthropic:7d:fable"],

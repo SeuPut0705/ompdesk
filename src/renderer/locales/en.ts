@@ -1390,7 +1390,9 @@ export const en: Record<string, string> = {
 	"resetPasses.outcome.alreadyRedeemed": "That pass was already used.",
 	"resetPasses.outcome.noCredit": "No reset passes left to use.",
 	"resetPasses.outcome.listFailed":
-		"Couldn't read this account's passes. The provider turns lookups away for a few minutes when many arrive. Nothing was spent; try again in a few minutes.",
+		"Couldn't read this account's passes from the provider, and this pass can't be spent without that read. Nothing was spent; try again shortly.",
+	"resetPasses.outcome.staleRead":
+		"The provider's check before spending didn't go through, and there is no read of this account's passes from the last 15 minutes to spend from, so nothing was spent. When its quotas update, use the ticket again: the pass is then spent from that read.",
 	"resetPasses.outcome.accountUnavailable": "Couldn't sign in to this account. Sign in again, then retry.",
 	"resetPasses.outcome.inProgress": "A reset is already in progress for this account.",
 	"resetPasses.outcome.unconfirmed":

@@ -6,19 +6,20 @@
  * reset-passes-core.ts; this module binds them to the live session. The read
  * side (each account's passes) rides on the usage reads in settings.ts.
  *
- * A pass a person picked that Claude does not name next is the one spend that
- * does not go through that path, because stock refuses it (core
- * `spendChosenPass`): it is sent with stock's own offer read and claim request
- * (pi-ai `listClaudeResetCredits`, `consumeClaudeResetCredit`) over the stored
- * account's access, which never leaves this process.
+ * A confirmed pass stock does not spend (Claude names another next, or stock's
+ * read of the offer failed) is sent with stock's own offer read and claim
+ * request (pi-ai `listClaudeResetCredits`, `consumeClaudeResetCredit`) over
+ * the stored account's access, which never leaves this process; when that read
+ * fails too, from the account's last usage read (last-reports.ts).
  *
  * Stock helpers are imported inside the guarded method, so a missing export
  * fails only feature `resetPasses` (literal specifiers: see health.ts).
  */
 import { getOAuthCredentialProvider } from "@oh-my-pi/pi-ai/oauth";
 import { guard } from "./health";
+import { lastReport } from "./last-reports";
 import { asRecord } from "./params";
-import { chosenClaims, redeemResetPass } from "./reset-passes-core";
+import { type ChosenOffer, chosenClaims, redeemResetPass } from "./reset-passes-core";
 import type { BridgeMethods } from "./types";
 
 const claims = chosenClaims();
@@ -33,21 +34,13 @@ export const methods: BridgeMethods = {
 			}
 			if (creditId !== undefined && typeof creditId !== "string") throw new Error("creditId must be a string");
 			const session = env.session();
-			const { toResetUsageAccounts, describeRedeemOutcome } = await import(
-				"@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage"
-			);
+			const { describeRedeemOutcome } = await import("@oh-my-pi/pi-coding-agent/slash-commands/helpers/reset-usage");
 			const storage = session.modelRegistry.authStorage;
 			return redeemResetPass(
 				{
-					// pi-ai auth/resets.ts `#redeemAccountReset`, anthropic branch: `listClaudeResetCredits`, then
-					// `offer_changed` / `ineligible` / `no_credit` before `consumeClaudeResetCredit`. Codex's branch
-					// spends a given creditId unread. Pinned by bridge-reset-redeem-stock.test.ts.
-					verifiesOffer: provider => provider === "anthropic",
-					list: provider => session.listResetCredits(undefined, provider),
-					accounts: statuses => toResetUsageAccounts(statuses),
 					redeem: target => session.redeemResetCredit(target),
 					describe: (outcome, label) => describeRedeemOutcome(outcome, label),
-					account: async (provider, id) => {
+					account: async (provider, id, live) => {
 						const access = await storage.oauth.accessById(provider, id);
 						if (!access) return { code: "no_account" };
 						if (!access.ok) return { code: "account_unavailable" };
@@ -58,16 +51,23 @@ export const methods: BridgeMethods = {
 							// The fetch stock's own reset reads use (auth-storage.ts `usageFetch ?? fetch`).
 							fetch: (storage.usage as { fetch?: typeof fetch }).fetch ?? fetch,
 						};
-						const offer = await listClaudeResetCredits(auth);
-						if (!offer) return { code: "credit_list_failed" };
+						const read = live ? await listClaudeResetCredits(auth) : null;
+						const last = read ? undefined : lastReport(provider, id);
+						const stored: ChosenOffer | undefined = last?.resetCredits && {
+							...last.resetCredits,
+							credits: last.resetCredits.credits ?? [],
+							storedAt: last.fetchedAt,
+						};
+						const offer = read ?? stored;
+						const orgId = read?.orgId ?? access.orgId ?? last?.metadata?.orgId;
 						return {
 							...(access.email ? { email: access.email } : {}),
-							offer,
+							...(offer ? { offer } : {}),
 							spend: (credit, requestId) =>
 								consumeClaudeResetCredit({
 									...auth,
-									baseUrl: offer.baseUrl ?? auth.baseUrl,
-									orgId: offer.orgId ?? access.orgId,
+									baseUrl: read?.baseUrl ?? auth.baseUrl,
+									...(typeof orgId === "string" ? { orgId } : {}),
 									credit,
 									redeemRequestId: requestId,
 								}),

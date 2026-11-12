@@ -2382,7 +2382,9 @@ export interface ResetPassRedeemResult {
 	/**
 	 * Stock's outcome code (`reset`, `already_redeemed`, `no_credit`,
 	 * `nothing_to_reset`, `credit_list_failed`, `offer_changed`, …) or the
-	 * bridge's own refusal before spending: `not_redeemable`, `not_limited`.
+	 * bridge's own refusal before spending: `stale_offer` (the provider's
+	 * check failed and no read of the last 15 minutes stands in for it).
+	 * An older host may still send `not_redeemable`.
 	 */
 	code: string;
 	/** Stock's sentence for the outcome (English). */

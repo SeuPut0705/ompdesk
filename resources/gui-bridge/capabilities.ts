@@ -1386,10 +1386,9 @@ export const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
 	},
 	resetPasses: {
 		// reset-passes.ts (redeem) + the passes on usage / provider_accounts (settings.ts):
-		// stock's saved-reset listing, `/usage reset` helpers and redeem. A picked pass Claude does not name next is
-		// spent with stock's offer read and claim over the stored account's access.
+		// stock's `/usage reset` helpers and redeem. A confirmed pass stock does not spend (Claude names another next,
+		// or its offer read failed) is spent with stock's offer read and claim over the stored account's access.
 		session: [
-			"listResetCredits()",
 			"redeemResetCredit()",
 			"modelRegistry.authStorage.oauth.accessById()",
 			"modelRegistry.authStorage.usage.invalidate()",

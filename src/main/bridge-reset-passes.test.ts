@@ -3,11 +3,11 @@ import {
 	type ChosenAccount,
 	type ChosenSpend,
 	chosenClaims,
-	type ResetAccountStatus,
 	type ResetCreditDetail,
 	type ResetPassSurface,
 	type ResetUsageAccount,
 	redeemResetPass as redeemWith,
+	STORED_OFFER_MAX_AGE_MS,
 	shapeResetPasses,
 } from "../../resources/gui-bridge/reset-passes-core";
 
@@ -23,20 +23,12 @@ const account: ResetUsageAccount = {
 	expiresAt: "2026-10-22T00:00:00Z",
 	credit: { id: "grant_1", title: "Reset", requiresLimit: false, clears: ["anthropic:5h"] },
 };
-const status: ResetAccountStatus = {
-	provider: "anthropic",
-	credentialId: 7,
-	availableCount: 2,
-	credits: [],
-	active: true,
-};
-/** A provider whose stock redeem does not read the offer first: OMPdesk reads it, then redeems. */
-const codexStatus: ResetAccountStatus = { ...status, provider: "openai-codex" };
+/** A Codex account as stock's usage report gives it: its credits carry no id. */
 const codexAccount: ResetUsageAccount = {
 	...account,
-	target: { provider: "openai-codex", credentialId: 7, creditId: "grant_1" },
+	target: { provider: "openai-codex", credentialId: 7 },
 };
-function surface(selected: ResetUsageAccount = codexAccount, statuses: ResetAccountStatus[] = [codexStatus]) {
+function surface() {
 	const redeem = vi.fn(
 		async (): Promise<{ ok: boolean; code: string; email?: string; reason?: string; cleared?: string[] }> => ({
 			ok: true,
@@ -44,7 +36,6 @@ function surface(selected: ResetUsageAccount = codexAccount, statuses: ResetAcco
 			cleared: ["anthropic:5h"],
 		}),
 	);
-	const list = vi.fn(async (provider: string) => statuses.filter(candidate => candidate.provider === provider));
 	/** An account whose offer holds nothing that can be sent, unless a test gives it one. */
 	const account = vi.fn(
 		async (): Promise<ChosenAccount | { code: string }> => ({
@@ -54,15 +45,12 @@ function surface(selected: ResetUsageAccount = codexAccount, statuses: ResetAcco
 	);
 	const settle = vi.fn(async () => {});
 	const fake: ResetPassSurface = {
-		verifiesOffer: provider => provider === "anthropic",
-		list,
-		accounts: () => [selected],
 		redeem,
 		describe: (outcome, label) => `${label}: ${outcome.code}`,
 		account,
 		settle,
 	};
-	return { fake, redeem, list, account, settle };
+	return { fake, redeem, account, settle };
 }
 describe("stock reset selector wire projection", () => {
 	it("projects stock-selected counts, credit, expiry and coverage unchanged", () => {
@@ -92,51 +80,34 @@ describe("stock reset selector wire projection", () => {
 		expect(shapeResetPasses(undefined)).toBeUndefined();
 	});
 });
-describe("reset confirmation binding", () => {
-	it("passes the stock target and outcome through", async () => {
-		const { fake, redeem } = surface();
-		expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7, creditId: "grant_1" })).toEqual({
+describe("a Codex pass: stock's redeem reads the account's list itself", () => {
+	it("hands the redeem to stock with no read of its own, and its outcome back", async () => {
+		const { fake, redeem, account: read } = surface();
+		expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7 })).toEqual({
 			ok: true,
 			code: "reset",
-			message: "account 7: reset",
+			message: "#7: reset",
 			cleared: ["anthropic:5h"],
 		});
-		expect(redeem).toHaveBeenCalledWith(codexAccount.target);
+		expect(redeem).toHaveBeenCalledTimes(1);
+		expect(redeem).toHaveBeenCalledWith({ provider: "openai-codex", credentialId: 7 });
+		expect(read).not.toHaveBeenCalled();
 	});
-	it("does not spend a changed confirmed offer", async () => {
+	it("reports stock's refusals as they are: no Codex credit id is stored, so a failed read cannot be stood in for", async () => {
+		const { fake, redeem, account: read } = surface();
+		for (const code of ["credit_list_failed", "no_credit", "nothing_to_reset", "no_account", "already_redeemed"]) {
+			redeem.mockResolvedValueOnce({ ok: false, code });
+			expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7 })).toMatchObject({
+				ok: false,
+				code,
+			});
+		}
+		expect(read).not.toHaveBeenCalled();
+	});
+	it("passes a named pass to stock as it is", async () => {
 		const { fake, redeem } = surface();
-		expect(
-			await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7, creditId: "old-grant" }),
-		).toMatchObject({ ok: false, code: "offer_changed" });
-		expect(redeem).not.toHaveBeenCalled();
-	});
-	it("refuses stock ineligibility, listing failures, absent accounts and unsupported providers", async () => {
-		const { fake, redeem } = surface({ ...codexAccount, redeemableCount: 0, unavailableReason: "cooldown" });
-		expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7 })).toMatchObject({
-			ok: false,
-			code: "not_redeemable",
-			reason: "cooldown",
-		});
-		expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 99 })).toMatchObject({
-			code: "no_account",
-		});
-		expect(await redeemResetPass(fake, { provider: "github-copilot", credentialId: 7 })).toMatchObject({
-			code: "no_account",
-		});
-		const failed = surface(codexAccount, [{ ...codexStatus, error: "listing failed" }]);
-		expect(await redeemResetPass(failed.fake, { provider: "openai-codex", credentialId: 7 })).toMatchObject({
-			code: "credit_list_failed",
-		});
-		expect(redeem).not.toHaveBeenCalled();
-		expect(failed.redeem).not.toHaveBeenCalled();
-	});
-	it("lets stock decide nothing-to-reset without claiming success", async () => {
-		const { fake, redeem } = surface();
-		redeem.mockResolvedValueOnce({ ok: false, code: "nothing_to_reset", cleared: [] });
-		expect(await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7 })).toMatchObject({
-			ok: false,
-			code: "nothing_to_reset",
-		});
+		await redeemResetPass(fake, { provider: "openai-codex", credentialId: 7, creditId: "grant_1" });
+		expect(redeem).toHaveBeenCalledWith({ provider: "openai-codex", credentialId: 7, creditId: "grant_1" });
 	});
 });
 describe("an account's passes by kind", () => {
@@ -239,7 +210,7 @@ describe("a pass picked that Claude does not name next", () => {
 	const request = { provider: "anthropic", credentialId: 7, creditId: "g_regular" };
 	/** Stock refuses the pick (`offer_changed`); the account's offer is `credits` with `next` named next. */
 	function picked(credits: ResetCreditDetail[] = [fable, regular], next: string | null = "g_fable") {
-		const world = surface(account, [status]);
+		const world = surface();
 		world.redeem.mockResolvedValue({ ok: false, code: "offer_changed", email: "home@example.com" });
 		const spend = vi.fn(
 			async (): Promise<ChosenSpend> => ({ ok: true, code: "reset", status: 200, cleared: ["anthropic:7d"] }),
@@ -261,7 +232,7 @@ describe("a pass picked that Claude does not name next", () => {
 			cleared: ["anthropic:7d"],
 		});
 		expect(read).toHaveBeenCalledTimes(1);
-		expect(read).toHaveBeenCalledWith("anthropic", 7);
+		expect(read).toHaveBeenCalledWith("anthropic", 7, true);
 		expect(spend).toHaveBeenCalledTimes(1);
 		expect(spend).toHaveBeenCalledWith({ ...regular, usable: true }, expect.stringMatching(/^[\w-]{8,64}$/));
 		expect(settle).toHaveBeenCalledWith("anthropic");
@@ -430,9 +401,9 @@ describe("a pass picked that Claude does not name next", () => {
 		expect(await first).toMatchObject({ ok: true, code: "reset" });
 	});
 });
-describe("a provider whose stock redeem checks the live offer itself (Claude)", () => {
-	it("hands the confirmed pass straight to stock: no list of its own on the rate-limited lookup", async () => {
-		const { fake, redeem, list } = surface(account, [status]);
+describe("a Claude pass stock's redeem checks and spends itself", () => {
+	it("hands the confirmed pass straight to stock: no read of its own on the rate-limited lookup", async () => {
+		const { fake, redeem, account: read } = surface();
 		redeem.mockResolvedValueOnce({ ok: true, code: "reset", email: "home@example.com", cleared: ["anthropic:7d"] });
 		expect(await redeemResetPass(fake, { provider: "anthropic", credentialId: 7, creditId: "grant_1" })).toEqual({
 			ok: true,
@@ -440,15 +411,14 @@ describe("a provider whose stock redeem checks the live offer itself (Claude)", 
 			message: "home@example.com: reset",
 			cleared: ["anthropic:7d"],
 		});
-		expect(list).not.toHaveBeenCalled();
+		expect(read).not.toHaveBeenCalled();
 		expect(redeem).toHaveBeenCalledTimes(1);
 		expect(redeem).toHaveBeenCalledWith({ provider: "anthropic", credentialId: 7, creditId: "grant_1" });
 	});
 	it("reports stock's refusals as refusals, the account by its number when stock names none", async () => {
-		const { fake, redeem, list } = surface(account, [status]);
+		const { fake, redeem } = surface();
 		for (const refusal of [
 			{ ok: false, code: "offer_changed" },
-			{ ok: false, code: "credit_list_failed" },
 			{ ok: false, code: "ineligible", reason: "cooldown" },
 		]) {
 			redeem.mockResolvedValueOnce(refusal);
@@ -459,7 +429,6 @@ describe("a provider whose stock redeem checks the live offer itself (Claude)", 
 				...(refusal.reason ? { reason: refusal.reason } : {}),
 			});
 		}
-		expect(list).not.toHaveBeenCalled();
 	});
 });
 describe("a confirmed pass whose live check the provider turns away", () => {
@@ -475,7 +444,7 @@ describe("a confirmed pass whose live check the provider turns away", () => {
 	const request = { provider: "anthropic", credentialId: 7, creditId: "grant_1" };
 	/** Stock's redeem could not read the offer (429); the bridge holds the account's last read, `readAgo` old. */
 	function throttled(readAgo = 60_000, credits: ResetCreditDetail[] = [grant]) {
-		const world = surface(account, [status]);
+		const world = surface();
 		world.redeem.mockResolvedValue({ ok: false, code: "credit_list_failed", email: "home@example.com" });
 		const spend = vi.fn(
 			async (): Promise<ChosenSpend> => ({ ok: true, code: "reset", status: 200, cleared: ["anthropic:5h"] }),
@@ -499,5 +468,90 @@ describe("a confirmed pass whose live check the provider turns away", () => {
 		expect(spend).toHaveBeenCalledTimes(1);
 		expect(spend).toHaveBeenCalledWith({ ...grant, usable: true }, expect.stringMatching(/^[\w-]{8,64}$/));
 		expect(settle).toHaveBeenCalledWith("anthropic");
+	});
+
+	it("spends nothing when no read of the bound's age stands in, and says so", async () => {
+		const old = throttled(STORED_OFFER_MAX_AGE_MS + 1_000);
+		expect(await redeemResetPass(old.fake, request)).toEqual({
+			ok: false,
+			code: "stale_offer",
+			// What a paired device whose OMPdesk predates the code shows (stock's sentence would say "not confirmed").
+			message:
+				"home@example.com: the provider's check failed and no read of this account's passes from the last 15 minutes stands in for it, so nothing was spent.",
+		});
+		const none = throttled();
+		none.account.mockResolvedValue({ email: "home@example.com", spend: none.spend });
+		expect(await redeemResetPass(none.fake, request)).toMatchObject({ ok: false, code: "stale_offer" });
+		expect(old.spend).not.toHaveBeenCalled();
+		expect(none.spend).not.toHaveBeenCalled();
+	});
+
+	it("says the offer changed, unspent, when the last read no longer lists the pass as one to spend", async () => {
+		for (const credits of [
+			[],
+			[{ ...grant, remainingCount: 0, status: "redeemed" }],
+			[{ ...grant, status: "paused" }],
+			[{ ...grant, expiresAt: new Date(Date.now() - 1_000).toISOString() }],
+		]) {
+			const { fake, spend, settle } = throttled(60_000, credits);
+			expect(await redeemResetPass(fake, request)).toMatchObject({ ok: false, code: "offer_changed" });
+			expect(spend).not.toHaveBeenCalled();
+			expect(settle).not.toHaveBeenCalled();
+		}
+	});
+
+	it("never sends a session reset from a stored read: its claim carries no request id", async () => {
+		const session = { ...grant, id: "juniper_tide", program: "juniper_tide" };
+		const { fake, spend } = throttled(60_000, [session]);
+		expect(await redeemResetPass(fake, { ...request, creditId: "juniper_tide" })).toMatchObject({
+			ok: false,
+			code: "credit_list_failed",
+		});
+		expect(spend).not.toHaveBeenCalled();
+	});
+
+	it("reports the provider's own refusal of the claim, sent once", async () => {
+		const { fake, spend, settle } = throttled();
+		spend.mockResolvedValueOnce({ ok: false, code: "already_redeemed", status: 200 });
+		expect(await redeemResetPass(fake, request)).toMatchObject({ ok: false, code: "already_redeemed" });
+		expect(spend).toHaveBeenCalledTimes(1);
+		expect(settle).not.toHaveBeenCalled();
+	});
+
+	it("repeats an unanswered claim under its own request id on the next click, before stock is asked", async () => {
+		const { fake, redeem, account: read, spend } = throttled();
+		const claims = chosenClaims();
+		spend.mockResolvedValueOnce({ ok: false, code: "network_error", status: 0 });
+		expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "network_error" });
+		expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: true, code: "reset" });
+		expect(redeem).toHaveBeenCalledTimes(1);
+		expect(read.mock.calls).toEqual([
+			["anthropic", 7, false],
+			["anthropic", 7, true],
+		]);
+		const [first, second] = spend.mock.calls.map(call => (call as unknown as [unknown, string])[1]);
+		expect(second).toBe(first);
+	});
+
+	it("refuses a second click while the first claim is unanswered, and sends it nothing", async () => {
+		const { fake, spend } = throttled();
+		const claims = chosenClaims();
+		const answer = Promise.withResolvers<ChosenSpend>();
+		spend.mockReturnValueOnce(answer.promise);
+		const first = redeemResetPass(fake, request, claims);
+		await vi.waitFor(() => expect(spend).toHaveBeenCalledTimes(1));
+		expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "reset_in_progress" });
+		answer.resolve({ ok: true, code: "reset", status: 200 });
+		expect(await first).toMatchObject({ ok: true, code: "reset" });
+		expect(spend).toHaveBeenCalledTimes(1);
+	});
+
+	it("never claims a pass whose claim by stock went unanswered: stock holds that claim's id", async () => {
+		const { fake, redeem, spend } = throttled();
+		const claims = chosenClaims();
+		redeem.mockResolvedValueOnce({ ok: false, code: "network_error" });
+		expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "network_error" });
+		expect(await redeemResetPass(fake, request, claims)).toMatchObject({ ok: false, code: "reset_unconfirmed" });
+		expect(spend).not.toHaveBeenCalled();
 	});
 });

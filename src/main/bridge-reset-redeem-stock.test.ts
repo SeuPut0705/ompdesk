@@ -77,16 +77,35 @@ const LOST: Record<string, { leftAfter: number; claims: number }> = {
 
 /**
  * The account as Settings' accounts list read it (the bridge's `provider_accounts`: stock's plain `/usage`, whose answer
- * carries the offer), then a confirm of the pass it showed whose pre-spend check Claude turns away (429). Per route, what
- * the person confirmed, the answer, and how many claims reach Claude.
+ * carries the offer), then confirms of the pass it showed whose live check Claude turns away (429) every time. Per route:
+ * how old the list's read is made before the first confirm (`age`), Claude's answer to a claim (`lost`: the first is
+ * answered 502 after it applied, one under the same request id `already_used`), each confirm's outcome, and how many
+ * claims reach Claude.
  */
 const PLAIN_USAGE = "/api/oauth/usage";
 const LISTED_USAGE = {
 	five_hour: { utilization: 100, resets_at: FUTURE },
 	cedar_ember: { eligible: true, grants: [grant()], next_grant_id: "grant-live" },
 };
-const STORED: Record<string, { confirm: string; expected: { ok: boolean; code: string }; claims: number }> = {
-	"stored-throttled": { confirm: "grant-live", expected: { ok: true, code: "reset" }, claims: 1 },
+interface StoredCase {
+	age?: number;
+	claim: "reset" | "already_used" | "lost";
+	tries: Array<{ ok: boolean; code: string }>;
+	claims: number;
+}
+const STORED: Record<string, StoredCase> = {
+	"stored-throttled": { claim: "reset", tries: [{ ok: true, code: "reset" }], claims: 1 },
+	// Older than the bound (reset-passes-core.ts STORED_OFFER_MAX_AGE_MS, 15 min): nothing is sent.
+	"stored-stale": { age: 16 * 60_000, claim: "reset", tries: [{ ok: false, code: "stale_offer" }], claims: 0 },
+	"stored-refused": { claim: "already_used", tries: [{ ok: false, code: "already_redeemed" }], claims: 1 },
+	"stored-lost": {
+		claim: "lost",
+		tries: [
+			{ ok: false, code: "http_502" },
+			{ ok: false, code: "already_redeemed" },
+		],
+		claims: 2,
+	},
 };
 
 /**
@@ -210,6 +229,7 @@ const PROBE = `
 import { resetTickets } from "./reset-passes-core";
 import { methods } from "./reset-passes";
 import { methods as settings } from "./settings";
+import { lastReport, showReport } from "./last-reports";
 export default function (pi) {
  const run = async () => {
   try {
@@ -265,12 +285,18 @@ export default function (pi) {
     lost[name] = tries;
    }
    const storedReads = {};
-   for (const { name, confirm } of JSON.parse(process.env.OMPDESK_RESET_STORED)) {
+   for (const { name, age, tries } of JSON.parse(process.env.OMPDESK_RESET_STORED)) {
     pi.registerProvider("anthropic", { baseUrl: process.env.OMPDESK_RESET_FAKE + "/" + name });
     const listedAccounts = await settings.provider_accounts({ providerId: "anthropic" }, env);
     const shown = listedAccounts.accounts.find(entry => entry.credentialId === credentialId)?.resetPasses;
-    const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: confirm }, env);
-    storedReads[name] = { shown: shown?.creditId, ok: result.ok, code: result.code };
+    const read = lastReport("anthropic", credentialId);
+    if (age && read) showReport("anthropic", credentialId, { ...read, fetchedAt: read.fetchedAt - age });
+    const outcomes = [];
+    for (let attempt = 0; attempt < tries; attempt++) {
+     const result = await methods.reset_pass_redeem({ providerId: "anthropic", credentialId, creditId: shown?.creditId }, env);
+     outcomes.push({ ok: result.ok, code: result.code });
+    }
+    storedReads[name] = { shown: shown?.creditId, tries: outcomes };
    }
    console.error("RESET_REDEEM_PROBE=" + JSON.stringify({
     results,
@@ -323,12 +349,20 @@ function fakeClaude(received: Received[]) {
 							? KINDS
 							: kinds({ resets_left: lost.leftAfter }, "grant-regular")
 						: scripted?.usage;
-			if (STORED[name]) {
+			const listed = STORED[name];
+			if (listed) {
 				if (request.method === "GET" && route === PLAIN_USAGE) answer(200, LISTED_USAGE);
 				else if (request.method === "GET" && route === USAGE) answer(429, {});
-				else if (request.method === "POST" && route === CONSUME)
-					answer(200, { result: "reset", cleared: ["five_hour"] });
-				else answer(404, { error: "not scripted" });
+				else if (request.method === "POST" && route === CONSUME && listed.claim === "lost") {
+					const requestId = String((JSON.parse(body) as { request_id?: unknown }).request_id);
+					if (claimsBefore.length === 0) answer(502, {});
+					else answer(200, { result: claimsBefore.includes(requestId) ? "already_used" : "reset" });
+				} else if (request.method === "POST" && route === CONSUME) {
+					answer(
+						200,
+						listed.claim === "reset" ? { result: "reset", cleared: ["five_hour"] } : { result: "already_used" },
+					);
+				} else answer(404, { error: "not scripted" });
 				return;
 			}
 			if (usage && request.method === "GET" && route === USAGE) {
@@ -371,7 +405,9 @@ function runRedeemProbe(fake: string): Promise<Record<string, unknown>> {
 		OMPDESK_RESET_FAKE: fake,
 		OMPDESK_RESET_CASES: JSON.stringify(Object.entries(CASES).map(([name, { confirm }]) => ({ name, confirm }))),
 		OMPDESK_RESET_PICKS: JSON.stringify(Object.entries(PICKS).map(([name, { confirm }]) => ({ name, confirm }))),
-		OMPDESK_RESET_STORED: JSON.stringify(Object.entries(STORED).map(([name, { confirm }]) => ({ name, confirm }))),
+		OMPDESK_RESET_STORED: JSON.stringify(
+			Object.entries(STORED).map(([name, { age, tries }]) => ({ name, age, tries: tries.length })),
+		),
 		OMPDESK_RESET_LOST: JSON.stringify(Object.keys(LOST)),
 	};
 	for (const key of [
@@ -524,11 +560,13 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 	it.each(Object.entries(STORED))(
 		"through the bridge, %s: the pass the accounts list showed is spent from that read when the check is turned away",
 		(name, scripted) => {
-			const result = (probe.stored as Record<string, { shown?: string; ok: boolean; code: string }>)[name];
-			expect(result).toEqual({ shown: scripted.confirm, ...scripted.expected });
+			const result = (probe.stored as Record<string, { shown?: string; tries: unknown[] }>)[name];
+			expect(result).toEqual({ shown: "grant-live", tries: scripted.tries });
 			const routes = received.filter(entry => entry.path.startsWith(`/${name}/api/`));
-			// Stock's one pre-spend check, turned away; the bridge asks Claude for nothing more before it claims.
-			expect(routes.filter(entry => entry.path === `/${name}${USAGE}`).map(entry => entry.method)).toEqual(["GET"]);
+			// One live check per confirm (stock's, or the bridge's own when it repeats its claim), each turned away.
+			expect(routes.filter(entry => entry.path === `/${name}${USAGE}`).map(entry => entry.method)).toEqual(
+				scripted.tries.map(() => "GET"),
+			);
 			const claims = routes
 				.filter(entry => entry.method === "POST")
 				.map(entry => ({ path: entry.path, ...(JSON.parse(entry.body) as { request_id?: unknown }) }));
@@ -537,10 +575,11 @@ describe.skipIf(!existsSync(INSTALLED_OMP))("stock omp's Claude reset redeem che
 				expect(claim).toEqual({
 					path: `/${name}${CONSUME}`,
 					program: "cedar_ember",
-					grant_id: scripted.confirm,
+					grant_id: "grant-live",
 					request_id: expect.stringMatching(/^[A-Za-z0-9_-]{1,64}$/),
 				});
 			}
+			// One request id is one use spent, however often it is sent.
 			expect(new Set(claims.map(claim => claim.request_id)).size).toBe(Math.min(1, claims.length));
 		},
 	);

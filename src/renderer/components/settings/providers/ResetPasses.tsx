@@ -52,6 +52,8 @@ const OUTCOME_KEYS: Record<string, string> = {
 	already_redeemed: "resetPasses.outcome.alreadyRedeemed",
 	no_credit: "resetPasses.outcome.noCredit",
 	credit_list_failed: "resetPasses.outcome.listFailed",
+	// The bridge's own: the provider's check failed and no read of the last 15 minutes stands in for it.
+	stale_offer: "resetPasses.outcome.staleRead",
 	account_unavailable: "resetPasses.outcome.accountUnavailable",
 	reset_in_progress: "resetPasses.outcome.inProgress",
 	reset_unconfirmed: "resetPasses.outcome.unconfirmed",

@@ -141,15 +141,6 @@ export interface ResetTarget {
 	orgId?: string;
 }
 
-/** Stock `ResetCreditAccountStatus`, the fields used here. */
-export interface ResetAccountStatus extends ResetCreditsInfo {
-	provider: string;
-	credentialId: number;
-	credits: ResetCreditDetail[];
-	active: boolean;
-	error?: string;
-}
-
 /** Stock `ResetUsageAccount` (`toResetUsageAccounts`), the fields used here. */
 export interface ResetUsageAccount {
 	label: string;
@@ -177,25 +168,19 @@ export interface ResetRedeemOutcome {
 /** The stock calls a redeem makes; reset-passes.ts binds them to the live session. */
 export interface ResetPassSurface {
 	/**
-	 * Stock's redeem for this provider reads the live offer itself and refuses a changed, ineligible or missing one
-	 * before it spends (Claude). OMPdesk then lists nothing first: its own list read every account of the provider on
-	 * the same endpoint for the same answer, and that endpoint is rate-limited per source IP.
+	 * `AgentSession.redeemResetCredit`. Claude's reads the account's live offer once and spends only the pass it names
+	 * next; Codex's spends a given pass unread, else reads the account's list and spends its soonest to expire.
 	 */
-	verifiesOffer(provider: string): boolean;
-	/** `AgentSession.listResetCredits(undefined, provider)`: live offers of the provider's stored accounts. */
-	list(provider: string): Promise<ResetAccountStatus[]>;
-	/** Stock `toResetUsageAccounts`. */
-	accounts(statuses: ResetAccountStatus[]): ResetUsageAccount[];
-	/** `AgentSession.redeemResetCredit`. */
 	redeem(target: ResetTarget): Promise<ResetRedeemOutcome>;
 	/** Stock `describeRedeemOutcome`. */
 	describe(outcome: ResetRedeemOutcome, label: string): string;
 	/**
-	 * One stored account's live offer, read once, and the spend of one pass of it: pi-ai `listClaudeResetCredits` and
-	 * `consumeClaudeResetCredit` over that account's access (`authStorage.oauth.accessById`). A code when the account
-	 * is gone (`no_account`), cannot sign in (`account_unavailable`) or its offer cannot be read (`credit_list_failed`).
+	 * One stored account and the spend of one pass of it (pi-ai `consumeClaudeResetCredit` over the account's access,
+	 * `authStorage.oauth.accessById`). `live` reads its offer once (pi-ai `listClaudeResetCredits`); when that read
+	 * fails, or without `live`, the offer is the account's last usage report this bridge read (`storedAt`,
+	 * last-reports.ts). A code when the account is gone (`no_account`) or cannot sign in (`account_unavailable`).
 	 */
-	account(provider: string, credentialId: number): Promise<ChosenAccount | { code: string }>;
+	account(provider: string, credentialId: number, live: boolean): Promise<ChosenAccount | { code: string }>;
 	/** After a spend: stock drops its cached usage, so the next read asks the provider and lifts the account's blocks. */
 	settle(provider: string): Promise<void>;
 }
@@ -204,6 +189,8 @@ export interface ResetPassSurface {
 export interface ChosenOffer {
 	nextCreditId?: string;
 	credits: ResetCreditDetail[];
+	/** Not read live: the account's last usage report this bridge read (last-reports.ts), read at this time, epoch ms. */
+	storedAt?: number;
 }
 
 /** pi-ai `ClaudeResetConsumeResult`, the fields used here. */
@@ -217,7 +204,8 @@ export interface ChosenSpend {
 
 export interface ChosenAccount {
 	email?: string;
-	offer: ChosenOffer;
+	/** The live offer, else the stored one (`storedAt`); none when the live read failed and no report was read. */
+	offer?: ChosenOffer;
 	/** Spends exactly `credit` under `requestId`, the provider's idempotency key. Never retried. */
 	spend(credit: ResetCreditDetail & { id: string }, requestId: string): Promise<ChosenSpend>;
 }
@@ -282,17 +270,36 @@ function noteStockAnswer(claims: ChosenClaims, key: string, outcome: ResetRedeem
 }
 
 /**
- * Spend the pass a person picked when it is not the one the provider names next. Stock's redeem refuses that
- * (`offer_changed`: it spends only `nextCreditId`), although Claude takes any grant of the account by id, which is how
- * Claude Code spends the kind a person picks there (the owner's rule, 11 Nov 2026: every kind listed can be spent).
- * So this path reads the account's offer once and sends that one pass's claim with stock's own request.
+ * How old a stored read may be for a confirmed pass to be spent from it. With every probe answering, the last read
+ * the accounts list holds is never older than one usage poll (5 min, `USAGE_POLL_MS` in src/renderer/lib/
+ * usage-reports.ts) plus the longest life of stock's cached report (pi-ai `USAGE_REPORT_TTL_MS`, 5 min + 25 % jitter):
+ * 11.25 min. An older one means the provider has refused reads for a while, so what the dialog showed may not hold.
+ */
+export const STORED_OFFER_MAX_AGE_MS = 15 * 60_000;
+
+/**
+ * Programs whose claim carries no request id (pi-ai `consumeClaudeResetCredit`: Claude's session reset). A repeat
+ * after a lost answer would be a second claim, so stock never sends one again (auth/resets.ts) and none is sent from
+ * a stored read.
+ */
+const UNKEYED_PROGRAMS: Record<string, true> = { juniper_tide: true };
+
+/**
+ * Spend a confirmed pass by its id, with stock's own claim request, where stock's redeem does not: the provider names
+ * another pass next (`offer_changed`: stock spends only `nextCreditId`, although Claude takes any grant of the account
+ * by id, which is how Claude Code spends the kind a person picks; the owner's rule, 11 Nov 2026: every kind listed
+ * can be spent), or stock's read of the offer failed (`credit_list_failed`: the provider turned the check away).
+ *
+ * `live` reads the account's offer once. When that read fails, or without `live` (stock's read just failed), the
+ * offer is the account's last read in this bridge, the one the dialog was opened on or a newer one, while it is at
+ * most {@link STORED_OFFER_MAX_AGE_MS} old; whether the pass applies is then the provider's answer to the claim.
  *
  * A claim of the pass this path sent before and never got answered is repeated under its own request id instead,
  * whatever the provider names next now; when a use of the pass is gone meanwhile, that claim applied and nothing
  * more is sent.
  *
- * Undefined when the picked pass is gone, spent or paused, or (with no claim of it unanswered) the offer does not
- * name a different pass next: there is nothing for this path to send.
+ * Undefined when the offer lists the pass gone, spent, expired or paused, or (read live, with no claim of it
+ * unanswered) does not name a different pass next: there is nothing for this path to send.
  */
 async function spendChosenPass(
 	surface: ResetPassSurface,
@@ -300,23 +307,32 @@ async function spendChosenPass(
 	provider: string,
 	credentialId: number,
 	creditId: string,
+	live: boolean,
 ): Promise<ResetRedeemOutcome | undefined> {
 	if (claims.running.has(credentialId)) return { ok: false, code: "reset_in_progress", provider };
 	claims.running.add(credentialId);
 	try {
 		const key = claimKey(credentialId, creditId);
-		const account = await surface.account(provider, credentialId);
+		const account = await surface.account(provider, credentialId, live);
 		if ("code" in account) return { ok: false, code: account.code, provider };
 		const identity = { provider, creditId, ...(account.email ? { email: account.email } : {}) };
 		const { offer } = account;
+		const storedAt = offer?.storedAt;
+		if (!offer || (storedAt !== undefined && Date.now() - storedAt > STORED_OFFER_MAX_AGE_MS)) {
+			return { ...identity, ok: false, code: "stale_offer" };
+		}
 		const credit = offer.credits.find(candidate => candidate.id === creditId);
 		const held = claims.unsettled.get(key);
-		if (!credit || !choosable(credit)) {
-			// A claim of a pass that left the offer can never be answered (stock drops its own the same way).
-			claims.unsettled.delete(key);
+		if (!credit || !choosable(credit) || expiryMs(credit) <= Date.now()) {
+			// A claim of a pass that left the offer can never be answered (stock drops its own the same way). Only a
+			// live read says it left: a stored one may be older than the claim.
+			if (storedAt === undefined) claims.unsettled.delete(key);
 			return undefined;
 		}
-		if (!held && (!offer.nextCreditId || offer.nextCreditId === creditId)) return undefined;
+		if (storedAt !== undefined && UNKEYED_PROGRAMS[credit.program ?? ""]) {
+			return { ...identity, ok: false, code: "credit_list_failed" };
+		}
+		if (!held && storedAt === undefined && (!offer.nextCreditId || offer.nextCreditId === creditId)) return undefined;
 		if (held?.left !== undefined && credit.remainingCount !== undefined && credit.remainingCount < held.left) {
 			claims.unsettled.delete(key);
 			await surface.settle(provider);
@@ -345,7 +361,7 @@ export interface RedeemRequest {
 	/** Credential provider (`getOAuthCredentialProvider` of the login provider). */
 	provider: string;
 	credentialId: number;
-	/** The pass the user confirmed; a different live pick is refused unspent. */
+	/** The pass the person confirmed: the only one this redeem may spend. */
 	creditId?: string;
 }
 
@@ -358,25 +374,26 @@ export interface RedeemResult {
 	cleared?: string[];
 }
 
-const refusal = (code: string, message: string, reason?: string): RedeemResult => ({
-	ok: false,
-	code,
-	message,
-	...(reason ? { reason } : {}),
-});
+/** Outcomes only this bridge gives, worded for a viewer whose OMPdesk predates them (it shows `message`). */
+const OWN_MESSAGES: Record<string, string> = {
+	stale_offer:
+		"the provider's check failed and no read of this account's passes from the last 15 minutes stands in for it, so nothing was spent",
+};
 
 const outcomeResult = (surface: ResetPassSurface, outcome: ResetRedeemOutcome, label: string): RedeemResult => ({
 	ok: outcome.ok,
 	code: outcome.code,
-	message: surface.describe(outcome, label),
+	message: OWN_MESSAGES[outcome.code] ? `${label}: ${OWN_MESSAGES[outcome.code]}.` : surface.describe(outcome, label),
 	...(outcome.reason ? { reason: outcome.reason } : {}),
 	...(outcome.cleared?.length ? { cleared: outcome.cleared } : {}),
 });
 
 /**
- * Spend the pass the user confirmed. Where stock's redeem checks the live offer itself, the confirmed pass goes
- * straight to it; elsewhere the offer is read here first and a changed confirmation is refused before stock redeems.
- * A confirmed pass stock refuses only because the provider names another one next is spent by `spendChosenPass`.
+ * Spend the pass the person confirmed. Stock's redeem goes first: Claude's reads the live offer and spends the pass it
+ * names next, Codex's spends its soonest (stock's Codex usage report carries no credit ids, so a Codex redeem names
+ * none and needs that read). A confirmed pass stock refuses because the provider names another next, or could not
+ * check because its read failed, is spent by `spendChosenPass`; in the second case from the last read the dialog was
+ * built on, so a lookup the provider throttles never stands between a person and the pass they confirmed.
  *
  * One pass is never claimed under two request ids while an earlier claim of it may still have applied: a claim
  * `spendChosenPass` sent and never got answered is repeated by it before stock is asked (stock would send a new one
@@ -388,52 +405,28 @@ export async function redeemResetPass(
 	claims: ChosenClaims,
 ): Promise<RedeemResult> {
 	const { provider, credentialId, creditId } = request;
-	if (surface.verifiesOffer(provider)) {
-		const key = creditId ? claimKey(credentialId, creditId) : undefined;
-		const result = (outcome: ResetRedeemOutcome, email?: string) =>
-			outcomeResult(surface, outcome, outcome.email ?? email ?? `#${credentialId}`);
-		if (key && creditId && claims.unsettled.has(key)) {
-			return result(
-				(await spendChosenPass(surface, claims, provider, credentialId, creditId)) ?? {
-					ok: false,
-					code: "offer_changed",
-					provider,
-				},
-			);
-		}
-		const refused = await surface.redeem({ provider, credentialId, ...(creditId ? { creditId } : {}) });
-		if (key) noteStockAnswer(claims, key, refused);
-		if (refused.code !== "offer_changed" || !key || !creditId) return result(refused);
-		if (claims.stockUnsettled.has(key)) return result({ ...refused, code: "reset_unconfirmed" });
+	const result = (outcome: ResetRedeemOutcome, email?: string) =>
+		outcomeResult(surface, outcome, outcome.email ?? email ?? `#${credentialId}`);
+	if (creditId && claims.unsettled.has(claimKey(credentialId, creditId))) {
 		return result(
-			(await spendChosenPass(surface, claims, provider, credentialId, creditId)) ?? refused,
-			refused.email,
+			(await spendChosenPass(surface, claims, provider, credentialId, creditId, true)) ?? {
+				ok: false,
+				code: "offer_changed",
+				provider,
+			},
 		);
 	}
-	const status = (await surface.list(provider)).find(candidate => candidate.credentialId === credentialId);
-	if (!status) return refusal("no_account", `Could not find the stored account #${credentialId}.`);
-	const account = surface.accounts([status])[0];
-	const label = account?.label ?? `#${credentialId}`;
-	if (!account || status.error) {
-		return refusal(
-			"credit_list_failed",
-			`${label}: couldn't load this account's saved resets (network/auth) — nothing was spent, try again.`,
-			status.error,
-		);
-	}
-	const passes = shapeResetPasses(account);
-	if (!passes || passes.usableCount <= 0) {
-		const reason = passes?.unavailableReason;
-		return refusal(
-			passes ? "not_redeemable" : "no_credit",
-			passes
-				? `${label}: no saved resets usable right now${reason ? ` (${reason})` : ""}.`
-				: `${label}: no saved resets available to spend.`,
-			reason,
-		);
-	}
-	if (request.creditId !== undefined && account.target.creditId !== request.creditId) {
-		return refusal("offer_changed", `${label}: the reset offer changed — nothing was spent; check it and try again.`);
-	}
-	return outcomeResult(surface, await surface.redeem(account.target), label);
+	const refused = await surface.redeem({ provider, credentialId, ...(creditId ? { creditId } : {}) });
+	if (!creditId) return result(refused);
+	const key = claimKey(credentialId, creditId);
+	noteStockAnswer(claims, key, refused);
+	const live = refused.code === "offer_changed";
+	if (!live && refused.code !== "credit_list_failed") return result(refused);
+	if (claims.stockUnsettled.has(key)) return result({ ...refused, code: "reset_unconfirmed" });
+	return result(
+		(await spendChosenPass(surface, claims, provider, credentialId, creditId, live)) ??
+			// Stored: a newer read than the dialog's no longer lists the pass.
+			(live ? refused : { ...refused, code: "offer_changed" }),
+		refused.email,
+	);
 }
