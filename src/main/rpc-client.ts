@@ -1,10 +1,8 @@
 /**
- * Typed RPC client with id correlation and timeout.
- *
- * `command()` is the single send path every main-process caller uses (renderer
- * passthrough, idle-session commands, health checks). Commands with a GUI-side
- * handler (src/main/local) are answered in-process and never reach omp;
- * `stock()` always goes to the omp sidecar.
+ * Main's facade over a tab's omp commands: `command()` is the single send path every main-process caller uses
+ * (renderer passthrough, idle-session commands, health checks). Commands with a GUI-side handler (src/main/local) are
+ * answered in-process and never reach omp; everything else, and `stock()` always, goes to omp through the tab's lane in
+ * the core (`SidecarManager`'s `send`: a `sidecar.command` request whose answer is an event, in order with the frames).
  */
 import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 
@@ -19,34 +17,25 @@ export class RpcTimeoutError extends Error {
 	}
 }
 
-interface PendingRequest {
-	command: RpcCommand;
-	resolve: (response: RpcResponse) => void;
-	reject: (error: Error) => void;
-	timer: NodeJS.Timeout | undefined;
-}
-
 export interface RpcClientOptions {
+	/** Sends a stock command to omp and resolves with its response; `Number.POSITIVE_INFINITY`: no deadline. */
+	send: (command: RpcCommand, timeoutMs: number) => Promise<RpcResponse>;
 	timeout?: number;
 	/** Answers a GUI-side command, or returns undefined to forward it to omp. */
 	local?: (command: RpcCommand & { id: string }) => Promise<RpcResponse> | undefined;
-	/** Sees every correlated omp response, after the caller's promise settles. */
-	observe?: (command: RpcCommand, response: RpcResponse) => void;
 }
 
 export class RpcClient {
-	#pending = new Map<string, PendingRequest>();
 	#nextId = 0;
-	#send: (frame: object) => void;
-	#timeout: number;
-	#local: RpcClientOptions["local"];
-	#observe: RpcClientOptions["observe"];
+	#retired = false;
+	readonly #send: RpcClientOptions["send"];
+	readonly #timeout: number;
+	readonly #local: RpcClientOptions["local"];
 
-	constructor(send: (frame: object) => void, options: RpcClientOptions = {}) {
-		this.#send = send;
+	constructor(options: RpcClientOptions) {
+		this.#send = options.send;
 		this.#timeout = options.timeout ?? DEFAULT_TIMEOUT_MS;
 		this.#local = options.local;
-		this.#observe = options.observe;
 	}
 
 	/**
@@ -57,7 +46,7 @@ export class RpcClient {
 		// Always a fresh id: renderer-chosen ids are only unique per window.
 		const id = `gui-${++this.#nextId}`;
 		const local = this.#local?.({ ...cmd, id });
-		if (!local) return this.#stock(cmd, id, timeoutMs);
+		if (!local) return this.stock(cmd, timeoutMs);
 		const timeout = timeoutMs ?? this.#timeout;
 		// setTimeout would read Infinity as 1 ms.
 		if (!Number.isFinite(timeout)) return local;
@@ -67,52 +56,14 @@ export class RpcClient {
 		return promise;
 	}
 
-	/** Send straight to omp, bypassing GUI-side handlers. `Number.POSITIVE_INFINITY`: no deadline (only an answer or `rejectAll` settles it). */
-	stock(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
-		return this.#stock(cmd, `gui-${++this.#nextId}`, timeoutMs);
+	/** Send straight to omp, bypassing GUI-side handlers. `Number.POSITIVE_INFINITY`: no deadline (only an answer or the omp's end settles it). */
+	async stock(cmd: RpcCommand, timeoutMs?: number): Promise<RpcResponse> {
+		// The omp this client was made for is gone: a command no longer reaches the tab's next omp.
+		if (this.#retired) throw new Error("Sidecar disconnected");
+		return this.#send(cmd, timeoutMs ?? this.#timeout);
 	}
 
-	#stock(cmd: RpcCommand, id: string, timeoutMs?: number): Promise<RpcResponse> {
-		const { promise, resolve, reject } = Promise.withResolvers<RpcResponse>();
-		const timeout = timeoutMs ?? this.#timeout;
-		// setTimeout would read Infinity as 1 ms.
-		const timer = Number.isFinite(timeout)
-			? setTimeout(() => {
-					this.#pending.delete(id);
-					reject(new RpcTimeoutError(timeout, cmd.type));
-				}, timeout)
-			: undefined;
-		this.#pending.set(id, { command: cmd, resolve, reject, timer });
-		this.#send({ ...cmd, id });
-		return promise;
-	}
-
-	/** The types of the stock commands omp has not answered yet, oldest first. */
-	unanswered(): string[] {
-		return [...this.#pending.values()].map(entry => entry.command.type);
-	}
-
-	/** Route an inbound response frame to its waiting promise. */
-	onResponse(frame: RpcResponse): boolean {
-		const id = frame.id;
-		if (!id) return false;
-
-		const entry = this.#pending.get(id);
-		if (!entry) return false;
-
-		clearTimeout(entry.timer);
-		this.#pending.delete(id);
-		entry.resolve(frame);
-		this.#observe?.(entry.command, frame);
-		return true;
-	}
-
-	/** Reject all pending requests (sidecar died). */
-	rejectAll(reason: string): void {
-		for (const entry of this.#pending.values()) {
-			clearTimeout(entry.timer);
-			entry.reject(new Error(reason));
-		}
-		this.#pending.clear();
+	retire(): void {
+		this.#retired = true;
 	}
 }

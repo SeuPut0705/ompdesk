@@ -55,9 +55,10 @@ This file holds what every change needs. Each area's detailed rules (its user's 
 renderer (React) ── IPC ──▶ main (Electron)
                               ├─ src/main/local/*      fork-era commands served in main
                               │     (git/gh, fs, ~/.omp files, `omp` CLI, translation to stock RPC)
-                              ├─ src/main/sidecar.ts   spawns `omp --mode rpc-ui -e <gui-bridge>/index.ts`
+                              ├─ src/main/sidecar.ts   client + mirror of a tab's lane in ompdesk-core, which
+                              │                         spawns `omp --mode rpc-ui -e <gui-bridge>/index.ts`
                               │                         (stock RPC over stdio)
-                              └─ src/main/bridge-client.ts ◀── unix socket / named pipe ──▶
+                              └─ ompdesk-core sidecar/bridge.rs ◀── unix socket / named pipe ──▶
                                                          resources/gui-bridge/*  (omp extension,
                                                          live AgentSession access)
 ```

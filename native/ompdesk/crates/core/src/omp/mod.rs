@@ -238,6 +238,24 @@ async fn exited(params: PidParams, scope: Scope) -> Result<(), Fault> {
     .await
 }
 
+/// A sidecar lane spawned the omp `pid` itself: named in `file` until `record_exit`.
+pub(crate) async fn record_spawn(file: &str, pid: u32) -> Result<(), Fault> {
+    let params = PidParams {
+        file: file.to_owned(),
+        pid,
+    };
+    track(params, Scope::detached()).await
+}
+
+/// A sidecar lane's omp `pid` has exited.
+pub(crate) async fn record_exit(file: &str, pid: u32) -> Result<(), Fault> {
+    let params = PidParams {
+        file: file.to_owned(),
+        pid,
+    };
+    exited(params, Scope::detached()).await
+}
+
 /// What the OS shows of a pid now. Each system reads one kind of identity; the rule over both is one function, tested
 /// on every system.
 #[derive(Debug)]

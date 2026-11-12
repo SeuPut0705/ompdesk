@@ -9,8 +9,8 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { parseDocument } from "yaml";
 import type { RpcCommand, RpcResponse } from "../../../shared/rpc-types";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "../../bridge-client";
-import { RpcClient } from "../../rpc-client";
 import { OMP_COMMAND, INSTALLED_OMP as omp } from "../../test-bridge-probe";
+import { StockRpc } from "../../test-stock-rpc";
 import type { LocalCommandContext } from "../types";
 import { handlers as workspace } from "../workspace";
 import { gitSync, initRepo, pathExists } from "./test-repos";
@@ -105,7 +105,7 @@ describe.skipIf(!existsSync(omp))("installed stock worktree bridge", () => {
 		child.stderr.on("data", chunk => {
 			stderr += chunk.toString();
 		});
-		const rpc = new RpcClient(frame => child.stdin.write(`${JSON.stringify(frame)}\n`), { timeout: 30_000 });
+		const rpc = new StockRpc(frame => child.stdin.write(`${JSON.stringify(frame)}\n`), { timeout: 30_000 });
 		const lines = createInterface({ input: child.stdout });
 		lines.on("line", line => {
 			try {

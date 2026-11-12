@@ -65,8 +65,7 @@ impl Scope {
         let _ = cancelled.wait_for(|cancelled| *cancelled).await;
     }
 
-    /// A scope no frame cancels and nothing waits on, for code run outside a request (tests).
-    #[cfg(test)]
+    /// A scope no frame cancels and nothing waits on, for code run outside a request (a lane's own work, tests).
     pub fn detached() -> Scope {
         Scope {
             cancel: Arc::new(watch::channel(false).0),
@@ -93,6 +92,13 @@ impl Events {
     pub fn send<T: Serialize>(&self, event: &str, data: &T) {
         if let Some(frames) = self.frames.upgrade() {
             let _ = frames.send(Frame::event(event, data));
+        }
+    }
+
+    /// An event whose `bin` tail is raw bytes after its line (a frame omp wrote, passed on unread).
+    pub fn send_bin<T: Serialize>(&self, event: &str, data: &T, bin: Vec<u8>) {
+        if let Some(frames) = self.frames.upgrade() {
+            let _ = frames.send(Frame::event_bin(event, data, bin));
         }
     }
 
@@ -186,6 +192,8 @@ pub fn registry() -> Registry {
     crate::stock::register(&mut registry);
     crate::upkeep::register(&mut registry);
     crate::care::register(&mut registry);
+    crate::sidecar::register(&mut registry);
+    crate::ipc::register(&mut registry);
     registry
 }
 
@@ -237,7 +245,6 @@ where
                 }
             }
             Ok(Some(Incoming::Request(request))) => {
-                let registry = Arc::clone(&registry);
                 let frames = frames.clone();
                 let requests = Arc::clone(&requests);
                 // Registered before the next frame is read, so a cancel that follows always finds it.
@@ -246,9 +253,12 @@ where
                 let events = Events {
                     frames: frames.downgrade(),
                 };
+                let id = request.id;
+                // The handler is called here, before the next line is read: what it does before its first await
+                // (an `ipc.call` taking its place in its caller's lane) happens in the order the lines came.
+                let started = begin(&registry, request, cancel, events);
                 tasks.spawn(async move {
-                    let id = request.id;
-                    let frame = match answer(&registry, request, cancel, events).await {
+                    let frame = match finish(started).await {
                         Ok(reply) => Frame::result(id, &reply.result, reply.bin),
                         Err(fault) => Frame::error(id, &fault.code, &fault.message),
                     };
@@ -269,31 +279,42 @@ where
     crate::schedules::close_all(&ending);
     crate::aimemory::service::close_all(&ending);
     crate::stock::close_all(&ending).await;
+    crate::sidecar::close_all(&ending).await;
     while tasks.join_next().await.is_some() {
         crate::control::close_all(&ending).await;
         crate::ssh::close_all(&ending);
         crate::schedules::close_all(&ending);
         crate::aimemory::service::close_all(&ending);
         crate::stock::close_all(&ending).await;
+        crate::sidecar::close_all(&ending).await;
     }
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;
     read_result.and(written)
 }
 
-async fn answer(
+/// A request whose handler was called: its answer to come, and the receiver that ends once its last scope is gone.
+struct Started {
+    answer: Result<Answer, Fault>,
+    ended: mpsc::Receiver<()>,
+}
+
+fn begin(
     registry: &Registry,
     request: wire::Request,
     cancel: Arc<watch::Sender<bool>>,
     events: Events,
-) -> Result<Reply, Fault> {
+) -> Started {
+    let (alive, ended) = mpsc::channel(1);
     let Some(handler) = registry.get(&request.method) else {
-        return Err(Fault::new(
-            "unknown_method",
-            format!("Unknown method \"{}\"", request.method),
-        ));
+        return Started {
+            answer: Err(Fault::new(
+                "unknown_method",
+                format!("Unknown method \"{}\"", request.method),
+            )),
+            ended,
+        };
     };
-    let (alive, mut ended) = mpsc::channel(1);
     let call = Call {
         params: request.params,
         bin: request.bin,
@@ -303,16 +324,27 @@ async fn answer(
         },
         events,
     };
-    // Its own task, so a panic fails this request instead of the connection.
-    let outcome = match tokio::spawn(handler(call)).await {
-        Ok(outcome) => outcome,
-        Err(error) if error.is_panic() => {
-            Err(Fault::new("internal", "The request's handler panicked"))
-        }
-        Err(_) => Err(Fault::new(
-            "internal",
-            "The request's handler was cancelled",
-        )),
+    // A panic in the handler's synchronous part fails this request, as one in its future does, not the connection.
+    let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(call)))
+        .map_err(|_| Fault::new("internal", "The request's handler panicked"));
+    Started { answer, ended }
+}
+
+async fn finish(started: Started) -> Result<Reply, Fault> {
+    let Started { answer, mut ended } = started;
+    let outcome = match answer {
+        // Its own task, so a panic fails this request instead of the connection.
+        Ok(future) => match tokio::spawn(future).await {
+            Ok(outcome) => outcome,
+            Err(error) if error.is_panic() => {
+                Err(Fault::new("internal", "The request's handler panicked"))
+            }
+            Err(_) => Err(Fault::new(
+                "internal",
+                "The request's handler was cancelled",
+            )),
+        },
+        Err(fault) => Err(fault),
     };
     // Nothing is ever sent: `recv` ends once the last scope (a process's supervisor) is gone.
     let _ = ended.recv().await;

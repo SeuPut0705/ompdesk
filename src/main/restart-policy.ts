@@ -1,6 +1,7 @@
 /**
- * Crash-restart ladder shared by every tab's omp (`sidecar.ts`) and the bundled stats server
- * (`stats-server.ts`): a crash cycle gets a bounded backoff ladder. For the stats server, which spawns
+ * Crash-restart ladder of the bundled stats server (`stats-server.ts`; every tab's omp has its own copy in the core,
+ * `native/ompdesk/crates/core/src/sidecar`, where the same 1/2/4 s ladder and three attempts apply): a crash cycle
+ * gets a bounded backoff ladder. For the stats server, which spawns
  * only on demand, a server that already gave up can be revived by the next dashboard read — for a capped
  * number of rounds, after which the failure is reported instead of retried forever. Kept out of the
  * spawning modules so the ladder itself is testable.
@@ -18,14 +19,6 @@ const MAX_REVIVE_ROUNDS = 3;
 export function restartDelay(attempt: number): number {
 	return RESTART_DELAYS_MS[attempt - 1] ?? 4000;
 }
-
-/**
- * Windows ends every process of a logoff or shutdown with DBG_TERMINATE_PROCESS (0x40010004) while main
- * itself lives a few seconds longer. That is the session ending, not a crash: a respawn then dies with
- * STATUS_DLL_INIT_FAILED (0xC0000142) or hangs in startup until the machine is gone. `taskkill /f`, which
- * `terminate` uses, ends a process with exit code 1, and a POSIX exit code never exceeds 255.
- */
-export const WINDOWS_SESSION_END_EXIT_CODE = 0x40010004;
 
 export type Revive = "scheduled" | "already-pending" | "exhausted";
 

@@ -17,7 +17,6 @@ function session(replies: Record<string, unknown>): LocalCommandContext {
 				return reply as T;
 			},
 			connected: true,
-			onEvent: () => () => {},
 		},
 	};
 }

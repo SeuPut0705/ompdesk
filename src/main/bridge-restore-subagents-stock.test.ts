@@ -17,7 +17,6 @@ import { afterAll, describe, expect, it } from "vitest";
 import { isNewer } from "../shared/version";
 import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { parseOmpVersion } from "./omp-runtime";
-import { stopOmp } from "./omp-stop";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "./test-bridge-probe";
 import { removeWhenFree } from "./test-folders";
 
@@ -194,7 +193,7 @@ interface Omp {
 	frames: Array<{ type: string; [key: string]: unknown }>;
 	send(command: Record<string, unknown>): Promise<Record<string, unknown>>;
 	/**
-	 * What a restart does to omp: OMPdesk's own stop (`STOP`, `stopOmp`: an update's approved quit or a tab restart;
+	 * What a restart does to omp: OMPdesk's own stop (`STOP`, the core's stop: an update's approved quit or a tab restart;
 	 * stock journals the exit), a crash (`SIGKILL`), the way SidecarManager stops it while ai-memory runs, closing its
 	 * stdin (`EOF`; stock disposes the session and parks its background subagents), or the app going away under it (`GONE`, an update swap: its next write to the closed stdout fails, and stock's
 	 * stdout-disconnect handling quits at once, journaling every session's exit as `manual` and aborting nothing).
@@ -204,7 +203,7 @@ interface Omp {
 
 /**
  * How the omp ends: a signal, its stdin closed (`EOF`, an app quit while ai-memory runs), its stdout gone (`GONE`, the
- * app going away under it), or `STOP`, OMPdesk's own stop of a tab's omp (`stopOmp`: a restart, a tab close, a quit).
+ * app going away under it), or `STOP`, OMPdesk's own stop of a tab's omp (the core's stop: a restart, a tab close, a quit).
  */
 type Signal = "SIGKILL" | "EOF" | "GONE" | "STOP";
 
@@ -283,8 +282,12 @@ async function startOmp(provider: Provider, isolated: string, root: string, resu
 		else if (signal === "GONE") {
 			child.stdout.destroy();
 			child.stdin.write(`${JSON.stringify({ id: "gone", type: "get_state" })}\n`);
-		} else if (signal === "STOP") stopOmp(child);
-		else child.kill(signal);
+		} else if (signal === "STOP") {
+			// OMPdesk's own stop of a tab's omp (the core's `sidecar/stop.rs`, which no test reaches without a lane): SIGTERM
+			// on POSIX; Windows has no signals, so stdin ends first and the omp disposes its session as stock does then.
+			if (process.platform === "win32") child.stdin.end();
+			else child.kill("SIGTERM");
+		} else child.kill(signal);
 		await exited;
 		removeBridgeAddress(address);
 	};

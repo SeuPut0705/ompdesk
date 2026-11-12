@@ -18,7 +18,6 @@ function fakeContext(
 			if (!options.bridge || !Object.hasOwn(options.bridge, method)) throw new Error(`no ${method}`);
 			return options.bridge[method] as T;
 		},
-		onEvent: () => () => {},
 	};
 	return {
 		cwd: "/spawn",

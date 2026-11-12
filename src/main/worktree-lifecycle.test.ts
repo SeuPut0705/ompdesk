@@ -57,7 +57,6 @@ function fakeBridge(handlers: Record<string, () => unknown>) {
 			if (!handler) throw new Error(`unsupported_omp: ${method}`);
 			return (await handler()) as T;
 		},
-		onEvent: () => () => {},
 	};
 	return {
 		bridge,

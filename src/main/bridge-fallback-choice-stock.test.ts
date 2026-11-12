@@ -12,9 +12,9 @@ import { handlers } from "./local/composer";
 import type { LocalCommandContext } from "./local/types";
 import { withoutSessionEnv } from "./omp-launch";
 import { ompPackageRoot } from "./omp-runtime";
-import { RpcClient } from "./rpc-client";
 import { INSTALLED_OMP } from "./test-bridge-probe";
 import { removeWhenFree } from "./test-folders";
+import { StockRpc } from "./test-stock-rpc";
 
 /**
  * A retry fallback never becomes the person's model, as OMPdesk reads the session (models-accounts.md › Fallback
@@ -251,7 +251,7 @@ async function startOmp(at: Home, session?: string): Promise<Omp> {
 	});
 	const exited = new Promise<void>(done => child.once("exit", () => done()));
 	const frames: Frame[] = [];
-	const rpc = new RpcClient(frame => child.stdin.write(`${JSON.stringify(frame)}\n`), { timeout: 60_000 });
+	const rpc = new StockRpc(frame => child.stdin.write(`${JSON.stringify(frame)}\n`), { timeout: 60_000 });
 	createInterface({ input: child.stdout }).on("line", line => {
 		try {
 			const frame = JSON.parse(line) as Frame | RpcResponse;

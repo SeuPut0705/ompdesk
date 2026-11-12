@@ -19,7 +19,6 @@ function context(requests: Array<{ method: string; params: unknown }> = []): Loc
 		},
 		bridge: {
 			connected: true,
-			onEvent: () => () => undefined,
 			request: async <T>(method: string, params?: unknown) => {
 				requests.push({ method, params });
 				return { active: false } as T;

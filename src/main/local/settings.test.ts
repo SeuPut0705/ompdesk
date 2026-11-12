@@ -35,7 +35,6 @@ function fakeCtx(send: Fake, request: Fake): LocalCommandContext {
 		send: send as LocalCommandContext["send"],
 		bridge: {
 			request: request as LocalCommandContext["bridge"]["request"],
-			onEvent: vi.fn(() => () => {}),
 			connected: true,
 		},
 	};

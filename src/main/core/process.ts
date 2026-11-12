@@ -205,7 +205,8 @@ export class CoreProcess {
 	readonly #stopping = new Set<ChildProcessWithoutNullStreams>();
 	/** Resolves once a core ended and every process it started is gone (or past `GROUP_GONE_MS`). */
 	readonly #gone = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
-	readonly #listeners = new Map<string, Set<(data: unknown) => void>>();
+	readonly #listeners = new Map<string, Set<(data: unknown, bin: Uint8Array | null) => void>>();
+	#stops = 0;
 	readonly #binary: () => string;
 	readonly #log: (line: string) => void;
 	readonly #timeoutMs: number;
@@ -221,8 +222,8 @@ export class CoreProcess {
 		return this.#child?.pid ?? null;
 	}
 
-	/** Subscribes to an event the core sends; returns the unsubscribe. */
-	on(event: string, listener: (data: unknown) => void): () => void {
+	/** Subscribes to an event the core sends (the frame's `bin` tail, when it has one, as the second argument); returns the unsubscribe. */
+	on(event: string, listener: (data: unknown, bin: Uint8Array | null) => void): () => void {
 		let listeners = this.#listeners.get(event);
 		if (!listeners) {
 			listeners = new Set();
@@ -230,6 +231,11 @@ export class CoreProcess {
 		}
 		listeners.add(listener);
 		return () => listeners.delete(listener);
+	}
+
+	/** How many times `stop()` ended a core: a request that fails `core_exited` after the count moved was ended on purpose. */
+	get stops(): number {
+		return this.#stops;
 	}
 
 	call<T>(method: string, params: unknown = {}, options: CoreCallOptions = {}): Promise<CoreAnswer<T>> {
@@ -266,6 +272,7 @@ export class CoreProcess {
 	 * started. Resolves once it and they are gone.
 	 */
 	async stop(): Promise<void> {
+		this.#stops++;
 		const child = this.#child;
 		if (!child) return;
 		this.#child = null;
@@ -321,7 +328,7 @@ export class CoreProcess {
 
 	#receive(child: ChildProcessWithoutNullStreams, frame: Frame, bin: Uint8Array | null): void {
 		if (typeof frame.event === "string") {
-			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data);
+			for (const listener of this.#listeners.get(frame.event) ?? []) listener(frame.data, bin);
 			return;
 		}
 		if (typeof frame.id !== "number") return;

@@ -57,7 +57,6 @@ async function journal() {
 	const asked: Array<Record<string, unknown>> = [];
 	const bridge: BridgeClient = {
 		connected: true,
-		onEvent: () => () => {},
 		request: async () => {
 			throw new Error("no bridge read here");
 		},

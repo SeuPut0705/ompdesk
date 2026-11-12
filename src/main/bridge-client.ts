@@ -1,7 +1,9 @@
 /**
- * Main-process client of the gui-bridge extension (resources/gui-bridge) that
- * each sidecar loads with `-e`. The extension listens on the unix socket /
- * named pipe passed in `OMP_GUI_BRIDGE`; this side connects after `ready`.
+ * Test client of the gui-bridge extension (resources/gui-bridge) for a test that starts a stock omp itself: the
+ * extension listens on the unix socket / named pipe passed in `OMP_GUI_BRIDGE`, and the test connects. The app has no
+ * use for it: a tab's omp, bridge socket and requests belong to its lane in the core
+ * (`native/ompdesk/crates/core/src/sidecar/bridge.rs`), which `SidecarManager` talks to. Kept as a test tool so a
+ * stock-omp test can reach a bridge without a lane.
  * Wire: newline-delimited JSON — `{id, method, params}` out, `{id, ok, result|error}`
  * and pushed `{event}` frames in.
  */

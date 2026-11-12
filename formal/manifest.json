@@ -83,12 +83,8 @@
 			"matrix": "matrix.json",
 			"mutations": "mutations.json",
 			"covers": [
-				"src/main/omp-launch.ts#sessionOpen",
-				"src/main/sidecar.ts#SidecarManager.restart",
-				"src/main/sidecar.ts#SidecarManager.#observeResponse",
-				"src/main/sidecar.ts#SidecarManager.#handleReady",
-				"src/main/sidecar.ts#SidecarManager.#attemptRestart",
-				"src/main/sidecar.ts#SidecarManager.#spawn"
+				"native/ompdesk/crates/core/src/sidecar/launch.rs",
+				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
 			"syncCommit": "b9f1a17e431963c09b93256044b8c9d9fa50cf9d",
 			"verifySkill": ".omp/skills/tab-session-verify/SKILL.md"
@@ -150,7 +146,7 @@
 			"mutations": "mutations.json",
 			"covers": [
 				"src/main/session-processes.ts",
-				"src/main/sidecar.ts#SidecarManager.dispose"
+				"native/ompdesk/crates/core/src/sidecar/lane.rs"
 			],
 			"syncCommit": "b351ec34c0e40ec1e352774a7d67633d7a6e3d05",
 			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"

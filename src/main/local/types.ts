@@ -17,12 +17,14 @@ export interface OmpRuntime {
 	): Promise<{ code: number; stdout: string; stderr: string }>;
 }
 
-/** Main-side client of the gui-bridge extension running inside the sidecar. */
+/**
+ * Main-side client of the gui-bridge extension running inside the sidecar: each request goes through the tab's lane
+ * in the core, which owns the socket (`SidecarManager`'s relay). The frames the bridge pushes reach main as the tab's
+ * frames, in order with omp's own.
+ */
 export interface BridgeClient {
 	/** Call a bridge method; rejects with the bridge's error message, or when disconnected. */
 	request<T = unknown>(method: string, params?: unknown): Promise<T>;
-	/** Subscribe to frames the bridge pushes; returns the unsubscribe. */
-	onEvent(cb: (event: { type: string; [k: string]: unknown }) => void): () => void;
 	readonly connected: boolean;
 }
 

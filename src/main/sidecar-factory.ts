@@ -31,14 +31,12 @@ import { builtinReaState, spawnReaState } from "./builtin-mcp";
 import { controlEnvFor } from "./control-socket/env";
 import { mainT, ompFailureText } from "./i18n";
 import { ompAvailability } from "./omp-availability";
-import type { OmpProcesses } from "./omp-processes";
 import { systemOmp } from "./omp-runtime";
-import type { OmpStartQueue } from "./omp-start-queue";
 import { writeRuntimeLog } from "./runtime-log";
 import type { SessionKindStore } from "./session-kinds";
 import type { SessionProcesses } from "./session-processes";
 import { shellSpawnEnv } from "./shell-env";
-import { SidecarManager } from "./sidecar";
+import { SidecarManager, type SidecarOptions } from "./sidecar";
 import { markStartup } from "./startup-timing";
 import { turnStagesReport } from "./turn-stages-log";
 
@@ -124,10 +122,12 @@ export interface LocalSidecarDeps {
 	desktopSlot?: () => DesktopSlotFrameSink | null;
 	/** The bridge reported a changed file its session had not changed before (`checkout_files`; `sidecar` is that session's omp): the shared-checkout pass runs soon. Absent: the sweep finds it. */
 	checkoutFiles?: (sidecar: object) => void;
-	/** The app's one queue of omp starts (omp-start-queue.ts); absent: every start goes at once (tests). */
-	startQueue?: Pick<OmpStartQueue, "acquire">;
-	/** The app's list of the omps it runs (omp-processes.ts); absent: none kept (tests). */
-	processes?: Pick<OmpProcesses, "track">;
+	/** Present: every start goes through the core's one queue of omp starts (`sidecar/queue.rs`); absent: every start goes at once (tests). */
+	startQueue?: SidecarOptions["startQueue"];
+	/** The file that names the omps the app runs for the next launch's reap (omp-processes.ts); the lanes write it. Absent: none kept (tests). */
+	ledgerFile?: string;
+	/** Test seam: the lanes' clocks (`SidecarOptions.tuning`). */
+	tuning?: SidecarOptions["tuning"];
 	/** Whose the processes an omp starts are (session-processes.ts); absent: none followed (tests). */
 	sessionProcesses?: Pick<SessionProcesses, "open">;
 }
@@ -261,7 +261,8 @@ export function localSidecarFactory(deps: LocalSidecarDeps): LocalSidecarFactory
 			launchProfiles: deps.launchProfilesPref,
 			...(deps.gracefulStopMs ? { gracefulStopMs: deps.gracefulStopMs } : {}),
 			...(deps.startQueue ? { startQueue: deps.startQueue } : {}),
-			...(deps.processes ? { processes: deps.processes } : {}),
+			...(deps.ledgerFile ? { ledgerFile: deps.ledgerFile } : {}),
+			...(deps.tuning ? { tuning: deps.tuning } : {}),
 			...(deps.sessionProcesses ? { sessionProcesses: deps.sessionProcesses } : {}),
 			// Test seam: the slow-start parity surface (e2e/parity.e2e.ts) waits seconds, not START_SLOW_MS.
 			...(Number(process.env.OMP_GUI_START_SLOW_MS) > 0

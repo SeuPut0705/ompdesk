@@ -58,7 +58,6 @@ function context(reply: () => unknown) {
 	const bridged: Array<{ method: string; params: unknown }> = [];
 	const bridge: BridgeClient = {
 		connected: true,
-		onEvent: () => () => {},
 		request: async <T>(method: string, params?: unknown): Promise<T> => {
 			bridged.push({ method, params });
 			if (method === "read_image_blob") {

@@ -19,7 +19,6 @@ function fakeCtx(decision?: Partial<AutoModeDecision>) {
 				calls.push({ to: "bridge", what: { method, params } });
 				return method === "modes.auto_mode_decide" ? decision : {};
 			}) as LocalCommandContext["bridge"]["request"],
-			onEvent: vi.fn(() => () => {}),
 			connected: true,
 		},
 	};

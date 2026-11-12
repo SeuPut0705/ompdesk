@@ -9,22 +9,23 @@
  * - how the spawn opens its session (`--session <file>`, `--config fresh-launch.yml` or neither): that is the path;
  * - `OMP_GUI_BRIDGE`: each omp process gets its own bridge socket;
  * - `OMP_GUI_PROMPT_ORIGIN`: a paired device's tab journals its prompts as that device's (prompt-origin.ts).
+ *
+ * The omp is a real process now: the core's lane spawns it (`native/ompdesk/crates/core/src/sidecar`), so the case's stand-in
+ * is a fake omp script that records how it was started (argv, environment, the session it is on) and answers `get_state`
+ * like stock. The cases reached into the TypeScript spawn before (a mocked `node:child_process` with in-memory children
+ * and a fake clock for the restart delay): they read the records, kill the process for a crash, and the lanes' restart
+ * delays are shortened by `tuning`.
  */
-import type * as ChildProcess from "node:child_process";
-import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as OmpRuntimeModule from "./omp-runtime";
 import type * as ShellEnvModule from "./shell-env";
+import type { SidecarManager } from "./sidecar";
 
-const spawned = vi.hoisted(() => ({ spawn: vi.fn(), ompInstalled: true, writesNewSession: true, answersState: true }));
-vi.mock("node:child_process", async importOriginal => ({
-	...(await importOriginal<typeof ChildProcess>()),
-	spawn: spawned.spawn,
-}));
+const spawned = vi.hoisted(() => ({ bin: "", ompInstalled: true }));
 vi.mock("electron", () => ({
 	app: {
 		getPreferredSystemLanguages: () => ["ko-KR"],
@@ -45,7 +46,11 @@ vi.mock("./omp-runtime", async importOriginal => ({
 		spawned.ompInstalled
 			? {
 					ok: true,
-					runtime: { bin: "omp", version: "18.13.3", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+					runtime: {
+						bin: spawned.bin,
+						version: "18.13.3",
+						run: async () => ({ code: 0, stdout: "", stderr: "" }),
+					},
 				}
 			: { ok: false, error: "omp is not installed" },
 }));
@@ -64,119 +69,113 @@ import { SessionKindStore } from "./session-kinds";
 import { type LocalSidecarFactory, localSidecarFactory } from "./sidecar-factory";
 import { SidecarPool } from "./sidecar-pool";
 import { TAB_LAYOUT_VERSION } from "./tab-layout";
+import { writeFakeOmp } from "./test-fake-omp";
 import type { ClientWindow } from "./web/client-window";
 
 /**
- * A spawned omp: answers `ready`, then `get_state` with the session it is on (its `--session`, else a new one), and
- * moves to another session on `switch_session` / `new_session` (stock's responses name no file).
+ * The omp the lane spawns: answers `ready`, then `get_state` with the session it is on (its `--session`, else a new
+ * one), and moves to another session on `switch_session` / `new_session` (stock's responses name no file). It keeps a
+ * record of how it was started and the session it is on in `$LAUNCH_PARITY_DIR/omps/<pid>.json`, and reads what the
+ * case wants from `$LAUNCH_PARITY_DIR/mode.json` (`writesNewSession`, `answersState`) at each use.
  */
-class FakeOmp extends EventEmitter {
-	readonly stdin = new PassThrough();
-	readonly stdout = new PassThrough();
-	readonly stderr = new PassThrough();
-	readonly pid = nextPid++;
-	exitCode: number | null = null;
-	signalCode: NodeJS.Signals | null = null;
+const FAKE_OMP = `
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { createInterface } from "node:readline";
+const dir = process.env.LAUNCH_PARITY_DIR ?? "";
+const mode = () => JSON.parse(fs.readFileSync(path.join(dir, "mode.json"), "utf8"));
+const args = process.argv.slice(2);
+const at = args.indexOf("--session");
+const created = path.join(dir, "new-" + process.pid + ".jsonl");
+const write = frame => process.stdout.write(JSON.stringify(frame) + "\\n");
+let session = at >= 0 ? (args[at + 1] ?? created) : created;
+// A new session's file: stock writes it at the first answer, which a tab that worked has had.
+if (at < 0 && mode().writesNewSession) fs.writeFileSync(created, JSON.stringify({ type: "session", id: "new" }) + "\\n");
+fs.mkdirSync(path.join(dir, "omps"), { recursive: true });
+const record = () => fs.writeFileSync(path.join(dir, "omps", process.pid + ".json"), JSON.stringify({ args, env: process.env, pid: process.pid, ppid: process.ppid, session, at: Date.now() }));
+record();
+createInterface({ input: process.stdin }).on("line", line => {
+	const frame = JSON.parse(line);
+	if (frame.type === "switch_session" || frame.type === "new_session") {
+		session = frame.sessionPath ?? path.join(dir, "in-omp-" + process.pid + "-" + Date.now() + ".jsonl");
+		if (!frame.sessionPath) fs.writeFileSync(session, JSON.stringify({ type: "session", id: "in-omp" }) + "\\n");
+		record();
+		write({ type: "response", id: frame.id, command: frame.type, success: true, data: { cancelled: false } });
+		return;
+	}
+	if (frame.type !== "get_state" || !mode().answersState) return;
+	write({ type: "response", id: frame.id, command: "get_state", success: true, data: { sessionId: session, sessionFile: session } });
+});
+// Stock disposes its session and exits when its stdin ends: how a stop ends an omp on Windows (no signals).
+process.stdin.on("end", () => process.exit(0));
+write({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] });
+`;
+
+/** One spawned omp, as its record says: how it was started and the session it is on now. */
+interface FakeOmp {
+	args: string[];
+	env: Record<string, string>;
+	pid: number;
+	/** The process that started it: on Windows the `.cmd` shell the lane ran, whose pid the manager reports. */
+	ppid: number;
 	session: string;
-	constructor(
-		readonly args: string[],
-		readonly env: Record<string, string>,
-		newSession: string,
-	) {
-		super();
-		const at = args.indexOf("--session");
-		this.session = at >= 0 ? (args[at + 1] ?? newSession) : newSession;
-		let buffer = "";
-		this.stdin.on("data", (chunk: Buffer) => {
-			buffer += chunk.toString();
-			for (let nl = buffer.indexOf("\n"); nl >= 0; nl = buffer.indexOf("\n")) {
-				const frame = JSON.parse(buffer.slice(0, nl)) as { id?: string; type?: string; sessionPath?: string };
-				buffer = buffer.slice(nl + 1);
-				if (frame.type === "switch_session" || frame.type === "new_session") {
-					this.session = frame.sessionPath ?? storedSession(`in-omp-${omps.length}-${Date.now()}.jsonl`);
-					this.#write({
-						type: "response",
-						id: frame.id,
-						command: frame.type,
-						success: true,
-						data: { cancelled: false },
-					});
-					continue;
-				}
-				if (frame.type !== "get_state" || !spawned.answersState) continue;
-				this.#write({
-					type: "response",
-					id: frame.id,
-					command: "get_state",
-					success: true,
-					data: { sessionId: this.session, sessionFile: this.session },
-				});
-			}
-		});
-		// Stock disposes its session and exits when its stdin ends: how a stop ends an omp on Windows (no signals).
-		this.stdin.on("end", () => this.exit(0));
-		queueMicrotask(() => this.#write({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }));
-	}
-	#write(frame: object): void {
-		if (this.exitCode === null && this.signalCode === null) this.stdout.write(`${JSON.stringify(frame)}\n`);
-	}
-	kill(): boolean {
-		this.exit(null, "SIGTERM");
-		return true;
-	}
-	exit(code: number | null, signal: NodeJS.Signals | null = null): void {
-		if (this.exitCode !== null || this.signalCode !== null) return;
-		this.exitCode = code;
-		this.signalCode = signal;
-		this.emit("exit", code, signal);
-		this.stdout.end();
-		this.stderr.end();
-		this.emit("close", code, signal);
-	}
+	at: number;
+	/** A crash: the process ends without its stdin's end. */
+	exit(code: number): void;
 }
 
-let nextPid = 4242;
 let dir: string;
+/** Every omp started so far, oldest first; `settle()` refreshes it from the records. */
 let omps: FakeOmp[];
+/** The managers the factory made, so `settle()` can tell when none is still on its way somewhere. */
+let made: SidecarManager[];
+const mode = { writesNewSession: true, answersState: true };
 
-beforeEach(() => {
+function writeMode(): void {
+	writeFileSync(join(dir, "mode.json"), JSON.stringify(mode));
+}
+
+function readOmps(): FakeOmp[] {
+	const folder = join(dir, "omps");
+	if (!existsSync(folder)) return [];
+	return readdirSync(folder)
+		.flatMap(name => {
+			try {
+				const record = JSON.parse(readFileSync(join(folder, name), "utf8")) as Omit<FakeOmp, "exit">;
+				return [{ ...record, exit: () => void process.kill(record.pid) }];
+			} catch {
+				// Being written.
+				return [];
+			}
+		})
+		.sort((a, b) => a.at - b.at || a.pid - b.pid);
+}
+
+beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), "launch-parity-"));
 	omps = [];
+	made = [];
 	initDeletedSessions(null);
 	spawned.ompInstalled = true;
-	spawned.writesNewSession = true;
-	spawned.answersState = true;
-	spawned.spawn.mockReset();
-	spawned.spawn.mockImplementation((bin: string, args: string[], options: { env: Record<string, string> }) => {
-		// Windows stops an omp with `taskkill /pid <pid> /T /F` (sidecar.ts `terminate`), which ends it with exit code 1.
-		if (bin === "taskkill") return taskkill(Number(args[args.indexOf("/pid") + 1]));
-		if (bin !== "omp") throw new Error(`unexpected spawn: ${bin}`);
-		// A new session's file: stock writes it at the first answer, which a tab that worked has had.
-		const name = `new-${omps.length}.jsonl`;
-		const omp = new FakeOmp(args, options.env, spawned.writesNewSession ? storedSession(name) : join(dir, name));
-		omps.push(omp);
-		return omp;
-	});
+	mode.writesNewSession = true;
+	mode.answersState = true;
+	writeMode();
+	process.env.LAUNCH_PARITY_DIR = dir;
+	spawned.bin = await writeFakeOmp(dir, FAKE_OMP);
 });
 
-function taskkill(pid: number): EventEmitter {
-	const killer = new EventEmitter();
-	queueMicrotask(() => {
-		const omp = omps.find(candidate => candidate.pid === pid);
-		omp?.exit(1);
-		killer.emit("exit", omp ? 0 : 128, null);
-	});
-	return killer;
-}
-
-afterEach(() => {
-	vi.useRealTimers();
-	rmSync(dir, { recursive: true, force: true });
+afterEach(async () => {
+	for (const sidecar of made) sidecar.dispose();
+	await Promise.all(made.map(sidecar => sidecar.whenExited()));
+	delete process.env.LAUNCH_PARITY_DIR;
+	rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 });
 
 /** The factory index.ts builds, with every switch on and a value for every setting. */
-function factory() {
-	return localSidecarFactory({
+function factory(): LocalSidecarFactory {
+	const create = localSidecarFactory({
+		// The lanes' crash ladder, shortened: a restart comes within a tenth of a second.
+		tuning: { restartDelaysMs: [100, 100, 100] },
 		bridgeDir: "/bridge",
 		builtinDir: "/builtin",
 		builtinReaPref: () => true,
@@ -204,6 +203,11 @@ function factory() {
 		aiMemoryExtensionArgs: async () => ["-e", "/ud/ai-memory/omp-ext"],
 		memoryStateFile: "/ud/memory-recall.json",
 	});
+	return (...args) => {
+		const sidecar = create(...args);
+		made.push(sidecar);
+		return sidecar;
+	};
 }
 
 function fakeWindow(id: number): ClientWindow {
@@ -221,13 +225,42 @@ function storedSession(name: string): string {
 	return file;
 }
 
-/** Lets a start's resolution, its spawn, `ready` and the ready status's `get_state` all land. */
+/**
+ * Lets every start's resolution, its spawn, `ready` and the ready status's `get_state` land: returns once every manager
+ * is at rest (read `ready`, `error`, `exited`, `waiting` or `asleep`, or waits for the `get_state` a stand-in does not
+ * answer, with its omp up and its record written). The records are files the stand-ins write, so they are polled.
+ */
 async function settle(): Promise<void> {
-	for (let i = 0; i < 20; i++) {
-		const { promise, resolve } = Promise.withResolvers<void>();
-		setImmediate(resolve);
-		await promise;
-	}
+	await vi.waitFor(
+		() => {
+			omps = readOmps();
+			for (const sidecar of made) {
+				const { status } = sidecar;
+				if ((status === "starting" || status === "restarting") && sidecar.processAlive && !mode.answersState) {
+					// On Windows the stand-in runs behind a `.cmd` shell: the manager's pid is its parent's.
+					if (!omps.some(omp => omp.pid === sidecar.pid || omp.ppid === sidecar.pid))
+						throw new Error("no record yet");
+				} else if (status === "starting" || status === "restarting") {
+					throw new Error(`a tab is ${status}`);
+				}
+			}
+		},
+		{ timeout: 15_000, interval: 25 },
+	);
+}
+
+/** The omp ends without its stdin's end, as a crash does; resolves once its tab has learned of the exit and read it as one. */
+async function crash(omp: FakeOmp | undefined): Promise<void> {
+	if (!omp) return;
+	const owner = made.find(sidecar => sidecar.processAlive && (sidecar.pid === omp.pid || sidecar.pid === omp.ppid));
+	omp.exit(1);
+	await vi.waitFor(
+		() => {
+			if (owner?.processAlive || owner?.status === "ready")
+				throw new Error("the tab still reads the omp as running");
+		},
+		{ timeout: 15_000, interval: 25 },
+	);
 }
 
 type Open = { session: string } | "new" | "default";
@@ -314,8 +347,11 @@ describe("a session's omp launches the same way on every start path", () => {
 			],
 			activeIndex: 0,
 		});
-		for (const tab of pool.tabsForWindow(relaunched)) pool.startTab(tab.tabId);
-		await settle();
+		// One at a time: the lanes spawn concurrently, so what the spawn order tells is the order they were started in.
+		for (const tab of pool.tabsForWindow(relaunched)) {
+			pool.startTab(tab.tabId);
+			await settle();
+		}
 		expected.push({ session: saved }, "new");
 
 		// A relaunch's interrupted turn on a session no saved tab holds (index.ts `openTab`).
@@ -331,7 +367,11 @@ describe("a session's omp launches the same way on every start path", () => {
 		expected.push(...omps.slice(0, before).map(omp => ({ session: omp.session })));
 
 		const launches = omps.map(launchOf);
-		expect(launches.map(launch => launch.open)).toEqual(expected);
+		expectOpens(
+			launches.map(launch => launch.open),
+			expected,
+			before,
+		);
 		const [first, ...rest] = launches;
 		for (const launch of rest) {
 			expect(launch.args).toEqual(first?.args);
@@ -413,7 +453,11 @@ describe("a session's omp launches the same way on every start path", () => {
 		expected.push(...omps.slice(1, before).map(omp => ({ session: omp.session })));
 
 		const [own, ...hosted] = omps.map(launchOf);
-		expect([own, ...hosted].map(launch => launch?.open)).toEqual(expected);
+		expectOpens(
+			[own, ...hosted].map(launch => launch?.open as Open),
+			expected,
+			before,
+		);
 		// The one difference beside the origin: a device's tab is told this computer's control socket is off to it.
 		expect(own?.controlOff).toBeUndefined();
 		for (const launch of hosted) {
@@ -432,7 +476,6 @@ describe("a session's omp launches the same way on every start path", () => {
 
 describe("a restart that names no session continues the tab's own", () => {
 	it("an omp that crashed comes back on the session it was on", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		const win = fakeWindow(1);
@@ -440,31 +483,33 @@ describe("a restart that names no session continues the tab's own", () => {
 		pool.acquire(dir, win, "stored-tab", stored);
 		pool.acquire(dir, win, "new-tab", undefined, "agent", undefined, true);
 		await settle();
-		const [onStored, onNew] = omps;
+		// The two start at once: told apart by how they opened their session.
+		const onStored = omps.find(omp => launchOf(omp).open !== "new");
+		const onNew = omps.find(omp => launchOf(omp).open === "new");
 
-		onStored?.exit(1);
-		onNew?.exit(1);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await Promise.all([crash(onStored), crash(onNew)]);
 		await settle();
 
-		expect(
-			omps
-				.slice(2)
-				.map(launchOf)
-				.map(launch => launch.open),
-		).toEqual([{ session: stored }, { session: onNew?.session }]);
+		// Both come back within the same tenth of a second, in either order.
+		const reopened = omps
+			.slice(2)
+			.map(launchOf)
+			.map(launch => JSON.stringify(launch.open))
+			.sort();
+		expect(reopened).toEqual(
+			[JSON.stringify({ session: stored }), JSON.stringify({ session: onNew?.session })].sort(),
+		);
 	});
 
 	it("a crashed new tab whose session stock never wrote starts a new one, never another session", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		spawned.writesNewSession = false;
+		mode.writesNewSession = false;
+		writeMode();
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
 		await settle();
 
-		omps[0]?.exit(1);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await crash(omps[0]);
 		await settle();
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual(["new", "new"]);
@@ -472,15 +517,14 @@ describe("a restart that names no session continues the tab's own", () => {
 
 	// formal/tab-session F1: the omp crashed after `ready`, before its get_state answer named the session.
 	it("a new tab whose omp crashed before it named its session starts a new one, never another session", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		spawned.answersState = false;
+		mode.answersState = false;
+		writeMode();
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		pool.acquire(dir, fakeWindow(1), "new-tab", undefined, "agent", undefined, true);
 		await settle();
 
-		omps[0]?.exit(1);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await crash(omps[0]);
 		await settle();
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual(["new", "new"]);
@@ -552,7 +596,6 @@ describe("a restart that names no session continues the tab's own", () => {
 
 	// formal/tab-session F2: the omp moved to another session in the tab, then crashed before a get_state named it.
 	it("an omp that crashed after a switch_session comes back on the session switched to", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		const stored = storedSession("stored.jsonl");
@@ -560,32 +603,41 @@ describe("a restart that names no session continues the tab's own", () => {
 		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
 		await settle();
 
-		spawned.answersState = false;
+		mode.answersState = false;
+		writeMode();
 		await sidecar?.rpcClient?.command({ type: "switch_session", sessionPath: other });
-		omps[0]?.exit(1);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await crash(omps[0]);
 		await settle();
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, { session: other }]);
 	});
 
 	it("an omp that crashed after a new_session comes back on a new session, never the one before it", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const create = factory();
 		const pool = new SidecarPool((cwd, kind, fresh) => create(cwd, kind, fresh));
 		const stored = storedSession("stored.jsonl");
 		const sidecar = pool.acquire(dir, fakeWindow(1), "stored-tab", stored);
 		await settle();
 
-		spawned.answersState = false;
+		mode.answersState = false;
+		writeMode();
 		await sidecar?.rpcClient?.command({ type: "new_session" });
-		omps[0]?.exit(1);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await crash(omps[0]);
 		await settle();
 
 		expect(omps.map(launchOf).map(launch => launch.open)).toEqual([{ session: stored }, "new"]);
 	});
 });
+
+/**
+ * The sessions the spawns opened against the ones expected, in order up to `before`; what an omp update restarted at once
+ * (the spawns after it) started in no fixed order: the lanes run concurrently, where the in-memory spawn ran one by one.
+ */
+function expectOpens(actual: Open[], expected: Open[], before: number): void {
+	expect(actual.slice(0, before)).toEqual(expected.slice(0, before));
+	const ordered = (opens: Open[]) => opens.map(open => JSON.stringify(open)).sort();
+	expect(ordered(actual.slice(before))).toEqual(ordered(expected.slice(before)));
+}
 
 /** What can happen to a tab between two spawns of its omp. */
 const EVENTS = ["crash", "restart", "turn", "move", "open"] as const;
@@ -604,8 +656,8 @@ describe("every spawn of a tab opens the session the tab is on", () => {
 		sequences(3).map(events => ({ start, events })),
 	);
 	it.each(cases)("$start, then $events", async ({ start, events }) => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		spawned.writesNewSession = false;
+		mode.writesNewSession = false;
+		writeMode();
 		const create = factory();
 		const other = mkdtempSync(join(tmpdir(), "launch-parity-other-"));
 		const first = start === "stored session" ? storedSession("stored.jsonl") : undefined;
@@ -640,7 +692,7 @@ describe("every spawn of a tab opens the session the tab is on", () => {
 			check();
 			for (const event of events) {
 				const current = omps.at(-1);
-				if (event === "crash") current?.exit(1);
+				if (event === "crash") await crash(current);
 				else if (event === "restart") sidecar.restart();
 				else if (event === "turn" && current) writeFileSync(current.session, "{}\n");
 				else if (event === "move") {
@@ -651,13 +703,14 @@ describe("every spawn of a tab opens the session the tab is on", () => {
 					sidecar.restart(undefined, opened);
 					on = opened;
 				}
-				await vi.advanceTimersByTimeAsync(4_000);
 				await settle();
 				check();
 			}
 		} finally {
 			sidecar.dispose();
-			rmSync(other, { recursive: true, force: true });
+			// The omp may still be in `other` (its cwd after a move): the folder goes once it exited.
+			await sidecar.whenExited();
+			rmSync(other, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 		}
 	});
 });

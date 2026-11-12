@@ -15,7 +15,6 @@ function fakeCtx(answer: unknown = { ok: true }) {
 		}),
 		bridge: {
 			request: request as LocalCommandContext["bridge"]["request"],
-			onEvent: vi.fn(() => () => {}),
 			connected: true,
 		},
 	};

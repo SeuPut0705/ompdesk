@@ -129,7 +129,8 @@ Spawn(s) ==
 \* Its own tag and what the last launch left for its session end, unless a quit is underway.
 \* @code src/main/session-processes.ts:262-266 close
 \* @code src/main/session-processes.ts:274-277 sessionReleased
-\* @code src/main/sidecar.ts:1474-1483 dispose: the close follows the omp's exit
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:1995-2002 dispose: stops the omp; the lane tells main once every omp it stopped has exited (`sidecar.disposed`)
+\* @code native/ompdesk/crates/core/src/sidecar/lane.rs:2006-2018 when_all_exited: the close follows the omp's exit (main closes the tag on the event)
 Dispose(s) ==
     /\ app = "up"
     /\ tab[s] # "closed"

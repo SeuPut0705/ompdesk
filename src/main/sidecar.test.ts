@@ -13,10 +13,11 @@ import type {
 } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import type { OmpResolution } from "./omp-runtime";
-import { OmpStartQueue } from "./omp-start-queue";
-import { STOP_GRACE_MS } from "./omp-stop";
 import { type SidecarFailureReport, SidecarManager, type SlowStartReport } from "./sidecar";
 import { ANSWERS_COMMANDS, ompRuns, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+
+/** The stop's grace in the core (`tuning.stopGraceMs`): the core's clock cannot be moved, so a short one is waited out. */
+const STOP_GRACE_MS = 1_000;
 
 /** A resolved "system omp" that is really the test's fake sidecar script. */
 function ompAt(bin: string): () => Promise<OmpResolution> {
@@ -1304,25 +1305,23 @@ describe("SidecarManager", () => {
 			async () => {
 				for (const options of [{ gracefulStopMs: () => 0 }, {}]) {
 					const { tempDir, binaryPath, read, stopped, running } = await gracefulOmp(false);
-					const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, ...options });
+					const sidecar = new SidecarManager({
+						omp: ompAt(binaryPath),
+						cwd: tempDir,
+						...options,
+						// The grace runs in the core, on its own clock: a short one the test waits out for real.
+						tuning: { stopGraceMs: STOP_GRACE_MS },
+					});
 					try {
 						const ready = waitForReady(sidecar);
 						sidecar.start();
 						await ready;
-						vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-						try {
-							sidecar.dispose();
-							const until = Date.now() + 10_000;
-							while (!(await read()).includes("stdin-end") && Date.now() < until) {
-								await new Promise(resolve => setImmediate(resolve));
-							}
-							expect(await read()).toEqual(["stdin-end"]);
-							vi.advanceTimersByTime(STOP_GRACE_MS - 1);
-							expect(await running()).toBe(true);
-							vi.advanceTimersByTime(1);
-						} finally {
-							vi.useRealTimers();
-						}
+						sidecar.dispose();
+						await vi.waitFor(async () => expect(await read()).toEqual(["stdin-end"]), { timeout: 10_000 });
+						// A negative check, so it waits (no event says nothing happened): a quarter of the grace, the shortest
+						// time that is still inside it however loaded the machine.
+						await delay(STOP_GRACE_MS / 4);
+						expect(await running()).toBe(true);
 						await vi.waitFor(async () => stopped(["stdin-end"]), { timeout: 10_000 });
 					} finally {
 						await fs.rm(tempDir, RM_TEMP);
@@ -1490,7 +1489,11 @@ describe("SidecarManager", () => {
 			async () => {
 				for (const stuck of ["ignores SIGTERM", "stopped"] as const) {
 					const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "ignore", answers: "always" });
-					const sidecar = new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir });
+					const sidecar = new SidecarManager({
+						omp: ompAt(binaryPath),
+						cwd: tempDir,
+						tuning: { stopGraceMs: STOP_GRACE_MS },
+					});
 					try {
 						const ready = waitForReady(sidecar);
 						sidecar.start();
@@ -1501,19 +1504,14 @@ describe("SidecarManager", () => {
 						const exit = sidecar.whenExited().then(() => {
 							exited = true;
 						});
-						vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-						try {
-							sidecar.dispose();
-							if (stuck === "ignores SIGTERM")
-								await vi.waitFor(async () =>
-									expect((await lines()).map(line => line.word)).toContain("sigterm"),
-								);
-							vi.advanceTimersByTime(STOP_GRACE_MS - 1);
-							expect([alive(pid), exited]).toEqual([true, false]);
-							vi.advanceTimersByTime(1);
-						} finally {
-							vi.useRealTimers();
-						}
+						sidecar.dispose();
+						if (stuck === "ignores SIGTERM")
+							await vi.waitFor(async () => expect((await lines()).map(line => line.word)).toContain("sigterm"));
+						// The grace runs in the core, on a clock that cannot be moved: well inside it nothing was killed yet.
+						// A negative check, so it waits (no event says nothing happened): a quarter of the grace, the shortest
+						// time that is still inside it however loaded the machine.
+						await delay(STOP_GRACE_MS / 4);
+						expect([alive(pid), exited]).toEqual([true, false]);
 						await exit;
 						expect(alive(pid)).toBe(false);
 					} finally {
@@ -1549,7 +1547,7 @@ describe("SidecarManager", () => {
 		it("never has more omps starting at once than the start queue allows", async () => {
 			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-gate-${process.pid}-${Date.now()}`);
 			const { tempDir, binaryPath, lines } = await loggedOmp({ onTerm: "exit", answers: { gate } });
-			const queue = new OmpStartQueue(2, 60_000);
+			const queue = { startsAtOnce: 2, startSlotCapMs: 60_000 };
 			const tabs = [0, 1, 2, 3].map(
 				() => new SidecarManager({ omp: ompAt(binaryPath), cwd: tempDir, startQueue: queue }),
 			);
@@ -1595,7 +1593,7 @@ describe("SidecarManager", () => {
 			const slow = await loggedOmp({ onTerm: "exit", answers: { gate } });
 			const quick = await loggedOmp({ onTerm: "exit", answers: "always" });
 			// One start at a time, with no cap of the queue's own: only the slow bound lets the second tab start.
-			const queue = new OmpStartQueue(1, 60_000);
+			const queue = { startsAtOnce: 1, startSlotCapMs: 60_000 };
 			const late = new SidecarManager({
 				omp: ompAt(slow.binaryPath),
 				cwd: slow.tempDir,
@@ -1610,19 +1608,12 @@ describe("SidecarManager", () => {
 				const lateSlow = statusThat(late, payload => payload.slow === true);
 				const nextQueued = statusThat(next, payload => payload.queued === true);
 				const nextReady = waitForReady(next);
-				// The slow bound runs on a clock the test moves: the second tab waits until the test lets it pass.
-				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-				try {
-					late.start();
-					await lateHeld;
-					next.start();
-					await nextQueued;
-					vi.advanceTimersByTime(999);
-					expect(next.statusPayload).toMatchObject({ status: "starting", queued: true });
-					vi.advanceTimersByTime(1);
-				} finally {
-					vi.useRealTimers();
-				}
+				// The slow bound runs in the core, on a clock that cannot be moved: the second tab waits for it (1 s).
+				late.start();
+				await lateHeld;
+				next.start();
+				await nextQueued;
+				expect(next.statusPayload).toMatchObject({ status: "starting", queued: true });
 				await nextReady;
 				await lateSlow;
 				// The second tab is up and the first omp still runs, waited for: one spawn, its tab slow.
@@ -1653,7 +1644,7 @@ describe("SidecarManager", () => {
 			const sidecar = new SidecarManager({
 				omp: ompAt(slow.binaryPath),
 				cwd: slow.tempDir,
-				startSlowMs: 300,
+				startSlowMs: 3_000,
 				readOmpLog: async pid => {
 					asked.push(pid);
 					return [logLine];
@@ -1663,25 +1654,19 @@ describe("SidecarManager", () => {
 			try {
 				const held = holds(sidecar, "get_state");
 				const slowShown = statusThat(sidecar, payload => payload.slow === true);
-				// The slow bound runs on a clock the test moves, so it passes only once the omp printed ready and holds
-				// get_state, however long the omp took to start.
-				vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-				try {
-					sidecar.start();
-					await held;
-					vi.advanceTimersByTime(299);
-					expect(asked).toEqual([]);
-					vi.advanceTimersByTime(1);
-				} finally {
-					vi.useRealTimers();
-				}
+				// The slow bound runs in the core, on a clock that cannot be moved: it is long enough for the omp to have
+				// printed ready and to hold get_state by then.
+				sidecar.start();
+				await held;
+				expect(asked).toEqual([]);
+				await slowShown;
 				// The spawned process's pid: on Windows the fake runs behind a `.cmd` shell, so it is not the fake's own.
 				expect(asked).toEqual([sidecar.pid]);
 				await slowShown;
 				expect(sidecar.statusPayload.message).toBe(logLine);
 				expect(reports).toEqual([
 					{
-						waitedMs: 300,
+						waitedMs: 3_000,
 						stderr: [],
 						ompLog: [logLine],
 						ready: true,
@@ -1704,7 +1689,7 @@ describe("SidecarManager", () => {
 			const gate = path.join(os.tmpdir(), `omp-gui-sidecar-queued-${process.pid}-${Date.now()}`);
 			const held = await loggedOmp({ onTerm: "exit", answers: { gate } });
 			const quick = await loggedOmp({ onTerm: "exit", answers: "always" });
-			const queue = new OmpStartQueue(1, 60_000);
+			const queue = { startsAtOnce: 1, startSlotCapMs: 60_000 };
 			const first = new SidecarManager({ omp: ompAt(held.binaryPath), cwd: held.tempDir, startQueue: queue });
 			const second = new SidecarManager({ omp: ompAt(quick.binaryPath), cwd: quick.tempDir, startQueue: queue });
 			const seen: SidecarStatusPayload[] = [];

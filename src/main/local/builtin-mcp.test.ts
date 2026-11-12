@@ -21,7 +21,6 @@ function context(builtin: boolean) {
 				return reply as T;
 			},
 			connected: true,
-			onEvent: () => () => {},
 		},
 	};
 	return { ctx, request };

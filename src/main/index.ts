@@ -116,7 +116,7 @@ import {
 	tcpConnects,
 } from "./connectivity";
 import { installCliLaunchers } from "./control-socket/cli-install";
-import { stopCore } from "./core/process";
+import { core, stopCore } from "./core/process";
 import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
@@ -164,7 +164,6 @@ import { configureNativeBin, nativeBinPath } from "./native-bin";
 import { followSetupState } from "./omp-availability";
 import { OMP_PIDS_FILE, OmpProcesses } from "./omp-processes";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
-import { OmpStartQueue } from "./omp-start-queue";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
@@ -227,6 +226,7 @@ import {
 	updateStatus,
 } from "./updater";
 import { FileEditReports } from "./web/file-edit-reports";
+import { IPC_POLICY } from "./web/ipc-policy";
 import { IpcRegistry } from "./web/ipc-registry";
 import { UploadStore } from "./web/uploads";
 import { WebClientWindow } from "./web/web-client-window";
@@ -550,6 +550,8 @@ let githubAuthService: GithubAuthService | null = null;
 let scheduleService: ScheduleService | null = null;
 /** Settles once the core wrote the schedules' journal at a quit, or its bound passed: the core's stop and the exit wait for it. */
 let schedulesClosed: Promise<void> = Promise.resolve();
+/** The quit's stop of every omp (`sidecar.stopAll`), started with the tabs' disposal: the core ends only after it answered. */
+let ompsStopped: Promise<void> = Promise.resolve();
 /** Watches what event routines (Settings › Schedules) wait for (src/main/routines). */
 let routineTriggers: RoutineTriggers | null = null;
 let routineMarks: FileMarks | null = null;
@@ -858,6 +860,13 @@ app.whenReady().then(() => {
 	// Every IPC handler registers once, here and in what this hands it to: on ipcMain for the app's windows,
 	// and in the table a paired web device's calls are dispatched from (web/ipc-registry.ts).
 	const ipc = new IpcRegistry(ipcMain);
+	// The channels the core serves (none until the pool moves, 9d) register once the core took IPC_POLICY; a core that
+	// cannot start leaves them unregistered and every channel main serves as it is.
+	ipc.routeCore(core(), IPC_POLICY).catch((error: unknown) =>
+		console.warn(
+			`[ipc] the core's channels are not served: ${error instanceof Error ? error.message : String(error)}`,
+		),
+	);
 	ipc.handle(IPC_COMMANDS.BRIDGE_HEALTH_TAKE, () => bridgeHealth.take());
 	// The first local tab boots alone: the stats server and machine setup's optional installs (gh, Node;
 	// winget on Windows) wait until a tab's session is ready, or FIRST_TAB_GRACE_MS when none comes (only
@@ -898,22 +907,26 @@ app.whenReady().then(() => {
 	});
 	mcpHub.start();
 	const hub = mcpHub;
-	// The omps an earlier instance left running (a crash, a forced quit) stop before any tab's omp starts, and tabs then
-	// start a few at a time (omp-start-queue.ts).
+	// The omps an earlier instance left running (a crash, a forced quit) stop before any tab's omp starts: the core holds
+	// every lane's start (`sidecar.holdStarts`) until the reap has settled, and then starts them a few at a time.
 	ompProcesses = new OmpProcesses(join(app.getPath("userData"), OMP_PIDS_FILE), bridgeDir, {
 		log: (message, details) => writeRuntimeLog({ source: "omp-reap", message, details }),
 	});
-	const ompStarts = new OmpStartQueue();
-	ompStarts.holdUntil(
-		ompProcesses.reapLeftovers().then(pids => {
+	const reaper = ompProcesses;
+	void core()
+		.call("sidecar.holdStarts", { hold: true })
+		.catch(() => undefined)
+		.then(() => reaper.reapLeftovers())
+		.then(pids => {
 			if (pids.length > 0)
 				writeRuntimeLog({
 					source: "omp-reap",
 					message: "stopped omps an earlier launch left running",
 					details: { pids: pids.join(",") },
 				});
-		}),
-	);
+		})
+		.finally(() => core().call("sidecar.holdStarts", { hold: false }))
+		.catch(() => undefined);
 	// Whose the processes a tab's omp starts are: they end once the tab is closed, and this launch ends what the
 	// sessions the last one did not bring back left running (session-processes.ts).
 	const diskCareLog = (message: string, details: Record<string, unknown>): void =>
@@ -986,8 +999,8 @@ app.whenReady().then(() => {
 		autopilot: () => autopilotRef.current,
 		desktopSlot: () => desktopSlotRef.current,
 		checkoutFiles: sidecar => checkoutFilesRef.current?.(sidecar),
-		startQueue: ompStarts,
-		processes: ompProcesses,
+		startQueue: {},
+		ledgerFile: ompProcesses.file,
 		sessionProcesses,
 	});
 	initDeletedSessions(join(app.getPath("userData"), "deleted-sessions.json"));
@@ -2525,14 +2538,22 @@ installQuitGuard(
 			["work-awake", () => workAwakePolicy?.dispose()],
 			["lid-awake", () => lidAwake?.dispose()],
 			["disk-care", () => diskCare?.stop()],
-			["sidecars", () => sidecarPool?.disposeAll()],
+			[
+				"sidecars",
+				() => {
+					sidecarPool?.disposeAll();
+					// One stop for every omp: the core's lanes join the disposals' stops (an omp that asked to be left to save
+					// a login is held, not killed), and the core below is not ended before this answered.
+					ompsStopped = ompProcesses?.stopAll() ?? Promise.resolve();
+				},
+			],
 			["remote-devices", () => void remoteDevices?.dispose()],
 			["mobile-web", () => mobileWebService?.dispose()],
 			["web-host", () => void webHost?.stop()],
 			["session-index", () => sessionIndex?.stop()],
 			["log-watcher", () => logWatcher?.stop()],
-			// After the schedules' last write: the core answers it before its input ends.
-			["core", () => void schedulesClosed.then(() => stopCore())],
+			// After the schedules' last write and the omps' stop: the core answers both before its input ends.
+			["core", () => void Promise.all([schedulesClosed, ompsStopped]).then(() => stopCore())],
 			["tray", () => destroyTray()],
 		];
 		for (const [name, run] of steps) {
@@ -2558,6 +2579,6 @@ installQuitGuard(
 	},
 	// Main's exit ends the core at once on Windows: the schedules' journal is written before it.
 	async () => {
-		await Promise.all([ompProcesses?.stopAll(), schedulesClosed]);
+		await Promise.all([ompsStopped, schedulesClosed]);
 	},
 );

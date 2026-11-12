@@ -1,12 +1,11 @@
 /**
- * Sidecar lifecycle manager: spawns the system `omp --mode rpc-ui` with the
- * gui-bridge extension, handles restart, routes frames to RpcClient and
- * EventBatcher, and answers GUI-side commands (src/main/local) in-process.
+ * Sidecar lifecycle manager: main's client of a tab's lane in the core (`native/ompdesk/crates/core/src/sidecar`, which
+ * spawns the system `omp --mode rpc-ui` with the gui-bridge extension, owns its stdio and bridge socket and handles
+ * ready, restart and stop) and the mirror of what the lane says. Main keeps how a spawn is made, the routing of
+ * frames to the EventBatcher and the pool's events, and the GUI-side commands (src/main/local) it answers in-process.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { stripVTControlCharacters } from "node:util";
 import type { McpLiveChange } from "../../resources/gui-bridge/extensions/mcp-contracts";
 import { type AutoTitleSettings, titleSuppressedByEnv } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import type { DelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
@@ -17,12 +16,10 @@ import type { PromptOriginEnv } from "../../resources/gui-bridge/prompt-origin-c
 import type { AccountRotationMode } from "../shared/account-rotation";
 import type { AgentBrowser } from "../shared/default-browser";
 import { parseLaunchProfile, profileToFlags } from "../shared/launch-profile";
-import { DEFAULT_ROLE_MODEL_SELECTOR, parseModelRestoreFailure } from "../shared/model-restore";
+import { parseModelRestoreFailure } from "../shared/model-restore";
 import type {
-	AgentMessage,
 	AgentSessionEvent,
 	RpcCommand,
-	RpcReadyFrame,
 	RpcResponse,
 	SidecarStatus,
 	SidecarStatusPayload,
@@ -31,46 +28,36 @@ import { BTW_FRAME_TYPES, LIVE_FRAME_TYPES } from "../shared/rpc-types";
 import { AGENT_CONTROL_DEFINITIONS } from "./agent-control/tools";
 import { type LowerAgentPriority, lowerAgentPriority } from "./agent-priority";
 import { isNoModelBootFailure } from "./boot-model";
-import { GuiBridgeClient, newBridgeAddress, removeBridgeAddress } from "./bridge-client";
 import { withoutControlEnv } from "./control-socket/env";
+import { CoreError, core } from "./core/process";
 import { EventBatcher } from "./event-batcher";
 import { withoutFrameBookkeeping } from "./frame-bookkeeping";
 import { localHandlerFor, runLocalCommand } from "./local";
 import { projectQueueUpdate } from "./local/queue";
-import type { BridgeClient, LocalCommandContext, OmpRuntime } from "./local/types";
+import { type BridgeClient, type LocalCommandContext, LocalCommandError, type OmpRuntime } from "./local/types";
 import {
 	type BuiltinLaunch,
 	type OmpLaunch,
 	ompArgs,
+	type SessionOpen,
 	type SessionSettings,
 	sessionEnv,
-	sessionOpen,
 	withoutSessionEnv,
 } from "./omp-launch";
 import { ompLogTail } from "./omp-log-tail";
-import type { OmpProcesses } from "./omp-processes";
 import { OMP_TELEMETRY_OFF, type OmpResolution, ompBunDefaults, ompPathEnv } from "./omp-runtime";
-import type { OmpStartQueue, StartSlotRelease } from "./omp-start-queue";
-import { OMP_SPAWN_GROUP, type StopOptions, stopOmp } from "./omp-stop";
 import { VISUALIZE_DEFINITION } from "./preview/visuals";
-import { MAX_RESTART_ATTEMPTS, restartDelay, WINDOWS_SESSION_END_EXIT_CODE } from "./restart-policy";
-import { attachNdjsonParser, supportsRpcProtocolV2 } from "./rpc-bridge";
-import { RpcClient } from "./rpc-client";
-import { completeRunMessages } from "./run-messages";
+import { RpcClient, RpcTimeoutError } from "./rpc-client";
 import type { SessionProcesses, SessionProcessHandle } from "./session-processes";
 import { needsShell, spawnArgs, spawnCommand } from "./spawn";
 import { TERMINAL_READ_DEFINITION } from "./terminal/agent-tool";
 
-/** stderr lines kept per spawn for the crash report. */
-const STDERR_TAIL_LINES = 20;
-/** Cap on the stderr excerpt appended to the user-visible restart reason. */
-const STDERR_REASON_CHARS = 240;
 /** `ctx.send` from GUI-side handlers: stock commands such as `get_entries` on a long session. */
 const LOCAL_SEND_TIMEOUT_MS = 120_000;
-/** How long `agent_end` (and every frame behind it) may wait for its entry ids. */
-const ENTRY_ID_TIMEOUT_MS = 5_000;
-/** Longest wait after `exit` for the child's stderr to finish draining (a shim's grandchild may hold it open). */
-const STDERR_DRAIN_MS = 1_000;
+/** A request the core answers when it is done (the longest a timer may be set for): the call has no deadline of its own. */
+const NO_DEADLINE_MS = 2 ** 31 - 1;
+/** The lane's own deadline of a bridge request, and what main's wait for its answer sits behind it. */
+const CORE_ANSWER_SLACK_MS = 10_000;
 /**
  * How long a started omp may stay silent before its tab says so. Stock omp answers `get_state` within seconds; past this
  * the tab reads `starting` with `slow` and the omp's stderr tail, its place in the start queue goes to the next tab, and
@@ -79,40 +66,23 @@ const STDERR_DRAIN_MS = 1_000;
  */
 const START_SLOW_MS = 20_000;
 
-/** Stock commands after which the sidecar's session identity is unknown until the next `get_state`. */
-const SESSION_CHANGING_COMMANDS: Record<string, true> = {
-	new_session: true,
-	switch_session: true,
-	fork: true,
-	branch: true,
-	handoff: true,
-};
-
 /**
- * Leading stderr line of the crashed spawn: a fatal message comes first
- * (`dyld: Library not loaded …`, `error: ENOENT …`) and whatever follows is
- * stack or warning noise. The full tail rides on the runtime-log report.
+ * The environment a spawn gets, as node's `spawn` hands it to the child: values that are undefined are left out and,
+ * on Windows, where names are case-insensitive, the first of a name's spellings in sorted order is the only one.
  */
-function stderrExcerpt(lines: string[]): string {
-	for (const line of lines) {
-		const trimmed = line.trim();
-		if (!trimmed) continue;
-		return trimmed.length > STDERR_REASON_CHARS ? `${trimmed.slice(0, STDERR_REASON_CHARS - 1)}…` : trimmed;
+function childEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+	const out: Record<string, string> = {};
+	const seen = new Set<string>();
+	for (const key of Object.keys(env).sort()) {
+		if (process.platform === "win32") {
+			const name = key.toUpperCase();
+			if (seen.has(name)) continue;
+			seen.add(name);
+		}
+		const value = env[key];
+		if (value !== undefined) out[key] = value;
 	}
-	return "";
-}
-
-/** Resolves once `child`'s stderr has closed, or after STDERR_DRAIN_MS. */
-function stderrDrained(child: ChildProcess): Promise<void> {
-	const stream = child.stderr;
-	if (!stream || stream.closed) return Promise.resolve();
-	const { promise, resolve } = Promise.withResolvers<void>();
-	const timer = setTimeout(resolve, STDERR_DRAIN_MS);
-	stream.once("close", () => {
-		clearTimeout(timer);
-		resolve();
-	});
-	return promise;
+	return out;
 }
 
 /** `ctx.send` over the stock path: resolves with `response.data`, rejects with `response.error`. */
@@ -376,10 +346,18 @@ export interface SidecarOptions {
 	 * Absent: a spawn that exits for lack of a usable model just crash-loops.
 	 */
 	bootModel?: (runtime: OmpRuntime) => Promise<string>;
-	/** The app's one queue of omp starts (`omp-start-queue.ts`). Absent (tests): every start goes at once. */
-	startQueue?: Pick<OmpStartQueue, "acquire">;
-	/** The app's list of the omps it runs (`omp-processes.ts`), which a quit stops and the next launch reaps. */
-	processes?: Pick<OmpProcesses, "track">;
+	/**
+	 * The app's one queue of omp starts (the core's, `sidecar/queue.rs`: two at once, a place held 15 s at most). Present:
+	 * this tab's starts go through it, and a field here reconfigures it for the starts after (tests). Absent (tests):
+	 * every start goes at once.
+	 */
+	startQueue?: { startsAtOnce?: number; startSlotCapMs?: number };
+	/** The file that names the omps the app runs for the next launch's reap (`omp-processes.ts`); the lane writes it. Absent (tests): none kept. */
+	ledgerFile?: string;
+	/** How long `agent_end` (and every frame behind it) may wait for its entry ids (the lane's default: 5 s). */
+	entryIdTimeoutMs?: number;
+	/** Test seam, the lane's clocks: `stopGraceMs`, `killWaitMs`, `stderrDrainMs`, `restartDelaysMs`. */
+	tuning?: { stopGraceMs?: number; killWaitMs?: number; stderrDrainMs?: number; restartDelaysMs?: number[] };
 	/**
 	 * Whose the processes this tab's omps start are (`session-processes.ts`): the tab's tag goes into every spawn's
 	 * environment, and what still carries it ends once the tab is disposed. Absent (tests): no tag.
@@ -439,48 +417,219 @@ function loadLaunchProfileFlags(read: (() => unknown) | undefined, cwd: string):
  */
 export type SidecarStartGate = (bridge: BridgeClient, cwd: string) => Promise<string | null>;
 
-export class SidecarManager extends EventEmitter {
-	#child: ChildProcess | null = null;
-	#rpcClient: RpcClient | null = null;
-	#bridge: GuiBridgeClient | null = null;
-	#bridgeAddress: string | null = null;
-	#batcher: EventBatcher | null = null;
-	#detachParser: (() => void) | null = null;
-	#restartCount = 0;
-	#restartTimer: NodeJS.Timeout | null = null;
-	/** The exits of the omps this tab stopped and that still run: its next spawn waits for all of them. */
-	readonly #exiting = new Set<Promise<void>>();
-	/** This spawn's place in the start queue, given back once it answered, ended or was stopped. */
-	#releaseSlot: StartSlotRelease | null = null;
-	/** Fires `#startIsSlow` when this spawn has not answered its first `get_state` in `START_SLOW_MS`. */
-	#slowTimer: NodeJS.Timeout | null = null;
-	/** This spawn passed `START_SLOW_MS` without an answer: its `starting` carries `slow` and what omp said. */
-	#slow = false;
-	/** The slow spawn's own log tail, shown while its stderr is empty. */
-	#slowLog: string[] = [];
-	/** When this spawn started: the day its omp log is named by. */
-	#spawnedAt = new Date(0);
+/**
+ * What a lane of the core says (`native/ompdesk/crates/core/src/sidecar`): every event names its tab and `cmd`, the
+ * highest message of that tab the lane had applied when it sent the event. An ask also names itself (`ask`) and is
+ * answered by the request of the same name in the past tense, carrying that number.
+ */
+interface LaneEvent {
+	tab: string;
+	cmd: number;
+}
+interface LaneAsk extends LaneEvent {
+	ask: number;
+}
+interface ResolveAsk extends LaneAsk {
+	sessionPath: string | null;
+}
+interface LaunchAsk extends LaneAsk {
+	open: SessionOpen;
+	model?: string;
+	bridgeAddress?: string | null;
+}
+interface ExitAsk extends LaneAsk {
+	stderr: string;
+	booted: boolean;
+	/** This spawn already carried `--model @default` / a catalog model: the matching recovery is spent (one respawn each). */
+	fallbackArmed: boolean;
+	noModelArmed: boolean;
+}
+interface SlowAsk extends LaneAsk {
+	pid: number;
+	spawnedAt: number | string;
+}
+interface SessionWaitAsk extends LaneAsk {
+	sessionPath: string;
+}
+interface StatusEvent extends LaneEvent {
+	payload: SidecarStatusPayload;
+}
+interface PidEvent extends LaneEvent {
+	pid: number;
+}
+interface SessionEvent extends LaneEvent {
+	identity: SidecarSessionIdentity | null;
+}
+interface TabSessionEvent extends LaneEvent {
+	sessionPath: string | null;
+	isNew: boolean;
+}
+interface BridgeStateEvent extends LaneEvent {
+	connected: boolean;
+	error?: string;
+}
+interface TextEvent extends LaneEvent {
+	text: string;
+}
+interface FailureEvent extends LaneEvent {
+	report: SidecarFailureReport;
+}
+interface SlowReportEvent extends LaneEvent {
+	report: SlowStartReport;
+}
+
+interface AnswerEvent extends LaneEvent {
+	/** The number of the message (`sidecar.command`, `sidecar.barrier`) this answers. */
+	seq: number;
+}
+
+type LaneListener = (name: string, data: LaneEvent, bin: Uint8Array | null) => void;
+
+/** Every live manager by its tab id: the core's events name the tab they are for. */
+const lanes = new Map<string, LaneListener>();
+let tabCount = 0;
+let listening = false;
+
+const LANE_EVENTS = [
+	"resolve",
+	"launch",
+	"exit",
+	"gateAsk",
+	"slow",
+	"sessionWait",
+	"status",
+	"spawned",
+	"exited",
+	"frame",
+	"answer",
+	"session",
+	"tabSession",
+	"bridgeState",
+	"bridgeLost",
+	"stderr",
+	"failure",
+	"slowReport",
+	"disposed",
+] as const;
+
+/** Subscribes once, across every core this app starts: the listeners belong to the process object, not to a start. */
+function listen(): void {
+	if (listening) return;
+	listening = true;
+	for (const name of LANE_EVENTS) {
+		core().on(`sidecar.${name}`, (data, bin) => {
+			const event = data as LaneEvent;
+			lanes.get(event.tab)?.(name, event, bin);
+		});
+	}
+}
+
+/** The core's own failures: a request it could not answer. The lane's and the bridge's faults are told apart by code. */
+const CORE_CODES: Record<string, true> = { core_exited: true, core_unavailable: true, timeout: true };
+
+/**
+ * Rebuilds what `GuiBridgeClient.request` rejected with from the lane's fault: a bridge that sent a code gives a
+ * `LocalCommandError` of it (the codes the GUI explains: `unsupported_omp`), one that sent none a plain error.
+ */
+function bridgeError(error: unknown): unknown {
+	if (!(error instanceof CoreError) || CORE_CODES[error.code] === true) return error;
+	if (error.code === "bridge_error") return new Error(error.message);
+	if (error.code === "bridge_disconnected")
+		return new LocalCommandError("GUI bridge is not connected", "bridge_unavailable");
+	return new LocalCommandError(error.message, error.code);
+}
+
+/** The tab's omp's gui-bridge, as main's code knows it: each request goes through the tab's lane in the core. */
+class BridgeRelay implements BridgeClient {
+	connected = false;
+	#closed = false;
+	readonly #tab: string;
+	readonly #nextSeq: () => number;
+
+	constructor(tab: string, nextSeq: () => number) {
+		this.#tab = tab;
+		this.#nextSeq = nextSeq;
+	}
+
+	/** The omp this relay was made for is gone: a request no longer reaches the tab's next omp. */
+	close(): void {
+		this.#closed = true;
+		this.connected = false;
+	}
+
 	/**
-	 * Spawn-cycle counter, bumped whenever a cycle is torn down or started.
-	 * Every continuation that outlives the synchronous spawn (protocol
-	 * negotiation, env resolution) captures it and drops itself when it no
-	 * longer matches, so a dead child can never report `ready` or reset the
-	 * crash-loop counter.
+	 * `options.timeoutMs`: a request the bridge has not answered by then rejects (`bridge_timeout`). Without it a
+	 * request waits as long as the bridge takes (a user prompt, a login).
 	 */
-	#generation = 0;
-	/** `start()` calls in flight; a superseded env resolution must not spawn. */
-	#startSeq = 0;
-	#lastStderr: string[] = [];
+	async request<T = unknown>(method: string, params?: unknown, options?: { timeoutMs?: number }): Promise<T> {
+		if (this.#closed) throw new LocalCommandError("GUI bridge closed", "bridge_unavailable");
+		const timeoutMs = options?.timeoutMs;
+		try {
+			// `seq` is taken before the first await: messages leave in the order main makes them.
+			const { result } = await core().call<{ result: T }>(
+				"sidecar.bridge",
+				{ tab: this.#tab, seq: this.#nextSeq(), method, params, ...(timeoutMs === undefined ? {} : { timeoutMs }) },
+				{ timeoutMs: timeoutMs === undefined ? NO_DEADLINE_MS : timeoutMs + CORE_ANSWER_SLACK_MS },
+			);
+			return result.result;
+		} catch (error) {
+			throw bridgeError(error);
+		}
+	}
+}
+
+/** Which of the lane's messages change what the mirror predicts at once (see the fences in `SidecarManager`). */
+interface Fences {
+	/** The omp is gone from the mirror's view: what the lane says of an omp before it applied this is of the old one. */
+	life?: boolean;
+	/** The status is predicted: a status the lane sent before it applied this describes what came before. */
+	status?: boolean;
+	/** The cwd is predicted. */
+	cwd?: boolean;
+}
+
+/**
+ * One tab's omp: the client of its lane in the core (`native/ompdesk/crates/core/src/sidecar`, which spawns omp,
+ * owns its stdio and its bridge socket and runs the ready/restart/stop state machine) and the mirror of what the lane
+ * says, written from its events and, for the few calls whose effect the TypeScript always had at once, from the call.
+ *
+ * What stays here is main's: how a spawn is made (the lane asks, `#onLaunch`), the frames' routing (`#onFrame`), the
+ * GUI-side commands (`RpcClient`) and everything a caller reads synchronously.
+ *
+ * Mirror and predictions: `start()` and `restart()` read `starting`, `restart()`/`kill()`/`sleep()`/`dispose()` read
+ * the omp gone, `sleep()` of a live omp reads `asleep`, `restart(cwd)`/`adoptCwd(cwd)` the cwd, all before the lane
+ * answers. The lane's own event for one of those is kept out by a fence (`cmd` lower than the message's number: it
+ * describes the state before it), and the status it echoes is not emitted a second time.
+ */
+export class SidecarManager extends EventEmitter {
+	readonly #tab = `${process.pid}-${++tabCount}`;
+	/** The number of the last message main sent the lane; each message of the tab takes the next one. */
+	#seq = 0;
+	/** The lane exists in the core (`sidecar.open` was sent and has not ended). */
+	#opened = false;
+	#alive = false;
+	#pid: number | undefined;
+	#rpcClient: RpcClient | null = null;
+	/** The running omp's bridge; null while none runs. */
+	#bridge: BridgeRelay | null = null;
+	/** The last omp's bridge, kept until the next spawn: frames the lane releases after a stop still project their queues by it. */
+	#spawnRelay: BridgeRelay | null = null;
+	#batcher: EventBatcher | null = null;
+	/** What waits for the lane's answer event of a message (`seq`): a stock command's response, a barrier. */
+	readonly #answers = new Map<number, (bin: Uint8Array | null) => void>();
+	#lifeFence = 0;
+	#statusFence = 0;
+	#cwdFence = 0;
+	/** The JSON of the status last predicted: the lane's echo of it is not emitted again. */
+	#echo: string | null = null;
 	/**
-	 * `asleep` until something calls start(): a restored background tab costs
-	 * nothing until it is shown. start() flips to `starting` synchronously, so
-	 * "is a spawn already under way?" is answerable from this field alone.
+	 * `asleep` until something calls start(): a restored background tab costs nothing until it is shown. start() flips
+	 * to `starting` at once, so "is a spawn already under way?" is answerable from this field alone.
 	 */
 	#status: SidecarStatus = "asleep";
 	/**
-	 * The last `status` event's detail. An early failure (e.g. omp not found)
-	 * fires before the window subscribes; the renderer's boot snapshot
-	 * (SIDECAR_STATUS_GET) reads this so the reason is not lost.
+	 * The last `status` event's detail. An early failure (e.g. omp not found) fires before the window subscribes; the
+	 * renderer's boot snapshot (SIDECAR_STATUS_GET) reads this so the reason is not lost.
 	 */
 	#statusDetail: Omit<SidecarStatusPayload, "status" | "cwd"> = {};
 	#options: SidecarOptions;
@@ -490,39 +639,13 @@ export class SidecarManager extends EventEmitter {
 	#defaultBrowser: AgentBrowser | undefined;
 	#egoBrowserDir: string | null = null;
 	#shellEnvVars: Record<string, string> = {};
-	/** The session this tab is on, for every spawn of it (`sessionOpen`); see TabSession. */
+	/** The session this tab is on, for every spawn of it: the lane's, told by `sidecar.tabSession` (a lost core opens a lane on it). */
 	#sessionPath: string | null = null;
 	#isNew: boolean;
-	/** Whether the current spawn cycle reached `ready`. */
-	#bootedThisSpawn = false;
 	/** The user's own environment turned stock's automatic titles off for this spawn (see AutoTitleSettings). */
 	#titleSuppressed = false;
-	/**
-	 * Saved session model that failed to restore at boot. The next spawn adds
-	 * `--model @default` so the session opens on the configured default model
-	 * instead of exiting (upstream resumes fail closed), and the ready status
-	 * carries it so the renderer can say so.
-	 */
-	#bootModelFallback: string | null = null;
-	/**
-	 * Catalog model the next spawns pass as `--model` after one exited for lack
-	 * of a usable model (no credentials yet): booting is what lets the renderer
-	 * open onboarding to connect a provider. Cleared on `ready` and restart().
-	 */
-	#noModelBoot: string | null = null;
 	/** Last session identity `get_state` reported; null when a session change made it unknown. */
 	#session: SidecarSessionIdentity | null = null;
-	/**
-	 * An `agent_end` waiting for its entry ids, and every frame that arrived behind
-	 * it, responses included. Holding the tail keeps the renderer's frame order
-	 * (`agent_end` before `prompt_result`/`session_settled`) intact, and a response
-	 * (`get_state`, a transcript page) never overtakes the run it already reports.
-	 * The entry ids come over the bridge socket, so no held response is awaited.
-	 * `released` settles once the frames have gone out.
-	 */
-	#held: { event: Frame; frames: Frame[]; released: PromiseWithResolvers<void> } | null = null;
-	/** Messages delivered by `message_end` since the last `agent_end`; completes that end's commit. */
-	#runMessages: AgentMessage[] = [];
 	#disposed = false;
 	/** One-shot gate held until the first spawn's `ready` (see SidecarStartGate). */
 	#startGate: SidecarStartGate | null = null;
@@ -533,6 +656,8 @@ export class SidecarManager extends EventEmitter {
 		super();
 		this.#options = options;
 		this.#isNew = options.fresh === true;
+		lanes.set(this.#tab, (name, data, bin) => this.#onLane(name, data, bin));
+		listen();
 	}
 
 	get status(): SidecarStatus {
@@ -552,30 +677,437 @@ export class SidecarManager extends EventEmitter {
 		return this.#options.kind ?? "agent";
 	}
 
+	/** Non-null exactly while an omp runs (as the child and its client were set together). */
 	get rpcClient(): RpcClient | null {
 		return this.#rpcClient;
 	}
 
 	/** A child process is running (whatever `status` says — a failed health check reports `error` over a live child). */
 	get processAlive(): boolean {
-		return this.#child !== null;
+		return this.#alive;
 	}
 
 	/** The running omp's pid, for its process tree's measured footprint (memory-sampler.ts). */
 	get pid(): number | undefined {
-		return this.#child?.pid;
+		return this.#pid;
 	}
 
 	start(): void {
 		if (this.#disposed) return;
-		this.#setStatus("starting");
+		this.#ensureOpen();
+		this.#tell("sidecar.start", {}, { status: true });
+		this.#predict("starting");
+	}
+
+	/** Creates the tab's lane in the core: at the first call that needs it, so a restored tab that is never shown costs nothing. */
+	#ensureOpen(): void {
+		if (this.#opened) return;
+		this.#opened = true;
+		const options = this.#options;
+		const stops = core().stops;
+		const tuning = { ...(options.startQueue ?? { startsAtOnce: 0 }), ...options.tuning };
+		core()
+			.call(
+				"sidecar.open",
+				{
+					tab: this.#tab,
+					seq: ++this.#seq,
+					cwd: options.cwd,
+					kind: this.kind,
+					fresh: options.fresh === true,
+					isNew: this.#isNew,
+					sessionPath: this.#sessionPath,
+					eventFilter: Object.keys(AGENT_EVENT_TYPES),
+					bridge: Boolean(options.bridgeDir),
+					...(options.ledgerFile ? { ledgerFile: options.ledgerFile } : {}),
+					startSlowMs: options.startSlowMs ?? START_SLOW_MS,
+					...(options.entryIdTimeoutMs === undefined ? {} : { entryIdTimeoutMs: options.entryIdTimeoutMs }),
+					tuning,
+				},
+				// The lane answers when the tab is disposed and every omp it started has exited: this request is how main
+				// learns of a core that ended with omps running.
+				{ timeoutMs: NO_DEADLINE_MS },
+			)
+			.then(
+				() => {
+					this.#opened = false;
+					lanes.delete(this.#tab);
+				},
+				(error: unknown) => this.#laneLost(error, stops),
+			);
+	}
+
+	/**
+	 * The core ended while this tab's lane lived (its omps went with it: stdin's end on POSIX, the job on Windows): a
+	 * lane opens again on the session the tab is on, and starts, unless the tab slept or was closed. A core that
+	 * `stop()` ended on purpose (the quit) is not started again.
+	 */
+	#laneLost(error: unknown, stops: number): void {
+		this.#opened = false;
+		this.#markGone();
+		this.#batcher?.dispose();
+		this.#batcher = null;
+		const message = error instanceof Error ? error.message : String(error);
+		if (this.#disposed) {
+			this.#closeProcesses();
+			lanes.delete(this.#tab);
+			return;
+		}
+		if (error instanceof CoreError && error.code === "core_exited") {
+			if (core().stops !== stops) return;
+			const asleep = this.#status === "asleep";
+			console.warn(`[sidecar] ${message}: opening the tab's lane again`);
+			this.#setStatus("restarting", { message });
+			this.#ensureOpen();
+			if (!asleep) this.start();
+			return;
+		}
+		this.#setStatus("error", { message });
+	}
+
+	/** One message to the tab's lane, numbered in the order main sends them; the lane applies them in that order. */
+	#send(method: string, params: object = {}, fences: Fences = {}, timeoutMs?: number): Promise<unknown> {
+		const seq = ++this.#seq;
+		if (fences.life) this.#lifeFence = seq;
+		if (fences.status) this.#statusFence = seq;
+		if (fences.cwd) this.#cwdFence = seq;
+		return core()
+			.call(method, { tab: this.#tab, seq, ...params }, timeoutMs === undefined ? {} : { timeoutMs })
+			.then(answer => answer.result);
+	}
+
+	/** `#send` that nobody waits for: a failure is a note (a lane that is gone has nothing left to do). */
+	#tell(method: string, params: object = {}, fences: Fences = {}): void {
+		this.#send(method, params, fences).catch((error: unknown) =>
+			console.warn(`[sidecar] ${method}: ${error instanceof Error ? error.message : String(error)}`),
+		);
+	}
+
+	/** An answer to one of the lane's asks (it drops one it no longer waits for). */
+	#answer(method: string, ask: number, params: object = {}): void {
+		core()
+			.call(method, { tab: this.#tab, ask, ...params })
+			.catch(() => {
+				// A core that ended meanwhile took the lane with it.
+			});
+	}
+
+	/** The mirror's own status, emitted at once; `echoes`: the lane's event of the same payload is not emitted again. */
+	#setStatus(status: SidecarStatus, detail: Omit<SidecarStatusPayload, "status" | "cwd"> = {}, echoes = false): void {
+		this.#status = status;
+		this.#statusDetail = detail;
+		const payload = { status, cwd: this.#options.cwd, ...detail };
+		this.#echo = echoes ? JSON.stringify(payload) : null;
+		this.emit("status", payload);
+	}
+
+	#predict(status: SidecarStatus): void {
+		this.#setStatus(status, {}, true);
+	}
+
+	/** The omp is gone from the mirror's view (stopped, or the core that ran it ended). */
+	#markGone(): void {
+		this.#alive = false;
+		this.#pid = undefined;
+		this.#rpcClient?.retire();
+		this.#rpcClient = null;
+		this.#bridge?.close();
+		this.#bridge = null;
+		// Frames the lane releases after the stop (an `agent_end` held for its entry ids) still go through the batcher.
+		this.#batcher?.flushNow();
+	}
+
+	// ---- What the lane says -------------------------------------------------------------------------------------
+
+	#onLane(name: string, data: LaneEvent, bin: Uint8Array | null): void {
+		switch (name) {
+			case "resolve":
+				return this.#onResolve(data as ResolveAsk);
+			case "launch":
+				return this.#onLaunch(data as LaunchAsk);
+			case "exit":
+				return this.#onExit(data as ExitAsk);
+			case "gateAsk":
+				return this.#onGate(data as LaneAsk);
+			case "slow":
+				return this.#onSlow(data as SlowAsk);
+			case "sessionWait":
+				return this.#onSessionWait(data as SessionWaitAsk);
+			case "status":
+				return this.#onStatus(data as StatusEvent);
+			case "spawned":
+				return this.#onSpawned(data as PidEvent);
+			case "exited":
+				return this.#onExited(data);
+			case "frame":
+				return this.#onFrame(data, bin);
+			case "answer":
+				return this.#onAnswer(data as AnswerEvent, bin);
+			case "session":
+				return this.#onSession(data as SessionEvent);
+			case "tabSession":
+				return this.#onTabSession(data as TabSessionEvent);
+			case "bridgeState":
+				return this.#onBridgeState(data as BridgeStateEvent);
+			case "bridgeLost":
+				if (!this.#staleOmp(data.cmd) && this.#bridge) this.#bridge.connected = false;
+				return;
+			case "stderr":
+				return this.#onStderr(data as TextEvent);
+			case "failure":
+				if (!this.#disposed) this.#options.reportFailure?.((data as FailureEvent).report);
+				return;
+			case "slowReport":
+				if (!this.#disposed) this.#options.reportSlowStart?.((data as SlowReportEvent).report);
+				return;
+			case "disposed":
+				this.#closeProcesses();
+				lanes.delete(this.#tab);
+				return;
+		}
+	}
+
+	/** What the tab's omps started ends once they have exited, so an omp's own cleanup of its tools comes first. */
+	#closeProcesses(): void {
+		const processes = this.#processes;
+		this.#processes = null;
+		void processes?.close();
+	}
+
+	/** What the lane says of the omp it ran before a later `restart`/`kill`/`sleep`/`dispose` is of that omp, gone. */
+	#staleOmp(cmd: number): boolean {
+		return this.#disposed || cmd < this.#lifeFence;
+	}
+
+	/** An ask a later start, restart, stop or close superseded needs no answer: the lane has dropped it. */
+	#staleAsk(cmd: number): boolean {
+		return this.#staleOmp(cmd) || cmd < this.#statusFence;
+	}
+
+	#onStatus(event: StatusEvent): void {
+		if (this.#staleAsk(event.cmd)) return;
+		const { status, cwd, ...detail } = event.payload;
+		this.#status = status;
+		this.#statusDetail = detail;
+		// A cwd the lane sent before it applied a predicted one (`restart(cwd)`, `adoptCwd`) is the old one.
+		if (cwd !== undefined && event.cmd >= this.#cwdFence && cwd !== this.#options.cwd)
+			this.#options = { ...this.#options, cwd };
+		const payload = { status, cwd: this.#options.cwd, ...detail };
+		const echo = this.#echo === JSON.stringify(payload);
+		this.#echo = null;
+		if (!echo) this.emit("status", payload);
+	}
+
+	#onSpawned(event: PidEvent): void {
+		if (this.#staleOmp(event.cmd)) return;
+		const { pid } = event;
+		this.#markGone();
+		this.#batcher?.dispose();
+		const runtime = this.#runtime;
+		// Right after the spawn, before omp starts a tool: what a process starts inherits its priority. A failure
+		// is logged once by the injected lowerer and never fails the start.
+		(this.#options.lowerPriority ?? lowerAgentPriority)(pid);
+		this.#alive = true;
+		this.#pid = pid;
+		this.#session = null;
+		this.#processes?.setPid(pid);
+		const relay = new BridgeRelay(this.#tab, () => ++this.#seq);
+		this.#bridge = relay;
+		this.#spawnRelay = relay;
+		this.#batcher = new EventBatcher(events => {
+			this.emit("events", events);
+		});
+		const client: RpcClient = new RpcClient({
+			send: (command, timeoutMs) => this.#command(command, timeoutMs),
+			local: command => {
+				const handler = localHandlerFor(command.type);
+				if (!handler || !runtime) return undefined;
+				return this.#localContext(client, runtime, relay)
+					.then(ctx => runLocalCommand(handler, command, ctx))
+					.then(async response => {
+						// Same as an omp response: the frames omp sent before it go first, an `agent_end` held for its
+						// entry ids and its tail included.
+						await this.#barrier();
+						return response;
+					});
+			},
+		});
+		this.#rpcClient = client;
+		this.emit("spawned");
+	}
+
+	/**
+	 * A stock command to the tab's lane: the lane writes it to omp and answers with an event (`sidecar.answer`), in order
+	 * with the frames omp wrote before and after the response, so the frames before it have been delivered when the
+	 * caller gets it and none behind it has. The request settles behind that event.
+	 */
+	async #command(command: RpcCommand, timeoutMs: number): Promise<RpcResponse> {
+		// `seq` is taken before the first await: messages leave in the order main makes them.
+		const seq = ++this.#seq;
+		const answered = Promise.withResolvers<RpcResponse>();
+		this.#answers.set(seq, bin => {
+			if (!bin) return;
+			const frame = JSON.parse(Buffer.from(bin.buffer, bin.byteOffset, bin.byteLength).toString("utf8")) as Frame;
+			const response = this.#transform(withoutFrameBookkeeping(frame));
+			this.#flushBeforeResponse();
+			answered.resolve(response as unknown as RpcResponse);
+		});
+		const finite = Number.isFinite(timeoutMs);
+		try {
+			await core().call(
+				"sidecar.command",
+				{ tab: this.#tab, seq, command, ...(finite ? { timeoutMs } : {}) },
+				{ timeoutMs: finite ? timeoutMs : NO_DEADLINE_MS },
+			);
+			return await answered.promise;
+		} catch (error) {
+			if (!(error instanceof CoreError)) throw error;
+			if (error.code === "timeout") throw new RpcTimeoutError(timeoutMs, command.type);
+			// The lane's own refusals (`sidecar_disconnected`: "Sidecar disconnected") are plain errors with its message.
+			throw new Error(error.message);
+		} finally {
+			this.#answers.delete(seq);
+		}
+	}
+
+	/** Resolves once every frame omp sent before now, an `agent_end` held for its entry ids and its tail included, was delivered. */
+	async #barrier(): Promise<void> {
+		const seq = ++this.#seq;
+		this.#answers.set(seq, () => this.#flushBeforeResponse());
+		try {
+			await core().call("sidecar.barrier", { tab: this.#tab, seq }, { timeoutMs: NO_DEADLINE_MS });
+		} catch {
+			this.#flushBeforeResponse();
+		} finally {
+			this.#answers.delete(seq);
+		}
+	}
+
+	/** The answer to a message of main's, in its place among the frames: what waits for it takes it as it is read. */
+	#onAnswer(event: AnswerEvent, bin: Uint8Array | null): void {
+		this.#answers.get(event.seq)?.(bin);
+	}
+
+	#onExited(event: LaneEvent): void {
+		if (this.#staleOmp(event.cmd)) return;
+		this.#markGone();
+		this.#batcher?.dispose();
+		this.#batcher = null;
+	}
+
+	#onStderr(event: TextEvent): void {
+		// omp's own words, also those of an omp that was stopped meanwhile.
+		console.error(`[sidecar stderr] ${event.text}`);
+		if (!this.#disposed) this.emit("stderr", event.text);
+	}
+
+	#onSession(event: SessionEvent): void {
+		if (this.#staleOmp(event.cmd)) return;
+		const previous = this.#session;
+		const next = event.identity;
+		this.#session = next;
+		if (!next) return;
+		if (next.sessionFile) this.#processes?.update({ sessionPath: next.sessionFile });
+		if (previous?.sessionId !== next.sessionId || previous?.sessionFile !== next.sessionFile) {
+			this.emit("session", next);
+		}
+	}
+
+	#onTabSession(event: TabSessionEvent): void {
+		if (this.#disposed) return;
+		this.#sessionPath = event.sessionPath;
+		this.#isNew = event.isNew;
+	}
+
+	#onBridgeState(event: BridgeStateEvent): void {
+		if (this.#staleOmp(event.cmd)) return;
+		const relay = this.#bridge;
+		if (!relay) return;
+		const ompVersion = this.#runtime?.version ?? "unknown";
+		if (!event.connected) {
+			const error = event.error ?? "GUI bridge is not connected";
+			console.warn(`[sidecar] gui-bridge unavailable: ${error}`);
+			this.emit("bridge", { connected: false, ompVersion, error });
+			return;
+		}
+		relay.connected = true;
+		this.emit("bridge", { connected: true, ompVersion, bridge: relay });
+		// generate_image is off in stock; the bridge turns it on while the user
+		// hasn't decided and a connected account can make images.
+		this.syncImageGeneration();
+		// The setting may have changed between spawn (env) and connect.
+		this.syncReplyLanguage();
+		this.syncDefaultBrowser();
+		this.syncUserProfile();
+		this.syncNextPrompt();
+		this.syncAutoTitle();
+		this.syncJudgeAssist();
+		this.syncAccountRotation();
+		this.syncCreditSpend();
+		void relay.request("stream_metadata.start").catch(error => {
+			// An omp that ended or restarted meanwhile closed its bridge: nothing is missing.
+			if (this.#bridge === relay) console.warn("[sidecar] stock stream metadata unavailable:", error);
+		});
+	}
+
+	/** A frame omp wrote, or the bridge pushed, as the lane delivers it: after its hold, in order. */
+	#onFrame(event: LaneEvent, bin: Uint8Array | null): void {
+		if (this.#staleOmp(event.cmd) || !bin) return;
+		let frame: unknown;
+		try {
+			frame = JSON.parse(Buffer.from(bin.buffer, bin.byteOffset, bin.byteLength).toString("utf8"));
+		} catch {
+			return;
+		}
+		if (typeof frame !== "object" || frame === null) return;
+		// Request bookkeeping no window reads leaves here, before any copy of the frame is made (frame-bookkeeping.ts).
+		let obj = withoutFrameBookkeeping(frame as Frame);
+		// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
+		if (obj.type === "queue_update" && this.#spawnRelay) obj = projectQueueUpdate(this.#spawnRelay, obj);
+		this.#dispatchFrame(obj);
+	}
+
+	#transform(frame: Frame): Frame {
+		return this.#options.frameTransform?.(frame) ?? frame;
+	}
+
+	/**
+	 * Frames omp sent before a response go out first: it can be a snapshot
+	 * (`get_state`, a transcript page, a subagent's messages) that already holds
+	 * them, and a batch would deliver them after it, replayed on top of that
+	 * snapshot in the renderer. Agent events leave the batcher here;
+	 * `beforeResponse` lets the pool send the subagent frames it batches.
+	 */
+	#flushBeforeResponse(): void {
+		this.#batcher?.flushNow();
+		this.emit("beforeResponse");
+	}
+
+	#dispatchFrame(frame: Frame): void {
+		const obj = this.#transform(frame);
+		const type = obj.type as string;
+		// A response nobody waits for (its caller timed out) is a frame, as it always was.
+		if (type === "response") this.#flushBeforeResponse();
+		if (AGENT_EVENT_TYPES[type] === true) {
+			this.#batcher?.push(obj as AgentSessionEvent);
+		} else if (type === "available_commands_update") {
+			this.emit("commandsUpdate", obj.commands);
+		} else if (Object.hasOwn(FRAME_EVENTS, type)) {
+			if (RUN_SETTLE_FRAMES[type] === true) this.#batcher?.flushNow();
+			this.emit(FRAME_EVENTS[type], obj);
+		}
+		this.emit("frame", obj);
+	}
+
+	// ---- What the lane asks -------------------------------------------------------------------------------------
+
+	/**
+	 * omp + env resolution takes up to a few seconds: the lane asks, main runs what a start has always resolved and
+	 * keeps the results for the spawn's launch ask.
+	 */
+	#onResolve(ask: ResolveAsk): void {
 		const { omp, proxyEnv, shellEnv } = this.#options;
 		const fallback = () => ({}) as Record<string, string>;
-		// omp + env resolution takes up to a few seconds. A restart()/start()
-		// landing inside that window supersedes this pending spawn — it already
-		// killed whatever child existed (nothing yet) — so spawning here would
-		// orphan the newer child and tear it down with the session it just opened.
-		const seq = ++this.#startSeq;
 		void Promise.all([
 			omp().catch(
 				(err: unknown): OmpResolution => ({ ok: false, error: err instanceof Error ? err.message : String(err) }),
@@ -583,24 +1115,24 @@ export class SidecarManager extends EventEmitter {
 			proxyEnv ? proxyEnv().catch(fallback) : Promise.resolve({}),
 			shellEnv ? shellEnv().catch(fallback) : Promise.resolve({}),
 			this.#options.builtinMcp?.().catch(() => ({ args: [] })) ?? Promise.resolve({ args: [] }),
-			this.#sessionPath && this.#options.sessionFree
-				? this.#options.sessionFree(this.#sessionPath).catch(() => "free" as const)
+			ask.sessionPath && this.#options.sessionFree
+				? this.#options.sessionFree(ask.sessionPath).catch(() => "free" as const)
 				: ("free" as const),
 			Promise.resolve(this.#options.defaultBrowser?.()).catch(() => undefined),
 			this.#options.egoBrowserDir?.().catch(() => null) ?? Promise.resolve(null),
 		]).then(([resolution, proxyVars, shellVars, builtinMcp, session, defaultBrowser, egoBrowserDir]) => {
-			if (this.#disposed || seq !== this.#startSeq) return;
+			// A start that a restart or a stop superseded while this resolved must not spawn.
+			if (this.#staleAsk(ask.cmd)) return;
 			if (session === "owned") {
-				this.#setStatus("error", {
+				this.#answer("sidecar.resolved", ask.ask, {
+					outcome: "owned",
 					message: this.#options.sessionOwnedText?.() ?? "This session is still open in another omp process.",
-					sessionHeld: true,
 				});
-				this.#whenSessionLetGo(seq);
 				return;
 			}
 			if (!resolution.ok) {
 				// No usable omp: nothing ran, nothing failed. Machine setup installs it and main starts this tab then.
-				this.#setStatus("waiting", { message: resolution.error });
+				this.#answer("sidecar.resolved", ask.ask, { outcome: "waiting", message: resolution.error });
 				return;
 			}
 			this.#runtime = resolution.runtime;
@@ -609,26 +1141,8 @@ export class SidecarManager extends EventEmitter {
 			this.#builtinMcp = builtinMcp;
 			this.#defaultBrowser = defaultBrowser;
 			this.#egoBrowserDir = egoBrowserDir;
-			this.#spawn();
+			this.#answer("sidecar.resolved", ask.ask, { outcome: "ok" });
 		});
-	}
-
-	/**
-	 * A tab left `error` because another omp keeps its session starts by itself once that omp lets go (it may close
-	 * minutes later: a terminal, or a last launch still finishing a long tool), so the person never has to notice and
-	 * press Restart. Each round is another `sessionFree` wait; a Restart, a new start or dispose ends it.
-	 */
-	#whenSessionLetGo(seq: number): void {
-		const sessionPath = this.#sessionPath;
-		const sessionFree = this.#options.sessionFree;
-		if (!sessionPath || !sessionFree) return;
-		void sessionFree(sessionPath)
-			.catch(() => "free" as const)
-			.then(outcome => {
-				if (this.#disposed || seq !== this.#startSeq || this.status !== "error") return;
-				if (outcome === "free") this.start();
-				else this.#whenSessionLetGo(seq);
-			});
 	}
 
 	/** The OMPdesk settings this spawn starts with, each read now (the same closures the `sync*` pushes read). */
@@ -651,223 +1165,128 @@ export class SidecarManager extends EventEmitter {
 		};
 	}
 
-	/**
-	 * Starts the next omp of this tab once every omp it stopped has exited (a replacement never overlaps its
-	 * predecessor on the session) and the app's start queue gave it a place. Meanwhile a `starting` tab reads `queued`:
-	 * waiting its turn, never a deadline (a paired device mirrors it instead of timing the start out).
-	 */
-	#spawn(): void {
-		// One live child per manager. `#child` is only ever set by `#launch`, so anything still attached means a previous
-		// spawn was never retired: stop it through the normal teardown instead of letting it run parser-less.
-		const superseded = this.#child;
-		if (superseded) {
-			this.#cleanup();
-			this.#stop(superseded);
-		}
+	/** How the next omp starts: what `ompArgs`/`sessionEnv` and the spawn's environment make of the settings read now. */
+	#onLaunch(ask: LaunchAsk): void {
+		if (this.#staleAsk(ask.cmd)) return;
 		const runtime = this.#runtime;
-		if (!runtime) return;
-		this.#generation++;
-		const generation = this.#generation;
-		const waits = (): void => {
-			if (this.#isLive(generation) && this.#status === "starting" && !this.#statusDetail.queued)
-				this.#setStatus("starting", { queued: true });
-		};
-		if (this.#exiting.size > 0) waits();
-		void Promise.all([...this.#exiting])
-			.then(() => this.#options.startQueue?.acquire(waits))
-			.then(release => {
-				if (!this.#isLive(generation)) {
-					release?.();
-					return;
-				}
-				this.#releaseSlot = release ?? null;
-				if (this.#statusDetail.queued) this.#setStatus("starting");
-				this.#launch(runtime, generation);
-			});
-	}
-
-	#launch(runtime: OmpRuntime, generation: number): void {
-		this.#lastStderr = [];
-		this.#slowLog = [];
-		this.#spawnedAt = new Date();
-		this.#bootedThisSpawn = false;
-		this.#session = null;
-		const { bridgeDir, cwd, extraFlags } = this.#options;
-		const whose = {
-			cwd,
-			sessionPath: this.#sessionPath ?? undefined,
-			...(this.#options.promptOrigin ? { device: this.#options.promptOrigin.name } : {}),
-		};
-		if (this.#processes) this.#processes.update(whose);
-		else this.#processes = this.#options.sessionProcesses?.open(whose) ?? null;
-		const launch: OmpLaunch = {
-			open: sessionOpen({ path: this.#sessionPath, isNew: this.#isNew }),
-			...(bridgeDir ? { bridge: { dir: bridgeDir, address: newBridgeAddress() } } : {}),
-			...(this.#noModelBoot
-				? { model: this.#noModelBoot }
-				: this.#bootModelFallback
-					? { model: DEFAULT_ROLE_MODEL_SELECTOR }
-					: {}),
-			builtin: this.#builtinMcp,
-			userFlags: [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)],
-			settings: this.#settings(),
-			...(this.#options.promptOrigin ? { origin: this.#options.promptOrigin } : {}),
-			...(this.#processes ? { processTag: this.#processes.tag } : {}),
-			...(this.#processes?.scratch ? { scratchDir: this.#processes.scratch } : {}),
-		};
-		const args = ompArgs(launch);
-		const bridgeAddress = launch.bridge?.address ?? null;
-		const bin = runtime.bin;
-		console.log(`[sidecar] spawning omp ${runtime.version} (${args.length} args, cwd: ${cwd})`);
-
-		let child: ChildProcess;
 		try {
-			child = spawn(spawnCommand(bin), spawnArgs(bin, args), {
-				stdio: ["pipe", "pipe", "pipe"],
-				env: {
-					// Bun's own defaults for omp first, so the user's environment still wins (`ompBunDefaults`).
-					...ompBunDefaults(),
-					// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
-					// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
-					// (`SESSION_OWNED_ENV`), nor another OMPdesk's control socket (`withoutControlEnv`).
-					...withoutControlEnv(withoutSessionEnv({ ...process.env, ...this.#shellEnvVars })),
-					...this.#proxyEnvVars,
-					PATH: ompPathEnv(
-						bin,
-						this.#shellEnvVars.PATH ?? process.env.PATH ?? "",
-						this.#egoBrowserDir ? [this.#egoBrowserDir] : [],
-					),
-					...sessionEnv(launch),
-					...this.#options.controlEnv?.(),
-					PI_RPC_EMIT_TITLE: "1",
-					PI_NO_PTY: "1",
-					PI_NOTIFICATIONS: "off",
-					...OMP_TELEMETRY_OFF,
-				},
+			if (!runtime) throw new Error("omp is not resolved");
+			const { bridgeDir, cwd, extraFlags } = this.#options;
+			const whose = {
 				cwd,
-				shell: needsShell(bin),
-				windowsHide: true,
-				...OMP_SPAWN_GROUP,
+				sessionPath: this.#sessionPath ?? undefined,
+				...(this.#options.promptOrigin ? { device: this.#options.promptOrigin.name } : {}),
+			};
+			if (this.#processes) this.#processes.update(whose);
+			else this.#processes = this.#options.sessionProcesses?.open(whose) ?? null;
+			const launch: OmpLaunch = {
+				open: ask.open,
+				...(bridgeDir && ask.bridgeAddress ? { bridge: { dir: bridgeDir, address: ask.bridgeAddress } } : {}),
+				...(ask.model ? { model: ask.model } : {}),
+				builtin: this.#builtinMcp,
+				userFlags: [...(extraFlags ?? []), ...loadLaunchProfileFlags(this.#options.launchProfiles, cwd)],
+				settings: this.#settings(),
+				...(this.#options.promptOrigin ? { origin: this.#options.promptOrigin } : {}),
+				...(this.#processes ? { processTag: this.#processes.tag } : {}),
+				...(this.#processes?.scratch ? { scratchDir: this.#processes.scratch } : {}),
+			};
+			const args = ompArgs(launch);
+			const bin = runtime.bin;
+			console.log(`[sidecar] spawning omp ${runtime.version} (${args.length} args, cwd: ${cwd})`);
+			const env = childEnv({
+				// Bun's own defaults for omp first, so the user's environment still wins (`ompBunDefaults`).
+				...ompBunDefaults(),
+				// Login-shell env over the app's own, then the GUI proxy pref (and inherited proxy env) over
+				// rc-file proxy exports. What another OMPdesk session left in either is never this tab's
+				// (`SESSION_OWNED_ENV`), nor another OMPdesk's control socket (`withoutControlEnv`).
+				...withoutControlEnv(withoutSessionEnv({ ...process.env, ...this.#shellEnvVars })),
+				...this.#proxyEnvVars,
+				PATH: ompPathEnv(
+					bin,
+					this.#shellEnvVars.PATH ?? process.env.PATH ?? "",
+					this.#egoBrowserDir ? [this.#egoBrowserDir] : [],
+				),
+				...sessionEnv(launch),
+				...this.#options.controlEnv?.(),
+				PI_RPC_EMIT_TITLE: "1",
+				PI_NO_PTY: "1",
+				PI_NOTIFICATIONS: "off",
+				...OMP_TELEMETRY_OFF,
+			});
+			this.#answer("sidecar.launched", ask.ask, {
+				start: { bin: spawnCommand(bin), args: spawnArgs(bin, args), env, cwd, shell: needsShell(bin) },
+				hostTools: this.#hostTools(),
 			});
 		} catch (err) {
-			// spawn() throws synchronously (EBADF/ENOENT) — surface it as a
-			// sidecar failure + retry, never an uncaught main-process exception.
-			this.#releaseSlot?.();
-			this.#releaseSlot = null;
-			this.#attemptRestart(err instanceof Error ? err.message : String(err));
-			return;
+			this.#answer("sidecar.launched", ask.ask, { error: err instanceof Error ? err.message : String(err) });
 		}
+	}
 
-		// Right after the spawn, before omp starts a tool: what a process starts inherits its priority. A failure
-		// is logged once by the injected lowerer and never fails the start.
-		(this.#options.lowerPriority ?? lowerAgentPriority)(child.pid);
-
-		this.#child = child;
-		this.#options.processes?.track(child);
-		this.#processes?.setPid(child.pid);
-		this.#bridgeAddress = bridgeAddress;
-		const slowMs = this.#options.startSlowMs ?? START_SLOW_MS;
-		this.#slowTimer = setTimeout(() => this.#startIsSlow(generation, slowMs), slowMs);
-		this.emit("spawned");
-		const bridge = new GuiBridgeClient(bridgeAddress ?? "");
-		bridge.onEvent(event => this.#routeFrame(event));
-		this.#bridge = bridge;
-
-		// Set up RPC client with stdin writer. A write racing the child's death
-		// fails with EPIPE on the stream, not the write() call; without a listener
-		// that `error` is an uncaught exception in main. The child's own `exit`
-		// already drives the restart.
-		child.stdin?.on("error", err => {
-			console.warn(`[sidecar] stdin: ${err.message}`);
-		});
-		const send = (frame: object) => {
-			if (child.stdin?.writable) {
-				child.stdin.write(`${JSON.stringify(frame)}\n`);
-			}
-		};
-		const rpcClient: RpcClient = new RpcClient(send, {
-			local: command => {
-				const handler = localHandlerFor(command.type);
-				if (!handler) return undefined;
-				return this.#localContext(rpcClient, runtime, bridge)
-					.then(ctx => runLocalCommand(handler, command, ctx))
-					.then(async response => {
-						// Same as an omp response (#routeFrame): the frames omp sent before it go first,
-						// an `agent_end` held for its entry ids and its tail included.
-						while (this.#held) await this.#held.released.promise;
-						this.#flushBeforeResponse();
-						return response;
-					});
-			},
-			observe: (command, response) => {
-				this.#observeResponse(command, response);
-			},
-		});
-		this.#rpcClient = rpcClient;
-
-		// Set up event batcher
-		this.#batcher = new EventBatcher(events => {
-			this.emit("events", events);
-		});
-
-		// Parse stdout NDJSON
-		if (child.stdout) {
-			this.#detachParser = attachNdjsonParser(child.stdout, frame => this.#routeFrame(frame));
+	/**
+	 * An omp exited before `ready` for a reason that is no clean exit: a session whose saved model cannot be restored
+	 * would fail identically on every retry (one respawn on `--model @default`, outside the crash budget); stock exits
+	 * for lack of a usable model when none has credentials (one respawn on an explicit catalog model, so onboarding can
+	 * connect a provider). Anything else is a crash.
+	 */
+	#onExit(ask: ExitAsk): void {
+		if (this.#staleAsk(ask.cmd)) return;
+		const answer = (plan: "restart" | { fallback: string } | { bootModel: string }) =>
+			this.#answer("sidecar.exitPlan", ask.ask, { plan });
+		if (ask.booted) return answer("restart");
+		const missing = ask.fallbackArmed ? null : parseModelRestoreFailure(ask.stderr);
+		if (missing) {
+			console.warn(`[sidecar] session model ${missing} unavailable at boot — resuming on the default model`);
+			return answer({ fallback: missing });
 		}
+		const resolve = this.#options.bootModel;
+		const runtime = this.#runtime;
+		if (!resolve || !runtime || ask.noModelArmed || !isNoModelBootFailure(ask.stderr)) return answer("restart");
+		resolve(runtime).then(
+			selector => {
+				console.warn(`[sidecar] omp has no usable model — booting on ${selector} so onboarding can connect one`);
+				answer({ bootModel: selector });
+			},
+			(error: unknown) => {
+				console.warn("[sidecar] no catalog model to boot on:", error);
+				answer("restart");
+			},
+		);
+	}
 
-		// Log stderr to main process console for diagnostics, and keep a per-spawn
-		// tail: a sidecar that dies before it can log anywhere only speaks through
-		// this pipe, so without the ring the crash report is just an exit code.
-		child.stderr?.on("data", (chunk: Buffer) => {
-			// omp colors fatal lines; the tail feeds UI text and the boot-failure parsers.
-			const text = stripVTControlCharacters(chunk.toString("utf-8")).trim();
-			if (text) {
-				console.error(`[sidecar stderr] ${text}`);
-				for (const line of text.split("\n")) {
-					this.#lastStderr.push(line);
-					if (this.#lastStderr.length > STDERR_TAIL_LINES) this.#lastStderr.shift();
-				}
-				// A slow start shows what omp is saying while the tab waits for it.
-				if (this.#slow) this.#showSlow();
-				this.emit("stderr", text);
-			}
-		});
+	/** Runs the tab's start gate between the first bridge connect and `ready` (worktree-lifecycle.ts). */
+	#onGate(ask: LaneAsk): void {
+		if (this.#staleAsk(ask.cmd)) return;
+		const gate = this.#startGate;
+		this.#startGate = null;
+		const bridge = this.#bridge;
+		const run = gate && bridge?.connected ? gate(bridge, this.#options.cwd).catch(() => null) : Promise.resolve(null);
+		void run.then(cwd => this.#answer("sidecar.gated", ask.ask, { cwd }));
+	}
 
-		child.on("exit", (code, signal) => {
-			if (this.#child !== child) return;
-			this.#cleanup();
-			if (this.#disposed) return;
-			if (code === 0) {
-				this.#setStatus("exited", { message: "Normal shutdown" });
-				return;
-			}
-			if (code === WINDOWS_SESSION_END_EXIT_CODE) {
-				this.#setStatus("exited", { message: "The Windows session ended", sessionEnded: true });
-				return;
-			}
-			// `exit` can fire before stderr has drained, and the boot-failure
-			// parsers below read it; a restart() meanwhile advances the generation.
-			const generation = this.#generation;
-			void stderrDrained(child).then(() => {
-				if (!this.#isLive(generation)) return;
-				if (this.#recoverBootModelRestore()) {
-					this.#spawn();
-				} else if (!this.#recoverNoModelBoot()) {
-					this.#attemptRestart(`Exit code ${code}${signal ? ` (signal: ${signal})` : ""}`);
-				}
-			});
-		});
+	/** The omp's own log tail, for a start that has not answered (`reportSlowStart`, the slow tab's message). */
+	#onSlow(ask: SlowAsk): void {
+		if (this.#staleAsk(ask.cmd)) return;
+		const read = this.#options.readOmpLog ?? ompLogTail;
+		void read(ask.pid, new Date(ask.spawnedAt))
+			.catch(() => [] as string[])
+			.then(lines => this.#answer("sidecar.slowLog", ask.ask, { lines }));
+	}
 
-		child.on("error", err => {
-			if (this.#child !== child) return;
-			this.#cleanup();
-			if (this.#disposed) return;
-			this.#attemptRestart(err.message);
-		});
+	/**
+	 * A tab left `error` because another omp keeps its session starts by itself once that omp lets go (it may close
+	 * minutes later: a terminal, or a last launch still finishing a long tool), so the person never has to notice and
+	 * press Restart. Each round is another `sessionFree` wait.
+	 */
+	#onSessionWait(ask: SessionWaitAsk): void {
+		if (this.#staleAsk(ask.cmd)) return;
+		const sessionFree = this.#options.sessionFree;
+		void (
+			sessionFree ? sessionFree(ask.sessionPath).catch(() => "free" as const) : Promise.resolve("free" as const)
+		).then(outcome => this.#answer("sidecar.sessionFreed", ask.ask, { outcome }));
 	}
 
 	/** Context for one GUI-side command; learns the session identity first when a session change left it unknown. */
-	async #localContext(client: RpcClient, runtime: OmpRuntime, bridge: GuiBridgeClient): Promise<LocalCommandContext> {
+	async #localContext(client: RpcClient, runtime: OmpRuntime, bridge: BridgeRelay): Promise<LocalCommandContext> {
 		const send = stockSender(client, LOCAL_SEND_TIMEOUT_MS);
 		if (!this.#session) await client.stock({ type: "get_state" }).catch(() => undefined);
 		return {
@@ -879,404 +1298,7 @@ export class SidecarManager extends EventEmitter {
 		};
 	}
 
-	/** Track the session identity through the responses every hydrate already requests. */
-	#observeResponse(command: RpcCommand, response: RpcResponse): void {
-		if (!response.success) return;
-		if (command.type === "get_state") {
-			const data = response.data;
-			if (typeof data !== "object" || data === null) return;
-			const next: SidecarSessionIdentity = {
-				sessionId: "sessionId" in data && typeof data.sessionId === "string" ? data.sessionId : undefined,
-				sessionFile: "sessionFile" in data && typeof data.sessionFile === "string" ? data.sessionFile : undefined,
-				sessionName: "sessionName" in data && typeof data.sessionName === "string" ? data.sessionName : undefined,
-			};
-			const previous = this.#session;
-			this.#session = next;
-			// The tab is on that session now: every later spawn reopens it, or starts a new one while stock has not
-			// written it (`sessionOpen`). Only then is the tab no longer new: an omp that crashes after `ready` but
-			// before this answer must not leave the next spawn to stock's autoResume (formal/tab-session F1).
-			if (next.sessionFile) {
-				this.#sessionPath = next.sessionFile;
-				this.#isNew = false;
-				this.#processes?.update({ sessionPath: next.sessionFile });
-			}
-			if (previous?.sessionId !== next.sessionId || previous?.sessionFile !== next.sessionFile) {
-				this.emit("session", next);
-			}
-		} else if (SESSION_CHANGING_COMMANDS[command.type] === true) {
-			this.#session = null;
-			this.#runMessages = [];
-			// Stock's answer names no file, and the next get_state may come after a crash: the tab is on the session it
-			// asked for, or on a new one stock has not named yet (formal/tab-session F2). A fork, branch or handoff keeps
-			// the session it came from until get_state names the copy (formal/tab-session CORRESPONDENCE A5).
-			const data = response.data;
-			const cancelled = typeof data === "object" && data !== null && "cancelled" in data && data.cancelled === true;
-			if (cancelled) return;
-			if (command.type === "switch_session" && typeof command.sessionPath === "string") {
-				this.#sessionPath = command.sessionPath;
-				this.#isNew = false;
-			} else if (command.type === "new_session") {
-				this.#sessionPath = null;
-				this.#isNew = true;
-			}
-		} else if (command.type === "set_session_name") {
-			// Stock's RPC rename answers without the `session_info_update` a rename inside omp sends. Every rename of the
-			// live session ends here (the sidebar's, the title bar's, Autopilot's, a paired computer's), so this is where the
-			// tab, its windows and a paired computer viewing it learn the name.
-			this.#routeFrame({ type: "session_info_update", title: command.name.trim() });
-		}
-	}
-
-	#routeFrame(frame: unknown): void {
-		if (typeof frame !== "object" || frame === null) return;
-		// Request bookkeeping no window reads leaves here, before any copy of the frame is made (frame-bookkeeping.ts).
-		let obj = withoutFrameBookkeeping(frame as Frame);
-		// Stock queue lanes are bare text; ids are assigned on arrival, in stream order.
-		if (obj.type === "queue_update" && this.#bridge) obj = projectQueueUpdate(this.#bridge, obj);
-		if (this.#held) {
-			this.#held.frames.push(obj);
-			return;
-		}
-		if (obj.type !== "response") {
-			if (obj.type === "message_end" && typeof obj.message === "object" && obj.message !== null) {
-				this.#runMessages.push(obj.message as AgentMessage);
-			}
-			if (obj.type === "agent_end") {
-				const delivered = this.#runMessages;
-				this.#runMessages = [];
-				// Stock's agent_end can omit part of the run it already streamed (run-messages.ts).
-				if (Array.isArray(obj.messages) && this.#rpcClient) {
-					this.#holdForEntryIds({ ...obj, messages: completeRunMessages(delivered, obj.messages) });
-					return;
-				}
-			}
-			if (obj.type === "session_info_update") this.#session = null;
-		}
-		this.#dispatchFrame(obj);
-	}
-
-	/**
-	 * Stock `agent_end` messages carry no `entryId`, which the renderer needs to
-	 * reconcile committed messages. Let the bridge match persisted ids with stock
-	 * persistence helpers, then release the event and everything behind it.
-	 */
-	#holdForEntryIds(event: Frame): void {
-		const held = { event, frames: [] as Frame[], released: Promise.withResolvers<void>() };
-		this.#held = held;
-		const generation = this.#generation;
-		const timeout = Promise.withResolvers<never>();
-		const timer = setTimeout(() => timeout.reject(new Error("entry id fetch timed out")), ENTRY_ID_TIMEOUT_MS);
-		const enrich = this.#bridge?.request<{ messages: AgentMessage[] }>("sessions.attach_entry_ids", {
-			messages: event.messages,
-		});
-		void Promise.race([enrich ?? Promise.reject(new Error("Bridge is disconnected")), timeout.promise])
-			.then(
-				result => ({ ...event, messages: result.messages }),
-				() => event,
-			)
-			.then(enriched => {
-				clearTimeout(timer);
-				if (!this.#isLive(generation) || this.#held !== held) return;
-				this.#held = null;
-				this.#dispatchFrame(enriched);
-				for (const frame of held.frames) this.#routeFrame(frame);
-				held.released.resolve();
-			});
-	}
-
-	/** Release a held `agent_end` and its tail unchanged (the spawn is going away). */
-	#releaseHeld(): void {
-		const held = this.#held;
-		if (!held) return;
-		this.#held = null;
-		this.#dispatchFrame(held.event);
-		for (const frame of held.frames) this.#dispatchFrame(frame);
-		held.released.resolve();
-	}
-
-	/**
-	 * Frames omp sent before a response go out first: it can be a snapshot
-	 * (`get_state`, a transcript page, a subagent's messages) that already holds
-	 * them, and a batch would deliver them after it, replayed on top of that
-	 * snapshot in the renderer. Agent events leave the batcher here;
-	 * `beforeResponse` lets the pool send the subagent frames it batches.
-	 */
-	#flushBeforeResponse(): void {
-		this.#batcher?.flushNow();
-		this.emit("beforeResponse");
-	}
-
-	#dispatchFrame(frame: Frame): void {
-		const obj = this.#options.frameTransform?.(frame) ?? frame;
-		const type = obj.type as string;
-		if (type === "ready") {
-			this.#handleReady(obj as unknown as RpcReadyFrame);
-			return;
-		}
-		if (type === "response") {
-			this.#flushBeforeResponse();
-			if (this.#rpcClient?.onResponse(obj as unknown as RpcResponse)) return;
-		}
-		if (AGENT_EVENT_TYPES[type] === true) {
-			this.#batcher?.push(obj as AgentSessionEvent);
-		} else if (type === "available_commands_update") {
-			this.emit("commandsUpdate", obj.commands);
-		} else if (Object.hasOwn(FRAME_EVENTS, type)) {
-			if (RUN_SETTLE_FRAMES[type] === true) this.#batcher?.flushNow();
-			this.emit(FRAME_EVENTS[type], obj);
-		}
-		this.emit("frame", obj);
-	}
-
-	#handleReady(ready: RpcReadyFrame): void {
-		this.#bootedThisSpawn = true;
-		const modelFallback = this.#bootModelFallback ?? undefined;
-		this.#bootModelFallback = null;
-		this.#noModelBoot = null;
-		// Negotiation settles after this frame — and when the sidecar dies on boot,
-		// `#cleanup()` rejects the pending command on a generation that is already
-		// gone. Unguarded, that rejection announced "ready" and zeroed the restart
-		// counter, so a broken binary respawned forever behind a healthy UI.
-		// Stay on v1 when an older/malformed sidecar omits the negotiation fields
-		// or advertises limits this decoder cannot safely honor.
-		const generation = this.#generation;
-		// The extension listens before omp prints `ready`; connecting first means
-		// GUI-side commands can use the bridge from the first renderer request.
-		const bridge = this.#bridge;
-		const ompVersion = this.#runtime?.version ?? "unknown";
-		const bridgeReady =
-			this.#options.bridgeDir && bridge
-				? bridge.connect().then(
-						() => {
-							if (!this.#isLive(generation)) return;
-							this.emit("bridge", { connected: true, ompVersion, bridge });
-							// generate_image is off in stock; the bridge turns it on while the user
-							// hasn't decided and a connected account can make images.
-							this.syncImageGeneration();
-							// The setting may have changed between spawn (env) and connect.
-							this.syncReplyLanguage();
-							this.syncDefaultBrowser();
-							this.syncUserProfile();
-							this.syncNextPrompt();
-							this.syncAutoTitle();
-							this.syncJudgeAssist();
-							this.syncAccountRotation();
-							this.syncCreditSpend();
-							void bridge.request("stream_metadata.start").catch(error => {
-								// An omp that ended or restarted meanwhile closed its bridge: nothing is missing.
-								if (this.#isLive(generation))
-									console.warn("[sidecar] stock stream metadata unavailable:", error);
-							});
-						},
-						(err: unknown) => {
-							const error = err instanceof Error ? err.message : String(err);
-							console.warn(`[sidecar] gui-bridge unavailable: ${error}`);
-							if (this.#isLive(generation)) this.emit("bridge", { connected: false, ompVersion, error });
-						},
-					)
-				: Promise.resolve();
-		const announceReady = (): void => {
-			void bridgeReady.then(async () => {
-				if (!this.#isLive(generation)) return;
-				if (!(await this.#answered(generation))) return;
-				const gate = this.#startGate;
-				this.#startGate = null;
-				if (gate && bridge?.connected) {
-					const cwd = await gate(bridge, this.#options.cwd).catch(() => null);
-					if (this.#disposed) return;
-					if (cwd) {
-						// The tab's session begins in `cwd`: a fresh one, never an autoResume.
-						this.#isNew = true;
-						this.restart(cwd);
-						return;
-					}
-					if (!this.#isLive(generation)) return;
-				}
-				this.#setStatus("ready", modelFallback ? { modelFallback } : {});
-				this.#restartCount = 0;
-			});
-		};
-		const announceReadyWithEventFilter = (): void => {
-			if (this.#isLive(generation) && this.#rpcClient) {
-				void this.#rpcClient
-					.command({ type: "set_event_filter", events: Object.keys(AGENT_EVENT_TYPES) })
-					.catch(() => {});
-				// Opt into upstream's `ask` protocol — the GUI renders ask dialogs.
-				void this.#rpcClient.command({ type: "set_ask_dialog", enabled: true }).catch(() => {});
-				// GUI-executed tools: the tab's terminals, read-only (C115), visuals in the Preview (C135) and,
-				// while their switch is on, the OMPdesk control tools (src/main/agent-control); ipc.ts executes the calls.
-				this.syncHostTools(true);
-			}
-			announceReady();
-		};
-		if (supportsRpcProtocolV2(ready)) {
-			this.#rpcClient
-				?.command({ type: "negotiate_protocol", protocolVersion: 2 })
-				.then(announceReadyWithEventFilter, announceReady);
-		} else {
-			announceReady();
-		}
-	}
-
-	/** Continuation guard: false once the spawn cycle that captured `generation`
-	 *  has been torn down or replaced. */
-	#isLive(generation: number): boolean {
-		return !this.#disposed && generation === this.#generation;
-	}
-
-	#attemptRestart(reason: string): void {
-		// The exit code alone is never the diagnosis; the spawn's stderr carries it.
-		const excerpt = stderrExcerpt(this.#lastStderr);
-		const detail = excerpt ? `${reason} — ${excerpt}` : reason;
-		const exhausted = this.#restartCount >= MAX_RESTART_ATTEMPTS;
-		const attempt = exhausted ? MAX_RESTART_ATTEMPTS : this.#restartCount + 1;
-		this.#options.reportFailure?.({
-			reason: detail,
-			attempt,
-			maxAttempts: MAX_RESTART_ATTEMPTS,
-			stderr: [...this.#lastStderr],
-			cwd: this.#options.cwd,
-		});
-		if (exhausted) {
-			this.#setStatus("error", { message: detail, restart: { attempt, maxAttempts: MAX_RESTART_ATTEMPTS } });
-			return;
-		}
-
-		const delay = restartDelay(attempt);
-		this.#restartCount = attempt;
-		this.#setStatus("restarting", { message: detail, restart: { attempt, maxAttempts: MAX_RESTART_ATTEMPTS } });
-
-		this.#restartTimer = setTimeout(() => {
-			this.#restartTimer = null;
-			if (!this.#disposed) {
-				this.#spawn();
-			}
-		}, delay);
-	}
-
-	/**
-	 * A spawn that died before `ready` because its saved session model could not
-	 * be restored would fail identically on every retry. Arm one `--model @default`
-	 * respawn instead (outside the crash budget); true when armed.
-	 */
-	#recoverBootModelRestore(): boolean {
-		if (this.#bootedThisSpawn || this.#bootModelFallback) return false;
-		const missing = parseModelRestoreFailure(this.#lastStderr.join("\n"));
-		if (!missing) return false;
-		console.warn(`[sidecar] session model ${missing} unavailable at boot — resuming on the default model`);
-		this.#bootModelFallback = missing;
-		return true;
-	}
-
-	/**
-	 * Stock omp exits before `ready` when no model has credentials, and would on
-	 * every retry. Arm one respawn with an explicit catalog model instead
-	 * (outside the crash budget); true when armed. A spawn that already carried
-	 * it falls through to the crash-loop path.
-	 */
-	#recoverNoModelBoot(): boolean {
-		const resolve = this.#options.bootModel;
-		const runtime = this.#runtime;
-		if (!resolve || !runtime || this.#bootedThisSpawn || this.#noModelBoot) return false;
-		if (!isNoModelBootFailure(this.#lastStderr.join("\n"))) return false;
-		// kill()/restart() while the selector resolves advance the generation.
-		const generation = this.#generation;
-		void resolve(runtime).then(selector => {
-			if (!this.#isLive(generation) || this.#child) return;
-			console.warn(`[sidecar] omp has no usable model — booting on ${selector} so onboarding can connect one`);
-			this.#noModelBoot = selector;
-			this.#spawn();
-		});
-		return true;
-	}
-
-	#setStatus(status: SidecarStatus, detail: Omit<SidecarStatusPayload, "status" | "cwd"> = {}): void {
-		this.#status = status;
-		this.#statusDetail = detail;
-		this.emit("status", { status, cwd: this.#options.cwd, ...detail });
-	}
-
-	#cleanup(): void {
-		// Any async continuation of the current cycle (pending negotiation) is
-		// stale from here on, even before the replacement spawns.
-		this.#generation++;
-		clearTimeout(this.#slowTimer ?? undefined);
-		this.#slowTimer = null;
-		this.#slow = false;
-		this.#releaseSlot?.();
-		this.#releaseSlot = null;
-		this.#detachParser?.();
-		this.#detachParser = null;
-		this.#releaseHeld();
-		this.#runMessages = [];
-		this.#batcher?.flushNow();
-		this.#batcher?.dispose();
-		this.#batcher = null;
-		this.#rpcClient?.rejectAll("Sidecar disconnected");
-		this.#rpcClient = null;
-		this.#bridge?.close();
-		this.#bridge = null;
-		if (this.#bridgeAddress) removeBridgeAddress(this.#bridgeAddress);
-		this.#bridgeAddress = null;
-		this.#child = null;
-	}
-
-	/**
-	 * The started omp has not answered after `waitedMs` (8 Nov 2026: a relaunch's omps went silent after their model
-	 * discovery; 9 Nov 2026: every new omp of a MacBook stayed silent past 45 s, its stderr empty). It keeps running and
-	 * is waited for: its place in the start queue goes to the next tab, and the tab reads `starting` with `slow` and the
-	 * omp's stderr tail, or its own log's when stderr is empty, until it answers (`ready`), exits (the crash path) or the
-	 * person restarts it. The log line also says whether omp printed `ready` and which commands it holds.
-	 */
-	#startIsSlow(generation: number, waitedMs: number): void {
-		if (!this.#isLive(generation)) return;
-		this.#slowTimer = null;
-		this.#releaseSlot?.();
-		this.#releaseSlot = null;
-		this.#slow = true;
-		const pid = this.#child?.pid;
-		const read = this.#options.readOmpLog ?? ompLogTail;
-		const ompLog = pid === undefined ? Promise.resolve([]) : read(pid, this.#spawnedAt).catch(() => []);
-		void ompLog.then(lines => {
-			if (!this.#isLive(generation) || !this.#slow) return;
-			this.#slowLog = lines;
-			this.#options.reportSlowStart?.({
-				waitedMs,
-				stderr: [...this.#lastStderr],
-				ompLog: lines,
-				ready: this.#bootedThisSpawn,
-				unanswered: this.#rpcClient?.unanswered() ?? [],
-				cwd: this.#options.cwd,
-			});
-			this.#showSlow();
-		});
-	}
-
-	#showSlow(): void {
-		const tail = this.#lastStderr.join("\n").trim() || this.#slowLog.join("\n");
-		this.#setStatus("starting", { slow: true, ...(tail ? { message: tail } : {}) });
-	}
-
-	/**
-	 * The omp's first answer: `get_state`, the command a stalled omp never answered. Only an omp that answered reads
-	 * `ready`, and its place in the start queue goes to the next start. No deadline: a slow omp is waited for, and its
-	 * exit or a stop rejects the request. False when the spawn is gone.
-	 */
-	async #answered(generation: number): Promise<boolean> {
-		const client = this.#rpcClient;
-		if (!client) return false;
-		const answered = await client.stock({ type: "get_state" }, Number.POSITIVE_INFINITY).then(
-			() => true,
-			() => false,
-		);
-		if (!answered || !this.#isLive(generation)) return false;
-		clearTimeout(this.#slowTimer ?? undefined);
-		this.#slowTimer = null;
-		this.#slow = false;
-		this.#releaseSlot?.();
-		this.#releaseSlot = null;
-		return true;
-	}
+	// ---- Pushes to the live omp ---------------------------------------------------------------------------------
 
 	/**
 	 * Ask this omp to re-read credentials and switch its image tool to match
@@ -1303,17 +1325,21 @@ export class SidecarManager extends EventEmitter {
 	/**
 	 * (Re-)register the GUI-executed host tools on this omp (stock `set_host_tools` replaces the set): the
 	 * terminals and visuals always, the OMPdesk control tools while their Settings switch is on. Sent once the
-	 * protocol is negotiated (`initial`), and again when the switch changes on a ready omp; one that is not ready
-	 * yet gets the current set from its own initial send.
+	 * protocol is negotiated (the lane sends the launch answer's set), and again here when the switch changes on a
+	 * ready omp; one that is not ready yet gets the current set from its own spawn.
 	 */
-	syncHostTools(initial = false): void {
-		if (!this.#rpcClient || (!initial && this.#status !== "ready")) return;
-		const tools = [
+	syncHostTools(): void {
+		if (!this.#rpcClient || this.#status !== "ready") return;
+		void this.#rpcClient.command({ type: "set_host_tools", tools: this.#hostTools() }).catch(() => {});
+	}
+
+	/** The GUI-executed tools: the lane registers them with the omp's protocol negotiation (the launch answer), before its first `get_state`. */
+	#hostTools() {
+		return [
 			TERMINAL_READ_DEFINITION,
 			VISUALIZE_DEFINITION,
 			...(this.#options.hostTools?.() ? AGENT_CONTROL_DEFINITIONS : []),
 		];
-		void this.#rpcClient.command({ type: "set_host_tools", tools }).catch(() => {});
 	}
 
 	/**
@@ -1421,9 +1447,7 @@ export class SidecarManager extends EventEmitter {
 
 	/** Send a side-channel frame (bypasses command queue). */
 	sendSideChannel(frame: object): void {
-		if (this.#child?.stdin?.writable) {
-			this.#child.stdin.write(`${JSON.stringify(frame)}\n`);
-		}
+		if (this.#alive) this.#tell("sidecar.send", { frame });
 	}
 
 	/**
@@ -1439,21 +1463,24 @@ export class SidecarManager extends EventEmitter {
 	adoptCwd(cwd: string): boolean {
 		if (cwd === this.#options.cwd) return false;
 		this.#options = { ...this.#options, cwd };
+		if (this.#opened) this.#tell("sidecar.cwd", { cwd }, { cwd: true });
 		return true;
 	}
 
 	/** Hold the first spawn at `starting` until `gate` settles (set before that spawn's `ready`). */
 	setStartGate(gate: SidecarStartGate): void {
 		this.#startGate = gate;
+		this.#ensureOpen();
+		this.#tell("sidecar.gate");
 	}
 
 	/** Resolves once the current omp and every one this tab stopped before it have exited (at once when none runs). */
 	whenExited(): Promise<void> {
-		const child = this.#child;
-		const current = Promise.withResolvers<void>();
-		if (!child || child.exitCode !== null || child.signalCode !== null) current.resolve();
-		else child.once("exit", () => current.resolve());
-		return Promise.all([...this.#exiting, current.promise]).then(() => undefined);
+		if (!this.#opened) return Promise.resolve();
+		return this.#send("sidecar.whenExited", {}, {}, NO_DEADLINE_MS).then(
+			() => undefined,
+			() => undefined,
+		);
 	}
 
 	/**
@@ -1461,17 +1488,22 @@ export class SidecarManager extends EventEmitter {
 	 * else on `resumeSessionPath` or the session the tab is on.
 	 */
 	restart(cwd?: string, resumeSessionPath?: string): void {
-		this.kill();
 		if (cwd) this.#options = { ...this.#options, cwd };
-		this.#sessionPath = resumeSessionPath ?? (cwd ? null : this.#sessionPath);
-		this.#bootModelFallback = null;
-		this.#noModelBoot = null;
-		this.#restartCount = 0;
-		this.start();
+		if (this.#disposed) return;
+		this.#ensureOpen();
+		this.#tell(
+			"sidecar.restart",
+			{ ...(cwd ? { cwd } : {}), ...(resumeSessionPath ? { resumeSessionPath } : {}) },
+			{ life: true, status: true, cwd: cwd !== undefined },
+		);
+		this.#markGone();
+		this.#predict("starting");
 	}
 
 	kill(): void {
-		this.#stopChild();
+		if (!this.#opened || this.#disposed) return;
+		this.#tell("sidecar.kill", {}, { life: true });
+		this.#markGone();
 	}
 
 	/**
@@ -1479,37 +1511,26 @@ export class SidecarManager extends EventEmitter {
 	 * on its session file when it is shown or messaged (`idle-release.ts`). The omp stops as a restart stops it.
 	 */
 	sleep(): void {
-		if (this.#disposed || !this.#child) return;
-		this.kill();
-		this.#restartCount = 0;
-		this.#setStatus("asleep");
+		if (this.#disposed || !this.#alive) return;
+		this.#tell("sidecar.sleep", {}, { life: true, status: true });
+		this.#markGone();
+		this.#predict("asleep");
 	}
 
 	dispose(): void {
-		this.#disposed = true;
-		// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its stdin
-		// ends; SIGTERM kills it before. With a grace period its stdin closes first.
-		this.#stopChild({ stdinGraceMs: this.#options.gracefulStopMs?.() ?? 0 });
-		// What the tab's omps started ends once they have exited, so an omp's own cleanup of its tools comes first.
-		const processes = this.#processes;
-		if (processes) void Promise.all([...this.#exiting]).then(() => processes.close());
-		this.removeAllListeners();
-	}
-
-	/** Tears the spawn cycle down and stops its omp (`stopOmp`); the next spawn of this tab waits for that exit. */
-	#stopChild(options?: StopOptions): void {
-		if (this.#restartTimer) {
-			clearTimeout(this.#restartTimer);
-			this.#restartTimer = null;
+		if (!this.#disposed) {
+			this.#disposed = true;
+			if (this.#opened) {
+				// Stock omp emits `session_shutdown` (ai-memory's `session-end` hook, which makes the handoff) only when its
+				// stdin ends; SIGTERM kills it before. With a grace period its stdin closes first.
+				this.#tell("sidecar.dispose", { stdinGraceMs: this.#options.gracefulStopMs?.() ?? 0 }, { life: true });
+			} else {
+				lanes.delete(this.#tab);
+			}
+			this.#markGone();
+			this.#batcher?.dispose();
+			this.#batcher = null;
 		}
-		const child = this.#child;
-		this.#cleanup();
-		if (child) this.#stop(child, options);
-	}
-
-	#stop(child: ChildProcess, options?: StopOptions): void {
-		const exit = stopOmp(child, options);
-		this.#exiting.add(exit);
-		void exit.then(() => this.#exiting.delete(exit));
+		this.removeAllListeners();
 	}
 }

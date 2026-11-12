@@ -56,7 +56,6 @@ function fakeTab(options: { dumpDir: string; messages?: boolean; device?: string
 	const asked: { anonymized: boolean }[] = [];
 	const bridge: LocalCommandContext["bridge"] = {
 		connected: true,
-		onEvent: () => () => {},
 		async request<T>(method: string, params?: unknown): Promise<T> {
 			if (method !== "session_dump") throw new Error(`unexpected bridge method ${method}`);
 			const anonymized =

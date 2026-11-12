@@ -1,7 +1,9 @@
 /**
- * The omps this app runs (omp-processes.ts), through the real core (native/ompdesk/crates/core/src/omp): a quit leaves
- * none of them behind, a stuck one included, and a launch stops the ones an earlier instance left running before any
- * tab starts, never another program's process.
+ * The omps this app runs (omp-processes.ts), through the real core (native/ompdesk/crates/core/src/{omp,sidecar}): a
+ * quit leaves none of them behind, a stuck one included, and a launch stops the ones an earlier instance left running
+ * before any tab starts, never another program's process. The tabs' omps are real lanes (`SidecarManager`), which keep
+ * the file themselves: the cases that named a process to `OmpProcesses.track` (removed with the pid ledger's TypeScript
+ * half) run a lane, or, for a leftover another instance spawned, tell the core's ledger what a lane tells it.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -10,9 +12,65 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { core } from "./core/process";
 import { OmpProcesses } from "./omp-processes";
-import { OMP_SPAWN_GROUP, STOP_GRACE_MS } from "./omp-stop";
-import { DIES_WITH_TEST, RM_TEMP } from "./test-fake-omp";
+import type { OmpResolution } from "./omp-runtime";
+import { SidecarManager } from "./sidecar";
+import { ANSWERS_COMMANDS, DIES_WITH_TEST, RM_TEMP, writeFakeOmp } from "./test-fake-omp";
+
+/** How an omp is spawned: on POSIX in a group of its own. */
+const OMP_SPAWN_GROUP = { detached: process.platform !== "win32" } as const;
+
+const ompAt = (bin: string) => async (): Promise<OmpResolution> => ({
+	ok: true,
+	runtime: { bin, version: "18.6.1", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+});
+
+/**
+ * What a lane tells the core's ledger at a spawn and at an exit (`omp.track`, `omp.exited`): names `child` in `file`
+ * until it exits, for a process this test started the way another instance of the app would have.
+ */
+function track(file: string, child: ChildProcess): void {
+	const pid = child.pid;
+	if (pid === undefined) return;
+	const told = core()
+		.call("omp.track", { file, pid })
+		.catch(() => undefined);
+	child.once("exit", () => {
+		void told.then(() => core().call("omp.exited", { file, pid }));
+	});
+}
+
+/** A fake omp (a lane's) that writes its pid to `pidFile`, reaches `ready`, answers commands and then runs `body`. */
+async function laneOmp(dir: string, pidFile: string, body: string): Promise<string> {
+	return writeFakeOmp(
+		dir,
+		`import * as fs from "node:fs";
+fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+process.stdout.write(JSON.stringify({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] }) + "\\n");
+${ANSWERS_COMMANDS}
+${body}
+`,
+	);
+}
+
+/** A tab on `bin` that keeps `file` and stops quickly (`stopGraceMs`); its omp reached `ready` when this returns. */
+async function readyTab(bin: string, cwd: string, file: string): Promise<SidecarManager> {
+	const sidecar = new SidecarManager({
+		omp: ompAt(bin),
+		cwd,
+		ledgerFile: file,
+		// A crash would respawn within a second: far past what a case waits for.
+		tuning: { stopGraceMs: 400, killWaitMs: 2_000, restartDelaysMs: [60_000, 60_000, 60_000] },
+	});
+	const ready = Promise.withResolvers<void>();
+	sidecar.on("status", ({ status }: { status: string }) => {
+		if (status === "ready") ready.resolve();
+	});
+	sidecar.start();
+	await ready.promise;
+	return sidecar;
+}
 
 /** Whether `pid` names a live process (one owned by another user answers `EPERM`). */
 function pidAlive(pid: number): boolean {
@@ -58,29 +116,29 @@ describe.skipIf(process.platform === "win32")("OmpProcesses", () => {
 	it("a quit's stop leaves no omp running: one that ignores SIGTERM and one that is stopped", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-file-"));
 		dirs.push(dir);
-		const processes = new OmpProcesses(path.join(dir, "omp-pids.json"), "/nowhere/gui-bridge");
-		const ignoring = await stubborn([]);
-		const stopped = await stubborn([]);
-		processes.track(ignoring);
-		processes.track(stopped);
-		process.kill(stopped.pid ?? 0, "SIGSTOP");
-		const exits = [ignoring, stopped].map(child => {
-			const exit = Promise.withResolvers<void>();
-			child.once("exit", () => exit.resolve());
-			return exit.promise;
-		});
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const done = processes.stopAll();
-		vi.advanceTimersByTime(STOP_GRACE_MS);
-		vi.useRealTimers();
-		await done;
-		await Promise.all(exits);
-		expect([ignoring.signalCode, stopped.signalCode]).toEqual(["SIGKILL", "SIGKILL"]);
-		// Every exit took its pid out of the file the next launch reads.
-		await vi.waitFor(async () =>
-			expect(JSON.parse(await fs.readFile(path.join(dir, "omp-pids.json"), "utf8"))).toEqual({ omps: [] }),
+		const file = path.join(dir, "omp-pids.json");
+		const processes = new OmpProcesses(file, "/nowhere/gui-bridge");
+		const pidOf = async (name: string) => Number(await fs.readFile(path.join(dir, name), "utf8"));
+		const ignoring = await readyTab(
+			await laneOmp(path.join(dir, "a"), path.join(dir, "a.pid"), 'process.on("SIGTERM", () => {});'),
+			dir,
+			file,
 		);
-	});
+		const stopped = await readyTab(await laneOmp(path.join(dir, "b"), path.join(dir, "b.pid"), ""), dir, file);
+		const pids = [await pidOf("a.pid"), await pidOf("b.pid")];
+		started.push(...pids);
+		process.kill(pids[1] ?? 0, "SIGSTOP");
+		try {
+			await processes.stopAll();
+			// The grace ran out for both: the first ignored its SIGTERM, the second could not hear it.
+			expect(pids.map(pidAlive)).toEqual([false, false]);
+			// Every exit took its pid out of the file the next launch reads.
+			await vi.waitFor(async () => expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({ omps: [] }));
+		} finally {
+			ignoring.dispose();
+			stopped.dispose();
+		}
+	}, 30_000);
 
 	it("a launch stops the omps an earlier instance left running, and leaves another program's pid alone", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-reap-"));
@@ -131,8 +189,7 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 		const unrecorded = idle();
 
 		// The earlier instance: tracks the omp, which records its creation time in the file after the spawn.
-		const earlier = new OmpProcesses(file, bridge);
-		earlier.track(leftover);
+		track(file, leftover);
 		let recorded = 0;
 		await vi.waitFor(
 			async () => {
@@ -190,7 +247,7 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 		started.push(omp);
 
 		// The earlier instance recorded the shim, the only process it knows.
-		new OmpProcesses(file, bridge).track(shim);
+		track(file, shim);
 		const recorded = await vi.waitFor(async () => {
 			const entry = (await read(file)).omps.find(entry => entry.pid === shim.pid);
 			expect(entry?.started).toBeGreaterThan(0);
@@ -217,36 +274,41 @@ describe.runIf(process.platform === "win32")("OmpProcesses on Windows", () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-gui-processes-quit-win-"));
 		dirs.push(dir);
 		const file = path.join(dir, "omp-pids.json");
-		const omp = async (body: string) => {
-			const child = spawn(process.execPath, ["-e", `${DIES_WITH_TEST} ${body} console.log("up");`], {
-				stdio: ["pipe", "pipe", "ignore"],
-				windowsHide: true,
-			});
-			if (child.pid !== undefined) started.push(child.pid);
-			await once(child.stdout, "data");
-			return child;
-		};
-		const listening = await omp(`process.stdin.resume(); process.stdin.on("end", () => process.exit(0));`);
-		const deaf = await omp("setInterval(() => {}, 1000);");
-		const processes = new OmpProcesses(file, path.join(dir, "gui-bridge"));
-		processes.track(listening);
-		processes.track(deaf);
-		await vi.waitFor(async () =>
-			expect((await read(file)).omps.map(entry => entry.pid)).toEqual([listening.pid, deaf.pid]),
+		const marker = path.join(dir, "stdin-ended");
+		const listening = await readyTab(
+			await laneOmp(
+				path.join(dir, "a"),
+				path.join(dir, "a.pid"),
+				`process.stdin.on("end", () => { fs.writeFileSync(${JSON.stringify(marker)}, "end"); process.exit(0); });`,
+			),
+			dir,
+			file,
 		);
-		const exits = [listening, deaf].map(child => once(child, "exit"));
+		const deaf = await readyTab(
+			await laneOmp(path.join(dir, "b"), path.join(dir, "b.pid"), "setInterval(() => {}, 1000);"),
+			dir,
+			file,
+		);
+		const pids = [
+			Number(await fs.readFile(path.join(dir, "a.pid"), "utf8")),
+			Number(await fs.readFile(path.join(dir, "b.pid"), "utf8")),
+		];
+		started.push(...pids);
+		await vi.waitFor(
+			async () => expect((await read(file)).omps.map(entry => entry.pid)).toEqual([listening.pid, deaf.pid]),
+			{ timeout: 15_000 },
+		);
+		try {
+			await new OmpProcesses(file, path.join(dir, "gui-bridge")).stopAll();
 
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const done = processes.stopAll();
-		await exits[0];
-		vi.advanceTimersByTime(STOP_GRACE_MS);
-		vi.useRealTimers();
-		await done;
-		await exits[1];
-
-		expect(listening.exitCode).toBe(0);
-		expect([listening, deaf].map(child => pidAlive(child.pid ?? 0))).toEqual([false, false]);
-		await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [] }));
+			// The stop ends the stdin first: the one that listens ended by itself, the other only after the grace.
+			expect(await fs.readFile(marker, "utf8")).toBe("end");
+			expect(pids.map(pidAlive)).toEqual([false, false]);
+			await vi.waitFor(async () => expect(await read(file)).toEqual({ omps: [] }));
+		} finally {
+			listening.dispose();
+			deaf.dispose();
+		}
 	}, 60_000);
 });
 
@@ -269,23 +331,34 @@ describe("OmpProcesses and the file", () => {
 
 	it("each spawn and each exit rewrites the file the next launch reads", async () => {
 		const file = await tempFile();
-		const processes = new OmpProcesses(file, "/nowhere/gui-bridge");
-		const [staying, leaving] = [idleOmp(), idleOmp()];
+		const dir = path.dirname(file);
+		const staying = await readyTab(await laneOmp(path.join(dir, "a"), path.join(dir, "a.pid"), ""), dir, file);
+		const leaving = await readyTab(await laneOmp(path.join(dir, "b"), path.join(dir, "b.pid"), ""), dir, file);
+		const pids = [
+			Number(await fs.readFile(path.join(dir, "a.pid"), "utf8")),
+			Number(await fs.readFile(path.join(dir, "b.pid"), "utf8")),
+		];
+		started.push(...pids);
+		try {
+			await vi.waitFor(
+				async () => expect((await readFile(file)).omps.map(entry => entry.pid)).toEqual([staying.pid, leaving.pid]),
+				{ timeout: 15_000 },
+			);
+			// Windows tells a leftover by its creation time, read at the spawn; elsewhere its command line does.
+			for (const entry of (await readFile(file)).omps)
+				expect(entry.started === undefined).toBe(process.platform !== "win32");
 
-		processes.track(staying);
-		processes.track(leaving);
+			process.kill(pids[1] ?? 0, "SIGKILL");
 
-		await vi.waitFor(async () =>
-			expect((await readFile(file)).omps.map(entry => entry.pid)).toEqual([staying.pid, leaving.pid]),
-		);
-		// Windows tells a leftover by its creation time, read at the spawn; elsewhere its command line does.
-		for (const entry of (await readFile(file)).omps)
-			expect(entry.started === undefined).toBe(process.platform !== "win32");
-
-		leaving.kill("SIGKILL");
-
-		await vi.waitFor(async () => expect((await readFile(file)).omps.map(entry => entry.pid)).toEqual([staying.pid]));
-	}, 20_000);
+			await vi.waitFor(
+				async () => expect((await readFile(file)).omps.map(entry => entry.pid)).toEqual([staying.pid]),
+				{ timeout: 15_000 },
+			);
+		} finally {
+			staying.dispose();
+			leaving.dispose();
+		}
+	}, 30_000);
 
 	it("a reap the core does not answer stops nothing, leaves the file for the next launch and is logged", async () => {
 		const file = await tempFile();

@@ -2,7 +2,10 @@
  * The handler table: an Electron call and a caller from outside Electron reach the same handler, the Electron
  * one with the window `BrowserWindow.fromWebContents` finds for its sender, as the handlers looked it up before.
  */
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CoreProcess } from "../core/process";
+import { nativeBinPath } from "../native-bin";
 import type { ClientWindow } from "./client-window";
 import { type IpcCaller, IpcRegistry } from "./ipc-registry";
 
@@ -108,5 +111,76 @@ describe("IpcRegistry", () => {
 			[9, true],
 			[-1, false],
 		]);
+	});
+});
+
+/** The core's plumbing channels (`crates/core/src/ipc`), classified as `IPC_POLICY` classifies a channel. */
+const TEST_POLICY = {
+	"test:ipc.record": { dir: "send", permission: "workspace", mode: "pass" },
+	"test:ipc.recorded": { dir: "invoke", permission: "workspace", mode: "pass" },
+};
+
+describe("IpcRegistry: the channels the core serves", () => {
+	const cores: CoreProcess[] = [];
+	afterEach(async () => {
+		await Promise.all(cores.splice(0).map(core => core.stop()));
+	});
+
+	function startCore(binary: () => string = () => nativeBinPath("ompdesk-core")): CoreProcess {
+		const core = new CoreProcess({ binary, log: () => {} });
+		cores.push(core);
+		return core;
+	}
+
+	it("runs a page's sends to a core channel in the order the page made them", async () => {
+		const { ipc, invokes, sends } = registry();
+		await ipc.routeCore(startCore(), TEST_POLICY, { testChannels: true });
+		const record = sends.get("test:ipc.record");
+		const recorded = invokes.get("test:ipc.recorded");
+		if (!record || !recorded) throw new Error("the core's channels were not registered on ipcMain");
+		const page = { id: 7 };
+		// The first send holds 50 ms in the core before it records: a later send that overtook it would record first.
+		record({ sender: page }, "first", 50);
+		record({ sender: page }, "second", 0);
+		await expect(recorded({ sender: page })).resolves.toEqual(["first", "second"]);
+		// A paired page's connection is a caller of its own, through the web table.
+		const web = { ...webCaller, connId: "conn-1" };
+		ipc.send("test:ipc.record", web, ["web", 0]);
+		await expect(ipc.invoke("test:ipc.recorded", web, [])).resolves.toEqual(["web"]);
+		await expect(recorded({ sender: page })).resolves.toEqual(["first", "second"]);
+	});
+
+	it("fails only the core's channels while the core is down or resting", async () => {
+		const { ipc } = registry();
+		ipc.handle("main:here", () => "main answers");
+		let binary = nativeBinPath("ompdesk-core");
+		const core = startCore(() => binary);
+		await ipc.routeCore(core, TEST_POLICY, { testChannels: true });
+		await expect(ipc.invoke("test:ipc.recorded", webCaller, [])).resolves.toEqual([]);
+
+		await core.stop();
+		binary = join(__dirname, "no-such-core.exe");
+		// Three starts that fail, then the core rests: every call of its channels fails, none of main's does.
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await expect(ipc.invoke("test:ipc.recorded", webCaller, [])).rejects.toThrow(/could not run/);
+			await expect(ipc.invoke("main:here", webCaller, [])).resolves.toBe("main answers");
+		}
+		await expect(ipc.invoke("test:ipc.recorded", webCaller, [])).rejects.toThrow(/not started again/);
+		await expect(ipc.invoke("main:here", webCaller, [])).resolves.toBe("main answers");
+	});
+
+	it("leaves main's channels served when the core cannot take the policy", async () => {
+		const { ipc, invokes } = registry();
+		ipc.handle("main:here", () => "main answers");
+		await expect(
+			ipc.routeCore(
+				startCore(() => join(__dirname, "no-such-core.exe")),
+				TEST_POLICY,
+				{ testChannels: true },
+			),
+		).rejects.toThrow(/could not run/);
+		await expect(ipc.routeCore(startCore(), {}, { testChannels: true })).rejects.toThrow(/IPC_POLICY/);
+		expect([...invokes.keys()]).toEqual(["main:here"]);
+		await expect(ipc.invoke("main:here", webCaller, [])).resolves.toBe("main answers");
 	});
 });

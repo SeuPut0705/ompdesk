@@ -89,6 +89,8 @@ pub struct Frame {
 struct EventHead<'a, T: Serialize> {
     event: &'a str,
     data: &'a T,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bin: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -123,8 +125,24 @@ fn line<T: Serialize>(value: &T) -> Vec<u8> {
 impl Frame {
     pub fn event<T: Serialize>(event: &str, data: &T) -> Frame {
         Frame {
-            head: line(&EventHead { event, data }),
+            head: line(&EventHead {
+                event,
+                data,
+                bin: None,
+            }),
             bin: None,
+        }
+    }
+
+    /// An event followed by raw bytes (`"bin": n`), as an answer can be: a frame omp wrote, passed on as it came.
+    pub fn event_bin<T: Serialize>(event: &str, data: &T, bin: Vec<u8>) -> Frame {
+        Frame {
+            head: line(&EventHead {
+                event,
+                data,
+                bin: Some(bin.len()),
+            }),
+            bin: Some(bin),
         }
     }
 
@@ -219,6 +237,22 @@ mod tests {
         let frames = read_all(b"{\"cancel\":7}\n{\"cancel\":\"x\"}\n").await;
         assert_eq!(frames[0], Err("cancel 7".into()));
         assert!(matches!(&frames[1], Err(reason) if reason.starts_with("malformed line")));
+    }
+
+    #[test]
+    fn writes_an_event_with_a_bin_tail() {
+        let frame = Frame::event_bin(
+            "sidecar.frame",
+            &serde_json::json!({"tab": "t"}),
+            b"{}".to_vec(),
+        );
+        assert_eq!(
+            frame.head,
+            b"{\"event\":\"sidecar.frame\",\"data\":{\"tab\":\"t\"},\"bin\":2}\n"
+        );
+        assert_eq!(frame.bin.as_deref(), Some(&b"{}"[..]));
+        let plain = Frame::event("ready", &serde_json::json!({}));
+        assert_eq!(plain.head, b"{\"event\":\"ready\",\"data\":{}}\n");
     }
 
     #[test]

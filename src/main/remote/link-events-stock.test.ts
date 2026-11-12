@@ -1,14 +1,16 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import * as http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, describe, expect, it } from "vitest";
 import type { AgentMessage, AgentSessionEvent } from "../../shared/rpc-types";
-import { withoutFrameBookkeeping } from "../frame-bookkeeping";
-import { completeRunMessages } from "../run-messages";
+import type { OmpResolution } from "../omp-runtime";
+import { SidecarManager } from "../sidecar";
 import { configDirName, OMP_COMMAND, INSTALLED_OMP as omp } from "../test-bridge-probe";
+import { RM_TEMP, writeFakeOmp } from "../test-fake-omp";
 import { createLinkEventDecoder, createLinkEventEncoder } from "./link-events";
 
 /**
@@ -140,27 +142,77 @@ async function run(url: string): Promise<Frame[]> {
 	return frames;
 }
 
+/**
+ * What a tab's lane in the core does to the frames of a run (`sidecar/messages.rs`: `agent_end` completed with the
+ * messages `message_end` delivered), through the real `SidecarManager` and core: the captured frames are replayed by a
+ * stand-in omp as the answer to a prompt, and the `events` the manager emits are what the pool delivers.
+ */
+async function replayed(frames: Frame[]): Promise<AgentSessionEvent[]> {
+	const dir = mkdtempSync(join(tmpdir(), "ompdesk-link-events-replay-"));
+	const recorded = join(dir, "frames.json");
+	writeFileSync(recorded, JSON.stringify(frames.filter(frame => frame.type !== "ready" && frame.type !== "response")));
+	const bin = await writeFakeOmp(
+		dir,
+		[
+			`import * as fs from "node:fs";`,
+			`import { createInterface } from "node:readline";`,
+			`const frames = JSON.parse(fs.readFileSync(${JSON.stringify(recorded)}, "utf8"));`,
+			`const out = (frame: unknown) => process.stdout.write(JSON.stringify(frame) + "\\n");`,
+			`out({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1] });`,
+			`createInterface({ input: process.stdin }).on("line", line => {`,
+			`\tconst command = JSON.parse(line);`,
+			`\tif (command.type === "prompt") for (const frame of frames) out(frame);`,
+			`\tout({ type: "response", id: command.id, command: command.type, success: true, data: {} });`,
+			`});`,
+			`process.stdin.on("end", () => process.exit(0));`,
+		].join("\n"),
+	);
+	const omp = async (): Promise<OmpResolution> => ({
+		ok: true,
+		runtime: { bin, version: "18.12.6", run: async () => ({ code: 0, stdout: "", stderr: "" }) },
+	});
+	const sidecar = new SidecarManager({ omp, cwd: dir });
+	cleanups.push(async () => {
+		sidecar.dispose();
+		await sidecar.whenExited();
+		await rm(dir, RM_TEMP);
+	});
+	const ready = Promise.withResolvers<void>();
+	sidecar.on("status", ({ status }: { status: string }) => {
+		if (status === "ready") ready.resolve();
+	});
+	const events: AgentSessionEvent[] = [];
+	const ended = Promise.withResolvers<void>();
+	sidecar.on("events", (batch: AgentSessionEvent[]) => {
+		for (const event of batch) {
+			events.push(event);
+			if (event.type === "agent_end") ended.resolve();
+		}
+	});
+	sidecar.start();
+	await ready.promise;
+	await sidecar.rpcClient?.command({ type: "prompt", message: "read f.txt" });
+	await ended.promise;
+	return events;
+}
+
 describe.skipIf(!existsSync(omp))("a run of the installed omp over a slim link", () => {
 	it("sends every message of its agent_end as a reference to the message_end that carried it", async () => {
 		const frames = await run(await startProvider());
-		// What the sidecar does before the link sees a frame (sidecar.ts #routeFrame, then the bridge's
-		// sessions.attach_entry_ids, which decorates read calls and crosses a JSON socket).
-		const delivered: AgentMessage[] = [];
-		const events: AgentSessionEvent[] = [];
-		for (const raw of frames) {
-			const frame = withoutFrameBookkeeping(raw);
-			if (frame.type === "message_end") delivered.push(frame.message as AgentMessage);
-			if (frame.type === "agent_end") {
-				const messages = completeRunMessages(delivered, frame.messages as AgentMessage[]);
-				events.push({
-					...frame,
-					messages: JSON.parse(JSON.stringify(decorateMessages(messages as AgentMessage[]))),
-				} as unknown as AgentSessionEvent);
-				continue;
-			}
-			if (["message_start", "message_update", "message_end", "tool_execution_end"].includes(frame.type))
-				events.push(frame as unknown as AgentSessionEvent);
-		}
+		// What the tab's lane does before the link sees a frame (the completed `agent_end`), replayed through the real
+		// manager; then the bridge's sessions.attach_entry_ids, which decorates read calls and crosses a JSON socket.
+		const events = (await replayed(frames))
+			.filter(event =>
+				["message_start", "message_update", "message_end", "tool_execution_end", "agent_end"].includes(event.type),
+			)
+			.map(event =>
+				event.type === "agent_end"
+					? ({
+							...event,
+							messages: JSON.parse(JSON.stringify(decorateMessages(event.messages as AgentMessage[]))),
+						} as AgentSessionEvent)
+					: event,
+			);
 		const original = events.find(event => event.type === "agent_end") as { messages: AgentMessage[] };
 		expect(original.messages.some(message => message.role === "assistant")).toBe(true);
 		const decoder = createLinkEventDecoder();

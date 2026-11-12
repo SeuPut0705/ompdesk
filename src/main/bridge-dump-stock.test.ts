@@ -111,7 +111,7 @@ async function texts(file: string): Promise<Record<string, string>> {
 function handlerOver(archive: Omit<SessionArchive, "redacted">) {
 	const ctx = {
 		cwd: "/repo",
-		bridge: { connected: true, onEvent: () => () => {}, request: async () => archive },
+		bridge: { connected: true, request: async () => archive },
 	} as unknown as LocalCommandContext;
 	const handler = handlers.dump_session_archive;
 	if (!handler) throw new Error("no dump_session_archive handler");
