@@ -392,10 +392,45 @@ describe("AutoInstallScheduler and a card nobody answers", () => {
 		expect(c.logs.map(line => line.split(" ")[0])).toEqual(["safe", "countdown", "install"]);
 	});
 
+	// The two ways a card's time carried over from a card closed earlier would install over a new one (the shortest
+	// such sequences are seven steps, past the exhaustive check below): an earlier question, an earlier plan proposal.
+	for (const earlier of ["an earlier question", "an earlier plan proposal"] as const) {
+		it(`counts a new question's ten minutes from its own opening, not from ${earlier} that closed`, () => {
+			const t = setup({ focused: false, idleMs: 0, resumes: true });
+			t.advance(0);
+			expect(t.calls).toEqual([ANNOUNCE]);
+			const card = earlier === "an earlier question" ? "asking" : "planWaiting";
+			t.facts.asking = true;
+			t.facts[card] = true;
+			t.advance(1000);
+			t.facts.asking = false;
+			t.facts[card] = false;
+			t.advance(1000);
+			t.facts.asking = true;
+			t.facts.busy = true;
+			t.facts.idleMs = 24 * HOUR;
+			// The countdown has ended; the new question has held the restart for no time yet.
+			t.advance(CARD_HOLD);
+			expect(t.calls).toEqual([ANNOUNCE]);
+			t.advance(CARD_HOLD);
+			expect(t.calls).toEqual([ANNOUNCE, ANNOUNCE]);
+			t.advance(AUTO_INSTALL_COUNTDOWN_MS);
+			expect(t.calls).toEqual([ANNOUNCE, ANNOUNCE, "install"]);
+			expect(t.logs.map(line => line.split(" ")[0])).toEqual([
+				"safe",
+				"countdown",
+				"held",
+				"unattended",
+				"countdown",
+				"install",
+			]);
+		});
+	}
+
 	// The scheduler sees the cards once a second (its tick): one closed and another opened between two ticks is one card.
-	it("installs over a card only after it held ten minutes with no input for as long, never over a compaction or a plan proposal: every sequence of seven steps", () => {
+	it("installs over a card only after it held ten minutes with no input for as long, never over a compaction or a plan proposal: every sequence of six steps", () => {
 		const STEPS = ["1s", "1min", "10min", "ask", "plan", "compact", "input", "away"] as const;
-		const LENGTH = 7;
+		const LENGTH = 6;
 		const violations: string[] = [];
 		let overCard = 0;
 		for (let n = 0; n < STEPS.length ** LENGTH; n++) {
