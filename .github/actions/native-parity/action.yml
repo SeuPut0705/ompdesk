@@ -51,6 +51,11 @@ runs:
         src/main/ai-memory/client.test.ts
         src/main/ai-memory/service.test.ts
         src/main/ai-memory/freshness*.test.ts
+        src/main/ai-memory/upkeep.test.ts
+        src/main/ai-memory/retitle.test.ts
+        src/main/ai-memory/ambiguous-names.test.ts
+        src/main/ai-memory/distill-model.test.ts
+        src/main/stock-helper-memory.test.ts
         src/main/routines/*.test.ts
         src/main/local/autopilot*.test.ts
         src/main/local/git/changes.test.ts
