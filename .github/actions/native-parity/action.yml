@@ -17,6 +17,7 @@ runs:
         src/main/repo-lock-fence.test.ts
         src/main/session-index.test.ts
         src/main/memory-sampler.test.ts
+        src/main/session-processes.test.ts
         src/main/control-socket/server.test.ts
         src/main/control-socket/router.test.ts
         src/main/control-socket/events.test.ts
