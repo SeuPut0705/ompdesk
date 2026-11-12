@@ -9,12 +9,14 @@
 //! `remote.answer` (main's answer to an ask), `remote.testLink` (the cross-implementation tests': a link
 //! to an address under keys the test chose, no handshake). Pushes on a link: `remote.send`, `remote.deflate`, `remote.listen`,
 //! `remote.tap`, `remote.check`, `remote.close`, `remote.destroy`. Events: `remote.message`, `remote.checked`, `remote.closed`,
-//! `remote.traffic`, `remote.ask` (`gate`, `bind`, `open`), `remote.log`.
+//! `remote.traffic`, `remote.ask` (`gate`, `bind`, `open`), `remote.log`. The event encoding's methods are
+//! `events`'.
 
 pub mod address;
 pub mod codec;
 pub mod crypto;
 mod dial;
+pub mod events;
 mod handshake;
 mod host;
 pub mod identity;
@@ -114,6 +116,7 @@ pub fn register(registry: &mut Registry) {
     registry.add("remote.hostStop", |call| Box::pin(host_stop(call)));
     registry.add("remote.answer", |call| Box::pin(answer(call)));
     registry.add("remote.testLink", |call| Box::pin(test_link(call)));
+    events::register(registry);
     registry.add_push("remote.send", |mut push| {
         if let Some(bin) = push.bin.take() {
             on_link(&push, Command::Send(bin));
