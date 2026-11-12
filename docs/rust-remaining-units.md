@@ -294,7 +294,7 @@ The owner's call: the units above move in batches, one session per batch, checke
 |---|---|---|---|
 | **B1 Memory** | 7b, 7c, 7d, and the setup downloads (§2.7) | 6b on `main`; the core's HTTPS (the fix restoring 5d's https and redirects) for the downloads | B2 |
 | **B2 Link and edge, Rust side** | R1, R2, R3, R4, 8a (8a's Rust lands before 8b serves, the ledger's first "built, not yet called" code; decided by the main session under the owner's speed call, reversible: the owner may ask for one longer session instead) | none | B1 |
-| **P Shell prototype** | the three candidates of the ledger against its pass list, the Electron-to-new-shell update included | nothing (runs beside B1 and B2: it shares no file with them; the hubs still wait for it) | B1, B2, W1 |
+| **P Shell prototype** | the three candidates of the ledger against its pass list, the Electron-to-new-shell update included | B1, B2 on `main` (the order the owner kept) | W1 |
 | **W1 Web, cut over** | 8b, 8d, 8e | B2 | P, H1 |
 | **H1 Hubs: entry and omp** | 9a, 9b, 9c | P passed | W1 |
 | **H2 Hubs: pool and resume** | 9d, 9e, 9f | H1 | none (shares `ipc.ts`/`index.ts` wiring) |
