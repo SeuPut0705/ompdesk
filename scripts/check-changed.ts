@@ -1,8 +1,9 @@
 /**
- * The agent's default edit loop (AGENTS.md › Build, test): the checks that can
- * fail because of what changed, in seconds instead of the release gate's
- * minutes. It holds no lock as a whole (`scripts/build-lock.ts`): the checks
- * take a `vitest` slot, the build the `build` slot, Playwright a `playwright` slot.
+ * The agent's quick edit loop (AGENTS.md › Build and the agent loop): a smoke pass over the checks most likely to fail
+ * because of what changed, in seconds. Its vitest and Playwright picks follow names and imports, so a pass is never a
+ * verdict: the verdict is the branch's runner run (`gh workflow run ci.yml --ref <branch> -f batch=true`, e2e
+ * `e2e-nightly.yml -f specs=…`), and every pass line names it. It holds no lock as a whole (`scripts/build-lock.ts`):
+ * the checks take a `vitest` slot, the build the `build` slot, Playwright a `playwright` slot.
  *
  *   bun run check:changed [--base <ref>] [--no-e2e] [--list]
  *
@@ -30,8 +31,7 @@
  *    `webkit`) a picked spec imports but that is not installed gets one
  *    warning line, before the specs and again after a failed run.
  * 3. A change to e2e shared support (harness, fixtures) matches no single spec:
- *    the run says so and runs none; use `bunx playwright test <spec>` for the
- *    ones you touched.
+ *    the run says that no e2e ran and names the full check, `ompdesk check -- bunx playwright test`.
  * 4. A change that picks the parity sheet's spec (`e2e/parity.e2e.ts`, which registers nothing on its own) runs
  *    every parity surface forward and in reverse order instead (`bun run parity -- --both-orders`, about 5.5 min).
  *
@@ -166,9 +166,13 @@ if (failed.length > 0) {
 	console.log(`[check:changed] FAILED: ${failed.join(", ")}`);
 	process.exit(1);
 }
+// The picks here are a quick smoke pass by name and import, never a verdict: the full suites run on the branch's runner
+// (the owner's rule: heavy checks run on GitHub's runners).
+const VERDICT = "`gh workflow run ci.yml --ref <branch> -f batch=true` (full vitest, build, every OS)";
+const verdictLine = (what: string) => `[check:changed] ${what}; a quick pick, not a verdict: the verdict is ${VERDICT}`;
 if (supportChanged && specs.length === 0) {
 	console.log(
-		"[check:changed] e2e support files changed but no spec matched; run the specs you touched with `bunx playwright test <spec>`",
+		'[check:changed] e2e support files changed and they match no single spec, so no e2e ran here; the e2e verdict is `gh workflow run e2e-nightly.yml --ref <branch> -f specs="<specs>"` or the full nightly',
 	);
 }
 if (specs.length === 0) {
@@ -179,7 +183,7 @@ if (specs.length === 0) {
 		const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 		if (build.code !== 0) process.exit(1);
 	} else if (scope.build) console.log("[check:changed] build skipped (--no-e2e): CI's build job checks the bundle");
-	console.log(`[check:changed] PASSED in ${seconds(performance.now() - started)} (no e2e spec matches the change)`);
+	console.log(verdictLine(`PASSED in ${seconds(performance.now() - started)} (no e2e spec picked by name)`));
 	process.exit(0);
 }
 // A Playwright upgrade leaves its browsers to `playwright install`: say so in one line, here and after a failed run,
@@ -191,7 +195,7 @@ const browserNotice = missingBrowsersNotice(
 	await missingBrowsers([...new Set([...browsersOf.values()].flat())]),
 );
 if (browserNotice) console.log(`[check:changed] warning: ${browserNotice}`);
-console.log(`[check:changed] build, then ${specs.length} spec file(s): ${specs.join(" ")}`);
+console.log(`[check:changed] build, then a smoke pick of ${specs.length} spec file(s) by name: ${specs.join(" ")}`);
 const build = await runLocked("build", ["bun", "run", "build"], { via: "check:changed" });
 if (build.code !== 0) process.exit(1);
 // An opt-in spec (the responsive audit, a capture run) registers no test without its env: the specs exist, so
@@ -208,7 +212,6 @@ const parityOrder =
 		? await run(["bun", "scripts/parity.ts", "--both-orders"])
 		: undefined;
 const ok = e2e.code === 0 && (parityOrder?.code ?? 0) === 0;
-console.log(
-	`[check:changed] ${ok ? "PASSED" : `FAILED: ${e2e.code !== 0 ? "playwright" : "parity order"}`} in ${seconds(performance.now() - started)}`,
-);
+const outcome = `${ok ? "PASSED" : `FAILED: ${e2e.code !== 0 ? "playwright" : "parity order"}`} in ${seconds(performance.now() - started)}`;
+console.log(ok ? verdictLine(outcome) : `[check:changed] ${outcome}`);
 process.exit(ok ? 0 : 1);
