@@ -6,8 +6,8 @@
  */
 
 /**
- * Spawn env: the path of a small JSON file `{url, dataDir}` main keeps current while memory is on
- * (src/main/ai-memory/recall-state.ts) and deletes when it is off. A file, not the values themselves: a tab's omp
+ * Spawn env: the path of a small JSON file `{url, dataDir}` the core's memory service keeps current while memory is on
+ * (`native/ompdesk/crates/core/src/aimemory/service`). A file, not the values themselves: a tab's omp
  * starts before memory's setup pass has learned the data dir (it runs after the first tab), and the switch may change
  * while the omp runs; the bridge reads the file at each prompt.
  */

@@ -143,7 +143,8 @@ export interface SerialChainOptions {
 	logBusy?: (chain: string, step: string, pending: string[]) => void;
 }
 
-function writeStall(stall: StepStalledError): void {
+/** The `chain-stall` line of the runtime log (also for a chain the core runs, `ai-memory/service.ts`). */
+export function writeStall(stall: StepStalledError): void {
 	try {
 		writeRuntimeLog({
 			source: "chain-stall",

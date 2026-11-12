@@ -46,6 +46,10 @@ url = "2"
 hyper = { version = "1", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 http-body-util = "0.1"
+# SHA-256, added once for the whole workspace (ledger 7b): the staged ai-memory binary is trusted only by the hash its
+# build recorded, the extension root is compared by its files' hashes and an overlay is named by its content's; the
+# memory sync's page hashes (7e) are the same function. RustCrypto's pure Rust implementation, no C build.
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 # errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a

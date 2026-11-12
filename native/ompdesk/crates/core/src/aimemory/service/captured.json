@@ -1,0 +1,4203 @@
+{
+	"parseProblems": [
+		{
+			"output": "",
+			"problems": []
+		},
+		{
+			"output": "ok",
+			"problems": []
+		},
+		{
+			"output": "ok\n  problem: self-check: healthz did not answer\r\nINFO x\nproblem: config: bad\n",
+			"problems": [
+				"self-check: healthz did not answer",
+				"config: bad"
+			]
+		},
+		{
+			"output": "problem:",
+			"problems": [
+				""
+			]
+		},
+		{
+			"output": "problem:   spaced   ",
+			"problems": [
+				"spaced"
+			]
+		},
+		{
+			"output": "  problem: a\rproblem: b",
+			"problems": [
+				"a\rproblem: b"
+			]
+		},
+		{
+			"output": "problems: no\nproblem:x\n\tproblem: tab\n",
+			"problems": [
+				"x",
+				"tab"
+			]
+		},
+		{
+			"output": "PROBLEM: upper\nproblem: ünïcode ✓\n",
+			"problems": [
+				"ünïcode ✓"
+			]
+		},
+		{
+			"output": "\u001b[31mproblem: colored\u001b[0m\nproblem: \u001b[1mbold\u001b[0m",
+			"problems": [
+				"\u001b[1mbold\u001b[0m"
+			]
+		},
+		{
+			"output": "line\r\n\r\nproblem: one\r\n",
+			"problems": [
+				"one"
+			]
+		},
+		{
+			"output": " problem: nbsp lead\n problem: ls\n",
+			"problems": [
+				"nbsp lead",
+				"ls"
+			]
+		}
+	],
+	"parsePlan": [
+		{
+			"output": "INFO a {b}\n{\"format\":1,\"data_dir\":\"/d\",\"config_path\":\"/d/config.toml\",\"fresh\":true}\n",
+			"plan": {
+				"dataDir": "/d",
+				"configPath": "/d/config.toml",
+				"fresh": true
+			}
+		},
+		{
+			"output": "{\"format\":1,\"fresh\":false}",
+			"plan": {
+				"dataDir": null,
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "no json",
+			"plan": null
+		},
+		{
+			"output": "{broken",
+			"plan": null
+		},
+		{
+			"output": "{\"format\":1}",
+			"plan": {
+				"dataDir": null,
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "{\"data_dir\":5,\"config_path\":null,\"fresh\":\"true\"}",
+			"plan": {
+				"dataDir": null,
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "x {\"data_dir\":\"/inline\"}",
+			"plan": null
+		},
+		{
+			"output": "log\n {\"data_dir\":\"/indented\"}\n{\"data_dir\":\"/second\"}",
+			"plan": {
+				"dataDir": "/second",
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "{\"data_dir\":\"/a\"}\ntrailing } brace",
+			"plan": null
+		},
+		{
+			"output": "{\"data_dir\":\"/a\"}\n{\"data_dir\":\"/b\"}",
+			"plan": null
+		},
+		{
+			"output": "[1,2]\n{\"data_dir\":\"/x\"}",
+			"plan": {
+				"dataDir": "/x",
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "{}",
+			"plan": {
+				"dataDir": null,
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "{\"data_dir\":\"C:\\\\Users\\\\x\\\\AppData\",\"config_path\":\"C:\\\\c.toml\",\"fresh\":true}",
+			"plan": {
+				"dataDir": "C:\\Users\\x\\AppData",
+				"configPath": "C:\\c.toml",
+				"fresh": true
+			}
+		},
+		{
+			"output": "﻿{\"data_dir\":\"/bom\"}",
+			"plan": null
+		},
+		{
+			"output": "{\"data_dir\":\"/d\",\"data_dir\":\"/dup\"}",
+			"plan": {
+				"dataDir": "/dup",
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "}{",
+			"plan": null
+		},
+		{
+			"output": "{\"fresh\":1}",
+			"plan": {
+				"dataDir": null,
+				"configPath": null,
+				"fresh": false
+			}
+		},
+		{
+			"output": "{\"data_dir\":\"/d\"} {\"x\":1}",
+			"plan": null
+		}
+	],
+	"tail": [
+		{
+			"output": "",
+			"lines": 4,
+			"tail": ""
+		},
+		{
+			"output": "",
+			"lines": 1,
+			"tail": ""
+		},
+		{
+			"output": "",
+			"lines": 2,
+			"tail": ""
+		},
+		{
+			"output": "boom",
+			"lines": 4,
+			"tail": "boom"
+		},
+		{
+			"output": "boom",
+			"lines": 1,
+			"tail": "boom"
+		},
+		{
+			"output": "boom",
+			"lines": 2,
+			"tail": "boom"
+		},
+		{
+			"output": "INFO starting\nboom\n",
+			"lines": 4,
+			"tail": "boom"
+		},
+		{
+			"output": "INFO starting\nboom\n",
+			"lines": 1,
+			"tail": "boom"
+		},
+		{
+			"output": "INFO starting\nboom\n",
+			"lines": 2,
+			"tail": "boom"
+		},
+		{
+			"output": "a\nb\nc\nd\ne\nf\n",
+			"lines": 4,
+			"tail": "c ¶ d ¶ e ¶ f"
+		},
+		{
+			"output": "a\nb\nc\nd\ne\nf\n",
+			"lines": 1,
+			"tail": "f"
+		},
+		{
+			"output": "a\nb\nc\nd\ne\nf\n",
+			"lines": 2,
+			"tail": "e ¶ f"
+		},
+		{
+			"output": "\u001b[31merror\u001b[0m happened\n\u001b[2K\u001b[1Gnext",
+			"lines": 4,
+			"tail": "error happened ¶ next"
+		},
+		{
+			"output": "\u001b[31merror\u001b[0m happened\n\u001b[2K\u001b[1Gnext",
+			"lines": 1,
+			"tail": "next"
+		},
+		{
+			"output": "\u001b[31merror\u001b[0m happened\n\u001b[2K\u001b[1Gnext",
+			"lines": 2,
+			"tail": "error happened ¶ next"
+		},
+		{
+			"output": "x INFO y\nINFOz\nkeep\n",
+			"lines": 4,
+			"tail": "INFOz ¶ keep"
+		},
+		{
+			"output": "x INFO y\nINFOz\nkeep\n",
+			"lines": 1,
+			"tail": "keep"
+		},
+		{
+			"output": "x INFO y\nINFOz\nkeep\n",
+			"lines": 2,
+			"tail": "INFOz ¶ keep"
+		},
+		{
+			"output": "  spaced  \r\n\r\n\ttabbed\t\n",
+			"lines": 4,
+			"tail": "spaced ¶ tabbed"
+		},
+		{
+			"output": "  spaced  \r\n\r\n\ttabbed\t\n",
+			"lines": 1,
+			"tail": "tabbed"
+		},
+		{
+			"output": "  spaced  \r\n\r\n\ttabbed\t\n",
+			"lines": 2,
+			"tail": "spaced ¶ tabbed"
+		},
+		{
+			"output": "one ¶ two\n",
+			"lines": 4,
+			"tail": "one ¶ two"
+		},
+		{
+			"output": "one ¶ two\n",
+			"lines": 1,
+			"tail": "one ¶ two"
+		},
+		{
+			"output": "one ¶ two\n",
+			"lines": 2,
+			"tail": "one ¶ two"
+		},
+		{
+			"output": "\u001b[?25lhidden cursor\u001b[?25h\n",
+			"lines": 4,
+			"tail": "hidden cursor"
+		},
+		{
+			"output": "\u001b[?25lhidden cursor\u001b[?25h\n",
+			"lines": 1,
+			"tail": "hidden cursor"
+		},
+		{
+			"output": "\u001b[?25lhidden cursor\u001b[?25h\n",
+			"lines": 2,
+			"tail": "hidden cursor"
+		},
+		{
+			"output": "line\rcarriage\n",
+			"lines": 4,
+			"tail": "line\rcarriage"
+		},
+		{
+			"output": "line\rcarriage\n",
+			"lines": 1,
+			"tail": "line\rcarriage"
+		},
+		{
+			"output": "line\rcarriage\n",
+			"lines": 2,
+			"tail": "line\rcarriage"
+		},
+		{
+			"output": "2026-01-01T00:00:00Z  INFO ai_memory: x\n2026-01-01 WARN y\nERROR z\n",
+			"lines": 4,
+			"tail": "2026-01-01 WARN y ¶ ERROR z"
+		},
+		{
+			"output": "2026-01-01T00:00:00Z  INFO ai_memory: x\n2026-01-01 WARN y\nERROR z\n",
+			"lines": 1,
+			"tail": "ERROR z"
+		},
+		{
+			"output": "2026-01-01T00:00:00Z  INFO ai_memory: x\n2026-01-01 WARN y\nERROR z\n",
+			"lines": 2,
+			"tail": "2026-01-01 WARN y ¶ ERROR z"
+		},
+		{
+			"output": "ünï \n sep\n",
+			"lines": 4,
+			"tail": "ünï ¶ sep"
+		},
+		{
+			"output": "ünï \n sep\n",
+			"lines": 1,
+			"tail": "sep"
+		},
+		{
+			"output": "ünï \n sep\n",
+			"lines": 2,
+			"tail": "ünï ¶ sep"
+		}
+	],
+	"withoutLocalEmbeddings": [
+		{
+			"toml": "bind = \"127.0.0.1:50123\"\n# embedding_provider = \"none\"   # template\n",
+			"next": "bind = \"127.0.0.1:50123\"\nembedding_provider = \"none\"  # OMPdesk: no local embedding model (no download, ~220 MB less memory). Remove this line for hybrid search.\n"
+		},
+		{
+			"toml": "bind = \"x\"\n",
+			"next": null
+		},
+		{
+			"toml": "embedding_provider = \"none\"\n# embedding_provider = \"none\"\n",
+			"next": null
+		},
+		{
+			"toml": "  embedding_provider=\"local\"\n# embedding_provider = \"none\"\n",
+			"next": null
+		},
+		{
+			"toml": "#\tembedding_provider\t=\t\"none\" tail\n",
+			"next": "embedding_provider = \"none\"  # OMPdesk: no local embedding model (no download, ~220 MB less memory). Remove this line for hybrid search.\n"
+		},
+		{
+			"toml": "#embedding_provider = \"none\"\n",
+			"next": null
+		},
+		{
+			"toml": "# embedding_provider = \"local\"\n",
+			"next": null
+		},
+		{
+			"toml": "# embedding_provider = \"none\"\n# embedding_provider = \"none\"\n",
+			"next": "embedding_provider = \"none\"  # OMPdesk: no local embedding model (no download, ~220 MB less memory). Remove this line for hybrid search.\n# embedding_provider = \"none\"\n"
+		},
+		{
+			"toml": "\r\n# embedding_provider = \"none\"\r\nnext\r\n",
+			"next": "\r\nembedding_provider = \"none\"  # OMPdesk: no local embedding model (no download, ~220 MB less memory). Remove this line for hybrid search.\nnext\r\n"
+		},
+		{
+			"toml": "x # embedding_provider = \"none\"\n",
+			"next": null
+		},
+		{
+			"toml": "# embedding_provider = \"none\"",
+			"next": "embedding_provider = \"none\"  # OMPdesk: no local embedding model (no download, ~220 MB less memory). Remove this line for hybrid search."
+		},
+		{
+			"toml": "",
+			"next": null
+		},
+		{
+			"toml": "[search]\n# embedding_provider = \"none\"  # off\n\tembedding_provider = 1\n",
+			"next": null
+		}
+	],
+	"withinPath": [
+		{
+			"command": "/t/ai-memory/3.1.1/ai-memory",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory-other/x",
+			"path": "/t/ai-memory",
+			"posix": false,
+			"win32": false
+		},
+		{
+			"command": "C:\\Tools\\AI-Memory\\3.1.1\\ai-memory.exe",
+			"path": "c:/tools/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory/",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory",
+			"path": "/t/ai-memory/",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory",
+			"path": "/t/ai-memory///",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/./ai-memory/x",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/x/../ai-memory/y",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory/../other",
+			"path": "/t/ai-memory",
+			"posix": false,
+			"win32": false
+		},
+		{
+			"command": "t/ai-memory/x",
+			"path": "/t/ai-memory",
+			"posix": false,
+			"win32": false
+		},
+		{
+			"command": "",
+			"path": "",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "x",
+			"path": "",
+			"posix": false,
+			"win32": false
+		},
+		{
+			"command": "/",
+			"path": "/",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/a",
+			"path": "/",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "C:\\",
+			"path": "c:",
+			"posix": true,
+			"win32": false
+		},
+		{
+			"command": "C:\\x",
+			"path": "C:\\",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "c:/x",
+			"path": "C:",
+			"posix": true,
+			"win32": false
+		},
+		{
+			"command": "\\\\server\\share\\ai-memory\\x",
+			"path": "//server/share/ai-memory",
+			"posix": false,
+			"win32": true
+		},
+		{
+			"command": "/T/AI-MEMORY/x",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t//ai-memory//x",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory\\x",
+			"path": "/t/ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/İ/x",
+			"path": "/i̇",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "ai-memory",
+			"path": ".",
+			"posix": false,
+			"win32": false
+		},
+		{
+			"command": "./ai-memory",
+			"path": "ai-memory",
+			"posix": true,
+			"win32": true
+		},
+		{
+			"command": "/t/ai-memory/..",
+			"path": "/t/ai-memory",
+			"posix": false,
+			"win32": false
+		}
+	],
+	"wiring": [
+		{
+			"extension": null,
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": null,
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": null,
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "null"
+		},
+		{
+			"extension": null,
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "5"
+		},
+		{
+			"extension": null,
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": null,
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": null,
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": null,
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "",
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "",
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "",
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "",
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "",
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": null
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "",
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "",
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": null,
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{broken",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "[]",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "null",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "5",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp --apply`.\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": null,
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{broken",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "[]",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "null",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "5",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": true,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": null,
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": true,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": null,
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "﻿// Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "null"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "5"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": null
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": " // Auto-generated by `ai-memory install-hooks --agent omp",
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "// mine\n",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// mine\n",
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": null,
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{broken",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{broken"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "[]",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "[]"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "null",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "null"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "5",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "5"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "\"s\"",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "\"s\""
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":null}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":null}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":[]}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":[]}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":null}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory.exe\",\"args\":[\"mcp-bridge\"]}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory.exe"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"node\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"C:\\\\x\\\\AI-MEMORY.CMD\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "C:\\x\\AI-MEMORY.CMD"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"ai-memory.bat\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/x/ai-memory/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/x/ai-memory/"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":5,\"url\":\"http://h/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp/\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/mcp//\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:49374/MCP\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://h/mcp?x=1\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":{\"url\":5}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":\"/x/ai-memory\"}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\"mcpServers\":{\"ai-memory\":[\"/x/ai-memory\"]}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"other\":{\"command\":\"other-server\"},\"ai-memory\":{\"command\":\"/u/ai-memory\",\"args\":[\"mcp-bridge\"]}},\"theme\":\"kept\"}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\n  \"mcpServers\": {\n    \"other\": {\n      \"command\": \"other-server\"\n    }\n  },\n  \"theme\": \"kept\"\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": null
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}},\"x\":1}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\n  \"x\": 1\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"},\"b\":{\"command\":\"z\"}},\"1\":\"n\",\"a\":{\"2\":0,\"1\":[]}}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\n  \"1\": \"n\",\n  \"mcpServers\": {\n    \"b\": {\n      \"command\": \"z\"\n    }\n  },\n  \"a\": {\n    \"1\": [],\n    \"2\": 0\n  }\n}\n"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}",
+			"read": {
+				"extension": false,
+				"mcp": false,
+				"command": null
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "﻿{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\"}}}"
+		},
+		{
+			"extension": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcp": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/u/ai-memory\",\"note\":\"\\u2028 é \\u001f\"}},\"n\":1.0,\"m\":1e3}",
+			"read": {
+				"extension": false,
+				"mcp": true,
+				"command": "/u/ai-memory"
+			},
+			"extensionAfter": "// Auto-generated by `ai-memory install-hooks --agent om",
+			"mcpAfter": "{\n  \"n\": 1,\n  \"m\": 1000\n}\n"
+		}
+	],
+	"mountHub": [
+		{
+			"generated": "{\"mcpServers\":{\"ai-memory\":{\"command\":\"/bin/ai-memory\",\"args\":[\"mcp-bridge\"]}}}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    }\n  }\n}\n"
+		},
+		{
+			"generated": "{\"mcpServers\":{\"ai-memory\":{\"type\":\"stdio\",\"command\":\"/bin/ai-memory\",\"args\":[\"mcp-bridge\",\"--no-session-id\"],\"enabled\":true}}}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    }\n  }\n}\n"
+		},
+		{
+			"generated": "{\"mcpServers\":{\"ai-memory\":{\"url\":\"http://127.0.0.1:1/mcp\"}}}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    }\n  }\n}\n"
+		},
+		{
+			"generated": "{\"mcpServers\":{\"a\":{\"command\":\"x\"},\"ai-memory\":{},\"z\":1},\"other\":true,\"2\":\"two\",\"1\":\"one\"}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"1\": \"one\",\n  \"2\": \"two\",\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    },\n    \"a\": {\n      \"command\": \"x\"\n    },\n    \"z\": 1\n  },\n  \"other\": true\n}\n"
+		},
+		{
+			"generated": "{\"mcpServers\":{\"ompdesk-memory\":{\"command\":\"old\"},\"ai-memory\":{}}}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"command\": \"old\"\n    }\n  }\n}\n"
+		},
+		{
+			"generated": "{\"mcpServers\":{\"ai-memory\":null}}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    }\n  }\n}\n"
+		},
+		{
+			"generated": "{\"x\":1}",
+			"ok": null,
+			"error": "ai-memory's generators left the extension root incomplete",
+			"mcp": null
+		},
+		{
+			"generated": "{broken",
+			"ok": null,
+			"error": "ai-memory's generators left the extension root incomplete",
+			"mcp": null
+		},
+		{
+			"generated": "{\"mcpServers\":{\"other\":{}}}",
+			"ok": null,
+			"error": "ai-memory's generators left the extension root incomplete",
+			"mcp": null
+		},
+		{
+			"generated": "{\"mcpServers\":{\"ai-memory\":{}},\"n\":1.0,\"e\":1e21,\"s\":\"\\u2028\\u001f é\"}",
+			"ok": true,
+			"error": null,
+			"mcp": "{\n  \"mcpServers\": {\n    \"ompdesk-memory\": {\n      \"type\": \"http\",\n      \"url\": \"${OMP_GUI_MCP_HUB}/memory\",\n      \"headers\": {\n        \"Authorization\": \"${OMP_GUI_MCP_AUTH}\"\n      }\n    }\n  },\n  \"n\": 1,\n  \"e\": 1e+21,\n  \"s\": \" \\u001f é\"\n}\n"
+		}
+	],
+	"overlay": [
+		{
+			"lists": [
+				null,
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"extension-module:ai-memory-omp",
+				"mcp:ai-memory"
+			],
+			"name": "suppress-e516086d5dbc.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"extension-module:ai-memory-omp\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				null,
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-ee27a94ad485.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				[
+					"skill:noisy",
+					"hook:pre:bash:x"
+				],
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"extension-module:ai-memory-omp",
+				"mcp:ai-memory"
+			],
+			"name": "suppress-af348203aef9.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"skill:noisy\",\n    \"hook:pre:bash:x\",\n    \"extension-module:ai-memory-omp\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				[
+					"skill:noisy"
+				],
+				null,
+				[
+					"skill:other"
+				],
+				null,
+				null
+			],
+			"cwd": true,
+			"ids": [
+				"extension-module:ai-memory-omp",
+				"mcp:ai-memory"
+			],
+			"name": "suppress-1de83226406f.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"skill:other\",\n    \"extension-module:ai-memory-omp\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				[
+					"mcp:ai-memory",
+					"x",
+					"x"
+				],
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-e4395e5c58e1.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"mcp:ai-memory\",\n    \"x\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				null,
+				[
+					"a",
+					"b"
+				],
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-12feb260fdb1.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"a\",\n    \"b\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				null,
+				[
+					"y"
+				],
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-e87e0914b8d0.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"y\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				[],
+				null,
+				null,
+				null,
+				[
+					"c"
+				]
+			],
+			"cwd": true,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-3b57bcb77681.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"c\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				null,
+				null,
+				[
+					"a"
+				],
+				[
+					"b"
+				],
+				null
+			],
+			"cwd": true,
+			"ids": [
+				"mcp:ai-memory"
+			],
+			"name": "suppress-bfe1f5d1decb.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"b\",\n    \"mcp:ai-memory\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				null,
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"extension-module:ai-memory-omp"
+			],
+			"name": "suppress-e801b83bd5b7.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"extension-module:ai-memory-omp\"\n  ]\n}\n"
+		},
+		{
+			"lists": [
+				[
+					"é  ",
+					"q\"uote"
+				],
+				null,
+				null,
+				null,
+				null
+			],
+			"cwd": false,
+			"ids": [
+				"extension-module:ai-memory-omp"
+			],
+			"name": "suppress-d60bb3d38110.yml",
+			"text": "{\n  \"disabledExtensions\": [\n    \"é  \",\n    \"q\\\"uote\",\n    \"extension-module:ai-memory-omp\"\n  ]\n}\n"
+		}
+	],
+	"commandProgram": [
+		{
+			"line": "\"C:\\x\\ai-memory.exe\" service-host",
+			"program": "C:\\x\\ai-memory.exe"
+		},
+		{
+			"line": "C:\\x\\ai-memory.exe service-host",
+			"program": "C:\\x\\ai-memory.exe"
+		},
+		{
+			"line": "  \"C:\\Program Files\\a b\\ai-memory.exe\"  x",
+			"program": "C:\\Program Files\\a b\\ai-memory.exe"
+		},
+		{
+			"line": "",
+			"program": ""
+		},
+		{
+			"line": "   ",
+			"program": ""
+		},
+		{
+			"line": "\"unterminated",
+			"program": "\"unterminated"
+		},
+		{
+			"line": "\"\"",
+			"program": ""
+		},
+		{
+			"line": "\tC:\\a.exe\targ",
+			"program": "C:\\a.exe"
+		},
+		{
+			"line": "x \"y z\"",
+			"program": "x"
+		},
+		{
+			"line": "C:\\a b.exe x",
+			"program": "C:\\a"
+		}
+	],
+	"runEntryCommand": [
+		{
+			"output": "\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\r\n    ai-memory    REG_SZ    \"C:\\x\\ai-memory.exe\" service-host\r\n\r\n",
+			"command": "\"C:\\x\\ai-memory.exe\" service-host"
+		},
+		{
+			"output": "    ai-memory    REG_EXPAND_SZ    %LOCALAPPDATA%\\ai-memory.exe  \n",
+			"command": "%LOCALAPPDATA%\\ai-memory.exe"
+		},
+		{
+			"output": "    AI-MEMORY    reg_sz    x\n",
+			"command": "x"
+		},
+		{
+			"output": "    ai-memory2    REG_SZ    x\n",
+			"command": null
+		},
+		{
+			"output": "    ai-memory    REG_DWORD    0x1\n",
+			"command": null
+		},
+		{
+			"output": "ERROR: The system was unable to find the specified registry key or value.\n",
+			"command": null
+		},
+		{
+			"output": "",
+			"command": null
+		},
+		{
+			"output": "ai-memory REG_SZ y\n    ai-memory    REG_SZ    second\n",
+			"command": "y"
+		},
+		{
+			"output": "    ai-memory    REG_SZ    \n",
+			"command": ""
+		}
+	],
+	"version": [
+		{
+			"output": "ai-memory 3.1.1\n",
+			"version": "3.1.1"
+		},
+		{
+			"output": "ai-memory v4.0.0-rc.1",
+			"version": "4.0.0-rc.1"
+		},
+		{
+			"output": "INFO starting\nai-memory 3.2.0 (abc123)",
+			"version": "3.2.0"
+		},
+		{
+			"output": "",
+			"version": null
+		},
+		{
+			"output": "omp/18.11.1",
+			"version": null
+		},
+		{
+			"output": "ai-memory unknown",
+			"version": null
+		},
+		{
+			"output": "xai-memory 1.2.3",
+			"version": null
+		},
+		{
+			"output": "ai-memory  1.2.3.4",
+			"version": "1.2.3"
+		},
+		{
+			"output": "ai-memory\t1.2.3-",
+			"version": "1.2.3"
+		},
+		{
+			"output": "ai-memory 01.2.3-a_b",
+			"version": "01.2.3-a"
+		},
+		{
+			"output": "ai-memory V1.2.3",
+			"version": null
+		},
+		{
+			"output": "ai-memory-cli 1.2.3",
+			"version": null
+		},
+		{
+			"output": "ai-memory 1.2.3-rc.1+build",
+			"version": "1.2.3-rc.1"
+		}
+	],
+	"builtAsset": [
+		{
+			"record": null,
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": null,
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": null,
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": null,
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{broken",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{broken",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{broken",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{broken",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": {
+				"binary": "ai-memory",
+				"binarySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"platform": "darwin"
+			},
+			"error": null,
+			"key": "current"
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory.exe\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory.exe\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": {
+				"binary": "ai-memory.exe",
+				"binarySha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"platform": "win32"
+			},
+			"error": null,
+			"key": "3.1.1-aaaaaaaa"
+		},
+		{
+			"record": "{\"binary\":\"ai-memory.exe\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory.exe\",\"binarySha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"xyz\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"xyz\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"xyz\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"xyz\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":5}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":5}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":5}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":5}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "null",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "null is not an object (evaluating 'record.binary')",
+			"key": null
+		},
+		{
+			"record": "null",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "null is not an object (evaluating 'record.binary')",
+			"key": null
+		},
+		{
+			"record": "null",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "null",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "[]",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "[]",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "[]",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "[]",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "﻿{\"binary\":\"ai-memory\",\"binarySha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "﻿{\"binary\":\"ai-memory\",\"binarySha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "Memory is not built (<dir>\\ai-memory.build.json is missing). Run `bun run build:memory` (needs Rust) or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "﻿{\"binary\":\"ai-memory\",\"binarySha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "﻿{\"binary\":\"ai-memory\",\"binarySha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n\"}",
+			"platform": "darwin",
+			"arch": "arm64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n\"}",
+			"platform": "win32",
+			"arch": "x64",
+			"answer": null,
+			"error": "<dir>\\ai-memory.build.json is not a build record of ai-memory.exe. Run `bun run build:memory` or reinstall OMPdesk.",
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n\"}",
+			"platform": "darwin",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		},
+		{
+			"record": "{\"binary\":\"ai-memory\",\"binarySha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\\n\"}",
+			"platform": "linux",
+			"arch": "x64",
+			"answer": null,
+			"error": null,
+			"key": null
+		}
+	],
+	"recallText": [
+		{
+			"env": {
+				"url": "http://127.0.0.1:49374",
+				"dataDir": "/data"
+			},
+			"text": "{\"url\":\"http://127.0.0.1:49374\",\"dataDir\":\"/data\"}"
+		},
+		{
+			"env": {
+				"url": "http://h:1",
+				"dataDir": "C:\\Users\\x\\AppData\\Roaming\\ai-memory"
+			},
+			"text": "{\"url\":\"http://h:1\",\"dataDir\":\"C:\\\\Users\\\\x\\\\AppData\\\\Roaming\\\\ai-memory\"}"
+		},
+		{
+			"env": {
+				"url": "http://h",
+				"dataDir": "é   \u001f \"q\""
+			},
+			"text": "{\"url\":\"http://h\",\"dataDir\":\"é   \\u001f \\\"q\\\"\"}"
+		}
+	]
+}
