@@ -137,7 +137,7 @@ async fn read_config_hash(git: &Git, root: &str) -> Result<Option<String>, Fault
     let file = std::path::Path::new(&resolve(root, &common)).join("config");
     Ok(blocking(move || std::fs::read(file).ok())
         .await?
-        .map(|bytes| format!("{:x}", Sha256::digest(bytes))))
+        .map(|bytes| crate::hex(&Sha256::digest(bytes))))
 }
 
 async fn read_checkout(git: &Git, root: &str) -> Result<Option<String>, Fault> {

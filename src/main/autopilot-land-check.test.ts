@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkExcerpt, checkLandCandidate, pointCommandAt } from "./autopilot-land-check";
+import { checkLandCandidate } from "./autopilot-ship-test-rig";
 import { gitSync, initRepo } from "./local/git/test-repos";
 import { resetLoginShellEnvCache } from "./shell-env";
 
@@ -83,43 +83,4 @@ describe("checkLandCandidate", () => {
 			}
 		},
 	);
-});
-
-describe("checkExcerpt", () => {
-	it("finds a colored error (vitest under FORCE_COLOR) and drops the color codes", () => {
-		const failing = Array.from({ length: 200 }, (_, i) => `\u001b[31m FAIL \u001b[39m src/f${i}.test.tsx`).join("\n");
-		const output = `\u001b[31m\u001b[1mTypeError\u001b[22m: (0 , act) is not a function\u001b[39m\n    at mount (a.test.tsx:12:3)\n${failing}`;
-		const excerpt = checkExcerpt(output);
-		expect(excerpt).toContain("TypeError: (0 , act) is not a function");
-		expect(excerpt).toContain("src/f199.test.tsx");
-		expect(excerpt).not.toContain("\u001b[");
-		expect(excerpt.length).toBeLessThanOrEqual(2_000);
-	});
-});
-
-describe("pointCommandAt", () => {
-	const root = "C:\\Users\\me\\.omp\\wt\\run";
-	const tree = "C:\\Temp\\land\\tree";
-
-	it.each([
-		["forward slashes", "cd C:/Users/me/.omp/wt/run && bun test", "cd C:/Temp/land/tree && bun test"],
-		["Git Bash's drive form", "cd /c/Users/me/.omp/wt/run/src && ls", "cd /c/Temp/land/tree/src && ls"],
-		["a quoted native path", 'cd "C:\\Users\\me\\.omp\\wt\\run" && ls', 'cd "C:\\Temp\\land\\tree" && ls'],
-		["escaped backslashes", "cd C:\\\\Users\\\\me\\\\.omp\\\\wt\\\\run && ls", "cd C:\\\\Temp\\\\land\\\\tree && ls"],
-		["a lower-case drive", "cd c:/Users/me/.omp/wt/run && ls", "cd c:/Temp/land/tree && ls"],
-	])("points %s on Windows at the temporary checkout, spelled the same way", (_, command, expected) => {
-		expect(pointCommandAt(command, root, tree, "win32")).toBe(expected);
-	});
-
-	it("finds a forward-slash root in a command that names it natively", () => {
-		expect(pointCommandAt('cd "C:\\Users\\me\\.omp\\wt\\run"', "C:/Users/me/.omp/wt/run", tree, "win32")).toBe(
-			`cd "${tree}"`,
-		);
-	});
-
-	it("replaces the path as written elsewhere", () => {
-		expect(pointCommandAt("cd /home/me/run && make", "/home/me/run", "/tmp/tree", "linux")).toBe(
-			"cd /tmp/tree && make",
-		);
-	});
 });

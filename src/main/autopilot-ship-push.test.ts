@@ -22,19 +22,19 @@ describe("push", () => {
 	it("pushes the sha pinned at the start to the autopilot branch only, and journals the ref move first", async () => {
 		const sha = await commit(work, "a.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		const [result] = await ship.drain(target());
 		expect(result?.failure).toBeUndefined();
 		expect(remoteTip(`refs/heads/${branch}`)).toBe(sha);
 		expect(remoteTip("refs/heads/main")).not.toBe(sha);
 		expect(actions).toEqual([{ kind: "push", refs: [`refs/remotes/origin/${branch}`], sha }]);
-		expect(ship.queue()[0]).toMatchObject({ state: "done", sha });
+		expect((await ship.queue())[0]).toMatchObject({ state: "done", sha });
 	});
 
 	it("sets the branch's upstream so the screen can count ahead and behind", async () => {
 		await commit(work, "a.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		await ship.drain(target());
 		expect(gitSync(work, "rev-parse", "--abbrev-ref", `${branch}@{upstream}`)).toBe(`origin/${branch}`);
 	});
@@ -45,7 +45,7 @@ describe("push", () => {
 		gitSync(main, "config", `url.${trap}.pushInsteadOf`, remote);
 		const sha = await commit(work, "a.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		const [result] = await ship.drain(target());
 		expect(result?.failure).toBeUndefined();
 		expect(remoteTip(`refs/heads/${branch}`)).toBe(sha);
@@ -62,7 +62,7 @@ describe("push", () => {
 		const theirs = await commit(other, "theirs.txt");
 		gitSync(other, "push", "-q", "origin", branch);
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		const [result] = await ship.drain(target());
 		expect(result).toMatchObject({ failure: "rejected", item: { state: "failed" } });
 		expect(remoteTip(`refs/heads/${branch}`)).toBe(theirs);
@@ -78,7 +78,7 @@ describe("push", () => {
 		await commit(other, "theirs.txt");
 		gitSync(other, "push", "-q", "origin", branch);
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		const [result] = await ship.drain(target());
 		expect(result?.item.detail).toMatch(
 			new RegExp(
@@ -102,7 +102,7 @@ describe("push", () => {
 			const sha = await commit(pickedWork, "a.txt");
 			const mainTip = remoteTip("refs/heads/main");
 			const ship = runner();
-			ship.enqueue({ kind: "push" });
+			await ship.enqueue({ kind: "push" });
 			const [result] = await ship.drain(target({ root: pickedWork, branch: picked }));
 			expect(result?.failure).toBeUndefined();
 			expect(remoteTip(`refs/heads/${picked}`)).toBe(sha);
@@ -117,7 +117,7 @@ describe("push", () => {
 			gitSync(main, "worktree", "add", "-q", onMain, "main");
 			const sha = await commit(onMain, "a.txt");
 			const ship = runner();
-			ship.enqueue({ kind: "push" });
+			await ship.enqueue({ kind: "push" });
 			const [result] = await ship.drain(target({ root: onMain, branch: "main" }));
 			expect(result?.failure).toBeUndefined();
 			expect(remoteTip("refs/heads/main")).toBe(sha);
@@ -129,7 +129,7 @@ describe("push", () => {
 			const theirs = await commit(other, "theirs.txt");
 			gitSync(other, "push", "-q", "origin", "main");
 			await commit(onMain, "b.txt");
-			ship.enqueue({ kind: "push" });
+			await ship.enqueue({ kind: "push" });
 			const [second] = await ship.drain(target({ root: onMain, branch: "main" }));
 			expect(second).toMatchObject({ failure: "rejected", item: { state: "failed" } });
 			expect(remoteTip("refs/heads/main")).toBe(theirs);
@@ -140,7 +140,7 @@ describe("push", () => {
 		await commit(work, "a.txt");
 		gitSync(main, "remote", "set-url", "origin", path.join(tmp, "no-such-dir.git"));
 		const ship = runner();
-		ship.enqueue({ kind: "push" });
+		await ship.enqueue({ kind: "push" });
 		const [result] = await ship.drain(target());
 		expect(result?.item.state).toBe("failed");
 		expect(result?.failure).toBeDefined();
@@ -151,14 +151,14 @@ describe("pr", () => {
 	it("pushes first when the branch is not on the remote yet, then opens a draft PR from the cycle log", async () => {
 		const sha = await commit(work, "a.txt");
 		const ship = runner();
-		ship.enqueue({ kind: "pr" });
+		await ship.enqueue({ kind: "pr" });
 		const results = await ship.drain(target());
 		expect(results.map(result => result.item.state)).toEqual(["done"]);
 		expect(remoteTip(`refs/heads/${branch}`)).toBe(sha);
 		expect(prs).toEqual([
 			{ cwd: work, title: "autopilot/2026-10-17: 2 cycles", body: "# log", base: "main", head: branch, draft: true },
 		]);
-		expect(ship.queue()[0]).toMatchObject({ url: "https://github.com/o/r/pull/7" });
+		expect((await ship.queue())[0]).toMatchObject({ url: "https://github.com/o/r/pull/7" });
 	});
 
 	describe("on a run with a separate push target", () => {
@@ -172,7 +172,7 @@ describe("pr", () => {
 		it("pushes the work to the push target first (never the work branch) and opens the PR from the target", async () => {
 			const sha = await commit(work, "a.txt");
 			const ship = runner();
-			ship.enqueue({ kind: "pr" });
+			await ship.enqueue({ kind: "pr" });
 			const results = await ship.drain(target({ pushTo: dest }));
 			expect(results.map(result => result.item.state)).toEqual(["done"]);
 			expect(remoteTip(`refs/heads/${dest}`)).toBe(sha);
@@ -184,7 +184,7 @@ describe("pr", () => {
 			await commit(work, "a.txt");
 			const mainTip = remoteTip("refs/heads/main");
 			const ship = runner();
-			ship.enqueue({ kind: "pr" });
+			await ship.enqueue({ kind: "pr" });
 			const [result] = await ship.drain(target({ pushTo: "main" }));
 			expect(result).toMatchObject({ item: { state: "failed" } });
 			expect(result?.item.detail).toMatch(/base branch/);

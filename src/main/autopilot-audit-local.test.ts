@@ -1,8 +1,19 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type AuditScope, type AuditSnapshot, auditCycle, takeSnapshot } from "./autopilot-audit";
-import { audit, commit, installAuditRig, main, scope, tmp, work } from "./autopilot-audit-test-rig";
+import {
+	type AuditScope,
+	type AuditSnapshot,
+	audit,
+	auditCycle,
+	commit,
+	installAuditRig,
+	main,
+	scope,
+	takeSnapshot,
+	tmp,
+	work,
+} from "./autopilot-audit-test-rig";
 import { gitSync } from "./local/git/test-repos";
 
 // Split from autopilot-audit.test.ts so the halves run side by side (each case runs real git dozens of times).

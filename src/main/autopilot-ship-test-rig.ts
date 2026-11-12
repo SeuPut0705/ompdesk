@@ -8,9 +8,172 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import type { AutopilotShipActionParams, ShipQueueItem } from "../../resources/gui-bridge/modes/autopilot-contracts";
-import { checkLandCandidate, type LandCheckInput } from "./autopilot-land-check";
-import { type ShipDeps, ShipRunner, type ShipTarget } from "./autopilot-ship";
+import { landShell } from "./autopilot";
+import { CorePort } from "./core/ports";
+import { type CoreAnswer, core } from "./core/process";
+import { coreGit, gitRunner } from "./local/git/exec";
 import { gitSync, initRepoWithRemote } from "./local/git/test-repos";
+import { prepareWorktree } from "./local/git/worktree-seed";
+
+/**
+ * The ShipRunner and the land check are the core's (`crates/core/src/autopilot/{ship,land_check}.rs`); these are their
+ * typed clients for the parity suites, over the stateless wire the core serves for them (`autopilot.ship.*`,
+ * `autopilot.landCheck`). A ship queue lives in the core, so each call that read a queue's state synchronously is a call.
+ */
+export interface ShipTarget {
+	root: string;
+	checkoutRoot: string;
+	branch: string;
+	pushTo?: string;
+	baseBranch: string;
+	remote: string;
+	landTo?: string;
+}
+
+export interface LandCheckInput {
+	root: string;
+	primary: string;
+	sha: string;
+	base?: string;
+	command: string;
+	timeoutMs?: number;
+}
+
+export interface LandCheck {
+	ok: boolean;
+	exitCode: number | null;
+	timedOut: boolean;
+	durationMs: number;
+	tail: string;
+}
+
+export type LandOutcome =
+	| { kind: "landed"; sha: string; merge?: { onto: string; check: string; advanced: boolean } }
+	| { kind: "behind"; ahead: number | null; conflicts: string[] | null }
+	| {
+			kind: "red";
+			candidate: string;
+			onto: string;
+			check: string;
+			exitCode: number | null;
+			timedOut: boolean;
+			tail: string;
+	  }
+	| { kind: "pr"; url?: string; created: boolean; reason: string };
+
+export interface ShipResult {
+	item: ShipQueueItem;
+	failure?: "rejected" | "network";
+	pushed?: boolean;
+	land?: LandOutcome;
+}
+
+export interface ShipDeps {
+	journal(action: AutopilotShipActionParams): Promise<void>;
+	changed(queue: readonly ShipQueueItem[]): void;
+	reverted(cycle: number): Promise<void>;
+	prText(): Promise<{ title: string; body: string }>;
+	prCreate(
+		cwd: string,
+		input: { title: string; body: string; base?: string; head?: string; draft?: boolean },
+	): Promise<{ url: string; number: number }>;
+	now(): number;
+	id(): string;
+	checkCandidate?(input: LandCheckInput): Promise<LandCheck>;
+	drainMaxMs?: number;
+}
+
+/** The handlers a port serves the core's land check and ship queue: what stays main's (the checkout's preparation and shell). */
+const checkoutHandlers = {
+	gitRunner: () => gitRunner(),
+	prepareWorktree: ({ primary, tree }: { primary: string; tree: string }) => prepareWorktree(primary, tree),
+	landShell: ({ command }: { command: string }) => landShell(command),
+};
+
+/** `checkLandCandidate`: the core checks `sha` out on its own, runs `command` there and removes the checkout. */
+export async function checkLandCandidate(input: LandCheckInput): Promise<LandCheck> {
+	const port = new CorePort(checkoutHandlers);
+	try {
+		return await coreGit<LandCheck>(
+			"autopilot.landCheck",
+			{ port: port.id, ...port.first(), input },
+			2,
+			(input.timeoutMs ?? 30 * 60_000) + 60_000,
+		);
+	} finally {
+		port.close();
+	}
+}
+
+export class ShipRunner {
+	readonly #deps: ShipDeps;
+	readonly #port: CorePort;
+
+	constructor(deps: ShipDeps) {
+		this.#deps = deps;
+		this.#port = new CorePort({
+			...checkoutHandlers,
+			shipJournal: (action: AutopilotShipActionParams) => deps.journal(action),
+			shipChanged: (queue: ShipQueueItem[]) => deps.changed(queue),
+			shipReverted: ({ cycle }: { cycle: number }) => deps.reverted(cycle),
+			shipPrText: () => deps.prText(),
+			shipPrCreate: ({ cwd, input }: { cwd: string; input: Parameters<ShipDeps["prCreate"]>[1] }) =>
+				deps.prCreate(cwd, input),
+			shipCheck: (input: LandCheckInput) => (deps.checkCandidate as NonNullable<ShipDeps["checkCandidate"]>)(input),
+		});
+		void core().call("autopilot.ship.open", {
+			port: this.#port.id,
+			...this.#port.first(),
+			...(deps.drainMaxMs === undefined ? {} : { drainMaxMs: deps.drainMaxMs }),
+			customCheck: deps.checkCandidate !== undefined,
+		});
+	}
+
+	async #call<T>(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<T> {
+		const answer: CoreAnswer<T> = await core().call<T>(
+			`autopilot.ship.${method}`,
+			{ port: this.#port.id, ...params },
+			timeoutMs === undefined ? {} : { timeoutMs },
+		);
+		return answer.result;
+	}
+
+	queue(): Promise<ShipQueueItem[]> {
+		return this.#call("queue");
+	}
+
+	enqueue(request: {
+		kind: "push" | "pr" | "merge" | "land" | "revert";
+		cycle?: number;
+		sha?: string;
+		mode?: "ff" | "merge_commit";
+		check?: string;
+	}): Promise<ShipQueueItem> {
+		return this.#call("enqueue", { request, id: this.#deps.id(), at: this.#deps.now() });
+	}
+
+	track(entry: { kind: "release"; detail?: string }): Promise<ShipQueueItem> {
+		return this.#call("track", { detail: entry.detail, id: this.#deps.id(), at: this.#deps.now() });
+	}
+
+	async finish(id: string, state: "done" | "failed", detail?: string, url?: string): Promise<void> {
+		await this.#call("finish", { id, state, detail, url });
+	}
+
+	cancel(id: string): Promise<boolean> {
+		return this.#call("cancel", { id });
+	}
+
+	/** Runs the queue; a land's check can take as long as the check's own bound. */
+	drain(target: ShipTarget): Promise<ShipResult[]> {
+		return this.#call("drain", { target }, 2 * 60 * 60_000);
+	}
+
+	/** Closes the port: what the core still asks of this client fails. */
+	close(): void {
+		this.#port.close();
+	}
+}
 
 export let tmp = "";
 export let main = "";
@@ -82,7 +245,7 @@ export function installShipRig(): void {
 // Landing on the default branch (autopilot-ship-land*.test.ts).
 const landTarget = () => target({ landTo: "main" });
 export const land = async (ship: ShipRunner, sha?: string, check?: string) => {
-	ship.enqueue({ kind: "land", ...(sha ? { sha } : {}), ...(check ? { check } : {}) });
+	await ship.enqueue({ kind: "land", ...(sha ? { sha } : {}), ...(check ? { check } : {}) });
 	const [result] = await ship.drain(landTarget());
 	return result;
 };
