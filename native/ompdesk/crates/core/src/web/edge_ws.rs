@@ -8,14 +8,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::UnboundedSender;
 use yawc::{Frame, OpCode, Role, WebSocket};
 
 use super::assets::Assets;
 use super::auth::Policy;
 use super::deps::{
-    Blobs, BoxFuture, Connection, Desktop, Hooks, Outgoing, PairingDetails, PairingOutcome, Peer,
-    Router, Uploads, Whois,
+    Blobs, BoxFuture, Connection, Desktop, Hooks, Outbox, Outgoing, PairingDetails, PairingOutcome,
+    Peer, Router, Uploads, Whois,
 };
 use super::devices::{DEFAULT_GRANTS, Device, Devices, MemoryBlocks, MemoryDevices, NewDevice};
 use super::server::{Change, Deps, Edge};
@@ -32,8 +31,8 @@ impl Whois for Idle {
 }
 
 impl Desktop for Idle {
-    fn confirm_new_devices(&self) -> bool {
-        false
+    fn confirm_new_devices(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async { false })
     }
 
     fn confirm(&self, _details: PairingDetails) -> BoxFuture<'_, PairingOutcome> {
@@ -105,7 +104,7 @@ struct Echo {
 }
 
 struct EchoConnection {
-    outbox: UnboundedSender<Outgoing>,
+    outbox: Outbox,
     router: Arc<Echo>,
 }
 
@@ -128,33 +127,36 @@ impl Connection for EchoConnection {
 struct EchoRouter(Arc<Echo>);
 
 impl Router for EchoRouter {
-    fn connection_count(&self, _device_id: &str) -> usize {
-        if self.0.full.load(Ordering::SeqCst) {
+    fn connection_count<'a>(&'a self, _device_id: &'a str) -> BoxFuture<'a, usize> {
+        let count = if self.0.full.load(Ordering::SeqCst) {
             4
         } else {
             self.0.open.load(Ordering::SeqCst)
-        }
+        };
+        Box::pin(async move { count })
     }
 
-    fn retire(&self, _device_id: &str, connection_id: &str) {
+    fn retire<'a>(&'a self, _device_id: &'a str, connection_id: &'a str) -> BoxFuture<'a, ()> {
         self.0
             .retired
             .lock()
             .unwrap()
             .push(connection_id.to_owned());
+        Box::pin(async {})
     }
 
-    fn attach(
-        &self,
-        _device_id: &str,
-        outbox: UnboundedSender<Outgoing>,
-        _resume_from: Option<&str>,
-    ) -> Option<Box<dyn Connection>> {
+    fn attach<'a>(
+        &'a self,
+        _device_id: &'a str,
+        outbox: Outbox,
+        _resume_from: Option<&'a str>,
+    ) -> BoxFuture<'a, Option<Box<dyn Connection>>> {
         self.0.open.fetch_add(1, Ordering::SeqCst);
-        Some(Box::new(EchoConnection {
+        let connection: Box<dyn Connection> = Box::new(EchoConnection {
             outbox,
             router: self.0.clone(),
-        }))
+        });
+        Box::pin(async move { Some(connection) })
     }
 
     fn close_all(&self, _code: u16, _reason: &str) {}

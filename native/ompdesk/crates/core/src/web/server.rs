@@ -25,7 +25,7 @@ use super::assets::{self, Assets, CompressedCache};
 use super::auth::{self, Check, Kind, OneTimeTokens, Policy, Why};
 use super::body::Out;
 use super::deps::{
-    Blobs, Clock, Connection, Desktop, HookOutcome, Hooks, Outgoing, PairingDetails,
+    Blobs, Clock, Connection, Desktop, HookOutcome, Hooks, Outbox, Outgoing, PairingDetails,
     PairingOutcome, Peer, Router, Uploads, Whois,
 };
 use super::devices::{
@@ -98,6 +98,8 @@ struct Inner {
     peers: Mutex<HashMap<String, (Peer, i64)>>,
     cache: CompressedCache,
     port: AtomicU16,
+    /// The page sockets' tasks: the stop waits a moment for their close handshakes, then cuts them off.
+    sockets: Mutex<JoinSet<()>>,
 }
 
 #[derive(Clone)]
@@ -370,6 +372,7 @@ impl Edge {
                 peers: Mutex::new(HashMap::new()),
                 cache: CompressedCache::default(),
                 port: AtomicU16::new(0),
+                sockets: Mutex::new(JoinSet::new()),
             }),
         }
     }
@@ -438,12 +441,18 @@ impl Edge {
         drop(listener);
         self.inner.deps.desktop.decline_all();
         self.inner.deps.router.close_all(1001, "server stopping");
+        let mut sockets = std::mem::take(
+            &mut *self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         // A close handshake needs a moment; a peer that does not answer is cut off.
         let _ = tokio::time::timeout(CLOSE_GRACE, async {
+            while sockets.join_next().await.is_some() {}
             while connections.join_next().await.is_some() {}
         })
         .await;
+        sockets.abort_all();
         connections.abort_all();
+        while sockets.join_next().await.is_some() {}
         while connections.join_next().await.is_some() {}
     }
 
@@ -457,6 +466,14 @@ impl Edge {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// The policy as it stands for this request: main's, while main holds the published address and the settings.
+    async fn current_policy(&self) -> Policy {
+        match self.inner.deps.desktop.policy().await {
+            Some(policy) => policy,
+            None => self.policy(),
+        }
     }
 
     /// One request, from the walls to the answer.
@@ -494,7 +511,14 @@ impl Edge {
     }
 
     /// A walled request: a status, or for a login Tailscale vouches for but we do not allow, the page that says so.
-    fn refuse(&self, call: &Call, status: u16, why: Why, login: Option<&str>, kind: Kind) -> Reply {
+    fn refuse(
+        call: &Call,
+        policy: &Policy,
+        status: u16,
+        why: Why,
+        login: Option<&str>,
+        kind: Kind,
+    ) -> Reply {
         if why == Why::Other {
             return send_status(status, &[]);
         }
@@ -506,7 +530,6 @@ impl Edge {
             };
             return send_json(403, &serde_json::json!({ "error": error }), &[]);
         }
-        let policy = self.policy();
         let accept_language = auth::single(&call.headers, "accept-language");
         send_html(
             403,
@@ -524,9 +547,8 @@ impl Edge {
     }
 
     /// A blocked device (or login): the page that says so.
-    fn refuse_blocked(&self, call: &Call, verdict: &Verdict, login: &str) -> Reply {
+    fn refuse_blocked(call: &Call, policy: &Policy, verdict: &Verdict, login: &str) -> Reply {
         let login_scope = matches!(verdict, Verdict::Entry(entry) if entry.scope == super::devices::BlockScope::Login);
-        let policy = self.policy();
         let accept_language = auth::single(&call.headers, "accept-language");
         send_html(
             403,
@@ -582,7 +604,7 @@ impl Edge {
         url: &str,
         request: &mut Option<Request<Incoming>>,
     ) -> Result<Reply, HttpError> {
-        let policy = self.policy();
+        let policy = self.current_policy().await;
         // Only a request that came through serve carries the secret prefix; everything below sees it taken off. Before
         // the handler is confirmed the prefix to come names the route, and the check answers it 503.
         let prefix = policy
@@ -624,7 +646,7 @@ impl Edge {
             Check::Ok { login, target } => (login, target),
             Check::Refused {
                 status, why, login, ..
-            } => return Ok(self.refuse(&call, status, why, login.as_deref(), kind)),
+            } => return Ok(Self::refuse(&call, &policy, status, why, login.as_deref(), kind)),
         };
         if is_hook {
             return self.hook(&call, request, &pathname).await;
@@ -640,7 +662,7 @@ impl Edge {
             };
             let node_id = peer.as_ref().and_then(|p| p.node_id.as_deref());
             if let Some(verdict) = self.inner.deps.blocks.check(node_id, Some(&login)) {
-                return Ok(self.refuse_blocked(&call, &verdict, &login));
+                return Ok(Self::refuse_blocked(&call, &policy, &verdict, &login));
             }
         }
 
@@ -756,6 +778,7 @@ impl Edge {
             HookOutcome::Unknown => Err(fail(404, "unknown_hook")),
             HookOutcome::Denied => Err(unauthorized()),
             HookOutcome::Off => Err(fail(409, "off")),
+            HookOutcome::Unavailable => Err(fail(503, "unavailable")),
         }
     }
 
@@ -854,7 +877,7 @@ impl Edge {
             None => trimmed.to_owned(),
         };
         let mut grants: Vec<String> = DEFAULT_GRANTS.iter().map(|g| (*g).to_owned()).collect();
-        let asked = deps.desktop.confirm_new_devices();
+        let asked = deps.desktop.confirm_new_devices().await;
         if asked {
             let outcome = deps
                 .desktop
@@ -1252,7 +1275,7 @@ impl Edge {
                 .insert("content-length", HeaderValue::from_static("0"));
             response
         };
-        let policy = self.policy();
+        let policy = self.current_policy().await;
         let prefix = policy
             .serve_prefix
             .as_ref()
@@ -1316,9 +1339,9 @@ impl Edge {
         };
         let router = &self.inner.deps.router;
         if let Some(resume) = resume_from {
-            router.retire(&device.device_id, resume);
+            router.retire(&device.device_id, resume).await;
         }
-        if router.connection_count(&device.device_id) >= MAX_CONNECTIONS_PER_DEVICE {
+        if router.connection_count(&device.device_id).await >= MAX_CONNECTIONS_PER_DEVICE {
             return deny(429);
         }
 
@@ -1378,11 +1401,21 @@ impl Edge {
             map.insert("sec-websocket-extensions", extensions);
         }
 
+        // The router holds the connection before the page hears the 101, as `ws` attached it in `handleUpgrade`'s
+        // callback: a page that saw its socket open is one the router can close.
+        let (sender, inbox) = mpsc::unbounded_channel::<Outgoing>();
+        let outbox = Outbox::new(sender);
+        let connection = router
+            .attach(&device.device_id, outbox.clone(), resume_from)
+            .await;
         let edge = self.clone();
-        let resume = resume_from.map(str::to_owned);
         let extensions = accepted.extensions.clone();
-        tokio::spawn(async move {
+        let mut sockets = self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner());
+        sockets.spawn(async move {
             let Ok(upgraded) = hyper::upgrade::on(&mut request).await else {
+                if let Some(connection) = connection {
+                    connection.dispose();
+                }
                 return;
             };
             let Ok(socket) = yawc::WebSocket::from_stream_with_extensions(
@@ -1391,10 +1424,14 @@ impl Edge {
                 extensions.as_deref(),
                 ws::options_for(extensions.as_deref()),
             ) else {
+                if let Some(connection) = connection {
+                    connection.dispose();
+                }
                 return;
             };
-            edge.run_socket(socket, device.device_id, resume).await;
+            edge.run_socket(socket, connection, outbox, inbox).await;
         });
+        drop(sockets);
         response
     }
 
@@ -1402,19 +1439,14 @@ impl Edge {
     async fn run_socket<S>(
         &self,
         mut socket: yawc::WebSocket<S>,
-        device_id: String,
-        resume: Option<String>,
+        connection: Option<Box<dyn Connection>>,
+        outbox: Outbox,
+        mut inbox: mpsc::UnboundedReceiver<Outgoing>,
     ) where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
     {
         use futures_util::{SinkExt as _, StreamExt as _};
-        let (outbox, mut inbox) = mpsc::unbounded_channel::<Outgoing>();
-        let Some(connection) = self
-            .inner
-            .deps
-            .router
-            .attach(&device_id, outbox, resume.as_deref())
-        else {
+        let Some(connection) = connection else {
             let _ = socket
                 .send(yawc::Frame::close(
                     yawc::close::CloseCode::Again,
@@ -1436,7 +1468,12 @@ impl Edge {
                     None => break,
                 },
                 outgoing = inbox.recv() => match outgoing {
-                    Some(Outgoing::Text(text)) => if socket.send(yawc::Frame::text(text)).await.is_err() { break },
+                    Some(Outgoing::Text(text)) => {
+                        let bytes = text.len();
+                        let sent = socket.send(yawc::Frame::text(text)).await;
+                        outbox.written(bytes);
+                        if sent.is_err() { break }
+                    }
                     Some(Outgoing::Ping) => if socket.send(yawc::Frame::ping(Bytes::new())).await.is_err() { break },
                     Some(Outgoing::Close(code, reason)) => {
                         let _ = socket.send(yawc::Frame::close(yawc::close::CloseCode::from(code), reason)).await;
@@ -1610,5 +1647,39 @@ impl Running {
             let _ = task.await;
         }
         self.edge.inner.port.store(0, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_push_endpoint;
+
+    /// `push.test.ts`'s table, from when the TypeScript server checked a page's endpoint.
+    #[test]
+    fn a_push_endpoint_is_a_push_services_https_name() {
+        for endpoint in [
+            "https://fcm.googleapis.com/fcm/send/abc",
+            "https://updates.push.services.mozilla.com/wpush/v2/abc",
+            "https://web.push.apple.com/QAbc",
+            "https://wns2-par02p.notify.windows.com/w/?token=abc",
+        ] {
+            assert!(is_push_endpoint(endpoint), "{endpoint}");
+        }
+        for endpoint in [
+            "http://fcm.googleapis.com/fcm/send/abc",
+            "https://127.0.0.1/x",
+            "https://192.168.1.1/x",
+            "https://100.64.0.1/x",
+            "https://[fd7a:115c:a1e0::1]/x",
+            "https://localhost/x",
+            "https://nas.local/x",
+            "https://box.lan/x",
+            "https://mac.tail-scale.ts.net/x",
+            "https://fcm.googleapis.com:4443/x",
+            "https://a:b@fcm.googleapis.com/x",
+            "",
+        ] {
+            assert!(!is_push_endpoint(endpoint), "{endpoint}");
+        }
     }
 }

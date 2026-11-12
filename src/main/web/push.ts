@@ -53,27 +53,6 @@ export function coreTransport(userData: string): PushTransport {
 	};
 }
 
-export const PUSH_ENDPOINT_MAX_CHARS = 2048;
-
-/**
- * Whether a page may hand the host this URL to POST to: a push service's `https` address (a DNS name on the
- * default port, no credentials). The host sends the request, so a paired page must not aim it at a loopback,
- * LAN or tailnet address, or at an IP literal.
- */
-export function isPushEndpoint(raw: string): boolean {
-	if (raw.length > PUSH_ENDPOINT_MAX_CHARS) return false;
-	let url: URL;
-	try {
-		url = new URL(raw);
-	} catch {
-		return false;
-	}
-	if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.port !== "") return false;
-	const host = url.hostname.toLowerCase();
-	if (!host.includes(".") || host.startsWith("[") || /^[0-9.]+$/.test(host)) return false;
-	return !/\.(local|localhost|internal|lan|home|ts\.net)\.?$/.test(host);
-}
-
 /** A push service accepts up to 4096 bytes after encryption (RFC 8291 spends 103 on its header and tag). */
 export const PUSH_PAYLOAD_MAX_BYTES = 3800;
 const SEND_TIMEOUT_MS = 10_000;

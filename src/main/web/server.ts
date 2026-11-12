@@ -1,171 +1,62 @@
 /**
- * The mobile web server: HTTP and WebSocket on `127.0.0.1` only (`tailscale serve` publishes it to the tailnet
- * with HTTPS, its target carrying a per-install secret path that this server strips). Serves the built renderer
- * from an allowlist, `/api/pair` (the first visit of an allowed Tailscale login makes its device and cookie; no
- * code), `/api/session` (a 30-second single-use WebSocket ticket, after the device proves its key), `/ws`,
- * `/blob/<token>` and `/upload`. Every request first passes auth.ts's checks; every device call then needs the
- * device's cookie. CORS headers are never sent.
+ * The mobile web server's client: the core process serves HTTP and WebSocket on `127.0.0.1` (`native/ompdesk/crates/
+ * core/src/web/`, native-rust ledger 8b): the static allowlist, the walls of every request, `/api/pair`,
+ * `/api/session`, `/api/push`, `/upload`, `/blob/`, `/hooks/<id>` and the page's socket. Main keeps what the edge asks
+ * for at each request (`web.ask`): the published address and the allowed logins (`RequestPolicy`, which Mobile web's
+ * service configures), the desktop's say over a new device, `tailscale whois`, the schedule service's webhook and the
+ * WebSocket router (until 8c): each page socket's frames reach `WsRouter` here by the core's connection number.
  */
-import { createHash, type JsonWebKey } from "node:crypto";
-import { promises as fsp } from "node:fs";
-import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import { isIP } from "node:net";
-import path from "node:path";
-import type { Duplex } from "node:stream";
-import { promisify } from "node:util";
-import { brotliCompress, constants as zlibConstants } from "node:zlib";
-import { type RawData, WebSocketServer } from "ws";
-import { z } from "zod";
-import { DEFAULT_WEB_GRANTS } from "../../shared/web-protocol";
-import { WEB_PUSH_CATEGORIES, type WebPushSettings, type WebPushStateResponse } from "../../shared/web-push";
+import { CORE_EXITED, type CoreProcess, core } from "../core/process";
 import type { WebhookOutcome } from "../schedules";
 import type { TailnetPeer } from "../tailscale/whois";
-import {
-	checkRequest,
-	clearedDeviceCookie,
-	deviceCookieValue,
-	isLoopbackAddress,
-	OneTimeTokens,
-	originOf,
-	parsePublicKeyJwk,
-	type RequestCheck,
-	type RequestKind,
-	type RequestPolicy,
-	serializeDeviceCookie,
-	stripServePrefix,
-	TICKET_TTL_MS,
-	verifyDeviceProof,
-} from "./auth";
-import { BLOB_URL_PREFIX, type BlobStore } from "./blobs";
-import type { BlockVerdict, WebBlocks } from "./blocks-store";
-import { pushSettingsOf, type WebDevice, type WebDevices } from "./devices-store";
 import type { PairingConfirmations } from "./pairing";
-import { isPushEndpoint } from "./push";
-import { PairingGuard, SlidingWindowLimiter, UnpairedThrottle } from "./rate-limit";
-import { refusalPage } from "./refusal-page";
-import { UploadError, type UploadStore } from "./uploads";
-import { MAX_FRAME_BYTES, type RouterSocket, type WsRouter } from "./ws-router";
+import type { RouterSocket, WsConnection, WsRouter } from "./ws-router";
 
 export const WEB_SERVER_HOST = "127.0.0.1";
-const JSON_BODY_MAX_BYTES = 32 * 1024;
-const SESSION_REQUESTS_PER_MINUTE = 20;
-const PUSH_REQUESTS_PER_MINUTE = 20;
-/** New devices made in an hour, over all of them: a loop of cleared cookies cannot fill the list. */
-const NEW_DEVICES_PER_HOUR = 20;
-/** How long a whois answer is reused for one tailnet address. */
-const PEER_CACHE_MS = 60_000;
-const PEER_CACHE_MAX = 256;
-/** Compressed copies of static files kept in memory, in bytes. */
-const COMPRESSED_CACHE_MAX_BYTES = 64 * 1024 * 1024;
-const WS_PROTOCOL = "ompdesk.v1";
-/** `POST /hooks/<schedule id>` starts the routine whose webhook key the bearer is (`ScheduleService.webhook`). */
-const HOOK_PREFIX = "/hooks/";
-const HOOK_BODY_MAX_BYTES = 64 * 1024;
-/** How much of a call's body the routine's run is told (characters, one line). */
-const HOOK_DETAIL_CHARS = 400;
-/** How long stopping waits for sockets to finish their close handshake. */
-const CLOSE_GRACE_MS = 1000;
 
-const brotli = promisify(brotliCompress);
-
-/** The renderer's built files a browser may be handed. */
-const STATIC_DIRS = ["/assets/", "/cmaps/", "/standard_fonts/", "/wasm/", "/icons/", "/screenshots/"] as const;
-const STATIC_FILES: ReadonlySet<string> = new Set([
-	"/manifest.webmanifest",
-	"/sw.js",
-	"/pre-paint.js",
-	"/favicon.ico",
-	"/apple-touch-icon.png",
-]);
-/** Pages of the single-page app: both are `web.html`. */
-const PAGE_ROUTES: ReadonlySet<string> = new Set(["/", "/pair"]);
-const PAGE_FILE = "web.html";
-
-const MIME: Readonly<Record<string, string>> = {
-	".html": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8",
-	".mjs": "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-	".json": "application/json; charset=utf-8",
-	".webmanifest": "application/manifest+json; charset=utf-8",
-	".svg": "image/svg+xml",
-	".png": "image/png",
-	".ico": "image/x-icon",
-	".jpg": "image/jpeg",
-	".woff": "font/woff",
-	".woff2": "font/woff2",
-	".ttf": "font/ttf",
-	".wasm": "application/wasm",
-	".map": "application/json; charset=utf-8",
-	".bcmap": "application/octet-stream",
-	".pfb": "application/octet-stream",
-};
-const COMPRESSIBLE = /^(text\/|application\/(json|manifest\+json|wasm)|image\/svg\+xml)/;
-
-/** A failed request: the status and the JSON `{error}` the page reads. */
-class HttpError extends Error {
-	readonly status: number;
-	readonly headers: Record<string, string>;
-	constructor(status: number, error: string, headers: Record<string, string> = {}) {
-		super(error);
-		this.name = "HttpError";
-		this.status = status;
-		this.headers = headers;
-	}
+export interface RequestPolicy {
+	/** The published name (`<machine>.<tailnet>.ts.net`), or `127.0.0.1` before serve is configured. */
+	host: string;
+	/** The port in the published address (it differs from the loopback port when serve moved to a free one). */
+	publicPort: number;
+	/** The page is served over HTTPS (`tailscale serve`): `Secure` cookies, `https://` origin. */
+	secure: boolean;
+	/**
+	 * The secret first path segment of the serve handler's target. Null until serve is published: nothing is
+	 * served then, and with it set only a request carrying it is.
+	 */
+	servePrefix: string | null;
+	/**
+	 * The secret this host publishes under, known before serve's handler is confirmed (a relaunched host listens a
+	 * few seconds before its first serve status). Until `servePrefix` is set, a request carrying it is answered 503
+	 * (come back shortly) instead of 404: serve kept forwarding to this address while the app restarted, and a page
+	 * whose lazy chunk got 404 in that window gave the chunk up for good though this build has it (e2e
+	 * web-no-reload: Settings opened empty after the host's update). A request without it still gets the bare 404.
+	 */
+	pendingPrefix?: string | null;
+	allowedUsers: () => readonly string[];
 }
 
-/** `POST /api/pair`: the device's own name (a fallback for whois') and its public key; no code. */
-const PairBody = z.object({
-	name: z.string().max(200).default(""),
-	clientInstanceId: z.string().max(128).optional(),
-	publicKeyJwk: z.unknown().optional(),
-});
-const SessionBody = z.object({ nonce: z.string().max(128).optional(), sig: z.string().max(256).optional() });
-/** A browser's `PushSubscription.toJSON()`: the P-256 point (65 bytes) and the auth secret (16 bytes), base64url. */
-const PushBody = z.object({
-	subscription: z
-		.object({
-			endpoint: z.string().max(2048),
-			keys: z.object({
-				p256dh: z.string().regex(/^[A-Za-z0-9_-]{87}$/),
-				auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
-			}),
-		})
-		.nullable()
-		.optional(),
-	hideContent: z.boolean().optional(),
-	categories: z.array(z.enum(WEB_PUSH_CATEGORIES)).max(WEB_PUSH_CATEGORIES.length).optional(),
-});
-
 export interface WebServerDeps {
-	/** Mutable: `configure` changes the published address as Tailscale reports it. */
+	/** Mutable: `configure` changes the published address as Tailscale reports it; the edge reads it per request. */
 	policy: RequestPolicy;
-	devices: WebDevices;
-	blocks: WebBlocks;
+	userData: string;
 	confirmations: PairingConfirmations;
 	/** Hold a new device until the desktop approves it (Settings, off by default). */
 	confirmNewDevices: () => boolean;
 	/** The node and user behind a tailnet address (`tailscale whois`); null when it does not know. */
 	whois: (address: string) => Promise<TailnetPeer | null>;
 	/** A device was just made without asking the desktop: it is told once, with the way to block it. */
-	onDeviceConnected: (device: WebDevice) => void;
+	onDeviceConnected: (device: { id: string; name: string; tailscaleLogin: string | null }) => void;
 	router: WsRouter;
-	uploads: UploadStore;
-	blobs: BlobStore;
 	/** The folder holding the built renderer's `web.html` and assets; null while there is none. */
 	staticRoot: () => string | null;
-	/**
-	 * Replaced builds' folders (asset-archive.ts), newest first: a hashed `/assets/` file the current build does not
-	 * have is served from them, so a page loaded before an update still loads its lazy chunks.
-	 */
-	previousBuilds?: () => readonly string[];
 	/** A device authentication failed three times within a minute; told once. */
 	onUnpairedAuth?: (info: { address: string }) => void;
-	/** Web Push: the VAPID public key a page subscribes against. */
-	push: { publicKey: () => string };
 	/** The schedule service that answers `POST /hooks/<id>`; null or absent while there is none (503). */
 	hooks?: () => { webhook(id: string, bearer: string, detail: string): Promise<WebhookOutcome> } | null;
-	now?: () => number;
+	/** Where an edge that had to start again after its core ended is noted. */
+	log?: (message: string) => void;
 }
 
 interface ConfigurablePolicy {
@@ -176,128 +67,92 @@ interface ConfigurablePolicy {
 	pendingPrefix?: string | null;
 }
 
-/** The Tailscale address serve put in `X-Forwarded-For` (it sets it itself, over any value the client sent), or null. */
-function tailnetAddress(req: IncomingMessage): string | null {
-	const forwarded = singleHeader(req.headers["x-forwarded-for"])?.split(",")[0]?.trim();
-	return forwarded && isIP(forwarded) !== 0 ? forwarded : null;
+/** The core's question about one request or socket (`web.ask`). */
+interface EdgeAsk {
+	call: number;
+	host: number;
+	kind: "policy" | "confirmNew" | "confirm" | "whois" | "hook" | "count" | "retire" | "attach";
+	name?: string;
+	userAgent?: string;
+	tailscaleLogin?: string;
+	ip?: string;
+	address?: string;
+	id?: string;
+	bearer?: string;
+	detail?: string;
+	deviceId?: string;
+	connId?: string;
+	conn?: number;
+	resumeFrom?: string | null;
 }
 
-function singleHeader(value: string | string[] | undefined): string | undefined {
-	return Array.isArray(value) ? value[0] : value;
-}
+const servers = new Map<number, WebServer>();
+let nextHost = 0;
+let routed: CoreProcess | null = null;
 
-function uaHash(req: IncomingMessage): string {
-	return createHash("sha256")
-		.update(singleHeader(req.headers["user-agent"]) ?? "")
-		.digest("hex");
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
-	const text = JSON.stringify(body);
-	res.writeHead(status, {
-		"content-type": "application/json; charset=utf-8",
-		"content-length": String(Buffer.byteLength(text)),
-		"cache-control": "no-store",
-		...headers,
+/** The core's asks and socket frames reach the server they name. */
+function route(process: CoreProcess): void {
+	if (routed === process) return;
+	routed = process;
+	process.on("web.ask", data => {
+		const ask = data as EdgeAsk;
+		const answer = (result: unknown) =>
+			void process.call("web.answer", { call: ask.call, result }).catch(() => undefined);
+		const server = servers.get(ask.host);
+		if (!server) return answer(null);
+		server.answerAsk(ask).then(answer, error => {
+			console.warn(`[web] ${ask.kind} failed: ${error instanceof Error ? error.message : String(error)}`);
+			answer(null);
+		});
 	});
-	res.end(text);
-}
-
-function sendStatus(res: ServerResponse, status: number, headers: Record<string, string> = {}): void {
-	res.writeHead(status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", ...headers });
-	res.end(http.STATUS_CODES[status] ?? "");
-}
-
-/** A small HTML answer (the refusal pages): its own CSP allows only inline style, nothing is cached. */
-function sendHtml(res: ServerResponse, status: number, html: string): void {
-	res.writeHead(status, {
-		"content-type": "text/html; charset=utf-8",
-		"content-length": String(Buffer.byteLength(html)),
-		"cache-control": "no-store",
-		"content-security-policy":
-			"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
-		"x-content-type-options": "nosniff",
-		"referrer-policy": "no-referrer",
+	process.on("web.ws.frame", (data, bin) => {
+		const { host, conn } = data as { host: number; conn: number };
+		servers.get(host)?.frame(conn, bin === null ? "" : Buffer.from(bin).toString("utf8"));
 	});
-	res.end(html);
+	process.on("web.ws.close", data => {
+		const { host, conn, code, reason } = data as { host: number; conn: number; code: number; reason: string };
+		servers.get(host)?.connectionOf(conn)?.close(code, reason);
+	});
+	process.on("web.ws.gone", data => {
+		const { host, conn } = data as { host: number; conn: number };
+		servers.get(host)?.gone(conn);
+	});
+	process.on("web.deviceConnected", data => {
+		const { host, device } = data as {
+			host: number;
+			device: { id: string; name: string; tailscaleLogin: string | null };
+		};
+		servers.get(host)?.deviceConnected(device);
+	});
+	process.on("web.unpairedAuth", data => {
+		const { host, address } = data as { host: number; address: string };
+		servers.get(host)?.unpairedAuth(address);
+	});
+	process.on(CORE_EXITED, () => {
+		for (const server of servers.values()) server.coreExited();
+	});
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-	if (!/^application\/json\b/i.test(singleHeader(req.headers["content-type"]) ?? "")) {
-		throw new HttpError(415, "expected application/json");
-	}
-	const chunks: Buffer[] = [];
-	let size = 0;
-	for await (const chunk of req) {
-		const buffer = chunk as Buffer;
-		size += buffer.length;
-		if (size > JSON_BODY_MAX_BYTES) throw new HttpError(413, "body too large");
-		chunks.push(buffer);
-	}
-	if (size === 0) return {};
-	try {
-		return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-	} catch {
-		throw new HttpError(400, "invalid json");
-	}
-}
-
-/** The text of a webhook call's body as the routine's run is told it: one line, the first `HOOK_DETAIL_CHARS` characters. */
-async function readHookDetail(req: IncomingMessage): Promise<string> {
-	const chunks: Buffer[] = [];
-	let size = 0;
-	for await (const chunk of req) {
-		const buffer = chunk as Buffer;
-		size += buffer.length;
-		if (size > HOOK_BODY_MAX_BYTES) throw new HttpError(413, "body too large", { connection: "close" });
-		chunks.push(buffer);
-	}
-	const text = Buffer.concat(chunks).toString("utf8").replace(/\s+/g, " ").trim();
-	if (text === "") return "Webhook call with no body";
-	return `Webhook call: ${[...text.slice(0, HOOK_DETAIL_CHARS * 2)].slice(0, HOOK_DETAIL_CHARS).join("")}`;
-}
-
-/** The peer address for limits and notices: serve's `X-Forwarded-For` (one Tailscale IP), else the socket's. */
-function sourceAddress(req: IncomingMessage): string {
-	const forwarded = singleHeader(req.headers["x-forwarded-for"])?.split(",")[0]?.trim();
-	return forwarded && /^[0-9a-fA-F:.]{3,45}$/.test(forwarded) ? forwarded : (req.socket.remoteAddress ?? "unknown");
-}
-
-function bufferOf(data: RawData): Buffer {
-	if (Buffer.isBuffer(data)) return data;
-	return Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data);
+/** A page socket the core holds, as the router writes to it. */
+function socketOf(process: CoreProcess, conn: number): RouterSocket {
+	return {
+		send: data => process.push("web.ws.send", { conn }, Buffer.from(data, "utf8")),
+		close: (code, reason) => process.push("web.ws.close", { conn, code, reason }),
+		ping: () => process.push("web.ws.ping", { conn }),
+		terminate: () => process.push("web.ws.terminate", { conn }),
+	};
 }
 
 export class WebServer {
 	readonly #deps: WebServerDeps;
-	readonly #now: () => number;
-	readonly #tickets = new OneTimeTokens<{ deviceId: string; ua: string }>(TICKET_TTL_MS);
-	readonly #nonces = new OneTimeTokens<string>(TICKET_TTL_MS);
-	readonly #sessionLimiter: SlidingWindowLimiter;
-	readonly #pairGuard: PairingGuard;
-	readonly #unpaired: UnpairedThrottle;
-	readonly #pushLimiter: SlidingWindowLimiter;
-	readonly #enrollLimiter: SlidingWindowLimiter;
-	readonly #peers = new Map<string, { peer: TailnetPeer; at: number }>();
-	readonly #wss = new WebSocketServer({
-		noServer: true,
-		maxPayload: MAX_FRAME_BYTES,
-		perMessageDeflate: { threshold: 1024, zlibDeflateOptions: { level: 3 } },
-		handleProtocols: protocols => (protocols.has(WS_PROTOCOL) ? WS_PROTOCOL : false),
-	});
-	readonly #compressed = new Map<string, Buffer>();
-	#compressedBytes = 0;
-	#server: http.Server | null = null;
+	readonly #id = ++nextHost;
+	readonly #connections = new Map<number, WsConnection>();
 	#port: number | null = null;
+	/** The loopback port asked for at `start`, kept to start again on it after a core that ended. */
+	#asked = 0;
 
 	constructor(deps: WebServerDeps) {
 		this.#deps = deps;
-		this.#now = deps.now ?? Date.now;
-		this.#sessionLimiter = new SlidingWindowLimiter(SESSION_REQUESTS_PER_MINUTE, 60_000, this.#now);
-		this.#pushLimiter = new SlidingWindowLimiter(PUSH_REQUESTS_PER_MINUTE, 60_000, this.#now);
-		this.#enrollLimiter = new SlidingWindowLimiter(NEW_DEVICES_PER_HOUR, 60 * 60_000, this.#now);
-		this.#pairGuard = new PairingGuard(this.#now);
-		this.#unpaired = new UnpairedThrottle(this.#now);
 	}
 
 	/** The loopback port while listening, else null. */
@@ -310,589 +165,122 @@ export class WebServer {
 		Object.assign(this.#deps.policy, change);
 	}
 
-	/** Listen on the loopback; `port` 0 picks a free one. Rejects when the port is taken. */
+	/** Listen on the loopback; `port` 0 picks a free one. Rejects (`EADDRINUSE`) when the port is taken. */
 	async start(options: { port?: number } = {}): Promise<{ port: number }> {
-		if (this.#server) return { port: this.#port ?? 0 };
-		const server = http.createServer((req, res) => void this.#handle(req, res));
-		server.headersTimeout = 15_000;
-		server.requestTimeout = 120_000;
-		server.keepAliveTimeout = 5_000;
-		server.on("upgrade", (req, socket, head) => this.#upgrade(req, socket, head));
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(options.port ?? 0, WEB_SERVER_HOST, () => {
-				server.off("error", reject);
-				resolve();
+		if (this.#port !== null) return { port: this.#port };
+		const process = core();
+		route(process);
+		servers.set(this.#id, this);
+		this.#asked = options.port ?? 0;
+		try {
+			const { result } = await process.call<{ port: number }>("web.start", {
+				host: this.#id,
+				userData: this.#deps.userData,
+				port: this.#asked,
+				staticRoot: this.#deps.staticRoot(),
 			});
-		});
-		this.#server = server;
-		const address = server.address();
-		this.#port = typeof address === "object" && address ? address.port : (options.port ?? 0);
-		return { port: this.#port };
+			this.#port = result.port;
+			return result;
+		} catch (error) {
+			servers.delete(this.#id);
+			throw error;
+		}
 	}
 
+	/** Pending approvals are declined, sockets close (1001, a second's grace) and the port is let go. */
 	async stop(): Promise<void> {
-		const server = this.#server;
-		if (!server) return;
-		this.#server = null;
+		if (this.#port === null) return;
 		this.#port = null;
 		this.#deps.confirmations.declineAll();
-		const clients = [...this.#wss.clients];
-		const closed = Promise.all(
-			clients.map(client => new Promise<void>(resolve => client.once("close", () => resolve()))),
-		);
 		this.#deps.router.closeAll(1001, "server stopping");
-		// A close handshake needs a moment; a peer that does not answer is cut off.
-		const grace = Promise.withResolvers<void>();
-		const timer = setTimeout(grace.resolve, CLOSE_GRACE_MS);
-		await Promise.race([closed, grace.promise]);
-		clearTimeout(timer);
-		for (const client of clients) client.terminate();
-		const done = Promise.withResolvers<void>();
-		server.close(() => done.resolve());
-		server.closeAllConnections();
-		await done.promise;
-	}
-
-	async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		try {
-			await this.#route(req, res);
-		} catch (error) {
-			if (res.headersSent) {
-				res.destroy();
-				return;
+			await core().call("web.stop", { host: this.#id });
+		} finally {
+			servers.delete(this.#id);
+			this.#disposeAll();
+		}
+	}
+
+	/** One question of the edge (`web.ask`). */
+	async answerAsk(ask: EdgeAsk): Promise<unknown> {
+		const { policy, router } = this.#deps;
+		switch (ask.kind) {
+			case "policy":
+				return {
+					host: policy.host,
+					publicPort: policy.publicPort,
+					secure: policy.secure,
+					servePrefix: policy.servePrefix,
+					pendingPrefix: policy.pendingPrefix ?? null,
+					allowedUsers: [...policy.allowedUsers()],
+				};
+			case "confirmNew":
+				return this.#deps.confirmNewDevices();
+			case "confirm":
+				return this.#deps.confirmations.request({
+					name: ask.name ?? "",
+					userAgent: ask.userAgent ?? "",
+					tailscaleLogin: ask.tailscaleLogin ?? null,
+					ip: ask.ip ?? null,
+				});
+			case "whois":
+				return this.#deps.whois(ask.address ?? "");
+			case "hook": {
+				const service = this.#deps.hooks?.();
+				if (!service) return "unavailable";
+				return service.webhook(ask.id ?? "", ask.bearer ?? "", ask.detail ?? "");
 			}
-			if (error instanceof HttpError) sendJson(res, error.status, { error: error.message }, error.headers);
-			else if (error instanceof UploadError) sendJson(res, error.status, { error: error.message });
-			else sendJson(res, 500, { error: "internal" });
+			case "count":
+				return router.connectionCount(ask.deviceId ?? "");
+			case "retire":
+				router.retire(ask.deviceId ?? "", ask.connId ?? "");
+				return null;
+			case "attach": {
+				const conn = ask.conn ?? 0;
+				const connection = router.attach(ask.deviceId ?? "", socketOf(core(), conn), ask.resumeFrom ?? undefined);
+				if (!connection) return false;
+				this.#connections.set(conn, connection);
+				return true;
+			}
 		}
 	}
 
-	#check(req: IncomingMessage, kind: RequestKind): RequestCheck {
-		return checkRequest({
-			headers: req.headers,
-			method: req.method ?? "GET",
-			kind,
-			url: req.url ?? "/",
-			remoteAddress: req.socket.remoteAddress,
-			policy: this.#deps.policy,
-		});
+	connectionOf(conn: number): WsConnection | undefined {
+		return this.#connections.get(conn);
 	}
 
-	/** A walled request: a status, or for a login Tailscale vouches for but we do not allow, the page that says so. */
-	#refuse(
-		req: IncomingMessage,
-		res: ServerResponse,
-		check: Extract<RequestCheck, { ok: false }>,
-		kind: RequestKind,
-	): void {
-		if (check.why === "other") {
-			sendStatus(res, check.status);
-			return;
-		}
-		if (kind !== "page") {
-			sendJson(res, 403, {
-				error: check.why === "user not allowed" ? "tailscale_user_not_allowed" : "no_tailscale_user",
-			});
-			return;
-		}
-		sendHtml(
-			res,
-			403,
-			refusalPage({
-				kind: check.why === "user not allowed" ? "user-not-allowed" : "no-user",
-				login: check.login,
-				allowed: this.#deps.policy.allowedUsers(),
-				acceptLanguage: singleHeader(req.headers["accept-language"]),
-			}),
+	frame(conn: number, text: string): void {
+		this.#connections.get(conn)?.receive(text);
+	}
+
+	gone(conn: number): void {
+		const connection = this.#connections.get(conn);
+		this.#connections.delete(conn);
+		connection?.dispose();
+	}
+
+	deviceConnected(device: { id: string; name: string; tailscaleLogin: string | null }): void {
+		this.#deps.onDeviceConnected(device);
+	}
+
+	unpairedAuth(address: string): void {
+		this.#deps.onUnpairedAuth?.({ address });
+	}
+
+	/** The core ended with the edge in it: its sockets are gone, and the edge listens again on the same port. */
+	coreExited(): void {
+		this.#disposeAll();
+		if (this.#port === null) return;
+		const port = this.#port;
+		this.#port = null;
+		this.start({ port: this.#asked === 0 ? port : this.#asked }).catch(error =>
+			this.#deps.log?.(`web: the server could not start again after the core ended: ${String(error)}`),
 		);
 	}
 
-	/** A blocked device (or login): the page that says so, or the JSON error of an API call. */
-	#refuseBlocked(
-		req: IncomingMessage,
-		res: ServerResponse,
-		verdict: Exclude<BlockVerdict, null>,
-		kind: RequestKind,
-		login: string,
-	): void {
-		if (kind !== "page") {
-			sendJson(res, 403, { error: "blocked" });
-			return;
-		}
-		const loginScope = verdict !== "unidentified" && verdict.scope === "login";
-		sendHtml(
-			res,
-			403,
-			refusalPage({
-				kind: loginScope ? "blocked-login" : "blocked-node",
-				login,
-				allowed: this.#deps.policy.allowedUsers(),
-				acceptLanguage: singleHeader(req.headers["accept-language"]),
-			}),
-		);
-	}
-
-	/** whois for a tailnet address, reused for a minute; a failed answer is not kept. */
-	async #peer(address: string): Promise<TailnetPeer | null> {
-		const now = this.#now();
-		const cached = this.#peers.get(address);
-		if (cached && now - cached.at < PEER_CACHE_MS) return cached.peer;
-		let peer: TailnetPeer | null = null;
-		try {
-			peer = await this.#deps.whois(address);
-		} catch {
-			peer = null;
-		}
-		if (peer) {
-			if (this.#peers.size >= PEER_CACHE_MAX) this.#peers.clear();
-			this.#peers.set(address, { peer, at: now });
-		}
-		return peer;
-	}
-
-	/** Whether the request carries the cookie of a device that still exists. */
-	#hasDevice(req: IncomingMessage): boolean {
-		const cookie = deviceCookieValue(req.headers, this.#deps.policy.secure);
-		return cookie !== null && this.#deps.devices.authenticate(cookie).ok;
-	}
-
-	async #route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-		const method = req.method ?? "GET";
-		const { policy } = this.#deps;
-		// Only a request that came through serve carries the secret prefix; everything below sees it taken off. Before
-		// the handler is confirmed the prefix to come names the route, and the check answers it 503.
-		const prefix = policy.servePrefix ?? policy.pendingPrefix ?? null;
-		const stripped = prefix === null ? null : stripServePrefix(req.url ?? "/", prefix);
-		const queryAt = (stripped ?? "/").indexOf("?");
-		const pathname = queryAt === -1 ? (stripped ?? "/") : (stripped ?? "/").slice(0, queryAt);
-		// A webhook call to the loopback address itself (a script on this computer) carries no serve prefix: the bearer key
-		// is its only credential, and nothing a browser can send is accepted (`#directHook`).
-		const bare = stripped === null ? (req.url ?? "/").split("?")[0] : null;
-		if (bare?.startsWith(HOOK_PREFIX)) return this.#directHook(req, res, method, bare);
-
-		const isHook = pathname.startsWith(HOOK_PREFIX);
-		const isApi =
-			pathname === "/api/pair" ||
-			pathname === "/api/session" ||
-			pathname === "/api/push" ||
-			pathname === "/upload" ||
-			pathname === "/healthz" ||
-			pathname.startsWith(BLOB_URL_PREFIX);
-		const kind: RequestKind = isHook ? "hook" : isApi ? "api" : "page";
-		const check = this.#check(req, kind);
-		if (!check.ok) {
-			this.#refuse(req, res, check, kind);
-			return;
-		}
-		const target = check.target;
-		req.url = target;
-		if (isHook) return this.#hook(req, res, method, pathname);
-		// A blocked device must not reach the app: a page load without a device cookie asks who the visitor is.
-		if (PAGE_ROUTES.has(pathname) && this.#deps.blocks.active && !this.#hasDevice(req)) {
-			const address = tailnetAddress(req);
-			const peer = address ? await this.#peer(address) : null;
-			const verdict = this.#deps.blocks.check({ nodeId: peer?.nodeId ?? null, login: check.login });
-			if (verdict !== null) {
-				this.#refuseBlocked(req, res, verdict, kind, check.login);
-				return;
-			}
-		}
-
-		if (pathname === "/healthz") {
-			if (method !== "GET") throw new HttpError(405, "method not allowed");
-			sendJson(res, 200, { ok: true });
-			return;
-		}
-		if (pathname === "/api/pair") return this.#pair(req, res, method, check.login);
-		if (pathname === "/api/session") return this.#session(req, res, method);
-		if (pathname === "/api/push") return this.#push(req, res, method);
-		if (pathname === "/upload") return this.#upload(req, res, method);
-		if (pathname.startsWith(BLOB_URL_PREFIX)) return this.#blob(req, res, method, target);
-		if (pathname.startsWith("/api/")) throw new HttpError(404, "not found");
-		return this.#static(req, res, method, pathname);
-	}
-
-	/**
-	 * `POST /hooks/<id>` called on the loopback address itself, without serve's secret prefix: a script, cron job or git
-	 * hook on this computer. No identity header is believed here; the routine's webhook key is the only credential
-	 * (`#hook`), and anything that marks a browser is refused first (an `Origin`, a `Sec-Fetch-*`), as is a `Host` that is
-	 * not this loopback address (DNS rebinding).
-	 */
-	async #directHook(req: IncomingMessage, res: ServerResponse, method: string, pathname: string): Promise<void> {
-		const { headers } = req;
-		if (!isLoopbackAddress(req.socket.remoteAddress) || headers["tailscale-funnel-request"] !== undefined)
-			throw new HttpError(403, "forbidden");
-		if (
-			headers.origin !== undefined ||
-			headers["sec-fetch-site"] !== undefined ||
-			headers["sec-fetch-mode"] !== undefined
-		)
-			throw new HttpError(403, "forbidden");
-		const host = singleHeader(headers.host)?.toLowerCase();
-		const loopbackHosts = [`127.0.0.1:${this.#port}`, `localhost:${this.#port}`, `[::1]:${this.#port}`];
-		if (host === undefined || !loopbackHosts.includes(host)) throw new HttpError(421, "wrong host");
-		return this.#hook(req, res, method, pathname);
-	}
-
-	/**
-	 * The webhook call itself, however it arrived: `Authorization: Bearer <key>` is checked by the schedule service (the
-	 * core) in constant time. 202 fired (or kept for after the run in progress), 404 no such routine, 401 a wrong or missing key,
-	 * 409 the routine is off, 413 a body over 64 KiB. A call with no bearer, or for an id that cannot be one, costs
-	 * nothing: its body is not read. A call with one reads at most 64 KiB before the key is compared.
-	 */
-	async #hook(req: IncomingMessage, res: ServerResponse, method: string, pathname: string): Promise<void> {
-		if (method !== "POST") throw new HttpError(405, "method not allowed", { allow: "POST" });
-		const id = pathname.slice(HOOK_PREFIX.length);
-		if (!/^[A-Za-z0-9-]{1,64}$/.test(id)) throw new HttpError(404, "unknown_hook");
-		const bearer = /^Bearer[ \t]+(\S{1,256})$/i.exec(singleHeader(req.headers.authorization) ?? "")?.[1];
-		if (bearer === undefined) throw new HttpError(401, "unauthorized", { "www-authenticate": "Bearer" });
-		const declared = Number(singleHeader(req.headers["content-length"]));
-		if (declared > HOOK_BODY_MAX_BYTES) throw new HttpError(413, "body too large", { connection: "close" });
-		const detail = await readHookDetail(req);
-		const service = this.#deps.hooks?.();
-		if (!service) throw new HttpError(503, "unavailable");
-		switch (await service.webhook(id, bearer, detail)) {
-			case "fired":
-				sendJson(res, 202, { ok: true });
-				return;
-			case "unknown":
-				throw new HttpError(404, "unknown_hook");
-			case "denied":
-				throw new HttpError(401, "unauthorized", { "www-authenticate": "Bearer" });
-			case "off":
-				throw new HttpError(409, "off");
-		}
-	}
-
-	/** The device behind the request's cookie; a failure is counted, and told to the desktop once it repeats. */
-	#device(req: IncomingMessage): WebDevice {
-		const { policy, devices } = this.#deps;
-		const cookie = deviceCookieValue(req.headers, policy.secure);
-		const result = cookie === null ? null : devices.authenticate(cookie);
-		if (result?.ok) return result.device;
-		// A visit with no cookie yet is the normal first visit of a new device (it enrolls next), not a stranger.
-		if (cookie !== null && this.#unpaired.record()) this.#deps.onUnpairedAuth?.({ address: sourceAddress(req) });
-		const headers: Record<string, string> = {};
-		if (result && result.reason !== "malformed") headers["set-cookie"] = clearedDeviceCookie(policy.secure);
-
-		throw new HttpError(401, "unauthorized", headers);
-	}
-
-	/**
-	 * `POST /api/pair`: a Tailscale login that is allowed (the walls checked it) connects its device. whois names the
-	 * node (its device name and stable ID) and must agree on the login; a blocked node or login is refused; the
-	 * desktop is asked first only when the user turned that on, otherwise told afterwards, once.
-	 */
-	async #pair(req: IncomingMessage, res: ServerResponse, method: string, login: string): Promise<void> {
-		if (method !== "POST") throw new HttpError(405, "method not allowed");
-		const { devices, blocks, confirmations, policy } = this.#deps;
-		const address = sourceAddress(req);
-		const decision = this.#pairGuard.check(address);
-		if (!decision.ok) {
-			throw new HttpError(429, "rate_limited", { "retry-after": String(Math.ceil(decision.retryAfterMs / 1000)) });
-		}
-		const parsed = PairBody.safeParse(await readJsonBody(req));
-		if (!parsed.success) throw new HttpError(400, "invalid_request");
-		const body = parsed.data;
-		let publicKeyJwk: JsonWebKey | null = null;
-		if (body.publicKeyJwk !== undefined && body.publicKeyJwk !== null) {
-			publicKeyJwk = parsePublicKeyJwk(body.publicKeyJwk);
-			if (!publicKeyJwk) throw new HttpError(400, "invalid_key");
-		}
-		const forwarded = tailnetAddress(req);
-		const peer = forwarded ? await this.#peer(forwarded) : null;
-		// whois reads the address serve itself put in; a different login behind it is not what the header claimed.
-		if (peer?.login && peer.login.toLowerCase() !== login.toLowerCase())
-			throw new HttpError(403, "identity_mismatch");
-		if (blocks.check({ nodeId: peer?.nodeId ?? null, login }) !== null) throw new HttpError(403, "blocked");
-		if (!this.#enrollLimiter.hit("*")) throw new HttpError(429, "rate_limited", { "retry-after": "3600" });
-		const userAgent = singleHeader(req.headers["user-agent"]) ?? "";
-		const name = peer?.nodeName ?? (body.name.trim() || "Phone");
-		let grants = [...DEFAULT_WEB_GRANTS];
-		const asked = this.#deps.confirmNewDevices();
-		if (asked) {
-			const outcome = await confirmations.request({ name, userAgent, tailscaleLogin: login, ip: address });
-			if (!outcome.approved) {
-				this.#pairGuard.fail(address);
-				throw new HttpError(403, outcome.reason);
-			}
-			grants = outcome.grants;
-		}
-		this.#pairGuard.succeed(address);
-		const { device, cookie } = devices.create({
-			name,
-			userAgent,
-			tailscaleLogin: login,
-			nodeId: peer?.nodeId ?? null,
-			publicKeyJwk,
-			grants,
-		});
-		if (!asked) this.#deps.onDeviceConnected(device);
-		sendJson(
-			res,
-			200,
-			{ deviceId: device.deviceId, name: device.name, grants: device.grants },
-			{ "set-cookie": serializeDeviceCookie(cookie, policy.secure) },
-		);
-	}
-
-	/** `GET|POST /api/push`: this device's push state; a POST changes its subscription and what it wants pushed. */
-	async #push(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
-		if (method !== "GET" && method !== "POST") {
-			throw new HttpError(405, "method not allowed", { allow: "GET, POST" });
-		}
-		const device = this.#device(req);
-		if (!device.grants.includes("device-self")) throw new HttpError(403, "forbidden");
-		if (!this.#pushLimiter.hit(device.deviceId)) {
-			throw new HttpError(429, "rate_limited", { "retry-after": "60" });
-		}
-		let settings = pushSettingsOf(device);
-		if (method === "POST") {
-			const parsed = PushBody.safeParse(await readJsonBody(req));
-			if (!parsed.success) throw new HttpError(400, "invalid_request");
-			const { subscription, hideContent, categories } = parsed.data;
-			if (subscription && !isPushEndpoint(subscription.endpoint)) throw new HttpError(400, "invalid_endpoint");
-			const next: WebPushSettings = {
-				subscription:
-					subscription === undefined
-						? settings.subscription
-						: subscription && { endpoint: subscription.endpoint, keys: { ...subscription.keys } },
-				hideContent: hideContent ?? settings.hideContent,
-				categories: categories
-					? WEB_PUSH_CATEGORIES.filter(name => categories.includes(name))
-					: settings.categories,
-			};
-			this.#deps.devices.setPush(device.deviceId, next);
-			settings = next;
-		}
-		const state: WebPushStateResponse = {
-			publicKey: this.#deps.push.publicKey(),
-			subscribed: settings.subscription !== null,
-			hideContent: settings.hideContent,
-			categories: settings.categories,
-		};
-		sendJson(res, 200, state);
-	}
-
-	async #session(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
-		if (method !== "POST") throw new HttpError(405, "method not allowed");
-		const device = this.#device(req);
-		if (!this.#sessionLimiter.hit(device.deviceId)) {
-			throw new HttpError(429, "rate_limited", { "retry-after": "60" });
-		}
-		const parsed = SessionBody.safeParse(await readJsonBody(req));
-		if (!parsed.success) throw new HttpError(400, "invalid_request");
-		const { nonce, sig } = parsed.data;
-
-		if (device.publicKeyJwk) {
-			if (nonce === undefined || sig === undefined) {
-				// Step one: the nonce the device will sign.
-				const issued = this.#nonces.issue(device.deviceId);
-				sendJson(res, 200, { nonce: issued.token, expiresAt: issued.expiresAt });
-				return;
-			}
-			const owner = this.#nonces.redeem(nonce);
-			if (owner !== device.deviceId || !verifyDeviceProof(device.publicKeyJwk, nonce, sig)) {
-				if (this.#unpaired.record()) this.#deps.onUnpairedAuth?.({ address: sourceAddress(req) });
-				throw new HttpError(401, "unauthorized");
-			}
-		}
-		const ticket = this.#tickets.issue({ deviceId: device.deviceId, ua: uaHash(req) });
-		sendJson(res, 200, { ticket: ticket.token, expiresAt: ticket.expiresAt });
-	}
-
-	async #upload(req: IncomingMessage, res: ServerResponse, method: string): Promise<void> {
-		if (method !== "POST") throw new HttpError(405, "method not allowed");
-		const device = this.#device(req);
-		if (!device.grants.includes("workspace")) throw new HttpError(403, "forbidden");
-		const stored = await this.#deps.uploads.receive(device.deviceId, req);
-		sendJson(res, 200, { path: stored.path, name: stored.name, size: stored.size });
-	}
-
-	async #blob(req: IncomingMessage, res: ServerResponse, method: string, target: string): Promise<void> {
-		if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "method not allowed");
-		const device = this.#device(req);
-		if (!device.grants.includes("workspace")) throw new HttpError(403, "forbidden");
-		await this.#deps.blobs.serve(device.deviceId, target, req, res);
-	}
-
-	/** The `Content-Security-Policy` of a page: this origin only, `connect-src` naming the WebSocket address. */
-	#csp(): string {
-		const { policy } = this.#deps;
-		const socket = originOf(policy).replace(/^http/, "ws");
-		return [
-			"default-src 'self'",
-			"script-src 'self'",
-			"style-src 'self' 'unsafe-inline'",
-			"font-src 'self' data:",
-			"img-src 'self' data: blob:",
-			"media-src 'self' blob:",
-			`connect-src 'self' ${socket}`,
-			"worker-src 'self' blob:",
-			"manifest-src 'self'",
-			"base-uri 'none'",
-			"form-action 'self'",
-			"frame-ancestors 'none'",
-		].join("; ");
-	}
-
-	async #static(req: IncomingMessage, res: ServerResponse, method: string, pathname: string): Promise<void> {
-		if (method !== "GET" && method !== "HEAD") throw new HttpError(405, "method not allowed", { allow: "GET, HEAD" });
-		const root = this.#deps.staticRoot();
-		const page = PAGE_ROUTES.has(pathname);
-		const allowed = page || STATIC_FILES.has(pathname) || STATIC_DIRS.some(dir => pathname.startsWith(dir));
-		if (!allowed) throw new HttpError(404, "not found");
-		// `..`, backslashes, NULs and encoded separators never name a built file; refuse them outright.
-		if (/\\|\0|%00|%2e|%2f|%5c/i.test(pathname) || pathname.includes("//") || pathname.split("/").includes("..")) {
-			throw new HttpError(400, "bad path");
-		}
-		if (!root) throw new HttpError(404, "not found");
-		const relative = page ? PAGE_FILE : pathname.slice(1);
-		let base = root;
-		let file = await this.#resolveFile(root, relative);
-		if (!file && pathname.startsWith("/assets/")) {
-			for (const previous of this.#deps.previousBuilds?.() ?? []) {
-				file = await this.#resolveFile(previous, relative);
-				base = previous;
-				if (file) break;
-			}
-		}
-		if (!file) throw new HttpError(404, "not found");
-
-		const type = MIME[file.extension] ?? "application/octet-stream";
-		const immutable = pathname.startsWith("/assets/");
-		const headers: Record<string, string> = {
-			"content-type": type,
-			"cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
-			"x-content-type-options": "nosniff",
-			"referrer-policy": "no-referrer",
-			"x-frame-options": "DENY",
-			"cross-origin-opener-policy": "same-origin",
-			vary: "Accept-Encoding",
-		};
-		if (page) headers["content-security-policy"] = this.#csp();
-		if (pathname === "/sw.js") headers["service-worker-allowed"] = "/";
-
-		const wantsBrotli = /\bbr\b/.test(singleHeader(req.headers["accept-encoding"]) ?? "");
-		if (wantsBrotli && COMPRESSIBLE.test(type) && file.size > 1024) {
-			const body = await this.#brotliOf(file, base, relative);
-			headers["content-encoding"] = "br";
-			headers["content-length"] = String(body.length);
-			res.writeHead(200, headers);
-			res.end(method === "HEAD" ? undefined : body);
-			return;
-		}
-		headers["content-length"] = String(file.size);
-		res.writeHead(200, headers);
-		if (method === "HEAD") {
-			res.end();
-			return;
-		}
-		res.end(await fsp.readFile(file.path));
-	}
-
-	/** A regular file inside `root` (symlinks resolved: one pointing out is refused), or null. */
-	async #resolveFile(
-		root: string,
-		relative: string,
-	): Promise<{ path: string; size: number; mtimeMs: number; extension: string } | null> {
-		try {
-			const realRoot = await fsp.realpath(root);
-			const real = await fsp.realpath(path.join(root, relative));
-			if (!real.startsWith(realRoot + path.sep)) return null;
-			const info = await fsp.stat(real);
-			if (!info.isFile()) return null;
-			const dot = real.lastIndexOf(".");
-			return { path: real, size: info.size, mtimeMs: info.mtimeMs, extension: dot === -1 ? "" : real.slice(dot) };
-		} catch {
-			return null;
-		}
-	}
-
-	/**
-	 * The file brotli-compressed: the build's own `.br` beside it (quality 11, scripts/precompress-plugin.ts), else
-	 * compressed here once at quality 9 (11 is too slow for a request). Kept in memory either way.
-	 */
-	async #brotliOf(
-		file: { path: string; size: number; mtimeMs: number },
-		root: string,
-		relative: string,
-	): Promise<Buffer> {
-		const key = `${file.path}:${file.size}:${file.mtimeMs}`;
-		const cached = this.#compressed.get(key);
-		if (cached) return cached;
-		const built = await this.#resolveFile(root, `${relative}.br`);
-		const packed =
-			built && built.mtimeMs >= file.mtimeMs
-				? await fsp.readFile(built.path)
-				: await brotli(await fsp.readFile(file.path), {
-						params: {
-							[zlibConstants.BROTLI_PARAM_QUALITY]: 9,
-							[zlibConstants.BROTLI_PARAM_SIZE_HINT]: file.size,
-						},
-					});
-		if (this.#compressedBytes + packed.length <= COMPRESSED_CACHE_MAX_BYTES) {
-			this.#compressed.set(key, packed);
-			this.#compressedBytes += packed.length;
-		}
-		return packed;
-	}
-
-	#upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
-		const deny = (status: number): void => {
-			socket.write(
-				`HTTP/1.1 ${status} ${http.STATUS_CODES[status] ?? ""}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
-			);
-			socket.destroy();
-		};
-		const { servePrefix, pendingPrefix } = this.#deps.policy;
-		const prefix = servePrefix ?? pendingPrefix ?? null;
-		const stripped = prefix === null ? null : stripServePrefix(req.url ?? "", prefix);
-		if (stripped?.split("?", 1)[0] !== "/ws" || !isLoopbackAddress(req.socket.remoteAddress)) return deny(404);
-		const checked = this.#check(req, "ws");
-		if (!checked.ok) return deny(checked.status);
-
-		const protocols = (singleHeader(req.headers["sec-websocket-protocol"]) ?? "").split(",").map(part => part.trim());
-		const ticketToken = protocols.find(part => part.startsWith("ticket."))?.slice("ticket.".length);
-		if (!protocols.includes(WS_PROTOCOL) || !ticketToken) return deny(400);
-		// The page's previous connection (ws-router.ts `attach`): it may continue without loading its state again.
-		const resumeFrom = protocols.find(part => part.startsWith("resume."))?.slice("resume.".length) || undefined;
-
-		const { policy, devices, router } = this.#deps;
-		const cookie = deviceCookieValue(req.headers, policy.secure);
-		const auth = cookie === null ? null : devices.authenticate(cookie);
-		const ticket = this.#tickets.redeem(ticketToken);
-		if (!auth?.ok || !ticket || ticket.deviceId !== auth.device.deviceId || ticket.ua !== uaHash(req)) {
-			if (this.#unpaired.record()) this.#deps.onUnpairedAuth?.({ address: sourceAddress(req) });
-			return deny(401);
-		}
-
-		const deviceId = auth.device.deviceId;
-		if (resumeFrom) router.retire(deviceId, resumeFrom);
-		if (router.connectionCount(deviceId) >= 4) return deny(429);
-
-		this.#wss.handleUpgrade(req, socket, head, ws => {
-			const adapter: RouterSocket = {
-				send: data => ws.send(data),
-				close: (code, reason) => ws.close(code, reason),
-				ping: () => ws.ping(),
-				terminate: () => ws.terminate(),
-				get bufferedAmount() {
-					return ws.bufferedAmount;
-				},
-			};
-			const connection = router.attach(deviceId, adapter, resumeFrom);
-			if (!connection) {
-				ws.close(1013, "too many connections");
-				return;
-			}
-			ws.on("message", (data, isBinary) => {
-				if (isBinary) connection.close(1003, "text frames only");
-				else connection.receive(bufferOf(data).toString("utf8"));
-			});
-			ws.on("close", () => connection.dispose());
-			ws.on("error", () => connection.dispose());
-		});
+	#disposeAll(): void {
+		const connections = [...this.#connections.values()];
+		this.#connections.clear();
+		for (const connection of connections) connection.dispose();
 	}
 }

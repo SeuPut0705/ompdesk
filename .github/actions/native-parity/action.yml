@@ -37,6 +37,7 @@ runs:
         src/main/tailscale/cli.test.ts
         src/main/tailscale/locate.test.ts
         src/main/tailscale/service.test.ts
+        src/main/tailscale/service-restart.test.ts
         src/main/tailscale/tailnet.test.ts
         src/main/ssh/*.test.ts
         src/main/ext-update/mcp.test.ts
@@ -80,4 +81,15 @@ runs:
         src/main/remote/transport.test.ts
         src/main/remote/crypto.test.ts
         src/main/remote/devices.test.ts
-        src/main/web/web-edge-matrix.test.ts
+        src/main/web/server.test.ts
+        src/main/web/push.test.ts
+        src/main/web/vapid-store.test.ts
+        src/main/web/web-push-notifier.test.ts
+        src/main/web/web-push.integration.test.ts
+        src/main/web/uploads.test.ts
+        src/main/web/blobs.test.ts
+        src/main/web/asset-archive.test.ts
+        src/main/web/devices-store.test.ts
+        src/main/web/blocks-store.test.ts
+        src/main/web/serve-secret.test.ts
+        src/main/web/web-stores-client.test.ts

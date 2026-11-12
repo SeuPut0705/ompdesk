@@ -1,13 +1,21 @@
 //! The web edge (unit 8a): the HTTP server of the phone page, built here and not yet serving.
 
+pub mod archive;
 pub mod assets;
 pub mod auth;
+pub mod blobs;
 pub mod body;
+pub mod bytes;
 pub mod deps;
 pub mod devices;
+pub mod host;
 pub mod limits;
+pub mod push;
 pub mod refusal;
+pub mod relay;
 pub mod server;
+pub mod store;
+pub mod uploads;
 pub mod ws;
 
 pub(crate) use crate::hex;

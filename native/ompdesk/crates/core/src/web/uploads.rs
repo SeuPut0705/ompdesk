@@ -523,6 +523,9 @@ impl UploadStore {
     }
 }
 
+/// How much of a refused upload's body is read out before the socket is let go: a little over what the edge ever takes.
+const REFUSED_DRAIN_MAX_BYTES: usize = 64 * 1024 * 1024;
+
 impl Uploads for UploadStore {
     fn receive(
         &self,
@@ -531,9 +534,23 @@ impl Uploads for UploadStore {
     ) -> BoxFuture<'_, Result<Upload, UploadFailure>> {
         let device = device_id.to_owned();
         Box::pin(async move {
-            let (parts, body) = request.into_parts();
-            self.receive_body(now_ms(), Limits::default(), &device, &parts.headers, body)
-                .await
+            let (parts, mut body) = request.into_parts();
+            let stored = self
+                .receive_body(now_ms(), Limits::default(), &device, &parts.headers, &mut body)
+                .await;
+            if stored.is_err() {
+                // What a refused upload did not read is read out, as node's server dumped it: a socket closed with
+                // unread data resets, and the page then never sees the 413 or 429.
+                let mut left = REFUSED_DRAIN_MAX_BYTES;
+                while let Some(Ok(frame)) = body.frame().await {
+                    let read = frame.data_ref().map_or(0, Bytes::len);
+                    if read >= left {
+                        break;
+                    }
+                    left -= read;
+                }
+            }
+            stored
         })
     }
 }

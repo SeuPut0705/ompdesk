@@ -256,6 +256,8 @@ async function phone(
 	const subscription = subscriptionBody();
 	const state = await post("/api/push", { subscription, ...options.push }, { cookie });
 	expect(state.status).toBe(200);
+	// The subscription is the core's record: main's copy has it once the core's event is in.
+	await host.devices.flush();
 	let socket: WebSocket | null = null;
 	const frames: unknown[] = [];
 	if (options.connect !== false) {

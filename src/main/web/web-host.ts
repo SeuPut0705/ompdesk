@@ -33,7 +33,6 @@ import type { TabActivity, TabFacts } from "../sidecar-pool";
 import { stockHelperRequest } from "../stock-helper";
 import type { TailnetPeer } from "../tailscale/whois";
 import { AssetArchive } from "./asset-archive";
-import type { RequestPolicy } from "./auth";
 import { BlobStore } from "./blobs";
 import { WebBlocks } from "./blocks-store";
 import type { ClientWindow } from "./client-window";
@@ -43,9 +42,8 @@ import type { IpcRegistry } from "./ipc-registry";
 import { PairingConfirmations } from "./pairing";
 import { PushSender, type PushTransport } from "./push";
 import { ServeSecretStore } from "./serve-secret";
-import { WebServer, type WebServerDeps } from "./server";
+import { type RequestPolicy, WebServer, type WebServerDeps } from "./server";
 import { UploadStore } from "./uploads";
-import { VapidStore } from "./vapid-store";
 import { WebClientWindow, WebWindows } from "./web-client-window";
 import { WebPushNotifier } from "./web-push-notifier";
 import { CLOSE_REVOKED, type InlineImage, WsRouter } from "./ws-router";
@@ -88,7 +86,7 @@ export interface WebHostDeps {
 	onUnpairedAuth: (info: { address: string }) => void;
 	features?: Partial<WebFeatures>;
 	now?: () => number;
-	/** The wire for Web Push; the real `web-push` HTTPS transport when absent (tests pass a fake push service). */
+	/** The wire for Web Push; the core's HTTPS request when absent (tests pass a fake push service). */
 	pushTransport?: PushTransport | undefined;
 	/** The notifier's debounce and batch timers; real unref'd timers when absent. */
 	pushTimers?:
@@ -121,7 +119,6 @@ export class WebHost {
 	readonly uploads: UploadStore;
 	readonly confirmations: PairingConfirmations;
 	readonly #deps: WebHostDeps;
-	readonly vapid: VapidStore;
 	readonly sender: PushSender;
 	readonly notifier: WebPushNotifier;
 	readonly #serveSecret: ServeSecretStore;
@@ -133,25 +130,23 @@ export class WebHost {
 	/** The upload sweep in flight; one at a time, and `stop` waits for it. */
 	#sweeping: Promise<number> | null = null;
 	#sweeper: ReturnType<typeof setInterval> | undefined;
+	#storesReady = false;
 
 	constructor(deps: WebHostDeps) {
 		this.#deps = deps;
 		const now = deps.now ?? Date.now;
-		this.devices = new WebDevices(deps.userData, now);
-		// A keypair made now (first run, or its file was lost) breaks every subscription made against the old one.
-		this.vapid = new VapidStore(deps.userData);
-		if (this.vapid.takeCreated()) this.devices.dropAllPushSubscriptions();
+		this.devices = new WebDevices(deps.userData);
 		this.sender = new PushSender({
-			vapid: () => this.vapid.keys(),
+			userData: deps.userData,
 			transport: deps.pushTransport,
 			log: deps.log,
 		});
 		this.quota = new PeerQuota(this.devices, () => this.devices.notifyChanged());
-		this.blobs = new BlobStore({ now });
-		this.uploads = new UploadStore({ root: join(deps.userData, "web-uploads"), now });
+		this.blobs = new BlobStore({ userData: deps.userData, now });
+		this.uploads = new UploadStore({ userData: deps.userData, now });
 		this.blocks = new WebBlocks(deps.userData, now);
 		this.#serveSecret = new ServeSecretStore(deps.userData);
-		this.assets = new AssetArchive(join(deps.userData, "web-assets"), now);
+		this.assets = new AssetArchive({ userData: deps.userData, now });
 		this.confirmations = new PairingConfirmations({
 			notify: request => this.#toDesktop(WEB_PAIRING_REQUEST, request),
 			now,
@@ -203,26 +198,16 @@ export class WebHost {
 		};
 		this.server = new WebServer({
 			policy,
-			devices: this.devices,
-			blocks: this.blocks,
+			userData: deps.userData,
 			confirmations: this.confirmations,
 			confirmNewDevices: deps.confirmNewDevices,
 			whois: deps.whois,
-			onDeviceConnected: device =>
-				this.#toDesktop(WEB_DEVICE_CONNECTED, {
-					id: device.deviceId,
-					name: device.name,
-					tailscaleLogin: device.tailscaleLogin,
-				}),
+			onDeviceConnected: device => this.#toDesktop(WEB_DEVICE_CONNECTED, device),
 			router: this.router,
-			uploads: this.uploads,
-			blobs: this.blobs,
-			staticRoot: deps.staticRoot,
-			previousBuilds: () => this.assets.roots(),
+			staticRoot: () => this.#staticRoot(),
 			onUnpairedAuth: deps.onUnpairedAuth,
-			push: { publicKey: () => this.vapid.keys().publicKey },
 			...(deps.hooks ? { hooks: deps.hooks } : {}),
-			now,
+			log: deps.log,
 		});
 		this.devices.onRevoked(deviceId => {
 			this.notifier.dropDevice(deviceId);
@@ -234,9 +219,28 @@ export class WebHost {
 		this.#register();
 	}
 
+	/**
+	 * The paired devices, the blocks and the serve secret are the core's (`web-stores-client.ts`): this resolves once
+	 * their copies are in, which every reader of them (the sharing gate, the layouts' restore, Mobile web's publish)
+	 * waits for. Rejects when the core cannot be reached; `storesReady` then stays false.
+	 */
+	async ready(): Promise<void> {
+		await Promise.all([this.devices.ready(), this.blocks.ready(), this.#serveSecret.ready()]);
+		this.#storesReady = true;
+	}
+
+	/** Whether `ready` resolved: the device list is the core's, not an empty copy. */
+	get storesReady(): boolean {
+		return this.#storesReady;
+	}
+
 	/** Start listening (the loopback port; 0 picks a free one) and the upload sweep. */
 	async start(options: { port?: number } = {}): Promise<{ port: number }> {
-		const root = this.#deps.staticRoot();
+		// A keypair made now (first run, or its file was lost) breaks every subscription made against the old one.
+		// Before the server answers a page that asks for the key.
+		if ((await this.sender.open()).created) this.devices.dropAllPushSubscriptions();
+		await this.ready();
+		const root = this.#staticRoot();
 		// Before the first connection: its `hello` names it.
 		if (root) this.#build = await servedBuild(root);
 		const started = await this.server.start(options);
@@ -259,6 +263,8 @@ export class WebHost {
 	async stop(): Promise<void> {
 		this.notifier.dispose();
 		await Promise.all([this.server.stop(), this.#archiving, this.#sweeping]);
+		// What the edge and this side changed is on disk before the app may quit.
+		await Promise.all([this.devices.flush(), this.blocks.flush()]).catch(() => {});
 	}
 
 	/**
@@ -359,6 +365,15 @@ export class WebHost {
 		this.windows.destroy(deviceId);
 		this.blobs.releaseDevice(deviceId);
 		void this.uploads.removeDevice(deviceId).catch(() => {});
+	}
+
+	/**
+	 * The built renderer as plain files: in a packaged app it is unpacked beside the asar (electron-builder's
+	 * `asarUnpack`), and the core, which reads it, knows no asar.
+	 */
+	#staticRoot(): string | null {
+		const root = this.#deps.staticRoot();
+		return root === null ? null : root.replace(/([\\/])app\.asar(?=[\\/]|$)/, "$1app.asar.unpacked");
 	}
 
 	#toDesktop(channel: string, payload: unknown): void {

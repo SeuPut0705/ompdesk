@@ -22,8 +22,8 @@ use super::assets::Assets;
 use super::auth::{Policy, base64url, lenient_base64};
 use super::body::Out;
 use super::deps::{
-    Blobs, BoxFuture, Connection, Desktop, HookOutcome, Hooks, Outgoing, PairingDetails,
-    PairingOutcome, Peer, Router, Upload, UploadFailure, Uploads, Whois,
+    Blobs, BoxFuture, Connection, Desktop, HookOutcome, Hooks, PairingDetails, PairingOutcome,
+    Peer, Router, Upload, UploadFailure, Uploads, Whois,
 };
 use super::devices::{DEFAULT_GRANTS, Device, MemoryBlocks, MemoryDevices};
 use super::hex;
@@ -141,8 +141,9 @@ impl Whois for Fakes {
 }
 
 impl Desktop for Fakes {
-    fn confirm_new_devices(&self) -> bool {
-        self.confirm.is_some()
+    fn confirm_new_devices(&self) -> BoxFuture<'_, bool> {
+        let asked = self.confirm.is_some();
+        Box::pin(async move { asked })
     }
 
     fn confirm(&self, _details: PairingDetails) -> BoxFuture<'_, PairingOutcome> {
@@ -255,19 +256,21 @@ impl Assets for Fakes {
 struct NoRouter;
 
 impl Router for NoRouter {
-    fn connection_count(&self, _device_id: &str) -> usize {
-        0
+    fn connection_count<'a>(&'a self, _device_id: &'a str) -> BoxFuture<'a, usize> {
+        Box::pin(async { 0 })
     }
 
-    fn retire(&self, _device_id: &str, _connection_id: &str) {}
+    fn retire<'a>(&'a self, _device_id: &'a str, _connection_id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
 
-    fn attach(
-        &self,
-        _device_id: &str,
-        _outbox: tokio::sync::mpsc::UnboundedSender<Outgoing>,
-        _resume_from: Option<&str>,
-    ) -> Option<Box<dyn Connection>> {
-        None
+    fn attach<'a>(
+        &'a self,
+        _device_id: &'a str,
+        _outbox: super::deps::Outbox,
+        _resume_from: Option<&'a str>,
+    ) -> BoxFuture<'a, Option<Box<dyn Connection>>> {
+        Box::pin(async { None })
     }
 
     fn close_all(&self, _code: u16, _reason: &str) {}

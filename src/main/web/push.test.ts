@@ -8,14 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { WebPushPayload, WebPushSubscriptionJson } from "../../shared/web-push";
 import { CoreError } from "../core/process";
-import {
-	coreTransport,
-	isPushEndpoint,
-	PUSH_PAYLOAD_MAX_BYTES,
-	type PushOptions,
-	PushSender,
-	type PushTransport,
-} from "./push";
+import { coreTransport, PUSH_PAYLOAD_MAX_BYTES, type PushOptions, PushSender, type PushTransport } from "./push";
 import { loadVapid } from "./vapid-store";
 
 const require = createRequire(import.meta.url);
@@ -218,38 +211,6 @@ describe("coreTransport (the real core, against a push service of its own on loo
 		]) {
 			const failure = await send(browser(endpoint).subscription).catch((error: unknown) => error);
 			expect((failure as CoreError).code, endpoint).toBe("push_request");
-		}
-	});
-});
-
-describe("isPushEndpoint", () => {
-	it("accepts the push services' https addresses", () => {
-		for (const endpoint of [
-			"https://fcm.googleapis.com/fcm/send/abc",
-			"https://updates.push.services.mozilla.com/wpush/v2/abc",
-			"https://web.push.apple.com/QAbc",
-			"https://wns2-par02p.notify.windows.com/w/?token=abc",
-		]) {
-			expect(isPushEndpoint(endpoint), endpoint).toBe(true);
-		}
-	});
-
-	it("refuses anything the host could be aimed at inside its own network", () => {
-		for (const endpoint of [
-			"http://fcm.googleapis.com/fcm/send/abc",
-			"https://127.0.0.1/x",
-			"https://192.168.1.1/x",
-			"https://100.64.0.1/x",
-			"https://[fd7a:115c:a1e0::1]/x",
-			"https://localhost/x",
-			"https://nas.local/x",
-			"https://box.lan/x",
-			"https://mac.tail-scale.ts.net/x",
-			"https://fcm.googleapis.com:4443/x",
-			"https://a:b@fcm.googleapis.com/x",
-			"",
-		]) {
-			expect(isPushEndpoint(endpoint), endpoint).toBe(false);
 		}
 	});
 });

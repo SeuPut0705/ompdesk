@@ -528,7 +528,7 @@ let webHost: WebHost | null = null;
 let earlyUploads: UploadStore | null = null;
 function hostUploads(): UploadStore {
 	if (webHost) return webHost.uploads;
-	earlyUploads ??= new UploadStore({ root: join(app.getPath("userData"), "web-uploads") });
+	earlyUploads ??= new UploadStore({ userData: app.getPath("userData") });
 	return earlyUploads;
 }
 /** Paired web devices' tab layouts, by device (pref `webTabLayouts`). */
@@ -2292,7 +2292,7 @@ app.whenReady().then(async () => {
 		},
 	});
 	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
-	webHost = new WebHost({
+	const createdWebHost = new WebHost({
 		ipc,
 		onPageConnectionEnded: connId => fileEditReports.forget(connId),
 		userData: app.getPath("userData"),
@@ -2325,6 +2325,12 @@ app.whenReady().then(async () => {
 		hooks: () => scheduleService,
 		log: message => console.warn(`[web-push] ${message}`),
 	});
+	// The paired devices and the blocks are the core's: their copies are in before anything reads them (the sharing
+	// gate's block check, the paired devices' layouts below), as the files were read when the host was made.
+	await createdWebHost
+		.ready()
+		.catch(error => console.warn(`[web] the paired devices could not be read: ${String(error)}`));
+	webHost = createdWebHost;
 	// Uploads expire on their own whether or not Mobile web serves: a paired computer's attached files land there too.
 	void webHost.keepUploadsSwept();
 	// Paired phones hear of finished turns, failures and asks through Web Push (web/web-push-notifier.ts).
@@ -2432,7 +2438,8 @@ app.whenReady().then(async () => {
 	if (relaunchPresence === "hidden" && process.platform === "darwin") app.hide();
 	// Each paired phone's or tablet's tabs come back into its window, as the host's sessions (web/web-tab-layouts.ts).
 	const restoredLayouts = [...savedLayouts];
-	if (webHost) {
+	// Only from the core's list: an empty copy would forget every device's layout.
+	if (webHost?.storesReady) {
 		const paired = new Set(webHost.devices.list().map(device => device.deviceId));
 		for (const { deviceId, layout } of webTabLayouts.restorable(paired)) {
 			sidecarPool.restoreLayout(webHost.windows.windowFor(deviceId), layout);

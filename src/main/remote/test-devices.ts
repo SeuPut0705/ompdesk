@@ -108,6 +108,7 @@ export class DevicesRig {
 		const tailnet = { pushed: [] as TailnetComputer[] };
 		const broadcasts: { channel: string; data: unknown }[] = [];
 		const blocks = new WebBlocks(dir);
+		await blocks.ready();
 		const confirm = { answer: true, asked: [] as string[] };
 		const allowed = [LOGIN];
 		const services = {

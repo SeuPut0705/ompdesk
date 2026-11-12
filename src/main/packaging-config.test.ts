@@ -21,6 +21,7 @@ interface BuilderConfig {
 	appId?: string;
 	productName?: string;
 	afterPack?: string;
+	asarUnpack?: string[];
 	electronLanguages?: string[];
 	extraResources?: { from: string; to: string }[];
 	protocols?: { name: string; schemes?: string[] }[];
@@ -213,6 +214,13 @@ describe("mac bundle configs", () => {
 		const main = configs.find(entry => entry.file === "electron-builder.yml")?.config;
 		// The legacy update feed adds the ZIP from the release workflow's command line.
 		expect(main?.mac?.target).toEqual([{ target: "dmg", arch: ["arm64"] }]);
+	});
+
+	it("ships the built renderer outside the asar, where the core process reads the page it serves", () => {
+		for (const file of ["electron-builder.yml", "electron-builder.win.yml"]) {
+			const config = parse(fs.readFileSync(path.join(PACKAGE_ROOT, file), "utf8")) as BuilderConfig;
+			expect(config.asarUnpack, file).toEqual(["out/renderer/**"]);
+		}
 	});
 
 	it("ships the gui-bridge extension outside the asar", () => {

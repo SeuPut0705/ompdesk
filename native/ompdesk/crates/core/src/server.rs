@@ -227,6 +227,10 @@ pub fn registry() -> Registry {
     crate::care::register(&mut registry);
     crate::sidecar::register(&mut registry);
     crate::ipc::register(&mut registry);
+    crate::web::bytes::register(&mut registry);
+    crate::web::host::register(&mut registry);
+    crate::web::push::register(&mut registry);
+    crate::web::store::register(&mut registry);
     registry
 }
 
@@ -331,6 +335,7 @@ where
         crate::stock::close_all(&ending).await;
         crate::sidecar::close_all(&ending).await;
     }
+    crate::web::store::flush_all().await;
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;
     read_result.and(written)

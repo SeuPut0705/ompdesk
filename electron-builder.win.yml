@@ -49,6 +49,11 @@ protocols:
     schemes:
       - omp
 asar: true
+# The built renderer lies outside the asar: the core process serves it to a paired phone (native-rust ledger 8b) and
+# reads it as plain files, which an archive only Electron's fs understands is not. The desktop window still loads it
+# through the asar path; Electron reads an unpacked file there from `app.asar.unpacked`.
+asarUnpack:
+  - out/renderer/**
 compression: maximum
 
 win:

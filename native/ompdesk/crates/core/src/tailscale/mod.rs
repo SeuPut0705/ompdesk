@@ -1,8 +1,9 @@
 //! Tailscale, for Mobile web and for sharing this computer with other OMPdesk computers (was the logic of
 //! `src/main/tailscale/`): finding the CLI (`locate.rs`), running it, reading what it prints (`status.rs`, `whois.rs`,
-//! `serve.rs`, `text.rs`) and the rules of publishing the page with `serve`. Main keeps what is its own state: Mobile
-//! web's phases with its prefs, its server and its poll (`service.ts`), and the brief caches of computer sharing's
-//! reads (`tailnet.ts`).
+//! `serve.rs`, `text.rs`) and the rules of publishing the page with `serve`; and Mobile web's state machine over them
+//! (`service.rs`: the phases, the poll tick, install, sign-in, publish, unpublish). Main keeps what is its own: the
+//! prefs, the setup item, the page's server and the browser the machine asks it for, the chain that runs its steps
+//! one at a time and the poll's timer (`service.ts`), and the brief caches of computer sharing's reads (`tailnet.ts`).
 //!
 //! Main decides how the CLI runs and hands it over with every request (`tailscale`: the binary a lookup found, its
 //! whole environment with the located CLI's own variables over it, the 10 s ceiling and the 4 MiB cap). This side
@@ -17,8 +18,10 @@
 mod json;
 mod locate;
 mod serve;
+mod service;
 mod status;
 mod text;
+mod version;
 mod whois;
 
 use std::collections::BTreeMap;
@@ -615,6 +618,7 @@ pub fn register(registry: &mut Registry) {
     method!(registry, "tailscale.confirm", confirm);
     method!(registry, "tailscale.unpublish", unpublish);
     method!(registry, "tailscale.startApp", start_app);
+    service::register(registry);
 }
 
 #[cfg(test)]

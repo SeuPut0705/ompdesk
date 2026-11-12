@@ -1,21 +1,21 @@
 /**
  * The device proof as real browsers make it (docs/rust-remaining-units.md §5.2): Playwright's Chromium and WebKit
  * generate an ECDSA P-256 key with WebCrypto, sign nonces the way the page does (`src/renderer/web/device-key.ts`
- * `signNonce`: ECDSA / SHA-256 over the UTF-8 nonce, raw IEEE P1363, base64url), and the TypeScript verifier accepts them
- * and refuses a tampered nonce, a tampered signature, another key, a DER signature and a wrong length.
+ * `signNonce`: ECDSA / SHA-256 over the UTF-8 nonce, raw IEEE P1363, base64url), and node's verifier, the one the
+ * TypeScript server used before the core served the page, accepts them and refuses a tampered nonce, a tampered
+ * signature, another key, a DER signature and a wrong length.
  *
  * The signatures are also kept in `native/ompdesk/crates/core/src/web/testdata/browser-p256.json`, which the core's Rust
  * verifier (`web/proof_browsers.rs`) accepts and refuses alike; `OMPDESK_WEB_P256=write` makes the file anew from the
  * installed browsers. A browser that is not installed (`bunx playwright install chromium webkit`) skips its cases.
  * This runs in the node project because the e2e project's global setup needs the built app, which a WebCrypto check does not.
  */
-import type { JsonWebKey as NodeJsonWebKey } from "node:crypto";
+import { createPublicKey, type JsonWebKey as NodeJsonWebKey, verify } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type Browser, chromium, webkit } from "playwright-core";
 import { afterAll, describe, expect, it } from "vitest";
-import { verifyDeviceProof } from "./auth";
 
 const HERE = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const FIXTURE = join(resolve(HERE, "../../../native/ompdesk/crates/core/src/web/testdata"), "browser-p256.json");
@@ -25,7 +25,24 @@ const NONCES = 16;
 // (scripts/vitest-real-home-guard.ts) refuses that, so the registry goes to the temp folder.
 const REGISTRY = mkdtempSync(join(tmpdir(), "pw-registry-"));
 process.env.PWTEST_SERVER_REGISTRY = REGISTRY;
+// A browser's first launch writes a host-check marker into the browsers' cache under the real home; the check is the
+// installer's business, not this test's.
+process.env.PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "1";
 afterAll(() => rmSync(REGISTRY, { recursive: true, force: true }));
+
+/** Node's ECDSA check as the TypeScript server's `verifyDeviceProof` made it: the oracle the fixture is held to. */
+function verifyDeviceProof(publicKey: NodeJsonWebKey, nonce: string, signature: string): boolean {
+	try {
+		return verify(
+			"sha256",
+			Buffer.from(nonce),
+			{ key: createPublicKey({ key: publicKey, format: "jwk" }), dsaEncoding: "ieee-p1363" },
+			Buffer.from(signature, "base64url"),
+		);
+	} catch {
+		return false;
+	}
+}
 
 interface Proof {
 	nonce: string;

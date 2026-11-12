@@ -213,7 +213,17 @@ async function pair(options: { withKey?: boolean; name?: string } = {}): Promise
 	expect(response.status).toBe(200);
 	const cookie = (response.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 	const body = (await response.json()) as { deviceId: string };
+	await settled();
 	return { cookie, deviceId: body.deviceId, privateKey: keys?.privateKey ?? null };
+}
+
+/**
+ * The paired devices and the blocks are the core's: a change main makes reaches the edge over the core's pipe, and one
+ * the edge makes reaches main's copy as an event, while the test's requests take the network. This waits until both
+ * sides hold every change made so far.
+ */
+async function settled(): Promise<void> {
+	await Promise.all([host.devices.flush(), host.blocks.flush()]);
 }
 
 async function ticketFor(paired: Paired, headers: Record<string, string> = {}): Promise<string> {
@@ -409,6 +419,7 @@ describe("connecting a device", () => {
 	it("makes the device on the first visit of an allowed login: hardened cookie, named from whois, the desktop told once", async () => {
 		const response = await post("/api/pair", { name: "Android phone · Chrome" }, { "user-agent": "Safari/1" });
 		expect(response.status).toBe(200);
+		await settled();
 		const cookie = response.headers.get("set-cookie") ?? "";
 		expect(cookie).toMatch(/^ompdesk=[\w-]+\.[\w-]{43};/);
 		expect(cookie).toContain("HttpOnly");
@@ -429,8 +440,10 @@ describe("connecting a device", () => {
 	it("names the device from the page when whois cannot say, and keeps it without a node identity", async () => {
 		const response = await post("/api/pair", { name: "iPhone · Safari" }, { "x-forwarded-for": "100.64.0.77" });
 		expect(response.status).toBe(200);
+		await settled();
 		expect(host.devices.list()[0]).toMatchObject({ name: "iPhone · Safari", nodeId: null });
 		expect((await post("/api/pair", { name: "  " }, { "x-forwarded-for": "100.64.0.78" })).status).toBe(200);
+		await settled();
 		expect(host.devices.list().map(device => device.name)).toContain("Phone");
 	});
 
@@ -599,6 +612,7 @@ describe("blocking a device", () => {
 		const paired = await pair();
 		expect(await list()).toMatchObject([{ id: paired.deviceId, blockScope: "node" }]);
 		const left = await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, paired.deviceId);
+		await settled();
 		expect(left).toEqual([]);
 		expect(host.devices.list()).toEqual([]);
 		expect((await post("/api/session", {}, { cookie: paired.cookie })).status).toBe(401);
@@ -615,6 +629,7 @@ describe("blocking a device", () => {
 		const blocked = await blockedList();
 		expect(blocked).toMatchObject([{ scope: "node", name: "s25u", tailscaleLogin: LOGIN }]);
 		const afterUnblock = await handlers.get(WEB_BLOCKS_REMOVE)?.({} as IpcCaller, blocked[0]?.id);
+		await settled();
 		expect(afterUnblock).toEqual([]);
 		expect((await raw("/")).status).toBe(200);
 		expect((await pair()).deviceId).not.toBe(paired.deviceId);
@@ -626,6 +641,7 @@ describe("blocking a device", () => {
 		const tablet = await post("/api/pair", { name: "t" }, { "x-forwarded-for": "100.64.0.10" });
 		expect(tablet.status).toBe(200);
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		await settled();
 		expect(host.devices.list().map(device => device.name)).toEqual(["tablet"]);
 		const visit = await raw("/", { "x-forwarded-for": "100.64.0.10" });
 		expect(visit.status).toBe(200);
@@ -639,6 +655,7 @@ describe("blocking a device", () => {
 		await arrived(frames => frames.length > 0);
 		const closed = new Promise<number>(resolve => socket.once("close", code => resolve(code)));
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		await settled();
 		expect(await closed).toBe(4401);
 		expect(host.devices.list()).toEqual([]);
 	});
@@ -649,6 +666,7 @@ describe("blocking a device", () => {
 		const tablet = await post("/api/pair", { name: "t" }, { "x-forwarded-for": "100.64.0.10" });
 		const tabletCookie = (tablet.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, first.deviceId);
+		await settled();
 		peers.clear();
 		expect((await raw("/", { cookie: tabletCookie, "x-forwarded-for": "100.64.0.10" })).status).toBe(200);
 		// A visit that cannot be told apart from the blocked node is held back too.
@@ -661,6 +679,7 @@ describe("blocking a device", () => {
 		const paired = await pair();
 		expect(await list()).toMatchObject([{ id: paired.deviceId, blockScope: "login" }]);
 		await handlers.get(WEB_DEVICES_REVOKE)?.({} as IpcCaller, paired.deviceId);
+		await settled();
 		expect(await blockedList()).toMatchObject([{ scope: "login", tailscaleLogin: LOGIN }]);
 		const page = await raw("/", { "x-forwarded-for": "100.64.0.50" });
 		expect(page.status).toBe(403);
@@ -686,7 +705,8 @@ describe("session tickets", () => {
 		expect((await post("/api/session", {}, { cookie: "ompdesk=nodot" })).status).toBe(401);
 		expect(unpaired).not.toHaveBeenCalled();
 		expect((await post("/api/session", {}, { cookie: "ompdesk=abc.xyz" })).status).toBe(401);
-		expect(unpaired).toHaveBeenCalledTimes(1);
+		// The core tells main beside the answer, over its own pipe.
+		await vi.waitFor(() => expect(unpaired).toHaveBeenCalledTimes(1));
 	});
 
 	it("makes the device sign a nonce with its key before it gets a ticket, once per nonce", async () => {
@@ -797,6 +817,7 @@ describe("WebSocket", () => {
 		const result = await handlers.get(WEB_DEVICES_LIST)?.({} as IpcCaller);
 		expect(result as WebDeviceInfo[]).toMatchObject([{ id: paired.deviceId, connected: true }]);
 		host.devices.revoke(paired.deviceId);
+		await settled();
 		expect(await closed).toBe(4401);
 		expect(released).toHaveBeenCalledOnce();
 		await until(() => !existsSync(uploaded.path));
@@ -912,8 +933,11 @@ describe("/api/push", () => {
 		},
 	});
 	const get = (paired: Paired) => fetch(`${base}/api/push`, { headers: { cookie: paired.cookie } });
-	const change = (paired: Paired, body: unknown, headers: Record<string, string> = {}) =>
-		post("/api/push", body, { cookie: paired.cookie, ...headers });
+	const change = async (paired: Paired, body: unknown, headers: Record<string, string> = {}) => {
+		const response = await post("/api/push", body, { cookie: paired.cookie, ...headers });
+		await settled();
+		return response;
+	};
 
 	it("needs the device's cookie", async () => {
 		expect((await fetch(`${base}/api/push`)).status).toBe(401);
@@ -927,7 +951,7 @@ describe("/api/push", () => {
 		expect(response.headers.get("cache-control")).toBe("no-store");
 		const state = (await response.json()) as WebPushStateResponse;
 		expect(state).toEqual({
-			publicKey: host.vapid.keys().publicKey,
+			publicKey: host.sender.publicKey,
 			subscribed: false,
 			hideContent: false,
 			categories: ["completion", "error", "ask"],
@@ -1050,6 +1074,7 @@ describe("/api/push", () => {
 	it("needs the device-self grant", async () => {
 		const paired = await pair();
 		host.devices.setGrants(paired.deviceId, ["workspace"]);
+		await settled();
 		expect((await get(paired)).status).toBe(403);
 		expect((await change(paired, { hideContent: true })).status).toBe(403);
 	});
@@ -1068,6 +1093,7 @@ describe("/api/push", () => {
 		const paired = await pair();
 		await change(paired, { subscription: subscription() });
 		host.devices.revoke(paired.deviceId);
+		await settled();
 		expect(host.devices.get(paired.deviceId)).toBeUndefined();
 		expect(JSON.stringify(host.devices.list())).not.toContain("push.example.com");
 		expect((await get(paired)).status).toBe(401);
