@@ -66,6 +66,12 @@ export function publishSnapshot(root: string, hash = stampHash(root)): string | 
 		const temp = `${dest}.tmp-${process.pid}`;
 		fs.rmSync(temp, { recursive: true, force: true });
 		fs.cpSync(path.join(root, "out"), temp, { recursive: true, mode: fs.constants.COPYFILE_FICLONE });
+		// A copy of out/, made and pruned on its own clock: `ompdesk check` reads a tagged folder as no input
+		// (native/ompdesk/crates/checks/src/inputs.rs), so a snapshot coming or going never forces a full rerun.
+		fs.writeFileSync(
+			path.join(temp, "CACHEDIR.TAG"),
+			"Signature: 8a477f597d28d172789f06886806bc55\n# A copy of out/ for one Playwright run (scripts/out-snapshot.ts).\n",
+		);
 		try {
 			fs.renameSync(temp, dest);
 		} catch {
