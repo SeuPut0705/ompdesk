@@ -87,14 +87,14 @@ CoreReadsCancel ==
     /\ cancelled' = (cancelled \/ (registered /\ ~answered))
     /\ UNCHANGED <<step, req, toMain, registered, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/run.rs:93-95 a git (or gh) starts only while its request is not cancelled
+\* @code native/ompdesk/crates/core/src/run.rs:121-123 a git (or gh) starts only while its request is not cancelled
 Spawn ==
     /\ coreUp /\ handler = "running" /\ ~cancelled /\ gits < MaxGits /\ alive < Par
     /\ gits' = gits + 1 /\ alive' = alive + 1
     /\ spawnedAfterStop' = (spawnedAfterStop \/ step = "stopped")
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, answered, coreUp, nextHolder, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/run.rs:246-266 supervise: the git (or gh) exits (by itself, or ended after a cancel or its timeout)
+\* @code native/ompdesk/crates/core/src/run.rs:277-297 supervise: the git (or gh) exits (by itself, or ended after a cancel or its timeout)
 GitExits ==
     /\ alive > 0
     /\ alive' = alive - 1
