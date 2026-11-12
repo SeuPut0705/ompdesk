@@ -56,6 +56,12 @@ step "5. the item's partition list also names the reader (security, with the key
 P1=$(security dump-keychain -a "$KC" | awk '/ompdesk Safe Storage/{f=1} f' | sed -n 's/.*description: \(cdhash:[0-9a-f]*\).*/\1/p' | head -1)
 security set-generic-password-partition-list -S "apple-tool:,apple:,$P1,cdhash:$MC" -k $PW -s "ompdesk Safe Storage" "$KC" >/dev/null && echo "partition list now: apple-tool:,apple:,$P1,cdhash:$MC"
 rm -rf "$W/wv"; OMPDESK_PROTO_KEYCHAIN_OK=1 limit 60 ./mc "$UD" "$W/wv" | grep migrate.token || echo "migrate.token: timed out (a dialog would have asked)"
+step "6. as on the developer's Mac: a keychain reached through a test HOME (the item's ACL only, no read)"
+H2=$W/home2; mkdir -p "$H2/Library/Keychains"; KC2=$H2/Library/Keychains/proto.keychain-db
+HOME=$H2 security create-keychain -p $PW "$KC2" && HOME=$H2 security unlock-keychain -p $PW "$KC2" && HOME=$H2 security set-keychain-settings "$KC2"
+ln -s proto.keychain-db "$H2/Library/Keychains/login.keychain-db"; HOME=$H2 security default-keychain
+env -i HOME=$H2 PATH=/usr/bin:/bin limit 90 s1/OMPdesk.app/Contents/MacOS/OMPdesk --user-data-dir=$W/ud2 2>/dev/null | grep userData
+HOME=$H2 security dump-keychain -a "$KC2" | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,45p' | grep -E 'authorizations|description: cdhash|requirement'
 kill $WATCH 2>/dev/null
 step "security dialogs logged"
 grep -v -E '^(Filtering|Timestamp)' "$W/dialogs.log" | head -20; echo "lines: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")"
