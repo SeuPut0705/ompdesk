@@ -1,0 +1,1570 @@
+{
+	"platform": "win32",
+	"listening": [
+		{
+			"text": "LISTEN 0 4096 127.0.0.1:631 0.0.0.0:*\nLISTEN 0 511 [::]:3000 [::]:*\n",
+			"ports": [
+				631,
+				3000
+			]
+		},
+		{
+			"text": "Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address Foreign Address State\ntcp 0 0 0.0.0.0:22 0.0.0.0:* LISTEN\n",
+			"ports": [
+				22
+			]
+		},
+		{
+			"text": "COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nnode 812 me 23u IPv6 0x1 0t0 TCP *:5173 (LISTEN)\n",
+			"ports": [
+				5173
+			]
+		},
+		{
+			"text": "",
+			"ports": []
+		},
+		{
+			"text": "\n\n",
+			"ports": []
+		},
+		{
+			"text": "   \n\t\n",
+			"ports": []
+		},
+		{
+			"text": "LISTEN 0 128 *:22 *:*",
+			"ports": [
+				22
+			]
+		},
+		{
+			"text": "tcp6 0 0 :::8080 :::* LISTEN",
+			"ports": []
+		},
+		{
+			"text": "tcp 0 0 [::]:443 [::]:* LISTEN",
+			"ports": [
+				443
+			]
+		},
+		{
+			"text": "tcp4 0 0 127.0.0.1.631 *.* LISTEN",
+			"ports": [
+				631
+			]
+		},
+		{
+			"text": "tcp46 0 0 *.5000 *.* LISTEN",
+			"ports": [
+				5000
+			]
+		},
+		{
+			"text": "node 1 me 23u IPv4 0x1 0t0 TCP 127.0.0.1:3000 (LISTEN)",
+			"ports": [
+				3000
+			]
+		},
+		{
+			"text": "proto x 1.2.3.4:5",
+			"ports": []
+		},
+		{
+			"text": "ACTIVE 1.1.1.1:9",
+			"ports": []
+		},
+		{
+			"text": "Stateful 1.2.3.4:80",
+			"ports": [
+				80
+			]
+		},
+		{
+			"text": "State 1.2.3.4:80",
+			"ports": []
+		},
+		{
+			"text": "state: 1.2.3.4:81",
+			"ports": []
+		},
+		{
+			"text": "Netid-x 1.2.3.4:80",
+			"ports": []
+		},
+		{
+			"text": "COMMAND_ 1.1.1.1:1",
+			"ports": [
+				1
+			]
+		},
+		{
+			"text": "Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:*",
+			"ports": [
+				22
+			]
+		},
+		{
+			"text": "x 1.2.3.4:0 1.2.3.4:80",
+			"ports": []
+		},
+		{
+			"text": "x 1.2.3.4:65536 1.2.3.4:80",
+			"ports": []
+		},
+		{
+			"text": "x 1.2.3.4:65535",
+			"ports": [
+				65535
+			]
+		},
+		{
+			"text": "x 1.2.3.4:00080",
+			"ports": [
+				80
+			]
+		},
+		{
+			"text": "x 1.2.3.4:123456 y:7",
+			"ports": [
+				7
+			]
+		},
+		{
+			"text": "a:3\nb:1\nc:3\nd:2",
+			"ports": [
+				1,
+				2,
+				3
+			]
+		},
+		{
+			"text": "LISTEN 0 1 127.0.0.1:22 0.0.0.0:*\r\nLISTEN 0 1 127.0.0.1:23 x\r\n",
+			"ports": [
+				22,
+				23
+			]
+		},
+		{
+			"text": "a 127.0.0.1:99",
+			"ports": [
+				99
+			]
+		},
+		{
+			"text": "﻿127.0.0.1:98",
+			"ports": [
+				98
+			]
+		},
+		{
+			"text": "a　b c:97",
+			"ports": [
+				97
+			]
+		},
+		{
+			"text": "LISTEN 0 128 fe80::1%eth0:22",
+			"ports": []
+		},
+		{
+			"text": "x eth0%1.22",
+			"ports": [
+				22
+			]
+		},
+		{
+			"text": "[fe80::1%lo0]:8080",
+			"ports": [
+				8080
+			]
+		},
+		{
+			"text": "[a]b]:80",
+			"ports": []
+		},
+		{
+			"text": "[]:80",
+			"ports": [
+				80
+			]
+		},
+		{
+			"text": "]:80",
+			"ports": []
+		},
+		{
+			"text": ".80",
+			"ports": [
+				80
+			]
+		},
+		{
+			"text": ":80",
+			"ports": [
+				80
+			]
+		},
+		{
+			"text": "80",
+			"ports": []
+		},
+		{
+			"text": "x:٣",
+			"ports": []
+		},
+		{
+			"text": "é:80 z:81",
+			"ports": [
+				81
+			]
+		},
+		{
+			"text": "x:1 y:2",
+			"ports": [
+				1
+			]
+		},
+		{
+			"text": "a\tb\t127.0.0.1:8443\tc",
+			"ports": [
+				8443
+			]
+		},
+		{
+			"text": "a_b-c.d*e%f:12345",
+			"ports": [
+				12345
+			]
+		},
+		{
+			"text": "a b:1:2",
+			"ports": []
+		},
+		{
+			"text": "1.2.3",
+			"ports": [
+				3
+			]
+		},
+		{
+			"text": "x:99999",
+			"ports": []
+		},
+		{
+			"text": "x:1e3",
+			"ports": []
+		},
+		{
+			"text": "x:-5",
+			"ports": []
+		},
+		{
+			"text": "LISTEN 0 4096 127.0.0.1:631 0.0.0.0:*\n__junk__\nLISTEN 0 4096 [::1]:6010 [::]:*",
+			"ports": [
+				631,
+				6010
+			]
+		}
+	],
+	"prompts": [
+		{
+			"text": "The authenticity of host 'jump.example (10.0.0.1)' can't be established.\nED25519 key fingerprint is SHA256:abc+/=.\nAre you sure you want to continue connecting (yes/no/[fingerprint])?",
+			"kind": "hostKey",
+			"fingerprint": "SHA256:abc+/=",
+			"host": "jump.example (10.0.0.1)"
+		},
+		{
+			"text": "Enter passphrase for key '/u/.ssh/id_ed25519': ",
+			"kind": "passphrase",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "me@box's password: ",
+			"kind": "password",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Verification code: ",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "",
+			"kind": "other",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "continue connecting?",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "AUTHENTICITY OF HOST 'A' CONTINUE CONNECTING",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "A"
+		},
+		{
+			"text": "The authenticity of host '' x. The authenticity of host 'b' is unknown",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "b"
+		},
+		{
+			"text": "The authenticity of host 'abc can't",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "abc can"
+		},
+		{
+			"text": "The authenticity of host ''x' y",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "The authenticity of host 'multi\nline' ok",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "multi\nline"
+		},
+		{
+			"text": "authenticity of host 'h'. RSA key fingerprint is MD5:aa:bb:cc:0f.",
+			"kind": "hostKey",
+			"fingerprint": "MD5:aa:bb:cc:0f",
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. fingerprint isSHA256:abc",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. fingerprint _SHA256:abc and -SHA256:def",
+			"kind": "hostKey",
+			"fingerprint": "SHA256:def",
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. MD5:AA:BB then MD5:aa:b then MD5:aa:bb",
+			"kind": "hostKey",
+			"fingerprint": "MD5:aa",
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. SHA256: then SHA256:x",
+			"kind": "hostKey",
+			"fingerprint": "SHA256:x",
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. éSHA256:afterNonAscii",
+			"kind": "hostKey",
+			"fingerprint": "SHA256:afterNonAscii",
+			"host": "h"
+		},
+		{
+			"text": "authenticity of host 'h'. MD5 MD5: MD5:a",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": "h"
+		},
+		{
+			"text": "Enter PASSPHRASE for key",
+			"kind": "passphrase",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "passphrase and password",
+			"kind": "passphrase",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "One-time password (OATH) for `me': ",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "OTP: ",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Token: ",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Authenticator code: ",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "VERIFICATION CODE",
+			"kind": "code",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Password:",
+			"kind": "password",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "(me@box) Password for me@box: ",
+			"kind": "password",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Enter PIN for 'key': ",
+			"kind": "other",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Enter passphrase, or continue connecting",
+			"kind": "hostKey",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "paſſword",
+			"kind": "other",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Key password",
+			"kind": "password",
+			"fingerprint": null,
+			"host": null
+		},
+		{
+			"text": "Please type 'yes', 'no' or the fingerprint: ",
+			"kind": "other",
+			"fingerprint": null,
+			"host": null
+		}
+	],
+	"failures": [
+		{
+			"text": "@@@\n@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @\nfoo",
+			"kind": "hostKeyChanged",
+			"message": "foo"
+		},
+		{
+			"text": "me@box: Permission denied (publickey).",
+			"kind": "refused",
+			"message": "me@box: Permission denied (publickey)."
+		},
+		{
+			"text": "Connection to box closed by remote host.",
+			"kind": "dropped",
+			"message": "Connection to box closed by remote host."
+		},
+		{
+			"text": "",
+			"kind": "dropped",
+			"message": "ssh exited"
+		},
+		{
+			"text": "\n\n",
+			"kind": "dropped",
+			"message": "ssh exited"
+		},
+		{
+			"text": "debug1: x\ndebug: y\ndebug12: z\nreal",
+			"kind": "dropped",
+			"message": "real"
+		},
+		{
+			"text": "debug1: only\ndebug2: debug\n",
+			"kind": "dropped",
+			"message": "ssh exited"
+		},
+		{
+			"text": "@@@@\n@ x @",
+			"kind": "dropped",
+			"message": "ssh exited"
+		},
+		{
+			"text": "Host key for box has changed and you have requested strict checking.\nHost key verification failed.",
+			"kind": "hostKeyChanged",
+			"message": "Host key verification failed."
+		},
+		{
+			"text": "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n@ fingerprint @\nThe fingerprint for the ED25519 key sent by the remote host is\nSHA256:changedchangedchanged.\nHost key verification failed.\n",
+			"kind": "hostKeyChanged",
+			"message": "The fingerprint for the ED25519 key sent by the remote host is"
+		},
+		{
+			"text": "HOST KEY FOR X HAS CHANGED",
+			"kind": "hostKeyChanged",
+			"message": "HOST KEY FOR X HAS CHANGED"
+		},
+		{
+			"text": "Host key for\nx has changed",
+			"kind": "dropped",
+			"message": "x has changed"
+		},
+		{
+			"text": "Host key for  has changed",
+			"kind": "hostKeyChanged",
+			"message": "Host key for  has changed"
+		},
+		{
+			"text": "Host key for a has changed\nThe FINGERPRINT is x\nlast",
+			"kind": "hostKeyChanged",
+			"message": "The FINGERPRINT is x"
+		},
+		{
+			"text": "host key for a\rb has changed",
+			"kind": "dropped",
+			"message": "host key for a\rb has changed"
+		},
+		{
+			"text": "Too many authentication failures",
+			"kind": "refused",
+			"message": "Too many authentication failures"
+		},
+		{
+			"text": "bind [127.0.0.1]:8080: Address already in use",
+			"kind": "refused",
+			"message": "bind [127.0.0.1]:8080: Address already in use"
+		},
+		{
+			"text": "bind\nAddress already in use",
+			"kind": "dropped",
+			"message": "Address already in use"
+		},
+		{
+			"text": "BIND: ADDRESS ALREADY IN USE\r\nchannel_setup_fwd_listener_tcpip: cannot listen to port: 8080\r\nCould not request local forwarding.\r\n",
+			"kind": "refused",
+			"message": "Could not request local forwarding."
+		},
+		{
+			"text": "channel_setup_fwd_listener_tcpip: cannot listen to port: 8080",
+			"kind": "refused",
+			"message": "channel_setup_fwd_listener_tcpip: cannot listen to port: 8080"
+		},
+		{
+			"text": "ssh: connect to host box port 22: Connection refused",
+			"kind": "dropped",
+			"message": "ssh: connect to host box port 22: Connection refused"
+		},
+		{
+			"text": "kex_exchange_identification: Connection closed by remote host\n   \n",
+			"kind": "dropped",
+			"message": "kex_exchange_identification: Connection closed by remote host"
+		},
+		{
+			"text": "ssh: Could not resolve hostname x: nodename nor servname provided, or not known",
+			"kind": "dropped",
+			"message": "ssh: Could not resolve hostname x: nodename nor servname provided, or not known"
+		},
+		{
+			"text": "spawn ssh ENOENT\n",
+			"kind": "dropped",
+			"message": "spawn ssh ENOENT"
+		},
+		{
+			"text": "a\rb",
+			"kind": "dropped",
+			"message": "a\rb"
+		},
+		{
+			"text": "  padded line  \n\t",
+			"kind": "dropped",
+			"message": "padded line"
+		},
+		{
+			"text": "Warning: Permanently added 'box' (ED25519) to the list of known hosts.\nme@box: permission DENIED (publickey,password).\n",
+			"kind": "refused",
+			"message": "me@box: permission DENIED (publickey,password)."
+		},
+		{
+			"text": "Host key verification failed.\n",
+			"kind": "refused",
+			"message": "Host key verification failed."
+		},
+		{
+			"text": "debug1: Permission denied\n",
+			"kind": "refused",
+			"message": "ssh exited"
+		},
+		{
+			"text": "@ Permission denied @",
+			"kind": "refused",
+			"message": "ssh exited"
+		},
+		{
+			"text": " nbsp ",
+			"kind": "dropped",
+			"message": "nbsp"
+		},
+		{
+			"text": "line separator has changed",
+			"kind": "dropped",
+			"message": "line separator has changed"
+		}
+	],
+	"resolved": [
+		{
+			"text": "",
+			"host": "box",
+			"names": [
+				"box"
+			]
+		},
+		{
+			"text": "hostname box.example\nport 22\nproxyjump none\n",
+			"host": "box",
+			"names": [
+				"box.example"
+			]
+		},
+		{
+			"text": "hostname box.example\nport 2222\nuser me\n",
+			"host": "box",
+			"names": [
+				"[box.example]:2222"
+			]
+		},
+		{
+			"text": "hostname h\nport 22\nproxyjump a,b:2200, user@c , ssh://user@d:22, ssh://e",
+			"host": "box",
+			"names": [
+				"h",
+				"a",
+				"[b]:2200",
+				"c",
+				"d",
+				"e"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump [::1]:2200",
+			"host": "box",
+			"names": [
+				"h",
+				"[::1]:2200"
+			]
+		},
+		{
+			"text": "hostname fe80::1\nport 22",
+			"host": "box",
+			"names": [
+				"fe80"
+			]
+		},
+		{
+			"text": "hostname fe80::1\nport 2222",
+			"host": "box",
+			"names": [
+				"[fe80]:2222"
+			]
+		},
+		{
+			"text": "hostname a\nport 2222\nproxyjump a",
+			"host": "box",
+			"names": [
+				"[a]:2222",
+				"[a]:2222"
+			]
+		},
+		{
+			"text": "hostname a\nport abc",
+			"host": "box",
+			"names": [
+				"a"
+			]
+		},
+		{
+			"text": "hostname a\nport 0",
+			"host": "box",
+			"names": [
+				"a"
+			]
+		},
+		{
+			"text": "hostname a\nport 65536",
+			"host": "box",
+			"names": [
+				"[a]:65536"
+			]
+		},
+		{
+			"text": "hostname a\nport 1e3",
+			"host": "box",
+			"names": [
+				"[a]:1000"
+			]
+		},
+		{
+			"text": "hostname a\nport 0x16",
+			"host": "box",
+			"names": [
+				"a"
+			]
+		},
+		{
+			"text": "hostname a\nport  22 ",
+			"host": "box",
+			"names": [
+				"a"
+			]
+		},
+		{
+			"text": "hostname a\nport -0",
+			"host": "box",
+			"names": [
+				"a"
+			]
+		},
+		{
+			"text": "hostname a\nport Infinity",
+			"host": "box",
+			"names": [
+				"[a]:Infinity"
+			]
+		},
+		{
+			"text": "hostname a\nport 99999999999999999999999",
+			"host": "box",
+			"names": [
+				"[a]:1e+23"
+			]
+		},
+		{
+			"text": "hostname  ",
+			"host": "box",
+			"names": [
+				""
+			]
+		},
+		{
+			"text": "hostname \t",
+			"host": "box",
+			"names": [
+				""
+			]
+		},
+		{
+			"text": "hostname",
+			"host": "box",
+			"names": [
+				"box"
+			]
+		},
+		{
+			"text": "HOSTNAME x\nPort 2222",
+			"host": "box",
+			"names": [
+				"box"
+			]
+		},
+		{
+			"text": "user hostname x",
+			"host": "box",
+			"names": [
+				"box"
+			]
+		},
+		{
+			"text": "x\nhostname y",
+			"host": "box",
+			"names": [
+				"y"
+			]
+		},
+		{
+			"text": "hostname x\r\nport 2222\r\nproxyjump j\r\n",
+			"host": "box",
+			"names": [
+				"[x]:2222",
+				"j"
+			]
+		},
+		{
+			"text": "hostname a\nhostname b\nport 1\nport 2",
+			"host": "box",
+			"names": [
+				"[a]:1"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:abc",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:0"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:22",
+			"host": "box",
+			"names": [
+				"h",
+				"a"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:022",
+			"host": "box",
+			"names": [
+				"h",
+				"a"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:1e3",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:1000"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:0x16",
+			"host": "box",
+			"names": [
+				"h",
+				"a"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:0b11",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:3"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:0o17",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:15"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a: 23 ",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:23"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:+23",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:23"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:.5",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:0.5"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:5.",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:5"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:1_0",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:-Infinity",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:-Infinity"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:infinity",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:nan",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:1e",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:0x",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump a:b:c",
+			"host": "box",
+			"names": [
+				"h",
+				"[a]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump none",
+			"host": "box",
+			"names": [
+				"h"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump NONE",
+			"host": "box",
+			"names": [
+				"h",
+				"NONE"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump ,a",
+			"host": "box",
+			"names": [
+				"h",
+				"",
+				"a"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump user@host@x:22",
+			"host": "box",
+			"names": [
+				"h",
+				"host@x"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump ssh://user@h2:2222/path",
+			"host": "box",
+			"names": [
+				"h",
+				"[h2]:NaN"
+			]
+		},
+		{
+			"text": "hostname h\nproxyjump h",
+			"host": "box",
+			"names": [
+				"h",
+				"h"
+			]
+		},
+		{
+			"text": "hostname h\nport 2200\nproxyjump h:2200,h",
+			"host": "box",
+			"names": [
+				"[h]:2200",
+				"[h]:2200",
+				"[h]:2200"
+			]
+		},
+		{
+			"text": "port 2022",
+			"host": "fallback.example",
+			"names": [
+				"[fallback.example]:2022"
+			]
+		},
+		{
+			"text": "port 2022",
+			"host": "fe80::2",
+			"names": [
+				"[fe80]:2022"
+			]
+		},
+		{
+			"text": "hostname x port 2222",
+			"host": "box",
+			"names": [
+				"[x]:2222"
+			]
+		}
+	],
+	"targets": [
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example"
+			},
+			"args": [
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": "me",
+				"port": 2222,
+				"keyPath": "/home/me/.ssh/id"
+			},
+			"args": [
+				"-p",
+				"2222",
+				"-l",
+				"me",
+				"-i",
+				"/home/me/.ssh/id",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": ""
+			},
+			"args": [
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"keyPath": ""
+			},
+			"args": [
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": 1
+			},
+			"args": [
+				"-p",
+				"1",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": 65535
+			},
+			"args": [
+				"-p",
+				"65535",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": 0
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": 65536
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": 22.5
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": -22
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": "22"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"port": null
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": null
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"keyPath": null
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "",
+				"host": "box.example"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": ""
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"host": "box.example"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": 5,
+				"host": "box.example"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": [
+					"box.example"
+				]
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "-oProxyCommand=touch /tmp/pwned"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "-F/etc/passwd"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "--"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "-"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": " -oProxyCommand=x"
+			},
+			"args": [
+				"--",
+				" -oProxyCommand=x"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "x -oProxyCommand=y"
+			},
+			"args": [
+				"--",
+				"x -oProxyCommand=y"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "a;rm -rf /"
+			},
+			"args": [
+				"--",
+				"a;rm -rf /"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "$(id)"
+			},
+			"args": [
+				"--",
+				"$(id)"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "a\nb"
+			},
+			"args": [
+				"--",
+				"a\nb"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "user@host"
+			},
+			"args": [
+				"--",
+				"user@host"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "−oProxyCommand=x"
+			},
+			"args": [
+				"--",
+				"−oProxyCommand=x"
+			]
+		},
+		{
+			"target": {
+				"name": "-n",
+				"host": "box.example"
+			},
+			"args": [
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": "-oProxyCommand=x"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": "-l"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"username": "a -b"
+			},
+			"args": [
+				"-l",
+				"a -b",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"keyPath": "-oIdentityAgent=/tmp/evil"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"keyPath": "-i"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"keyPath": "~/.ssh/id -oX=y"
+			},
+			"args": [
+				"-i",
+				"~/.ssh/id -oX=y",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "box.example",
+				"extra": "dropped",
+				"username": "me"
+			},
+			"args": [
+				"-l",
+				"me",
+				"--",
+				"box.example"
+			]
+		},
+		{
+			"target": {
+				"name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+				"host": "h"
+			},
+			"args": [
+				"--",
+				"h"
+			]
+		},
+		{
+			"target": {
+				"name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+				"host": "h"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+			},
+			"args": [
+				"--",
+				"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+			},
+			"args": [
+				"--",
+				"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "h",
+				"username": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+			},
+			"args": [
+				"-l",
+				"uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+				"--",
+				"h"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "h",
+				"username": "uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu"
+			},
+			"args": null
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "h",
+				"keyPath": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+			},
+			"args": [
+				"-i",
+				"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+				"--",
+				"h"
+			]
+		},
+		{
+			"target": {
+				"name": "box",
+				"host": "h",
+				"keyPath": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+			},
+			"args": null
+		},
+		{
+			"target": "box.example",
+			"args": null
+		},
+		{
+			"target": null,
+			"args": null
+		},
+		{
+			"target": [],
+			"args": null
+		}
+	],
+	"ports": [
+		{
+			"port": 1,
+			"ok": true
+		},
+		{
+			"port": 22,
+			"ok": true
+		},
+		{
+			"port": 65535,
+			"ok": true
+		},
+		{
+			"port": 0,
+			"ok": false
+		},
+		{
+			"port": 65536,
+			"ok": false
+		},
+		{
+			"port": -1,
+			"ok": false
+		},
+		{
+			"port": 1.5,
+			"ok": false
+		},
+		{
+			"port": "22",
+			"ok": false
+		},
+		{
+			"port": null,
+			"ok": false
+		},
+		{
+			"port": 1e+21,
+			"ok": false
+		}
+	],
+	"configs": [
+		{
+			"knownHosts": "<root>\\user\\ssh\\known_hosts",
+			"userConfig": "\\home\\me\\.ssh\\config",
+			"text": "# Written by OMPdesk for its own port forwards; edits are overwritten.\nHost *\n  UserKnownHostsFile \"<root>/user/ssh/known_hosts\"\n  GlobalKnownHostsFile \"<root>/user/ssh/known_hosts\"\n  StrictHostKeyChecking ask\n  UpdateHostKeys no\n  ControlMaster no\n  ControlPath none\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  ConnectTimeout 15\n  NumberOfPasswordPrompts 3\nInclude \"/home/me/.ssh/config\"\n"
+		},
+		{
+			"knownHosts": "<root>\\with space\\ssh\\known_hosts",
+			"userConfig": "<root>\\home dir\\.ssh\\config",
+			"text": "# Written by OMPdesk for its own port forwards; edits are overwritten.\nHost *\n  UserKnownHostsFile \"<root>/with space/ssh/known_hosts\"\n  GlobalKnownHostsFile \"<root>/with space/ssh/known_hosts\"\n  StrictHostKeyChecking ask\n  UpdateHostKeys no\n  ControlMaster no\n  ControlPath none\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  ConnectTimeout 15\n  NumberOfPasswordPrompts 3\nInclude \"<root>/home dir/.ssh/config\"\n"
+		},
+		{
+			"knownHosts": "<root>\\x\\known_hosts",
+			"userConfig": "C:\\Users\\me\\.ssh\\config",
+			"text": "# Written by OMPdesk for its own port forwards; edits are overwritten.\nHost *\n  UserKnownHostsFile \"<root>/x/known_hosts\"\n  GlobalKnownHostsFile \"<root>/x/known_hosts\"\n  StrictHostKeyChecking ask\n  UpdateHostKeys no\n  ControlMaster no\n  ControlPath none\n  ServerAliveInterval 15\n  ServerAliveCountMax 3\n  ConnectTimeout 15\n  NumberOfPasswordPrompts 3\nInclude \"C:/Users/me/.ssh/config\"\n"
+		}
+	]
+}

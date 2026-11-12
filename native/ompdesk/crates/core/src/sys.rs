@@ -1,5 +1,6 @@
 //! The only unsafe code: asking a child process to end with SIGTERM and (Windows) the job object that ends its
-//! children with it, physical memory and process reads, `ReadDirectoryChangesW`, and the system random generator.
+//! children with it and the one that ends an ssh with its whole tree, physical memory and process reads,
+//! `ReadDirectoryChangesW`, and the system random generator.
 #![allow(unsafe_code)]
 
 /// Fills `bytes` from the system's random generator (the control socket's token), as node's `randomBytes` does.
@@ -56,9 +57,24 @@ pub fn may_execute(path: &std::path::Path) -> bool {
 /// closed. Jobs nest (Windows 8 and later), so a job main put this process in does not prevent it.
 #[cfg(windows)]
 pub fn end_children_with_this_process() -> std::io::Result<()> {
-    use std::ffi::c_void;
+    let job = job::kill_on_close()?;
+    // SAFETY: `job` is the live handle above; `GetCurrentProcess` returns a pseudo-handle that needs no closing.
+    if unsafe { job::AssignProcessToJobObject(job, job::GetCurrentProcess()) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
 
-    type Handle = *mut c_void;
+#[cfg(windows)]
+pub use job::ProcessTree;
+
+/// Job objects: the one this process lives in, and one for each process whose whole tree is ended together.
+#[cfg(windows)]
+mod job {
+    use std::ffi::c_void;
+    use std::io;
+
+    pub type Handle = *mut c_void;
 
     /// `JOBOBJECT_BASIC_LIMIT_INFORMATION`.
     #[repr(C)]
@@ -102,6 +118,24 @@ pub fn end_children_with_this_process() -> std::io::Result<()> {
     #[cfg(target_pointer_width = "64")]
     const _: () = assert!(size_of::<ExtendedLimits>() == 144);
 
+    /// `JOBOBJECT_BASIC_ACCOUNTING_INFORMATION`.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Accounting {
+        total_user_time: i64,
+        total_kernel_time: i64,
+        this_period_total_user_time: i64,
+        this_period_total_kernel_time: i64,
+        total_page_fault_count: u32,
+        total_processes: u32,
+        active_processes: u32,
+        total_terminated_processes: u32,
+    }
+
+    const _: () = assert!(size_of::<Accounting>() == 48);
+
+    /// `JobObjectBasicAccountingInformation`.
+    const BASIC_ACCOUNTING_INFORMATION: i32 = 1;
     /// `JobObjectExtendedLimitInformation`.
     const EXTENDED_LIMIT_INFORMATION: i32 = 9;
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
@@ -115,36 +149,105 @@ pub fn end_children_with_this_process() -> std::io::Result<()> {
             info: *const c_void,
             length: u32,
         ) -> i32;
-        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
-        fn GetCurrentProcess() -> Handle;
+        fn QueryInformationJobObject(
+            job: Handle,
+            class: i32,
+            info: *mut c_void,
+            length: u32,
+            returned: *mut u32,
+        ) -> i32;
+        pub fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        pub fn GetCurrentProcess() -> Handle;
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
     }
 
-    // SAFETY: both pointers may be null (default security, no name); the call returns a new handle or null.
-    let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
-    if job.is_null() {
-        return Err(std::io::Error::last_os_error());
+    /// A new, empty job object that kills every process in it once its last handle closes.
+    pub fn kill_on_close() -> io::Result<Handle> {
+        // SAFETY: both pointers may be null (default security, no name); the call returns a new handle or null.
+        let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+        if job.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mut limits = ExtendedLimits::default();
+        limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap_or(u32::MAX);
+        // SAFETY: `job` is the live handle above; `limits` is a `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` laid out as C
+        // lays it out (`repr(C)`, size checked above), read only for the call, and `length` is its size.
+        let set = unsafe {
+            SetInformationJobObject(
+                job,
+                EXTENDED_LIMIT_INFORMATION,
+                std::ptr::from_ref(&limits).cast(),
+                length,
+            )
+        };
+        if set == 0 {
+            let error = io::Error::last_os_error();
+            // SAFETY: `job` is the live handle above, closed once.
+            unsafe { CloseHandle(job) };
+            return Err(error);
+        }
+        Ok(job)
     }
-    let mut limits = ExtendedLimits::default();
-    limits.basic.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-    let length = u32::try_from(size_of::<ExtendedLimits>()).unwrap_or(u32::MAX);
-    // SAFETY: `job` is the live handle above; `limits` is a `JOBOBJECT_EXTENDED_LIMIT_INFORMATION` laid out as C lays it
-    // out (`repr(C)`, size checked above), read only for the call, and `length` is its size.
-    let set = unsafe {
-        SetInformationJobObject(
-            job,
-            EXTENDED_LIMIT_INFORMATION,
-            std::ptr::from_ref(&limits).cast(),
-            length,
-        )
-    };
-    if set == 0 {
-        return Err(std::io::Error::last_os_error());
+
+    /// One process and everything it starts from now on (an ssh with its ProxyJump hops and its askpass helper), in a
+    /// job of their own inside this process's: `end` ends them all at once, as does dropping it. A process leaves a
+    /// tree only by ending.
+    pub struct ProcessTree(Handle);
+
+    // SAFETY: a job handle names a kernel object; the calls made on it here are safe from any thread.
+    unsafe impl Send for ProcessTree {}
+    // SAFETY: as above; no call here needs exclusive access.
+    unsafe impl Sync for ProcessTree {}
+
+    impl ProcessTree {
+        /// `process` is a live process handle (a child that was just started).
+        pub fn of(process: std::os::windows::io::RawHandle) -> io::Result<ProcessTree> {
+            let tree = ProcessTree(kill_on_close()?);
+            // SAFETY: the job is the live handle `tree` owns; `process` is a live handle by this function's contract.
+            if unsafe { AssignProcessToJobObject(tree.0, process) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(tree)
+        }
+
+        /// Ends every process of the tree (`TerminateProcess` for each, as node's `kill()` is on Windows).
+        pub fn end(&self) {
+            // SAFETY: the job is the live handle `self` owns; a failure (nothing left to end) is ignored.
+            unsafe {
+                TerminateJobObject(self.0, 1);
+            }
+        }
+
+        /// Whether a process of the tree still runs; false when the system cannot say.
+        pub fn alive(&self) -> bool {
+            let mut accounting = Accounting::default();
+            let length = u32::try_from(size_of::<Accounting>()).unwrap_or(u32::MAX);
+            // SAFETY: the job is the live handle `self` owns; `accounting` is a
+            // `JOBOBJECT_BASIC_ACCOUNTING_INFORMATION` (`repr(C)`, size checked above) written only during the call,
+            // `length` is its size, and the returned-length pointer may be null.
+            let read = unsafe {
+                QueryInformationJobObject(
+                    self.0,
+                    BASIC_ACCOUNTING_INFORMATION,
+                    std::ptr::from_mut(&mut accounting).cast(),
+                    length,
+                    std::ptr::null_mut(),
+                )
+            };
+            read != 0 && accounting.active_processes > 0
+        }
     }
-    // SAFETY: `job` is the live handle above; `GetCurrentProcess` returns a pseudo-handle that needs no closing.
-    if unsafe { AssignProcessToJobObject(job, GetCurrentProcess()) } == 0 {
-        return Err(std::io::Error::last_os_error());
+
+    impl Drop for ProcessTree {
+        fn drop(&mut self) {
+            // SAFETY: the job is the live handle `self` owns, closed once; closing it ends what is left of the tree.
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
     }
-    Ok(())
 }
 
 /// This computer's physical memory and what of it is available, in bytes (`GlobalMemoryStatusEx`, which Electron's

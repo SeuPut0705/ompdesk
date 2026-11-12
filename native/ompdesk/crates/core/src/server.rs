@@ -173,6 +173,7 @@ pub fn registry() -> Registry {
     crate::sessions::register(&mut registry);
     crate::control::register(&mut registry);
     crate::tailscale::register(&mut registry);
+    crate::ssh::register(&mut registry);
     registry
 }
 
@@ -252,8 +253,10 @@ where
         frames: frames.downgrade(),
     };
     crate::control::close_all(&ending).await;
+    crate::ssh::close_all(&ending);
     while tasks.join_next().await.is_some() {
         crate::control::close_all(&ending).await;
+        crate::ssh::close_all(&ending);
     }
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;

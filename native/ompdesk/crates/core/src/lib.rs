@@ -12,6 +12,7 @@ pub mod memory;
 mod run;
 pub mod server;
 pub mod sessions;
+pub mod ssh;
 mod sys;
 pub mod tailscale;
 pub mod wire;

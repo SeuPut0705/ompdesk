@@ -206,7 +206,7 @@ impl Exec {
 
 impl Runner {
     /// The environment main built with the command's own variables over it, set as node's spawn sets it.
-    fn environment(&self, command: &mut Command, extra: &[(&str, &str)]) {
+    pub(crate) fn environment(&self, command: &mut Command, extra: &[(&str, &str)]) {
         let merged;
         let env = if extra.is_empty() {
             &self.env
