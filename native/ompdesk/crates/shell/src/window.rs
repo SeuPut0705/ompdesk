@@ -739,11 +739,28 @@ fn run_op(call: Call, win_id: u64, name: &str, args: &Value) {
     };
     match name {
         "show" => {
-            window.show();
-            window.activate();
-            window.bring_to_top();
+            // A window that cannot take focus (the e2e harness's) is shown without activation too.
+            #[cfg(windows)]
+            if !shell_core::sys::winops::is_focusable(hwnd) {
+                shell_core::sys::winops::show_no_activate(hwnd);
+            } else {
+                window.show();
+                window.activate();
+                window.bring_to_top();
+            }
+            #[cfg(not(windows))]
+            {
+                window.show();
+                window.activate();
+                window.bring_to_top();
+            }
         }
-        "showInactive" => window.show(),
+        "showInactive" => {
+            #[cfg(windows)]
+            shell_core::sys::winops::show_no_activate(hwnd);
+            #[cfg(not(windows))]
+            window.show();
+        }
         "hide" => window.hide(),
         "close" => {
             let force = args.get("force").and_then(Value::as_bool).unwrap_or(false);

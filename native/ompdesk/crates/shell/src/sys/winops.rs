@@ -11,6 +11,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SetLayeredWindowAttributes, SetWindowLongPtrW, WINDOWPLACEMENT, WM_SETICON, WS_EX_APPWINDOW,
     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{SW_SHOWNOACTIVATE, ShowWindow};
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -136,4 +137,14 @@ pub fn set_mica(hwnd: isize, on: bool) {
             DwmExtendFrameIntoClientArea(hwnd as HWND, &margins);
         }
     }
+}
+
+/// Shows the window without activating it or taking the foreground (`showInactive`, and any window that cannot be focused).
+pub fn show_no_activate(hwnd: isize) {
+    // SAFETY: shows a window of ours; the return value is the previous visibility, not an error.
+    unsafe { ShowWindow(hwnd as HWND, SW_SHOWNOACTIVATE) };
+}
+
+pub fn is_focusable(hwnd: isize) -> bool {
+    ex_style(hwnd) & WS_EX_NOACTIVATE as isize == 0
 }

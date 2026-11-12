@@ -150,6 +150,26 @@ function pathForFile(file: File): string {
 	}
 }
 
+/**
+ * A link to a `file:` URL is refused by Blink before the browser process hears of it (the page's origin is not local),
+ * so Electron's `will-navigate` would never fire here. The shell is told, and the main process's listeners decide.
+ */
+document.addEventListener(
+	"click",
+	event => {
+		const target = event.target;
+		const anchor = target instanceof Element ? target.closest("a[href]") : null;
+		if (!(anchor instanceof HTMLAnchorElement) || !/^file:/i.test(anchor.href)) return;
+		event.preventDefault();
+		void fetch(`${BASE}__shell/will-navigate`, {
+			method: "POST",
+			headers: { "content-type": "text/plain" },
+			body: JSON.stringify({ url: anchor.href }),
+		}).catch(() => undefined);
+	},
+	true,
+);
+
 importLocalStorage();
 void readEvents();
 

@@ -389,6 +389,20 @@ fn route(
                 log("migrate.localStorage.applied", json!({}));
                 Resp::no_content()
             }
+            // A link to a `file:` URL never reaches the browser process (Blink refuses it for a non-local origin), so the
+            // page's click handler reports it here and Node's `will-navigate` listeners decide, as for Electron's page.
+            ("POST", "will-navigate") => {
+                let call: Value = serde_json::from_slice(&req.body).unwrap_or(Value::Null);
+                if let (Some(wc_id), Some(url)) = (wc_id, call.get("url").and_then(Value::as_str)) {
+                    host::request(
+                        "wc.navigate",
+                        json!({ "wcId": wc_id, "kind": "will-navigate", "url": url, "isMainFrame": true, "isSameDocument": false, "isRedirect": false }),
+                        None,
+                        |_, _| {},
+                    );
+                }
+                Resp::no_content()
+            }
             ("GET", "drag-files") => {
                 let list: Vec<Value> = wc::DROPPED
                     .lock()
