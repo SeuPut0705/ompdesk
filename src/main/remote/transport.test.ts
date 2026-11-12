@@ -98,6 +98,7 @@ async function startHost(
 	bindHosts = [LOOPBACK],
 	logLink?: RemoteHostOptions["logLink"],
 	bindPort?: RemoteHostOptions["bindPort"],
+	log?: RemoteHostOptions["log"],
 ): Promise<HostRig> {
 	const peers = new PeerStore(b.dir);
 	const gate = { next: (_ip: string) => visitor() };
@@ -119,6 +120,7 @@ async function startHost(
 		hello: () => MACHINE,
 		logLink,
 		bindPort,
+		log,
 	});
 	await host.start();
 	cleanups.push(() => host.stop());
@@ -438,6 +440,120 @@ describe("listening", () => {
 	});
 });
 
+describe("a host whose addresses change while a device is connected", () => {
+	/** A host with one device online on it (its first contact already closed), and what the host logged. */
+	async function linkedHost(bindPort?: RemoteHostOptions["bindPort"]) {
+		const { lines, log } = linkLog();
+		const firstContactClosed = Promise.withResolvers<void>();
+		// A port of its own list, as in use: listening again takes the same port while a link accepted on it is open.
+		const rig = await startHost(
+			side(),
+			await freePortRun(),
+			[LOOPBACK],
+			message => {
+				if (message === "closed") firstContactClosed.resolve();
+			},
+			bindPort,
+			log,
+		);
+		const { a, hosts, paired } = await connectedClient(rig);
+		await firstContactClosed.promise;
+		const remote = client(a, paired, hosts);
+		remote.connect();
+		await untilState(remote, "online");
+		return { rig, remote, lines };
+	}
+
+	async function answers(rig: HostRig): Promise<boolean> {
+		const port = rig.host.port;
+		return port !== null && (await probeHost(`${LOOPBACK}:${port}`)).ok;
+	}
+
+	it("keeps the device's link and listens again on its port once its addresses come back", async () => {
+		const { rig, remote } = await linkedHost();
+		rig.addresses.hosts = [];
+		await rig.host.rebind();
+		expect(rig.host.port).toBeNull();
+
+		rig.addresses.hosts = [LOOPBACK];
+		await rig.host.rebind();
+
+		expect(rig.host.port).toBe(rig.port);
+		expect(await answers(rig)).toBe(true);
+		expect(remote.state).toBe("online");
+		expect(await remote.request("echo", "kept")).toBe("kept");
+	});
+
+	it("two rebinds in a row both settle, and the next one listens on what is wanted", async () => {
+		const { rig } = await linkedHost();
+		rig.addresses.hosts = [];
+		const first = rig.host.rebind();
+		rig.addresses.hosts = [LOOPBACK];
+		const second = rig.host.rebind();
+		await Promise.all([first, second]);
+
+		await rig.host.rebind();
+
+		expect(await answers(rig)).toBe(true);
+	});
+
+	it("an address it cannot bind leaves it listening nowhere until a rebind finds one it can", async () => {
+		const { rig, remote, lines } = await linkedHost();
+		// TEST-NET-1 belongs to no computer: binding it fails as an address that left this computer does.
+		rig.addresses.hosts = ["192.0.2.10"];
+		await rig.host.rebind();
+		await rig.host.rebind();
+		expect(rig.host.port).toBeNull();
+		// Each poll tries again; only the first says it listens nowhere.
+		expect(lines.filter(line => line.message === "not-listening")).toEqual([
+			{ message: "not-listening", details: { wanted: 1, links: 1, ms: expect.any(Number) } },
+		]);
+
+		rig.addresses.hosts = [LOOPBACK];
+		await rig.host.rebind();
+
+		expect(await answers(rig)).toBe(true);
+		expect(remote.state).toBe("online");
+	});
+
+	it("logs each change of its listener with how long the rebind took, and no address", async () => {
+		const { rig, lines } = await linkedHost();
+		const before = lines.length;
+		rig.addresses.hosts = [];
+		await rig.host.rebind();
+		rig.addresses.hosts = [LOOPBACK];
+		await rig.host.rebind();
+		await rig.host.rebind();
+
+		const ms = expect.any(Number);
+		expect(lines.slice(before)).toEqual([
+			{ message: "not-listening", details: { wanted: 0, links: 1, ms } },
+			{ message: "listening", details: { port: rig.port, addresses: 1, links: 1, ms } },
+		]);
+	});
+
+	it("logs a rebind still running after 2 s with how many device links are open", async () => {
+		const held = { listen: null as PromiseWithResolvers<void> | null };
+		const { rig, lines } = await linkedHost(async (server, port, host) => {
+			await held.listen?.promise;
+			return realListen(server, port, host);
+		});
+		rig.addresses.hosts = [];
+		await rig.host.rebind();
+		fakeLinkClock();
+		held.listen = Promise.withResolvers<void>();
+		rig.addresses.hosts = [LOOPBACK];
+		const pass = rig.host.rebind();
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect(lines.at(-1)).toEqual({ message: "rebind-slow", details: { links: 1 } });
+
+		held.listen.resolve();
+		await pass;
+		expect(lines.at(-1)?.message).toBe("listening");
+	});
+});
+
 describe("a host's ports, one of them silent", () => {
 	// TEST-NET-1 belongs to no computer: a connect to it gets no answer, as a port a firewall drops does.
 	const SILENT = "192.0.2.1:47821";
@@ -625,6 +741,8 @@ describe("a link that dropped or went silent", () => {
 			n: 5,
 			delayMs: 0,
 			trigger: "resume",
+			// The address answered and dropped the dial: the computer's app is not the one refusing.
+			refused: false,
 		});
 	});
 
@@ -637,8 +755,14 @@ describe("a link that dropped or went silent", () => {
 		await failedRetry(remote, 1_000);
 
 		expect(lines.filter(line => line.message === "attempt").slice(-2)).toEqual([
-			{ message: "attempt", details: { deviceId: paired.deviceId, n: 5, delayMs: 0, trigger: "online" } },
-			{ message: "attempt", details: { deviceId: paired.deviceId, n: 6, delayMs: 1_000, trigger: "backoff" } },
+			{
+				message: "attempt",
+				details: { deviceId: paired.deviceId, n: 5, delayMs: 0, trigger: "online", refused: false },
+			},
+			{
+				message: "attempt",
+				details: { deviceId: paired.deviceId, n: 6, delayMs: 1_000, trigger: "backoff", refused: false },
+			},
 		]);
 	});
 
@@ -748,24 +872,37 @@ describe("a link that dropped or went silent", () => {
 			{ message: "up", details: { deviceId: id, outageMs: 0, attempts: 1, appVersion: APP_VERSION } },
 			{ message: "down", details: { deviceId: id, name: "Studio", reason: "closed", wasOnlineMs: 2_000 } },
 			{ message: "attempt", details: { deviceId: id, n: 1, delayMs: 1_000, trigger: "backoff" } },
-			{ message: "attempt", details: { deviceId: id, n: 2, delayMs: 2_000, trigger: "backoff" } },
-			{ message: "attempt", details: { deviceId: id, n: 3, delayMs: 4_000, trigger: "backoff" } },
+			{ message: "attempt", details: { deviceId: id, n: 2, delayMs: 2_000, trigger: "backoff", refused: false } },
+			{ message: "attempt", details: { deviceId: id, n: 3, delayMs: 4_000, trigger: "backoff", refused: false } },
 			{ message: "up", details: { deviceId: id, outageMs: 7_000, attempts: 3, appVersion: APP_VERSION } },
 		]);
 	});
 
 	/** The host's app quit (an update, a restart): its computer answers every dial with a refusal. */
-	async function refused() {
+	async function refused(log?: RemoteClientOptions["log"]) {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);
 		fakeLinkClock();
-		const remote = client(a, paired, hosts);
+		const remote = client(a, paired, hosts, log);
 		remote.connect();
 		await untilState(remote, "online");
 		await rig.host.stop();
 		await untilState(remote, "offline");
 		return { rig, remote };
 	}
+
+	it("says on each attempt line that the last one was refused", async () => {
+		const { lines, log } = linkLog();
+		const { remote } = await refused(log);
+		await failedRetry(remote, 1_000);
+		await failedRetry(remote, 1_000);
+
+		const deviceId = remote.deviceId;
+		expect(lines.filter(line => line.message === "attempt").slice(-2)).toEqual([
+			{ message: "attempt", details: { deviceId, n: 1, delayMs: 1_000, trigger: "backoff" } },
+			{ message: "attempt", details: { deviceId, n: 2, delayMs: 1_000, trigger: "backoff", refused: true } },
+		]);
+	});
 
 	it("dials a host that refuses every second while it restarts, and finds it within 2 s of its return", async () => {
 		const { rig, remote } = await refused();

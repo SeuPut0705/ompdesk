@@ -19,6 +19,7 @@ import {
 	SUMMARIES_EVENT,
 	TAB_EVENT,
 } from "./app-protocol";
+import { probeHost } from "./client";
 import { generateKeyPair } from "./crypto";
 import type { HostConnection } from "./host-server";
 import { HostStore } from "./hosts-store";
@@ -354,6 +355,22 @@ describe("a host link after the computer wakes or the network returns", () => {
 		// The retry timer is frozen: only the poll's wake can have started this attempt.
 		expect(a.devices.state().hosts[0]?.state).not.toBe("offline");
 		await until(a, state => state.hosts[0]?.state === "online");
+	});
+
+	it("a host that lost and regained its addresses listens again while a device stays connected", async () => {
+		const { a, b } = await rig.connected();
+		// A status read that finds Tailscale stopped, or gets no answer, leaves the host no address to listen on.
+		b.fake.phase = "not-running";
+		await b.devices.tailscaleAction("start-app");
+		expect(b.devices.state().host.port).toBeNull();
+
+		b.fake.phase = "ready";
+		await b.devices.tailscaleAction("start-app");
+
+		const port = b.devices.state().host.port;
+		expect(port).not.toBeNull();
+		expect((await probeHost(`${LOOPBACK}:${port}`)).ok).toBe(true);
+		expect(a.devices.state().hosts[0]?.state).toBe("online");
 	});
 });
 
