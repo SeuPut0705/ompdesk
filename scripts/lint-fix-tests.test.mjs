@@ -25,6 +25,7 @@ describe("fixCommitsWithoutTests", () => {
 				commit("fix: c", ["scripts/lint-x.mjs", "scripts/lint-x.test.mjs"]),
 				commit("fix: d", ["e2e/work-board.e2e.ts"]),
 				commit("fix: e", ["e2e/fixture/rpc-ui.ts"]),
+				commit("fix: g", ["native/ompdesk/crates/core/src/x/mod.rs", "native/ompdesk/crates/core/src/x/tests.rs"]),
 				commit("fix: f", ["src/renderer/locales/ko.ts"], "Wording.\n\nno-test: a translation, no behavior"),
 			]),
 		).toEqual([]);
