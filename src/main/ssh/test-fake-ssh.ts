@@ -11,7 +11,7 @@
  * exits as a refused login, which real ssh never does), `drop` (exists → a
  * running forward exits as a dropped connection), `changed` (exists → the host
  * key changed), `calls` (every argv, one JSON line each), `listings` (one line
- * per port listing written).
+ * per port listing, recorded before the listing is written).
  */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -102,8 +102,9 @@ if (local) {
 } else if (command.length) {
 	const list = () => {
 		const ports = fs.existsSync(path.join(dir, "ports")) ? fs.readFileSync(path.join(dir, "ports"), "utf8").trim().split(/\s+/).filter(Boolean) : [];
-		process.stdout.write(ports.map(p => "LISTEN 0 4096 127.0.0.1:" + p + " 0.0.0.0:*").join("\n") + "\n__ompdesk_ports__\n");
+		// Recorded before it is written: whoever has read a listing finds it counted.
 		fs.appendFileSync(path.join(dir, "listings"), "\n");
+		process.stdout.write(ports.map(p => "LISTEN 0 4096 127.0.0.1:" + p + " 0.0.0.0:*").join("\n") + "\n__ompdesk_ports__\n");
 	};
 	list();
 	setInterval(list, 300);
