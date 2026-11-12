@@ -1,0 +1,757 @@
+{
+ "turnEdits": [
+  {
+   "in": [
+    [],
+    "/r"
+   ],
+   "out": {
+    "cwd": "/r",
+    "startedAt": null,
+    "endedAt": null,
+    "messages": []
+   }
+  },
+  {
+   "in": [
+    [
+     {
+      "role": "user",
+      "content": "go",
+      "timestamp": 1000
+     }
+    ],
+    "/r"
+   ],
+   "out": {
+    "cwd": "/r",
+    "startedAt": 1000,
+    "endedAt": 1000,
+    "messages": []
+   }
+  },
+  {
+   "in": [
+    [
+     {
+      "role": "user",
+      "content": "old",
+      "timestamp": "2026-01-01T00:00:00.000Z"
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "o1",
+        "name": "write",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": 5
+     },
+     {
+      "role": "user",
+      "content": "go",
+      "timestamp": "2026-01-02T10:00:00.000Z"
+     },
+     {
+      "role": "user",
+      "content": "steer",
+      "steering": true,
+      "timestamp": 7
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "c1",
+        "name": "edit",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": "2026-01-02T10:00:05.000Z"
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "c1",
+      "toolName": "edit",
+      "content": [],
+      "timestamp": "2026-01-02T10:00:06.000Z"
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "c2",
+        "name": "bash",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": 9
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "c2",
+      "toolName": "edit",
+      "content": [],
+      "timestamp": 10
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "zz",
+      "toolName": "edit",
+      "content": [],
+      "timestamp": 11
+     },
+     {
+      "role": "assistant",
+      "content": "plain",
+      "timestamp": 12
+     }
+    ],
+    "/r"
+   ],
+   "out": {
+    "cwd": "/r",
+    "startedAt": 1767348000000,
+    "endedAt": 12,
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "toolCall",
+        "id": "c1",
+        "name": "edit",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": "2026-01-02T10:00:05.000Z"
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "c1",
+      "toolName": "edit",
+      "content": [],
+      "timestamp": "2026-01-02T10:00:06.000Z"
+     }
+    ]
+   }
+  },
+  {
+   "in": [
+    [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "a1",
+        "name": "apply_patch",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ]
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "a1",
+      "toolName": "edit",
+      "content": []
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "a2",
+        "name": "ast_edit",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": 3
+     }
+    ],
+    "/w"
+   ],
+   "out": {
+    "cwd": "/w",
+    "startedAt": null,
+    "endedAt": 3,
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "toolCall",
+        "id": "a1",
+        "name": "apply_patch",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ]
+     },
+     {
+      "role": "toolResult",
+      "toolCallId": "a1",
+      "toolName": "edit",
+      "content": []
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "toolCall",
+        "id": "a2",
+        "name": "ast_edit",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": 3
+     }
+    ]
+   }
+  },
+  {
+   "in": [
+    [
+     {
+      "role": "user",
+      "content": "go"
+     },
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "x"
+       },
+       {
+        "type": "toolCall",
+        "id": "x",
+        "name": "write",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": "not a date"
+     }
+    ],
+    "/w"
+   ],
+   "out": {
+    "cwd": "/w",
+    "startedAt": null,
+    "endedAt": null,
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "toolCall",
+        "id": "x",
+        "name": "write",
+        "arguments": {
+         "path": "a"
+        }
+       }
+      ],
+      "timestamp": "not a date"
+     }
+    ]
+   }
+  },
+  {
+   "in": [
+    [
+     {
+      "role": "user",
+      "content": "go",
+      "timestamp": 1.5
+     },
+     {
+      "role": "assistant",
+      "content": [],
+      "timestamp": 2
+     }
+    ],
+    "/w"
+   ],
+   "out": {
+    "cwd": "/w",
+    "startedAt": 1.5,
+    "endedAt": 2,
+    "messages": []
+   }
+  }
+ ],
+ "costSplitOf": [
+  {
+   "in": [
+    {
+     "a": {
+      "billing": "metered",
+      "cost": 1
+     },
+     "b": {
+      "billing": "subscription",
+      "cost": 0.25
+     },
+     "c": {
+      "billing": "metered",
+      "cost": 0
+     }
+    }
+   ],
+   "out": {
+    "charged": 1,
+    "estimate": 0.25
+   }
+  },
+  {
+   "in": [
+    {
+     "a": {
+      "billing": "free",
+      "cost": 5
+     },
+     "b": {
+      "billing": "metered",
+      "cost": -1
+     },
+     "c": {
+      "billing": "subscription",
+      "cost": 2.5
+     }
+    }
+   ],
+   "out": {
+    "charged": 0,
+    "estimate": 2.5
+   }
+  },
+  {
+   "in": [
+    {}
+   ],
+   "out": {
+    "charged": 0,
+    "estimate": 0
+   }
+  },
+  {
+   "in": [
+    {
+     "a": {
+      "billing": "metered",
+      "cost": 0.1
+     },
+     "b": {
+      "billing": "metered",
+      "cost": 0.2
+     },
+     "c": {
+      "billing": "subscription",
+      "cost": 0.3
+     }
+    }
+   ],
+   "out": {
+    "charged": 0.30000000000000004,
+    "estimate": 0.3
+   }
+  }
+ ],
+ "timeoutForCommand": [
+  {
+   "in": [
+    "bash"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "eval"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "compact"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "set_model"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "cycle_model"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "export_html"
+   ],
+   "out": 120000
+  },
+  {
+   "in": [
+    "dump_session_archive"
+   ],
+   "out": 120000
+  },
+  {
+   "in": [
+    "handoff"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "reload_plugins"
+   ],
+   "out": 120000
+  },
+  {
+   "in": [
+    "plan_approval"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "switch_leaf"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "login"
+   ],
+   "out": 660000
+  },
+  {
+   "in": [
+    "get_provider_accounts"
+   ],
+   "out": 60000
+  },
+  {
+   "in": [
+    "get_usage"
+   ],
+   "out": 60000
+  },
+  {
+   "in": [
+    "redeem_reset_pass"
+   ],
+   "out": 120000
+  },
+  {
+   "in": [
+    "get_transcript"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "get_transcript_page"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "get_subagent_messages"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "get_subagent_transcript"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "steer_subagent"
+   ],
+   "out": 30000
+  },
+  {
+   "in": [
+    "worktree_create"
+   ],
+   "out": 960000
+  },
+  {
+   "in": [
+    "worktree_remove"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "restore_saved_worktree"
+   ],
+   "out": 960000
+  },
+  {
+   "in": [
+    "pr_repo"
+   ],
+   "out": 120000
+  },
+  {
+   "in": [
+    "pr_list"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "pr_get"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "pr_diff"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "pr_draft"
+   ],
+   "out": 650000
+  },
+  {
+   "in": [
+    "pr_create"
+   ],
+   "out": 230000
+  },
+  {
+   "in": [
+    "pr_checkout"
+   ],
+   "out": 770000
+  },
+  {
+   "in": [
+    "pr_merge"
+   ],
+   "out": 230000
+  },
+  {
+   "in": [
+    "pr_review"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "pr_comment"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "pr_comments"
+   ],
+   "out": 240000
+  },
+  {
+   "in": [
+    "pr_edit"
+   ],
+   "out": 180000
+  },
+  {
+   "in": [
+    "github"
+   ],
+   "out": 730000
+  },
+  {
+   "in": [
+    "git_stage"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_unstage"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_discard"
+   ],
+   "out": 130000
+  },
+  {
+   "in": [
+    "git_commit"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "git_commit_message"
+   ],
+   "out": 240000
+  },
+  {
+   "in": [
+    "git_last_commit_message"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_undo_commit"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_remote"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "git_stash"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "git_operation"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "git_branches"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_branch"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "git_log"
+   ],
+   "out": 130000
+  },
+  {
+   "in": [
+    "git_commit_detail"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_commit_diff"
+   ],
+   "out": 70000
+  },
+  {
+   "in": [
+    "git_history_action"
+   ],
+   "out": 360000
+  },
+  {
+   "in": [
+    "get_state"
+   ],
+   "out": null
+  },
+  {
+   "in": [
+    "prompt"
+   ],
+   "out": null
+  },
+  {
+   "in": [
+    "abort"
+   ],
+   "out": null
+  },
+  {
+   "in": [
+    "get_session_stats"
+   ],
+   "out": null
+  },
+  {
+   "in": [
+    "queue_clear"
+   ],
+   "out": null
+  },
+  {
+   "in": [
+    "constructor"
+   ]
+  },
+  {
+   "in": [
+    "toString"
+   ]
+  }
+ ]
+}
