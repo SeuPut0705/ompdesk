@@ -14,6 +14,7 @@ use super::{BodyFile, Gh, Tools};
 use crate::fs::order::{is_js_space, js_trim};
 use crate::git::parse::js_number;
 use crate::git::read;
+use crate::json::utf16_prefix;
 use crate::run::Opts;
 use crate::server::Fault;
 
@@ -756,24 +757,6 @@ fn created_pr(output: &str) -> Option<Created> {
     })
 }
 
-/// `text.slice(0, units)`: its first UTF-16 units; a pair cut in half ends in U+FFFD (JavaScript kept the lone half).
-fn utf16_prefix(text: &str, units: usize) -> String {
-    let mut out = String::new();
-    let mut taken = 0;
-    for ch in text.chars() {
-        let width = ch.len_utf16();
-        if taken + width > units {
-            if taken < units {
-                out.push('\u{fffd}');
-            }
-            break;
-        }
-        out.push(ch);
-        taken += width;
-    }
-    out
-}
-
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum MergeMethod {
@@ -1217,14 +1200,6 @@ mod tests {
             });
             assert_eq!(got, want, "{output:?}");
         }
-    }
-
-    #[test]
-    fn cuts_text_by_utf16_unit() {
-        assert_eq!(utf16_prefix("abc", 2), "ab");
-        assert_eq!(utf16_prefix("a😀b", 2), "a\u{fffd}");
-        assert_eq!(utf16_prefix("a😀b", 3), "a😀");
-        assert_eq!(utf16_prefix("é", 300), "é");
     }
 
     #[test]

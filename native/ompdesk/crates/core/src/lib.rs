@@ -10,6 +10,7 @@ pub mod gh;
 pub mod git;
 mod json;
 pub mod memory;
+pub mod models;
 pub mod procs;
 pub mod routines;
 mod run;

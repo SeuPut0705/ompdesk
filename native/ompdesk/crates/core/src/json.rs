@@ -46,3 +46,34 @@ pub(crate) fn whole_surrogates(text: &str) -> Cow<'_, str> {
         None => Cow::Borrowed(text),
     }
 }
+
+/// `text.slice(0, units)`: its first UTF-16 units; a pair cut in half ends in U+FFFD (JavaScript kept the lone half).
+pub(crate) fn utf16_prefix(text: &str, units: usize) -> String {
+    let mut out = String::new();
+    let mut taken = 0;
+    for ch in text.chars() {
+        let width = ch.len_utf16();
+        if taken + width > units {
+            if taken < units {
+                out.push('\u{fffd}');
+            }
+            break;
+        }
+        out.push(ch);
+        taken += width;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cuts_text_by_utf16_unit() {
+        assert_eq!(utf16_prefix("abc", 2), "ab");
+        assert_eq!(utf16_prefix("a😀b", 2), "a\u{fffd}");
+        assert_eq!(utf16_prefix("a😀b", 3), "a😀");
+        assert_eq!(utf16_prefix("é", 300), "é");
+    }
+}

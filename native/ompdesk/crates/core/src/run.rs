@@ -297,7 +297,7 @@ async fn supervise(mut child: Child, end: &Notify, scope: &Scope) -> i32 {
 }
 
 #[cfg(unix)]
-fn terminate(child: &mut Child) {
+pub(crate) fn terminate(child: &mut Child) {
     if let Some(pid) = child.id() {
         crate::sys::terminate(pid);
     }
@@ -305,7 +305,7 @@ fn terminate(child: &mut Child) {
 
 /// node's `kill()` on Windows is TerminateProcess.
 #[cfg(windows)]
-fn terminate(child: &mut Child) {
+pub(crate) fn terminate(child: &mut Child) {
     let _ = child.start_kill();
 }
 

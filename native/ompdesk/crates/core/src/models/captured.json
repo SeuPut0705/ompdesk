@@ -1,0 +1,2356 @@
+{
+	"stream": [
+		{
+			"name": "latest tool call and last reply until prompt_result",
+			"lines": [
+				"{\"type\":\"response\",\"id\":\"events\",\"command\":\"set_event_filter\",\"success\":true}",
+				"{\"type\":\"response\",\"id\":\"model-setup\",\"command\":\"prompt\",\"success\":true}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"web_search\",\"args\":{\"query\":\"swe-bench\"}}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"Let me read the leaderboard.\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"1\",\"content\":[{\"type\":\"text\",\"text\":\"{}\"}]}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"2\",\"toolName\":\"read\",\"args\":{\"path\":\"https://example.com\"},\"intent\":\"Reading the leaderboard\"}",
+				"not json",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"{\\\"assignments\\\":[{\\\"role\\\":\\\"advisor\\\",\\\"model\\\":\\\"openai/gpt-5.2\\\",\\\"reason\\\":\\\"Other vendor.\\\"}],\\\"advisor\\\":{\\\"enable\\\":true,\\\"reason\\\":\\\"Worth it.\\\"},\\\"sources\\\":[{\\\"title\\\":\\\"Board\\\",\\\"url\\\":\\\"https://example.com\\\"}]}\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"other\",\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"agentInvoked\":true,\"status\":\"completed\",\"sessionSettled\":true}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"after the outcome\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"late\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "web_search",
+						"detail": "swe-bench"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "web_search",
+						"detail": "swe-bench"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "web_search",
+						"detail": "swe-bench"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": {
+						"ok": true,
+						"text": "{\"assignments\":[{\"role\":\"advisor\",\"model\":\"openai/gpt-5.2\",\"reason\":\"Other vendor.\"}],\"advisor\":{\"enable\":true,\"reason\":\"Worth it.\"},\"sources\":[{\"title\":\"Board\",\"url\":\"https://example.com\"}]}"
+					}
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": {
+						"ok": true,
+						"text": "{\"assignments\":[{\"role\":\"advisor\",\"model\":\"openai/gpt-5.2\",\"reason\":\"Other vendor.\"}],\"advisor\":{\"enable\":true,\"reason\":\"Worth it.\"},\"sources\":[{\"title\":\"Board\",\"url\":\"https://example.com\"}]}"
+					}
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "Reading the leaderboard"
+					},
+					"outcome": {
+						"ok": true,
+						"text": "{\"assignments\":[{\"role\":\"advisor\",\"model\":\"openai/gpt-5.2\",\"reason\":\"Other vendor.\"}],\"advisor\":{\"enable\":true,\"reason\":\"Worth it.\"},\"sources\":[{\"title\":\"Board\",\"url\":\"https://example.com\"}]}"
+					}
+				}
+			]
+		},
+		{
+			"name": "provider error",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"error\",\"errorMessage\":\"429 rate limited\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "429 rate limited"
+					}
+				}
+			]
+		},
+		{
+			"name": "errored result",
+			"lines": [
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":{\"message\":\"No API key\",\"retryable\":false}}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "No API key"
+					}
+				}
+			]
+		},
+		{
+			"name": "refused prompt",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\",\"success\":false,\"error\":\"busy\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "busy"
+					}
+				}
+			]
+		},
+		{
+			"name": "empty reply",
+			"lines": [
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "The research model returned no reply"
+					}
+				}
+			]
+		},
+		{
+			"name": "refused filter without a reason",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"events\",\"success\":false}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "omp rejected the research prompt"
+					}
+				}
+			]
+		},
+		{
+			"name": "refused with an empty reason",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\",\"success\":false,\"error\":\"\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "omp rejected the research prompt"
+					}
+				}
+			]
+		},
+		{
+			"name": "another command refused",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"other\",\"success\":false,\"error\":\"x\"}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "refused without an id",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"success\":false,\"error\":\"x\"}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response without success",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\"}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response with success as text",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\",\"success\":\"false\"}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response with a numeric id",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":5,\"success\":false}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response with a null id",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":null,\"success\":false}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response with a non-text error",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\",\"success\":false,\"error\":5}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "response with a null error",
+			"lines": [
+				"{\"type\":\"response\",\"command\":\"prompt\",\"id\":\"model-setup\",\"success\":false,\"error\":null}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"ok\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ok"
+					}
+				}
+			]
+		},
+		{
+			"name": "tool: no args",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\"}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: null args",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":null}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: array args",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":[\"query\"]}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: text args",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":\"query\"}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: empty args",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: numeric intent",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"intent\":5,\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: null intent",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"intent\":null,\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: empty intent",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"intent\":\"\",\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "q"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: blank intent",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"intent\":\" \\t\\n\",\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "q"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: numeric query",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":5,\"url\":\"u\",\"path\":\"p\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "u"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: blank query and url",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\" \",\"url\":\"\",\"path\":\"p\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "p"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: only a path",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"path\":\"p\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "p"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: nothing usable",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":1,\"url\":null,\"path\":[]}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: no tool name",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: numeric tool name",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":5,\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: empty tool name",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"\",\"args\":{\"query\":\"q\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "",
+						"detail": "q"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: spaced",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"  spaced out  \\n\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "spaced out"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: nbsp",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\" x \"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "x"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: bom",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"﻿x﻿\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "x"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: nel",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"x\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "x"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: line separators",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\" x \"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "x"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: ideographic",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"　x　\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "x"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: mongolian separator",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"᠎x᠎\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "᠎x᠎"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: zero width",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"​x​\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "​x​"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: only nbsp",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"  \",\"url\":\"u\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "u"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: only bom",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"﻿\",\"url\":\"u\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "u"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: only nel",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"\",\"url\":\"u\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": ""
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: only zero width",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"​\",\"url\":\"u\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "​"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: 200 units",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: 201 units",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: 200 units inside spaces",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  \"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: a pair across the cut",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bb\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d…"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: a pair before the cut",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀bbb\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀…"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: a pair ending at 200",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"read\",\"args\":{\"query\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "tool: korean",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"first\",\"args\":{\"query\":\"kept\"}}",
+				"{\"type\":\"tool_execution_start\",\"toolCallId\":\"1\",\"toolName\":\"web_search\",\"args\":{\"query\":\"한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 \"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "first",
+						"detail": "kept"
+					},
+					"outcome": null
+				},
+				{
+					"activity": {
+						"tool": "web_search",
+						"detail": "한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어 한국어…"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "a user message is not the reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"stopReason\":\"error\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "The research model returned no reply"
+					}
+				}
+			]
+		},
+		{
+			"name": "no role",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"content\":\"hi\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "The research model returned no reply"
+					}
+				}
+			]
+		},
+		{
+			"name": "text content",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"plain reply\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "plain reply"
+					}
+				}
+			]
+		},
+		{
+			"name": "untrimmed reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"  plan  \\n\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "  plan  \n"
+					}
+				}
+			]
+		},
+		{
+			"name": "a blank reply keeps the earlier one",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\" \\n\\t\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "an empty text reply keeps the earlier one",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "no content keeps the earlier one",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "mixed parts",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"thinking\",\"thinking\":\"t\"},{\"type\":\"text\"},{\"type\":\"text\",\"text\":5},{\"type\":\"text\",\"text\":null},\"b\",null,5,[{\"type\":\"text\",\"text\":\"nested\"}],{\"type\":\"text\",\"text\":\"c\",\"extra\":1},{\"text\":\"untyped\"}]}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "ac"
+					}
+				}
+			]
+		},
+		{
+			"name": "null content",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":null,\"stopReason\":\"error\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "numeric content",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":5,\"stopReason\":\"error\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "object content",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":{\"text\":\"x\"}}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "numeric stop reason",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"x\",\"stopReason\":5}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "null error message",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":null}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "a message that is no object",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"first\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"message\":\"x\"}",
+				"{\"type\":\"message_end\",\"message\":[]}",
+				"{\"type\":\"message_end\",\"message\":null}",
+				"{\"type\":\"message_end\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "first"
+					}
+				}
+			]
+		},
+		{
+			"name": "aborted without a message",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"partial\"}],\"stopReason\":\"aborted\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Request aborted"
+					}
+				}
+			]
+		},
+		{
+			"name": "error with an empty message",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"partial\"}],\"stopReason\":\"error\",\"errorMessage\":\"\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Request error"
+					}
+				}
+			]
+		},
+		{
+			"name": "an error message on a good stop is not an error",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"fine\"}],\"stopReason\":\"stop\",\"errorMessage\":\"ignored\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "fine"
+					}
+				}
+			]
+		},
+		{
+			"name": "a later good reply clears the error",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"error\",\"errorMessage\":\"boom\"}}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"recovered\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "recovered"
+					}
+				}
+			]
+		},
+		{
+			"name": "a later error after a reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"reply\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"error\",\"errorMessage\":\"boom\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "boom"
+					}
+				}
+			]
+		},
+		{
+			"name": "a tool result between does not clear the error",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"aborted\"}}",
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"toolResult\",\"content\":\"x\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Request aborted"
+					}
+				}
+			]
+		},
+		{
+			"name": "error status without a message",
+			"lines": [
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Research error"
+					}
+				}
+			]
+		},
+		{
+			"name": "error status after a failed reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"error\",\"errorMessage\":\"boom\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "boom"
+					}
+				}
+			]
+		},
+		{
+			"name": "its own message wins",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"\"}],\"stopReason\":\"error\",\"errorMessage\":\"boom\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":{\"message\":\"outer\"}}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "outer"
+					}
+				}
+			]
+		},
+		{
+			"name": "an empty message falls back",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"aborted\",\"error\":{\"message\":\"\"}}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Research aborted"
+					}
+				}
+			]
+		},
+		{
+			"name": "aborted status with a reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"aborted\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Research aborted"
+					}
+				}
+			]
+		},
+		{
+			"name": "an unknown status",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": false,
+						"error": "Research "
+					}
+				}
+			]
+		},
+		{
+			"name": "error as text",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":\"text\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "error with a numeric message",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":{\"message\":5}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "null error",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":null}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "error without a message",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"error\",\"error\":{}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "no status",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "numeric status",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":1}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "no id",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "null id",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":null,\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "numeric id",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"id\":5,\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "lines that are no frame",
+			"lines": [
+				"",
+				"   ",
+				"\t",
+				" ",
+				"",
+				"not json",
+				"123",
+				"null",
+				"true",
+				"[]",
+				"\"text\"",
+				"{}",
+				"{\"type\":\"other\"}",
+				"{\"type\":5}",
+				"{\"type\":null}",
+				"[{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}]",
+				"﻿{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}",
+				" {\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}",
+				"\u000b{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"} trailing",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"",
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"still here\"}],\"stopReason\":\"stop\"}}",
+				"  \t{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"} \r"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "still here"
+					}
+				}
+			]
+		},
+		{
+			"name": "a carriage return ends the line",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"crlf\"}],\"stopReason\":\"stop\"}}\r",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}\r"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "crlf"
+					}
+				}
+			]
+		},
+		{
+			"name": "the last of two type keys counts",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"other\",\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "the first of two type keys does not",
+			"lines": [
+				"{\"type\":\"message_end\",\"messageId\":\"msg-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hmm\"},{\"type\":\"text\",\"text\":\"x\"}],\"stopReason\":\"stop\"}}",
+				"{\"type\":\"prompt_result\",\"type\":\"other\",\"id\":\"model-setup\",\"status\":\"completed\"}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "x"
+					}
+				}
+			]
+		},
+		{
+			"name": "half a pair in the reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"a\\ud83db\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "a\ud83db"
+					}
+				}
+			]
+		},
+		{
+			"name": "half a pair in a detail",
+			"lines": [
+				"{\"type\":\"tool_execution_start\",\"toolName\":\"read\",\"args\":{\"query\":\"a\\udc00b\"}}"
+			],
+			"states": [
+				{
+					"activity": {
+						"tool": "read",
+						"detail": "a\udc00b"
+					},
+					"outcome": null
+				}
+			]
+		},
+		{
+			"name": "a whole escaped pair",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"a\\ud83d\\ude00b\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "a😀b"
+					}
+				}
+			]
+		},
+		{
+			"name": "escapes in the reply",
+			"lines": [
+				"{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"q\\\"\\\\/\\b\\f\\n\\r\\t\\u0001  end\"}}",
+				"{\"type\":\"prompt_result\",\"id\":\"model-setup\",\"status\":\"completed\"}"
+			],
+			"states": [
+				{
+					"activity": null,
+					"outcome": null
+				},
+				{
+					"activity": null,
+					"outcome": {
+						"ok": true,
+						"text": "q\"\\/\b\f\n\r\t\u0001  end"
+					}
+				}
+			]
+		}
+	],
+	"input": [
+		{
+			"prompt": "You are choosing which model omp (a coding agent) uses for each of its model roles, for the user of OMPdesk.\n\n## Candidate models\nUse only these models, written exactly as listed (`provider/id`):\n- anthropic/claude-opus-4-1 (provider anthropic)\n- openai/gpt-5.2 (provider openai)\n\nThe user has no default model set.\n\n## Roles\n### Conversation\n- default (Default): The main model: it answers every conversation turn and does the coding work unless another role takes over.\n\n### Agent work\n- advisor (Advisor): Second-opinion reviewer: passively reviews every turn of the main agent and injects notes (concerns, blockers). Ideally a strong model from a different vendor than the default model, so it catches different mistakes. It only runs while the advisor is enabled.\n\n## Task\n1. Research current public benchmarks and comparisons for exactly these models: use web_search, then read the most relevant pages. Prefer recent, reputable sources (vendor model cards, independent leaderboards such as coding and agentic benchmarks, price and speed comparisons). Do not research other models.\n2. Decide group by group, so a group's roles fit together: within Conversation, Fast is the cheapest and quickest, Thinking the strongest, Default in between. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.\n3. Decide whether the advisor should be enabled: it is worth it when a strong candidate from a different vendor than the default model is available.\n\n## Reply\nReply with ONLY one JSON object: no prose before or after it, no code fence. Shape:\n{\"assignments\":[{\"role\":\"<role id>\",\"model\":\"<provider/id>\",\"reason\":\"<one sentence>\"}],\"advisor\":{\"enable\":<true or false>,\"reason\":\"<one sentence>\"},\"sources\":[{\"title\":\"<page title>\",\"url\":\"<https URL>\"}],\"notes\":\"<optional, one or two sentences>\"}\n- \"role\" is one of: default, advisor.\n- \"model\" is one of: anthropic/claude-opus-4-1, openai/gpt-5.2.\n- \"sources\" lists the pages you actually used.\n- Write every \"reason\" and \"notes\" in English.",
+			"input": "{\"id\":\"events\",\"type\":\"set_event_filter\",\"events\":[\"tool_execution_start\",\"message_end\"],\"messageUpdates\":\"delta\"}\n{\"id\":\"model-setup\",\"type\":\"prompt\",\"message\":\"You are choosing which model omp (a coding agent) uses for each of its model roles, for the user of OMPdesk.\\n\\n## Candidate models\\nUse only these models, written exactly as listed (`provider/id`):\\n- anthropic/claude-opus-4-1 (provider anthropic)\\n- openai/gpt-5.2 (provider openai)\\n\\nThe user has no default model set.\\n\\n## Roles\\n### Conversation\\n- default (Default): The main model: it answers every conversation turn and does the coding work unless another role takes over.\\n\\n### Agent work\\n- advisor (Advisor): Second-opinion reviewer: passively reviews every turn of the main agent and injects notes (concerns, blockers). Ideally a strong model from a different vendor than the default model, so it catches different mistakes. It only runs while the advisor is enabled.\\n\\n## Task\\n1. Research current public benchmarks and comparisons for exactly these models: use web_search, then read the most relevant pages. Prefer recent, reputable sources (vendor model cards, independent leaderboards such as coding and agentic benchmarks, price and speed comparisons). Do not research other models.\\n2. Decide group by group, so a group's roles fit together: within Conversation, Fast is the cheapest and quickest, Thinking the strongest, Default in between. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.\\n3. Decide whether the advisor should be enabled: it is worth it when a strong candidate from a different vendor than the default model is available.\\n\\n## Reply\\nReply with ONLY one JSON object: no prose before or after it, no code fence. Shape:\\n{\\\"assignments\\\":[{\\\"role\\\":\\\"<role id>\\\",\\\"model\\\":\\\"<provider/id>\\\",\\\"reason\\\":\\\"<one sentence>\\\"}],\\\"advisor\\\":{\\\"enable\\\":<true or false>,\\\"reason\\\":\\\"<one sentence>\\\"},\\\"sources\\\":[{\\\"title\\\":\\\"<page title>\\\",\\\"url\\\":\\\"<https URL>\\\"}],\\\"notes\\\":\\\"<optional, one or two sentences>\\\"}\\n- \\\"role\\\" is one of: default, advisor.\\n- \\\"model\\\" is one of: anthropic/claude-opus-4-1, openai/gpt-5.2.\\n- \\\"sources\\\" lists the pages you actually used.\\n- Write every \\\"reason\\\" and \\\"notes\\\" in English.\"}\n"
+		},
+		{
+			"prompt": "You are choosing which model omp (a coding agent) uses for each of its model roles, for the user of OMPdesk.\n\n## Candidate models\nUse only these models, written exactly as listed (`provider/id`):\n- local/qwen\"3\\coder (provider local; name \"Quote \" back\\slash \t tab \u0001 control  del   sep 😀 한국어 é\"; context window 1M tokens; $0.1 input / $1e-7 output per 1M tokens; catalog intelligence score -3)\n\nThe user's current default model is openai/gpt-5.2.\n\n## Roles\n### Conversation\n- smol (</script> & <b>): Fast, cheap model for lightweight work (quick lookups, small edits, the model `prewalk` hands implementation to). Speed and price matter more than depth.\n\n## Task\n1. Research current public benchmarks and comparisons for exactly these models: use web_search, then read the most relevant pages. Prefer recent, reputable sources (vendor model cards, independent leaderboards such as coding and agentic benchmarks, price and speed comparisons). Do not research other models.\n2. Decide group by group, so a group's roles fit together: within Conversation, Fast is the cheapest and quickest, Thinking the strongest, Default in between. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.\n3. Decide whether the advisor should be enabled: it is worth it when a strong candidate from a different vendor than the default model is available.\n\n## Reply\nReply with ONLY one JSON object: no prose before or after it, no code fence. Shape:\n{\"assignments\":[{\"role\":\"<role id>\",\"model\":\"<provider/id>\",\"reason\":\"<one sentence>\"}],\"advisor\":{\"enable\":<true or false>,\"reason\":\"<one sentence>\"},\"sources\":[{\"title\":\"<page title>\",\"url\":\"<https URL>\"}],\"notes\":\"<optional, one or two sentences>\"}\n- \"role\" is one of: smol.\n- \"model\" is one of: local/qwen\"3\\coder.\n- \"sources\" lists the pages you actually used.\n- Write every \"reason\" and \"notes\" in Korean.",
+			"input": "{\"id\":\"events\",\"type\":\"set_event_filter\",\"events\":[\"tool_execution_start\",\"message_end\"],\"messageUpdates\":\"delta\"}\n{\"id\":\"model-setup\",\"type\":\"prompt\",\"message\":\"You are choosing which model omp (a coding agent) uses for each of its model roles, for the user of OMPdesk.\\n\\n## Candidate models\\nUse only these models, written exactly as listed (`provider/id`):\\n- local/qwen\\\"3\\\\coder (provider local; name \\\"Quote \\\" back\\\\slash \\t tab \\u0001 control  del   sep 😀 한국어 é\\\"; context window 1M tokens; $0.1 input / $1e-7 output per 1M tokens; catalog intelligence score -3)\\n\\nThe user's current default model is openai/gpt-5.2.\\n\\n## Roles\\n### Conversation\\n- smol (</script> & <b>): Fast, cheap model for lightweight work (quick lookups, small edits, the model `prewalk` hands implementation to). Speed and price matter more than depth.\\n\\n## Task\\n1. Research current public benchmarks and comparisons for exactly these models: use web_search, then read the most relevant pages. Prefer recent, reputable sources (vendor model cards, independent leaderboards such as coding and agentic benchmarks, price and speed comparisons). Do not research other models.\\n2. Decide group by group, so a group's roles fit together: within Conversation, Fast is the cheapest and quickest, Thinking the strongest, Default in between. For each role, pick the candidate that best fits its purpose, weighing capability, speed and price. Leave a role out when no candidate fits it; an omitted role keeps its current model.\\n3. Decide whether the advisor should be enabled: it is worth it when a strong candidate from a different vendor than the default model is available.\\n\\n## Reply\\nReply with ONLY one JSON object: no prose before or after it, no code fence. Shape:\\n{\\\"assignments\\\":[{\\\"role\\\":\\\"<role id>\\\",\\\"model\\\":\\\"<provider/id>\\\",\\\"reason\\\":\\\"<one sentence>\\\"}],\\\"advisor\\\":{\\\"enable\\\":<true or false>,\\\"reason\\\":\\\"<one sentence>\\\"},\\\"sources\\\":[{\\\"title\\\":\\\"<page title>\\\",\\\"url\\\":\\\"<https URL>\\\"}],\\\"notes\\\":\\\"<optional, one or two sentences>\\\"}\\n- \\\"role\\\" is one of: smol.\\n- \\\"model\\\" is one of: local/qwen\\\"3\\\\coder.\\n- \\\"sources\\\" lists the pages you actually used.\\n- Write every \\\"reason\\\" and \\\"notes\\\" in Korean.\"}\n"
+		}
+	],
+	"args": [
+		{
+			"model": "anthropic/claude-opus-4-1",
+			"args": [
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--model",
+				"anthropic/claude-opus-4-1",
+				"--thinking",
+				"auto",
+				"--tools",
+				"web_search,read",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"--no-lsp",
+				"--no-title"
+			]
+		},
+		{
+			"model": "openrouter/x-ai/grok-4:free",
+			"args": [
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--model",
+				"openrouter/x-ai/grok-4:free",
+				"--thinking",
+				"auto",
+				"--tools",
+				"web_search,read",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"--no-lsp",
+				"--no-title"
+			]
+		},
+		{
+			"model": "local/a b\"c%PATH%",
+			"args": [
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--model",
+				"local/a b\"c%PATH%",
+				"--thinking",
+				"auto",
+				"--tools",
+				"web_search,read",
+				"--no-extensions",
+				"--no-skills",
+				"--no-rules",
+				"--no-lsp",
+				"--no-title"
+			]
+		}
+	]
+}
