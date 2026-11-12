@@ -54,6 +54,7 @@ use self::types::{
     Target, Tool, ToolOutcome,
 };
 use self::util::{Flight, OrderedMap};
+use crate::agentctl::journal::mail_outbox::MailOutbox;
 use crate::agentctl::journal::call_journal::{CallBegin, CallJournal, CallRecord, CallResult};
 use crate::agentctl::journal::pending_cleanups::PendingCleanups;
 use crate::agentctl::journal::send_outbox::SendOutbox;
@@ -230,6 +231,8 @@ pub struct Files {
     pub cleanups: Option<PathBuf>,
     pub calls: Option<JournalFile>,
     pub send_outbox: Option<JournalFile>,
+    /// Where accepted reports wait for their receiver's journal (`mail-outbox.json`); absent: none are kept.
+    pub mail_outbox: Option<JournalFile>,
 }
 
 impl AgentControl {
@@ -241,7 +244,13 @@ impl AgentControl {
         tuning: Tuning,
         clock: Clock,
     ) -> AgentControl {
-        let host = Host::new(port, caps);
+        let mut host = Host::new(port, caps);
+        if let Some(outbox) = &files.mail_outbox {
+            host = host.with_outbox(
+                Arc::new(MailOutbox::with_clock(outbox.file.clone(), clock.clone())),
+                clock.clone(),
+            );
+        }
         let deliver_host = host.clone();
         let deliver: Deliver = Arc::new(move |mail: Mail| {
             let host = deliver_host.clone();
@@ -957,6 +966,9 @@ struct OpenParams {
     caps: Caps,
     #[serde(default)]
     tuning: Tuning,
+    /// Main's own runtime (the sweep of the opened sessions, review pushes, redelivery); a bare service has none.
+    #[serde(default)]
+    runtime: Option<crate::agentctl::runtime::RuntimeConfig>,
 }
 
 async fn open(call: Call) -> Result<Reply, Fault> {
@@ -969,6 +981,9 @@ async fn open(call: Call) -> Result<Reply, Fault> {
         params.tuning,
         system_clock(),
     );
+    if let Some(config) = params.runtime {
+        crate::agentctl::runtime::start(control.clone(), params.port, config);
+    }
     lock(&INSTANCES).insert(params.port, control);
     let id = params.port;
     tokio::spawn(async move {
@@ -1091,7 +1106,10 @@ async fn call_method(call: Call) -> Result<Reply, Fault> {
                 .await,
         ),
         "personTyped" => {
-            control.person_typed(&text_arg(&args, "tabId", method)?);
+            // The note this may send reaches main before the call answers (main does not wait on it).
+            if let Some(told) = control.person_typed(&text_arg(&args, "tabId", method)?) {
+                let _ = told.await;
+            }
             Reply::json(&())
         }
         "redeliverSends" => reply(control.redeliver_sends().await),

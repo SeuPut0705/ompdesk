@@ -23,6 +23,8 @@ use super::types::{
     WorktreeRef, WorktreeRemoval,
 };
 use crate::agentctl::app::AppState;
+use crate::agentctl::journal::Clock;
+use crate::agentctl::journal::mail_outbox::{MailAnswer, MailOutbox, OutboxMail};
 use crate::agentctl::rules::mail::MailDelivery;
 use crate::ports::Port;
 
@@ -272,11 +274,27 @@ pub enum Deadline {
 pub struct Host {
     port: Arc<Port<HostState>>,
     caps: Caps,
+    /// Accepted reports wait here until the receiver's journal holds them (`mail-outbox`); None keeps none.
+    outbox: Option<(Arc<MailOutbox>, Clock)>,
 }
 
 impl Host {
     pub fn new(port: Arc<Port<HostState>>, caps: Caps) -> Host {
-        Host { port, caps }
+        Host {
+            port,
+            caps,
+            outbox: None,
+        }
+    }
+
+    /// This host keeps every report it hands to a tab until the receiver's journal holds it.
+    pub fn with_outbox(mut self, outbox: Arc<MailOutbox>, clock: Clock) -> Host {
+        self.outbox = Some((outbox, clock));
+        self
+    }
+
+    pub fn outbox(&self) -> Option<&Arc<MailOutbox>> {
+        self.outbox.as_ref().map(|(outbox, _)| outbox)
     }
 
     pub fn port(&self) -> &Arc<Port<HostState>> {
@@ -373,7 +391,11 @@ impl Host {
         })
     }
 
-    /// `mail(tabId, content, details, delivery)`.
+    /// `mail(tabId, content, details, delivery)`: one report into a session. A queued aside is journaled at the
+    /// receiver's next step boundary (or when a quit disposes it); a killed omp loses it, and one restarting cannot
+    /// take it at all. So it is kept before it is sent, until the receiver's journal holds it, and sent again to
+    /// whatever omp holds the receiver's session next. A caller outside OMPdesk has no session: its report goes to
+    /// its event stream, and nothing is kept.
     pub async fn mail(
         &self,
         tab_id: &str,
@@ -381,11 +403,58 @@ impl Host {
         details: &Value,
         delivery: MailDelivery,
     ) -> R<()> {
-        self.ask(
-            "mail",
-            json!({ "tabId": tab_id, "content": content, "details": details, "delivery": delivery.to_json() }),
-        )
-        .await
+        let kept = self.outbox.as_ref().and_then(|(outbox, clock)| {
+            let id = details.get("id")?.as_str()?;
+            let state = self.state();
+            let tab = state.tabs.iter().find(|tab| tab.tab_id == tab_id)?;
+            outbox.keep(OutboxMail {
+                id: id.to_owned(),
+                session_path: tab.session_path.clone().filter(|path| !path.is_empty())?,
+                device: tab.device.clone().filter(|device| !device.is_empty()),
+                content: content.to_owned(),
+                details: details.clone(),
+                delivery,
+                at: clock(),
+            });
+            Some((outbox, id.to_owned()))
+        });
+        let answer = self
+            .send_mail(tab_id, content, details, delivery)
+            .await?;
+        if let (Some((outbox, id)), Some(answer)) = (kept, answer)
+            && answer.duplicate
+            && answer.journaled
+        {
+            outbox.settle(&id);
+        }
+        Ok(())
+    }
+
+    /// One report to a tab's omp; the bridge's answer (`{duplicate, journaled}` for an id it already holds or queued).
+    pub async fn send_mail(
+        &self,
+        tab_id: &str,
+        content: &str,
+        details: &Value,
+        delivery: MailDelivery,
+    ) -> R<Option<MailAnswer>> {
+        let answer: Value = self
+            .ask(
+                "mail",
+                json!({ "tabId": tab_id, "content": content, "details": details, "delivery": delivery.to_json() }),
+            )
+            .await?;
+        Ok(answer.is_object().then(|| MailAnswer {
+            duplicate: answer.get("duplicate").and_then(Value::as_bool) == Some(true),
+            journaled: answer.get("journaled").and_then(Value::as_bool) == Some(true),
+        }))
+    }
+
+    /// `reach {sessionPath}`: the tab holding a session this computer runs, started when it is asleep; with none, the
+    /// session is opened in a background tab of the front window. The tab that held it before (None: it is opening).
+    pub async fn reach(&self, session_path: &str) -> R<Option<String>> {
+        self.ask("reach", json!({ "sessionPath": session_path }))
+            .await
     }
 
     /// `command(tabId, command, timeoutMs)`: a command through the GUI's RPC dispatcher.

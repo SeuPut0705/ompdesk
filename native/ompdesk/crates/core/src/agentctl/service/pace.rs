@@ -224,6 +224,18 @@ mod tests {
     }
 
     #[test]
+    fn a_session_that_ran_no_check_says_none_in_its_short_pace() {
+        // 12 tool calls, 12 model calls of 5 s each: no waste, no checks.
+        let pace = Pace::from_value(json!({
+            "wallS": 180, "toolS": 60, "modelS": 120, "idleS": 0, "modelCalls": 12,
+            "outputTokens": 1, "tools": {"bash": {"seconds": 60, "calls": 12, "errors": 0}},
+            "thinkGaps": [5.0, 5.0], "polls": 0
+        }))
+        .unwrap();
+        assert_eq!(pace_short(&pace), "pace 3 min, 12 calls, median 5.0 s");
+    }
+
+    #[test]
     fn a_median_tie_rounds_up_as_to_fixed_does() {
         assert_eq!(fixed1(0.25), "0.3");
         assert_eq!(fixed1(2.75), "2.8");

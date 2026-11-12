@@ -779,7 +779,14 @@ impl OpenCommand<'_> {
                 }
                 () = self.control.host.next_change(self.control.tuning.poll_ms) => {
                     if let Some(why) = self.ended() {
-                        return Ok(RpcResponse::refused(why));
+                        // The tab's status and main's answer to the command reach the core as two messages: a
+                        // child whose command was refused because it is not ready reads `error` a moment before
+                        // the refusal arrives. The answer, if it is on its way, says more than the status does.
+                        let grace = Duration::from_millis(self.control.tuning.answer_grace_ms);
+                        return match tokio::time::timeout(grace, &mut answer).await {
+                            Ok(Ok(response)) => Ok(response),
+                            _ => Ok(RpcResponse::refused(why)),
+                        };
                     }
                 }
             }

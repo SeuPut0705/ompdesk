@@ -1313,16 +1313,13 @@ impl AgentControl {
     /// device's prompt; never read from the text). When that prompt starts the tab's turn, the cleanups its agent was
     /// refused are listed to it once, as a note ahead of the turn: the calls work in a turn the person started. A
     /// prompt that joins a running turn starts none, so the list waits.
-    pub fn person_typed(&self, tab_id: &str) {
+    /// Returns the delivery of the note, when there is one to make, so a caller that wants it told can wait for it.
+    pub fn person_typed(&self, tab_id: &str) -> Option<tokio::task::JoinHandle<()>> {
         let state = self.host.state();
-        let Some(tabs) = state.tabs(tab_id) else {
-            return;
-        };
-        let Some(caller) = tabs.iter().find(|tab| tab.tab_id == tab_id) else {
-            return;
-        };
+        let tabs = state.tabs(tab_id)?;
+        let caller = tabs.iter().find(|tab| tab.tab_id == tab_id)?;
         if caller.busy {
-            return;
+            return None;
         }
         let pending = self.cleanups().take(&cleanup_caller(caller));
         let mut lines = Vec::new();
@@ -1366,7 +1363,7 @@ impl AgentControl {
             ));
         }
         if lines.is_empty() {
-            return;
+            return None;
         }
         let text = format!(
             "OMPdesk: pending cleanups ({}). You asked for these while the user was in the session, in a turn their own message had not started, and were refused. The user's own message starts this turn, so each call works now: make the ones that are still wanted, and leave a session the user still uses.\n{}",
@@ -1384,7 +1381,7 @@ impl AgentControl {
         // Not told (its omp cannot take a note now): the list waits for the next such turn.
         let control = self.clone();
         let tab_id = tab_id.to_owned();
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             let told = control
                 .host
                 .mail(&tab_id, &text, &details, delivery_for(MailKind::Note))
@@ -1395,7 +1392,7 @@ impl AgentControl {
                     cleanups.add(entry);
                 }
             }
-        });
+        }))
     }
 }
 

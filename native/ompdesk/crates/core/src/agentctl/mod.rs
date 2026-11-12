@@ -7,11 +7,13 @@
 pub mod app;
 pub mod journal;
 pub mod rules;
+pub mod runtime;
 pub mod service;
 
 use crate::server::Registry;
 
 pub fn register(registry: &mut Registry) {
     app::register(registry);
+    runtime::register(registry);
     service::register(registry);
 }

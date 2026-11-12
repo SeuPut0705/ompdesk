@@ -55,6 +55,9 @@ pub struct Tuning {
     pub when_gone_ms: u64,
     /// The mailbox coalesces progress reports for this long.
     pub mail_coalesce_ms: u64,
+    /// A command of an open whose child reads `error` is given this long more to be answered (a refusal that says it
+    /// is not ready arrives just after the status that caused it).
+    pub answer_grace_ms: u64,
 }
 
 impl Default for Tuning {
@@ -84,6 +87,7 @@ impl Default for Tuning {
             judge_ms: 180_000,
             when_gone_ms: 10_000,
             mail_coalesce_ms: crate::agentctl::rules::mail::MAIL_COALESCE_MS,
+            answer_grace_ms: 500,
         }
     }
 }
