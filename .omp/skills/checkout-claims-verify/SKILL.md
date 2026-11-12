@@ -28,10 +28,12 @@ Sync commit: the `syncCommit` of `checkout-claims` in `formal/manifest.json`.
 `<tools-dir>` is the folder of the SKILL.md you see when you read `skill://ompdesk-formal-verify`.
 
 ```bash
-bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims            # fast tier: matrix and 10 mutations
-bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --tier deep
-bunx vitest run src/main/checkout-claims.test.ts                                # the generated sequences, about 3 s
+bun <tools-dir>/scripts/verify-all.ts formal --tier fast                         # all fast-tier models, including checkout-claims
+bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims              # this model's fast and deep matrix runs
+bunx vitest run src/main/checkout-claims.test.ts                                # the generated sequences
 ```
+
+`--only` includes deep matrix runs even with `--tier fast`; the bundled runner documents this at `resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/verify-all.ts:12-14` and selects it at line 166.
 
 - `PASS`, exit 0: no counterexample within the bounds. Not a proof the code is correct.
 - `FAIL`, exit 1: a property was violated, a mutation was MISSED, or an `@code` tag no longer resolves. The trace lists each step with its `@code` location.
@@ -55,4 +57,4 @@ Replay the trace against the code, step by step, by its `@code` tags. A step the
 
 ## Moving the sync commit
 
-Only after the checks passed on the committed code: `bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --stamp`.
+Only after the checks passed on the committed code: `bun <tools-dir>/scripts/verify-all.ts formal --only checkout-claims --stamp` (includes deep runs). For fast-tier stamping, run `bun <tools-dir>/scripts/verify-all.ts formal --tier fast --stamp`. If only checkout-claims was reviewed, retain only its change in `formal/manifest.json`; preserve every other model's previous `syncCommit` and `syncDiff`.
