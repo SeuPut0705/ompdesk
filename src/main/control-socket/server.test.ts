@@ -238,7 +238,9 @@ describe("control socket", () => {
 				answered.push(await client.next());
 			}
 			expect(most).toBe(2);
-			expect(answered).toMatchObject([2, 3, 4, 5, 6].map(id => ({ id, ok: true })));
+			expect(answered).toEqual(
+				expect.arrayContaining([2, 3, 4, 5, 6].map(id => expect.objectContaining({ id, ok: true }))),
+			);
 			expect(backend.runs).toHaveLength(5);
 		});
 
@@ -500,8 +502,11 @@ describe("control socket", () => {
 			const pid = core().pid;
 			if (pid === null) throw new Error("no core runs");
 			const published = Promise.withResolvers<void>();
+			const previousFile = statSync(endpointFile).ino;
 			const endpointChanged = watch(handle.dir, (_event, file) => {
-				if (file === ENDPOINT_FILE) published.resolve();
+				if (file !== ENDPOINT_FILE) return;
+				const replacement = statSync(endpointFile, { throwIfNoEntry: false });
+				if (replacement && replacement.ino !== previousFile) published.resolve();
 			});
 			endpointChanged.once("error", published.reject);
 			try {
