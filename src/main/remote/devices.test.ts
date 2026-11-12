@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { codedError, ipcErrorCode } from "../../shared/ipc-error-codes";
 import { IPC_EVENTS } from "../../shared/ipc-types";
 import type { SessionSummary } from "../../shared/session-summary";
+import { advanceCoreTimers, fakeCoreTimers, realCoreTimers } from "../core/test-clock";
 import {
 	MOBILE_WEB_LINK_EVENT,
 	MODELS_CHANGED_EVENT,
@@ -21,11 +22,10 @@ import {
 } from "./app-protocol";
 import { probeHost } from "./client";
 import type { HostConnection } from "./host-server";
-import { HostStore } from "./hosts-store";
 import { loadIdentity } from "./identity";
-import { PeerStore } from "./peers-store";
 import { type Computer, DevicesRig, fakeTailnet, LOGIN, LOOPBACK, studioNode, until } from "./test-devices";
 import { generateKeyPair } from "./test-legacy-peer";
+import { hostStore, peerStore } from "./test-stores";
 import { WAKE_CHECK_MS } from "./wire";
 
 const rig = new DevicesRig();
@@ -34,7 +34,7 @@ const held: Socket[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
-	vi.useRealTimers();
+	await realCoreTimers();
 	await rig.dispose();
 	for (const server of servers.splice(0)) server.close();
 	for (const socket of held.splice(0)) socket.destroy();
@@ -329,19 +329,19 @@ describe("a host link after the computer wakes or the network returns", () => {
 		a.devices.start();
 		await a.devices.connect("nSTUDIO");
 		await until(a, state => state.hosts[0]?.state === "online");
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		await fakeCoreTimers(["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]);
 		relay.silence.on = true;
 
 		a.devices.wake("resume");
 		// The check runs in the core on its own clock; this side's clock moves by the same window.
-		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
+		await advanceCoreTimers(WAKE_CHECK_MS);
 
 		await until(a, state => state.hosts[0]?.state !== "online");
 	});
 
 	it("the tailnet poll wakes a link at once when its host's node comes back online", async () => {
 		const { a, b } = await rig.connected();
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+		await fakeCoreTimers(["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]);
 		await b.devices.setHostEnabled(false);
 		await until(a, state => state.hosts[0]?.state === "offline");
 		const node = a.fake.peers[0];
@@ -383,7 +383,7 @@ describe("code-paired computers", () => {
 		dirs.push(bDir, aDir);
 		const hostIdentity = await loadIdentity(bDir);
 		const deviceIdentity = await loadIdentity(aDir);
-		new PeerStore(bDir).put({
+		await peerStore(bDir).put({
 			deviceId: deviceIdentity.deviceId,
 			name: "Laptop",
 			staticPub: deviceIdentity.publicKey,
@@ -392,10 +392,15 @@ describe("code-paired computers", () => {
 			pairedAt: 1,
 			limits: { requestsPerDay: 9 },
 		});
-		const hosts = new HostStore(aDir);
+		const hosts = hostStore(aDir);
 		const legacy = { staticPub: hostIdentity.publicKey, nodeId: null, pairedAt: 1 };
-		hosts.put({ ...legacy, deviceId: hostIdentity.deviceId, name: "Studio", addresses: [`${LOOPBACK}:${port}`] });
-		hosts.put({ ...legacy, deviceId: "gone", name: "Old desk", addresses: ["192.168.1.20:47821"] });
+		await hosts.put({
+			...legacy,
+			deviceId: hostIdentity.deviceId,
+			name: "Studio",
+			addresses: [`${LOOPBACK}:${port}`],
+		});
+		await hosts.put({ ...legacy, deviceId: "gone", name: "Old desk", addresses: ["192.168.1.20:47821"] });
 
 		const b = await rig.computer(
 			"Studio",
@@ -408,9 +413,9 @@ describe("code-paired computers", () => {
 
 		const state = await until(a, next => next.hosts.length === 1 && next.hosts[0]?.state === "online");
 		expect(state.forgotten).toEqual(["Old desk"]);
-		expect(new HostStore(aDir).get(hostIdentity.deviceId)?.nodeId).toBe("nSTUDIO");
+		expect((await hostStore(aDir).get(hostIdentity.deviceId))?.nodeId).toBe("nSTUDIO");
 		const peers = (await until(b, next => next.host.peers[0]?.online === true)).host.peers;
-		expect(new PeerStore(bDir).get(deviceIdentity.deviceId)).toMatchObject({ nodeId: "nLAPTOP", login: LOGIN });
+		expect(await peerStore(bDir).get(deviceIdentity.deviceId)).toMatchObject({ nodeId: "nLAPTOP", login: LOGIN });
 		expect(peers[0]?.limits).toEqual({ requestsPerDay: 9 });
 
 		a.devices.dismissForgotten();
@@ -427,7 +432,7 @@ describe("code-paired computers", () => {
 		dirs.push(bDir, aDir);
 		const hostIdentity = await loadIdentity(bDir);
 		const deviceIdentity = await loadIdentity(aDir);
-		new PeerStore(bDir).put({
+		await peerStore(bDir).put({
 			deviceId: deviceIdentity.deviceId,
 			name: "Laptop",
 			staticPub: deviceIdentity.publicKey,
@@ -435,9 +440,9 @@ describe("code-paired computers", () => {
 			login: null,
 			pairedAt: 1,
 		});
-		const hosts = new HostStore(aDir);
+		const hosts = hostStore(aDir);
 		const legacy = { staticPub: generateKeyPair().publicKey, nodeId: null, pairedAt: 1, addresses: [] };
-		hosts.put({
+		await hosts.put({
 			deviceId: hostIdentity.deviceId,
 			name: "Office PC",
 			staticPub: hostIdentity.publicKey,
@@ -446,7 +451,7 @@ describe("code-paired computers", () => {
 			pairedAt: 1,
 		});
 		// Found by its announced name only (case aside); its key is checked at its first connection.
-		hosts.put({ ...legacy, deviceId: "named", name: "DESKTOP-91ID999" });
+		await hosts.put({ ...legacy, deviceId: "named", name: "DESKTOP-91ID999" });
 
 		const b = await rig.computer(
 			"Office PC",
@@ -468,10 +473,10 @@ describe("code-paired computers", () => {
 
 		await until(a, next => next.hosts.find(host => host.deviceId === hostIdentity.deviceId)?.state === "online");
 		expect(a.devices.state().forgotten).toEqual([]);
-		const kept = new HostStore(aDir);
-		expect(kept.get(hostIdentity.deviceId)).toMatchObject({ nodeId: "nPC" });
-		expect(kept.get(hostIdentity.deviceId)?.addresses[0]).toMatch(/^127\.0\.0\.1:\d+$/);
-		expect(kept.get("named")?.nodeId).toBe("nNAMED");
+		const kept = hostStore(aDir);
+		expect(await kept.get(hostIdentity.deviceId)).toMatchObject({ nodeId: "nPC" });
+		expect((await kept.get(hostIdentity.deviceId))?.addresses[0]).toMatch(/^127\.0\.0\.1:\d+$/);
+		expect((await kept.get("named"))?.nodeId).toBe("nNAMED");
 	});
 });
 

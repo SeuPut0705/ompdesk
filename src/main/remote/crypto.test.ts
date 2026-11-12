@@ -2,11 +2,9 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isRawKey } from "./crypto";
-import { HostStore } from "./hosts-store";
 import { identityFile, loadIdentity } from "./identity";
-import { PeerStore } from "./peers-store";
-import { generateKeyPair } from "./test-legacy-peer";
+import { generateKeyPair, isRawKey } from "./test-legacy-peer";
+import { hostStore, peerStore } from "./test-stores";
 
 describe("identity and stores", () => {
 	let dir: string;
@@ -43,12 +41,12 @@ describe("identity and stores", () => {
 		expect(await loadIdentity(dir)).toEqual(fresh);
 	});
 
-	it("writes peers and hosts atomically with mode 0600, and reads an older record as not yet bound to a node", () => {
+	it("writes peers and hosts atomically with mode 0600, and reads an older record as not yet bound to a node", async () => {
 		const staticPub = generateKeyPair().publicKey;
-		const peers = new PeerStore(dir);
-		peers.put({ deviceId: "a", name: "A", staticPub, nodeId: "nA", login: "me@x", pairedAt: 1 });
-		peers.update("a", { lastSeenAt: 2 });
-		expect(new PeerStore(dir).get("a")).toEqual({
+		const peers = peerStore(dir);
+		await peers.put({ deviceId: "a", name: "A", staticPub, nodeId: "nA", login: "me@x", pairedAt: 1 });
+		await peers.update("a", { lastSeenAt: 2 });
+		expect(await peerStore(dir).get("a")).toEqual({
 			deviceId: "a",
 			name: "A",
 			staticPub,
@@ -57,22 +55,29 @@ describe("identity and stores", () => {
 			pairedAt: 1,
 			lastSeenAt: 2,
 		});
-		expect(new PeerStore(dir).byNode("nA")?.deviceId).toBe("a");
+		expect((await peerStore(dir).byNode("nA"))?.deviceId).toBe("a");
 		expectOwnerOnly(join(dir, "remote-peers.json"));
-		expect(peers.remove("a")).toBe(true);
-		expect(new PeerStore(dir).list()).toEqual([]);
+		expect(await peers.remove("a")).toBe(true);
+		expect(await peerStore(dir).list()).toEqual([]);
 
-		const hosts = new HostStore(dir);
-		hosts.put({ deviceId: "b", name: "B", staticPub, nodeId: "nB", addresses: ["10.0.0.1:47821"], pairedAt: 1 });
-		hosts.rememberAddress("b", "10.0.0.2:47821");
-		hosts.rememberAddress("b", "10.0.0.1:47821");
-		expect(new HostStore(dir).get("b")?.addresses).toEqual(["10.0.0.1:47821", "10.0.0.2:47821"]);
+		const hosts = hostStore(dir);
+		await hosts.put({
+			deviceId: "b",
+			name: "B",
+			staticPub,
+			nodeId: "nB",
+			addresses: ["10.0.0.1:47821"],
+			pairedAt: 1,
+		});
+		await hosts.rememberAddress("b", "10.0.0.2:47821");
+		await hosts.rememberAddress("b", "10.0.0.1:47821");
+		expect((await hostStore(dir).get("b"))?.addresses).toEqual(["10.0.0.1:47821", "10.0.0.2:47821"]);
 		expectOwnerOnly(join(dir, "remote-hosts.json"));
 
 		writeFileSync(
 			join(dir, "remote-peers.json"),
 			JSON.stringify({ v: 1, peers: [{ deviceId: "old", name: "Old", staticPub, pairedAt: 1 }] }),
 		);
-		expect(new PeerStore(dir).get("old")).toMatchObject({ nodeId: null, login: null });
+		expect(await peerStore(dir).get("old")).toMatchObject({ nodeId: null, login: null });
 	});
 });

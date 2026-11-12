@@ -65,7 +65,8 @@ impl Scope {
         let _ = cancelled.wait_for(|cancelled| *cancelled).await;
     }
 
-    /// A scope no frame cancels and nothing waits on, for code run outside a request (a lane's own work, tests).
+    /// A scope no frame cancels and nothing waits on, for code run outside a request (a lane's own work, a reconnect
+    /// attempt, tests).
     pub fn detached() -> Scope {
         Scope {
             cancel: Arc::new(watch::channel(false).0),
@@ -73,8 +74,7 @@ impl Scope {
         }
     }
 
-    /// Cancels the request as its `cancel` frame would (tests).
-    #[cfg(test)]
+    /// Cancels the scope as a request's `cancel` frame would.
     pub fn cancel(&self) {
         self.cancel.send_replace(true);
     }
@@ -205,11 +205,13 @@ pub fn registry() -> Registry {
     registry.add("core.echo", |call| Box::pin(echo(call)));
     crate::aimemory::register(&mut registry);
     crate::browsers::register(&mut registry);
+    crate::clock::register(&mut registry);
     crate::disk::register(&mut registry);
     crate::ext::register(&mut registry);
     crate::fs::register(&mut registry);
     crate::git::register(&mut registry);
     crate::gh::register(&mut registry);
+    crate::keepawake::register(&mut registry);
     crate::memory::register(&mut registry);
     crate::memsync::register(&mut registry);
     crate::models::register(&mut registry);

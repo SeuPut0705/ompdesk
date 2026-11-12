@@ -153,6 +153,8 @@ export class DevicesRig {
 			loopback: true,
 		});
 		this.#running.push(devices);
+		// As the app's launch does: the core's records are mirrored before anything reads the state.
+		await devices.ready();
 		return {
 			devices,
 			listeners,

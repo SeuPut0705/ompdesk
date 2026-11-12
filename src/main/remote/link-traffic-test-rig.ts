@@ -44,6 +44,13 @@ interface Row {
 export type DeviceKind = "current" | "noDeflateContext" | "noDeflate" | "noListReads" | "slimEventsOnly" | "older";
 
 const sendOriginal = Link.prototype.send;
+/** The core calls whose `capabilities` become a device's hello. */
+const HELLO_METHODS = new Set([
+	"remote.handshake",
+	"remote.client.open",
+	"remote.devices.connect",
+	"remote.connectFirst",
+]);
 
 /**
  * Taps each link a host takes from now on with `handler`: every frame it sends or receives, as the core counts its
@@ -122,7 +129,8 @@ export class LinkRecorder {
 			record(sent);
 			return sendOriginal.call(this, sent);
 		});
-		// The core builds the hello from the capabilities main hands its handshake.
+		// The core builds the hello from the capabilities main hands its client (`remote.client.open`), a Connect's
+		// first contact (`remote.devices.connect`) or a single handshake.
 		const call = CoreProcess.prototype.call;
 		this.#helloSpy = vi.spyOn(CoreProcess.prototype, "call").mockImplementation(function (
 			this: CoreProcess,
@@ -132,7 +140,7 @@ export class LinkRecorder {
 		) {
 			const handshake = params as { capabilities?: object } | undefined;
 			const next =
-				method === "remote.handshake" && handshake?.capabilities
+				HELLO_METHODS.has(method) && handshake?.capabilities
 					? { ...handshake, capabilities: earlierHello(handshake.capabilities, device) }
 					: params;
 			return call.call(this, method, next, options);

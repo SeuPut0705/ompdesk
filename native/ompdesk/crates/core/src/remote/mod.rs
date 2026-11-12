@@ -1,26 +1,30 @@
-//! Remote devices' link (native-rust ledger R1-R3; was `src/main/remote/{crypto,identity,address,wire,client,
-//! host-server,link-traffic}.ts`'s transport): the identity's keys, the candidate ports, the dial, both handshakes,
-//! the sealed and deflated frames, ping and dead, and the host's traffic line. Main keeps what decides (the
-//! reconnect loop, the gate, the device records, the hello, every request and event on a link) and holds each link
-//! by its number.
+//! Remote devices (native-rust ledger R1-R3 and R5; was `src/main/remote/{crypto,identity,address,wire,client,
+//! host-server,link-traffic,devices}.ts`' transport and decisions): the identity's keys, the candidate ports, the
+//! dial, both handshakes, the sealed and deflated frames, ping and dead, the host's traffic line, and the devices
+//! instance (`devices/`: records, Tailscale's side, the host's listener and gate, each known host's reconnecting
+//! client). Main keeps what only it can say (Mobile web's lists and blocks, the person's approval, the hello's
+//! answer) and every request and event on a link, which it holds by the link's number.
 //!
-//! Methods: `remote.identity`, `remote.addresses`, `remote.hostsOf`, `remote.connect` and `remote.handshake` (a
-//! client's attempt, cancellable), `remote.probe`, `remote.probeHost`, `remote.hostListen`, `remote.hostStop`,
-//! `remote.answer` (main's answer to an ask), `remote.testLink` (the cross-implementation tests': a link
-//! to an address under keys the test chose, no handshake). Pushes on a link: `remote.send`, `remote.deflate`, `remote.listen`,
-//! `remote.tap`, `remote.check`, `remote.close`, `remote.destroy`. Events: `remote.message`, `remote.checked`, `remote.closed`,
-//! `remote.traffic`, `remote.ask` (`gate`, `bind`, `open`), `remote.log`. The event encoding's methods are
-//! `events`'.
+//! Methods: `remote.identity`, `remote.connect` and `remote.handshake` (one handshake, cancellable: the
+//! cross-implementation tests'), `remote.probe`, `remote.probeHost`, `remote.answer` (main's answer to an ask),
+//! `remote.testLink` (a link to an address under keys the test chose, no handshake), and `devices/`' `remote.devices.*`,
+//! `remote.client.*`, `remote.connectFirst`. Pushes on a link: `remote.send`, `remote.deflate`, `remote.listen`,
+//! `remote.tap`, `remote.check`, `remote.close`, `remote.destroy`. Events: `remote.message`, `remote.checked`,
+//! `remote.closed`, `remote.traffic`, `remote.ask` (`policy`, `admit`, `open`, `tailnet`, `locate`), `remote.log`. The event
+//! encoding's methods are `events`'.
 
 pub mod address;
 pub mod codec;
 pub mod crypto;
+pub mod devices;
 mod dial;
 pub mod events;
 mod handshake;
 mod host;
 pub mod identity;
 mod link;
+pub mod store;
+pub mod tailnet;
 pub mod traffic;
 
 use std::collections::HashMap;
@@ -51,6 +55,8 @@ struct State {
     conns: HashMap<u64, Conn>,
     hosts: HashMap<u64, host::Host>,
     asks: HashMap<u64, oneshot::Sender<Value>>,
+    /// Core-side code told when a link ends (a reconnecting client), registered before the link runs.
+    enders: HashMap<u64, Box<dyn FnOnce(Reason) + Send>>,
 }
 
 static STATE: LazyLock<Mutex<State>> = LazyLock::new(Mutex::default);
@@ -61,7 +67,7 @@ fn state() -> MutexGuard<'static, State> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn next_id() -> u64 {
+pub(crate) fn next_id() -> u64 {
     let mut state = state();
     state.next += 1;
     state.next
@@ -76,8 +82,21 @@ fn forget_link(id: u64) {
     }
 }
 
+/// Calls `ended` when link `id` ends, before its `remote.closed` reaches main. Register before the link runs.
+pub(crate) fn on_link_end(id: u64, ended: impl FnOnce(Reason) + Send + 'static) {
+    state().enders.insert(id, Box::new(ended));
+}
+
+/// A link's task ended with `reason`.
+pub(crate) fn link_ended(id: u64, reason: Reason) {
+    let ender = state().enders.remove(&id);
+    if let Some(ender) = ender {
+        ender(reason);
+    }
+}
+
 /// Asks main (`remote.ask`) and waits for its `remote.answer`; None when main never answers (its core went).
-async fn ask(events: &Events, kind: &str, data: Value) -> Option<Value> {
+pub(crate) async fn ask(events: &Events, kind: &str, data: Value) -> Option<Value> {
     let (answer, answered) = oneshot::channel();
     let call = {
         let mut state = state();
@@ -96,7 +115,7 @@ async fn ask(events: &Events, kind: &str, data: Value) -> Option<Value> {
     answered.await.ok()
 }
 
-fn identity(device_id: &str) -> Result<Arc<Identity>, Fault> {
+pub(crate) fn identity(device_id: &str) -> Result<Arc<Identity>, Fault> {
     state()
         .identities
         .get(device_id)
@@ -105,15 +124,14 @@ fn identity(device_id: &str) -> Result<Arc<Identity>, Fault> {
 }
 
 pub fn register(registry: &mut Registry) {
+    devices::register(registry);
+    store::register(registry);
+    tailnet::register(registry);
     registry.add("remote.identity", |call| Box::pin(load_identity(call)));
-    registry.add("remote.addresses", |call| Box::pin(addresses(call)));
-    registry.add("remote.hostsOf", |call| Box::pin(hosts_of(call)));
     registry.add("remote.connect", |call| Box::pin(connect(call)));
     registry.add("remote.handshake", |call| Box::pin(handshake_call(call)));
     registry.add("remote.probe", |call| Box::pin(probe(call)));
     registry.add("remote.probeHost", |call| Box::pin(probe_host(call)));
-    registry.add("remote.hostListen", |call| Box::pin(host_listen(call)));
-    registry.add("remote.hostStop", |call| Box::pin(host_stop(call)));
     registry.add("remote.answer", |call| Box::pin(answer(call)));
     registry.add("remote.testLink", |call| Box::pin(test_link(call)));
     events::register(registry);
@@ -138,6 +156,7 @@ pub fn register(registry: &mut Registry) {
             &push,
             Command::Check {
                 window: Duration::from_millis(window),
+                reply: None,
             },
         );
     });
@@ -184,46 +203,24 @@ async fn load_identity(call: Call) -> Result<Reply, Fault> {
     Reply::json(&reply)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddressesParams {
-    ip: String,
-    first: Option<String>,
-    /// Main's `OMP_GUI_REMOTE_PORT`.
-    port_setting: Option<String>,
-}
-
-/// A computer's candidate addresses on its tailnet IP, the one it last answered on first.
-async fn addresses(call: Call) -> Result<Reply, Fault> {
-    let params: AddressesParams = call.params()?;
-    let mut list: Vec<String> =
-        address::candidates(address::remote_port(params.port_setting.as_deref()))
-            .into_iter()
-            .map(|port| address::format(&params.ip, port))
-            .collect();
-    if let Some(first) = params.first
-        && let Some(at) = list.iter().position(|address| *address == first)
+/// A computer's candidate addresses on its tailnet IP (`port_setting`: main's `OMP_GUI_REMOTE_PORT`), the one it last
+/// answered on first.
+pub(crate) fn candidate_addresses(
+    ip: &str,
+    first: Option<&str>,
+    port_setting: Option<&str>,
+) -> Vec<String> {
+    let mut list: Vec<String> = address::candidates(address::remote_port(port_setting))
+        .into_iter()
+        .map(|port| address::format(ip, port))
+        .collect();
+    if let Some(first) = first
+        && let Some(at) = list.iter().position(|address| address == first)
     {
         let first = list.remove(at);
         list.insert(0, first);
     }
-    Reply::json(&list)
-}
-
-#[derive(Deserialize)]
-struct HostsOfParams {
-    addresses: Vec<String>,
-}
-
-/// The host part of each stored `host:port` (null where it is none): a code-paired host's migration matches it.
-async fn hosts_of(call: Call) -> Result<Reply, Fault> {
-    let params: HostsOfParams = call.params()?;
-    let hosts: Vec<Option<String>> = params
-        .addresses
-        .iter()
-        .map(|text| address::parse(text, address::DEFAULT_REMOTE_PORT).map(|target| target.host))
-        .collect();
-    Reply::json(&hosts)
+    list
 }
 
 fn failed(failure: &Failure, refused: bool) -> Value {
@@ -357,23 +354,6 @@ async fn probe_host(call: Call) -> Result<Reply, Fault> {
         Ok(found) => Reply::json(&json!({"probe": probe_json(&found)})),
         Err(failure) => Reply::json(&failed(&failure, false)),
     }
-}
-
-async fn host_listen(call: Call) -> Result<Reply, Fault> {
-    let params: host::ListenParams = call.params()?;
-    let identity = identity(&params.identity)?;
-    Reply::json(&host::listen(params, call.events.clone(), identity).await?)
-}
-
-#[derive(Deserialize)]
-struct HostParams {
-    host: u64,
-}
-
-async fn host_stop(call: Call) -> Result<Reply, Fault> {
-    let params: HostParams = call.params()?;
-    host::stop(params.host).await;
-    Reply::json(&Value::Null)
 }
 
 #[derive(Deserialize)]
