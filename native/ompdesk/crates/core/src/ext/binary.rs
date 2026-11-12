@@ -307,6 +307,10 @@ mod tests {
             );
             assert_eq!(version.as_deref(), row[3].as_str(), "case {at}: {row}");
         }
+        // A venv that is not there records none, on either layout.
+        let gone = root.join("nope").to_string_lossy().into_owned();
+        assert_eq!(dist_info_version(&gone, "a", Platform::Darwin), None);
+        assert_eq!(dist_info_version(&gone, "a", Platform::Win32), None);
         fs::remove_dir_all(root).unwrap();
     }
 

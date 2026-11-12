@@ -159,30 +159,36 @@ describe("pinned runner packages", () => {
 });
 
 describe("parsers", () => {
-	it("pip index versions", () => {
+	it("pip index versions", async () => {
 		expect(
-			parsePipIndex("mcp-thing (1.4.0)\nAvailable versions: 1.4.0, 1.3.0\n  INSTALLED: 1.3.0\n  LATEST:    1.4.0\n"),
+			await parsePipIndex(
+				"mcp-thing (1.4.0)\nAvailable versions: 1.4.0, 1.3.0\n  INSTALLED: 1.3.0\n  LATEST:    1.4.0\n",
+			),
 		).toBe("1.4.0");
 		expect(
-			parsePipIndex("WARNING: pip index is currently an experimental command.\nAvailable versions: 2.0.0rc1, 1.9.0"),
+			await parsePipIndex(
+				"WARNING: pip index is currently an experimental command.\nAvailable versions: 2.0.0rc1, 1.9.0",
+			),
 		).toBe("2.0.0rc1");
-		expect(() => parsePipIndex("ERROR: No matching distribution found for nope\n")).toThrow(
+		await expect(parsePipIndex("ERROR: No matching distribution found for nope\n")).rejects.toThrow(
 			"No matching distribution",
 		);
 	});
 
-	it("npm view keeps a prerelease tag", () => {
-		expect(parseRegistryVersion("1.2.3\n")).toBe("1.2.3");
-		expect(parseRegistryVersion("2.0.0-beta.1\n")).toBe("2.0.0-beta.1");
-		expect(() => parseRegistryVersion("npm error 404 Not Found\n")).toThrow("404");
+	it("npm view keeps a prerelease tag", async () => {
+		expect(await parseRegistryVersion("1.2.3\n")).toBe("1.2.3");
+		expect(await parseRegistryVersion("2.0.0-beta.1\n")).toBe("2.0.0-beta.1");
+		await expect(parseRegistryVersion("npm error 404 Not Found\n")).rejects.toThrow("404");
 	});
 
-	it("owner outputs: pip family here, the package managers through cli-tools' parser", () => {
-		expect(parseMcpOwnerLatest({ method: "pip", name: "x", python: "/p" }, "x (3.0.0)\n", "2.0.0")).toBe("3.0.0");
-		expect(parseMcpOwnerLatest({ method: "npm", name: "x", prefix: "/p", root: "/p/x" }, "5.1.0\n", "5.0.0")).toBe(
-			"5.1.0",
+	it("owner outputs: pip family here, the package managers through cli-tools' parser", async () => {
+		expect(await parseMcpOwnerLatest({ method: "pip", name: "x", python: "/p" }, "x (3.0.0)\n", "2.0.0")).toBe(
+			"3.0.0",
 		);
-		expect(() => parseMcpOwnerLatest({ method: "uv", name: "x", dir: "/d" }, "", null)).toThrow();
+		expect(
+			await parseMcpOwnerLatest({ method: "npm", name: "x", prefix: "/p", root: "/p/x" }, "5.1.0\n", "5.0.0"),
+		).toBe("5.1.0");
+		await expect(parseMcpOwnerLatest({ method: "uv", name: "x", dir: "/d" }, "", null)).rejects.toThrow();
 		const runner: RunnerPackage = {
 			kind: "runner",
 			runner: "uvx",
@@ -193,7 +199,7 @@ describe("parsers", () => {
 			pinned: true,
 			checkable: true,
 		};
-		expect(parseRunnerLatest(runner, "x (2.0.0)\n")).toBe("2.0.0");
-		expect(parseRunnerLatest({ ...runner, ecosystem: "npm" }, "2.0.0\n")).toBe("2.0.0");
+		expect(await parseRunnerLatest(runner, "x (2.0.0)\n")).toBe("2.0.0");
+		expect(await parseRunnerLatest({ ...runner, ecosystem: "npm" }, "2.0.0\n")).toBe("2.0.0");
 	});
 });

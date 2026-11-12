@@ -4,7 +4,8 @@
  * the registry lookup for a pinned runner package (`npx pkg@1.2.3`). Every command asks the owner or the
  * user's own configured registry/index, so a private registry or `pip.conf` is honored; the update runs that
  * owner's own command for the install it found, never with sudo. Commands are fixed here; nothing comes
- * from the renderer or from the MCP config except the package name.
+ * from the renderer or from the MCP config except the package name. What a lookup printed is read by the core
+ * process (`native/ompdesk/crates/core/src/ext/latest.rs`).
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import {
 	parseLatest,
 } from "../cli-tools/plans";
 import { executableName, findOnPath } from "../spawn";
+import { extRule } from "./core";
 import type { McpClass } from "./mcp";
 import type { McpOwner } from "./mcp-owner";
 
@@ -85,23 +87,21 @@ export function runnerCheck(runner: RunnerPackage, tools: PlanTools): CliCommand
 	return runner.runner === "bunx" || runner.runner === "bun-x" ? (viaBun ?? viaNpm) : (viaNpm ?? viaBun);
 }
 
-/** `pip index versions` output: `name (1.2.3)` on the first line, `Available versions: 1.2.3, 1.2.2, …` below. */
-export function parsePipIndex(output: string): string {
-	const newest =
-		/^\S+ \(([^)\s]+)\)/m.exec(output)?.[1] ?? /Available versions:\s*([^,\s]+)/.exec(output)?.[1] ?? null;
-	if (!newest) throw new Error(output.trim().split(/\r?\n/).at(-1) || "no version in pip's answer");
-	return newest;
+/**
+ * `pip index versions` output: `name (1.2.3)` on a line, `Available versions: 1.2.3, 1.2.2, …` below. Fails with
+ * the output's last line when it names no version.
+ */
+export function parsePipIndex(output: string): Promise<string> {
+	return extRule("ext.pipLatest", { output });
 }
 
-/** `npm view <pkg> version`: the version with its prerelease tag, from the first line that has one. */
-export function parseRegistryVersion(output: string): string {
-	const version = /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/.exec(output)?.[0];
-	if (!version) throw new Error(output.trim().split(/\r?\n/).at(-1) || "no version in the registry's answer");
-	return version;
+/** `npm view <pkg> version`: the first version in the output, with its prerelease tag; fails as `parsePipIndex`. */
+export function parseRegistryVersion(output: string): Promise<string> {
+	return extRule("ext.registryLatest", { output });
 }
 
 /** The newest version in an owner check's output (cli-tools' parser for the package managers it knows). */
-export function parseMcpOwnerLatest(owner: McpOwner, output: string, installed: string | null): string {
+export async function parseMcpOwnerLatest(owner: McpOwner, output: string, installed: string | null): Promise<string> {
 	switch (owner.method) {
 		case "pipx":
 		case "pip":
@@ -114,6 +114,6 @@ export function parseMcpOwnerLatest(owner: McpOwner, output: string, installed: 
 }
 
 /** The newest version in a runner package's registry lookup. */
-export function parseRunnerLatest(runner: RunnerPackage, output: string): string {
+export function parseRunnerLatest(runner: RunnerPackage, output: string): Promise<string> {
 	return runner.ecosystem === "pypi" ? parsePipIndex(output) : parseRegistryVersion(output);
 }

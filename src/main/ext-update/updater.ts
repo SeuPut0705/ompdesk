@@ -3,8 +3,8 @@
  * src/shared/extension-update.ts, design in the stock helper's `extensions.*` methods). The schedule is the
  * tool CLIs' (`CliUpdater`, update-scheduler.ts): at launch after machine setup's first pass and every 4 h, a
  * longer wait per row after failures in a row, deferred rows retried at the next check, everything one row at
- * a time through a serial queue. Each pass reads the inventory (local files only), classifies it
- * (classify.ts), then works through marketplaces → plugins → skills → MCP servers: the first so plugin
+ * a time through a serial queue. Each pass reads the inventory (local files only), has the core process
+ * classify it (classify.ts), then works through marketplaces → plugins → skills → MCP servers: the first so plugin
  * checks see fresh catalogs, the plugin, skill and marketplace work is stock's own, run in the stock helper's
  * `extensions` worker; an MCP server's global binary is updated by the package manager that owns it, run as
  * `SetupService.runToolUpdate` under the setup supervisor. A pinned version (a plugin or skill pin, an MCP
@@ -33,6 +33,7 @@ import { isNewer } from "../../shared/version";
 import { type CliPlatform, findBrew, type InstallContext, probeOutput } from "../cli-tools/detect";
 import type { CliCommand, PlanTools } from "../cli-tools/plans";
 import { runCheckProcess } from "../cli-tools/updater";
+import { CoreError } from "../core/process";
 import { EMPTY_APPLY_PLAN, type ExtensionApplyPlan, mergeApplyPlans, planIsEmpty } from "../extension-reload";
 import { parseOmpVersion } from "../omp-runtime";
 import { fencedCall, stepStalled, throwIfStepStalled } from "../serial-chain";
@@ -41,7 +42,7 @@ import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { needsShell, spawnArgs, spawnCommand } from "../spawn";
 import { type Backoff, settleBackoff, UpdateScheduler } from "../update-scheduler";
 import { classifyInventory, type ExtensionSeed, type SeedRow, type SeedTarget } from "./classify";
-import { classifyMcpServer } from "./mcp";
+import { classifyMcpServers } from "./mcp";
 import { detectMcpBinary, type McpBinary, type OwnerDeps } from "./mcp-owner";
 import {
 	mcpOwnerCheck,
@@ -107,6 +108,15 @@ interface Environment {
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/**
+ * A command whose binary cannot be read resolves to nothing. A core that cannot answer is not that: it fails what
+ * asked, so an owned server is never listed as "unknown install" because the core was away.
+ */
+const noBinary = (error: unknown): null => {
+	if (error instanceof CoreError) throw error;
+	return null;
+};
 
 const noPlan = (): ExtensionApplyPlan => ({ ...EMPTY_APPLY_PLAN, reconnect: [] });
 
@@ -246,15 +256,15 @@ export class ExtensionUpdater {
 		const detect = this.#deps.detectBinary ?? detectMcpBinary;
 		const ownerDeps = environment.owner;
 		const binaries = new Map<string, McpBinary | null>();
+		const classes = await classifyMcpServers(inventory.mcpServers, { reaRoot: this.#deps.reaRoot });
 		await Promise.all(
-			inventory.mcpServers.map(async server => {
-				const cls = classifyMcpServer(server, { reaRoot: this.#deps.reaRoot });
-				if (cls.kind === "direct")
-					binaries.set(server.name, await detect(cls.command, ownerDeps).catch(() => null));
+			inventory.mcpServers.map(async (server, at) => {
+				const cls = classes[at];
+				if (cls?.kind === "direct") binaries.set(server.name, await detect(cls.command, ownerDeps).catch(noBinary));
 			}),
 		);
 		throwIfStepStalled();
-		const seeds = classifyInventory(inventory, {
+		const seeds = await classifyInventory(inventory, {
 			reaRoot: this.#deps.reaRoot,
 			reaEnabled: this.#deps.reaEnabled(),
 			binaries,
@@ -497,7 +507,7 @@ export class ExtensionUpdater {
 			const check = installer ? this.#installerCheck(installer, record) : runnerCheck(runner, environment.tools);
 			if (check) {
 				const output = await this.#run(check, environment);
-				latest = installer ? parseOmpVersion(output) : parseRunnerLatest(runner, output);
+				latest = installer ? parseOmpVersion(output) : await parseRunnerLatest(runner, output);
 			}
 		} catch (error) {
 			this.#fail(record, { reason: "check", detail: message(error) });
@@ -524,7 +534,9 @@ export class ExtensionUpdater {
 					binary.installed;
 			} else {
 				const check = mcpOwnerCheck(owner, environment.tools);
-				latest = check ? parseMcpOwnerLatest(owner, await this.#run(check, environment), binary.installed) : null;
+				latest = check
+					? await parseMcpOwnerLatest(owner, await this.#run(check, environment), binary.installed)
+					: null;
 			}
 		} catch (error) {
 			this.#fail(record, { reason: "check", detail: message(error) });
@@ -536,13 +548,20 @@ export class ExtensionUpdater {
 			this.#finish(record, { kind: "current" });
 			return noPlan();
 		}
-		if (scansProcesses(this.#deps.platform) && deferForRunning(owner.method, binary.script)) {
-			const commands = await this.#deps.processes().catch(() => "");
-			throwIfStepStalled();
-			if (runningServer(commands, { command }, binary)) {
-				this.#finish(record, { kind: "deferred", latest, why: "running" });
-				return noPlan();
+		try {
+			if (scansProcesses(this.#deps.platform) && (await deferForRunning(owner.method, binary.script))) {
+				const commands = await this.#deps.processes().catch(() => "");
+				throwIfStepStalled();
+				if (await runningServer(commands, { command }, binary)) {
+					this.#finish(record, { kind: "deferred", latest, why: "running" });
+					return noPlan();
+				}
 			}
+		} catch (error) {
+			// The running rule got no answer: the update never runs without it.
+			throwIfStepStalled();
+			this.#fail(record, { reason: "check", detail: message(error) });
+			return noPlan();
 		}
 		const update = mcpOwnerUpdate(owner, latest, environment.tools);
 		if (!update && !installer) {
@@ -568,7 +587,14 @@ export class ExtensionUpdater {
 			this.#fail(record, { reason: "install", ...(outcome.detail ? { detail: outcome.detail } : {}) });
 			return noPlan();
 		}
-		const after = await (this.#deps.detectBinary ?? detectMcpBinary)(command, environment.owner).catch(() => null);
+		let after: McpBinary | null;
+		try {
+			after = await (this.#deps.detectBinary ?? detectMcpBinary)(command, environment.owner).catch(noBinary);
+		} catch (error) {
+			// The update ran, and what it left cannot be read: neither "updated" nor "not updated" is known.
+			this.#fail(record, { reason: "check", detail: message(error) });
+			return noPlan();
+		}
 		throwIfStepStalled();
 		const now = after?.installed ?? null;
 		if (after) {

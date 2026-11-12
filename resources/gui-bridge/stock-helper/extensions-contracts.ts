@@ -4,7 +4,7 @@
  * import this file. Every method works on this computer's omp state with no tab open: user scope always, a
  * project's scope for each folder in `cwds` (the workspaces of the open local tabs). No answer carries a
  * credential, a token or an environment variable value; the MCP inventory carries `command`/`args`/`url`
- * only because main parses the package out of them (they never reach the renderer).
+ * only because the package is parsed out of them (by the core process, for main; they never reach the renderer).
  *
  * Errors are thrown (the helper's `{id, error}` reply) with a plain message; the one coded outcome is a
  * skill update that stock would have asked a human about (`blocked: "needs-approval"`).

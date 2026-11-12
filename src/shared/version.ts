@@ -63,8 +63,3 @@ export function isNewer(latest: string, installed: string | null): boolean {
 	const order = compareVersions(latest, installed);
 	return order === null ? latest.trim() !== installed.trim() : order > 0;
 }
-
-/** An exact version (`1.2.3`, `v1.2.3-beta.1`), as opposed to a range or a dist-tag. */
-export function isExactVersion(spec: string): boolean {
-	return /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(spec.trim());
-}

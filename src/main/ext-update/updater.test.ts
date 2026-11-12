@@ -21,6 +21,7 @@ import {
 } from "../../../resources/gui-bridge/stock-helper/extensions-contracts";
 import type { ExtensionRow, ExtensionUpdateState } from "../../shared/extension-update";
 import { IPC_COMMANDS } from "../../shared/ipc-types";
+import { CoreError, core } from "../core/process";
 import type { ExtensionApplyPlan } from "../extension-reload";
 import type { ToolUpdateOutcome, ToolUpdateRequest } from "../setup/service";
 import { CHECK_INTERVAL_MS, nextCheckDelay, UPDATE_STEP_MAX_MS } from "../update-scheduler";
@@ -238,9 +239,37 @@ const row = (h: Harness, key: string): ExtensionRow => {
 	return found;
 };
 
+/** The core's requests in flight: the rules a pass asks it for (classification, the running rule, a lookup's answer). */
+const asked = new Set<Promise<unknown>>();
+/** Methods the core does not answer in this test, as after it ended mid-request. */
+const away = new Set<string>();
+const coreGone = () => new CoreError("core_exited", "ompdesk-core ended before it answered");
+const coreProcess = core();
+const coreCall = coreProcess.call.bind(coreProcess);
+vi.spyOn(coreProcess, "call").mockImplementation(((...args: Parameters<typeof coreCall>) => {
+	if (away.has(args[0])) return Promise.reject(coreGone());
+	const answer = coreCall(...args);
+	asked.add(answer);
+	const done = () => void asked.delete(answer);
+	answer.then(done, done);
+	return answer;
+}) as typeof coreProcess.call);
+
 afterEach(() => {
 	vi.useRealTimers();
+	away.clear();
 });
+
+/**
+ * Under fake timers: lets a pass go on through the core's answers until it asks for no more. The answers are real
+ * I/O, which no fake clock moves; a test waits here before it moves the clock again.
+ */
+async function settled(): Promise<void> {
+	do {
+		await Promise.allSettled([...asked]);
+		await vi.advanceTimersByTimeAsync(0);
+	} while (asked.size > 0);
+}
 
 describe("listing", () => {
 	it("a launch that does not schedule lists everything and asks for nothing", async () => {
@@ -671,6 +700,61 @@ describe("MCP binaries", () => {
 		expect(h.applied).toEqual([{ reload: false, restart: false, reconnect: ["pkg"] }]);
 	});
 
+	describe("a core that cannot answer", () => {
+		it("during a refresh fails the pass and leaves the rows as they were", async () => {
+			const h = harness();
+			withServer(h);
+			await h.updater.rescan();
+			const before = JSON.stringify(h.updater.state());
+			away.add("ext.seeds");
+			await expect(h.updater.updateNow()).rejects.toThrow("ompdesk-core ended");
+			expect(JSON.stringify(h.updater.state())).toBe(before);
+			expect(h.checks).toEqual([]);
+			// An owned server whose file could not be read is never listed as an unknown install.
+			away.clear();
+			const blind = harness({ detectBinary: async () => Promise.reject(coreGone()) });
+			withServer(blind);
+			await expect(blind.updater.rescan()).rejects.toThrow("ompdesk-core ended");
+			expect(blind.updater.state().rows).toEqual([]);
+		});
+
+		it("on the running rule fails that row's check, runs no update and lets the pass go on", async () => {
+			const h = harness();
+			withServer(h);
+			h.inventory.plugins = [plugin()];
+			h.pluginChecks["tools@official"] = pluginCheck();
+			h.upgrades["tools@official"] = upgrade();
+			away.add("ext.defersWhileRunning");
+			await h.updater.updateNow();
+			expect(row(h, "mcp:pkg")).toMatchObject({
+				phase: "idle",
+				last: { kind: "failed", failure: { reason: "check", detail: "ompdesk-core ended before it answered" } },
+			});
+			expect(h.updates).toEqual([]);
+			expect(h.applied).toEqual([expect.objectContaining({ reload: true, restart: false })]);
+		});
+
+		it("after an update records a failed check: what the update left is not known", async () => {
+			let reads = 0;
+			const h = harness({
+				detectBinary: async () => {
+					reads++;
+					if (reads > 1) throw coreGone();
+					return binary();
+				},
+			});
+			withServer(h);
+			await h.updater.updateNow("mcp:pkg");
+			expect(h.updates).toHaveLength(1);
+			expect(row(h, "mcp:pkg")).toMatchObject({
+				phase: "idle",
+				installed: "1.0.0",
+				last: { kind: "failed", failure: { reason: "check", detail: "ompdesk-core ended before it answered" } },
+			});
+			expect(h.applied).toEqual([]);
+		});
+	});
+
 	it("without an installer it asks the owner and runs the owner's own update", async () => {
 		const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ompdesk-ext-updater-")));
 		try {
@@ -866,10 +950,12 @@ describe("schedule", () => {
 		h.inventory.marketplaces = [{ name: "m", source: "s", updatedAt: "" }];
 		h.updater.start();
 		await vi.advanceTimersByTimeAsync(0);
+		await settled();
 		expect(h.calls.filter(call => call.startsWith("marketplace.refresh"))).toHaveLength(1);
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS - 1);
 		expect(h.calls.filter(call => call.startsWith("marketplace.refresh"))).toHaveLength(1);
 		await vi.advanceTimersByTimeAsync(1);
+		await settled();
 		expect(h.calls.filter(call => call.startsWith("marketplace.refresh"))).toHaveLength(2);
 		h.updater.dispose();
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS * 2);
@@ -1032,13 +1118,17 @@ describe("schedule", () => {
 		const scans = () => h.calls.filter(call => call === "inventory").length;
 		h.updater.start();
 		await vi.advanceTimersByTimeAsync(0);
+		await settled();
 		expect([scans(), checks()]).toEqual([1, 1]);
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		await settled();
 		expect([scans(), checks()]).toEqual([2, 1]);
 		h.pluginChecks["tools@official"] = pluginCheck({ latest: "1.0.0" });
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		await settled();
 		expect([scans(), checks()]).toEqual([3, 2]);
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		await settled();
 		expect([scans(), checks()]).toEqual([4, 3]);
 		h.updater.dispose();
 	});
@@ -1095,6 +1185,7 @@ describe("schedule", () => {
 		expect(h.calls).toEqual([]);
 		throws = false;
 		await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS);
+		await settled();
 		expect(h.calls).toContain("plugin.check tools@official");
 		h.updater.dispose();
 	});

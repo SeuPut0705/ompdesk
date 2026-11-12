@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareVersions, isExactVersion, isNewer } from "./version";
+import { compareVersions, isNewer } from "./version";
 
 describe("isNewer", () => {
 	it("orders dotted numbers numerically, not as text", () => {
@@ -64,13 +64,5 @@ describe("compareVersions", () => {
 	it("is null when either side is not a dotted-number version", () => {
 		expect(compareVersions("main", "1.0.0")).toBeNull();
 		expect(compareVersions("1.0rc2", "1.0rc1")).toBeNull();
-	});
-});
-
-describe("isExactVersion", () => {
-	it("an exact version is a pin; a range or a dist-tag is not an exact one", () => {
-		for (const spec of ["1.2.3", "v1.2.3", "1.2.3-beta.1", "1.2.3+b"]) expect(isExactVersion(spec), spec).toBe(true);
-		for (const spec of ["^1.2.3", "~1.2.3", "1.2", "latest", ">=1.0.0", "1.x", "*"])
-			expect(isExactVersion(spec), spec).toBe(false);
 	});
 });

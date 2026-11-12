@@ -3,26 +3,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { InstallContext } from "../cli-tools/detect";
-import {
-	classifyMcpBinary,
-	detectMcpBinary,
-	distInfoVersion,
-	fileKind,
-	isScriptFile,
-	type OwnerDeps,
-	shebangPython,
-} from "./mcp-owner";
+import { classifyMcpBinary, detectMcpBinary, type OwnerDeps } from "./mcp-owner";
 
 const MAC: InstallContext = { platform: "darwin", toolsDir: "/tools", brew: "/opt/homebrew/bin/brew" };
 const WIN: InstallContext = { platform: "win32", toolsDir: "C:\\tools", brew: null };
 
 describe("classifyMcpBinary", () => {
-	it("npm, Bun and Homebrew installs name their package manager", () => {
-		expect(classifyMcpBinary("/usr/local/lib/node_modules/@s/pkg/bin/cli.js", "pkg", MAC)).toEqual({
+	it("npm, Bun and Homebrew installs name their package manager", async () => {
+		expect(await classifyMcpBinary("/usr/local/lib/node_modules/@s/pkg/bin/cli.js", "pkg", MAC)).toEqual({
 			owner: { method: "npm", name: "@s/pkg", prefix: "/usr/local", root: "/usr/local/lib/node_modules/@s/pkg" },
 			skip: null,
 		});
-		expect(classifyMcpBinary("/Users/u/.bun/install/global/node_modules/pkg/dist/cli.js", "pkg", MAC)).toEqual({
+		expect(await classifyMcpBinary("/Users/u/.bun/install/global/node_modules/pkg/dist/cli.js", "pkg", MAC)).toEqual({
 			owner: {
 				method: "bun",
 				name: "pkg",
@@ -31,61 +23,59 @@ describe("classifyMcpBinary", () => {
 			},
 			skip: null,
 		});
-		expect(classifyMcpBinary("/opt/homebrew/Cellar/thing/1.0.0/bin/thing", "thing", MAC)).toEqual({
+		expect(await classifyMcpBinary("/opt/homebrew/Cellar/thing/1.0.0/bin/thing", "thing", MAC)).toEqual({
 			owner: { method: "brew", name: "thing", brew: "/opt/homebrew/bin/brew" },
 			skip: null,
 		});
-		expect(classifyMcpBinary("/opt/homebrew/Caskroom/thing/1.0.0/thing", "thing", MAC)).toMatchObject({
+		expect(await classifyMcpBinary("/opt/homebrew/Caskroom/thing/1.0.0/thing", "thing", MAC)).toMatchObject({
 			owner: { method: "brew-cask", name: "thing" },
 		});
 	});
 
-	it("pipx and uv tool venvs are recognised by path, on both platforms", () => {
-		expect(classifyMcpBinary("/Users/u/.local/pipx/venvs/mcp-thing/bin/mcp-thing", "mcp-thing", MAC)).toEqual({
+	it("pipx and uv tool venvs are recognised by path, on both platforms", async () => {
+		expect(await classifyMcpBinary("/Users/u/.local/pipx/venvs/mcp-thing/bin/mcp-thing", "mcp-thing", MAC)).toEqual({
 			owner: { method: "pipx", name: "mcp-thing", venv: "/Users/u/.local/pipx/venvs/mcp-thing" },
 			skip: null,
 		});
-		expect(classifyMcpBinary("/Users/u/.local/share/uv/tools/mcp-thing/bin/mcp-thing", "mcp-thing", MAC)).toEqual({
+		expect(
+			await classifyMcpBinary("/Users/u/.local/share/uv/tools/mcp-thing/bin/mcp-thing", "mcp-thing", MAC),
+		).toEqual({
 			owner: { method: "uv", name: "mcp-thing", dir: "/Users/u/.local/share/uv/tools/mcp-thing" },
 			skip: null,
 		});
-		expect(classifyMcpBinary("C:\\Users\\u\\pipx\\venvs\\foo\\Scripts\\foo.exe", "foo", WIN)).toEqual({
+		expect(await classifyMcpBinary("C:\\Users\\u\\pipx\\venvs\\foo\\Scripts\\foo.exe", "foo", WIN)).toEqual({
 			owner: { method: "pipx", name: "foo", venv: "C:\\Users\\u\\pipx\\venvs\\foo" },
 			skip: null,
 		});
 		expect(
-			classifyMcpBinary("C:\\Users\\u\\AppData\\Roaming\\uv\\tools\\foo\\Scripts\\foo.exe", "foo", WIN),
+			await classifyMcpBinary("C:\\Users\\u\\AppData\\Roaming\\uv\\tools\\foo\\Scripts\\foo.exe", "foo", WIN),
 		).toMatchObject({
 			owner: { method: "uv", name: "foo" },
 		});
 	});
 
-	it("system, app-bundled and unowned copies are left alone with the cli-tools reasons", () => {
-		expect(classifyMcpBinary("/usr/bin/thing", "thing", MAC)).toEqual({ owner: null, skip: "system" });
-		expect(classifyMcpBinary("/Applications/App.app/Contents/MacOS/thing", "thing", MAC)).toEqual({
+	it("system, app-bundled and unowned copies are left alone with the cli-tools reasons", async () => {
+		expect(await classifyMcpBinary("/usr/bin/thing", "thing", MAC)).toEqual({ owner: null, skip: "system" });
+		expect(await classifyMcpBinary("/Applications/App.app/Contents/MacOS/thing", "thing", MAC)).toEqual({
 			owner: null,
 			skip: "bundled",
 		});
-		expect(classifyMcpBinary("/Users/u/bin/thing", "thing", MAC)).toEqual({ owner: null, skip: "unknown-install" });
+		expect(await classifyMcpBinary("/Users/u/bin/thing", "thing", MAC)).toEqual({
+			owner: null,
+			skip: "unknown-install",
+		});
 		// A Homebrew keg without brew on this Mac cannot be updated.
-		expect(classifyMcpBinary("/opt/homebrew/Cellar/thing/1.0.0/bin/thing", "thing", { ...MAC, brew: null })).toEqual({
+		expect(
+			await classifyMcpBinary("/opt/homebrew/Cellar/thing/1.0.0/bin/thing", "thing", { ...MAC, brew: null }),
+		).toEqual({
 			owner: null,
 			skip: "unknown-install",
 		});
 		// machine setup's managed tools dir is not an MCP server's owner.
-		expect(classifyMcpBinary("/tools/node/bin/thing", "thing", MAC)).toEqual({
+		expect(await classifyMcpBinary("/tools/node/bin/thing", "thing", MAC)).toEqual({
 			owner: null,
 			skip: "unknown-install",
 		});
-	});
-});
-
-describe("shebangPython", () => {
-	it("reads a direct python and an env lookup, and refuses other interpreters", () => {
-		expect(shebangPython("#!/opt/py/bin/python3.12", "", MAC)).toBe("/opt/py/bin/python3.12");
-		expect(shebangPython("#!/bin/sh", "", MAC)).toBeNull();
-		expect(shebangPython("#!/usr/bin/env node", "", MAC)).toBeNull();
-		expect(shebangPython("#!/usr/bin/env python3", "/nowhere", MAC)).toBeNull();
 	});
 });
 
@@ -115,34 +105,65 @@ describe("on disk", () => {
 		probe,
 	});
 
-	it("tells scripts from native binaries by their first bytes", () => {
+	it("reads a direct python and an env lookup from the shebang, and refuses other interpreters", async () => {
+		const root = temp();
+		const asked = async (shebang: string, pathEnv = "") => {
+			const file = path.join(root, "tool");
+			write(file, `${shebang}\n`);
+			const pythons: string[] = [];
+			await detectMcpBinary(
+				file,
+				deps(pathEnv, async bin => {
+					pythons.push(bin);
+					return "";
+				}),
+			);
+			return pythons[0] ?? null;
+		};
+		expect(await asked("#!/opt/py/bin/python3.12")).toBe("/opt/py/bin/python3.12");
+		expect(await asked("#!/bin/sh")).toBeNull();
+		expect(await asked("#!/usr/bin/env node")).toBeNull();
+		expect(await asked("#!/usr/bin/env python3", "/nowhere")).toBeNull();
+		const bin = path.join(root, "bin");
+		write(path.join(bin, "python3"), "");
+		expect(await asked("#!/usr/bin/env python3", bin)).toBe(path.join(bin, "python3"));
+	});
+
+	it("tells scripts from native binaries by their first bytes", async () => {
 		const root = temp();
 		write(path.join(root, "script"), "#!/usr/bin/env node\n");
 		write(path.join(root, "elf"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0]));
 		write(path.join(root, "macho"), Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0, 0]));
 		write(path.join(root, "pe.exe"), Buffer.from("MZ\x90\x00"));
 		write(path.join(root, "blob"), Buffer.from([1, 2, 3, 4, 5]));
-		expect(fileKind(path.join(root, "script"))).toBe("script");
-		expect(fileKind(path.join(root, "elf"))).toBe("native");
-		expect(fileKind(path.join(root, "macho"))).toBe("native");
-		expect(fileKind(path.join(root, "pe.exe"))).toBe("native");
-		expect(fileKind(path.join(root, "blob"))).toBe("unknown");
-		expect(fileKind(path.join(root, "missing"))).toBe("unknown");
-		expect(fileKind("C:\\x\\shim.cmd")).toBe("script");
-		// Unknown waits like a script.
-		expect(isScriptFile(path.join(root, "blob"))).toBe(true);
-		expect(isScriptFile(path.join(root, "macho"))).toBe(false);
+		const script = async (name: string) => (await detectMcpBinary(path.join(root, name), deps("")))?.script;
+		expect(await script("script")).toBe(true);
+		expect(await script("elf")).toBe(false);
+		expect(await script("macho")).toBe(false);
+		expect(await script("pe.exe")).toBe(false);
+		// Neither a script nor a native binary: it waits like a script.
+		expect(await script("blob")).toBe(true);
 	});
 
-	it("reads a venv's dist-info version", () => {
+	it("reads a venv's dist-info version", async () => {
 		const root = temp();
-		fs.mkdirSync(path.join(root, "lib", "python3.12", "site-packages", "mcp_thing-2.0.1.dist-info"), {
-			recursive: true,
+		const venv = path.join(root, "pipx", "venvs", "mcp-thing");
+		const site = path.join(venv, "lib", "python3.12", "site-packages");
+		fs.mkdirSync(path.join(site, "mcp_thing-2.0.1.dist-info"), { recursive: true });
+		fs.mkdirSync(path.join(site, "other-9.9.9.dist-info"), { recursive: true });
+		write(path.join(venv, "bin", "mcp-thing"), "#!/x/python\n");
+		expect(await detectMcpBinary(path.join(venv, "bin", "mcp-thing"), deps(""))).toMatchObject({
+			owner: { method: "pipx", name: "mcp-thing" },
+			installed: "2.0.1",
+			script: true,
 		});
-		fs.mkdirSync(path.join(root, "lib", "python3.12", "site-packages", "other-9.9.9.dist-info"), { recursive: true });
-		expect(distInfoVersion(root, "mcp-thing", "darwin")).toBe("2.0.1");
-		expect(distInfoVersion(root, "absent", "darwin")).toBeNull();
-		expect(distInfoVersion(path.join(root, "nope"), "mcp-thing", "darwin")).toBeNull();
+		// A venv without site-packages records no version.
+		const bare = path.join(root, "uv", "tools", "absent");
+		write(path.join(bare, "bin", "absent"), "#!/x/python\n");
+		expect(await detectMcpBinary(path.join(bare, "bin", "absent"), deps(""))).toMatchObject({
+			owner: { method: "uv", name: "absent" },
+			installed: null,
+		});
 	});
 
 	it.skipIf(process.platform === "win32")(
