@@ -330,7 +330,7 @@ export const WorktreeCreateReply = z
 export const DeviceNameSchema = z.string().trim().min(1).max(MAX_DEVICE_NAME);
 export const NameParams = z.object({ name: DeviceNameSchema });
 
-/** Memory sync (ai-memory/sync.ts): the device drives both directions over its link to the host. */
+/** Memory sync (the core's `memsync`, ai-memory/sync.ts): the device drives both directions over its link to the host. */
 export const MEMORY_METHODS = {
 	pull: "host.memory.pull",
 	push: "host.memory.push",
@@ -380,7 +380,7 @@ export type MemoryCursor = z.infer<typeof MemoryCursor>;
  * that predates it drops the field and keeps the name rule.
  */
 const MemoryIdentity = z.string().min(1).max(512);
-/** One durable page on the link, whole, with its content hash (sync.ts `pageHash`) and the computer it came from. */
+/** One durable page on the link, whole, with its content hash (the core's `memsync/wire.rs` `page_hash`) and the computer it came from. */
 export const MemoryPageWire = z.object({
 	workspace: MemoryName,
 	project: MemoryName,

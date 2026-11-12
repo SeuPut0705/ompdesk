@@ -27,7 +27,7 @@ const TOKEN_MIN: usize = 8;
 
 /// Where the server is, as main knows it now: its URL (`null` before setup found one) and ai-memory's data folder
 /// (`null` before the plan named it).
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Server {
     #[serde(default)]

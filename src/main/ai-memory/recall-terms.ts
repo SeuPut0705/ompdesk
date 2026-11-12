@@ -1,15 +1,17 @@
 /**
  * The term corpus of memory recall's coverage gate (resources/gui-bridge/modes/memory-recall-core.ts `codeRuleSelect`):
  * how many conclusions hold each content term, kept in `<userData>/ai-memory/recall-terms.json` for the bridge. Both
- * conclusion streams are read after saved cursors (same reset rule as sync.ts `readConclusions`: another store, or a
- * cursor past the stream's end, rebuilds from zero). Deletions are not subtracted, so the document frequencies go
- * slightly stale until the store changes (then the rebuild corrects them).
+ * conclusion streams are read after saved cursors through the core's `memsync.readConclusions` (the sync's reset
+ * rule: another store, or a cursor past the stream's end, rebuilds from zero). Deletions are not subtracted, so the
+ * document frequencies go slightly stale until the store changes (then the rebuild corrects them). The terms stay
+ * here: `addConclusionTerms` is the bridge's own tokenizer, which its coverage gate reads the file with.
  */
 
 import { readFile } from "node:fs/promises";
 import { addConclusionTerms, type RecallTermStats } from "../../../resources/gui-bridge/modes/memory-recall-core";
 import { writeFileAtomic } from "../atomic-file";
-import { type MemoryStore, readConclusions } from "./sync";
+import type { AiMemoryServer } from "./client";
+import { readConclusions } from "./sync";
 
 const PAGE = 200;
 
@@ -38,17 +40,17 @@ function parse(raw: string): TermsFile | undefined {
 }
 
 export class RecallTermsIndex {
-	readonly #store: Pick<MemoryStore, "conclusions">;
+	readonly #server: () => AiMemoryServer;
 	readonly #file: string;
 	readonly #log: ((message: string, details?: object) => void) | undefined;
 	#running: Promise<void> | undefined;
 
 	constructor(deps: {
-		store: Pick<MemoryStore, "conclusions">;
+		server: () => AiMemoryServer;
 		file: string;
 		log?: (message: string, details?: object) => void;
 	}) {
-		this.#store = deps.store;
+		this.#server = deps.server;
 		this.#file = deps.file;
 		this.#log = deps.log;
 	}
@@ -71,7 +73,7 @@ export class RecallTermsIndex {
 				for (const source of ["native", "synced"] as const) {
 					for (;;) {
 						const { page, after } = await readConclusions(
-							this.#store as MemoryStore,
+							this.#server(),
 							source,
 							state[source],
 							state.store,

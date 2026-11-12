@@ -12,16 +12,11 @@ import {
 } from "../remote/app-protocol";
 import { RM_TEMP } from "../test-fake-omp";
 import type { MemoryConclusionCopy, MemoryPageCopy } from "./client";
-import {
-	IDENTITY_PASS_RETRY_MS,
-	type MemoryStore,
-	MemorySync,
-	pageHash,
-	serveConclusionPull,
-	serveConclusionPush,
-	servePull,
-	servePush,
-} from "./sync";
+import { type MemoryStore, type ServedStore, serveMemoryStore } from "./memory-store-test-rig";
+import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./sync";
+
+/** The core's `IDENTITY_PASS_RETRY_MS` (memsync/device.rs): a pass that saw no identity is tried again this much later. */
+const IDENTITY_PASS_RETRY_MS = 7 * 24 * 60 * 60_000;
 
 type Stored = MemoryPageCopy & { at: string };
 type StoredConclusion = Omit<MemoryConclusionCopy, "seq">;
@@ -258,6 +253,9 @@ describe("memory sync between two computers", () => {
 	let tick: number;
 	let mac: FakeServer;
 	let win: FakeServer;
+	/** Each computer's server as the core reaches it: whichever store `mac` and `win` name now. */
+	let macHttp: ServedStore;
+	let winHttp: ServedStore;
 	let logs: { message: string; details: Record<string, unknown> }[];
 	let sync: MemorySync;
 	let hostMethods: Set<string>;
@@ -273,10 +271,9 @@ describe("memory sync between two computers", () => {
 	const clock = () => new Date(Date.UTC(2026, 9, 19, 0, 0, ++tick)).toISOString();
 
 	function connect(host: FakeServer): MemorySync {
-		const hostDeps = { store: host.store, ready: () => host.ready, selfId: () => "win" };
+		const hostDeps = { server: () => (host.ready ? winHttp.server : null), selfId: () => "win" };
 		return new MemorySync({
-			store: mac.store,
-			ready: () => mac.ready,
+			server: () => (mac.ready ? macHttp.server : null),
 			selfId: () => "mac",
 			onlineHosts: () => ["win"],
 			now: () => wallClock,
@@ -314,6 +311,8 @@ describe("memory sync between two computers", () => {
 		tick = 0;
 		mac = new FakeServer(clock);
 		win = new FakeServer(clock);
+		macHttp = await serveMemoryStore(() => mac.store);
+		winHttp = await serveMemoryStore(() => win.store);
 		logs = [];
 		hostMethods = new Set(Object.values(MEMORY_METHODS));
 		crossed = 0;
@@ -325,6 +324,7 @@ describe("memory sync between two computers", () => {
 
 	afterEach(async () => {
 		sync.dispose();
+		await Promise.all([macHttp.close(), winHttp.close()]);
 		await rm(dir, RM_TEMP);
 	});
 
@@ -706,7 +706,7 @@ describe("memory sync between two computers", () => {
 
 	describe("session conclusions", () => {
 		const stored = (server: FakeServer) => server.synced.map(row => `${row.origin}:${row.id}`).sort();
-		const hostDeps = () => ({ store: win.store, ready: () => win.ready, selfId: () => "win" });
+		const hostDeps = () => ({ server: () => (win.ready ? winHttp.server : null), selfId: () => "win" });
 
 		it("goes both ways, each stored under the computer that captured it", async () => {
 			mac.capture("m1", "Mac: the pairing fix is shipped.", "app", "Pairing fix");
@@ -865,8 +865,7 @@ describe("memory sync between two computers", () => {
 
 			// A host that sends one unredacted is not trusted either.
 			const hostile = new MemorySync({
-				store: mac.store,
-				ready: () => true,
+				server: () => macHttp.server,
 				selfId: () => "mac",
 				onlineHosts: () => ["win"],
 				request: async <T>(_host: string, method: string): Promise<T> => {
@@ -1105,13 +1104,5 @@ describe("memory sync between two computers", () => {
 			expect(stored(mac)).toEqual(["win:w2"]);
 			expect(await sync.sync("win")).toEqual(QUIET);
 		});
-	});
-
-	it("hashes what a page holds, not where it came from or when", () => {
-		const a = page("decisions/a.md", "body");
-		const copied: MemoryPageCopy = { ...a, origin: "win", updatedAt: "2026-10-19T00:00:00Z", pinned: true };
-		expect(pageHash(a)).toBe(pageHash(copied));
-		expect(pageHash(a)).not.toBe(pageHash({ ...a, body: "other" }));
-		expect(pageHash({ ...a, tags: ["b", "a"] })).toBe(pageHash({ ...a, tags: ["a", "b"] }));
 	});
 });

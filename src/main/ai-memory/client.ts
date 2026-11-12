@@ -46,6 +46,12 @@ export async function serverUrlFromConfig(toml: string | null): Promise<string> 
 	return (await core().call<string>("aimemory.serverUrl", { toml })).result;
 }
 
+/** Where the server is, as main knows it now: what every request to the core names (`aimemory/client.rs` `Server`). */
+export interface AiMemoryServer {
+	url: string | null;
+	dataDir: string | null;
+}
+
 export class AiMemoryClient {
 	readonly #url: () => string | null;
 	readonly #dataDir: () => string | null;
@@ -56,7 +62,7 @@ export class AiMemoryClient {
 	}
 
 	/** Where the server is now: what every `aimemory.*` request carries, and what the core's own upkeep requests carry. */
-	server(): { url: string | null; dataDir: string | null } {
+	server(): AiMemoryServer {
 		return { url: this.#url(), dataDir: this.#dataDir() };
 	}
 

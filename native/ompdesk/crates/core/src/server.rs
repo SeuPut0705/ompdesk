@@ -211,6 +211,7 @@ pub fn registry() -> Registry {
     crate::git::register(&mut registry);
     crate::gh::register(&mut registry);
     crate::memory::register(&mut registry);
+    crate::memsync::register(&mut registry);
     crate::models::register(&mut registry);
     crate::omp::register(&mut registry);
     crate::procs::register(&mut registry);

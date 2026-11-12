@@ -351,7 +351,7 @@ pub struct Conclusions {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Conclusion {
+pub struct Conclusion {
     pub(crate) seq: Number,
     pub(crate) workspace: String,
     pub(crate) project: String,
@@ -423,10 +423,10 @@ pub struct RetireInput {
 }
 
 /// The repository identity a project was claimed by, as the server lists it.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Repository {
-    identity: String,
-    source: String,
+    pub(crate) identity: String,
+    pub(crate) source: String,
 }
 
 impl Repository {
@@ -442,18 +442,18 @@ impl Repository {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CopyInput {
-    title: String,
+    pub(crate) title: String,
     #[serde(default)]
-    kind: Option<String>,
-    tier: String,
-    body: String,
-    tags: Vec<String>,
-    pinned: bool,
-    metadata: Map<String, Value>,
+    pub(crate) kind: Option<String>,
+    pub(crate) tier: String,
+    pub(crate) body: String,
+    pub(crate) tags: Vec<String>,
+    pub(crate) pinned: bool,
+    pub(crate) metadata: Map<String, Value>,
     #[serde(default)]
-    expires_at: Option<String>,
+    pub(crate) expires_at: Option<String>,
     #[serde(default)]
-    repository: Option<Repository>,
+    pub(crate) repository: Option<Repository>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
