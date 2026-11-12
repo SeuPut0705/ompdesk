@@ -76,3 +76,8 @@ runs:
         src/main/session-launch-parity.test.ts
         src/main/remote/link-traffic-relaunch.test.ts
         src/main/remote/fanout-cpu-report.test.ts
+        src/main/remote/wire.test.ts
+        src/main/remote/transport.test.ts
+        src/main/remote/crypto.test.ts
+        src/main/remote/devices.test.ts
+        src/main/web/web-edge-matrix.test.ts

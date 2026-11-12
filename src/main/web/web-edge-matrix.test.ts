@@ -144,10 +144,16 @@ function writeStaticFixtures(): void {
 	writeFileSync(join(STATIC_DIR, "assets", "app-stale.js"), `${"export const stale = 2;".repeat(120)}\n`);
 	writeFileSync(join(STATIC_DIR, "assets", "small.css"), "a{color:red}\n");
 	writeFileSync(join(STATIC_DIR, "assets", "data.map"), `{"version":3,"mappings":"${"AAAA,".repeat(400)}"}\n`);
-	writeFileSync(join(STATIC_DIR, "assets", "font.woff2"), Buffer.from(Array.from({ length: 2000 }, (_, i) => (i * 7) & 255)));
+	writeFileSync(
+		join(STATIC_DIR, "assets", "font.woff2"),
+		Buffer.from(Array.from({ length: 2000 }, (_, i) => (i * 7) & 255)),
+	);
 	writeFileSync(join(STATIC_DIR, "assets", "noext"), "no extension\n");
 	writeFileSync(join(STATIC_DIR, "cmaps", "x.bcmap"), Buffer.from("bcmap bytes\n"));
-	writeFileSync(join(STATIC_DIR, "icons", "icon.png"), Buffer.from(Array.from({ length: 900 }, (_, i) => (i * 13) & 255)));
+	writeFileSync(
+		join(STATIC_DIR, "icons", "icon.png"),
+		Buffer.from(Array.from({ length: 900 }, (_, i) => (i * 13) & 255)),
+	);
 	writeFileSync(join(STATIC_DIR, "sw.js"), "self.addEventListener('install',()=>{});\n");
 	writeFileSync(join(STATIC_DIR, "manifest.webmanifest"), '{"name":"OMPdesk"}\n');
 	writeFileSync(join(STATIC_DIR, "pre-paint.js"), `${"document.x=1;".repeat(100)}\n`);
@@ -324,7 +330,8 @@ async function runRow(
 	const effects: Row["effects"] = { unpaired: 0, connected: 0, hooks: [], uploads: [], blobs: [] };
 	const policy = { ...spec.policy, allowedUsers: () => ALLOWED };
 	let confirmations: PairingConfirmations;
-	const respondTo = (id: string) => queueMicrotask(() => confirmations.respond({ id, approve: spec.confirm === "approve" }));
+	const respondTo = (id: string) =>
+		queueMicrotask(() => confirmations.respond({ id, approve: spec.confirm === "approve" }));
 	confirmations = new PairingConfirmations({ notify: request => respondTo(request.id), now: () => NOW });
 	const devices = new WebDevices(userData, () => NOW);
 	const peers: Record<string, { nodeId: string | null; nodeName: string | null; login: string | null }> = {
@@ -360,7 +367,10 @@ async function runRow(
 			) => {
 				effects.blobs.push(`${deviceId}:${target}`);
 				const body = `blob:${deviceId}:${target}`;
-				res.writeHead(200, { "content-type": "application/octet-stream", "content-length": String(Buffer.byteLength(body)) });
+				res.writeHead(200, {
+					"content-type": "application/octet-stream",
+					"content-length": String(Buffer.byteLength(body)),
+				});
 				res.end(body);
 			},
 		} as never,
@@ -396,7 +406,11 @@ async function runRow(
 					k,
 					request.distinctIp && k === "x-forwarded-for" ? `10.0.${n}.1` : v.replace("{port}", String(port)),
 				]);
-				const raw = await send(port, { ...request, target: request.target.replace("{port}", String(port)), headers, body }, []);
+				const raw = await send(
+					port,
+					{ ...request, target: request.target.replace("{port}", String(port)), headers, body },
+					[],
+				);
 				last = raw.body.toString();
 				if (i === times - 1) answers.push(normalize(raw));
 			}
@@ -427,20 +441,27 @@ interface Spec {
 type Apply = (spec: Spec) => void;
 type Dimension = [string, [string, Apply][]];
 
-const JSON_HEADERS: Header[] = [["content-type", "application/json"], ["user-agent", "TestBrowser/1.0"]];
-const set = (name: string, value: string | null): Apply => spec => {
-	if (value === null) spec.headers.delete(name);
-	else spec.headers.set(name, value);
-};
-const path = (method: string, p: string, body: string | null = null): Apply => spec => {
-	spec.method = method;
-	spec.path = p;
-	spec.body = body;
-	if (body !== null) {
-		spec.headers.set("content-type", "application/json");
-		spec.headers.set("user-agent", "TestBrowser/1.0");
-	}
-};
+const JSON_HEADERS: Header[] = [
+	["content-type", "application/json"],
+	["user-agent", "TestBrowser/1.0"],
+];
+const set =
+	(name: string, value: string | null): Apply =>
+	spec => {
+		if (value === null) spec.headers.delete(name);
+		else spec.headers.set(name, value);
+	};
+const path =
+	(method: string, p: string, body: string | null = null): Apply =>
+	spec => {
+		spec.method = method;
+		spec.path = p;
+		spec.body = body;
+		if (body !== null) {
+			spec.headers.set("content-type", "application/json");
+			spec.headers.set("user-agent", "TestBrowser/1.0");
+		}
+	};
 
 const dimensions = (): Dimension[] => [
 	[
@@ -473,12 +494,26 @@ const dimensions = (): Dimension[] => [
 			["session-bad-nonce", path("POST", "/api/session", '{"nonce":"nope","sig":"AAAA"}')],
 			["session-bad-json", path("POST", "/api/session", "{")],
 			["pair", path("POST", "/api/pair", '{"name":"My phone"}')],
-			["pair-key", path("POST", "/api/pair", `{"name":"k","publicKeyJwk":${JSON.stringify({ kty: "EC", crv: "P-256", x: DEVICE_KEY.x, y: DEVICE_KEY.y })}}`)],
+			[
+				"pair-key",
+				path(
+					"POST",
+					"/api/pair",
+					`{"name":"k","publicKeyJwk":${JSON.stringify({ kty: "EC", crv: "P-256", x: DEVICE_KEY.x, y: DEVICE_KEY.y })}}`,
+				),
+			],
 			["pair-bad-key", path("POST", "/api/pair", '{"publicKeyJwk":{"kty":"RSA"}}')],
 			["pair-get", path("GET", "/api/pair")],
 			["push-get", path("GET", "/api/push")],
 			["push-post", path("POST", "/api/push", '{"hideContent":true,"categories":["ask","error"]}')],
-			["push-bad-endpoint", path("POST", "/api/push", `{"subscription":{"endpoint":"https://127.0.0.1/x","keys":{"p256dh":"${"a".repeat(87)}","auth":"${"b".repeat(22)}"}}}`)],
+			[
+				"push-bad-endpoint",
+				path(
+					"POST",
+					"/api/push",
+					`{"subscription":{"endpoint":"https://127.0.0.1/x","keys":{"p256dh":"${"a".repeat(87)}","auth":"${"b".repeat(22)}"}}}`,
+				),
+			],
 			["upload", path("POST", "/upload", "abc")],
 			["upload-get", path("GET", "/upload")],
 			["blob", path("GET", "/blob/tok123?x=1")],
@@ -489,7 +524,14 @@ const dimensions = (): Dimension[] => [
 			["delete", path("DELETE", "/assets/app-abc.js")],
 		],
 	],
-	["state", [["published", s => (s.state = "published")], ["pending", s => (s.state = "pending")], ["unpublished", s => (s.state = "unpublished")]]],
+	[
+		"state",
+		[
+			["published", s => (s.state = "published")],
+			["pending", s => (s.state = "pending")],
+			["unpublished", s => (s.state = "unpublished")],
+		],
+	],
 	[
 		"prefix",
 		[
@@ -538,10 +580,13 @@ const dimensions = (): Dimension[] => [
 			["none", set("sec-fetch-site", "none")],
 			["cross-site", set("sec-fetch-site", "cross-site")],
 			["same-site", set("sec-fetch-site", "same-site")],
-			["cross-nav", spec => {
-				spec.headers.set("sec-fetch-site", "cross-site");
-				spec.headers.set("sec-fetch-mode", "navigate");
-			}],
+			[
+				"cross-nav",
+				spec => {
+					spec.headers.set("sec-fetch-site", "cross-site");
+					spec.headers.set("sec-fetch-mode", "navigate");
+				},
+			],
 		],
 	],
 	[
@@ -567,7 +612,13 @@ const dimensions = (): Dimension[] => [
 			["chain", set("x-forwarded-for", `${PHONE}, 1.2.3.4`)],
 		],
 	],
-	["blocks", [["none", s => (s.blocks = false)], ["active", s => (s.blocks = true)]]],
+	[
+		"blocks",
+		[
+			["none", s => (s.blocks = false)],
+			["active", s => (s.blocks = true)],
+		],
+	],
 	[
 		"cookie",
 		[
@@ -584,7 +635,13 @@ const dimensions = (): Dimension[] => [
 			["other-name", s => (s.cookie = "othername")],
 		],
 	],
-	["funnel", [["absent", set("tailscale-funnel-request", null)], ["present", set("tailscale-funnel-request", "?1")]]],
+	[
+		"funnel",
+		[
+			["absent", set("tailscale-funnel-request", null)],
+			["present", set("tailscale-funnel-request", "?1")],
+		],
+	],
 	[
 		"encoding",
 		[
@@ -680,8 +737,7 @@ function pairwise(table: Dimension[]): Record<string, string>[] {
 	const uncovered = new Set<string>();
 	for (let a = 0; a < names.length; a++)
 		for (let b = a + 1; b < names.length; b++)
-			for (const x of values[a] ?? [])
-				for (const y of values[b] ?? []) uncovered.add(`${a}:${x}|${b}:${y}`);
+			for (const x of values[a] ?? []) for (const y of values[b] ?? []) uncovered.add(`${a}:${x}|${b}:${y}`);
 	const rows: Record<string, string>[] = [];
 	// A tiny deterministic generator for tie-breaks.
 	let seed = 12345;
@@ -751,7 +807,10 @@ const GOOD: Record<string, string> = {
 	encoding: "none",
 	language: "none",
 };
-const valueOf = (dim: string, name: string) => dimensions().find(([d]) => d === dim)?.[1].find(([v]) => v === name)?.[1] as Apply;
+const valueOf = (dim: string, name: string) =>
+	dimensions()
+		.find(([d]) => d === dim)?.[1]
+		.find(([v]) => v === name)?.[1] as Apply;
 
 /** Each wall's failing value on a request that otherwise passes, in the order `checkRequest` runs them. */
 const WALLS: [string, string][] = [
@@ -784,7 +843,16 @@ function precedenceChoices(): Record<string, string>[] {
 const post = (target: string, body: string, headers: Header[] = [], origin = "{origin}"): Request => ({
 	method: "POST",
 	target: `/${SECRET}${target}`,
-	headers: [["host", "{host}"], ["origin", origin], ["sec-fetch-site", "same-origin"], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE], ["content-type", "application/json"], ["user-agent", "TestBrowser/1.0"], ...headers],
+	headers: [
+		["host", "{host}"],
+		["origin", origin],
+		["sec-fetch-site", "same-origin"],
+		["tailscale-user-login", "me@example.com"],
+		["x-forwarded-for", PHONE],
+		["content-type", "application/json"],
+		["user-agent", "TestBrowser/1.0"],
+		...headers,
+	],
 	body,
 });
 
@@ -821,7 +889,9 @@ function sequences(): Omit<Row, "answers" | "effects">[] {
 	add("seq-pair-limit-enroll", [{ ...post("/api/pair", '{"name":"x"}'), repeat: 21, distinctIp: true }]);
 	add("seq-pair-then-session", [post("/api/pair", '{"name":"x"}')]);
 	add("seq-pair-approve", [post("/api/pair", '{"name":"x"}')], { confirm: "approve" });
-	add("seq-pair-decline", [post("/api/pair", '{"name":"x"}'), post("/api/pair", '{"name":"x"}')], { confirm: "decline" });
+	add("seq-pair-decline", [post("/api/pair", '{"name":"x"}'), post("/api/pair", '{"name":"x"}')], {
+		confirm: "decline",
+	});
 	add("seq-pair-mismatch", [post("/api/pair", '{"name":"x"}', [["x-forwarded-for", IMPOSTOR]])]);
 	add("seq-pair-blocked", [post("/api/pair", '{"name":"x"}', [["x-forwarded-for", BLOCKED_PHONE]])], { blocks: true });
 	add("seq-pair-big-body", [post("/api/pair", `{"name":"${"x".repeat(40_000)}"}`)]);
@@ -830,25 +900,69 @@ function sequences(): Omit<Row, "answers" | "effects">[] {
 	add("seq-unpaired-throttle", [
 		{ ...post("/api/session", "{}", [["cookie", "__Host-ompdesk=devkey.wrong"]]), repeat: 4 },
 	]);
-	add("seq-push-state", [
-		post("/api/push", '{"hideContent":true}', [cookie("devnokey")]),
-		{ method: "GET", target: `/${SECRET}/api/push`, headers: [["host", hostOf(p)], ["sec-fetch-site", "same-origin"], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE], cookie("devnokey")], body: null },
-	].map(r => r as Request));
+	add(
+		"seq-push-state",
+		[
+			post("/api/push", '{"hideContent":true}', [cookie("devnokey")]),
+			{
+				method: "GET",
+				target: `/${SECRET}/api/push`,
+				headers: [
+					["host", hostOf(p)],
+					["sec-fetch-site", "same-origin"],
+					["tailscale-user-login", "me@example.com"],
+					["x-forwarded-for", PHONE],
+					cookie("devnokey"),
+				],
+				body: null,
+			},
+		].map(r => r as Request),
+	);
 	add("seq-push-subscribe", [
-		post("/api/push", JSON.stringify({ subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/abc", keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) } } }), [cookie("devnokey")]),
+		post(
+			"/api/push",
+			JSON.stringify({
+				subscription: {
+					endpoint: "https://fcm.googleapis.com/fcm/send/abc",
+					keys: { p256dh: "a".repeat(87), auth: "b".repeat(22) },
+				},
+			}),
+			[cookie("devnokey")],
+		),
 		post("/api/push", '{"subscription":null}', [cookie("devnokey")]),
 	]);
 	add("seq-upload", [post("/upload", "hello", [cookie("devnokey")]), post("/upload", "hello", [cookie("devnowork")])]);
-	add("seq-blob", [{ method: "GET", target: `/${SECRET}/blob/tok?x=1`, headers: [["host", hostOf(p)], ["sec-fetch-site", "same-origin"], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE], cookie("devnokey")], body: null }]);
+	add("seq-blob", [
+		{
+			method: "GET",
+			target: `/${SECRET}/blob/tok?x=1`,
+			headers: [
+				["host", hostOf(p)],
+				["sec-fetch-site", "same-origin"],
+				["tailscale-user-login", "me@example.com"],
+				["x-forwarded-for", PHONE],
+				cookie("devnokey"),
+			],
+			body: null,
+		},
+	]);
 	// Webhooks: through serve (the walls apply), and straight at the loopback (the bearer is the credential).
 	const hook = (id: string, body: string | null, headers: Header[]): Request => ({
 		method: "POST",
 		target: `/${SECRET}/hooks/${id}`,
-		headers: [["host", hostOf(p)], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE], ...headers],
+		headers: [
+			["host", hostOf(p)],
+			["tailscale-user-login", "me@example.com"],
+			["x-forwarded-for", PHONE],
+			...headers,
+		],
 		body,
 	});
 	const bearer: Header = ["authorization", `Bearer ${HOOK_KEY}`];
-	add("seq-hook-outcomes", ["fire", "deny", "off", "ghost"].map(id => hook(id, "run it", [bearer])));
+	add(
+		"seq-hook-outcomes",
+		["fire", "deny", "off", "ghost"].map(id => hook(id, "run it", [bearer])),
+	);
 	add("seq-hook-no-bearer", [hook("fire", "x", []), hook("fire", "x", [["authorization", "Basic abc"]])]);
 	add("seq-hook-bad-id", [hook("a_b", "x", [bearer]), hook("x".repeat(65), "x", [bearer])]);
 	add("seq-hook-detail", [
@@ -883,38 +997,139 @@ function sequences(): Omit<Row, "answers" | "effects">[] {
 	const page = (extra: Header[] = []): Request => ({
 		method: "GET",
 		target: `/${SECRET}/`,
-		headers: [["host", hostOf(p)], ["sec-fetch-site", "same-origin"], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE], ...extra],
+		headers: [
+			["host", hostOf(p)],
+			["sec-fetch-site", "same-origin"],
+			["tailscale-user-login", "me@example.com"],
+			["x-forwarded-for", PHONE],
+			...extra,
+		],
 		body: null,
 	});
 	add("seq-page-no-root", [page(), { ...page(), target: `/${SECRET}/assets/app-abc.js` }], { noRoot: true });
-	add("seq-page-blocked-node", [page([["x-forwarded-for", BLOCKED_PHONE]]).headers.length ? { ...page(), headers: page().headers.map(([k, v]) => (k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v])) as Header[] } : page()], { blocks: true });
-	add("seq-page-blocked-with-cookie", [{ ...page([cookie("devkey")]), headers: page([cookie("devkey")]).headers.map(([k, v]) => (k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v])) as Header[] }], { blocks: true });
-	add("seq-page-blocked-korean", [{ ...page([["accept-language", "ko"]]), headers: page([["accept-language", "ko"]]).headers.map(([k, v]) => (k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v])) as Header[] }], { blocks: true });
-	add("seq-page-whois-cache", [
-		{ ...page(), headers: page().headers.map(([k, v]) => (k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v])) as Header[] },
-		{ ...page(), headers: page().headers.map(([k, v]) => (k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v])) as Header[] },
-	], { blocks: true });
+	add(
+		"seq-page-blocked-node",
+		[
+			page([["x-forwarded-for", BLOCKED_PHONE]]).headers.length
+				? {
+						...page(),
+						headers: page().headers.map(([k, v]) =>
+							k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v],
+						) as Header[],
+					}
+				: page(),
+		],
+		{ blocks: true },
+	);
+	add(
+		"seq-page-blocked-with-cookie",
+		[
+			{
+				...page([cookie("devkey")]),
+				headers: page([cookie("devkey")]).headers.map(([k, v]) =>
+					k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v],
+				) as Header[],
+			},
+		],
+		{ blocks: true },
+	);
+	add(
+		"seq-page-blocked-korean",
+		[
+			{
+				...page([["accept-language", "ko"]]),
+				headers: page([["accept-language", "ko"]]).headers.map(([k, v]) =>
+					k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v],
+				) as Header[],
+			},
+		],
+		{ blocks: true },
+	);
+	add(
+		"seq-page-whois-cache",
+		[
+			{
+				...page(),
+				headers: page().headers.map(([k, v]) =>
+					k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v],
+				) as Header[],
+			},
+			{
+				...page(),
+				headers: page().headers.map(([k, v]) =>
+					k === "x-forwarded-for" ? [k, BLOCKED_PHONE] : [k, v],
+				) as Header[],
+			},
+		],
+		{ blocks: true },
+	);
 	// The upgrade's refusals: the socket is closed with a bare status.
 	const upgrade = (target: string, headers: Header[]): Request => ({
 		method: "GET",
 		target,
-		headers: [["host", hostOf(p)], ["upgrade", "websocket"], ["connection", "Upgrade"], ["sec-websocket-version", "13"], ["sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="], ...headers],
+		headers: [
+			["host", hostOf(p)],
+			["upgrade", "websocket"],
+			["connection", "Upgrade"],
+			["sec-websocket-version", "13"],
+			["sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ=="],
+			...headers,
+		],
 		body: null,
 	});
-	const good: Header[] = [["origin", originOf(p)], ["tailscale-user-login", "me@example.com"], ["x-forwarded-for", PHONE]];
-	add("seq-upgrade-refusals", [
-		upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"], cookie("devkey")]),
-		upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1"], cookie("devkey")]),
-		upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ticket.abc"], cookie("devkey")]),
-		upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"]]),
-		upgrade(`/${SECRET}/ws`, [["tailscale-user-login", "me@example.com"], ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"]]),
-		upgrade(`/${SECRET}/other`, good),
-		upgrade(`/${WRONG}/ws`, good),
-		upgrade(`/ws`, good),
-		upgrade(`/${SECRET}/ws`, [...good.filter(([k]) => k !== "origin"), ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"]]),
-		upgrade(`/${SECRET}/ws`, [...good, ["sec-fetch-site", "cross-site"], ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"]]),
-		upgrade(`/${SECRET}/ws?x=1`, [["host", "evil.example"], ...good]),
-	].map(r => (r.headers.filter(([k]) => k === "host").length > 1 ? { ...r, headers: r.headers.filter(([k, v], i, all) => k !== "host" || i === all.findIndex(([kk]) => kk === "host" && v === (all.find(([a]) => a === "host") as Header)[1]) ? true : false).slice(0, 0).concat(r.headers.filter(([k]) => k !== "host").length ? [["host", "evil.example"], ...r.headers.filter(([k]) => k !== "host")] as Header[] : []) } : r)));
+	const good: Header[] = [
+		["origin", originOf(p)],
+		["tailscale-user-login", "me@example.com"],
+		["x-forwarded-for", PHONE],
+	];
+	add(
+		"seq-upgrade-refusals",
+		[
+			upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"], cookie("devkey")]),
+			upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1"], cookie("devkey")]),
+			upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ticket.abc"], cookie("devkey")]),
+			upgrade(`/${SECRET}/ws`, [...good, ["sec-websocket-protocol", "ompdesk.v1, ticket.abc"]]),
+			upgrade(`/${SECRET}/ws`, [
+				["tailscale-user-login", "me@example.com"],
+				["sec-websocket-protocol", "ompdesk.v1, ticket.abc"],
+			]),
+			upgrade(`/${SECRET}/other`, good),
+			upgrade(`/${WRONG}/ws`, good),
+			upgrade(`/ws`, good),
+			upgrade(`/${SECRET}/ws`, [
+				...good.filter(([k]) => k !== "origin"),
+				["sec-websocket-protocol", "ompdesk.v1, ticket.abc"],
+			]),
+			upgrade(`/${SECRET}/ws`, [
+				...good,
+				["sec-fetch-site", "cross-site"],
+				["sec-websocket-protocol", "ompdesk.v1, ticket.abc"],
+			]),
+			upgrade(`/${SECRET}/ws?x=1`, [["host", "evil.example"], ...good]),
+		].map(r =>
+			r.headers.filter(([k]) => k === "host").length > 1
+				? {
+						...r,
+						headers: r.headers
+							.filter(([k, v], i, all) =>
+								k !== "host" ||
+								i ===
+									all.findIndex(
+										([kk]) => kk === "host" && v === (all.find(([a]) => a === "host") as Header)[1],
+									)
+									? true
+									: false,
+							)
+							.slice(0, 0)
+							.concat(
+								r.headers.filter(([k]) => k !== "host").length
+									? ([["host", "evil.example"], ...r.headers.filter(([k]) => k !== "host")] as Header[])
+									: [],
+							),
+					}
+				: r,
+		),
+	);
 	add("seq-upgrade-pending", [upgrade(`/${SECRET}/ws`, good)], { policy: policyOf("serve", "pending") });
 	add("seq-upgrade-unpublished", [upgrade(`/${SECRET}/ws`, good)], { policy: policyOf("serve", "unpublished") });
 	return rows;
@@ -977,7 +1192,10 @@ describe("web edge request matrix", () => {
 			writeStaticFixtures();
 			const { rows, fixtures } = await generate();
 			const head = JSON.stringify({ version: 1, fixtures }, null, "\t").replace(/\n}$/, "");
-			writeFileSync(MATRIX_FILE, `${head},\n\t"rows": [\n${rows.map(row => `\t\t${JSON.stringify(row)}`).join(",\n")}\n\t]\n}\n`);
+			writeFileSync(
+				MATRIX_FILE,
+				`${head},\n\t"rows": [\n${rows.map(row => `\t\t${JSON.stringify(row)}`).join(",\n")}\n\t]\n}\n`,
+			);
 			expect(rows.length).toBeGreaterThan(100);
 		}, 600_000);
 		return;
@@ -992,7 +1210,11 @@ describe("web edge request matrix", () => {
 		const drift: string[] = [];
 		for (const row of stored.rows) {
 			const again = await runRow(row, work);
-			if (JSON.stringify(again.answers) !== JSON.stringify(row.answers) || JSON.stringify(again.effects) !== JSON.stringify(row.effects)) drift.push(row.id);
+			if (
+				JSON.stringify(again.answers) !== JSON.stringify(row.answers) ||
+				JSON.stringify(again.effects) !== JSON.stringify(row.effects)
+			)
+				drift.push(row.id);
 		}
 		expect(drift).toEqual([]);
 	}, 600_000);
