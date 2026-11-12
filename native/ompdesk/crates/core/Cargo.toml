@@ -43,7 +43,7 @@ url = "2"
 # the ai-memory server, hyper-util's adapter from tokio's sockets to hyper's I/O traits, http-body-util to build
 # a request's body and collect an answer's under a bound. No pooled client: it comes with the unit that needs it. The
 # web server (8a) adds hyper's `server` feature to the same crates.
-hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper = { version = "1", default-features = false, features = ["client", "server", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 http-body-util = "0.1"
 # TLS for an `https` server (ledger 5d): rustls with ring's cryptography (`native/memory` already builds the same ring
@@ -54,6 +54,27 @@ http-body-util = "0.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 rustls-platform-verifier = "0.7"
+# The remote link (`remote/`; native-rust ledger R1-R3), as `remote/crypto.ts` and `wire.ts` spelled it with
+# node:crypto and node:zlib, one RustCrypto generation: X25519 static and ephemeral keys, the HKDF-SHA256 key
+# schedule, the SHA-256 transcript, AES-256-GCM frames under a counter nonce (no `getrandom`: keys come from the
+# handshake, random bytes from `sys::random`). base64url for the raw keys.
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize"] }
+hkdf = "0.13"
+sha2 = "0.11"
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+base64 = "0.23"
+# Raw deflate with a preset dictionary (the link's context, `deflateRawSync({dictionary})`): `set_dictionary` needs a
+# zlib backend, which miniz_oxide is not; zlib-rs is zlib in Rust (no C toolchain), and yawc's permessage-deflate
+# shares it.
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+# The web edge (`web/`; 8a): constant-time compares of the serve secret and a device secret's hash, the P-256 device
+# proof (`ieee-p1363` over SHA-256), brotli at quality 9 for a file without a built `.br`, and the WebSocket with
+# permessage-deflate and context takeover both ways, as `ws` negotiates it (yawc is the one maintained crate found
+# that does; MPL-2.0, file-level).
+subtle = "2"
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+brotli = { version = "8", default-features = false, features = ["std"] }
+yawc = { version = "0.5", default-features = false, features = ["zlib"] }
 
 [target.'cfg(unix)'.dependencies]
 # errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a
