@@ -27,11 +27,10 @@
 	{
 		"rule": "/^(\\/|[A-Za-z]:[\\\\/]|\\\\\\\\)/",
 		"files": [
-			"src/main/agent-control/app-catalog.ts",
 			"src/renderer/components/agents/github/GithubRepos.tsx",
 			"src/renderer/components/chat/dock/PlanDockCard.tsx"
 		],
-		"reason": "Known duplicate: the absolute-path test (POSIX, drive, UNC) in agent-control/app-catalog.ts, GithubRepos.tsx and PlanDockCard.tsx; merge into one src/shared export."
+		"reason": "Known duplicate: the absolute-path test (POSIX, drive, UNC) in GithubRepos.tsx and PlanDockCard.tsx (the agent-control copy moved into the Rust core); merge into one src/shared export."
 	},
 	{
 		"rule": "/^(Autopilot|오토파일럿) · /",

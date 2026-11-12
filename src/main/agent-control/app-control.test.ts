@@ -8,11 +8,24 @@ import {
 	type SidebarProjectsRequest,
 	type SidebarProjectsState,
 } from "../../shared/sidebar-projects";
+import { core } from "../core/process";
 import { SidebarProjects } from "../sidebar-projects";
-import { ACTION_BY_ID, type AppAction } from "./app-catalog";
-import { AppControl, type AppPorts, AppRefusal } from "./app-control";
-import { prefTier, rpcTier, settingTier } from "./app-guard";
-import { NO_ARGS } from "./app-schema";
+import { AppControl, type AppPorts, AppRefusal, type ScriptedAction } from "./app-control";
+
+/** The core's tables, read the way the tests need them. */
+const { actions } = (
+	await core().call<{ actions: { id: string; manage?: { always?: string }; fullOnly?: string; tier: string }[] }>(
+		"app.catalog",
+		{},
+	)
+).result;
+const ACTION_BY_ID = Object.fromEntries(actions.map(action => [action.id, action]));
+
+const tierOf = async (params: Record<string, unknown>): Promise<string> =>
+	(await core().call<string>("app.tier", params)).result;
+const prefTier = (key: string, full = false) => tierOf({ kind: "pref", key, full });
+const settingTier = (path: string, full = false) => tierOf({ kind: "setting", path, full });
+const rpcTier = (command: unknown, full = false) => tierOf({ kind: "rpc", command, full });
 
 const CALLER = "main0001";
 
@@ -346,13 +359,13 @@ describe("ompdesk_app tiers", () => {
 		expect(await refusal(control.run(CALLER, "settings.theme", {}))).toContain("required");
 	});
 
-	it("lists actions with schemas, filtered by area and query", () => {
+	it("lists actions with schemas, filtered by area and query", async () => {
 		const control = new AppControl(new FakePorts());
-		expect(control.list({ area: "usage" })).toContain("usage.read [read]");
-		expect(control.list({ area: "usage" })).toContain('"refresh"');
-		expect(control.list({ query: "theme" })).toContain("settings.theme");
-		expect(control.list({ area: "permissions" })).toContain("Refused:");
-		expect(control.list({ query: "zzzzzz" })).toContain("No action matches");
+		expect(await control.list({ area: "usage" })).toContain("usage.read [read]");
+		expect(await control.list({ area: "usage" })).toContain('"refresh"');
+		expect(await control.list({ query: "theme" })).toContain("settings.theme");
+		expect(await control.list({ area: "permissions" })).toContain("Refused:");
+		expect(await control.list({ query: "zzzzzz" })).toContain("No action matches");
 	});
 });
 
@@ -406,13 +419,13 @@ describe("what agents can never reach, by any route", () => {
 		"githubToken",
 	];
 
-	it("refuses the power switches and secrets as preferences", () => {
-		for (const key of POWER) expect(prefTier(key), key).toBe("never");
-		expect(prefTier("someUnlistedKey")).toBe("never");
-		expect(prefTier("themeName")).toBe("change");
+	it("refuses the power switches and secrets as preferences", async () => {
+		for (const key of POWER) expect(await prefTier(key), key).toBe("never");
+		expect(await prefTier("someUnlistedKey")).toBe("never");
+		expect(await prefTier("themeName")).toBe("change");
 	});
 
-	it("refuses them as stock settings and every RPC route to them", () => {
+	it("refuses them as stock settings and every RPC route to them", async () => {
 		for (const path of [
 			"tools.approvalMode",
 			"tools.approval",
@@ -421,12 +434,12 @@ describe("what agents can never reach, by any route", () => {
 			"computer.enabled",
 			"providers.x",
 		])
-			expect(settingTier(path), path).toBe("never");
+			expect(await settingTier(path), path).toBe("never");
 		const set = (path: string, value: unknown = "yolo"): RpcCommand => ({ type: "set_setting", path, value });
-		expect(rpcTier(set("tools.approvalMode"))).toBe("never");
-		expect(rpcTier(set("agentControlManage"))).toBe("never");
-		expect(rpcTier(set("advisor.enabled", true))).toBe("change");
-		expect(rpcTier({ type: "get_settings", paths: ["tools.approvalMode"] })).toBe("never");
+		expect(await rpcTier(set("tools.approvalMode"))).toBe("never");
+		expect(await rpcTier(set("agentControlManage"))).toBe("never");
+		expect(await rpcTier(set("advisor.enabled", true))).toBe("change");
+		expect(await rpcTier({ type: "get_settings", paths: ["tools.approvalMode"] })).toBe("never");
 		for (const command of [
 			{ type: "bash", command: "ls" },
 			{ type: "prompt", message: "x" },
@@ -434,62 +447,37 @@ describe("what agents can never reach, by any route", () => {
 			{ type: "set_autopilot", action: "configure" },
 			{ type: "extension_ui_response", id: "1", confirmed: true },
 		] as unknown as RpcCommand[])
-			expect(rpcTier(command), command.type).toBe("never");
+			expect(await rpcTier(command), command.type).toBe("never");
 		// A command another command carries is refused even when the outer one is allowed.
-		expect(rpcTier(set("advisor.enabled", { type: "set_setting", path: "tools.approvalMode", value: "yolo" }))).toBe(
-			"never",
-		);
+		expect(
+			await rpcTier(set("advisor.enabled", { type: "set_setting", path: "tools.approvalMode", value: "yolo" })),
+		).toBe("never");
 	});
 
 	it("refuses them from inside an action: preference, RPC, nested RPC and the card channel", async () => {
-		const attempts: Record<string, AppAction["run"]> = {
-			pref: async ctx => {
-				await ctx.setPref("agentControlManage", true);
-				return { text: "" };
-			},
-			approve: async ctx => {
-				await ctx.setPref("agentControlApprove", true);
-				return { text: "" };
-			},
-			rpc: async ctx => {
-				await ctx.rpc({ type: "set_setting", path: "tools.approvalMode", value: "yolo" });
-				return { text: "" };
-			},
-			nested: async ctx => {
-				await ctx.rpc({
-					type: "set_setting",
-					path: "advisor.enabled",
-					value: { type: "set_setting", path: "tools.approvalMode", value: "yolo" },
-				});
-				return { text: "" };
-			},
-			card: async ctx => {
-				await ctx.invoke(IPC_COMMANDS.EXTENSION_UI_RESPOND, { id: "c1", confirmed: true });
-				return { text: "" };
-			},
-			raw: async ctx => {
-				await ctx.invoke(IPC_COMMANDS.RPC_COMMAND_FOR_TAB, "tab", { type: "bash", command: "id" });
-				return { text: "" };
-			},
-			otherChannel: async ctx => {
-				await ctx.invoke(IPC_COMMANDS.SESSIONS_DELETE, { sessionPath: "x.jsonl" });
-				return { text: "" };
-			},
-			escalate: async ctx => {
-				await ctx.setPref("toolsAutoUpdate", true);
-				return { text: "" };
-			},
+		const attempts: Record<string, ScriptedAction["steps"]> = {
+			pref: [{ op: "setPref", key: "agentControlManage", value: true }],
+			approve: [{ op: "setPref", key: "agentControlApprove", value: true }],
+			rpc: [{ op: "rpc", command: { type: "set_setting", path: "tools.approvalMode", value: "yolo" } }],
+			nested: [
+				{
+					op: "rpc",
+					command: {
+						type: "set_setting",
+						path: "advisor.enabled",
+						value: { type: "set_setting", path: "tools.approvalMode", value: "yolo" },
+					},
+				},
+			],
+			card: [{ op: "invoke", channel: IPC_COMMANDS.EXTENSION_UI_RESPOND, args: [{ id: "c1", confirmed: true }] }],
+			raw: [
+				{ op: "invoke", channel: IPC_COMMANDS.RPC_COMMAND_FOR_TAB, args: ["tab", { type: "bash", command: "id" }] },
+			],
+			otherChannel: [{ op: "invoke", channel: IPC_COMMANDS.SESSIONS_DELETE, args: [{ sessionPath: "x.jsonl" }] }],
+			escalate: [{ op: "setPref", key: "toolsAutoUpdate", value: true }],
 		};
-		const registry: Record<string, AppAction> = {};
-		for (const [id, run] of Object.entries(attempts))
-			registry[id] = {
-				id,
-				area: "test",
-				description: "A test attempt that must be refused.",
-				args: NO_ARGS,
-				tier: "change",
-				run,
-			};
+		const registry: Record<string, ScriptedAction> = {};
+		for (const [id, steps] of Object.entries(attempts)) registry[id] = { tier: "change", steps };
 		const ports = new FakePorts();
 		ports.manage = true;
 		const control = new AppControl(ports, registry);
@@ -609,7 +597,7 @@ describe("MCP install, pairing and Autopilot", () => {
 		);
 	});
 
-	it("keeps every other autopilot command, and pairing and MCP commands that are not the offered shapes, never", () => {
+	it("keeps every other autopilot command, and pairing and MCP commands that are not the offered shapes, never", async () => {
 		for (const action of [
 			"start",
 			"stop",
@@ -622,16 +610,18 @@ describe("MCP install, pairing and Autopilot", () => {
 			"resume",
 			"cancel_ship",
 		])
-			expect(rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");
-		expect(rpcTier({ type: "get_autopilot" })).toBe("never");
-		expect(rpcTier({ type: "mcp_add", name: "a", config: { transport: "stdio", command: "x" } })).toBe("sensitive");
-		expect(rpcTier({ type: "mcp_reauth", name: "a" })).toBe("sensitive");
-		expect(rpcTier({ type: "get_mcp_servers" })).toBe("read");
-		expect(rpcTier({ type: "mcp_action", name: "a", action: "adopt" })).toBe("sensitive");
+			expect(await rpcTier({ type: "set_autopilot", action } as unknown as RpcCommand), action).toBe("never");
+		expect(await rpcTier({ type: "get_autopilot" })).toBe("never");
+		expect(await rpcTier({ type: "mcp_add", name: "a", config: { transport: "stdio", command: "x" } })).toBe(
+			"sensitive",
+		);
+		expect(await rpcTier({ type: "mcp_reauth", name: "a" })).toBe("sensitive");
+		expect(await rpcTier({ type: "get_mcp_servers" })).toBe("read");
+		expect(await rpcTier({ type: "mcp_action", name: "a", action: "adopt" })).toBe("sensitive");
 		for (const action of ["enable", "disable", "reconnect", "remove"] as const)
-			expect(rpcTier({ type: "mcp_action", name: "a", action }), action).toBe("never");
+			expect(await rpcTier({ type: "mcp_action", name: "a", action }), action).toBe("never");
 		for (const type of ["mcp_test", "mcp_reload", "ssh_manage"])
-			expect(rpcTier({ type } as unknown as RpcCommand), type).toBe("never");
+			expect(await rpcTier({ type } as unknown as RpcCommand), type).toBe("never");
 	});
 
 	it("tells an agent which MCP servers need a sign-in or are off and why, and starts the sign-in", async () => {
@@ -1269,19 +1259,18 @@ describe("a named device", () => {
 
 	it("checks the tier before it sends anything to the device", async () => {
 		const ports = new FakePorts();
-		const attempt: AppAction = {
-			id: "test.remote_power",
-			area: "test",
-			description: "Tries a power setting on another computer.",
-			args: NO_ARGS,
+		const attempt: ScriptedAction = {
 			tier: "change",
-			run: async ctx => {
-				await ctx.rpc({ type: "set_setting", path: "tools.approvalMode", value: "yolo" }, "Studio");
-				return { text: "" };
-			},
+			steps: [
+				{
+					op: "rpc",
+					command: { type: "set_setting", path: "tools.approvalMode", value: "yolo" },
+					device: "Studio",
+				},
+			],
 		};
-		const control = new AppControl(ports, { [attempt.id]: attempt });
-		await refusal(control.run(CALLER, attempt.id, {}));
+		const control = new AppControl(ports, { "test.remote_power": attempt });
+		await refusal(control.run(CALLER, "test.remote_power", {}));
 		expect(ports.rpcOns).toEqual([]);
 	});
 });
@@ -1444,11 +1433,11 @@ describe("omp_settings", () => {
 		expect(ports.stock["compaction.thresholdTokens"]).toBe(100000);
 	});
 
-	it("keeps every other route default-deny: no direct schema or arbitrary settings read", () => {
-		expect(rpcTier({ type: "get_settings_schema" })).toBe("never");
-		expect(rpcTier({ type: "get_settings", paths: ["retry.fallbackOn"] })).toBe("never");
-		expect(rpcTier({ type: "set_setting", path: "retry.fallbackOn", value: [] })).toBe("never");
-		expect(rpcTier({ type: "get_providers" })).toBe("read");
-		expect(rpcTier({ type: "get_model_roles", compact: true })).toBe("read");
+	it("keeps every other route default-deny: no direct schema or arbitrary settings read", async () => {
+		expect(await rpcTier({ type: "get_settings_schema" })).toBe("never");
+		expect(await rpcTier({ type: "get_settings", paths: ["retry.fallbackOn"] })).toBe("never");
+		expect(await rpcTier({ type: "set_setting", path: "retry.fallbackOn", value: [] })).toBe("never");
+		expect(await rpcTier({ type: "get_providers" })).toBe("read");
+		expect(await rpcTier({ type: "get_model_roles", compact: true })).toBe("read");
 	});
 });
