@@ -1,0 +1,2309 @@
+{
+	"base32": [
+		{
+			"hex": "",
+			"out": ""
+		},
+		{
+			"hex": "00",
+			"out": "00"
+		},
+		{
+			"hex": "01",
+			"out": "04"
+		},
+		{
+			"hex": "ff",
+			"out": "zw"
+		},
+		{
+			"hex": "0000000000",
+			"out": "00000000"
+		},
+		{
+			"hex": "ffffffffff",
+			"out": "zzzzzzzz"
+		},
+		{
+			"hex": "00000000000000000000000000000000",
+			"out": "00000000000000000000000000"
+		},
+		{
+			"hex": "ffffffffffffffffffffffffffffffff",
+			"out": "zzzzzzzzzzzzzzzzzzzzzzzzzw"
+		},
+		{
+			"hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"out": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzw"
+		},
+		{
+			"hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"out": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzg"
+		},
+		{
+			"hex": "00443214c74254b635cf84653a56d7c675be77df",
+			"out": "0123456789abcdefghjkmnpqrstvwxyz"
+		},
+		{
+			"hex": "ca978112ca",
+			"out": "sabr24pa"
+		},
+		{
+			"hex": "3e23e8160039594a33894f6564e1b134",
+			"out": "7rhyg5g075cmmcw99xjp9rdh6g"
+		},
+		{
+			"hex": "2e7d2c03a9507ae265ecf5b5356885a53393a2029d241394997265a1a25aef",
+			"out": "5syjr0x9a1xe4sfcyptkat45mmss78g2kmj1754se9jt38jtxw"
+		},
+		{
+			"hex": "18ac3e7343f016890c510e93f935261169d9e3f565436429830faf0934f4f8e4",
+			"out": "32p3wwt3y0b8j32h1t9zjd9625mxkrzncn1p8ac31yqgjd7mz3j0"
+		},
+		{
+			"hex": "0102",
+			"out": "0410"
+		},
+		{
+			"hex": "010203",
+			"out": "04106"
+		},
+		{
+			"hex": "01020304",
+			"out": "0410610"
+		},
+		{
+			"hex": "",
+			"out": ""
+		},
+		{
+			"hex": "6d",
+			"out": "dm"
+		},
+		{
+			"hex": "1ca2",
+			"out": "3jh0"
+		},
+		{
+			"hex": "dc1334",
+			"out": "vg9k8"
+		},
+		{
+			"hex": "1e85f169",
+			"out": "3t2z2t8"
+		},
+		{
+			"hex": "e821e3b9b2",
+			"out": "x0gy7edj"
+		},
+		{
+			"hex": "5ddd96966830",
+			"out": "bqesd5k860"
+		},
+		{
+			"hex": "c0537e2f42afed",
+			"out": "r19qwbt2nzpg"
+		},
+		{
+			"hex": "829b8d3d902d70f0",
+			"out": "gadrtfcg5nrf0"
+		},
+		{
+			"hex": "8ea1dd8b1ef2f0fd72",
+			"out": "htgxv2ryybrftwg"
+		},
+		{
+			"hex": "e958a1412cb14e7a2ab6",
+			"out": "x5ca2g9cp577manp"
+		},
+		{
+			"hex": "9dbce3f2404455428c70f6",
+			"out": "kpye7wj08ham533gyr"
+		},
+		{
+			"hex": "23f4c452ae8e7982c3dbf37b",
+			"out": "4ftc8mnehswr5gyvydxg"
+		},
+		{
+			"hex": "db6cc0874b2d3a4685e86d3ea1",
+			"out": "vdpc11tb5mx4d1f8dmza2"
+		},
+		{
+			"hex": "d3319a4a35e5552244ec7af6c9d6",
+			"out": "tcrsmjhnwnaj4h7cfbvckng"
+		},
+		{
+			"hex": "af8da799f3f85985e08eb3039f5883",
+			"out": "ny6tf6fkz1crbr4epc1syp43"
+		},
+		{
+			"hex": "7466961c27e23c594aea9d32af0d767f",
+			"out": "ehk9c717w8y5jjqakmsay3bpfw"
+		},
+		{
+			"hex": "7d338998f40e37e6cdb56fe759b21ea997",
+			"out": "fmsrk67m1rvydkdndzknkcgyn6bg"
+		},
+		{
+			"hex": "ef489a403d82a0eb3c844c7b8e15cd0e6eef",
+			"out": "xx49mg1xgagepf449hxrw5ed1sqey"
+		},
+		{
+			"hex": "1c492c10e15682a9df7c1a2777ddccf11e0d2f",
+			"out": "3h4jr471at1akqvw38kqfqecy4f0tbr"
+		},
+		{
+			"hex": "6fe99f9f251d8138eb2474b2a60df6d58a5e39a7",
+			"out": "dzmsz7s53p0khts4ejsac3fptp55wed7"
+		},
+		{
+			"hex": "ba7c62a184b8c61774ee0931a362445224ab44f666",
+			"out": "q9y658c4q331ex7e14rt6rj4a8japh7pcr"
+		},
+		{
+			"hex": "6f47a0e063adae317af0622e761dc364a59ffc836a8e",
+			"out": "dx3t1r33npq32yqgc8q7c7e3cjjszz43da70"
+		},
+		{
+			"hex": "66bd659696547aff26f62cb30adf2d538d908397a4f7e5",
+			"out": "ctypb5mpahxfy9qp5jsgnqsdae6s10wqmkvya"
+		},
+		{
+			"hex": "b40a61a9d7e1a4c7b3235cd88a9dacbfa7c8a73dbc2233c9",
+			"out": "pg563aeqw6jcfcs3bkc8n7dcqykwh9sxqgh37j8"
+		},
+		{
+			"hex": "985082b81ef64c09a562b7988e08ef3f2f4db2ec40c28973fa",
+			"out": "k1885e0yys60k9b2pyc8w27f7wqmvcqc8318jwzt"
+		},
+		{
+			"hex": "e7b2765ff2dc9c978aed5cc0fbf5d6fc6e3d9076ad362518ddd7",
+			"out": "wys7cqzjvje9f2qdbk0fqxepzhq3v43pnmv2a66xtw"
+		},
+		{
+			"hex": "a5d0cbde3a07ac1abbab82a18f99c9888fc7477784dd884ef97338",
+			"out": "mq8cqqht0yp1nexbgagrz6e9h27wehvqgkergkqsecw0"
+		},
+		{
+			"hex": "385abdae71c100d8cda962460b98122bf833d5dcc0f19f80c29c0e25",
+			"out": "71dbvbkhr40dhkd9c930q60j5fw37newr3rsz062kg72a"
+		},
+		{
+			"hex": "99e7422ff8976e00dd2f7b1309f83f65c5b1765a8ad4e95dc8636b12f6",
+			"out": "k7km4bzrjxq01q9ffc9gky1zcq2v2xjthbaejqe8cdnh5xg"
+		},
+		{
+			"hex": "d4ae2c012b6b9879046fe531836e98e1247ef2b3802bfd4d266f10361b8e",
+			"out": "tjq2r09bdec7j13fwmrr6vmrw4j7xwnkg0nztk96dw83c6we"
+		},
+		{
+			"hex": "c7efbc0e2cb699903eba4599d2b499f79423d7ee784ed0f8d38924043125d3",
+			"out": "rzqvr3hcptcs0fnt8pcx5d4syya27nzef17d1y6kh4j08c95tc"
+		},
+		{
+			"hex": "d678ed3708a39d3f2d187777e4fadc3aa365df0ae63af985384a305d5cc2664b",
+			"out": "tswetdr8meekyb8rexvy9ypw7ahpbqrawrxfk19r98r5tq62cs5g"
+		},
+		{
+			"hex": "",
+			"out": ""
+		},
+		{
+			"hex": "1b",
+			"out": "3c"
+		},
+		{
+			"hex": "813c",
+			"out": "g4y0"
+		},
+		{
+			"hex": "4edf50",
+			"out": "9vfn0"
+		},
+		{
+			"hex": "2d606184",
+			"out": "5ng6310"
+		},
+		{
+			"hex": "3aae9ca2c2",
+			"out": "7aq9s8p2"
+		},
+		{
+			"hex": "6e81fa8d8a95",
+			"out": "dt0zn3cajm"
+		}
+	],
+	"rawKey": [
+		{
+			"s": "",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"ok": true
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_",
+			"ok": true
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-",
+			"ok": true
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa a",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+			"ok": false
+		},
+		{
+			"s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé",
+			"ok": false
+		}
+	],
+	"keys": [
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"public": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"private": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"public": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"private": "cZqX9xJVrU1AKWK1imzAVLgkZkLnM0W2GlVe80JfVh4"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"public": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"private": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"public": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"private": "__________________________________________8"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"public": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"private": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"public": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"private": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"public": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"private": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf8"
+		}
+	],
+	"import": [
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": true,
+			"publicOut": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"privateOut": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"public": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"private": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg",
+			"ok": true,
+			"publicOut": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"privateOut": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg",
+			"ok": false,
+			"error": "Invalid JWK OKP key"
+		},
+		{
+			"public": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "Invalid JWK OKP key"
+		},
+		{
+			"public": "",
+			"private": "",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "CMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "flFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemnsa",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEka",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "+CMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "/flFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yE=",
+			"ok": false,
+			"error": "malformed X25519 key"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEl",
+			"ok": true,
+			"publicOut": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"privateOut": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEm",
+			"ok": true,
+			"publicOut": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"privateOut": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEn",
+			"ok": true,
+			"publicOut": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"privateOut": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemnt",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "X25519 key pair mismatch"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemnv",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": false,
+			"error": "X25519 key pair mismatch"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemnt",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEl",
+			"ok": false,
+			"error": "X25519 key pair mismatch"
+		},
+		{
+			"public": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"private": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk",
+			"ok": true,
+			"publicOut": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"privateOut": "uflFiatM54m1CvP8K5K5KWOtCVGSyDE2Uz_DOrm_yEk"
+		},
+		{
+			"public": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"private": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg",
+			"ok": true,
+			"publicOut": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"privateOut": "CWDGjRw5-zXZznrrRvCjMakt4XKdxHvn1BmOxZe5MJg"
+		},
+		{
+			"public": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"private": "cZqX9xJVrU1AKWK1imzAVLgkZkLnM0W2GlVe80JfVh4",
+			"ok": true,
+			"publicOut": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"privateOut": "cZqX9xJVrU1AKWK1imzAVLgkZkLnM0W2GlVe80JfVh4"
+		},
+		{
+			"public": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"private": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"ok": true,
+			"publicOut": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"privateOut": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		},
+		{
+			"public": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"private": "__________________________________________8",
+			"ok": true,
+			"publicOut": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"privateOut": "__________________________________________8"
+		},
+		{
+			"public": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"private": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+			"ok": true,
+			"publicOut": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"privateOut": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
+		},
+		{
+			"public": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"private": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+			"ok": true,
+			"publicOut": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"privateOut": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+		},
+		{
+			"public": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"private": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf8",
+			"ok": true,
+			"publicOut": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"privateOut": "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf8"
+		}
+	],
+	"dh": [
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "5b21e8aca64cbe34f504834a94a901a1a59e6216ff6ca9c51c8666d247544978"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "14230261d8d02d7c1b43c155c2ac92c7b41668de0a774f43655fde00961e9a7b"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "e938bccc46618a2bd4c8199d5ef82a92dd44f0ba35e0cf3dd82b2bd52cba5d6f"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "e938bccc46618a2bd4c8199d5ef82a92dd44f0ba35e0cf3dd82b2bd52cba5d6f"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "e938bccc46618a2bd4c8199d5ef82a92dd44f0ba35e0cf3dd82b2bd52cba5d6f"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "e938bccc46618a2bd4c8199d5ef82a92dd44f0ba35e0cf3dd82b2bd52cba5d6f"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "e2c9f3fd079ad8a0831672df335e974322db574bb0e403b8169bafefd048d377"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "6432d7a6f861fd457657fb7a5cf44d0d8d20fe87148c09c6f19c0dd4473d202d"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "46108d0633b5909d648a9b4f75a6ad23e4a7b0f46d0aa78ac689f05b82995b10"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "86762a19e70a7ff077688e1e6ed1d72904a993112964ebf8ec2cb2eaae9e2666"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "2fe57da347cd62431528daac5fbb290730fff684afc4cfc2ed90995f58cb3b74"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "b945d0ceb4031f943d4da50f173aa35ae835d2802fbec100ad3be0ac3491d25c"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "847c0d2c375234f365e660955187a3735a0f7613d1609d3a6a4d8c53aeaa5a22"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "95a3e837dca0390e14e84f11166442db1c492c8b7a11f2fa8a0073ad33e2e724"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "a4e09292b651c278b9772c569f5fa9bb13d906b46ab68c9df9dc2b4409f8a209"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "c662cc9c556096415e1bf8fd310914d50627f8363331d11ed3c35858cb3fc84a"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "8f40c5adb68f25624ae5b214ea767a6ec94d829d3d7b5e1ad1ba6f3e2138285f"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "self",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "1b3324fbd5ba2151316848bee141b293575f857e6c8144ba67e2f60be4d2cd5e"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b trailing bits +1",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03d",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b trailing bits +3",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03f",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b short",
+			"peer": "snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b long",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03ca",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "empty",
+			"peer": "",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "bad char",
+			"peer": "+snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"error": "malformed X25519 public key"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "b with the high bit",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI0_c",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "base point",
+			"peer": "CQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"out": "6251d4ca65d2983063aba61f88500c236e37b4b5658d381ff37978800751c233"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 0",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 1",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 2",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuAA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 3",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEVc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 4",
+			"peer": "7P_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 5",
+			"peer": "7f_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 6",
+			"peer": "7v_______________________________________38",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 7",
+			"peer": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 8",
+			"peer": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 9",
+			"peer": "4Ot6fDtBuK4WVuP68Z_EatoJjeucMrH9hmIFFl9JuIA",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 10",
+			"peer": "X5yVvKNQjCSx0LFVnIPvWwREXMRYHI6G2CJO3dCfEdc",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 11",
+			"peer": "7P________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 12",
+			"peer": "7f________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "small order 13",
+			"peer": "7v________________________________________8",
+			"error": "error:1C8000A4:Provider routines::failed during derivation"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "5b21e8aca64cbe34f504834a94a901a1a59e6216ff6ca9c51c8666d247544978"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "6432d7a6f861fd457657fb7a5cf44d0d8d20fe87148c09c6f19c0dd4473d202d"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "86762a19e70a7ff077688e1e6ed1d72904a993112964ebf8ec2cb2eaae9e2666"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "b945d0ceb4031f943d4da50f173aa35ae835d2802fbec100ad3be0ac3491d25c"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "95a3e837dca0390e14e84f11166442db1c492c8b7a11f2fa8a0073ad33e2e724"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "c662cc9c556096415e1bf8fd310914d50627f8363331d11ed3c35858cb3fc84a"
+		},
+		{
+			"secret": "b9f94589ab4ce789b50af3fc2b92b92963ad095192c83136533fc33ab9bfc849",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "1b3324fbd5ba2151316848bee141b293575f857e6c8144ba67e2f60be4d2cd5e"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "69f1a75f7fc32be2fda3f01c44698eba7ab2454cf005579c2d717f4cdd93e47c"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "e938bccc46618a2bd4c8199d5ef82a92dd44f0ba35e0cf3dd82b2bd52cba5d6f"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "0960c68d1c39fb35d9ce7aeb46f0a331a92de1729dc47be7d4198ec597b93098",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "6432d7a6f861fd457657fb7a5cf44d0d8d20fe87148c09c6f19c0dd4473d202d"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "a50959412c819eb1f929e3353ca312c4ee70683e335804e7a0254090cb91ef73"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "d7ac73be90a170388b90fe2a6a4559cc24f9d956794484cae8249ffbfe54043e"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "1c13c3469b249dccabb1f7096d3d0e8248009403d06b8317a7fe6cedb6f5a33d"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "8450db6c2b23b2b1d4df864feb7f087090b162ea6c9de0c4bbbc77e041587f1f"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "8285f1b70e710053d6ff259029a6b2e8f87dbc97d89378e9f14ae41b46d43845"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "c1812b88fd8060fd2cbda45e90cd5c5b2b3427abacb1b75b194f9f0e7658f032"
+		},
+		{
+			"secret": "719a97f71255ad4d402962b58a6cc054b8246642e73345b61a555ef3425f561e",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "51e327d2623122bc81c4158c0b2eb38539a06f5e6ac473e2124869a295cbe84c"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "86762a19e70a7ff077688e1e6ed1d72904a993112964ebf8ec2cb2eaae9e2666"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "6ea549b1a4d22c26ef64a397e862b17654746d7537d7345f2dac53a5e4404d05"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "1c13c3469b249dccabb1f7096d3d0e8248009403d06b8317a7fe6cedb6f5a33d"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "93fea2a7c1aeb62cfd6452ff5badae8bdffcbd7196dc910c89944006d85dbb68"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "f12f59031bae093b8575957f3e10cc799c437778e5d6cf4ea04542135c3dcd11"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "adad2af4c1bf1cd5110e6f3e4a7e176ed2e90c2c677044bdf65c533ee0714375"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "33e8aaa0065557bacb7d0056acdcaa6c653d852984da4008a310fd995d73c426"
+		},
+		{
+			"secret": "0000000000000000000000000000000000000000000000000000000000000000",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "10f203d8a04a48ce338a5bcb0c0ac4e91cd512640143f570aa4f5ae803b3eb08"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "b945d0ceb4031f943d4da50f173aa35ae835d2802fbec100ad3be0ac3491d25c"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "e4b4d1d1805c4f18cdd4cb7e300279f3eb3e84a3dd41d7b49dc9cd985244a43b"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "8450db6c2b23b2b1d4df864feb7f087090b162ea6c9de0c4bbbc77e041587f1f"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "f12f59031bae093b8575957f3e10cc799c437778e5d6cf4ea04542135c3dcd11"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "3e5f127fe732458e922c814ca70f36ef847bd8706ad13331692b12e00dafde48"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "1fad9a91396c437a3a936080336a1e8b7a219711ca6a3d824987e8afc3fe8921"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "7eca6fe754c53b27e67ab8148e0ffe6ed8cb7604e5741fed5da78fa0d22dd36d"
+		},
+		{
+			"secret": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "93f0f8f9dc6184062ec2dee50042e323b33ebc57ff977dddf917e4518159aa3f"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "95a3e837dca0390e14e84f11166442db1c492c8b7a11f2fa8a0073ad33e2e724"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "26544f17943e43ca576246aa35b5b6cadafa13a057fb412e05de3aa878f25a63"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "8285f1b70e710053d6ff259029a6b2e8f87dbc97d89378e9f14ae41b46d43845"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "adad2af4c1bf1cd5110e6f3e4a7e176ed2e90c2c677044bdf65c533ee0714375"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "1fad9a91396c437a3a936080336a1e8b7a219711ca6a3d824987e8afc3fe8921"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "f311d440a5f15fac9cbdc78fbb90b63a6c6880148e79159dd258f036bf2f792c"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "76ac6ae5aa5008f6230839109d02111d47f72c735db52f95ab1e54b1ffad9545"
+		},
+		{
+			"secret": "0101010101010101010101010101010101010101010101010101010101010101",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "b7c6dc1dba82af3f12dc7d9706e49ef190f06362e3916dd6ffbad67da3a0e811"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "c662cc9c556096415e1bf8fd310914d50627f8363331d11ed3c35858cb3fc84a"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "3f357289d9aa917914ebc50c6a89704a3af17712a57479fb7df7cfa390fc126d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "c1812b88fd8060fd2cbda45e90cd5c5b2b3427abacb1b75b194f9f0e7658f032"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "33e8aaa0065557bacb7d0056acdcaa6c653d852984da4008a310fd995d73c426"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "7eca6fe754c53b27e67ab8148e0ffe6ed8cb7604e5741fed5da78fa0d22dd36d"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "76ac6ae5aa5008f6230839109d02111d47f72c735db52f95ab1e54b1ffad9545"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "df6baf6f6a43b9744fc5ef9dea1122782f9f696dc4a0d15c03c1787ee6d15e64"
+		},
+		{
+			"secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "6c1394fd5ded593a72d1a712bc45e4543ab56d11650448a8c06c00192f65f113"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+			"out": "1b3324fbd5ba2151316848bee141b293575f857e6c8144ba67e2f60be4d2cd5e"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+			"out": "0d7e2b1919927a0d34d67638229f00dd39b5f80aa3bb5e56529cea7bbc3e6f48"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "RhCNBjO1kJ1kiptPdaatI-SnsPRtCqeKxonwW4KZWxA",
+			"out": "51e327d2623122bc81c4158c0b2eb38539a06f5e6ac473e2124869a295cbe84c"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "L-V9o0fNYkMVKNqsX7spBzD_9oSvxM_C7ZCZX1jLO3Q",
+			"out": "10f203d8a04a48ce338a5bcb0c0ac4e91cd512640143f570aa4f5ae803b3eb08"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "hHwNLDdSNPNl5mCVUYejc1oPdhPRYJ06ak2MU66qWiI",
+			"out": "93f0f8f9dc6184062ec2dee50042e323b33ebc57ff977dddf917e4518159aa3f"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk",
+			"out": "b7c6dc1dba82af3f12dc7d9706e49ef190f06362e3916dd6ffbad67da3a0e811"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+			"out": "6c1394fd5ded593a72d1a712bc45e4543ab56d11650448a8c06c00192f65f113"
+		},
+		{
+			"secret": "55555555555555555555555555555555555555555555555555555555555555ff",
+			"label": "pair",
+			"peer": "YlHUymXSmDBjq6YfiFAMI243tLVljTgf83l4gAdRwjM",
+			"out": "2f4705245652632b837f2c988c97c69a1d30e4b4aa49f2f5fbfe862d5a1a5021"
+		}
+	],
+	"transcript": [
+		{
+			"fields": [
+				"a",
+				"b",
+				"c",
+				"d",
+				"e",
+				"f"
+			],
+			"hash": "125fdc2c6b969cab8e29fbe76f1dd4001fbad9937c309142cdceb61cb6b8ddfd"
+		},
+		{
+			"fields": [
+				"",
+				"",
+				"",
+				"",
+				"",
+				""
+			],
+			"hash": "5a374ef491889486f06f60578e5c658e6c551d411ade5029c208ec32e851c76b"
+		},
+		{
+			"fields": [
+				"FCMCYdjQLXwbQ8FVwqySx7QWaN4Kd09DZV_eAJYemns",
+				"4snz_Qea2KCDFnLfM16XQyLbV0uw5AO4Fpuv79BI03c",
+				"0123456789abcdefghjkmnpqrs",
+				"abcdefghjkmnpqrstvwxyz0123",
+				"nonce1",
+				"nonce2"
+			],
+			"hash": "096782b20fa9ad5f745f4570ceae0bafe27e99081b88c12c855c8f38eb9af4bf"
+		},
+		{
+			"fields": [
+				"quote\"here",
+				"back\\slash",
+				"ctl\u0001\u001f\b\f\n\r\t",
+				"nonascii é 한국어 😀   ",
+				"slash/ <>& del",
+				"end"
+			],
+			"hash": "5a77ca5bbaba30247ad532477ef82e996ca50f868e7d79e33ae56d959f317a27"
+		},
+		{
+			"fields": [
+				"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f",
+				"\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f",
+				"\u0000",
+				"",
+				"",
+				"￿"
+			],
+			"hash": "3e165433d94d4b4ab861c757a9e1a8c836a1ea553ef43e67591835f2846d730e"
+		},
+		{
+			"fields": [
+				"a,b",
+				"[\"x\"]",
+				"{\"t\":1}",
+				"null",
+				"-0",
+				"1e3"
+			],
+			"hash": "f0f6a6399ac2b43c94537c5eb8403a48b74febca5932262f13040640cb77fd1a"
+		},
+		{
+			"fields": [
+				"😀😀",
+				"é",
+				"é",
+				"􏿿",
+				"𐀀",
+				"퟿"
+			],
+			"hash": "c0a0d310411cb869c50ba977445a3414418a529fa7dd031e6d8a52421a17737e"
+		},
+		{
+			"fields": [
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+				"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+				"z",
+				"",
+				"w",
+				"v"
+			],
+			"hash": "f405829e9e2bd2b55b3160b71ed54caf44eded720b81a0cb0f96c17dc5400766"
+		}
+	],
+	"authKeys": [
+		{
+			"ikm": "",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "f90444953e02c9b250e2166609c5ca58ff730a14a18f59b0d9af39bd6de68b60",
+			"ba": "373c1374608488e34b97e162a40e2eb01dfae0ceae6525fd63721eee2e11b0d8"
+		},
+		{
+			"ikm": "",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "b9b89be97a321e604323969db1dd20ef33763cdacc05cac737d4ac1e39b495b1",
+			"ba": "f8817f59e9271d5a95423599ba5975682542ebefa9cda303341c4fbc6b4b5905"
+		},
+		{
+			"ikm": "",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "fc68a7da29ecce7eb536c40c56deeb676a1e3ab0c008488ce2ed3d8f2c7bf849",
+			"ba": "10d9fd8e5d93c71c03948934a66f7535e3162f6bfcfe4e85eb0157245d731f6c"
+		},
+		{
+			"ikm": "",
+			"transcript": "74",
+			"ab": "98677af633f7d3b2f8d7ad978cb6d57064a6d6d33f36bd430a58e319bb8c0aa0",
+			"ba": "d2f7c8558133e2a6b31cb4c95436e5828f6e04cd46249ccfb441d8be6df88620"
+		},
+		{
+			"ikm": "",
+			"transcript": "",
+			"ab": "1d9f316a88bd67dcfefee0038c3258034307351ebf5021dc045d0fe8a7295346",
+			"ba": "cec2a6a70debf09c99ae9eb6f8357f3c54622f7666a6e26370620e3237cb9fd9"
+		},
+		{
+			"ikm": "01",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "cfc16c5a58115e199f9d94f2f283057b68486bf2ae24bc3d51aebb54ccb85b31",
+			"ba": "0b6fff528d53ada0c7c0379e5a9072e8341e572cd39d3eb8be373fecbb811250"
+		},
+		{
+			"ikm": "01",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "f6fa36f412761f965339f0948c0748e1baa39ab0b2462311135364f6dbcde990",
+			"ba": "9b5d7adadfaa3a2f3ac3609076fb704d8fd1cece0dc20de2eb4aa9d0319b2723"
+		},
+		{
+			"ikm": "01",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "11227c6e850369c8936d1d6c919e7b8561a6d3e1c8c64713fe9c7a0d5bcddd46",
+			"ba": "784d18a02a5b1dd7c7dd5d1dd36a5e1b30d0e9aae822b15948e3ff155541aa7d"
+		},
+		{
+			"ikm": "01",
+			"transcript": "74",
+			"ab": "151d59c698497adbd85356db50e14d3105e6b816b1e4e3c68c5ffb005619ad67",
+			"ba": "1b05a03ab8f918f7a291214602714556b955146fd87962afc86229b66b7ac584"
+		},
+		{
+			"ikm": "01",
+			"transcript": "",
+			"ab": "7f6e0d63279ea12538d50ca0129cbaae263c6580e883dbfd29f3371d873eb991",
+			"ba": "e5d738bb150214acbca61a1223611ab6f491817a59c15e0d138f473ccc8c57f7"
+		},
+		{
+			"ikm": "acf2516153eecdf675bb67dbf7aa7a3ececeaca5768b1428f00e3d672bfe48dc",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "69295bd791b721e9f4d219264626bff3c24ec66e1c604935ab8e8662d9b2eaaa",
+			"ba": "764dffc932b79a9bfdaeb899a12d97da59c6335b59f34da549a55d2e0d0469f1"
+		},
+		{
+			"ikm": "acf2516153eecdf675bb67dbf7aa7a3ececeaca5768b1428f00e3d672bfe48dc",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "886b73595cb3edb573d5efb57ce98f34324601c72ca26503e5626e773d3c63d3",
+			"ba": "97cc3385992a010217815893a5765b66870385574d12cb8746e5d3ce3fe289ab"
+		},
+		{
+			"ikm": "acf2516153eecdf675bb67dbf7aa7a3ececeaca5768b1428f00e3d672bfe48dc",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "024928f01155aaf8adfa449135d0a31e8cb63c4f56149d9e30b60b71df66c1e8",
+			"ba": "be599d63c9e18d085c648fa6f1ecc150e56023928886dcab77bb7fe91951e25d"
+		},
+		{
+			"ikm": "acf2516153eecdf675bb67dbf7aa7a3ececeaca5768b1428f00e3d672bfe48dc",
+			"transcript": "74",
+			"ab": "44fbd8f4a9bbd7cf19c4a588a36a49602fbf1b756f418a55a5eaa0b1c270a6da",
+			"ba": "bcb0b9927bcc45da664484bfbe8878ead15896fe1727c7b55562b4a58d62fc62"
+		},
+		{
+			"ikm": "acf2516153eecdf675bb67dbf7aa7a3ececeaca5768b1428f00e3d672bfe48dc",
+			"transcript": "",
+			"ab": "e466e9b0b2bc7a89abf84dd1ace6c3c0ad671aee78287e43a7c22ad824d3b2eb",
+			"ba": "0a16bf163b71f6bba3e75421a6f6e76f9039b1f9ca1bbf235c1e9bce93c2719b"
+		},
+		{
+			"ikm": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b2769343bb00d0ce7790a53b91256b370c887b24791a5539a6fbfb70c5870e8c91ae5d",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "3c56c3d91ab905713fd4b637d3939399e25495eb4d27b19eb9d26d7bcabdd1e4",
+			"ba": "946d5266f3299dd610fe52ef495430728c8bb65a6668643e3fe3f6978d73a082"
+		},
+		{
+			"ikm": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b2769343bb00d0ce7790a53b91256b370c887b24791a5539a6fbfb70c5870e8c91ae5d",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "65c3b55d32645f33d6ef2d1802f8e9442c7d6e603f79f7d8063c5f209f95f878",
+			"ba": "5a641010eb2940151cb73a300f5d385099bd5bae0be91f4879db4ed50d7748c1"
+		},
+		{
+			"ikm": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b2769343bb00d0ce7790a53b91256b370c887b24791a5539a6fbfb70c5870e8c91ae5d",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "74c180c7f74ce948e6c5c5d0a9a39989129021a1b24981605a64078fff9b0033",
+			"ba": "d0534a83d60e3567febd40d6ec4d66cd9da1709ff1883e563f4c03c274fdc093"
+		},
+		{
+			"ikm": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b2769343bb00d0ce7790a53b91256b370c887b24791a5539a6fbfb70c5870e8c91ae5d",
+			"transcript": "74",
+			"ab": "7a1ff715ea5868a9cd209a899104b76b0c5085b52784c0b11b0baf22a9b4e833",
+			"ba": "46262a3a720dcfc614af52fca4e9a90d1aa54d98ad68cd0f695edc5d05e20122"
+		},
+		{
+			"ikm": "f64551fcd6f07823cb87971cfb91446425da18286b3ab1ef935e0cbd7a69f68a3946ca64ff78d93ca61090a437cbb6b3d2ca0d488f5f9ccf3059608368b2769343bb00d0ce7790a53b91256b370c887b24791a5539a6fbfb70c5870e8c91ae5d",
+			"transcript": "",
+			"ab": "802b35bbdcd2fe69bf691da9097f972e960bfa125bc64926f98012192635fd73",
+			"ba": "722769ef20b1b98648eb0befbec50b4e5852b41017ab204c84c6bf3bb277d62e"
+		},
+		{
+			"ikm": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "3a7f703a38e1d9852c117cdb2302e9790fff24349f6375aaff8a2b0b188be627",
+			"ba": "ec0ea7f392e229bf84bad9709524acbc7e1863df0b8bd1c50411ab55132c257a"
+		},
+		{
+			"ikm": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "f1a7e6bc7880223b8f1c4367e37e2de2c9fcba1571e74a4ec60b6898b2b9d58a",
+			"ba": "afdd32523ffc72f6bd0117ee44083edc9b39d672a80bca1729757f67d47317c6"
+		},
+		{
+			"ikm": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "cddf772ea54fb4f5a9ec9261bd61d67c930da456175a6eb15fbf4fc5a694d74a",
+			"ba": "1aa57a5c590dfe731bb19525b37e5ad6e82e9292bacae94e77cc8bc7a80a6160"
+		},
+		{
+			"ikm": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"transcript": "74",
+			"ab": "2e0f9210b7fda99983788410933505d5ae8d89935792b48b5ee3aead98c0df89",
+			"ba": "4ba13b62706b5c90291d37707a8ad31480e871be202753d788c064da88592cef"
+		},
+		{
+			"ikm": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"transcript": "",
+			"ab": "da4d708aa243bee8dbd5cbf448498fe590c4b0790feba4e0d559dea83f8255c4",
+			"ba": "39a4b7f239a91ff5306fc2209217a89618f77ce99b56766b50c87daaac2ca361"
+		},
+		{
+			"ikm": "0000000000000000000000000000000000000000000000000000000000000000",
+			"transcript": "628b49d96dcde97a430dd4f597705899e09a968f793491e4b704cae33a40dc02",
+			"ab": "ff09b2e2a83e18f7a8122a79328037f44d05ecc445fc5d98d2e3cc554fa46f36",
+			"ba": "bfbc53263ba7002e517060cee5fe8fbfe58bd44f461c6bf082ff2864f9cf9497"
+		},
+		{
+			"ikm": "0000000000000000000000000000000000000000000000000000000000000000",
+			"transcript": "0000000000000000000000000000000000000000000000000000000000000000",
+			"ab": "3c0b6766eccd62f13c2e7cfa67ad983ec8cbd064122459d0e20947ec6f61fba4",
+			"ba": "3f296e9bcd06412079ddfad7feed2bb153b2980cf881399931361a9a72751166"
+		},
+		{
+			"ikm": "0000000000000000000000000000000000000000000000000000000000000000",
+			"transcript": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			"ab": "9ebdc5feed2a342fed36c9b31f2e86f66b8b25c89d1116f0f69bd7487f8feea7",
+			"ba": "061481c47a58a2c6836a6959ca519adae32f490c2f7e36025d57af9570beedec"
+		},
+		{
+			"ikm": "0000000000000000000000000000000000000000000000000000000000000000",
+			"transcript": "74",
+			"ab": "4ccaec236e64d04f6b87aee7ab23b68dc932b13536eead9966501628346b50e3",
+			"ba": "63f7a64b697f73c26b205be5dea015bd816f21289fe28ccb86f9f9ba140bb7b6"
+		},
+		{
+			"ikm": "0000000000000000000000000000000000000000000000000000000000000000",
+			"transcript": "",
+			"ab": "6ec6664ed643245484c0cebdd7fa6ba841eb0c4322d2d1f9c0fd8f8bfa2757dc",
+			"ba": "56095c8da1243a9d2ce46edf388fa236e91a82b25bc1664baf85bd6cda2f4703"
+		}
+	]
+}
