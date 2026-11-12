@@ -88,6 +88,7 @@ runs:
         src/main/remote/sign-in-relay.test.ts
         src/main/remote/link-traffic-images.test.ts
         src/main/remote/link-events-core.test.ts
+        src/main/remote/link-traffic-report.test.ts
         src/main/remote/devices-rename.test.ts
         src/main/remote/keep-awake.test.ts
         src/main/remote/store.test.ts
