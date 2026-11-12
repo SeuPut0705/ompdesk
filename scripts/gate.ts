@@ -39,7 +39,9 @@ async function step(name: string, result: Promise<RunResult>): Promise<readonly 
 /** The static checks and vitest in one vitest slot: side by side, or one after another on a one-heavy-slot machine. */
 async function checks(): Promise<Array<readonly [string, RunResult]>> {
 	const held = await acquireLock(["bun", "run", "gate"], { kind: "vitest", via: "gate" });
-	const results = await runSteps(CHECKS, ([name, command]) => step(name, run(command, { capture: true })));
+	const results = await runSteps(CHECKS, ([name, command]) =>
+		step(name, run(command, { capture: true, under: held })),
+	);
 	held.release(results.some(([, result]) => result.code !== 0) ? 1 : 0);
 	return results;
 }

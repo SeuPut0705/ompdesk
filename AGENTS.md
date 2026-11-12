@@ -165,10 +165,10 @@ renderer (React) ── IPC ──▶ main (Electron)
 
 ### Lock and gate
 
-- The machine-wide lock is one counting semaphore per kind of heavy work (`build` 1, `playwright` 4, `vitest` 1, `other` 1) plus one `heavy` semaphore every hold takes first, sized from RAM (1 on 16 GB), because too much at once overloads the machine (`scripts/lock-slots.ts`, `scripts/build-lock.ts`). Slots, queue, snapshots, workers, log: e2e-ci-windows › Lock and gate, › Lock on a small machine.
+- The machine-wide lock is one counting semaphore per kind of heavy work (`build` 1, `playwright` 4, `vitest` 1, `other` 1) plus the computer's heavy pool (`ompdesk heavy`, the product's: `$OMPDESK_HEAVY_DIR` else `~/.cache/ompdesk/heavy`, ⌊min((GB − 8) ÷ 8, cores ÷ 2)⌋ slots, at least 1 and at most 7: 1 on 16 GB; `OMPDESK_HEAVY_SLOTS` overrides) whose slot every hold takes first, because too much at once overloads the machine (`scripts/lock-slots.ts`, `scripts/build-lock.ts`). Slots, queue, snapshots, workers, log: e2e-ci-windows › Lock and gate, › Lock on a small machine.
 - `bun run gate` (`scripts/gate.ts`) is the full local check (static checks and full vitest, then the full Playwright suite on that build). It is optional: the release gate is release.yml (see CI).
 - Run any other build, Playwright run or full vitest run as `bun run locked -- <command>` (e.g. `bun run locked -- bunx playwright test e2e/smoke.e2e.ts --output /tmp/<you>-results`); `--chunk <n>` splits a playwright/vitest command into shards, one hold each, so a long job lets waiters in between.
-- Parallel agents: on a big machine the lock lets up to seven heavy holds run at once, on 16 GB one; past that, agents only queue. Give each agent one disjoint slice; iterate with targeted vitest outside the lock, run builds and e2e as short `bun run locked -- …` holds (several specs in one command, a long sweep split with `--chunk`), commit verified hunks locally as you go, and leave the full gate to CI.
+- Parallel agents: on a big machine the pool lets up to seven heavy holds run at once, on 16 GB one (any script can join it with `ompdesk run --heavy -- <cmd>`); past that, agents only queue. Give each agent one disjoint slice; iterate with targeted vitest outside the lock, run builds and e2e as short `bun run locked -- …` holds (several specs in one command, a long sweep split with `--chunk`), commit verified hunks locally as you go, and leave the full gate to CI.
 
 ### Dev rules
 

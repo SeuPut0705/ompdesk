@@ -1,15 +1,21 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { configureNativeBin, nativeBinPath } from "../src/main/native-bin";
+import { ensureNative } from "./build-native";
 import {
+	acquireHeavy,
 	acquireHold,
 	acquireSlot,
 	DEFAULT_SLOTS,
-	heavySlots,
+	HEAVY_HELD_ENV,
+	heavyPoolSize,
+	heavyStatus,
+	inspectHeavy,
 	inspectSlots,
 	type Lease,
-	type LockSlot,
 	type Locks,
 	ramWorkers,
 	type SlotKind,
@@ -32,16 +38,23 @@ let said: string[];
 const leases: Lease[] = [];
 const GiB = 1024 ** 3;
 
-function locksFor(slots: Partial<Record<LockSlot, number>> = {}): Locks {
+/** The test's own heavy pool (`OMPDESK_HEAVY_DIR`): never the computer's, whatever else is running on it. */
+function locksFor(slots: Partial<Record<SlotKind, number>> = {}, heavySlots = 1): Locks {
 	return {
 		root: path.join(dir, "locks"),
 		legacyDir: path.join(dir, "legacy.lock"),
-		slots: { ...DEFAULT_SLOTS, heavy: 7, ...slots },
+		slots: { ...DEFAULT_SLOTS, ...slots },
 		pollMs: 5,
 		sleep: countPoll,
 		staleMs: 15 * 60_000,
 		ticketStaleMs: 60_000,
 		pid: process.pid,
+		env: {
+			...process.env,
+			OMPDESK_HEAVY_DIR: path.join(dir, "heavy"),
+			OMPDESK_HEAVY_SLOTS: String(heavySlots),
+			[HEAVY_HELD_ENV]: "",
+		},
 		say: message => said.push(message),
 	};
 }
@@ -260,24 +273,25 @@ describe("workers per run", () => {
 });
 
 // 2 Nov 2026: 11 sessions on this 16 GB Mac ran checks side by side (one of each kind fit in the per-kind slots, more
-// outside the lock) and WindowServer stalled at 29.9 GB of footprint. A small machine runs one heavy hold at a time.
-describe("the machine-wide heavy slots", () => {
-	it("is one on 16 GB and grows with RAM, never past the per-kind slots together", () => {
-		expect(heavySlots(16 * GiB)).toBe(1);
-		expect(heavySlots(8 * GiB)).toBe(1);
-		expect(heavySlots(24 * GiB)).toBe(2);
-		expect(heavySlots(32 * GiB)).toBe(3);
-		expect(heavySlots(128 * GiB)).toBe(7);
-	});
+// outside the lock) and WindowServer stalled at 29.9 GB of footprint. A small machine runs one heavy hold at a time; the
+// pool that enforces it is the product's (`ompdesk heavy`), so these cases run the real binary on a temp pool.
+describe("the computer's heavy slots (the real ompdesk, a temp pool)", () => {
+	beforeAll(() => {
+		ensureNative();
+	}, 900_000);
+
+	const pause = (ms = 600) => new Promise(resolve => setTimeout(resolve, ms));
+	/** Until `count` holds wait in the pool's queue: how a test fixes the order its waiters arrive in. */
+	const queued = (locks: Locks, count: number) =>
+		vi.waitFor(async () => expect((await heavyStatus(locks.env))?.queue.length).toBe(count), { timeout: 20_000 });
 
 	it("runs holds of every kind one at a time, first come first served, whichever checkout asks", async () => {
-		const locks = locksFor({ heavy: 1 });
+		const locks = locksFor();
 		const order: string[] = [];
 		const hold = (kind: SlotKind, name: string) => {
-			const state = { granted: false, lease: undefined as Lease | undefined };
+			const state = { granted: false };
 			const done = acquireHold(locks, kind, who(name)).then(lease => {
 				state.granted = true;
-				state.lease = lease;
 				leases.push(lease);
 				order.push(name);
 				return lease;
@@ -286,70 +300,95 @@ describe("the machine-wide heavy slots", () => {
 		};
 		const first = await acquireHold(locks, "playwright", who("a@checkout-one"));
 		leases.push(first);
-		const waiting = [
-			hold("build", "b@checkout-two"),
-			hold("vitest", "c@checkout-one"),
-			hold("playwright", "d@checkout-two"),
-			hold("other", "e@checkout-one"),
-		];
-		await settle();
+		const waiting: Array<ReturnType<typeof hold>> = [];
+		for (const [kind, name] of [
+			["build", "b@checkout-two"],
+			["vitest", "c@checkout-one"],
+			["playwright", "d@checkout-two"],
+			["other", "e@checkout-one"],
+		] as const) {
+			waiting.push(hold(kind, name));
+			await queued(locks, waiting.length);
+		}
+		await pause();
 		expect(waiting.map(w => w.state.granted)).toEqual([false, false, false, false]);
-		expect(said.join("\n")).toMatch(/waiting for a heavy slot \(held by a@checkout-one/);
+		expect(said.join("\n")).toMatch(/waiting for a heavy slot.*held by a@checkout-one pid \d+: cmd a@checkout-one/);
 		first.release();
 		for (const [i, w] of waiting.entries()) {
 			const lease = await w.done;
-			if (i < waiting.length - 1) await settle();
+			if (i < waiting.length - 1) await pause();
 			expect(waiting.map(other => other.state.granted)).toEqual(waiting.map((_, j) => j <= i));
 			lease.release();
 		}
 		expect(order).toEqual(["b@checkout-two", "c@checkout-one", "d@checkout-two", "e@checkout-one"]);
-	});
+	}, 60_000);
 
-	it("lets a command nested under a heavy holder take its own kind at once (no deadlock)", async () => {
-		const locks = locksFor({ heavy: 1 });
-		leases.push(await acquireHold(locks, "playwright", who("parent")));
+	it("lets a command nested under a heavy holder take its own kind at once, and names the holder for ompdesk", async () => {
+		const locks = locksFor();
+		const parent = await acquireHold(locks, "playwright", who("parent"));
+		leases.push(parent);
 		const nested = await acquireHold(locks, "build", who("child"), { heavyHeld: true });
 		leases.push(nested);
 		expect(nested.kind).toBe("build");
+		expect(nested.heavyPid).toBeUndefined();
+		// A nested `ompdesk run --heavy` that names the parent's hold runs at once although the pool's only slot is taken.
+		const inside = spawnSync(nativeBinPath("ompdesk"), ["run", "--heavy", "--", "node", "-e", "0"], {
+			env: { ...locks.env, [HEAVY_HELD_ENV]: String(parent.heavyPid) },
+			timeout: 20_000,
+		});
+		expect(inside.status).toBe(0);
+	}, 60_000);
+
+	it("gives the slot back when the lease is released, and shows the holder while it is held", async () => {
+		const locks = locksFor();
+		const lease = await acquireHold(locks, "vitest", who("agent@checkout"));
+		const held = await inspectHeavy(locks);
+		expect(held).toHaveLength(1);
+		expect(held[0]).toMatchObject({ kind: "heavy", slot: 0 });
+		expect(held[0]?.holder).toMatch(/^agent@checkout pid \d+: cmd agent@checkout$/);
+		expect(lease.heavyPid).toBeGreaterThan(0);
+		expect((await heavyStatus(locks.env))?.slots[0]?.owner?.pid).toBe(lease.heavyPid);
+		lease.release();
+		await vi.waitFor(async () => expect((await inspectHeavy(locks))[0]?.holder).toBeUndefined(), { timeout: 20_000 });
+		const again = await acquireHold(locks, "vitest", who("next"));
+		leases.push(again);
+		expect(again.heavyPid).not.toBe(lease.heavyPid);
+	}, 60_000);
+
+	it("gives a dead holder's slot to the next waiter at once, with no stale timeout", async () => {
+		const locks = locksFor({ build: 2 });
+		const dead = await acquireHeavy(locks, who("crashed@checkout"));
+		if (!dead) throw new Error("no pool");
+		const next = acquireHeavy(locks, who("next@checkout"));
+		await queued(locks, 1);
+		process.kill(dead.pid, "SIGKILL");
+		const lease = await next;
+		expect(lease?.waitedMs).toBeLessThan(10_000);
+		lease?.release();
+	}, 60_000);
+
+	it("is as large as the pool says: OMPDESK_HEAVY_SLOTS, else the product's rule", async () => {
+		expect(await heavyPoolSize(locksFor({}, 3).env)).toBe(3);
+		const asked = { ...process.env, OMPDESK_HEAVY_DIR: path.join(dir, "heavy"), OMPDESK_HEAVY_SLOTS: "" };
+		const size = await heavyPoolSize(asked);
+		expect(size).toBeGreaterThanOrEqual(1);
+		expect(size).toBeLessThanOrEqual(7);
 	});
 
-	it("reclaims a heavy slot nobody refreshed for 15 minutes", async () => {
-		const locks = locksFor({ heavy: 1 });
-		const dead = path.join(locks.root, "heavy.0");
-		fs.mkdirSync(dead, { recursive: true });
-		fs.writeFileSync(path.join(dead, "owner"), "crashed@checkout 10:00:00 pid 1\n");
-		age(path.join(dead, "owner"), 16 * 60_000);
-		leases.push(await acquireHold(locks, "vitest", who("next")));
-		expect(said.join("\n")).toMatch(/removing a stale heavy slot held by crashed@checkout/);
-	});
-
-	it("waits for the old single lock like every slot", async () => {
-		const locks = locksFor({ heavy: 1 });
-		const legacy = locks.legacyDir as string;
-		fs.mkdirSync(legacy);
-		fs.writeFileSync(path.join(legacy, "owner"), "old@checkout 10:00:00 pid 1\n");
-		const done = acquireHold(locks, "other", who("o")).then(lease => {
+	it("skips the pool on a GitHub runner with no staged binary, and sizes it as one", async () => {
+		const empty = path.join(dir, "no-resources");
+		configureNativeBin({ packaged: false, resourcesPath: empty });
+		try {
+			const locks = locksFor();
+			locks.env.GITHUB_ACTIONS = "true";
+			expect(await acquireHeavy(locks, who("runner"))).toBeUndefined();
+			const lease = await acquireHold(locks, "vitest", who("runner"));
 			leases.push(lease);
-			return lease;
-		});
-		let granted = false;
-		void done.then(() => {
-			granted = true;
-		});
-		await settle();
-		expect(granted).toBe(false);
-		fs.rmSync(legacy, { recursive: true });
-		await done;
-	});
-
-	it("releases the heavy slot with the kind's", async () => {
-		const locks = locksFor({ heavy: 1 });
-		(await acquireHold(locks, "build", who("a"))).release();
-		leases.push(await acquireHold(locks, "vitest", who("b")));
-		expect(
-			inspectSlots(locks)
-				.filter(view => view.holder)
-				.map(view => view.kind),
-		).toEqual(["vitest", "heavy"]);
+			expect(lease.heavyPid).toBeUndefined();
+			expect(await heavyPoolSize(locks.env)).toBe(1);
+			expect(await inspectHeavy(locks)).toEqual([]);
+		} finally {
+			configureNativeBin({ packaged: false, resourcesPath: path.join(import.meta.dirname, "..", "resources") });
+		}
 	});
 });

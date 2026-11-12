@@ -2,9 +2,12 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { nativeBinPath } from "../src/main/native-bin";
 import { describeExit, run } from "./build-lock";
+import { ensureNative } from "./build-native";
 import { type LockLogEntry, readLockLog } from "./lock-log";
+import { HEAVY_HELD_ENV, type HeavyStatus } from "./lock-slots";
 
 describe("run", () => {
 	it("delivers spaces, quotes, %PATH%, & and ^ to a native child unchanged", async () => {
@@ -27,8 +30,13 @@ describe("run", () => {
 const LOCK = path.join(import.meta.dirname, "build-lock.ts");
 let dir: string;
 
+// Every `locked` run here takes its heavy slot from the real ompdesk, on a pool of the test's own (one slot unless a case
+// says more), so no run waits for, or is waited on by, whatever else the computer is running.
 const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
 	...process.env,
+	OMPDESK_HEAVY_DIR: path.join(dir, "heavy"),
+	OMPDESK_HEAVY_SLOTS: "1",
+	[HEAVY_HELD_ENV]: "",
 	OMPDESK_LOCK_ROOT: path.join(dir, "locks"),
 	OMPDESK_LOCK_LOG: path.join(dir, "lock.log"),
 	OMPDESK_LOCK_OWNER: "test@lock",
@@ -42,6 +50,10 @@ const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({
 
 const locked = (args: string[], extra: Record<string, string> = {}) =>
 	spawnSync("bun", [LOCK, ...args], { env: env(extra), encoding: "utf8" });
+const heavyNow = () =>
+	JSON.parse(
+		spawnSync(nativeBinPath("ompdesk"), ["heavy", "status", "--json"], { env: env(), encoding: "utf8" }).stdout,
+	) as HeavyStatus;
 const entries = (): LockLogEntry[] => readLockLog(path.join(dir, "lock.log"));
 /** `node <file>`: node takes what follows a script file as the script's own arguments, unlike after `-e`. */
 const nodeScript = (code: string) => {
@@ -50,6 +62,9 @@ const nodeScript = (code: string) => {
 	return ["node", file];
 };
 
+beforeAll(() => {
+	ensureNative();
+}, 900_000);
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ompdesk-build-lock-"));
 });
@@ -76,10 +91,11 @@ describe("bun scripts/build-lock.ts", () => {
 			"--",
 			"node",
 			"-e",
-			"console.log(process.env.OMPDESK_BUILD_LOCK_HELD)",
+			"console.log([process.env.OMPDESK_BUILD_LOCK_HELD,process.env.OMPDESK_HEAVY_HELD].join('|'))",
 		]);
 		expect(result.status).toBe(0);
-		expect(result.stdout.trim()).toBe("playwright,heavy");
+		// The kinds held, and the pid of the ompdesk heavy hold that keeps the slot: the nested run waited for neither.
+		expect(result.stdout.trim()).toMatch(/^playwright\|\d+$/);
 		expect(entries()).toHaveLength(1);
 		expect(result.stderr).not.toContain("waiting for");
 	});
@@ -124,15 +140,13 @@ describe("bun scripts/build-lock.ts", () => {
 	});
 
 	it("runs a nested command of another kind under a heavy holder at once, on a one-heavy-slot machine", () => {
-		const result = locked(["--kind", "playwright", "--", "bun", LOCK, "--kind", "build", "--", "node", "-e", "0"], {
-			OMPDESK_LOCK_RAM_GB: "16",
-		});
+		const result = locked(["--kind", "playwright", "--", "bun", LOCK, "--kind", "build", "--", "node", "-e", "0"]);
 		expect(result.status).toBe(0);
 		expect(entries().map(entry => entry.kind)).toEqual(["build", "playwright"]);
 	});
 
 	it("never deadlocks two holders that each nest the other's kind", async () => {
-		// Two heavy slots (24 GB): a build holder nests vitest while a vitest holder nests a build. Had the nested
+		// Two heavy slots: a build holder nests vitest while a vitest holder nests a build. Had the nested
 		// vitest waited for the vitest slot, each would wait on the other for ever.
 		const x = path.join(dir, "x");
 		const y = path.join(dir, "y");
@@ -145,7 +159,7 @@ describe("bun scripts/build-lock.ts", () => {
 		const first = path.join(dir, "first.cjs");
 		fs.writeFileSync(first, `${waitFor(x)};require("fs").writeFileSync(${JSON.stringify(y)},"");${nested("vitest")}`);
 		const start = (args: string[]) => {
-			const child = spawn("bun", [LOCK, ...args], { env: env({ OMPDESK_LOCK_RAM_GB: "24" }) });
+			const child = spawn("bun", [LOCK, ...args], { env: env({ OMPDESK_HEAVY_SLOTS: "2" }) });
 			return new Promise<number | null>(resolve => child.once("close", resolve));
 		};
 		const vitestHolder = start(["--kind", "vitest", "--", "node", second]);
@@ -225,8 +239,8 @@ describe("bun scripts/build-lock.ts", () => {
 		await vi.waitFor(() => expect(stderr).toMatch(/waiting for .*\.legacy/), { timeout: 15_000 });
 		// Windows removes a folder's files first: the waiter sees the folder without its owner for a while. The waiter
 		// touches its queue ticket on every poll, so a touch after the owner went means it looked at least once.
-		// The first queue a waiter joins is the machine-wide heavy one.
-		const queue = path.join(dir, "locks", "heavy.queue");
+		// The heavy pool is free, so the first queue this waiter joins is its kind's.
+		const queue = path.join(dir, "locks", "playwright.queue");
 		const ticket = path.join(queue, fs.readdirSync(queue)[0] ?? "");
 		fs.rmSync(path.join(legacy, "owner"));
 		const removedAt = Date.now();
@@ -236,4 +250,47 @@ describe("bun scripts/build-lock.ts", () => {
 		expect(stderr).not.toMatch(/no owner file yet/);
 		expect(stderr).toMatch(/\[lock\] waited \d+\.\ds for old@checkout 10:00:00 pid 1/);
 	});
+
+	it("serializes two locked commands on a one-slot pool and shows the holder while one runs", async () => {
+		const sleeper = nodeScript("setTimeout(Function.prototype, 1500)");
+		const start = (owner: string) => {
+			const child = spawn("bun", [LOCK, "--kind", "other", "--", ...sleeper], {
+				env: env({ OMPDESK_LOCK_OWNER: owner }),
+			});
+			return new Promise<number | null>(resolve => child.once("close", resolve));
+		};
+		const first = start("first@checkout");
+		await vi.waitFor(
+			() => expect(heavyNow().slots[0]?.owner?.command).toMatch(/^first@checkout pid \d+: node .*script\.cjs$/),
+			{ timeout: 20_000 },
+		);
+		const second = start("second@checkout");
+		expect(await Promise.all([first, second])).toEqual([0, 0]);
+		const [one, two] = entries();
+		if (!one || !two) throw new Error("two holds expected");
+		expect([one.owner, two.owner]).toEqual(["first@checkout", "second@checkout"]);
+		// A hold runs from the moment its slot was taken (the log's time + wait) for its heldMs: the second starts after the first ends.
+		const started = (entry: LockLogEntry) => Date.parse(entry.time) + entry.waitedMs;
+		expect(started(two)).toBeGreaterThanOrEqual(started(one) + one.heldMs - 100);
+		expect(two.waitedMs).toBeGreaterThan(one.waitedMs);
+	}, 60_000);
+
+	it("frees the slot at once when a holder is killed, so the next waiter never waits for a stale timeout", async () => {
+		// The killed holder's command keeps running for 8 s in its own process group; its slot is free from the kill on.
+		const holder = spawn(
+			"bun",
+			[LOCK, "--kind", "other", "--", ...nodeScript("setTimeout(Function.prototype, 8000)")],
+			{
+				env: env(),
+			},
+		);
+		await vi.waitFor(() => expect(heavyNow().slots[0]?.owner).toBeTruthy(), { timeout: 20_000 });
+		// "exit", not "close": the command left running keeps the holder's pipes open.
+		const ended = new Promise(resolve => holder.once("exit", resolve));
+		holder.kill("SIGKILL");
+		await ended;
+		const result = locked(["--kind", "build", "--", "node", "-e", "0"]);
+		expect(result.status).toBe(0);
+		expect(entries().at(-1)?.waitedMs).toBeLessThan(4_000);
+	}, 60_000);
 });

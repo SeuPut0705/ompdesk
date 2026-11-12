@@ -154,7 +154,7 @@ console.log(`[check:changed] ${changed.length} changed file(s); ${CHECKS.map(([n
 const held = await acquireLock(["bun", "run", "check:changed"], { kind: "vitest", via: "check:changed" });
 const started = performance.now();
 const results = await runSteps(CHECKS, async ([name, command]): Promise<readonly [string, RunResult]> => {
-	const result = await run(command, { capture: true });
+	const result = await run(command, { capture: true, under: held });
 	if (result.code !== 0)
 		console.log(`\n[check:changed] ✗ ${name} (${describeExit(result)})\n${result.output.trimEnd()}\n`);
 	console.log(`[check:changed] ${result.code === 0 ? "✓" : "✗"} ${name} ${seconds(result.ms)}`);
