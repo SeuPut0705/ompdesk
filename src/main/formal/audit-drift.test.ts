@@ -27,6 +27,8 @@ import { renderReport } from "../../../resources/omp-builtin/formal/skills/ompde
 import {
 	type ModelResult,
 	matrixForTier,
+	matrixTier,
+	parseArgs,
 	stampModels,
 	summarize,
 } from "../../../resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/verify-all";
@@ -589,6 +591,15 @@ describe("finding 14: a matrix run can be deep", () => {
 		expect(() => matrixForTier(file, "fast")).toThrow(/tier/);
 		fs.writeFileSync(file, JSON.stringify({ runs: [{ name: "x", tier: "deep" }] }));
 		expect(matrixForTier(file, "fast")).toMatchObject({ file: null, skipped: ["x"] });
+	});
+
+	it("--only runs a model's deep runs too, unless --tier fast says otherwise", () => {
+		// A "fast" check of one model once ran its 47-minute deep runs and hit their timeout (12 Nov 2026).
+		expect(matrixTier(parseArgs(["formal", "--only", "turn-resume"]))).toBe("deep");
+		expect(matrixTier(parseArgs(["formal", "--only", "turn-resume", "--tier", "fast"]))).toBe("fast");
+		expect(matrixTier(parseArgs(["formal", "--tier", "fast", "--only", "turn-resume"]))).toBe("fast");
+		expect(matrixTier(parseArgs(["formal"]))).toBe("fast");
+		expect(matrixTier(parseArgs(["formal", "--tier", "deep"]))).toBe("deep");
 	});
 
 	it.skipIf(!REAL)(

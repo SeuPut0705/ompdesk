@@ -13,25 +13,38 @@
  * Resume eligibility is written when a run starts or stops, never in a quit
  * hook, because a crash or SIGKILL runs no hooks: the marker file already says
  * what was running. Electron-free (the pool and the clock are injected).
+ *
+ * The rules and their state live in the core (`native/ompdesk/crates/core/src/resume`, hub kind `resume`); this file is
+ * its client, with the class and methods main always called. Everything the rules were given is asked from here, so
+ * the pool, the network, the clock, the timers and the store stay main's and stay injectable.
+ *
+ * What stays here, and why: the handles main holds (a tab's sidecar and its RPC client, the timers' cancel functions,
+ * the status listeners), the collaborators, the marker file (`InterruptedTurnStore`: `writeFileAtomicDeferred`'s Windows
+ * retry is main's), and the helpers that hold a promise or a shared parser (`MovesInFlight`, `trackMove`,
+ * `personsPrompt`: `parseAgentMessage` is the page's too). The pure rules other files and tests call are calls into the
+ * core.
+ *
+ * When the core is lost (it ended, or stopped answering within the hub's deadline) the instance is gone with its
+ * state: every armed retry and its timer, every held connection wait, a probe, a continuation on its way, and the
+ * listeners for a failed continuation's next `ready`. This client clears what it had shown for them (the waiting row,
+ * the scheduled retry, the "continuing" row) and tells Autopilot's goal `none` for a launch continuation it was waiting
+ * on, then opens a new instance on the next call and re-seeds it from what can be read again: the marker file (so a
+ * run's `startedAt` and the file stay), every outcome and stock retry the pool shows now (as already judged, so an old
+ * failure arms nothing), and each tab's `exits`. A failed turn that was waiting is not waited for again; the marker
+ * file keeps what the last `sync()` wrote for the next launch.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { parseAgentMessage } from "../shared/agent-control";
 import type { IpcScheduledRetry, IpcTabRunOutcome } from "../shared/ipc-types";
-import {
-	isBillingCap,
-	isLimitWording,
-	LIMIT_LOOK_MS,
-	quotaResetAt,
-	quotaWaitUntil,
-	retryAfterMs,
-} from "../shared/quota-reset";
-import type { RpcResponse, UsageReport } from "../shared/rpc-types";
+import { LIMIT_LOOK_MS, QUOTA_FALLBACK_MS } from "../shared/quota-reset";
+import type { RpcCommand, RpcResponse } from "../shared/rpc-types";
 import { writeFileAtomicDeferred } from "./atomic-file";
 import { canonicalCwd } from "./canonical-cwd";
+import { type HubItem, hub, sharedInstance } from "./core/hub";
+import type { CoreError } from "./core/process";
 import { deletedSessions } from "./deleted-sessions";
 import { RpcTimeoutError } from "./rpc-client";
 import type { SidecarLike } from "./sidecar-types";
-import { type HeldFor, type HoldCheck, type HoldEnd, holdEnd, personsRun } from "./turn-resume-ends";
 import { recordTurnStop } from "./turn-stop-log";
 
 export type ResumeReason =
@@ -119,11 +132,11 @@ export interface ResumeFact {
 }
 
 /**
- * Which tabs are worth resuming and why. A tab the user stopped is never one; a
- * turn blocked on a person is kept (as "asking") so it reopens its card, a
- * turn waiting for the connection is kept so a crash during the wait still
- * resumes, and so is one waiting for a provider's limit (`limited`: the tabs
- * holding such a wait). `startedAt` survives a reason change within one run.
+ * Which tabs are worth resuming and why. A tab the user stopped is never one; a turn
+ * blocked on a person is kept (as "asking") so it reopens its card, a turn waiting for
+ * the connection is kept so a crash during the wait still resumes, and so is one waiting
+ * for a provider's limit (`limited`: the tabs holding such a wait). `startedAt` survives a
+ * reason change within one run. The rule is the core's.
  */
 export function deriveMarkers(
 	facts: readonly ResumeFact[],
@@ -131,32 +144,12 @@ export function deriveMarkers(
 	now: number,
 	limited?: ReadonlySet<string>,
 ): ResumeMarker[] {
-	const markers: ResumeMarker[] = [];
-	for (const fact of facts) {
-		if (!fact.sessionFile) continue;
-		let reason: ResumeReason | null = null;
-		if (fact.awaitingConnection) reason = "network";
-		else if (fact.stopped) reason = null;
-		else if (fact.awaitingUi) reason = "asking";
-		else if (fact.running) reason = "running";
-		else if (limited?.has(fact.tabId)) reason = "limit";
-		if (!reason) continue;
-		const before = previous.find(marker => marker.tab === fact.tabId && marker.sessionPath === fact.sessionFile);
-		const marker: ResumeMarker = {
-			window: fact.winId,
-			tab: fact.tabId,
-			sessionPath: fact.sessionFile,
-			cwd: fact.cwd,
-			kind: fact.kind,
-			startedAt: before?.startedAt ?? now,
-			reason,
-		};
-		if (fact.peer) marker.peer = fact.peer;
-		if (fact.unsavedPrompt) marker.prompt = fact.unsavedPrompt;
-		if (fact.settling && reason !== "network") marker.background = true;
-		markers.push(marker);
-	}
-	return markers;
+	return pure("deriveMarkers", {
+		facts: facts.map(fact => wireFact(fact)),
+		previous,
+		now,
+		limited: [...(limited ?? [])],
+	});
 }
 
 /** `revive`: stock's restore alone, for a turn that had ended (its background work goes on, the turn is never retried). */
@@ -170,8 +163,7 @@ export type RelaunchContinuation = "after_restore" | "now" | "off";
 
 /** What a launch does with a marker: a turn that waited for the connection or a limit had failed, so stock retries it. */
 export function launchAction(marker: ResumeMarker): ResumeAction {
-	if (marker.reason === "network" || marker.reason === "limit") return "retry";
-	return marker.background ? "revive" : "restore";
+	return pure("launchAction", { marker });
 }
 
 /**
@@ -272,67 +264,22 @@ export async function trackMove(
 	}
 }
 
-/**
- * A provider/transport failure rather than the model's or the account's. A
- * subset of stock's retryable-error pattern (legacy-pi-ai-shim.ts) naming the
- * transport: server errors, rate limits and quotas are not "no connection".
- */
-const NETWORK_ERROR =
-	/network.?error|connection.?(error|refused|lost|reset|closed)|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNRESET|ECONNREFUSED|ENETUNREACH|ENETDOWN|EHOSTUNREACH|ETIMEDOUT|socket hang up|socket connection was closed|reset before headers|websocket.?(closed|error)|stream ended before|ended without|unable to connect|timed? out|terminated|offline|internet/i;
-
+/** A provider/transport failure rather than the model's or the account's; the classifier is the core's. */
 export function isNetworkError(message: string | undefined): boolean {
-	return message !== undefined && NETWORK_ERROR.test(message);
+	return pure("isNetworkError", { message });
 }
-
-/**
- * A failure to connect at all (a failed lookup, a refused or unroutable connection): the network failures a
- * reachability probe can tell from a provider's own trouble. A socket dropped mid-reply is not one of them.
- */
-const CONNECT_ERROR =
-	/getaddrinfo|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ENETUNREACH|ENETDOWN|EHOSTUNREACH|connection.?refused|unable to connect/i;
-/** The host it names: stock's "Couldn't reach <host> (getaddrinfo ENOTFOUND)", Node's "getaddrinfo ENOTFOUND <host>", or a URL's. */
-const CONNECT_HOST = /couldn't reach ([a-z0-9.-]+)|(?:ENOTFOUND|EAI_AGAIN) ([a-z0-9.-]+)|https?:\/\/([a-z0-9.-]+)/i;
 
 /** The host a failed connection could not reach; `""` when it names none; `null` when the failure is not a failed connection. */
 export function connectFailureHost(message: string | undefined): string | null {
-	if (message === undefined || !CONNECT_ERROR.test(message)) return null;
-	const named = CONNECT_HOST.exec(message);
-	const host = named?.[1] ?? named?.[2] ?? named?.[3] ?? "";
-	return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(host) ? host.toLowerCase() : "";
+	return pure("connectFailureHost", { message });
 }
-
-/**
- * Stock's `RETRYABLE_PROVIDER_ERROR_PATTERN` (`extensibility/legacy-pi-ai-shim.ts`, ported from pi-ai
- * `utils/retry.ts`; not exported, and a stock function would need a live session) with its rate-limit
- * wordings removed (those are never transient: `isLimitWording`) and the bare status codes word-bounded, so
- * "500000 tokens" never reads as an HTTP 500.
- */
-const RETRYABLE_ERROR =
-	/overloaded|\b(?:500|502|503|504|520|524|529)\b|service.?unavailable|server.?error|internal.?error|provider.?returned.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|getaddrinfo|ENOTFOUND|EAI_AGAIN|upstream.?connect|reset before headers|socket hang up|socket connection was closed|timed? out|timeout|terminated|websocket.?closed|websocket.?error|ended without|stream ended before message_stop|stream ended before a terminal response event|http2 request did not get a response|retry delay|you can retry your request|try your request again|please retry your request/i;
-
-/**
- * Failures no retry of ours fixes: sign-in and permission, a request the provider rejected, a context that does not
- * fit, certificates. The wordings follow the renderer's `describeTurnError` (lib/messages.ts).
- */
-const NEVER_RETRIED =
-	/\b(?:401|403|400)\b|invalid[ _-]?(?:x-)?api[ _-]?key|unauthori[sz]ed|\bforbidden\b|authenticat|not logged in|log ?in required|no api key|token (?:has )?expired|bad request|invalid[ _-]?request|prompt is too long|context[ _-](?:length|window)|maximum context|too many tokens|context_length_exceeded|input is too long|exceeds? the (?:model'?s? )?(?:context|maximum)|certificate|self[- ]signed|unable to verify the first|unable_to_(?:verify|get)_issuer|\bssl\b|\btls\b|err_tls|cert_has_expired|depth_zero_self_signed|err_cert/i;
 
 /**
  * A failure that stock's own retries gave up on but that a later attempt may well clear: server errors, overload,
- * timeouts, dropped connections. Never a limit (the limit wait owns those: {@link isLimitError}) nor an account out
- * of money.
+ * timeouts, dropped connections. Never a limit (the limit wait owns those) nor an account out of money.
  */
 export function isTransientError(message: string | undefined): boolean {
-	if (!message || NEVER_RETRIED.test(message) || isLimitWording(message) || isBillingCap(message)) return false;
-	return RETRYABLE_ERROR.test(message) || isNetworkError(message);
-}
-
-/**
- * A provider's rate limit or usage limit that passes with time (quota-reset.ts): the turn is tried again once it is
- * expected gone. Never an account out of money (stock's billing cap), nor a failure of {@link NEVER_RETRIED}.
- */
-export function isLimitError(message: string | undefined): boolean {
-	return isLimitWording(message) && !isBillingCap(message) && !NEVER_RETRIED.test(message ?? "");
+	return pure("isTransientError", { message });
 }
 
 /** The wait before each scheduled retry, in order: 30 s, 2 min, 10 min; the last one repeats for as long as the failure stays transient. */
@@ -492,30 +439,6 @@ export interface ResumeDeps {
 export type ResumeLogDetails = Record<string, string | number | boolean>;
 
 /**
- * Sessions this tab's agent opened that run now (they are children of it like its subagents, and continue on their
- * own marker): the resume's log says how many stand beside the tab it continues.
- */
-export function openedRunning(facts: readonly ResumeFact[], tabId: string): number {
-	const file = facts.find(fact => fact.tabId === tabId)?.sessionFile;
-	return facts.filter(
-		fact => fact.running && (fact.openedBy === tabId || (file !== undefined && fact.openedBySession === file)),
-	).length;
-}
-
-/** What stock's `restore_interrupted` found, in a word: the cut-off turn, what it revived or named stopped, or nothing. */
-function restoreSummary(data: Record<string, unknown> | undefined): string {
-	if (!data) return "failed";
-	if (data.turn === true) return "turn";
-	const parts = (["subagents", "jobs", "stopped"] as const).flatMap(key => {
-		const value = data[key];
-		return Array.isArray(value) && value.length > 0 ? [`${key}:${value.length}`] : [];
-	});
-	// A turn stock could not retry (a note came after its aborted reply), continued by the bridge's follow-up.
-	if (data.turnCut === true) parts.unshift("turn-behind-notes");
-	return parts.length > 0 ? parts.join(",") : "nothing";
-}
-
-/**
  * How long a continuation's `restore_interrupted` and `retry` may take. Stock's restore reads every subagent
  * transcript of the session before it answers (577 files, 1.1 GB took over 8 s on a cold relaunch, past the RPC
  * client's default 8 s, so the reply was cut and logged `failed` while stock went on reviving).
@@ -529,84 +452,361 @@ export const RESUME_COMMAND_TIMEOUT_MS = 2 * 60_000;
  */
 export const LAUNCH_CONTINUATION_ATTEMPTS = 3;
 
-/** One tab's scheduled retry and what it was armed for: any of these changing calls it off. */
-interface ArmedRetry extends IpcScheduledRetry {
-	outcome: IpcTabRunOutcome;
-	sessionFile: string;
-	touched: number;
-	cancelTimer: () => void;
-	/** A limit wait: what the session ran on when it began ({@link LimitReading.setup}); a change is worth a try. */
-	setup?: string;
+// ---- the client of the core's `resume` instance ------------------------------------------------------------------------
+
+/** One id per outcome or stock-retry object: the rules compared them by identity (judged once, the failure a hold is for). */
+const objectIds = new WeakMap<object, number>();
+let objectSequence = 0;
+
+function idOf(value: object): number {
+	let id = objectIds.get(value);
+	if (id === undefined) {
+		id = ++objectSequence;
+		objectIds.set(value, id);
+	}
+	return id;
 }
 
-/** What a limit wait reads from its tab's omp, with no request to a provider's model. */
-interface LimitReading {
-	/** Stock's `retry.enabled`. */
-	on: boolean;
-	/** The session's model and stock's fallback chains, as one comparable string; absent when either could not be read. */
-	setup?: string;
-	provider: string | undefined;
-	/** Stock's cached usage reports (`get_usage`); undefined when they could not be read. */
-	reports: UsageReport[] | undefined;
+/**
+ * A fact as the core reads it: the run's outcome and stock's retry crossed as their ids (and the words the rules read),
+ * nothing else of them (a reply's 4 000 characters stay here).
+ */
+function wireFact(fact: ResumeFact, limitHeld?: boolean): Record<string, unknown> {
+	const { lastRun, retry, ...rest } = fact;
+	return {
+		...rest,
+		...(lastRun
+			? { lastRun: { id: idOf(lastRun), stopReason: lastRun.stopReason, errorMessage: lastRun.errorMessage } }
+			: {}),
+		...(retry ? { retry: { id: idOf(retry), errorMessage: retry.errorMessage } } : {}),
+		...(limitHeld ? { limitHeld: true } : {}),
+	};
 }
 
-/** A tab's held continuation: what runs once online, and what it was held for. */
-interface HeldWait {
-	action: ResumeAction;
-	since: HeldFor;
+/** A sidecar crosses as an id; the core never holds the object (a WeakRef: a closed tab's sidecar is not kept alive). */
+const sidecarIds = new WeakMap<SidecarLike, number>();
+const sidecarRefs = new Map<number, WeakRef<SidecarLike>>();
+let sidecarSequence = 0;
+
+function sidecarId(sidecar: SidecarLike): number {
+	let id = sidecarIds.get(sidecar);
+	if (id === undefined) {
+		id = ++sidecarSequence;
+		sidecarIds.set(sidecar, id);
+		for (const [known, ref] of sidecarRefs) if (ref.deref() === undefined) sidecarRefs.delete(known);
+		sidecarRefs.set(id, new WeakRef(sidecar));
+	}
+	return id;
 }
+
+/** The instance the pure rules run on: they read no state, so one serves every caller. */
+const helper = sharedInstance("resume");
+
+function pure<T>(method: string, params: unknown): T {
+	return hub().callOnce<T>(helper, method, params);
+}
+
+/** What a question's `want` list asks main to read (the instant a stretch of the rules begins). */
+type Want = readonly string[];
 
 export class TurnResume {
 	readonly #deps: ResumeDeps;
-	/** Tabs holding a continuation until the connection is back, and what to run then. */
-	readonly #waiting = new Map<string, HeldWait>();
-	/** Failed launch continuations that try again once their tab reads `ready`; `off` removes the listener. */
-	readonly #retrying = new Map<string, { marker: ResumeMarker; off: () => void }>();
-	/** Per launch marker, the failed continuations so far (the bound is {@link LAUNCH_CONTINUATION_ATTEMPTS}). */
-	readonly #failures = new WeakMap<ResumeMarker, number>();
-	/** Launch markers whose attempts ran out: they stay in the file for the next launch and no row or goal waits on them. */
-	readonly #abandoned = new WeakSet<ResumeMarker>();
-	/** Tabs whose DNS failure is being probed (`#verifyNetwork`): shown as waiting until the probe decides. */
-	readonly #probing = new Map<string, HeldFor>();
-	/** Launch markers whose turn has not started yet: kept in the file so a second crash still resumes them. */
-	#pending = new Map<string, ResumeMarker>();
-	/** Run outcomes already judged (a Cancel must not re-arm the wait). */
-	readonly #judged = new WeakSet<IpcTabRunOutcome>();
-	/** Stock auto-retries already taken over (one per `auto_retry_start`). */
-	readonly #takenOver = new WeakSet<{ errorMessage: string }>();
-	/** Stock auto-retries of a failed connection whose way out was probed while the link read up. */
-	readonly #probedRetries = new WeakSet<{ errorMessage: string }>();
-	/**
-	 * Per tab, bumped whenever its continuation is called off: Stop, Cancel, or a new run in its place.
-	 * A continuation captures it when it starts and sends nothing once it moved, so the call-off also
-	 * reaches a resume still waiting for its omp to come up.
-	 */
-	readonly #cancels = new Map<string, number>();
-	/**
-	 * Per tab, what ends a continuation's wait for its omp to come up (`#whenReady`). The wait has no deadline: a slow
-	 * start is not a failure. It ends when the tab reads ready, its omp fails or exits, the tab closes (the pool's
-	 * `dispose` emits no status, it only drops the listeners) or the continuation is called off.
-	 */
-	readonly #readyWaits = new Map<string, Set<() => void>>();
-	/** Held tabs whose taken-over run (stock's retry saga) has not ended yet: its end comes next, not a new run. */
-	readonly #takenOverRuns = new Set<string>();
-	/** A scheduled retry per tab (state lives here, in main, so a renderer reload keeps it). */
-	readonly #scheduled = new Map<string, ArmedRetry>();
-	/** Per tab, the scheduled retries sent for the current failure chain (the attempt number the card shows); never a limit. */
-	readonly #attempts = new Map<string, number>();
-	/** Tabs whose next run is our own scheduled retry: its start is not the user's new run. */
-	readonly #ownRetries = new Set<string>();
-	/** Tabs showing the "continuing" row: a launch continues them and their turn has not started yet. */
-	readonly #resumingShown = new Set<string>();
-	/** Per tab, the `exits` count last seen: a higher one means its omp died since (`#exited`). */
-	readonly #exits = new Map<string, number>();
-	/** Launch markers a later exit of the tab's omp replaced: their continuation is over and reports nothing. */
-	readonly #superseded = new WeakSet<ResumeMarker>();
+	#id: number | null = null;
+	/** `launch()` ran: a new instance of a lost core starts launched. */
 	#launched = false;
-	#previous: ResumeMarker[] = [];
+	/** The timers the core asked for: their cancel functions. */
+	readonly #timers = new Map<number, () => void>();
+	/** The status listeners the core asked for, by id. */
+	readonly #listeners = new Map<number, { sidecar: SidecarLike; listener: (payload: SidecarStatus) => void }>();
+	/** The promises main's callers wait on (`flush`, `stopResumed`), by the token the core answered. */
+	readonly #tokens = new Map<number, () => void>();
+	/** A token settled before its caller had it (an item that came inside the call): settled when it is waited on. */
+	readonly #settled = new Set<number>();
+	/** What the core has shown the pool, to clear when it is lost: the waiting, "continuing" and scheduled-retry rows. */
+	readonly #shown = { awaiting: new Set<string>(), resuming: new Set<string>(), scheduled: new Set<string>() };
+	/** Tabs whose launch continuation Autopilot's goal waits on (`relaunchContinuation` said so): told `none` if the core is lost. */
+	readonly #owedGoals = new Set<string>();
 
 	constructor(deps: ResumeDeps) {
 		this.#deps = deps;
+	}
+
+	/** The instance, opened (or opened again after a loss) with what can be read again. */
+	#instance(): number {
+		if (this.#id !== null) return this.#id;
+		const id = hub().nextId();
+		const deps = this.#deps;
+		hub().open(
+			id,
+			"resume",
+			{
+				delays: [...deps.scheduledRetry.delays],
+				limitLookMs: deps.scheduledRetry.limitLookMs ?? LIMIT_LOOK_MS,
+				quotaFallbackMs: QUOTA_FALLBACK_MS,
+				commandTimeoutMs: RESUME_COMMAND_TIMEOUT_MS,
+				launchAttempts: LAUNCH_CONTINUATION_ATTEMPTS,
+				hasResumeGoal: deps.resumeGoal !== undefined,
+				...(this.#reseed ? { seed: this.#seed() } : {}),
+			},
+			{
+				item: item => this.#item(item),
+				ask: (q, item) => this.#ask(q, item),
+				lost: error => this.#lost(error),
+			},
+		);
+		this.#id = id;
+		return id;
+	}
+
+	#reseed = false;
+
+	/** What a new instance of a lost core learns: see the file's header. */
+	#seed(): Record<string, unknown> {
+		const facts = this.#deps.pool.resumeFacts();
+		return {
+			launched: this.#launched,
+			previous: this.#deps.store.read(),
+			judged: facts.flatMap(fact => (fact.lastRun ? [idOf(fact.lastRun)] : [])),
+			takenOver: facts.flatMap(fact => (fact.retry ? [idOf(fact.retry)] : [])),
+			probedRetries: facts.flatMap(fact => (fact.retry ? [idOf(fact.retry)] : [])),
+			exits: Object.fromEntries(facts.map(fact => [fact.tabId, fact.exits ?? 0])),
+		};
+	}
+
+	/** One call; a core lost under it opens again and the call is made once more. */
+	#call<T>(method: string, params: Record<string, unknown> = {}): T {
+		return hub().callOnce<T>(() => this.#instance(), method, params);
+	}
+
+	#lost(_error: CoreError): void {
+		this.#id = null;
+		this.#reseed = true;
+		for (const cancel of this.#timers.values()) cancel();
+		this.#timers.clear();
+		for (const { sidecar, listener } of this.#listeners.values()) sidecar.off("status", listener);
+		this.#listeners.clear();
+		for (const settle of this.#tokens.values()) settle();
+		this.#tokens.clear();
+		const { awaiting, resuming, scheduled } = this.#shown;
+		const rows = { awaiting: [...awaiting], resuming: [...resuming], scheduled: [...scheduled] };
+		awaiting.clear();
+		resuming.clear();
+		scheduled.clear();
+		for (const tab of rows.awaiting) this.#deps.pool.setAwaitingConnection(tab, false);
+		for (const tab of rows.scheduled) this.#deps.pool.setScheduledRetry(tab, undefined);
+		for (const tab of rows.resuming) this.#deps.pool.setResuming(tab, false);
+		const owed = [...this.#owedGoals];
+		this.#owedGoals.clear();
+		for (const tab of owed) this.#deps.goalSettled?.(tab, "none");
+	}
+
+	/** The facts and settings the rules read at the instant a stretch of them begins. */
+	#env(want: Want, tab?: string): Record<string, unknown> {
+		const deps = this.#deps;
+		const env: Record<string, unknown> = { frozen: deps.frozen() };
+		if (want.includes("enabled")) env.enabled = deps.enabled();
+		if (want.includes("now")) env.now = deps.now();
+		if (want.includes("network")) {
+			env.online = deps.network.online;
+			env.shouldWait = deps.network.shouldWait();
+		} else if (want.includes("online")) env.online = deps.network.online;
+		if (want.includes("facts") || (want.includes("fact") && tab !== undefined)) {
+			const facts = deps.pool.resumeFacts();
+			const wire = (fact: ResumeFact) =>
+				wireFact(fact, fact.lastRun !== undefined && deps.limitHeldElsewhere?.(fact.tabId) === true);
+			if (want.includes("facts")) env.facts = facts.map(wire);
+			const own = facts.find(fact => fact.tabId === tab && !fact.device);
+			if (want.includes("fact") && own) env.fact = wire(own);
+		}
+		return env;
+	}
+
+	#sidecar(id: unknown): SidecarLike | undefined {
+		return typeof id === "number" ? sidecarRefs.get(id)?.deref() : undefined;
+	}
+
+	/** What the core pushed, in order: effects whose value the rules did not use. */
+	#item(item: HubItem): void {
+		const deps = this.#deps;
+		const tab = item.tab as string;
+		switch (item.k) {
+			case "setAwaiting":
+				if (item.awaiting) this.#shown.awaiting.add(tab);
+				else this.#shown.awaiting.delete(tab);
+				deps.pool.setAwaitingConnection(tab, item.awaiting as boolean);
+				break;
+			case "setResuming":
+				if (item.resuming) this.#shown.resuming.add(tab);
+				else this.#shown.resuming.delete(tab);
+				deps.pool.setResuming(tab, item.resuming as boolean);
+				break;
+			case "setScheduled":
+				if (item.retry) this.#shown.scheduled.add(tab);
+				else this.#shown.scheduled.delete(tab);
+				deps.pool.setScheduledRetry(tab, (item.retry ?? undefined) as IpcScheduledRetry | undefined);
+				break;
+			case "storeWrite":
+				deps.store.write(item.markers as ResumeMarker[]);
+				break;
+			case "goalSettled":
+				this.#owedGoals.delete(tab);
+				deps.goalSettled?.(tab, item.outcome as GoalSettlement);
+				break;
+			case "log":
+				deps.log?.(item.message as "launch" | "marker" | "continue" | "limit", item.details as ResumeLogDetails);
+				break;
+			case "warn":
+				console.warn(item.message as string);
+				break;
+			case "turnStop":
+				recordTurnStop({ command: "abort", tab, by: "turn-resume", surface: "resuming-row" });
+				break;
+			case "abortRetry":
+				void deps.pool
+					.startTab(tab)
+					?.rpcClient?.command({ type: "abort_retry" })
+					.catch(() => undefined);
+				break;
+			case "schedule": {
+				const timer = item.timer as number;
+				const cancel = deps.scheduledRetry.schedule(() => {
+					if (this.#id !== null) this.#call("timer", { timer });
+				}, item.ms as number);
+				this.#timers.set(timer, cancel);
+				break;
+			}
+			// The core let go of a handle without cancelling it (it overwrote it): the cancel function is not kept.
+			case "forgetTimer":
+				this.#timers.delete(item.timer as number);
+				break;
+			case "cancelTimer": {
+				const timer = item.timer as number;
+				this.#timers.get(timer)?.();
+				this.#timers.delete(timer);
+				break;
+			}
+			case "listen":
+				this.#listen(item.listener as number, this.#sidecar(item.sidecar));
+				break;
+			case "unlisten": {
+				const attached = this.#listeners.get(item.listener as number);
+				if (attached) attached.sidecar.off("status", attached.listener);
+				this.#listeners.delete(item.listener as number);
+				break;
+			}
+			case "done": {
+				const token = item.token as number;
+				const settle = this.#tokens.get(token);
+				if (settle) {
+					this.#tokens.delete(token);
+					settle();
+				} else this.#settled.add(token);
+				break;
+			}
+		}
+	}
+
+	#listen(id: number, sidecar: SidecarLike | undefined): void {
+		if (!sidecar) return;
+		const listener = (payload: SidecarStatus) => {
+			if (this.#id === null) return;
+			this.#call("status", { listener: id, status: payload.status, sessionHeld: payload.sessionHeld === true });
+		};
+		this.#listeners.set(id, { sidecar, listener });
+		sidecar.on("status", listener);
+	}
+
+	/** The promise of a token the core answered: settled by the item that says its work is done. */
+	#promise(token: number | null): Promise<void> {
+		if (token === null || this.#settled.delete(token)) return Promise.resolve();
+		const { promise, resolve } = Promise.withResolvers<void>();
+		this.#tokens.set(token, resolve);
+		return promise;
+	}
+
+	/** What the core asks. Collaborators the rules called synchronously answer at once; promises of main's are returned. */
+	#ask(q: string, item: HubItem): unknown {
+		const deps = this.#deps;
+		switch (q) {
+			case "look": {
+				const env = this.#env(item.want as Want, (item.tab ?? undefined) as string | undefined);
+				// A promise when the core asked for one (`sync: false`): its answer then wakes the task in the microtasks of this one.
+				return item.sync === false ? Promise.resolve(env) : env;
+			}
+			case "settled":
+				return (async () => {
+					await deps.pool.movesSettled(item.tab as string);
+					return this.#env(item.want as Want, item.tab as string);
+				})();
+			case "startTab": {
+				const sidecar = deps.pool.startTab(item.tab as string);
+				if (!sidecar) return Promise.resolve(null);
+				const payload = sidecar.statusPayload ?? { status: sidecar.status };
+				const ended = (payload.status === "error" && payload.sessionHeld !== true) || payload.status === "exited";
+				const listening = typeof item.listener === "number" && sidecar.status !== "ready" && !ended;
+				if (listening) this.#listen(item.listener as number, sidecar);
+				// A promise: the answer then reaches the core in the microtasks of this one, wherever its question came from.
+				return Promise.resolve({
+					sidecar: sidecarId(sidecar),
+					status: sidecar.status,
+					payloadStatus: payload.status,
+					sessionHeld: payload.sessionHeld === true,
+					rpc: sidecar.rpcClient !== undefined && sidecar.rpcClient !== null,
+					listening,
+				});
+			}
+			case "command":
+				return (async () => {
+					const client =
+						typeof item.sidecar === "number"
+							? this.#sidecar(item.sidecar)?.rpcClient
+							: deps.pool.startTab(item.tab as string)?.rpcClient;
+					if (!client) return { none: true };
+					try {
+						return {
+							response: await client.command(item.command as RpcCommand, item.timeoutMs as number | undefined),
+						};
+					} catch (error) {
+						return {
+							error: error instanceof Error ? error.message : String(error),
+							text: String(error),
+							timeout: error instanceof RpcTimeoutError,
+						};
+					}
+				})();
+			case "verify":
+				return deps.network.verify((item.host ?? undefined) as string | undefined);
+			case "resumeGoal":
+				return (async () => {
+					try {
+						await deps.resumeGoal?.(item.tab as string);
+						return {};
+					} catch (error) {
+						return { error: String(error) };
+					}
+				})();
+			case "noteStopped":
+				deps.pool.noteStopped(item.tab as string);
+				return null;
+			case "tabForSession":
+				return deps.pool.tabForSession(item.session as string, (item.peer ?? undefined) as string | undefined);
+			case "openTab":
+				return deps.openTab(item.marker as ResumeMarker);
+			case "resumeRank":
+				return (item.tabs as string[]).map(tab => deps.pool.resumeRank?.(tab) ?? 0);
+			case "launchRead": {
+				const markers = deps.store.read();
+				return {
+					markers,
+					deleted: markers.map(marker => deletedSessions().has(marker.sessionPath)),
+					enabled: deps.enabled(),
+				};
+			}
+			case "canonical":
+				return (item.paths as string[]).map(path => canonicalCwd(path));
+			default:
+				throw new Error(`turn resume has no question ${q}`);
+		}
 	}
 
 	/**
@@ -616,817 +816,14 @@ export class TurnResume {
 	 * A tab whose turn waits for a provider's limit keeps a `limit` marker, so a relaunch takes the turn up again.
 	 */
 	sync(): void {
-		if (!this.#launched || this.#deps.frozen()) return;
-		const facts = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
-		for (const fact of facts) this.#judge(fact);
-		const current = this.#deps.pool.resumeFacts().filter(fact => !fact.device);
-		const present = new Set<string>();
-		for (const fact of current) {
-			present.add(fact.tabId);
-			if (fact.running) this.#pending.delete(fact.tabId);
-		}
-		// A closed tab has nothing left to continue: its launch marker (held offline, or still waiting for
-		// its omp) leaves the file now, not when the network returns, and its bookkeeping goes with it.
-		for (const tabId of [...this.#scheduled.keys()]) if (!present.has(tabId)) this.#dropScheduled(tabId);
-		for (const tabId of [...this.#readyWaits.keys()]) if (!present.has(tabId)) this.#endReadyWaits(tabId);
-		for (const tabs of [
-			this.#pending,
-			this.#waiting,
-			this.#cancels,
-			this.#takenOverRuns,
-			this.#attempts,
-			this.#ownRetries,
-			this.#exits,
-		])
-			for (const tabId of tabs.keys()) if (!present.has(tabId)) tabs.delete(tabId);
-		const exited = this.#exited(current);
-		this.#settleRetries();
-		const limited = new Set([...this.#scheduled].flatMap(([tabId, armed]) => (armed.limit ? [tabId] : [])));
-		const live = deriveMarkers(current, this.#previous, this.#deps.now(), limited).filter(
-			marker => !this.#pending.has(marker.tab),
-		);
-		const kept = this.#deps.enabled() ? [...this.#pending.values(), ...live] : [];
-		this.#previous = kept;
-		this.#deps.store.write(kept);
-		this.#showResuming();
-		for (const { tabId, action, since } of exited) {
-			if (this.#deps.network.shouldWait()) this.#hold(tabId, action, since);
-			else void this.#run(tabId, action, since);
-		}
-	}
-
-	/**
-	 * Tabs whose omp died under their work since the last look (`exits` moved; its manager starts the next one): the pool
-	 * already ended the run, so the marker the tab had goes on as a launch marker, continued once the next omp is up, as
-	 * a relaunch continues it. A network or limit marker is not one: its wait and marker outlive the omp. Nor is a tab
-	 * whose launch continuation still waits offline: it runs on whatever omp is up then. A continuation already on its
-	 * way is superseded: its commands went to the omp that died, and it sends nothing more.
-	 */
-	#exited(current: readonly ResumeFact[]): Array<{ tabId: string; action: ResumeAction; since: HeldFor }> {
-		const exited: Array<{ tabId: string; action: ResumeAction; since: HeldFor }> = [];
-		for (const fact of current) {
-			const exits = fact.exits ?? 0;
-			const seen = this.#exits.get(fact.tabId) ?? 0;
-			this.#exits.set(fact.tabId, exits);
-			if (exits <= seen || !this.#deps.enabled() || this.#waiting.has(fact.tabId)) continue;
-			const marker = this.#previous.find(entry => entry.tab === fact.tabId);
-			if (!marker || marker.reason === "network" || marker.reason === "limit") continue;
-			const before = this.#pending.get(fact.tabId);
-			if (before) {
-				this.#superseded.add(before);
-				this.#cancels.set(fact.tabId, (this.#cancels.get(fact.tabId) ?? 0) + 1);
-				this.#endReadyWaits(fact.tabId);
-			}
-			const next: ResumeMarker = { ...marker };
-			this.#pending.set(fact.tabId, next);
-			this.#deps.log?.("marker", {
-				session: next.sessionPath,
-				reason: next.reason,
-				tab: fact.tabId,
-				via: "exit",
-				...(next.background ? { background: true } : {}),
-				...(next.peer ? { peer: next.peer } : {}),
-			});
-			exited.push({
-				tabId: fact.tabId,
-				action: launchAction(next),
-				since: { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 },
-			});
-		}
-		return exited;
-	}
-
-	/** The "continuing" row follows the launch markers still waiting for their turn (a reopened card is not one). */
-	#showResuming(): void {
-		const resuming = new Set(
-			[...this.#pending.values()]
-				.filter(marker => marker.reason !== "asking" && !this.#abandoned.has(marker))
-				.map(marker => marker.tab),
-		);
-		for (const tabId of resuming) {
-			if (this.#resumingShown.has(tabId)) continue;
-			this.#resumingShown.add(tabId);
-			this.#deps.pool.setResuming(tabId, true);
-		}
-		for (const tabId of this.#resumingShown) {
-			if (resuming.has(tabId)) continue;
-			this.#resumingShown.delete(tabId);
-			this.#deps.pool.setResuming(tabId, false);
-		}
-	}
-
-	/**
-	 * A continuation waiting for its tab to read `ready` whose marker left `#pending` (the turn started, the tab closed,
-	 * a later exit replaced it) has nothing to wait for: its listener goes, and its goal hears `none` once unless the
-	 * replacement continuation owns the report.
-	 */
-	#settleRetries(): void {
-		for (const [tabId, retry] of [...this.#retrying]) {
-			if (this.#pending.get(tabId) === retry.marker) continue;
-			retry.off();
-			if (!this.#superseded.has(retry.marker)) this.#deps.goalSettled?.(tabId, "none");
-		}
-	}
-
-	#judge(fact: ResumeFact): void {
-		if (fact.lastRun) this.#takenOverRuns.delete(fact.tabId);
-		this.#watchScheduledRetry(fact);
-		// The person's new run, Stop on a probe, another session or branch on a held tab (turn-resume-ends.ts): the wait
-		// belonged to the turn it left, so the waiting row goes and nothing continues into what the tab shows now.
-		const held = this.#waiting.get(fact.tabId);
-		const probe = this.#probing.get(fact.tabId);
-		if ((held && this.#ends("wait", held.since, fact)) || (probe && this.#ends("probe", probe, fact)))
-			this.#dropWait(fact.tabId);
-		this.#takeOverRetry(fact);
-		// The outcome is the run's final one (main sets it at the last end event), even while
-		// background work keeps the session unsettled: judging it now puts the wait on screen
-		// before the renderer sees the failure.
-		const outcome = fact.lastRun;
-		if (!outcome || this.#judged.has(outcome)) return;
-		this.#judged.add(outcome);
-		this.#ownRetries.delete(fact.tabId);
-		// It ended while the wait already held it (stock's retry, taken over): nothing more to decide.
-		if (fact.awaitingConnection) return;
-		if (outcome.stopReason !== "error") {
-			this.#attempts.delete(fact.tabId);
-			return;
-		}
-		if (isNetworkError(outcome.errorMessage)) {
-			// Offline (or just after a wake) the connection wait owns a network failure; no second schedule.
-			if (this.#deps.network.shouldWait()) {
-				this.#hold(fact.tabId, "retry", { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 });
-				return;
-			}
-			const host = connectFailureHost(outcome.errorMessage);
-			if (host !== null) {
-				this.#verifyNetwork(fact, outcome, host);
-				return;
-			}
-		}
-		this.#planRetry(fact, outcome);
-	}
-
-	/**
-	 * A failed name lookup while the link says it is up (a dead DNS or route `net.isOnline()` never sees): when neither
-	 * the failed host nor the default way out answers, the turn waits for the connection like an offline one and
-	 * continues once the probe answers; otherwise the failure is the provider's and the scheduled retry decides. The
-	 * tab shows the wait while the probe runs, so a failure the wait takes over never flashes red or notifies.
-	 */
-	#verifyNetwork(fact: ResumeFact, outcome: IpcTabRunOutcome, host: string): void {
-		const tabId = fact.tabId;
-		const probe: HeldFor = { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 };
-		this.#probing.set(tabId, probe);
-		this.#deps.pool.setAwaitingConnection(tabId, true);
-		void this.#deps.network.verify(host || undefined).then(reachable => {
-			// Cancel, a new run or another failure since: whoever ended this probe also cleared its row.
-			if (this.#probing.get(tabId) !== probe) return;
-			this.#probing.delete(tabId);
-			// Stop, a closed tab, or another session or branch on the tab since the failure: nothing to continue.
-			const holds = this.#ends("probeAnswer", probe, this.#factFor(tabId)) === null;
-			if (holds && !reachable) {
-				this.#hold(tabId, "retry", probe);
-				// The marker says `network` now, so a crash during the wait still retries.
-				this.sync();
-				return;
-			}
-			this.#deps.pool.setAwaitingConnection(tabId, false);
-			const after = holds ? this.#factFor(tabId) : undefined;
-			if (after) this.#planRetry(after, outcome);
-			this.sync();
+		this.#call("sync", {
+			env: this.#env(["facts", "network", "enabled", "now"]),
 		});
-	}
-
-	/** What ends the hold `check` looks at on `tabId` (turn-resume-ends.ts), or null while it holds. */
-	#ends(check: HoldCheck, since: HeldFor, fact: ResumeFact | undefined): HoldEnd | null {
-		const tabId = fact?.tabId;
-		// Whose run is the hold's own: a scheduled retry's own retry, or stock's retry saga a wait took over.
-		const own = check === "armed" ? this.#ownRetries : this.#takenOverRuns;
-		return holdEnd(check, since, fact, {
-			frozen: this.#deps.frozen(),
-			ownRun: tabId !== undefined && own.has(tabId),
-		});
-	}
-
-	/** The scheduled retry this failure would arm now, held for the tab as it is: may it exist (`armed`)? */
-	#mayRetry(fact: ResumeFact, outcome: IpcTabRunOutcome, limit: boolean): boolean {
-		const since: HeldFor = { outcome, sessionFile: fact.sessionFile, touched: fact.touched ?? 0 };
-		if (limit) since.limit = true;
-		return this.#ends("armed", since, fact) === null;
-	}
-
-	#factFor(tabId: string): ResumeFact | undefined {
-		return this.#deps.pool.resumeFacts().find(fact => fact.tabId === tabId && !fact.device);
-	}
-
-	/** Stock's own `retry.enabled` (the user's switch for retrying): unreadable or off means we do not retry either. */
-	async #stockRetryOn(tabId: string): Promise<boolean> {
-		try {
-			const response = await this.#deps.pool
-				.startTab(tabId)
-				?.rpcClient?.command({ type: "get_settings", paths: ["retry.enabled"] });
-			const values = response?.success
-				? (response.data as { values?: Record<string, unknown> } | undefined)?.values
-				: undefined;
-			return values?.["retry.enabled"] === true;
-		} catch {
-			return false;
-		}
-	}
-
-	/**
-	 * What a limit wait reads from its tab's omp, none of it a request to a provider's model: stock's retry switch and
-	 * fallback chains, the session's model, and stock's cached usage reports (a report older than stock's own five
-	 * minutes is read again from the provider's usage endpoint, at most once per account). Null when the tab is gone.
-	 */
-	async #readLimit(tabId: string): Promise<LimitReading | null> {
-		const client = this.#deps.pool.startTab(tabId)?.rpcClient;
-		if (!client) return null;
-		const read = async (
-			command: Parameters<typeof client.command>[0],
-		): Promise<Record<string, unknown> | undefined> => {
-			try {
-				const response = await client.command(command);
-				const data: unknown = response.success ? response.data : undefined;
-				return typeof data === "object" && data !== null ? { ...data } : undefined;
-			} catch {
-				return undefined;
-			}
-		};
-		const [settings, state, usage] = await Promise.all([
-			read({ type: "get_settings", paths: ["retry.enabled", "retry.fallbackChains"] }),
-			read({ type: "get_state", brief: true }),
-			read({ type: "get_usage" }),
-		]);
-		const values = (settings?.values ?? {}) as Record<string, unknown>;
-		const model = (state?.model ?? {}) as { provider?: unknown; id?: unknown };
-		const reading: LimitReading = {
-			on: values["retry.enabled"] === true,
-			provider: typeof model.provider === "string" ? model.provider : undefined,
-			reports: Array.isArray(usage?.reports) ? (usage.reports as UsageReport[]) : undefined,
-		};
-		// A read that failed says nothing about the setup: never a change.
-		if (settings && state) reading.setup = JSON.stringify([model.provider, model.id, values["retry.fallbackChains"]]);
-		return reading;
-	}
-
-	/**
-	 * The tab's failed turn ended: arm the next backoff attempt when the failure is transient, or the wait for a
-	 * provider's limit (never one another owner waits out), and nothing says no.
-	 */
-	#planRetry(fact: ResumeFact, outcome: IpcTabRunOutcome): void {
-		const tabId = fact.tabId;
-		const limit = isLimitError(outcome.errorMessage) && this.#deps.limitHeldElsewhere?.(tabId) !== true;
-		if (!limit && !isTransientError(outcome.errorMessage)) {
-			this.#attempts.delete(tabId);
-			return;
-		}
-		const used = this.#attempts.get(tabId) ?? 0;
-		if (!this.#mayRetry(fact, outcome, limit)) return;
-		const generation = this.#cancels.get(tabId) ?? 0;
-		const failedAt = this.#deps.now();
-		/** The tab as it is once stock answered, if the retry may still be armed for it. */
-		const stillOwed = (on: boolean): ResumeFact | undefined => {
-			const current = this.#factFor(tabId);
-			if (!on || !current || (this.#cancels.get(tabId) ?? 0) !== generation) return undefined;
-			return this.#scheduled.has(tabId) || !this.#mayRetry(current, outcome, limit) ? undefined : current;
-		};
-		if (!limit) {
-			void this.#stockRetryOn(tabId).then(on => {
-				const current = stillOwed(on);
-				if (current) this.#arm(current, outcome, used);
-			});
-			return;
-		}
-		void this.#readLimit(tabId).then(reading => {
-			const current = stillOwed(reading?.on === true);
-			if (!current || !reading) return;
-			// The wait the provider named counts from the failure; without one, its first reset, else a short fallback.
-			const hinted = retryAfterMs(outcome.errorMessage);
-			const now = this.#deps.now();
-			const reset = quotaResetAt(reading.reports ?? [], reading.provider, now);
-			const at =
-				hinted !== undefined ? failedAt + hinted : quotaWaitUntil(reading.reports ?? [], reading.provider, now);
-			if (!this.#arm(current, outcome, used, { at, setup: reading.setup })) return;
-			this.#deps.log?.("limit", {
-				tab: tabId,
-				session: current.sessionFile ?? "",
-				wait: "armed",
-				by: hinted !== undefined ? "retry-after" : reset !== undefined ? "usage" : "fallback",
-				ms: Math.max(0, at - failedAt),
-				...(current.peer ? { peer: current.peer } : {}),
-			});
-			// The marker says `limit` now, so a relaunch during the wait takes the turn up again.
-			this.sync();
-		});
-	}
-
-	/**
-	 * Arm the tab's retry: the next backoff step, or with `limit` the wait until a provider's limit is expected gone,
-	 * which looks earlier at {@link LIMIT_LOOK_MS} whether it lifted (`#look`). False when the tab has no session file.
-	 */
-	#arm(
-		fact: ResumeFact,
-		outcome: IpcTabRunOutcome,
-		used: number,
-		limit?: { at: number; setup: string | undefined },
-	): boolean {
-		// Past the last listed wait the last one repeats (10 min): no attempt is the final one.
-		const delay = this.#deps.scheduledRetry.delays[Math.min(used, this.#deps.scheduledRetry.delays.length - 1)];
-		if (delay === undefined || fact.sessionFile === undefined) return false;
-		const tabId = fact.tabId;
-		const armed: ArmedRetry = {
-			at: limit?.at ?? this.#deps.now() + delay,
-			attempt: used + 1,
-			outcome,
-			sessionFile: fact.sessionFile,
-			touched: fact.touched ?? 0,
-			cancelTimer: () => undefined,
-		};
-		if (limit) {
-			armed.limit = true;
-			if (limit.setup !== undefined) armed.setup = limit.setup;
-			this.#awaitLook(tabId, armed);
-		} else armed.cancelTimer = this.#deps.scheduledRetry.schedule(() => void this.#fire(tabId, armed), delay);
-		this.#scheduled.set(tabId, armed);
-		this.#deps.pool.setScheduledRetry(tabId, {
-			at: armed.at,
-			attempt: armed.attempt,
-			...(limit ? { limit: true as const } : {}),
-		});
-		return true;
-	}
-
-	/**
-	 * A limit wait's timer: its time when that is near, else the next look. `again`: the wait is due but cannot be
-	 * tried yet (the tab is busy), so it looks again a pace later, never at once.
-	 */
-	#awaitLook(tabId: string, armed: ArmedRetry, again = false): void {
-		const pace = this.#deps.scheduledRetry.limitLookMs ?? LIMIT_LOOK_MS;
-		const untilDue = armed.at - this.#deps.now();
-		armed.cancelTimer = this.#deps.scheduledRetry.schedule(
-			() => void this.#look(tabId, armed),
-			untilDue > 0 ? Math.min(untilDue, pace) : again ? pace : 0,
-		);
-	}
-
-	/**
-	 * A limit wait's timer ran. At its time the retry fires. Before it this is a look: the tab's omp is read
-	 * (`#readLimit`), and the retry fires early when stock's usage reports no longer say the provider is limited (a reset
-	 * pass was spent, another account is free) or the session's model or fallback chains changed (a chain that now holds
-	 * a model the conversation fits). Otherwise nothing changes but the timer: the wait holds on, and a request goes to
-	 * the provider only once something says it may be taken. While the failed turn's background work keeps the tab
-	 * running, the wait holds too and looks again: firing then would let it go (`busy`), and a tab whose jobs outlast
-	 * the limit would sit as it did before. A result of that work starts a turn of its own, which ends the wait.
-	 */
-	async #look(tabId: string, armed: ArmedRetry): Promise<void> {
-		if (this.#scheduled.get(tabId) !== armed) return;
-		// What ends the wait without a sync of its own (another session file on an idle tab) ends it at the next look.
-		this.sync();
-		if (this.#scheduled.get(tabId) !== armed) return;
-		if (this.#factFor(tabId)?.running) {
-			this.#awaitLook(tabId, armed, true);
-			return;
-		}
-		let why: "due" | "usage" | "setup" = "due";
-		if (this.#deps.now() < armed.at) {
-			const reading = await this.#readLimit(tabId);
-			// Called off while the omp answered: whoever ended the wait also ended its timer.
-			if (this.#scheduled.get(tabId) !== armed) return;
-			if (armed.setup === undefined && reading?.setup !== undefined) armed.setup = reading.setup;
-			// Only a read that names the session's provider can say its limit is gone.
-			const lifted =
-				reading?.reports !== undefined &&
-				reading.provider !== undefined &&
-				quotaResetAt(reading.reports, reading.provider, this.#deps.now()) === undefined;
-			if (reading?.setup !== undefined && reading.setup !== armed.setup) why = "setup";
-			else if (lifted) why = "usage";
-			else {
-				this.#awaitLook(tabId, armed);
-				return;
-			}
-		}
-		this.#deps.log?.("limit", {
-			tab: tabId,
-			session: armed.sessionFile,
-			wait: why === "due" ? "due" : "lifted",
-			...(why === "due" ? {} : { by: why }),
-		});
-		await this.#fire(tabId, armed);
-	}
-
-	/** Every call-off of an armed retry (turn-resume-ends.ts `armed`); the person's new run also starts its chain over. */
-	#watchScheduledRetry(fact: ResumeFact): void {
-		const tabId = fact.tabId;
-		const armed = this.#scheduled.get(tabId);
-		if (armed && this.#ends("armed", armed, fact)) this.#dropScheduled(tabId);
-		if (personsRun(fact, this.#ownRetries.has(tabId))) this.#attempts.delete(tabId);
-	}
-
-	/** The armed retry's timer: re-check everything, then send stock `retry` (or hand it to the connection wait when offline). */
-	async #fire(tabId: string, armed: ArmedRetry): Promise<void> {
-		const stillHolds = (): boolean =>
-			this.#scheduled.get(tabId) === armed && this.#ends("firing", armed, this.#factFor(tabId)) === null;
-		if (this.#scheduled.get(tabId) !== armed) return;
-		await this.#deps.pool.movesSettled(tabId);
-		if (!stillHolds() || !(await this.#stockRetryOn(tabId)) || !stillHolds()) {
-			if (this.#scheduled.get(tabId) === armed) {
-				this.#dropScheduled(tabId);
-				// A limit wait's marker goes with it: the relaunch must not retry a turn that was let go.
-				if (armed.limit) this.sync();
-			}
-			return;
-		}
-		this.#releaseScheduled(tabId);
-		this.#attempts.set(tabId, armed.attempt);
-		this.#ownRetries.add(tabId);
-		if (!this.#deps.network.online) {
-			this.#hold(tabId, "retry", { sessionFile: armed.sessionFile, touched: armed.touched });
-			// The marker says `network` now, so a crash during the wait still retries.
-			this.sync();
-			return;
-		}
-		// Stock has nothing to retry (or the call failed): the chain is over. A move while its omp comes up calls it off.
-		if (!(await this.#run(tabId, "retry", { sessionFile: armed.sessionFile, touched: armed.touched }))) {
-			this.#ownRetries.delete(tabId);
-			this.#attempts.delete(tabId);
-		}
-	}
-
-	#releaseScheduled(tabId: string): void {
-		const armed = this.#scheduled.get(tabId);
-		if (!armed) return;
-		armed.cancelTimer();
-		this.#scheduled.delete(tabId);
-		this.#deps.pool.setScheduledRetry(tabId, undefined);
-	}
-
-	/** Call the tab's armed retry off: its timer, its row, and any attempt already on its way. */
-	#dropScheduled(tabId: string): void {
-		if (!this.#scheduled.has(tabId)) return;
-		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
-		this.#releaseScheduled(tabId);
-		this.#attempts.delete(tabId);
-	}
-
-	/**
-	 * Stock retries a transport failure up to `retry.maxRetries` times with its own backoff
-	 * (minutes on a real omp: each refused attempt takes tens of seconds), toasting every
-	 * attempt. While this computer is offline none of them can succeed, so the wait takes over
-	 * at the first one: stock's pending retry is cancelled (`abort_retry`, the turn then ends
-	 * failed) and stock `retry` runs once the connection is back. Right after a wake the
-	 * network may already be up, so stock's own retry is left to run. A failed connection while
-	 * the link reads up is probed first: a probe that finds nothing reachable takes the state
-	 * offline, and the takeover follows.
-	 */
-	#takeOverRetry(fact: ResumeFact): void {
-		const retry = fact.retry;
-		if (!retry || this.#takenOver.has(retry)) return;
-		if (this.#deps.network.online) {
-			this.#probeRetry(retry);
-			return;
-		}
-		if (!isNetworkError(retry.errorMessage)) return;
-		this.#takenOver.add(retry);
-		this.#takenOverRuns.add(fact.tabId);
-		if (!fact.awaitingConnection)
-			this.#hold(fact.tabId, "retry", { sessionFile: fact.sessionFile, touched: fact.touched ?? 0 });
-		void this.#deps.pool
-			.startTab(fact.tabId)
-			?.rpcClient?.command({ type: "abort_retry" })
-			.catch(() => undefined);
-	}
-
-	/** Probe the way out once for stock's retry of a failed connection; nothing reachable puts the takeover through. */
-	#probeRetry(retry: { errorMessage: string }): void {
-		const host = connectFailureHost(retry.errorMessage);
-		if (host === null || this.#probedRetries.has(retry)) return;
-		this.#probedRetries.add(retry);
-		void this.#deps.network.verify(host || undefined).then(reachable => {
-			if (!reachable) this.sync();
-		});
-	}
-
-	#hold(tabId: string, action: ResumeAction, since: HeldFor): void {
-		this.#waiting.set(tabId, { action, since });
-		this.#deps.pool.setAwaitingConnection(tabId, true);
-		if (this.#deps.network.online) void this.flush();
 	}
 
 	/** The network is back (or already was): run every held continuation. */
 	async flush(): Promise<void> {
-		if (!this.#deps.network.online) return;
-		const held = [...this.#waiting];
-		this.#waiting.clear();
-		await Promise.all(
-			held.map(async ([tabId, { action, since }]) => {
-				this.#takenOverRuns.delete(tabId);
-				this.#deps.pool.setAwaitingConnection(tabId, false);
-				await this.#run(tabId, action, since);
-			}),
-		);
-	}
-
-	/**
-	 * Resolves once `sidecar` can take commands; false when its omp fails or exits, has already failed, or the wait is
-	 * ended from outside (`#endReadyWaits`). It carries no deadline: a spawn held by a worktree's `onStart` hook or a busy
-	 * machine is slow, not failed, and the continuation goes on when the tab reads `ready`.
-	 */
-	#whenReady(tabId: string, sidecar: SidecarLike): Promise<boolean> {
-		if (sidecar.status === "ready") return Promise.resolve(true);
-		// No further status comes on its own (`startTab` starts only an asleep tab), except for a session another omp
-		// still holds: the tab opens it by itself once that omp lets go (`sessionHeld`), so the continuation waits on.
-		const ended = (payload: { status: string; sessionHeld?: true }) =>
-			(payload.status === "error" && payload.sessionHeld !== true) || payload.status === "exited";
-		if (ended(sidecar.statusPayload ?? { status: sidecar.status })) return Promise.resolve(false);
-		const { promise, resolve } = Promise.withResolvers<boolean>();
-		const waits = this.#readyWaits.get(tabId) ?? new Set<() => void>();
-		this.#readyWaits.set(tabId, waits);
-		const giveUp = () => finish(false);
-		const finish = (ready: boolean) => {
-			sidecar.off("status", listener);
-			waits.delete(giveUp);
-			if (waits.size === 0 && this.#readyWaits.get(tabId) === waits) this.#readyWaits.delete(tabId);
-			resolve(ready);
-		};
-		const listener = (payload: { status: string; sessionHeld?: true }) => {
-			if (payload.status === "ready") finish(true);
-			else if (ended(payload)) finish(false);
-		};
-		waits.add(giveUp);
-		sidecar.on("status", listener);
-		return promise;
-	}
-
-	/** The tab closed or its continuation was called off: whatever still waits for its omp stops waiting. */
-	#endReadyWaits(tabId: string): void {
-		for (const giveUp of [...(this.#readyWaits.get(tabId) ?? [])]) giveUp();
-	}
-
-	async #run(tabId: string, action: ResumeAction, held: HeldFor): Promise<boolean> {
-		const generation = this.#cancels.get(tabId) ?? 0;
-		const cancelled = () => (this.#cancels.get(tabId) ?? 0) !== generation;
-		// A continuation held for one session and branch (a connection wait's, a fired scheduled retry's, a relaunch's)
-		// looks again when it starts and before every command it sends (turn-resume-ends.ts `continuing`): a change no
-		// sync() saw (a paired device's switch on an idle tab), one made while the omp started, or while a command took its
-		// minutes, ends it. The person's prompt since it started begins a run that is not its own (`#judge` cannot tell it
-		// from the continuation's once the wait is gone): it sends nothing more and ends `cancelled`, so stock `retry` never
-		// lands in that run. Unlike a move this ends only this continuation: the person's run keeps its own wait, scheduled
-		// retry and marker, which `#dropWait` would take.
-		// The prompts count from the first try of a continuation that runs again: the person's prompt between two tries ends it.
-		const since: HeldFor = { ...held, prompted: held.prompted ?? this.#factFor(tabId)?.prompted ?? 0 };
-		let personTookOver = false;
-		const calledOff = (): boolean => cancelled() || personTookOver;
-		// The launch marker this continuation runs for; once a later exit of the tab's omp replaced it (`#exited`), the
-		// continuation of the replacement owns the marker and the goal report.
-		const own = this.#pending.get(tabId);
-		const superseded = (): boolean => own !== undefined && this.#superseded.has(own);
-		// A failed try (the omp failed to start, or no command got an answer) keeps the marker: the next `ready` of the tab
-		// tries again, up to LAUNCH_CONTINUATION_ATTEMPTS, and past that the marker still waits in the file for the next
-		// launch. A try someone called off, a superseded one or one whose marker already left `#pending` fails nothing.
-		const failedTry = (): { attempt: number; retrying: boolean } | null => {
-			if (own === undefined || superseded() || calledOff() || this.#pending.get(tabId) !== own) return null;
-			const attempt = (this.#failures.get(own) ?? 0) + 1;
-			this.#failures.set(own, attempt);
-			return { attempt, retrying: attempt < LAUNCH_CONTINUATION_ATTEMPTS };
-		};
-		// Also waits for a move whose command is on its way: its `touched` counts only once it answered. A move's call-off
-		// bumps the generation, so the end of this run reports `cancelled` (to Autopilot too); no second report here.
-		const stale = async (): Promise<boolean> => {
-			await this.#deps.pool.movesSettled(tabId);
-			const end = this.#ends("continuing", since, this.#factFor(tabId));
-			if (end === "moved") this.#dropWait(tabId, false);
-			else if (end === "personsPrompt") personTookOver = true;
-			return calledOff();
-		};
-		const sidecar = (await stale()) ? null : this.#deps.pool.startTab(tabId);
-		const ready = sidecar ? await this.#whenReady(tabId, sidecar) : false;
-		if (ready) await stale();
-		if (!sidecar || !ready || calledOff()) {
-			const failed = sidecar && !ready ? failedTry() : null;
-			this.#deps.log?.("continue", {
-				tab: tabId,
-				action,
-				ready,
-				cancelled: calledOff(),
-				...(failed ? { attempt: failed.attempt, retrying: failed.retrying } : {}),
-				...(superseded() ? { superseded: true } : {}),
-			});
-			if (superseded()) return false;
-			if (sidecar && own && failed) {
-				this.#keepFailed(tabId, own, action, since, sidecar, failed.retrying);
-				return false;
-			}
-			this.#pending.delete(tabId);
-			this.#deps.goalSettled?.(tabId, calledOff() ? "cancelled" : "none");
-			this.sync();
-			return false;
-		}
-		// Whether any command got an answer, a refusal included: a continuation nothing answered failed, one omp answered
-		// with nothing to continue is over.
-		let answered = false;
-		// Why a command did not answer: kept for the `continue` log line, never swallowed.
-		const failures: ResumeLogDetails = {};
-		const send = async (type: "restore_interrupted" | "retry"): Promise<Record<string, unknown> | undefined> => {
-			if (await stale()) return undefined;
-			const key = type === "retry" ? "retry" : "restore";
-			let response: RpcResponse | undefined;
-			try {
-				response = await sidecar.rpcClient?.command({ type }, RESUME_COMMAND_TIMEOUT_MS);
-			} catch (error) {
-				failures[`${key}Error`] = error instanceof Error ? error.message : String(error);
-				return undefined;
-			}
-			if (!response) failures[`${key}Error`] = "the tab has no omp connection";
-			else {
-				answered = true;
-				if (!response.success) {
-					failures[`${key}Error`] = response.error;
-					if (response.code) failures[`${key}Code`] = response.code;
-				}
-			}
-			const data: unknown = response?.success ? response.data : undefined;
-			return typeof data === "object" && data !== null ? { ...data } : undefined;
-		};
-		// Something goes on: the cut-off turn, a revived subagent (the bridge tells an idle session about it in
-		// one follow-up turn), the agent told about the background jobs the restart stopped, a cut-off turn stock's
-		// retry cannot see (the bridge continues it with that follow-up), or stock's retry.
-		const continues = (data: Record<string, unknown> | undefined): boolean =>
-			data?.turn === true ||
-			data?.retried === true ||
-			data?.followUp === true ||
-			(Array.isArray(data?.subagents) && data.subagents.length > 0) ||
-			(Array.isArray(data?.jobs) && data.jobs.length > 0);
-		// omp outlives a killed OMPdesk long enough to close the turn itself: its RPC client is gone (stdin EOF),
-		// so a pending ask or approval fails ("RPC client disconnected…") and the run ends aborted, journaled.
-		// Stock `restoreSession` then finds nothing unfinished; stock `retry` (`/retry`) replays that failed tool
-		// batch (the card reopens) or the aborted reply. A turn that had ended (`revive`) is never retried.
-		const restored = action === "retry" ? undefined : await send("restore_interrupted");
-		const retried = action !== "revive" && !continues(restored) && continues(await send("retry"));
-		let started = continues(restored) || retried;
-		// A new session's first turn cut off before stock wrote its file left nothing to restore (its tab starts a
-		// fresh session in the same folder): the prompt runs again. It leaves the marker before it is sent, so no
-		// later continuation of this tab sends it a second time.
-		const pending = this.#pending.get(tabId);
-		const unsavedPrompt = pending?.prompt;
-		let promptSent = false;
-		if (pending && unsavedPrompt && !started && !(await stale())) {
-			delete pending.prompt;
-			let timedOut = false;
-			const response = await sidecar.rpcClient?.command({ type: "prompt", message: unsavedPrompt }).catch(error => {
-				timedOut = error instanceof RpcTimeoutError;
-				return undefined;
-			});
-			promptSent = response?.success === true;
-			started = promptSent;
-			// Unanswered and not a timeout (omp may have taken it): the prompt was not sent and goes on with the marker.
-			if (response) answered = true;
-			else if (timedOut) answered = true;
-			else pending.prompt = unsavedPrompt;
-		}
-		// Stock pauses an active goal when its session loads; one the restart cut off goes on, after the
-		// restored turn (the goal's continuation waits for the session to be idle).
-		let goalResumed = false;
-		if (restored?.goalPausedByExit === true && !(await stale())) {
-			try {
-				await (this.#deps.resumeGoal ?? (id => this.#resumeGoal(id)))(tabId);
-				started = true;
-				goalResumed = true;
-			} catch (error) {
-				console.warn(`[resume] goal resume failed for ${tabId}: ${String(error)}`);
-			}
-		}
-		const unanswered = started || answered ? null : failedTry();
-		const opened = openedRunning(this.#deps.pool.resumeFacts(), tabId);
-		this.#deps.log?.("continue", {
-			tab: tabId,
-			action,
-			restored: action === "retry" ? "skipped" : restoreSummary(restored),
-			retried,
-			prompt: promptSent,
-			goal: goalResumed,
-			started,
-			...(restored?.followUp === true ? { followUp: true } : {}),
-			// The bridge closed a turn stock's journal showed ended before its model call (restart-core `requestCutAtExit`).
-			...(restored?.cutBeforeRequest === true ? { cutBeforeRequest: true } : {}),
-			// What the restore judged when nothing went on: the journal's last message and exit record.
-			...(!started && typeof restored?.journal === "string" ? { journal: restored.journal } : {}),
-			...(opened > 0 ? { opened } : {}),
-			...failures,
-			...(unanswered ? { attempt: unanswered.attempt, retrying: unanswered.retrying } : {}),
-			...(calledOff() ? { cancelled: true } : {}),
-			...(superseded() ? { superseded: true } : {}),
-		});
-		if (superseded()) return false;
-		if (unanswered && own) {
-			this.#keepFailed(tabId, own, action, since, sidecar, unanswered.retrying);
-			return false;
-		}
-		this.#deps.goalSettled?.(tabId, goalResumed ? "resumed" : calledOff() ? "cancelled" : "none");
-		// Nothing left to continue: the marker has nothing more to say.
-		if (!started) this.#pending.delete(tabId);
-		this.sync();
-		return started;
-	}
-
-	/**
-	 * A launch continuation that failed keeps its marker (so `sync()` keeps writing it and the next launch finds it): it
-	 * runs again once the tab's omp next reads `ready`, or, its attempts used up, is left for the next launch. Its goal
-	 * hears nothing while it waits; an abandoned one tells `none` (the run goes on without the restored turn) and its
-	 * "continuing" row goes.
-	 */
-	#keepFailed(
-		tabId: string,
-		marker: ResumeMarker,
-		action: ResumeAction,
-		since: HeldFor,
-		sidecar: SidecarLike,
-		retrying: boolean,
-	): void {
-		if (retrying) {
-			const listener = (payload: { status: string }) => {
-				if (payload.status !== "ready") return;
-				retry.off();
-				if (this.#deps.frozen()) return;
-				if (!this.#deps.enabled()) {
-					this.#pending.delete(tabId);
-					this.#deps.goalSettled?.(tabId, "none");
-					this.sync();
-					return;
-				}
-				void this.#run(tabId, action, since);
-			};
-			const retry = {
-				marker,
-				off: () => {
-					sidecar.off("status", listener);
-					if (this.#retrying.get(tabId) === retry) this.#retrying.delete(tabId);
-				},
-			};
-			this.#retrying.set(tabId, retry);
-			sidecar.on("status", listener);
-		} else {
-			this.#abandoned.add(marker);
-			this.#deps.goalSettled?.(tabId, "none");
-		}
-		this.sync();
-	}
-
-	/**
-	 * How a tab whose omp came up with work running in its journal goes on: after this launch's continuation of its
-	 * cut-off turn (a launch marker waits for it, `goalSettled` follows), at once, or not at all (Settings › General ›
-	 * Continue interrupted work after relaunch is off).
-	 */
-	relaunchContinuation(tabId: string): RelaunchContinuation {
-		const pending = this.#pending.get(tabId);
-		if (pending && !this.#abandoned.has(pending)) return "after_restore";
-		return this.#deps.enabled() ? "now" : "off";
-	}
-
-	/** Stock's own resume of the paused goal, through the tab's `set_goal` (it renews an OMPdesk time limit first). */
-	async #resumeGoal(tabId: string): Promise<void> {
-		const response = await this.#deps.pool
-			.startTab(tabId)
-			?.rpcClient?.command({ type: "set_goal", action: "resume" });
-		if (!response?.success) throw new Error(response?.error ?? "the tab is gone");
-	}
-
-	/** The user's Cancel on the waiting row: the failure shows as it would have, nothing resumes. */
-	cancelWait(tabId: string): void {
-		this.#dropWait(tabId);
-		this.sync();
-	}
-
-	/**
-	 * Call a tab's wait off: its probe, its held continuation, its scheduled retry. A held launch continuation (a marker
-	 * in `#pending` with its wait) ends for Autopilot's goal too (`cancelled`): the run waited on this very continuation
-	 * (`relaunchContinuation` "after_restore") and nothing else would tell it. `reportGoal` false for a call-off inside the
-	 * continuation's own `#run`, which reports when it ends.
-	 */
-	#dropWait(tabId: string, reportGoal = true): void {
-		const retry = this.#retrying.get(tabId);
-		retry?.off();
-		const heldLaunch = (this.#waiting.has(tabId) || retry !== undefined) && this.#pending.has(tabId);
-		this.#cancels.set(tabId, (this.#cancels.get(tabId) ?? 0) + 1);
-		this.#endReadyWaits(tabId);
-		this.#waiting.delete(tabId);
-		this.#probing.delete(tabId);
-		this.#takenOverRuns.delete(tabId);
-		this.#pending.delete(tabId);
-		this.#ownRetries.delete(tabId);
-		this.#releaseScheduled(tabId);
-		this.#deps.pool.setAwaitingConnection(tabId, false);
-		if (heldLaunch && reportGoal) this.#deps.goalSettled?.(tabId, "cancelled");
-	}
-
-	/** The resuming row's Stop: abort what this launch resumed on the tab, drop what still waits. */
-	async stopResumed(tabId: string): Promise<void> {
-		this.#deps.pool.noteStopped(tabId);
-		this.cancelWait(tabId);
-		recordTurnStop({ command: "abort", tab: tabId, by: "turn-resume", surface: "resuming-row" });
-		await this.#deps.pool
-			.startTab(tabId)
-			?.rpcClient?.command({ type: "abort" })
-			.catch(() => undefined);
+		await this.#promise(this.#call<number | null>("flush", { env: this.#env(["facts", "online"]) }));
 	}
 
 	/** The connectivity state changed. */
@@ -1435,78 +832,41 @@ export class TurnResume {
 	}
 
 	/**
+	 * How a tab whose omp came up with work running in its journal goes on: after this launch's continuation of its
+	 * cut-off turn (a launch marker waits for it, `goalSettled` follows), at once, or not at all (Settings › General ›
+	 * Continue interrupted work after relaunch is off).
+	 */
+	relaunchContinuation(tabId: string): RelaunchContinuation {
+		const answer = this.#call<RelaunchContinuation>("relaunchContinuation", {
+			tab: tabId,
+			enabled: this.#deps.enabled(),
+		});
+		if (answer === "after_restore") this.#owedGoals.add(tabId);
+		return answer;
+	}
+
+	/** The user's Cancel on the waiting row: the failure shows as it would have, nothing resumes. */
+	cancelWait(tabId: string): void {
+		this.#call("cancelWait", { tab: tabId });
+	}
+
+	/** The resuming row's Stop: abort what this launch resumed on the tab, drop what still waits. */
+	async stopResumed(tabId: string): Promise<void> {
+		await this.#promise(this.#call<number>("stopResumed", { tab: tabId }));
+	}
+
+	/**
 	 * Once per launch, after the saved windows exist: continue what the last
 	 * process left running. Markers keep their file until their turns start.
 	 */
 	launch(): void {
-		const read = this.#deps.store.read();
-		// A session the user deleted is not continued, not even into a fresh tab in its folder; its marker goes. A
-		// never-written session (a first turn cut off before its file) has no tombstone and still continues below.
-		const markers = read.filter(marker => !deletedSessions().has(marker.sessionPath));
-		if (markers.length !== read.length) this.#deps.store.write(markers);
 		this.#launched = true;
-		this.#deps.log?.("launch", { markers: markers.length, enabled: this.#deps.enabled() });
-		if (!this.#deps.enabled()) {
-			this.#deps.store.write([]);
-			return;
-		}
-		const resumable: Array<{ tabId: string; action: ResumeAction }> = [];
-		for (const marker of markers) {
-			const action = launchAction(marker);
-			const found = this.#deps.pool.tabForSession(marker.sessionPath, marker.peer);
-			const unwritten = found ? null : this.#unwrittenSessionTab(marker);
-			const tabId = found ?? unwritten ?? this.#deps.openTab(marker);
-			this.#deps.log?.("marker", {
-				session: marker.sessionPath,
-				reason: marker.reason,
-				tab: tabId ?? "none",
-				via: found ? "layout" : unwritten ? "unwritten" : tabId ? "opened" : "none",
-				...(marker.peer ? { peer: marker.peer } : {}),
-			});
-			if (!tabId) continue;
-			resumable.push({ tabId, action });
-			this.#pending.set(tabId, { ...marker, tab: tabId });
-		}
-		this.#previous = [...this.#pending.values()];
-		this.#deps.store.write(this.#previous);
-		this.#showResuming();
-		const rank = (tabId: string) => this.#deps.pool.resumeRank?.(tabId) ?? 0;
-		resumable.sort((a, b) => rank(a.tabId) - rank(b.tabId));
-		for (const { tabId, action } of resumable) {
-			// The continuation holds for the session the tab shows now (the marker's file; none yet for a first turn stock
-			// never wrote) and its `touched`, so a session or branch change before the connection is back, or while the
-			// omp comes up and the restore runs, ends it as it ends a failed turn's wait.
-			const fact = this.#factFor(tabId);
-			const since: HeldFor = {
-				sessionFile: fact ? fact.sessionFile : this.#pending.get(tabId)?.sessionPath,
-				touched: fact?.touched ?? 0,
-			};
-			if (this.#deps.network.shouldWait()) this.#hold(tabId, action, since);
-			else void this.#run(tabId, action, since);
-		}
+		this.#call("launch");
 	}
+}
 
-	/**
-	 * The tab the saved layout restored for a session stock never wrote (a first turn cut off before its first
-	 * assistant message): the layout drops a missing path (tab-layout.ts), so that tab came back as a fresh
-	 * session in the same folder. It is an unclaimed local tab there with no session file yet and nothing
-	 * running; null when there is none, and `openTab` opens one (which starts fresh too, see sidecar.ts).
-	 */
-	#unwrittenSessionTab(marker: ResumeMarker): string | null {
-		if (marker.peer || existsSync(marker.sessionPath)) return null;
-		const cwd = canonicalCwd(marker.cwd);
-		const restored = this.#deps.pool
-			.resumeFacts()
-			.find(
-				fact =>
-					!fact.device &&
-					!fact.peer &&
-					fact.sessionFile === undefined &&
-					!fact.running &&
-					fact.kind === marker.kind &&
-					canonicalCwd(fact.cwd) === cwd &&
-					!this.#pending.has(fact.tabId),
-			);
-		return restored?.tabId ?? null;
-	}
+/** What a sidecar's `status` event carries. */
+interface SidecarStatus {
+	status: string;
+	sessionHeld?: true;
 }

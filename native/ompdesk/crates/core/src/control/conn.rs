@@ -170,7 +170,7 @@ pub fn outside_caller(hello: &Frame, connection: u64, home: &str) -> Caller {
 }
 
 /// Whether `given` is the token, in time that does not depend on where they differ.
-fn token_matches(given: Option<String>, expected: &str) -> bool {
+pub(crate) fn token_matches(given: Option<String>, expected: &str) -> bool {
     let Some(given) = given else {
         return false;
     };

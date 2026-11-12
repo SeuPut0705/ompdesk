@@ -14,6 +14,7 @@ import type {
 	SidecarStatus,
 } from "../shared/rpc-types";
 import { unsavedSessionKey } from "../shared/session-summary";
+import { core } from "./core/process";
 import { deletedSessions, initDeletedSessions } from "./deleted-sessions";
 import { RemoteSidecar } from "./remote/remote-sidecar";
 import type { SidecarSessionIdentity, SidecarStartGate } from "./sidecar";
@@ -4207,5 +4208,27 @@ describe("SidecarPool device views (a paired device viewing a tab of a window he
 		late?.on("scheduledRetry", (each: unknown) => lateRetries.push(each));
 		await Promise.resolve();
 		expect(lateRetries).toEqual([retry]);
+	});
+});
+
+describe("SidecarPool and a lost core", () => {
+	it("seeds the next core with the tabs main holds, and its windows keep their tabs", () => {
+		const { pool } = fakePool();
+		const fw = fakeWindow(1);
+		pool.acquire("/a", fw.win, "tab-a", "/s/a.jsonl");
+		pool.acquire("/b", fw.win, "tab-b");
+		expect(pool.sessionOwner("/s/a.jsonl")?.tabId).toBe("tab-a");
+		// The core is killed as a hub call past its deadline kills it: every instance it ran is gone.
+		core().abandon("a test ends the core");
+		expect(pool.size).toBe(2);
+		expect(pool.tabsForWindow(fw.win).map(tab => [tab.tabId, tab.active === true])).toEqual([
+			["tab-a", true],
+			["tab-b", false],
+		]);
+		expect(pool.sidecarForTab(fw.win, "tab-b")).not.toBeNull();
+		// The session file the tab was acquired on still names it.
+		expect(pool.sessionOwner("/s/a.jsonl")?.tabId).toBe("tab-a");
+		expect(pool.releaseTab("tab-b")).toBe(true);
+		expect(pool.size).toBe(1);
 	});
 });

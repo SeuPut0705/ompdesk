@@ -262,5 +262,7 @@ describe("random event orders keep formal/turn-resume's properties", () => {
 				failures.push(`seed ${seed} ${JSON.stringify(start)}: ${stuck.join("; ")}\n${world.trace.join("\n")}`);
 		}
 		expect(failures).toEqual([]);
-	});
+		// 600 worlds of up to 40 events, each event a round trip to the core's turn resume (native-rust 9f): about 3 s
+		// here and past the default 5 s on a hosted macOS runner. The work is fixed; the bound is not a wait.
+	}, 60_000);
 });

@@ -33,11 +33,16 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let served = runtime.block_on(ompdesk_core::serve(
-        tokio::io::stdin(),
-        tokio::io::stdout(),
-        ompdesk_core::registry(),
-    ));
+    let served = runtime.block_on(async {
+        // Main's synchronous calls (the pool, turn resume) come over their own connection.
+        ompdesk_core::hub::listen_from_env();
+        ompdesk_core::serve(
+            tokio::io::stdin(),
+            tokio::io::stdout(),
+            ompdesk_core::registry(),
+        )
+        .await
+    });
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

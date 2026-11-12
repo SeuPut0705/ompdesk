@@ -1,13 +1,12 @@
-import * as fs from "node:fs";
+/**
+ * The saved tab layout: its shape, and its reading back at launch. The rules (`sanitizePersistedTabLayout`: which saved
+ * tabs come back and how) are the core's (`native/ompdesk/crates/core/src/pool/layout.rs`, unit 9e); this module is
+ * their client. Whether a session was deleted stays main's (`deleted-sessions.ts`) and is asked; the folder, file and
+ * content checks are the core's own reads unless the caller hands its own (tests).
+ */
 import type { IpcTabWorktree, SessionKind } from "../shared/ipc-types";
-import {
-	asSplitLayout,
-	mapSplitLeaves,
-	readRememberedSplits,
-	readSplitNode,
-	type SplitLayout,
-	splitTabIds,
-} from "../shared/split-layout";
+import type { SplitLayout } from "../shared/split-layout";
+import { hub, sharedInstance } from "./core/hub";
 import { deletedSessions } from "./deleted-sessions";
 
 export const TAB_LAYOUT_VERSION = 1;
@@ -68,75 +67,6 @@ export interface TabLayoutPathChecks {
 	sessionHasContent?(path: string): boolean;
 }
 
-const diskPathChecks: TabLayoutPathChecks = {
-	directoryExists(path) {
-		try {
-			return fs.statSync(path).isDirectory();
-		} catch {
-			return false;
-		}
-	},
-	fileExists(path) {
-		try {
-			return fs.statSync(path).isFile();
-		} catch {
-			return false;
-		}
-	},
-	sessionHasContent(path) {
-		try {
-			const file = fs.statSync(path);
-			// Empty sessions are small. Treat a large transcript as contentful
-			// without loading it into the main process during startup.
-			if (file.size > 128 * 1024) return true;
-			for (const line of fs.readFileSync(path, "utf8").split("\n")) {
-				if (!line.trim()) continue;
-				try {
-					if ((JSON.parse(line) as { type?: unknown }).type === "message") return true;
-				} catch {
-					// A malformed line is not evidence that the transcript is empty.
-					return true;
-				}
-			}
-			return false;
-		} catch {
-			return true;
-		}
-	},
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function parseKind(value: unknown): SessionKind | null {
-	return value === "agent" || value === "chat" ? value : null;
-}
-
-/**
- * Bindings saved before `path` existed are dropped: the tab's saved cwd follows
- * session switches, so it cannot stand in for the checkout the close prompt
- * would remove with `--force`. The worktree itself stays on disk.
- */
-function parseWorktree(value: unknown): IpcTabWorktree | undefined {
-	if (!isRecord(value)) return undefined;
-	const name = nonEmptyString(value.name);
-	const branch = nonEmptyString(value.branch);
-	const baseCwd = nonEmptyString(value.baseCwd);
-	const path = nonEmptyString(value.path);
-	return name && branch && baseCwd && path ? { name, branch, baseCwd, path } : undefined;
-}
-
-/**
- * Validate the tab snapshot loaded from electron-store before it reaches a
- * sidecar. Missing workspaces are dropped; a deleted transcript becomes a
- * fresh tab at the same cwd instead of making the whole startup fail. Remote
- * descriptors (`device`) skip both disk checks: their paths live on the host.
- */
 /**
  * What a restore left out or changed of a saved tab, for the launch's `tab-layout` log line: `folder` (its folder is
  * gone), `deleted` (its session was deleted), `duplicate` (another tab of this layout holds that session), `fresh` (its
@@ -144,125 +74,53 @@ function parseWorktree(value: unknown): IpcTabWorktree | undefined {
  */
 export type TabLayoutDrop = { reason: "folder" | "deleted" | "duplicate" | "fresh"; sessionPath?: string; cwd: string };
 
+/** The path checks of the call in progress (null: the core reads the disk itself). */
+let callerChecks: TabLayoutPathChecks | null = null;
+
+const layoutInstance = sharedInstance("layout", (q, item) => {
+	const path = item.path as string;
+	if (q === "deleted") return deletedSessions().has(path, (item.device as string | null) ?? undefined);
+	if (q === "directoryExists") return callerChecks?.directoryExists(path) ?? false;
+	if (q === "fileExists") return callerChecks?.fileExists(path) ?? false;
+	if (q === "sessionHasContent") return callerChecks?.sessionHasContent?.(path) ?? null;
+	throw new Error(`the layout asks nothing called ${q}`);
+});
+
+function sanitize(
+	value: unknown,
+	paths: TabLayoutPathChecks | undefined,
+	dropped: ((drop: TabLayoutDrop) => void) | undefined,
+	many: boolean,
+): unknown {
+	callerChecks = paths ?? null;
+	try {
+		const { layout, drops } = hub().callOnce<{ layout: unknown; drops: TabLayoutDrop[] }>(
+			layoutInstance,
+			"sanitize",
+			{
+				value: value ?? null,
+				asked: paths !== undefined,
+				many,
+			},
+		);
+		for (const drop of drops) dropped?.(drop);
+		return layout;
+	} finally {
+		callerChecks = null;
+	}
+}
+
+/**
+ * Validate the tab snapshot loaded from electron-store before it reaches a sidecar. Missing workspaces are dropped; a
+ * deleted transcript becomes a fresh tab at the same cwd instead of making the whole startup fail. Remote descriptors
+ * (`device`) skip both disk checks: their paths live on the host.
+ */
 export function sanitizePersistedTabLayout(
 	value: unknown,
-	paths: TabLayoutPathChecks = diskPathChecks,
+	paths?: TabLayoutPathChecks,
 	dropped?: (drop: TabLayoutDrop) => void,
 ): PersistedTabLayout | null {
-	if (!isRecord(value) || value.version !== TAB_LAYOUT_VERSION || !Array.isArray(value.tabs)) return null;
-	const requestedActiveIndex =
-		typeof value.activeIndex === "number" && Number.isInteger(value.activeIndex) && value.activeIndex >= 0
-			? value.activeIndex
-			: 0;
-	const retained: Array<{ descriptor: PersistedTabDescriptor; sourceIndex: number }> = [];
-	const sessionPaths = new Set<string>();
-
-	for (const [sourceIndex, candidate] of value.tabs.entries()) {
-		if (!isRecord(candidate)) continue;
-		const cwd = nonEmptyString(candidate.cwd);
-		const kind = parseKind(candidate.kind);
-		const device = nonEmptyString(candidate.device);
-		if (!cwd || !kind) continue;
-		const storedSessionPath = nonEmptyString(candidate.sessionPath);
-		const drop = (reason: TabLayoutDrop["reason"]): void =>
-			dropped?.({ reason, cwd, ...(storedSessionPath ? { sessionPath: storedSessionPath } : {}) });
-		if (!device && !paths.directoryExists(cwd)) {
-			drop("folder");
-			continue;
-		}
-
-		// A deleted session's tab is gone with it: never a fresh tab in its folder, which is kept only for a file
-		// that is missing without having been deleted (a session never written).
-		if (storedSessionPath && deletedSessions().has(storedSessionPath, device)) {
-			drop("deleted");
-			continue;
-		}
-		const sessionPath =
-			storedSessionPath && (device || paths.fileExists(storedSessionPath)) ? storedSessionPath : undefined;
-		if (storedSessionPath && !sessionPath) drop("fresh");
-		// The same path on two machines is two files (F-OWN keys device + path too).
-		const sessionKey = sessionPath && `${device ?? ""}\u0000${sessionPath}`;
-		if (sessionKey && sessionPaths.has(sessionKey)) {
-			drop("duplicate");
-			continue;
-		}
-		if (sessionKey) sessionPaths.add(sessionKey);
-
-		const descriptor: PersistedTabDescriptor = { cwd, kind };
-		if (sessionPath) descriptor.sessionPath = sessionPath;
-		if (device) descriptor.device = device;
-		const worktree = parseWorktree(candidate.worktree);
-		if (worktree) descriptor.worktree = worktree;
-		const legacyEmptyStartupChat =
-			candidate.placeholder === undefined &&
-			sourceIndex === 0 &&
-			kind === "chat" &&
-			!device &&
-			(!sessionPath || paths.sessionHasContent?.(sessionPath) === false);
-		if (candidate.placeholder === true || legacyEmptyStartupChat) descriptor.placeholder = true;
-		const title = nonEmptyString(candidate.title);
-		if (title) descriptor.title = title.slice(0, MAX_PERSISTED_TITLE);
-		// A path is only a key to match against another tab's session file; it is never opened from here.
-		const openedBy = nonEmptyString(candidate.openedBy);
-		if (openedBy && openedBy !== sessionPath) descriptor.openedBy = openedBy;
-		const formerIds = Array.isArray(candidate.formerIds)
-			? candidate.formerIds
-					.flatMap(id => (typeof id === "string" && /^[\w:-]{1,64}$/.test(id) ? [id] : []))
-					.slice(0, MAX_FORMER_TAB_IDS)
-			: [];
-		if (formerIds.length > 0) descriptor.formerIds = formerIds;
-		retained.push({ descriptor, sourceIndex });
-	}
-
-	// Startup placeholders are disposable. Never restore the legacy empty
-	// startup chat after Work mode became the default full-agent surface.
-	const effective = retained.filter(entry => entry.descriptor.placeholder !== true);
-	if (effective.length === 0) return null;
-	let activeIndex = effective.findIndex(entry => entry.sourceIndex === requestedActiveIndex);
-	if (activeIndex < 0) activeIndex = effective.findIndex(entry => entry.sourceIndex > requestedActiveIndex);
-	if (activeIndex < 0) activeIndex = effective.length - 1;
-	let split: PersistedTabLayout["split"];
-	if (isRecord(value.split)) {
-		const raw = value.split;
-		const migrated =
-			"firstIndex" in raw && "secondIndex" in raw
-				? {
-						axis: raw.axis,
-						ratio: raw.ratio,
-						first: { tabId: String(raw.firstIndex) },
-						second: { tabId: String(raw.secondIndex) },
-					}
-				: raw;
-		const parsed = readSplitNode(migrated);
-		if (parsed) {
-			split =
-				asSplitLayout(
-					mapSplitLeaves(parsed, source => {
-						const index = effective.findIndex(entry => entry.sourceIndex === Number(source));
-						return index >= 0 ? { tabId: String(index) } : null;
-					}),
-				) ?? undefined;
-			if (split && !splitTabIds(split).includes(String(activeIndex))) activeIndex = Number(splitTabIds(split)[0]);
-		}
-	}
-	// What is on screen (the visible split, else the active tab alone) is not also remembered.
-	const claimed = new Set(split ? splitTabIds(split) : [String(activeIndex)]);
-	const splits = readRememberedSplits(
-		value.splits,
-		source => {
-			const index = effective.findIndex(entry => entry.sourceIndex === Number(source));
-			return index >= 0 ? String(index) : null;
-		},
-		claimed,
-	);
-
-	return {
-		version: TAB_LAYOUT_VERSION,
-		tabs: effective.map(entry => entry.descriptor),
-		activeIndex,
-		...(split ? { split } : {}),
-		...(splits.length > 0 ? { splits } : {}),
-	};
+	return sanitize(value, paths, dropped, false) as PersistedTabLayout | null;
 }
 
 /**
@@ -275,14 +133,8 @@ export function sanitizePersistedTabLayout(
  */
 export function sanitizePersistedTabLayouts(
 	value: unknown,
-	paths: TabLayoutPathChecks = diskPathChecks,
+	paths?: TabLayoutPathChecks,
 	dropped?: (drop: TabLayoutDrop) => void,
 ): PersistedTabLayout[] {
-	const candidates = Array.isArray(value) ? value : [value];
-	const layouts: PersistedTabLayout[] = [];
-	for (const candidate of candidates) {
-		const layout = sanitizePersistedTabLayout(candidate, paths, dropped);
-		if (layout) layouts.push(layout);
-	}
-	return layouts;
+	return sanitize(value, paths, dropped, true) as PersistedTabLayout[];
 }
