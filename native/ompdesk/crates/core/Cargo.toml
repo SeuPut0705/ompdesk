@@ -25,8 +25,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "io-std", "io-util", "sy
 # The wire: one JSON object per line. `raw_value` hands a request's params to its handler unparsed.
 # `float_roundtrip` reads a number as its digits say, as `JSON.parse` does: the default parse is best effort (one
 # time in ten with sub-millisecond digits one bit off), and a time main sends or a kept file holds is compared `==`.
+# `preserve_order` keeps an object's keys as written (Tailscale's peers are listed in their document's order, as
+# JavaScript listed them); the CLI crate asks for it too, so every build of the workspace already had it.
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value", "float_roundtrip"] }
+serde_json = { version = "1", features = ["raw_value", "float_roundtrip", "preserve_order"] }
 # Listings sort as the page's `Intl.Collator(locale, { numeric: true })` does: ICU's collation, same algorithm and data.
 icu_collator = "2"
 # The folder picker's filter lowercases as `toLocaleLowerCase()` does (Turkish, Azeri and Lithuanian rules included).

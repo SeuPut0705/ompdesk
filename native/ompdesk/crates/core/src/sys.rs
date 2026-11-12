@@ -38,6 +38,19 @@ pub fn terminate(pid: u32) {
     }
 }
 
+/// Whether this process may execute `path`, as node's `accessSync(path, X_OK)` answers: `access(2)`, which follows
+/// links and asks with the real user.
+#[cfg(unix)]
+pub fn may_execute(path: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: `path` is a NUL-terminated string that lives through the call, which only reads it.
+    unsafe { libc::access(path.as_ptr(), libc::X_OK) == 0 }
+}
+
 /// Puts this process in a new job object that kills every process in it once its last handle closes, which is when
 /// this process ends, however it ends: the gits it starts join the job and cannot outlive it. The handle is never
 /// closed. Jobs nest (Windows 8 and later), so a job main put this process in does not prevent it.

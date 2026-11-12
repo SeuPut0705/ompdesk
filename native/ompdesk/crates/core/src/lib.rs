@@ -13,6 +13,7 @@ mod run;
 pub mod server;
 pub mod sessions;
 mod sys;
+pub mod tailscale;
 pub mod wire;
 
 pub use server::{registry, serve};
