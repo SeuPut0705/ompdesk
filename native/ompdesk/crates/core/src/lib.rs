@@ -14,6 +14,7 @@ pub mod fs;
 pub mod gh;
 pub mod git;
 mod http;
+pub mod hub;
 pub mod ipc;
 mod json;
 pub mod keepawake;
