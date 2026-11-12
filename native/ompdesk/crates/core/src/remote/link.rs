@@ -16,7 +16,7 @@ use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Instant, MissedTickBehavior, sleep_until};
 
 use super::codec::{self, FrameDecoder, Incoming, Opener, Outgoing, Sealer};
@@ -270,6 +270,7 @@ impl Conn {
             tap: false,
             closing: None,
             check: None,
+            check_replies: Vec::new(),
             last_received: Instant::now(),
         };
         tokio::spawn(task.run(writer, receiver));
@@ -303,6 +304,9 @@ pub enum Command {
     Listen,
     Check {
         window: Duration,
+        /// Told whether a frame came in time (core-side callers: a reconnecting client's wake); a link that ends first
+        /// drops it, which reads as not alive.
+        reply: Option<oneshot::Sender<bool>>,
     },
     Close,
     Destroy(Reason),
@@ -389,6 +393,8 @@ struct Task {
     closing: Option<Instant>,
     /// When a liveness check drops the link.
     check: Option<Instant>,
+    /// Who waits on the check under way, beside main's `remote.checked`.
+    check_replies: Vec<oneshot::Sender<bool>>,
     last_received: Instant,
 }
 
@@ -443,7 +449,8 @@ impl Task {
                             ping.reset();
                         }
                     }
-                    Some(Command::Check { window }) => {
+                    Some(Command::Check { window, reply }) => {
+                        self.check_replies.extend(reply);
                         if self.check.is_none() {
                             self.check = Some(Instant::now() + window);
                             let bytes = send(&mut self.sender, frames.as_ref(), traffic.as_mut(), PING);
@@ -479,6 +486,7 @@ impl Task {
         };
         writer.abort();
         super::forget_link(self.id);
+        super::link_ended(self.id, reason);
         if let Some(traffic) = traffic.as_mut() {
             self.flush_traffic(traffic, &mut traffic_since);
         }
@@ -519,6 +527,9 @@ impl Task {
                 traffic.record(Direction::Rx, &json, wire_bytes);
             }
             if self.check.take().is_some() {
+                for reply in self.check_replies.drain(..) {
+                    let _ = reply.send(true);
+                }
                 self.events.send(
                     "remote.checked",
                     &Checked {
@@ -696,6 +707,7 @@ mod tests {
         link.command(Command::Listen);
         let started = Instant::now();
         link.command(Command::Check {
+            reply: None,
             window: Duration::from_millis(3_000),
         });
         assert_eq!(closed(&mut frames).await, "dead");

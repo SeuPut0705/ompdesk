@@ -1,13 +1,15 @@
 /**
  * Read-only Tailscale facts for sharing this computer with other OMPdesk computers (src/main/remote/): the tailnet
  * (`status --json`: this machine's addresses, the other nodes) and who an address belongs to (`whois`). Works
- * whether or not Mobile web is on; never changes Tailscale. The CLI runs and what they print are the core process's
- * (`cli.ts` is its client); what is kept here is computer sharing's own state by main's clock: the CLI it found, and
- * its brief answers, a status for 3 s (a connection and a list refresh share one), a successful whois for 60 s (one
- * per connection would cost a CLI call each).
+ * whether or not Mobile web is on; never changes Tailscale. The caches (a status for 3 s, a successful whois for a
+ * minute, one read shared by callers that ask together), the address test and the CLI runs are the core process's
+ * (`native/ompdesk/crates/core/src/remote/tailnet.rs`); this file is its typed client. What stays here is the one
+ * thing only main knows: where the Tailscale CLI is. The core asks (`remote.ask` `locate`) the first time it needs
+ * it, and again while it finds none; main answers how to run it, as `cli.ts` hands it over with every request.
  */
-import { isIP } from "node:net";
-import { TailscaleCli } from "./cli";
+import { CORE_EXITED, CoreError, core } from "../core/process";
+import { onCoreAsk } from "../remote/core-asks";
+import { runRules } from "./cli";
 import type { LocatedTailscale } from "./locate";
 import type { TailscaleStatus } from "./status";
 import type { TailnetPeer } from "./whois";
@@ -16,89 +18,136 @@ export const STATUS_CACHE_MS = 3_000;
 export const WHOIS_CACHE_MS = 60_000;
 export const WHOIS_CACHE_MAX = 256;
 
+/**
+ * How long a call to the core may take: a lookup of the CLI (main asked, which may run `plutil` and read the login
+ * shell's PATH), then the CLI's own ceiling of 10 s, past the default of 30 s only when both are slow.
+ */
+const CORE_WAIT_MS = 45_000;
+
 /** Where sharing stands on this computer's Tailscale side. */
 export type TailnetPhase = "not-installed" | "not-running" | "needs-login" | "ready";
 
-/** A tailnet address: 100.64.0.0/10 or fd7a:115c:a1e0::/48. */
-export function isTailnetAddress(ip: string): boolean {
-	const address = ip.replace(/^::ffff:/i, "");
-	if (isIP(address) === 4) {
-		const [a, b] = address.split(".").map(Number);
-		return a === 100 && b !== undefined && b >= 64 && b <= 127;
-	}
-	return isIP(address) === 6 && /^fd7a:115c:a1e0:/i.test(address);
-}
-
 export interface TailnetDeps {
 	locate: () => Promise<LocatedTailscale | null>;
+	/** This client's clock for the caches (a test moves it); the core's own when none is given. */
 	now?: () => number;
 }
 
+/** How the core runs the CLI: what `cli.ts` hands every `tailscale.*` request. */
+interface CliRunner {
+	bin: string;
+	args: string[];
+	env: Record<string, string>;
+	timeoutMs: number;
+	maxBytes: number;
+}
+
 export class Tailnet {
+	/** Each instance the core holds, by its number: the core's `locate` asks name one. */
+	static readonly #live = new Map<number, Tailnet>();
+	static #routed = false;
+
 	readonly #deps: TailnetDeps;
-	readonly #now: () => number;
-	readonly #whois = new Map<string, { peer: TailnetPeer; at: number }>();
-	#cli: Promise<TailscaleCli | null> | null = null;
-	#status: { value: TailscaleStatus | null; installed: boolean; at: number } | null = null;
-	#pending: Promise<TailscaleStatus | null> | null = null;
+	#id: Promise<number> | null = null;
 
 	constructor(deps: TailnetDeps) {
 		this.#deps = deps;
-		this.#now = deps.now ?? Date.now;
+	}
+
+	/** Answers the core's `locate` asks for whichever instance asked; null (no Tailscale) when none can. */
+	static #route(): void {
+		if (Tailnet.#routed) return;
+		Tailnet.#routed = true;
+		onCoreAsk(
+			"locate",
+			ask => {
+				const tailnet = Tailnet.#live.get(Number(ask.tailnet));
+				return tailnet ? tailnet.#locate() : null;
+			},
+			null,
+		);
+		core().on(CORE_EXITED, () => {
+			// The numbers died with the core: each instance opens a new one when next used.
+			for (const tailnet of Tailnet.#live.values()) tailnet.#id = null;
+			Tailnet.#live.clear();
+		});
+	}
+
+	/** This instance's number in the core, opened on first use. */
+	coreId(): Promise<number> {
+		if (!this.#id) {
+			Tailnet.#route();
+			const opened = core()
+				.call<{ tailnet: number }>("remote.tailnet.open", {})
+				.then(answer => {
+					Tailnet.#live.set(answer.result.tailnet, this);
+					return answer.result.tailnet;
+				});
+			this.#id = opened;
+			opened.catch(() => {
+				if (this.#id === opened) this.#id = null;
+			});
+		}
+		return this.#id;
+	}
+
+	/** How the core runs the CLI, or null when none is installed. */
+	async #locate(): Promise<CliRunner | null> {
+		let located: LocatedTailscale | null;
+		try {
+			located = await this.#deps.locate();
+		} catch {
+			return null;
+		}
+		if (!located) return null;
+		const rules = runRules();
+		return {
+			bin: located.path,
+			args: [],
+			env: { ...rules.env, ...located.env },
+			timeoutMs: rules.timeoutMs,
+			maxBytes: rules.maxBytes,
+		};
+	}
+
+	/** One request to the core about this instance; `fallback` when the core cannot answer. */
+	async #ask<T>(method: string, params: object, fallback: T): Promise<T> {
+		const now = this.#deps.now;
+		const nowMs = now ? { nowMs: Math.floor(now()) } : {};
+		try {
+			for (let attempt = 0; ; attempt++) {
+				try {
+					const tailnet = await this.coreId();
+					return (await core().call<T>(method, { tailnet, ...params, ...nowMs }, { timeoutMs: CORE_WAIT_MS }))
+						.result;
+				} catch (error) {
+					// A core that restarted since the number was given knows no such instance: open again, once.
+					if (attempt === 0 && error instanceof CoreError && error.code === "no_tailnet") {
+						this.#id = null;
+						continue;
+					}
+					throw error;
+				}
+			}
+		} catch (error) {
+			// A core that cannot answer reads as a CLI that did not.
+			if (error instanceof CoreError) return fallback;
+			throw error;
+		}
 	}
 
 	/** The status document, or null when Tailscale is missing or does not answer. */
-	async status(): Promise<TailscaleStatus | null> {
-		const cached = this.#status;
-		if (cached && this.#now() - cached.at < STATUS_CACHE_MS) return cached.value;
-		this.#pending ??= this.#readStatus().finally(() => {
-			this.#pending = null;
-		});
-		return this.#pending;
-	}
-
-	async #readStatus(): Promise<TailscaleStatus | null> {
-		const cli = await this.#cliOrNull();
-		const read = cli ? await cli.status() : null;
-		const value = read?.code === 0 ? read.status : null;
-		this.#status = { value, installed: cli !== null, at: this.#now() };
-		return value;
+	status(): Promise<TailscaleStatus | null> {
+		return this.#ask<TailscaleStatus | null>("remote.tailnet.status", {}, null);
 	}
 
 	/** Where sharing stands: Tailscale missing, not answering, signed out, or up. */
-	async phase(): Promise<TailnetPhase> {
-		const status = await this.status();
-		if (status?.backend === "running") return "ready";
-		if (this.#status?.installed === false) return "not-installed";
-		if (status?.backend === "needs-login") return "needs-login";
-		return "not-running";
+	phase(): Promise<TailnetPhase> {
+		return this.#ask<TailnetPhase>("remote.tailnet.phase", {}, "not-running");
 	}
 
 	/** Which node and user `ip` belongs to; null when it is no address, or Tailscale cannot say. */
-	async whois(ip: string): Promise<TailnetPeer | null> {
-		const address = ip.replace(/^::ffff:/i, "");
-		if (isIP(address) === 0) return null;
-		const cached = this.#whois.get(address);
-		if (cached && this.#now() - cached.at < WHOIS_CACHE_MS) return cached.peer;
-		const cli = await this.#cliOrNull();
-		if (!cli) return null;
-		const peer = await cli.whois(address);
-		if (!peer) return null;
-		if (this.#whois.size >= WHOIS_CACHE_MAX) this.#whois.clear();
-		this.#whois.set(address, { peer, at: this.#now() });
-		return peer;
-	}
-
-	/** Located once; a missing CLI is looked for again next time (it may have been installed meanwhile). */
-	#cliOrNull(): Promise<TailscaleCli | null> {
-		this.#cli ??= this.#deps
-			.locate()
-			.then(located => (located ? new TailscaleCli(located) : null))
-			.catch(() => null);
-		const cli = this.#cli;
-		void cli.then(found => {
-			if (!found && this.#cli === cli) this.#cli = null;
-		});
-		return cli;
+	whois(ip: string): Promise<TailnetPeer | null> {
+		return this.#ask<TailnetPeer | null>("remote.tailnet.whois", { ip }, null);
 	}
 }

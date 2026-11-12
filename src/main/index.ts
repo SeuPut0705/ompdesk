@@ -1371,6 +1371,12 @@ app.whenReady().then(async () => {
 		logLink: (message, details) => writeRuntimeLog({ source: "remote-link", message, details }),
 	});
 	remoteDevices = devices;
+	// The core's records are mirrored before anything asks for a host's tabs or the device lists.
+	await devices
+		.ready()
+		.catch(error =>
+			console.warn(`[remote] devices unavailable: ${error instanceof Error ? error.message : String(error)}`),
+		);
 	hostModelsChanged.current = () => devices.hostModelsChanged();
 	// Devices that use this computer as their host say "n sessions wait together" from its own count (its account).
 	let lastModelWaitLocal = "{}";
@@ -2056,12 +2062,21 @@ app.whenReady().then(async () => {
 		blocker: keepAwakeBlocker("work"),
 	});
 	workAwakePolicy = workAwake;
-	const syncWorkAwake = () =>
-		workAwake.update({
-			enabled: prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
-			connected: false,
-			running: sidecarPool.tabInventory().some(tab => tab.inFlight),
-		});
+	const syncWorkAwake = () => {
+		void workAwake
+			.update({
+				enabled: prefs.get(KEEP_AWAKE_WORKING_PREF) !== false,
+				connected: false,
+				running: sidecarPool.tabInventory().some(tab => tab.inFlight),
+			})
+			.catch(error =>
+				writeRuntimeLog({
+					source: "keep-awake",
+					message: "failed",
+					details: { policy: "work", error: error instanceof Error ? error.message : String(error) },
+				}),
+			);
+	};
 	// Interrupted turns continue on their own (turn-resume.ts): once the connection is back, and
 	// after a relaunch. The marker file is rewritten on every run-state change, so a crash or a
 	// SIGKILL, which run no quit hook, still leaves it behind.
