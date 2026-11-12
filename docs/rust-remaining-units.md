@@ -94,7 +94,7 @@ From `formal/manifest.json`. A unit that changes a covered file runs `verify-all
 |---|---|
 | `turn-resume` | `turn-resume.ts`, `turn-resume-ends.ts`, `connectivity.ts`, `sidecar-run-state.ts`, `sidecar-pool.ts`, `remote/host-services.ts`, `ipc.ts` |
 | `session-listing` | `remote/host-services.ts`, `sidecar-pool.ts`, `remote/host-session-list.ts`, `remote/client.ts:722-733`, `remote/wire.ts:416-441`, `remote/devices.ts:548-564, 649-651, 957-978`, `session-list-share.ts`, `session-index.ts` (lines) |
-| `web-close-reports` | `web/file-edit-reports.ts`, `crates/core/src/web/router.rs` (`finish`, `receive`, `dispatch`; 8c), `web/ws-router.ts` (`WsRouter.connections`, `WsRouter.call`), `agent-control/tab-close.ts`, `agent-control/service.ts:3327-3339`, `agent-control/host.ts:960-969`, `tab-release.ts` |
+| `web-close-reports` | `web/file-edit-reports.ts`, `crates/core/src/web/router.rs` (`finish`, `receive`, `dispatch`; 8c), `web/ws-router.ts` (`WsRouter.connections`, `WsRouter.call`), `agent-control/tab-close.ts`, `agent-control/service.ts:3327-3339`, `agent-control/host.ts:1370-1379`, `tab-release.ts` |
 | `tab-session` | `omp-launch.ts` `sessionOpen`, `sidecar.ts` `SidecarManager.restart`/`#observeResponse`/`#handleReady`/`#attemptRestart`/`#spawn` |
 | `session-processes` | `session-processes.ts`, `sidecar.ts` `SidecarManager.dispose` |
 | `repo-lock-core` | core `server.rs`, `run.rs`, `sys.rs`, `main.rs` whole, so any unit that touches those files drifts it |
