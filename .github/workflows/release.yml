@@ -366,7 +366,7 @@ jobs:
           AIM="$APP/Contents/Resources/ai-memory-bin/ai-memory"
           test -x "$AIM"
           codesign --verify --strict --verbose=2 "$AIM"
-          # The requirement the app checks before staging it (src/main/ai-memory/binary.ts AI_MEMORY_REQUIREMENT).
+          # The requirement the app checks before staging it (src/main/ai-memory/service.ts AI_MEMORY_REQUIREMENT).
           if [ "$GITHUB_REF" = refs/heads/main ]; then
             codesign --verify --strict -R "=identifier \"ai-memory\" and certificate root = H\"$SHA1\"" "$AIM"
           fi
