@@ -243,7 +243,7 @@ That repair path is 4,880 lines.
 
 Each unit adds a module folder under `crates/core/src/`, one `register` line in `server.rs` and one `mod` line in `lib.rs` (trivial conflicts, a rebase fixes them). Real conflicts come from: `Cargo.toml`/`Cargo.lock` and `LICENSES/ompdesk-native-dependencies.txt` (any two units that add crates), `sys.rs` (5a's process times, 6a's job and process group, R1's random bytes), `run.rs` (5c, 6b, 7d run processes through `Exec`), `main.rs` (6a's mode), the ledger in `.omp/rules/native-rust.md` (every unit appends) and the `mac-native` list in the workflows (a workflow change goes in its own commit before a release commit, AGENTS.md › Release). `server.rs`, `run.rs`, `sys.rs` and `main.rs` are covered whole by `repo-lock-core`, so two units touching them both re-run its verification.
 
-### 3.2 Waves (at most four at once on this computer)
+### 3.2 Waves (waves 1 and 2 as landed; the rest runs as the batches of §3.4)
 
 ```mermaid
 flowchart LR
@@ -285,6 +285,26 @@ flowchart LR
 ### 3.3 When to start the hub program
 
 Before the shell is swapped, each hub unit adds a pipe hop to every command it serves and a mirror of its state in main, and wins nothing at run time: main still parses every omp event to hand it to Electron's windows. The ledger says the shell is chosen by a prototype that measures three candidates (CEF, the system webview alone, the system webview with a separate Chromium for the Preview) against one pass list. The cheaper order is waves 1–4 now, the prototype next, and the hub program once the prototype passes, with 9a (the command entry) as its first unit. If the owner wants the hubs earlier, 9c's mirror pattern (main keeps a copy written only from the core's events) and 3a's snapshot pattern are how; each unit then has to show, by its parity suite and its formal model, that no same-tick read sees a stale mirror.
+
+### 3.4 Batches (from 12 Nov 2026)
+
+The owner's call: the units above move in batches, one session per batch, checked once before the batch lands (`.omp/rules/native-rust.md` › Batches). Waves 1 and 2 landed unit by unit (5a, 5b, 5c, 5d, 6a, 7a; 6b finishing). What remains, in order:
+
+| Batch | Units | Needs | Runs beside |
+|---|---|---|---|
+| **B1 Memory** | 7b, 7c, 7d, and the setup downloads (§2.7) | 6b on `main`; the core's HTTPS (the fix restoring 5d's https and redirects) for the downloads | B2 |
+| **B2 Link and edge, Rust side** | R1, R2, R3, R4, 8a (8a's Rust lands before 8b serves, the ledger's first "built, not yet called" code; decided by the main session under the owner's speed call, reversible: the owner may ask for one longer session instead) | none | B1 |
+| **P Shell prototype** | the three candidates of the ledger against its pass list, the Electron-to-new-shell update included | B1, B2 on `main` (the order the owner kept) | W1 |
+| **W1 Web, cut over** | 8b, 8d, 8e | B2 | P, H1 |
+| **H1 Hubs: entry and omp** | 9a, 9b, 9c | P passed | W1 |
+| **H2 Hubs: pool and resume** | 9d, 9e, 9f | H1 | none (shares `ipc.ts`/`index.ts` wiring) |
+| **H3 Hubs: agent control** | 9g, 9h, 9i, 9j, 9k | H2 | H4a, W2 |
+| **H4a App control** | 9l (two units) | H2 | H3 |
+| **H4b Autopilot** | 9m, 9n | H3 | W2 |
+| **W2 Remote and web, rest** | R5, R6, R7, R8, 8c, 7e | H2 (8c needs 9a) | H3, H4 |
+| **S Shell swap** | the chosen shell, the handoff release, deletion of what §4 lists | everything above | none |
+
+Eleven batches; at most two hub batches at once, as before.
 
 ## 4. What cannot move until the shell is swapped
 
