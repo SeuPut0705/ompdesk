@@ -68,10 +68,10 @@
 				"src/renderer/web/FileEditReporter.tsx",
 				"src/main/web/ws-router.ts#WsRouter.detach",
 				"src/main/web/ws-router.ts#WsConnection.receive",
-				"src/main/web/ws-router.ts:712-758",
+				"src/main/web/ws-router.ts:773-823",
 				"src/main/agent-control/service.ts:3327-3339",
 				"src/main/tab-release.ts#closeWindowTab",
-				"src/main/agent-control/host.ts:960-969"
+				"src/main/agent-control/host.ts:1370-1380"
 			],
 			"syncCommit": "9e917db0cf4441ac1ba8a36af654e0748a618e92",
 			"verifySkill": ".omp/skills/web-close-reports-verify/SKILL.md"
