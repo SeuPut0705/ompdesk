@@ -129,6 +129,14 @@ impl Events {
     }
 }
 
+/// Events into `frames`, for a test that reads what a subsystem sends.
+#[cfg(test)]
+pub(crate) fn test_events(frames: &mpsc::UnboundedSender<Frame>) -> Events {
+    Events {
+        frames: frames.downgrade(),
+    }
+}
+
 /// What a handler is given.
 pub struct Call {
     pub params: Box<RawValue>,
@@ -236,6 +244,8 @@ pub fn registry() -> Registry {
     crate::web::push::register(&mut registry);
     crate::web::router::register(&mut registry);
     crate::web::store::register(&mut registry);
+    crate::agentctl::register(&mut registry);
+    crate::ports::register(&mut registry);
     registry
 }
 

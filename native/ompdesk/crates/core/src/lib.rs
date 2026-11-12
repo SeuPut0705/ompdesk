@@ -2,6 +2,7 @@
 //! stdio and speaks JSON lines to it (`wire`); each subsystem registers its methods (`server`). It is a library over
 //! any `AsyncRead`/`AsyncWrite`, so tests drive it in process; the binary serves stdio.
 
+pub mod agentctl;
 pub mod aimemory;
 pub mod browsers;
 pub mod care;
@@ -20,6 +21,7 @@ pub mod memory;
 mod memsync;
 pub mod models;
 pub mod omp;
+pub mod ports;
 pub mod procs;
 pub mod remote;
 pub mod remotebytes;
