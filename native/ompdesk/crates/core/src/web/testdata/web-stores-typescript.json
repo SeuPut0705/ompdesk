@@ -1,0 +1,464 @@
+{
+ "comment": "Rows captured from src/main/web/{devices-store,blocks-store,serve-secret}.ts before they moved to the core (12 Nov 2026). devicesWritten is the file as the stores wrote it while they ran (members in creation order); devices is the same list written again after a reload (the schema's order); cookies belong to devicesWritten/devices; verdicts are blocks.check over a grid of visitors.",
+ "now": 1700000122000,
+ "ids": {
+  "a": "y0vyv2swejmgewvpr54yekv8gm",
+  "b": "ekq94zs2x9e3pezcdncqwacv5r",
+  "c": "cf8g8abw69mte3k8pwehxznjpm"
+ },
+ "cookies": {
+  "a": "y0vyv2swejmgewvpr54yekv8gm.pjK53caS9ZeYfPzZmUovxoJUbwzlpg-7PFMIEVuGmTk",
+  "b": "ekq94zs2x9e3pezcdncqwacv5r.3z5bBjPyU4xmi9LtqOqhe1MsvH_v0iCdstulE4ip7Q8",
+  "c": "cf8g8abw69mte3k8pwehxznjpm.fJBbL0gn0yZUpTKitocDXrv8Rs1k6raq6h4DbfnaY00"
+ },
+ "devicesWritten": "{\n\t\"v\": 1,\n\t\"devices\": [\n\t\t{\n\t\t\t\"deviceId\": \"y0vyv2swejmgewvpr54yekv8gm\",\n\t\t\t\"name\": \"iPhone\",\n\t\t\t\"userAgent\": \"Mozilla/5.0 (iPhone)\",\n\t\t\t\"tailscaleLogin\": \"me@example.com\",\n\t\t\t\"nodeId\": \"nPHONE1\",\n\t\t\t\"secretSha256\": \"220e7cf68fddae68622243cd0883ef48d97d37c9d25b572d6768920d0e4d673d\",\n\t\t\t\"publicKeyJwk\": {\n\t\t\t\t\"kty\": \"EC\",\n\t\t\t\t\"crv\": \"P-256\",\n\t\t\t\t\"x\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\n\t\t\t\t\"y\": \"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"\n\t\t\t},\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"settings-write\",\n\t\t\t\t\"accounts-admin\",\n\t\t\t\t\"extensions-admin\",\n\t\t\t\t\"host-admin\",\n\t\t\t\t\"desktop-control\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {},\n\t\t\t\"createdAt\": 1700000000000,\n\t\t\t\"lastSeenAt\": 1700000000000,\n\t\t\t\"push\": {\n\t\t\t\t\"subscription\": {\n\t\t\t\t\t\"endpoint\": \"https://push.example.com/a\",\n\t\t\t\t\t\"keys\": {\n\t\t\t\t\t\t\"p256dh\": \"ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\",\n\t\t\t\t\t\t\"auth\": \"aaaaaaaaaaaaaaaaaaaaaa\"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\t\"hideContent\": true,\n\t\t\t\t\"categories\": [\n\t\t\t\t\t\"ask\",\n\t\t\t\t\t\"error\"\n\t\t\t\t]\n\t\t\t},\n\t\t\t\"limits\": {\n\t\t\t\t\"requestsPerDay\": 5\n\t\t\t},\n\t\t\t\"usage\": {\n\t\t\t\t\"day\": \"2026-11-12\",\n\t\t\t\t\"requests\": 2,\n\t\t\t\t\"tokens\": 900\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"deviceId\": \"ekq94zs2x9e3pezcdncqwacv5r\",\n\t\t\t\"name\": \"Pad\",\n\t\t\t\"userAgent\": \"ua \\\"quoted\\\" é中\\n\",\n\t\t\t\"tailscaleLogin\": null,\n\t\t\t\"nodeId\": null,\n\t\t\t\"secretSha256\": \"c77fecaef0df16bad41ade1885397a052fd952c9b815bddac8323ac694d8d699\",\n\t\t\t\"publicKeyJwk\": null,\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {\n\t\t\t\t\"theme\": \"dark\",\n\t\t\t\t\"widths\": {\n\t\t\t\t\t\"sidebar\": 280,\n\t\t\t\t\t\"panel\": 410.5\n\t\t\t\t},\n\t\t\t\t\"list\": [\n\t\t\t\t\t1,\n\t\t\t\t\t\"x\",\n\t\t\t\t\tnull,\n\t\t\t\t\ttrue\n\t\t\t\t]\n\t\t\t},\n\t\t\t\"createdAt\": 1700000001000,\n\t\t\t\"lastSeenAt\": 1700000122000\n\t\t},\n\t\t{\n\t\t\t\"deviceId\": \"cf8g8abw69mte3k8pwehxznjpm\",\n\t\t\t\"name\": \"Studio Mac\",\n\t\t\t\"userAgent\": \"\",\n\t\t\t\"tailscaleLogin\": \"me@example.com\",\n\t\t\t\"nodeId\": null,\n\t\t\t\"secretSha256\": \"f6a2338cc5a2d3427d42dc0c39b5c5c2f4720eb254121196889461145182d741\",\n\t\t\t\"publicKeyJwk\": null,\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {},\n\t\t\t\"createdAt\": 1700000002000,\n\t\t\t\"lastSeenAt\": 1700000002000,\n\t\t\t\"limits\": {\n\t\t\t\t\"tokensPerDay\": 100000,\n\t\t\t\t\"requestsPerDay\": 0\n\t\t\t}\n\t\t}\n\t]\n}\n",
+ "devices": "{\n\t\"v\": 1,\n\t\"devices\": [\n\t\t{\n\t\t\t\"deviceId\": \"y0vyv2swejmgewvpr54yekv8gm\",\n\t\t\t\"name\": \"iPhone\",\n\t\t\t\"userAgent\": \"Mozilla/5.0 (iPhone)\",\n\t\t\t\"tailscaleLogin\": \"me@example.com\",\n\t\t\t\"nodeId\": \"nPHONE1\",\n\t\t\t\"secretSha256\": \"220e7cf68fddae68622243cd0883ef48d97d37c9d25b572d6768920d0e4d673d\",\n\t\t\t\"publicKeyJwk\": {\n\t\t\t\t\"kty\": \"EC\",\n\t\t\t\t\"crv\": \"P-256\",\n\t\t\t\t\"x\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\n\t\t\t\t\"y\": \"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"\n\t\t\t},\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"settings-write\",\n\t\t\t\t\"accounts-admin\",\n\t\t\t\t\"extensions-admin\",\n\t\t\t\t\"host-admin\",\n\t\t\t\t\"desktop-control\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {},\n\t\t\t\"createdAt\": 1700000000000,\n\t\t\t\"lastSeenAt\": 1700000000000,\n\t\t\t\"limits\": {\n\t\t\t\t\"requestsPerDay\": 5\n\t\t\t},\n\t\t\t\"usage\": {\n\t\t\t\t\"day\": \"2026-11-12\",\n\t\t\t\t\"requests\": 2,\n\t\t\t\t\"tokens\": 900\n\t\t\t},\n\t\t\t\"push\": {\n\t\t\t\t\"subscription\": {\n\t\t\t\t\t\"endpoint\": \"https://push.example.com/a\",\n\t\t\t\t\t\"keys\": {\n\t\t\t\t\t\t\"p256dh\": \"ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp\",\n\t\t\t\t\t\t\"auth\": \"aaaaaaaaaaaaaaaaaaaaaa\"\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\t\"hideContent\": true,\n\t\t\t\t\"categories\": [\n\t\t\t\t\t\"ask\",\n\t\t\t\t\t\"error\"\n\t\t\t\t]\n\t\t\t}\n\t\t},\n\t\t{\n\t\t\t\"deviceId\": \"ekq94zs2x9e3pezcdncqwacv5r\",\n\t\t\t\"name\": \"Pad\",\n\t\t\t\"userAgent\": \"ua \\\"quoted\\\" é中\\n\",\n\t\t\t\"tailscaleLogin\": null,\n\t\t\t\"nodeId\": null,\n\t\t\t\"secretSha256\": \"c77fecaef0df16bad41ade1885397a052fd952c9b815bddac8323ac694d8d699\",\n\t\t\t\"publicKeyJwk\": null,\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {\n\t\t\t\t\"theme\": \"dark\",\n\t\t\t\t\"widths\": {\n\t\t\t\t\t\"sidebar\": 280,\n\t\t\t\t\t\"panel\": 410.5\n\t\t\t\t},\n\t\t\t\t\"list\": [\n\t\t\t\t\t1,\n\t\t\t\t\t\"x\",\n\t\t\t\t\tnull,\n\t\t\t\t\ttrue\n\t\t\t\t]\n\t\t\t},\n\t\t\t\"createdAt\": 1700000001000,\n\t\t\t\"lastSeenAt\": 1700000122000\n\t\t},\n\t\t{\n\t\t\t\"deviceId\": \"cf8g8abw69mte3k8pwehxznjpm\",\n\t\t\t\"name\": \"Studio Mac\",\n\t\t\t\"userAgent\": \"\",\n\t\t\t\"tailscaleLogin\": \"me@example.com\",\n\t\t\t\"nodeId\": null,\n\t\t\t\"secretSha256\": \"f6a2338cc5a2d3427d42dc0c39b5c5c2f4720eb254121196889461145182d741\",\n\t\t\t\"publicKeyJwk\": null,\n\t\t\t\"grants\": [\n\t\t\t\t\"workspace\",\n\t\t\t\t\"device-self\"\n\t\t\t],\n\t\t\t\"uiPrefs\": {},\n\t\t\t\"createdAt\": 1700000002000,\n\t\t\t\"lastSeenAt\": 1700000002000,\n\t\t\t\"limits\": {\n\t\t\t\t\"requestsPerDay\": 0,\n\t\t\t\t\"tokensPerDay\": 100000\n\t\t\t}\n\t\t}\n\t]\n}\n",
+ "blocks": "{\n\t\"v\": 1,\n\t\"blocked\": [\n\t\t{\n\t\t\t\"id\": \"node:nPHONE1\",\n\t\t\t\"scope\": \"node\",\n\t\t\t\"name\": \"s25u\",\n\t\t\t\"tailscaleLogin\": \"Me@Example.com\",\n\t\t\t\"blockedAt\": 42\n\t\t},\n\t\t{\n\t\t\t\"id\": \"login:gone@example.com\",\n\t\t\t\"scope\": \"login\",\n\t\t\t\"name\": \"tablet \\\"x\\\"\",\n\t\t\t\"tailscaleLogin\": \"gone@example.com\",\n\t\t\t\"blockedAt\": 42\n\t\t},\n\t\t{\n\t\t\t\"id\": \"node:nOLD\",\n\t\t\t\"scope\": \"node\",\n\t\t\t\"name\": \"new\",\n\t\t\t\"tailscaleLogin\": \"kim@example.com\",\n\t\t\t\"blockedAt\": 42\n\t\t}\n\t]\n}\n",
+ "verdicts": [
+  {
+   "nodeId": null,
+   "login": null,
+   "verdict": null
+  },
+  {
+   "nodeId": null,
+   "login": "me@example.com",
+   "verdict": "unidentified"
+  },
+  {
+   "nodeId": null,
+   "login": "ME@example.com",
+   "verdict": "unidentified"
+  },
+  {
+   "nodeId": null,
+   "login": " gone@example.com ",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": null,
+   "login": "GONE@EXAMPLE.COM",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": null,
+   "login": "kim@example.com",
+   "verdict": "unidentified"
+  },
+  {
+   "nodeId": null,
+   "login": "Kim@Example.com",
+   "verdict": "unidentified"
+  },
+  {
+   "nodeId": null,
+   "login": "other@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": null,
+   "login": "",
+   "verdict": null
+  },
+  {
+   "nodeId": null,
+   "login": " ",
+   "verdict": null
+  },
+  {
+   "nodeId": null,
+   "login": " me@example.com ",
+   "verdict": "unidentified"
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": null,
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "me@example.com",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "ME@example.com",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": " gone@example.com ",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "GONE@EXAMPLE.COM",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "kim@example.com",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "Kim@Example.com",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "other@example.com",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": "",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": " ",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nPHONE1",
+   "login": " me@example.com ",
+   "verdict": {
+    "id": "node:nPHONE1",
+    "scope": "node",
+    "name": "s25u",
+    "tailscaleLogin": "Me@Example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": null,
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "me@example.com",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "ME@example.com",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": " gone@example.com ",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "GONE@EXAMPLE.COM",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "kim@example.com",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "Kim@Example.com",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "other@example.com",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": "",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": " ",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOLD",
+   "login": " me@example.com ",
+   "verdict": {
+    "id": "node:nOLD",
+    "scope": "node",
+    "name": "new",
+    "tailscaleLogin": "kim@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOK",
+   "login": null,
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": "me@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": "ME@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": " gone@example.com ",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOK",
+   "login": "GONE@EXAMPLE.COM",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nOK",
+   "login": "kim@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": "Kim@Example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": "other@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": "",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": " ",
+   "verdict": null
+  },
+  {
+   "nodeId": "nOK",
+   "login": " me@example.com ",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": null,
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": "me@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": "ME@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": " gone@example.com ",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nANY",
+   "login": "GONE@EXAMPLE.COM",
+   "verdict": {
+    "id": "login:gone@example.com",
+    "scope": "login",
+    "name": "tablet \"x\"",
+    "tailscaleLogin": "gone@example.com",
+    "blockedAt": 42
+   }
+  },
+  {
+   "nodeId": "nANY",
+   "login": "kim@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": "Kim@Example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": "other@example.com",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": "",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": " ",
+   "verdict": null
+  },
+  {
+   "nodeId": "nANY",
+   "login": " me@example.com ",
+   "verdict": null
+  }
+ ],
+ "secretFile": "{\n\t\"v\": 1,\n\t\"secret\": \"Ohhs0nRDS5-tCOPzH6XrZs-CLjSk7xHPe8VBx8_-gS4\"\n}\n",
+ "secret": "Ohhs0nRDS5-tCOPzH6XrZs-CLjSk7xHPe8VBx8_-gS4"
+}

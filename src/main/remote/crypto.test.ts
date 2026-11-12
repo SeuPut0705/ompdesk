@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { base32, isRawKey, randomDeviceId } from "./crypto";
+import { isRawKey } from "./crypto";
 import { HostStore } from "./hosts-store";
 import { identityFile, loadIdentity } from "./identity";
 import { PeerStore } from "./peers-store";
@@ -33,7 +33,7 @@ describe("identity and stores", () => {
 	it("replaces an identity file whose keys do not match with a new identity", async () => {
 		const written = {
 			v: 1,
-			deviceId: randomDeviceId(),
+			deviceId: "z".repeat(26),
 			publicKey: generateKeyPair().publicKey,
 			privateKey: "A".repeat(43),
 		};
@@ -41,13 +41,6 @@ describe("identity and stores", () => {
 		const fresh = await loadIdentity(dir);
 		expect(fresh.deviceId).not.toBe(written.deviceId);
 		expect(await loadIdentity(dir)).toEqual(fresh);
-	});
-
-	it("spells device ids in Crockford base32, lowercase and unpadded", () => {
-		expect(base32(Uint8Array.of())).toBe("");
-		expect(base32(Uint8Array.of(0xff))).toBe("zw");
-		expect(base32(Uint8Array.from([0xde, 0xad, 0xbe, 0xef, 0x01]))).toBe("vtpvxvr1");
-		expect(randomDeviceId()).toMatch(/^[0-9a-z]{26}$/);
 	});
 
 	it("writes peers and hosts atomically with mode 0600, and reads an older record as not yet bound to a node", () => {
