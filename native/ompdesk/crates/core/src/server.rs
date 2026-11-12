@@ -165,6 +165,7 @@ impl Registry {
 pub fn registry() -> Registry {
     let mut registry = Registry::default();
     registry.add("core.echo", |call| Box::pin(echo(call)));
+    crate::aimemory::register(&mut registry);
     crate::browsers::register(&mut registry);
     crate::disk::register(&mut registry);
     crate::ext::register(&mut registry);

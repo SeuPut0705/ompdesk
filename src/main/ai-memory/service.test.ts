@@ -14,7 +14,7 @@ import { SetupRunner, type SupervisedChild } from "../setup/runner";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import { RM_TEMP } from "../test-fake-omp";
 import { MAC_STAGE_KEY } from "./binary";
-import { AiMemoryClient } from "./client";
+import { AiMemoryClient, type ServerStatus } from "./client";
 import { ROOT_SERVER, rootComplete } from "./root";
 import { AI_MEMORY_STEP_MAX_MS, AiMemoryService, type AiMemoryServiceDeps, parsePlan, parseProblems } from "./service";
 import { TERMINAL_EXTENSION_ID, TERMINAL_MCP_ID } from "./suppress";
@@ -83,6 +83,33 @@ interface World {
 	states: AiMemoryState[];
 	clock: { now: number };
 	service: AiMemoryService;
+}
+
+/**
+ * The memory server as these tests have it: `/healthz` answers by `health`, `/admin/status` with fixed counts. Every
+ * other question is the real client's, with no server to ask.
+ */
+class FakeServerClient extends AiMemoryClient {
+	readonly #health: World["health"];
+
+	constructor(health: World["health"], dataDir: string) {
+		super({ url: () => null, dataDir: () => dataDir });
+		this.#health = health;
+	}
+
+	override async healthy(): Promise<boolean> {
+		const health = this.#health;
+		health.healthCalls += 1;
+		health.inFlight += 1;
+		health.maxInFlight = Math.max(health.maxInFlight, health.inFlight);
+		await health.gate;
+		health.inFlight -= 1;
+		return health.up;
+	}
+
+	override async status(): Promise<ServerStatus | null> {
+		return { version: "3.1.1", pages: 4, sessions: 2, observations: 30, diskBytes: 2048 };
+	}
 }
 
 async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<World> {
@@ -199,28 +226,7 @@ async function world(overrides: Partial<AiMemoryServiceDeps> = {}): Promise<Worl
 		return child;
 	};
 
-	const client = new AiMemoryClient({
-		url: () => SERVER,
-		dataDir: () => dataDir,
-		fetch: async url => {
-			if (url.endsWith("/healthz")) {
-				health.healthCalls += 1;
-				health.inFlight += 1;
-				health.maxInFlight = Math.max(health.maxInFlight, health.inFlight);
-				await health.gate;
-				health.inFlight -= 1;
-				return new Response(health.up ? "ok" : "down", { status: health.up ? 200 : 503 });
-			}
-			if (url.endsWith("/admin/status")) {
-				return Response.json({
-					version: "3.1.1",
-					counts: { pages_latest: 4, sessions: 2, observations: 30 },
-					storage: { database_bytes: 2048 },
-				});
-			}
-			throw new TypeError("unexpected request");
-		},
-	});
+	const client = new FakeServerClient(health, dataDir);
 
 	const control: ServiceControl = {
 		inspect: async () => ({ installed: unit.installed, ours: unit.ours }),

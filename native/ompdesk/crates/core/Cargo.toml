@@ -39,6 +39,13 @@ icu_locale_core = "2"
 icu_normalizer = "2"
 # The history's commit links read a remote's URL as node's `URL` does: the WHATWG URL standard (host, IDNA, path).
 url = "2"
+# The core's HTTP stack, chosen once (`http.rs`; native-rust ledger 5d): hyper's HTTP/1 connection for the client of
+# the local ai-memory server, hyper-util's adapter from tokio's sockets to hyper's I/O traits, http-body-util to build
+# a request's body and collect an answer's under a bound. No TLS and no pooled client: each comes with the unit that
+# needs it. The web server (8a) adds hyper's `server` feature to the same crates.
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http-body-util = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 # errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a

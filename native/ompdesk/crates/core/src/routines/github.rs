@@ -526,7 +526,7 @@ fn utf16_prefix(text: &str, units: usize) -> String {
 }
 
 /// `encodeURIComponent`.
-fn encode_uri_component(text: &str) -> String {
+pub(crate) fn encode_uri_component(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {

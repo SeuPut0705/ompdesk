@@ -723,8 +723,9 @@ export class AiMemoryService {
 			if (facts?.dataDir) this.#patch({ dataDir: facts.dataDir });
 			// Whether a server of someone else's already runs on this data dir (read before `init` can write a config).
 			const before = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
+			const configured = before === null ? null : await serverUrlFromConfig(before);
 			throwIfStepStalled();
-			if (before !== null) this.#patch({ serverUrl: serverUrlFromConfig(before) });
+			if (configured !== null) this.#patch({ serverUrl: configured });
 			const serverWasUp = before !== null && (await this.#client.healthy());
 			throwIfStepStalled();
 			// A fresh data dir: ai-memory's own `init` writes the config (and token) first, and the one setting OMPdesk
@@ -778,8 +779,9 @@ export class AiMemoryService {
 				throw error;
 			}
 			const toml = facts?.configPath ? await readFile(facts.configPath, "utf8").catch(() => null) : null;
+			const serverUrl = await serverUrlFromConfig(toml);
 			throwIfStepStalled();
-			this.#patch({ serverUrl: serverUrlFromConfig(toml) });
+			this.#patch({ serverUrl });
 			const generated = await this.#generateRoot(resolved.bin);
 			throwIfStepStalled();
 			if (!generated) return;

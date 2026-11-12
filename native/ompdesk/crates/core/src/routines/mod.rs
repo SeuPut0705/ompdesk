@@ -12,7 +12,7 @@
 //! replaced (`Gh::scrub`).
 
 mod files;
-mod github;
+pub(crate) mod github;
 pub(crate) mod text;
 
 use serde::{Deserialize, Serialize};

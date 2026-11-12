@@ -1,27 +1,22 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
-import { AiMemoryClient, DEFAULT_SERVER_URL, plainSnippet, serverUrlFromConfig } from "./client";
+import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
+import { type FakeMemoryServer, fakeMemoryServer } from "./fake-server-test-rig";
 
 const URL_BASE = "http://127.0.0.1:49374";
 
 describe("serverUrlFromConfig", () => {
-	it("prefers server_url, then bind, then the default", () => {
-		expect(serverUrlFromConfig('server_url = "http://127.0.0.1:5000/"\nbind = "127.0.0.1:6000"\n')).toBe(
+	it("prefers server_url, then bind, then the default", async () => {
+		expect(await serverUrlFromConfig('server_url = "http://127.0.0.1:5000/"\nbind = "127.0.0.1:6000"\n')).toBe(
 			"http://127.0.0.1:5000",
 		);
-		expect(serverUrlFromConfig('[server]\nbind = "127.0.0.1:49374"\n')).toBe(URL_BASE);
-		expect(serverUrlFromConfig('# bind = "x"\nname = "y"')).toBe(DEFAULT_SERVER_URL);
-		expect(serverUrlFromConfig(null)).toBe(DEFAULT_SERVER_URL);
-		expect(serverUrlFromConfig("")).toBe(DEFAULT_SERVER_URL);
-	});
-});
-
-describe("plainSnippet", () => {
-	it("strips <mark> tags and nothing else", () => {
-		expect(plainSnippet("the <mark>codename</mark> is <b>x</b> <mark>y</mark>")).toBe("the codename is <b>x</b> y");
+		expect(await serverUrlFromConfig('[server]\nbind = "127.0.0.1:49374"\n')).toBe(URL_BASE);
+		expect(await serverUrlFromConfig('# bind = "x"\nname = "y"')).toBe(DEFAULT_SERVER_URL);
+		expect(await serverUrlFromConfig(null)).toBe(DEFAULT_SERVER_URL);
+		expect(await serverUrlFromConfig("")).toBe(DEFAULT_SERVER_URL);
 	});
 });
 
@@ -35,6 +30,7 @@ describe("AiMemoryClient", () => {
 	let calls: Call[];
 	let routes: Record<string, () => Response>;
 	let client: AiMemoryClient;
+	let server: FakeMemoryServer;
 
 	const json =
 		(body: unknown, status = 200) =>
@@ -47,20 +43,19 @@ describe("AiMemoryClient", () => {
 		await writeFile(join(dataDir, "auth-tokens", "default"), "secret-token\n");
 		calls = [];
 		routes = {};
-		client = new AiMemoryClient({
-			url: () => URL_BASE,
-			dataDir: () => dataDir,
-			fetch: async (url, init) => {
-				const headers = new Headers(init.headers);
-				calls.push({ url, authorization: headers.get("authorization") ?? undefined });
-				const route = routes[url.slice(URL_BASE.length)];
-				if (!route) throw new TypeError(`unexpected ${url}`);
-				return route();
-			},
-		});
+		// The routes are written against the address the server usually has; the core dials the stand-in's own.
+		server = await fakeMemoryServer(async (url, init) => {
+			const headers = new Headers(init.headers);
+			calls.push({ url, authorization: headers.get("authorization") ?? undefined });
+			const route = routes[url.slice(URL_BASE.length)];
+			if (!route) throw new TypeError(`unexpected ${url}`);
+			return route();
+		}, URL_BASE);
+		client = new AiMemoryClient({ url: () => server.url, dataDir: () => dataDir });
 	});
 
 	afterEach(async () => {
+		await server.close();
 		await rm(dataDir, RM_TEMP);
 	});
 
@@ -285,14 +280,7 @@ describe("AiMemoryClient", () => {
 
 	it("sends no authorization header before a token exists", async () => {
 		routes["/api/v1/projects"] = json([]);
-		const tokenless = new AiMemoryClient({
-			url: () => URL_BASE,
-			dataDir: () => join(dataDir, "none"),
-			fetch: async (url, init) => {
-				calls.push({ url, authorization: new Headers(init.headers).get("authorization") ?? undefined });
-				return Response.json([]);
-			},
-		});
+		const tokenless = new AiMemoryClient({ url: () => server.url, dataDir: () => join(dataDir, "none") });
 		await tokenless.projects();
 		expect(calls[0]?.authorization).toBeUndefined();
 	});
@@ -310,6 +298,7 @@ describe("AiMemoryClient (Memory page)", () => {
 	let sent: Sent[];
 	let routes: Record<string, (body: unknown) => Response>;
 	let client: AiMemoryClient;
+	let server: FakeMemoryServer;
 	const PROJECT = { workspace: "w", project: "p" };
 	const BASE = "/api/v1/workspaces/w/projects/p";
 
@@ -326,22 +315,61 @@ describe("AiMemoryClient (Memory page)", () => {
 		await writeFile(join(dataDir, "auth-tokens", "default"), "tok\n");
 		sent = [];
 		routes = {};
-		client = new AiMemoryClient({
-			url: () => URL_BASE,
-			dataDir: () => dataDir,
-			fetch: async (url, init) => {
-				const path = url.slice(URL_BASE.length);
-				const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
-				sent.push({ path, method: init.method ?? "GET", body, headers: new Headers(init.headers) });
-				const route = routes[path];
-				if (!route) throw new TypeError(`unexpected ${url}`);
-				return route(body);
-			},
-		});
+		server = await fakeMemoryServer(async (url, init) => {
+			const path = url.slice(URL_BASE.length);
+			const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+			sent.push({ path, method: init.method ?? "GET", body, headers: new Headers(init.headers) });
+			const route = routes[path];
+			if (!route) throw new TypeError(`unexpected ${url}`);
+			return route(body);
+		}, URL_BASE);
+		client = new AiMemoryClient({ url: () => server.url, dataDir: () => dataDir });
 	});
 
 	afterEach(async () => {
+		await server.close();
 		await rm(dataDir, RM_TEMP);
+	});
+
+	it("reports nothing of the token when the server says it back, fails or is gone", async () => {
+		const token = "root-7f3c9a1e5b2d4860aa17c0de-token";
+		await writeFile(join(dataDir, "auth-tokens", "default"), `${token}\n`);
+		const logged = vi.spyOn(console, "warn");
+		const said = `denied for Bearer ${token}`;
+		const message = (failing: Promise<unknown>) => failing.then(String, (error: Error) => error.message);
+		routes[`${BASE}/pages`] = json({ error: said }, 401);
+		routes["/admin/write-page"] = json({ detail: said }, 500);
+		routes["/mcp"] = json({ jsonrpc: "2.0", id: 1, error: { code: -32603, message: said } });
+		const reports = [
+			await message(client.pages(PROJECT)),
+			await message(client.writePage({ ...PROJECT, path: "a.md", body: "b" })),
+			await message(client.feedback({ ...PROJECT, path: "a.md" }, "helpful")),
+		];
+		routes["/mcp"] = json({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { isError: true, content: [{ type: "text", text: said }] },
+		});
+		reports.push(await message(client.cancelHandoff(PROJECT, "h-1")));
+		reports.push(await message(client.overview(PROJECT)));
+		const gone = new AiMemoryClient({ url: () => "https://127.0.0.1:1", dataDir: () => dataDir });
+		reports.push(await message(gone.pages(PROJECT)));
+		expect(reports).toEqual([
+			"denied for Bearer ***",
+			"Memory answered 500",
+			"denied for Bearer ***",
+			"denied for Bearer ***",
+			"Memory is not running",
+			"Memory is not running",
+		]);
+		// Every request to the server carried it; nothing else did.
+		expect(sent.length).toBe(5);
+		for (const request of sent) expect(request.headers.get("authorization")).toBe(`Bearer ${token}`);
+		for (const text of [...reports, ...logged.mock.calls.flat().map(String)]) {
+			expect(text).not.toContain(token);
+			expect(text).not.toContain(token.slice(5, 21));
+		}
+		logged.mockRestore();
 	});
 
 	it("lists a project's pages with kind and tier, newest first", async () => {
