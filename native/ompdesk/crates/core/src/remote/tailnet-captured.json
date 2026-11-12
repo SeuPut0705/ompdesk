@@ -1,0 +1,430 @@
+{
+ "addresses": [
+  {
+   "ip": "100.64.0.1",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.64.0.1"
+  },
+  {
+   "ip": "100.127.255.254",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.127.255.254"
+  },
+  {
+   "ip": "100.100.1.2",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.100.1.2"
+  },
+  {
+   "ip": "100.63.255.255",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "100.63.255.255"
+  },
+  {
+   "ip": "100.128.0.1",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "100.128.0.1"
+  },
+  {
+   "ip": "100.64.0.0",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.64.0.0"
+  },
+  {
+   "ip": "100.127.255.255",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.127.255.255"
+  },
+  {
+   "ip": "127.0.0.1",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "127.0.0.1"
+  },
+  {
+   "ip": "192.168.1.2",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "192.168.1.2"
+  },
+  {
+   "ip": "10.0.0.1",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "10.0.0.1"
+  },
+  {
+   "ip": "0.0.0.0",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "0.0.0.0"
+  },
+  {
+   "ip": "255.255.255.255",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "255.255.255.255"
+  },
+  {
+   "ip": "100.64.0",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0"
+  },
+  {
+   "ip": "100.64.0.1.2",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.1.2"
+  },
+  {
+   "ip": "100.064.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.064.0.1"
+  },
+  {
+   "ip": "100.64.0.01",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.01"
+  },
+  {
+   "ip": "100.64.0.256",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.256"
+  },
+  {
+   "ip": "100.-64.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.-64.0.1"
+  },
+  {
+   "ip": "100.64.0.1 ",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.1 "
+  },
+  {
+   "ip": " 100.64.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": " 100.64.0.1"
+  },
+  {
+   "ip": "100.64.0.1\n",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.1\n"
+  },
+  {
+   "ip": "100.0x40.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.0x40.0.1"
+  },
+  {
+   "ip": "::ffff:100.64.0.1",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.64.0.1"
+  },
+  {
+   "ip": "::FFFF:100.100.1.2",
+   "tailnet": true,
+   "family": 4,
+   "stripped": "100.100.1.2"
+  },
+  {
+   "ip": "::ffff:100.63.0.1",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "100.63.0.1"
+  },
+  {
+   "ip": "::ffff:127.0.0.1",
+   "tailnet": false,
+   "family": 4,
+   "stripped": "127.0.0.1"
+  },
+  {
+   "ip": "::ffff:",
+   "tailnet": false,
+   "family": 0,
+   "stripped": ""
+  },
+  {
+   "ip": "::ffff:::ffff:100.64.0.1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "::ffff:100.64.0.1"
+  },
+  {
+   "ip": "::ffff:0:100.64.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "0:100.64.0.1"
+  },
+  {
+   "ip": "0:0:0:0:0:ffff:100.64.0.1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "0:0:0:0:0:ffff:100.64.0.1"
+  },
+  {
+   "ip": "::ffff:6440:1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "6440:1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:ab12::1"
+  },
+  {
+   "ip": "FD7A:115C:A1E0:AB12::1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "FD7A:115C:A1E0:AB12::1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0::1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0::1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:0:0:0:0:1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:0:0:0:0:1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:1:2:3:4:5",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:1:2:3:4:5"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:1:2:3:4:5:6",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:1:2:3:4:5:6"
+  },
+  {
+   "ip": "fd7a:115c:a1e0::",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0::"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:"
+  },
+  {
+   "ip": "fd7a:115c:a1e0",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0"
+  },
+  {
+   "ip": "fd7a:115c:a1e1::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e1::1"
+  },
+  {
+   "ip": "fd7a:115c:a1df::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "fd7a:115c:a1df::1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1%eth0",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:ab12::1%eth0"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1%",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:ab12::1%"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1%en0.1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:ab12::1%en0.1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1%a b",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:ab12::1%a b"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12:0:0:1.2.3.4",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:ab12:0:0:1.2.3.4"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1.2.3.4",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0:ab12::1.2.3.4"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::1.2.3.256",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:ab12::1.2.3.256"
+  },
+  {
+   "ip": "fd7a:0115c:a1e0::1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:0115c:a1e0::1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:g::1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:g::1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:::1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:::1"
+  },
+  {
+   "ip": "::ffff:fd7a:115c:a1e0::1",
+   "tailnet": true,
+   "family": 6,
+   "stripped": "fd7a:115c:a1e0::1"
+  },
+  {
+   "ip": "fd12::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "fd12::1"
+  },
+  {
+   "ip": "::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "::1"
+  },
+  {
+   "ip": "::",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "::"
+  },
+  {
+   "ip": "x",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "x"
+  },
+  {
+   "ip": "",
+   "tailnet": false,
+   "family": 0,
+   "stripped": ""
+  },
+  {
+   "ip": "fe80::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "fe80::1"
+  },
+  {
+   "ip": "fe80::1%eth0",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "fe80::1%eth0"
+  },
+  {
+   "ip": "[fd7a:115c:a1e0::1]",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "[fd7a:115c:a1e0::1]"
+  },
+  {
+   "ip": "2001:db8::1",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "2001:db8::1"
+  },
+  {
+   "ip": "1::",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "1::"
+  },
+  {
+   "ip": "::1.2.3.4",
+   "tailnet": false,
+   "family": 6,
+   "stripped": "::1.2.3.4"
+  },
+  {
+   "ip": "--help",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "--help"
+  },
+  {
+   "ip": "-1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "-1"
+  },
+  {
+   "ip": "localhost",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "localhost"
+  },
+  {
+   "ip": "100.64.0.1:80",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.1:80"
+  },
+  {
+   "ip": "100.64.0.1/32",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "100.64.0.1/32"
+  },
+  {
+   "ip": "１００.64.0.1",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "１００.64.0.1"
+  },
+  {
+   "ip": "fd7a:115c:a1e0:ab12::１",
+   "tailnet": false,
+   "family": 0,
+   "stripped": "fd7a:115c:a1e0:ab12::１"
+  }
+ ]
+}

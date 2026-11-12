@@ -1,8 +1,8 @@
 //! Tailscale, for Mobile web and for sharing this computer with other OMPdesk computers (was the logic of
 //! `src/main/tailscale/`): finding the CLI (`locate.rs`), running it, reading what it prints (`status.rs`, `whois.rs`,
 //! `serve.rs`, `text.rs`) and the rules of publishing the page with `serve`. Main keeps what is its own state: Mobile
-//! web's phases with its prefs, its server and its poll (`service.ts`), and the brief caches of computer sharing's
-//! reads (`tailnet.ts`).
+//! web's phases with its prefs, its server and its poll (`service.ts`); computer sharing's brief caches of these
+//! reads are `remote/tailnet.rs`'s.
 //!
 //! Main decides how the CLI runs and hands it over with every request (`tailscale`: the binary a lookup found, its
 //! whole environment with the located CLI's own variables over it, the 10 s ceiling and the 4 MiB cap). This side
@@ -287,6 +287,30 @@ async fn whois(params: WhoisParams, scope: Scope) -> Result<Option<whois::Peer>,
         .await?;
     Ok(read.ok().then(|| whois::parse(&read.stdout)).flatten())
 }
+
+/// `status --json` for computer sharing's cache (`remote/tailnet.rs`): the document when the CLI exited 0 and
+/// printed one, as the JSON main's `TailscaleStatus` types; none otherwise (a failed or unreadable run is the same to
+/// it, and so is a cancelled one).
+pub(crate) async fn read_status(runner: Runner, scope: Scope) -> Option<Value> {
+    let answer = status(CliParams { tailscale: runner }, scope).await.ok()?;
+    if answer.code != Some(0) {
+        return None;
+    }
+    serde_json::to_value(answer.status?).ok()
+}
+
+/// `whois` of a tailnet address for the same cache: `{nodeId, nodeName, login}`, none when the CLI did not say.
+pub(crate) async fn read_whois(runner: Runner, ip: &str, scope: Scope) -> Option<Value> {
+    let params = WhoisParams {
+        tailscale: runner,
+        ip: ip.to_owned(),
+        timeout_ms: WHOIS_TIMEOUT_MS,
+    };
+    serde_json::to_value(whois(params, scope).await.ok()??).ok()
+}
+
+/// A whois answers from the daemon's own netmap: slower than this is a daemon in trouble (`cli.ts`'s `WHOIS_TIMEOUT_MS`).
+const WHOIS_TIMEOUT_MS: u64 = 4_000;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

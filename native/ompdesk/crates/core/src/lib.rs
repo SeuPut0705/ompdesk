@@ -4,6 +4,7 @@
 
 pub mod aimemory;
 pub mod browsers;
+pub mod clock;
 pub mod control;
 pub mod disk;
 pub mod ext;
@@ -12,6 +13,7 @@ pub mod gh;
 pub mod git;
 mod http;
 mod json;
+pub mod keepawake;
 pub mod memory;
 pub mod models;
 pub mod omp;

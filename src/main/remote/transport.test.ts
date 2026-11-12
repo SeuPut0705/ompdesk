@@ -1,6 +1,8 @@
 /**
- * Host ↔ client over real sockets on 127.0.0.1, with per-test temp userData directories. The host's Tailscale
- * check is the rig's `gate` (devices.ts asks `tailscale whois`; here a test says who connects).
+ * Host ↔ client over real sockets on 127.0.0.1, with per-test temp userData directories. The host is the core's
+ * devices instance (`SharingCore`) with main's `RemoteHost`; its Tailscale is the rig's: `gate` says who `whois`
+ * names at the device's address and what Mobile web's list and blocks say of it (devices.test.ts runs the same
+ * through `RemoteDevices`).
  *
  * Every listener here binds 127.0.0.1 itself. A host on `::` with an ephemeral port shared it with IPv4 listeners
  * of other processes on this Mac (a Logitech plug-in's 127.0.0.1:P, Tailscale's *:P), which took the 127.0.0.1
@@ -13,7 +15,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { codedError } from "../../shared/ipc-error-codes";
+import { advanceCoreTimers, fakeCoreTimers, realCoreTimers } from "../core/test-clock";
 import { normalizeRuntimeErrorReport } from "../runtime-log-core";
+import type { TailscaleStatus } from "../tailscale/status";
 import {
 	connectFirst,
 	type LinkState,
@@ -23,16 +27,11 @@ import {
 	type RemoteClientOptions,
 	RemoteError,
 } from "./client";
-import {
-	type GateResult,
-	type HostServices,
-	RemoteHost,
-	type RemoteHostOptions,
-	type TailnetVisitor,
-} from "./host-server";
-import { HostStore, type PairedHost } from "./hosts-store";
+import { type HostServices, RemoteHost, type TailnetVisitor } from "./host-server";
+import type { PairedHost } from "./hosts-store";
 import { type Identity, loadIdentity } from "./identity";
-import { PeerStore } from "./peers-store";
+import type { RefusalCode } from "./protocol";
+import { SharingCore, type SharingOptions } from "./sharing";
 import {
 	authKeys,
 	dh,
@@ -42,11 +41,18 @@ import {
 	legacyTranscript,
 } from "./test-legacy-peer";
 import { freePortRun } from "./test-ports";
+import { hostStore, peerStore } from "./test-stores";
 import { WAKE_CHECK_MS } from "./wire";
 
 const APP_VERSION = "0.10.0";
 const MACHINE = { platform: "darwin", ompVersion: "18.7.0", home: "/Users/b", sep: "/" };
 const LOOPBACK = "127.0.0.1";
+const LOGIN = "me@example.com";
+/**
+ * A tailnet address no computer here has (the core listens only on tailnet addresses, so the rig's absent one is one
+ * of those): binding it fails `EADDRNOTAVAIL`.
+ */
+const ABSENT_TAILNET = "fd7a:115c:a1e0::ffff:ffff";
 
 interface Side {
 	dir: string;
@@ -75,13 +81,16 @@ const services: HostServices = {
 	disconnected() {},
 };
 
-function visitor(nodeId = "nLAPTOP", login = "me@example.com"): GateResult {
+/** What the rig's Tailscale and Mobile web say of a connection: who it is, or why it is refused. */
+type GateResult = { ok: true; visitor: TailnetVisitor } | { ok: false; code: RefusalCode };
+
+function visitor(nodeId = "nLAPTOP", login = LOGIN): GateResult {
 	return { ok: true, visitor: { nodeId, login, nodeName: "laptop", ip: LOOPBACK } };
 }
 
 interface HostRig {
 	b: Side;
-	peers: PeerStore;
+	peers: ReturnType<typeof peerStore>;
 	host: RemoteHost;
 	port: number;
 	/** Who Tailscale says connects; tests change it. */
@@ -92,70 +101,138 @@ interface HostRig {
 	addresses: { hosts: string[]; hold: Promise<void> | null };
 }
 
+/**
+ * The rig's Tailscale and Mobile web: `gate.next(ip)` decides what `whois` names at the address and what the list
+ * and blocks say. A refusal is made the way the core meets it: `not_tailnet` an address that is no tailnet one (the
+ * rig stops counting loopback as one when the test sets it), `no_identity` no whois answer, `not_allowed` a login off
+ * the list, `blocked` a blocked node.
+ */
+function rigTailscale(
+	gate: HostRig["gate"],
+	addresses: HostRig["addresses"],
+): Pick<SharingOptions, "tailnet" | "policy"> {
+	const status = async (): Promise<TailscaleStatus> => {
+		await addresses.hold;
+		return { backend: "running", login: LOGIN, selfIps: addresses.hosts, peers: [] } as unknown as TailscaleStatus;
+	};
+	return {
+		tailnet: {
+			status,
+			phase: async () => "ready",
+			whois: async ip => {
+				const next = gate.next(ip);
+				if (next.ok)
+					return { nodeId: next.visitor.nodeId, nodeName: next.visitor.nodeName, login: next.visitor.login };
+				if (next.code === "no_identity") return null;
+				return {
+					nodeId: "nLAPTOP",
+					nodeName: "laptop",
+					login: next.code === "not_allowed" ? "other@example.com" : LOGIN,
+				};
+			},
+		},
+		policy: () => {
+			const next = gate.next(LOOPBACK);
+			return {
+				allowedUsers: next.ok ? [next.visitor.login] : [LOGIN],
+				blocked: !next.ok && next.code === "blocked",
+			};
+		},
+	};
+}
+
+/** The rig's `gate`: setting `next` to a `not_tailnet` verdict makes the core stop counting loopback as the tailnet. */
+function rigGate(sharing: () => SharingCore | null): HostRig["gate"] {
+	let next = (_ip: string) => visitor();
+	return {
+		get next() {
+			return next;
+		},
+		set next(verdict) {
+			next = verdict;
+			const said = verdict(LOOPBACK);
+			sharing()?.configure({ loopback: said.ok || said.code !== "not_tailnet" });
+		},
+	};
+}
+
 async function startHost(
 	given?: Side,
 	port = 0,
 	bindHosts = [LOOPBACK],
-	logLink?: RemoteHostOptions["logLink"],
-	options: Partial<RemoteHostOptions> = {},
-	log?: RemoteHostOptions["log"],
+	logLink?: (event: "open" | "closed" | "traffic", details: Record<string, unknown>) => void,
+	options: Partial<SharingOptions> = {},
+	log?: SharingOptions["log"],
 ): Promise<HostRig> {
 	const b = given ?? (await side());
-	const peers = new PeerStore(b.dir);
-	const gate = { next: (_ip: string) => visitor() };
+	let opened: SharingCore | null = null;
+	const gate = rigGate(() => opened);
 	const admit = { answer: true, asked: [] as TailnetVisitor[] };
 	const addresses = { hosts: bindHosts, hold: null as Promise<void> | null };
-	const host = new RemoteHost({
+	const sharing = await SharingCore.open({
 		identity: b.identity,
-		peers,
-		services,
-		name: () => "Studio",
+		userData: b.dir,
+		appVersion: APP_VERSION,
+		name: "Studio",
+		loopback: true,
 		port,
-		bindHosts: async () => {
-			await addresses.hold;
-			return addresses.hosts;
-		},
-		gate: async ip => gate.next(ip),
+		traffic: logLink !== undefined,
+		migratedAt: 0,
+		...rigTailscale(gate, addresses),
 		admit: async seen => {
 			admit.asked.push(seen);
 			return admit.answer;
 		},
+		...(log ? { log } : {}),
+		...options,
+	});
+	opened = sharing;
+	const host = new RemoteHost({
+		sharing,
+		services,
+		name: () => "Studio",
 		appVersion: APP_VERSION,
 		hello: () => MACHINE,
 		logLink,
-		log,
-		...options,
 	});
 	await host.start();
-	cleanups.push(() => host.stop());
-	return { b, peers, host, port: host.port ?? 0, gate, admit, addresses };
+	cleanups.push(async () => {
+		await host.stop();
+		await sharing.dispose();
+	});
+	return { b, peers: peerStore(b.dir), host, port: host.port ?? 0, gate, admit, addresses };
 }
 
 async function connectedClient(
 	rig: HostRig,
 	given?: Side,
 	nodeId = "nSTUDIO",
-): Promise<{ a: Side; hosts: HostStore; paired: PairedHost }> {
+): Promise<{ a: Side; hosts: ReturnType<typeof hostStore>; paired: PairedHost }> {
 	const a = given ?? (await side());
-	const hosts = new HostStore(a.dir);
+	const hosts = hostStore(a.dir);
 	const paired = await connectFirst({
 		identity: a.identity,
 		address: `${LOOPBACK}:${rig.port}`,
 		name: "Laptop",
 		appVersion: APP_VERSION,
 		nodeId,
-		hosts,
+		userData: a.dir,
 	});
 	return { a, hosts, paired };
 }
 
-function client(a: Side, paired: PairedHost, hosts?: HostStore, log?: RemoteClientOptions["log"]): RemoteClient {
+function client(
+	a: Side,
+	paired: PairedHost,
+	hosts?: ReturnType<typeof hostStore>,
+	log?: RemoteClientOptions["log"],
+): RemoteClient {
 	const remote = new RemoteClient({
 		identity: a.identity,
 		host: paired,
 		appVersion: APP_VERSION,
 		name: () => "Laptop",
-		hosts,
+		...(hosts ? { userData: a.dir } : {}),
 		log,
 	});
 	cleanups.push(() => remote.close());
@@ -173,14 +250,14 @@ function linkLog(): { lines: LinkLine[]; log: (message: string, details: Record<
 	return { lines, log: (message, details) => lines.push({ message, details }) };
 }
 
-/** Fake timers that leave `setImmediate` and the sockets alone: a link's real I/O still runs. */
-function fakeLinkClock(): void {
-	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+/** Fake timers, main's and the core's, that leave `setImmediate` and the sockets alone: a link's real I/O still runs. */
+function fakeLinkClock(): Promise<void> {
+	return fakeCoreTimers(["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]);
 }
 
 /** Let the retry timer fire after `delayMs`, then wait for that attempt to fail. */
 async function failedRetry(remote: RemoteClient, delayMs: number): Promise<void> {
-	await vi.advanceTimersByTimeAsync(delayMs);
+	await advanceCoreTimers(delayMs);
 	await untilState(remote, "offline");
 }
 
@@ -277,7 +354,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	vi.useRealTimers();
+	await realCoreTimers();
 	for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
@@ -296,8 +373,8 @@ describe("first contact, gated by Tailscale", () => {
 			nodeId: "nSTUDIO",
 			addresses: [`${LOOPBACK}:${rig.port}`],
 		});
-		expect(new HostStore(a.dir).get(rig.b.identity.deviceId)).toEqual(paired);
-		expect(new PeerStore(rig.b.dir).get(a.identity.deviceId)).toMatchObject({
+		expect(await hostStore(a.dir).get(rig.b.identity.deviceId)).toEqual(paired);
+		expect(await peerStore(rig.b.dir).get(a.identity.deviceId)).toMatchObject({
 			deviceId: a.identity.deviceId,
 			name: "Laptop",
 			staticPub: a.identity.publicKey,
@@ -313,7 +390,7 @@ describe("first contact, gated by Tailscale", () => {
 			expect(await probeHost(`${LOOPBACK}:${rig.port}`)).toEqual({ ok: false, code });
 			expect((await rejection(connectedClient(rig))).code).toBe(code);
 		}
-		expect(rig.peers.list()).toEqual([]);
+		expect(await rig.peers.list()).toEqual([]);
 		expect(rig.admit.asked).toEqual([]);
 	});
 
@@ -321,7 +398,7 @@ describe("first contact, gated by Tailscale", () => {
 		const rig = await startHost();
 		rig.admit.answer = false;
 		expect((await rejection(connectedClient(rig))).code).toBe("declined");
-		expect(rig.peers.list()).toEqual([]);
+		expect(await rig.peers.list()).toEqual([]);
 		rig.admit.answer = true;
 		const { a, hosts, paired } = await connectedClient(rig);
 		expect(rig.admit.asked.map(seen => seen.nodeId)).toEqual(["nLAPTOP", "nLAPTOP"]);
@@ -334,11 +411,11 @@ describe("first contact, gated by Tailscale", () => {
 	it("keeps a node to one device and one key: a new identity from the same node is refused", async () => {
 		const rig = await startHost();
 		const { a } = await connectedClient(rig);
-		const pins = () => rig.peers.list().map(peer => [peer.deviceId, peer.nodeId, peer.staticPub]);
-		const before = pins();
+		const pins = async () => (await rig.peers.list()).map(peer => [peer.deviceId, peer.nodeId, peer.staticPub]);
+		const before = await pins();
 		// Same Tailscale node, a fresh OMPdesk identity (new device id and key): no new record, no new quota.
 		expect((await rejection(connectedClient(rig))).code).toBe("key_mismatch");
-		expect(pins()).toEqual(before);
+		expect(await pins()).toEqual(before);
 		expect(before).toEqual([[a.identity.deviceId, "nLAPTOP", a.identity.publicKey]]);
 		// The known device from another node is refused too.
 		rig.gate.next = () => visitor("nOTHER");
@@ -347,20 +424,20 @@ describe("first contact, gated by Tailscale", () => {
 		rig.gate.next = () => visitor();
 		await rig.host.revoke(a.identity.deviceId);
 		await connectedClient(rig);
-		expect(rig.peers.list()).toHaveLength(1);
+		expect(await rig.peers.list()).toHaveLength(1);
 	});
 
 	it("refuses a known device id that comes with another key", async () => {
 		const rig = await startHost();
 		const { a } = await connectedClient(rig);
-		rig.peers.update(a.identity.deviceId, { staticPub: generateKeyPair().publicKey });
+		await rig.peers.update(a.identity.deviceId, { staticPub: generateKeyPair().publicKey });
 		expect((await rejection(connectedClient(rig, a))).code).toBe("key_mismatch");
 	});
 
 	it("binds a device paired by code to the node it first connects from, keeping its limits", async () => {
 		const rig = await startHost();
 		const a = await side();
-		rig.peers.put({
+		await rig.peers.put({
 			deviceId: a.identity.deviceId,
 			name: "Laptop",
 			staticPub: a.identity.publicKey,
@@ -370,7 +447,7 @@ describe("first contact, gated by Tailscale", () => {
 			limits: { requestsPerDay: 5 },
 		});
 		await connectedClient(rig, a);
-		expect(rig.peers.get(a.identity.deviceId)).toMatchObject({
+		expect(await rig.peers.get(a.identity.deviceId)).toMatchObject({
 			nodeId: "nLAPTOP",
 			login: "me@example.com",
 			limits: { requestsPerDay: 5 },
@@ -385,8 +462,7 @@ describe("first contact, gated by Tailscale", () => {
 		remote.connect();
 		expect(await untilError(remote)).toBe("key_mismatch");
 		// And a first contact for a node pinned to another key fails the same way.
-		const hosts = new HostStore(a.dir);
-		hosts.update(paired.deviceId, { staticPub: generateKeyPair().publicKey });
+		await hostStore(a.dir).update(paired.deviceId, { staticPub: generateKeyPair().publicKey });
 		expect((await rejection(connectedClient(rig, a))).code).toBe("key_mismatch");
 	});
 
@@ -418,8 +494,8 @@ describe("listening", () => {
 	});
 
 	it("listens on the address devices dial when another of its addresses cannot be bound", async () => {
-		// TEST-NET-1 belongs to no computer: binding it fails as a Windows IPv6 tailnet address once did.
-		const rig = await startHost(await side(), 0, [LOOPBACK, "192.0.2.10"]);
+		// A tailnet address this computer does not have: binding it fails as a Windows IPv6 tailnet address once did.
+		const rig = await startHost(await side(), 0, [LOOPBACK, ABSENT_TAILNET]);
 		expect(rig.host.port).not.toBeNull();
 		expect(rig.host.addresses()).toEqual([`${LOOPBACK}:${rig.host.port}`]);
 		expect((await probeHost(`${LOOPBACK}:${rig.host.port}`)).ok).toBe(true);
@@ -505,8 +581,8 @@ describe("a host whose addresses change while a device is connected", () => {
 
 	it("an address it cannot bind leaves it listening nowhere until a rebind finds one it can", async () => {
 		const { rig, remote, lines } = await linkedHost();
-		// TEST-NET-1 belongs to no computer: binding it fails as an address that left this computer does.
-		rig.addresses.hosts = ["192.0.2.10"];
+		// A tailnet address this computer does not have: binding it fails as an address that left this computer does.
+		rig.addresses.hosts = [ABSENT_TAILNET];
 		await rig.host.rebind();
 		await rig.host.rebind();
 		expect(rig.host.port).toBeNull();
@@ -542,17 +618,17 @@ describe("a host whose addresses change while a device is connected", () => {
 		const { rig, lines } = await linkedHost();
 		rig.addresses.hosts = [];
 		await rig.host.rebind();
-		fakeLinkClock();
+		await fakeLinkClock();
 		const held = Promise.withResolvers<void>();
 		rig.addresses.hold = held.promise;
 		rig.addresses.hosts = [LOOPBACK];
 		const pass = rig.host.rebind();
 
-		await vi.advanceTimersByTimeAsync(2_000);
+		await advanceCoreTimers(2_000);
 		expect(lines.at(-1)).toEqual({ message: "rebind-slow", details: { links: 1 } });
 
 		rig.addresses.hold = null;
-		vi.useRealTimers();
+		await realCoreTimers();
 		held.resolve();
 		await pass;
 		expect(lines.at(-1)?.message).toBe("listening");
@@ -565,16 +641,9 @@ describe("a host's ports, one of them silent", () => {
 
 	it("connects on the next port when the first (the one it remembered) answers nothing", async () => {
 		const rig = await startHost();
-		const { a, hosts, paired } = await connectedClient(rig);
-		const remote = new RemoteClient({
-			identity: a.identity,
-			host: paired,
-			appVersion: APP_VERSION,
-			name: () => "Laptop",
-			hosts,
-			addresses: async () => [SILENT, `${LOOPBACK}:${rig.port}`],
-		});
-		cleanups.push(() => remote.close());
+		const { a, paired } = await connectedClient(rig);
+		// The record's own addresses, the silent one first (no store: the client dials what it was given).
+		const remote = client(a, { ...paired, addresses: [SILENT, `${LOOPBACK}:${rig.port}`] });
 		const started = Date.now();
 		remote.connect();
 		await untilState(remote, "online", 2_500);
@@ -641,7 +710,7 @@ describe("authenticated link", () => {
 		rig.gate.next = () => ({ ok: false, code: "blocked" });
 		await rig.host.revoke(a.identity.deviceId);
 		expect(rig.host.connections()).toEqual([]);
-		expect(rig.peers.get(a.identity.deviceId)).toBeUndefined();
+		expect(await rig.peers.get(a.identity.deviceId)).toBeUndefined();
 		await untilState(remote, "offline");
 		remote.connect();
 		expect(await untilError(remote)).toBe("blocked");
@@ -699,11 +768,11 @@ describe("authenticated link", () => {
 		const { a, hosts, paired } = await connectedClient(rig);
 		const { port: dead } = await listenFake(socket => socket.destroy());
 		const working = `${LOOPBACK}:${rig.port}`;
-		hosts.update(paired.deviceId, { addresses: [`${LOOPBACK}:${dead}`, working] });
+		await hosts.update(paired.deviceId, { addresses: [`${LOOPBACK}:${dead}`, working] });
 		const remote = client(a, paired, hosts);
 		remote.connect();
 		await untilState(remote, "online");
-		expect(new HostStore(a.dir).get(paired.deviceId)?.addresses).toEqual([working, `${LOOPBACK}:${dead}`]);
+		expect((await hostStore(a.dir).get(paired.deviceId))?.addresses).toEqual([working, `${LOOPBACK}:${dead}`]);
 	});
 });
 
@@ -715,7 +784,7 @@ describe("a link that dropped or went silent", () => {
 	async function backedOff(log?: RemoteClientOptions["log"]) {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);
-		fakeLinkClock();
+		await fakeLinkClock();
 		const remote = client(a, paired, hosts, log);
 		remote.connect();
 		await untilState(remote, "online");
@@ -793,17 +862,17 @@ describe("a link that dropped or went silent", () => {
 		cleanups.push(() => {
 			for (const socket of held) socket.destroy();
 		});
-		fakeLinkClock();
+		await fakeLinkClock();
 		const { lines, log } = linkLog();
 		const remote = client(a, { ...paired, addresses: [`${LOOPBACK}:${relay.port}`] }, undefined, log);
 		remote.connect();
 		await untilState(remote, "online");
-		await vi.advanceTimersByTimeAsync(5_000);
+		await advanceCoreTimers(5_000);
 		silence.on = true;
 
 		remote.wake("focus");
 		// The check runs in the core on its own clock; this side's clock moves by the same window.
-		await vi.advanceTimersByTimeAsync(WAKE_CHECK_MS);
+		await advanceCoreTimers(WAKE_CHECK_MS);
 		await until(remote, () => remote.state !== "online", 10_000);
 		expect(lines.find(line => line.message === "down")?.details).toEqual({
 			deviceId: paired.deviceId,
@@ -855,19 +924,19 @@ describe("a link that dropped or went silent", () => {
 	it("logs an outage: down with the reason, each attempt, up with how long it lasted", async () => {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);
-		fakeLinkClock();
+		await fakeLinkClock();
 		const { lines, log } = linkLog();
 		const remote = client(a, paired, hosts, log);
 		remote.connect();
 		await untilState(remote, "online");
-		await vi.advanceTimersByTimeAsync(2_000);
+		await advanceCoreTimers(2_000);
 		await rig.host.stop();
 		const dropping = await listenFake(socket => socket.destroy(), rig.port);
 		await untilState(remote, "offline");
 		await failedRetry(remote, 1_000);
 		await failedRetry(remote, 2_000);
 		await hostBack(rig, dropping.server);
-		await vi.advanceTimersByTimeAsync(4_000);
+		await advanceCoreTimers(4_000);
 		await untilState(remote, "online");
 
 		const id = paired.deviceId;
@@ -887,7 +956,7 @@ describe("a link that dropped or went silent", () => {
 	async function refused(log?: RemoteClientOptions["log"]) {
 		const rig = await startHost();
 		const { a, hosts, paired } = await connectedClient(rig);
-		fakeLinkClock();
+		await fakeLinkClock();
 		const remote = client(a, paired, hosts, log);
 		remote.connect();
 		await untilState(remote, "online");
@@ -914,7 +983,7 @@ describe("a link that dropped or went silent", () => {
 		for (let second = 0; second < 25; second++) await failedRetry(remote, 1_000);
 		await startHost(rig.b, rig.port);
 
-		await vi.advanceTimersByTimeAsync(2_000);
+		await advanceCoreTimers(2_000);
 
 		expect(remote.state).not.toBe("offline");
 		await untilState(remote, "online");
@@ -931,7 +1000,7 @@ describe("a link that dropped or went silent", () => {
 
 		await failedRetry(remote, 1_000);
 		expect(dials).toBe(61);
-		await vi.advanceTimersByTimeAsync(1_000);
+		await advanceCoreTimers(1_000);
 		expect(dials).toBe(61);
 		await failedRetry(remote, 1_000);
 		expect(dials).toBe(62);

@@ -1,15 +1,15 @@
 //! The host's listener (was `RemoteHost.#listenOn`, `#closeServers`, `#accept` in `src/main/remote/host-server.ts`):
 //! the first free candidate port on the address devices dial (its IPv4 tailnet address), then the same port on its
 //! other addresses where they take it. Closing the listeners never waits for the links accepted on them, which stay
-//! open. Each accepted socket runs the host's handshake; who may connect, the device record and the hello are main's
-//! (asked through `remote.ask`).
+//! open. Each accepted socket runs the host's handshake; who may connect and the device record are the devices
+//! instance's (`devices/gate.rs`, the host's number is its instance's), the hello's answer is main's (`open`).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio::task::{AbortHandle, JoinHandle};
@@ -39,26 +39,18 @@ impl Host {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ListenParams {
     pub host: u64,
-    /// The device id of the identity it answers with (`remote.identity`).
-    pub identity: String,
     pub addresses: Vec<String>,
     pub port: Option<u32>,
     /// Main's `OMP_GUI_REMOTE_PORT`, read when `port` is absent.
     pub port_setting: Option<String>,
     pub app_version: String,
-    #[serde(default)]
     pub liveness: Option<Liveness>,
     /// Count each device link's traffic for the runtime log (main has a link log).
-    #[serde(default)]
     pub traffic: bool,
-    #[serde(default)]
     pub traffic_ms: Option<u64>,
     /// Tests: ports the system refuses, with the code (`EACCES`), as Windows' excluded ranges do.
-    #[serde(default)]
     pub refuse: HashMap<String, String>,
 }
 
@@ -218,7 +210,7 @@ pub async fn listen(
 /// these listeners stay open.
 pub async fn close_listeners(host: u64) {
     let listeners: Vec<JoinHandle<()>> = match super::state().hosts.get_mut(&host) {
-        Some(entry) => entry.listeners.drain(..).collect(),
+        Some(entry) => std::mem::take(&mut entry.listeners),
         None => Vec::new(),
     };
     for listener in listeners {
@@ -265,6 +257,7 @@ async fn accept(listener: TcpListener, config: Arc<Config>, events: Events) {
             }
         };
         let link = super::next_id();
+        super::devices::accepted(config.host, link);
         // Registered before the task can run, so a stop always finds it. A handshake outlives the listener that
         // accepted it (a rebind never ends a device's connection).
         let mut state = super::state();
@@ -299,6 +292,9 @@ async fn connection(stream: tokio::net::TcpStream, link: u64, config: Arc<Config
     )
     .await;
     let opened = side.opened.load(Ordering::SeqCst);
+    if !opened {
+        super::devices::dropped(config.host, link);
+    }
     let to_close = {
         let mut state = super::state();
         if let Some(entry) = state.hosts.get_mut(&config.host) {
@@ -342,6 +338,7 @@ async fn connection(stream: tokio::net::TcpStream, link: u64, config: Arc<Config
         && opened;
     if opened && !ran {
         super::forget_link(link);
+        super::link_ended(link, Reason::Closed);
         closed(&events, link);
     }
     if let Ok(Some(conn)) = to_close {
@@ -366,56 +363,23 @@ struct Asks {
 
 impl HostSide for Asks {
     async fn gate(&self, ip: &str) -> Result<GatePass, String> {
-        let answer = super::ask(
-            &self.events,
-            "gate",
-            json!({"host": self.host, "link": self.link, "ip": ip}),
-        )
-        .await;
-        match answer
-            .as_ref()
-            .and_then(|a| a.get("code"))
-            .and_then(Value::as_str)
-        {
-            Some(code) => Err(code.to_owned()),
-            None => {
-                let answer = answer.unwrap_or(Value::Null);
-                Ok(GatePass {
-                    visitor: answer.get("visitor").cloned().unwrap_or(Value::Null),
-                    name: answer
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned(),
-                })
+        match super::devices::gate::gate(self.host, ip).await {
+            Ok((visitor, name)) => Ok(GatePass { visitor, name }),
+            Err(code) => {
+                super::devices::gate::refused_at_gate(self.host, self.link, &code, ip);
+                Err(code)
             }
         }
     }
 
-    async fn bind(&self, ip: &str, init: &Value, visitor: &Value) -> Result<Bound, String> {
-        let answer = super::ask(
-            &self.events,
-            "bind",
-            json!({"host": self.host, "link": self.link, "ip": ip, "init": init, "visitor": visitor}),
-        )
-        .await
-        .unwrap_or(Value::Null);
-        if let Some(code) = answer.get("code").and_then(Value::as_str) {
-            return Err(code.to_owned());
-        }
-        match (
-            answer.get("staticPub").and_then(Value::as_str),
-            answer.get("name").and_then(Value::as_str),
-        ) {
-            (Some(static_pub), Some(name)) => Ok(Bound {
-                static_pub: static_pub.to_owned(),
-                name: name.to_owned(),
-            }),
-            _ => Err("protocol".into()),
-        }
+    async fn bind(&self, _ip: &str, init: &Value, visitor: &Value) -> Result<Bound, String> {
+        let (static_pub, name) =
+            super::devices::gate::bind(self.host, self.link, init, visitor).await?;
+        Ok(Bound { static_pub, name })
     }
 
     async fn open(&self, device_id: &str, hello: &Value) -> Option<Opened> {
+        let (peer, waited) = super::devices::arriving(self.host, self.link)?;
         // Registered before main hears of the link, so what it sends as it takes the connection waits for the link.
         let (handle, queue) = super::link::channel();
         super::state().links.insert(self.link, handle);
@@ -423,7 +387,14 @@ impl HostSide for Asks {
         let answer = super::ask(
             &self.events,
             "open",
-            json!({"host": self.host, "link": self.link, "deviceId": device_id, "hello": hello}),
+            json!({
+                "host": self.host,
+                "link": self.link,
+                "deviceId": device_id,
+                "hello": hello,
+                "peer": peer,
+                "waitedMs": waited,
+            }),
         )
         .await;
         let Some(fields) = answer
@@ -438,6 +409,11 @@ impl HostSide for Asks {
         };
         let answer = answer.unwrap_or(Value::Null);
         self.opened.store(true, Ordering::SeqCst);
+        super::devices::opened(
+            self.host,
+            self.link,
+            answer.get("deviceName").and_then(Value::as_str),
+        );
         Some(Opened {
             hello: fields,
             deflate: answer
