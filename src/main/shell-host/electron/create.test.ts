@@ -405,6 +405,26 @@ describe("BrowserWindow", () => {
 		expect(fake.callsOf("win.op").map(call => call.params.op)).toEqual(["show", "minimize"]);
 	});
 
+	it("answers getContentBounds at once after setBounds, setSize, setContentSize and setPosition", async () => {
+		const win = new electron.BrowserWindow(RECT);
+		// A frame: 16 px of border across, 39 px of caption down; the content starts 8 px in and 31 px down.
+		await shell.event("win.state", {
+			winId: win.id,
+			bounds: RECT,
+			contentBounds: { x: 18, y: 51, width: 784, height: 561 },
+		});
+		await settle();
+		win.setBounds({ x: 0, y: 0, width: 500, height: 400 });
+		expect(win.getContentBounds()).toEqual({ x: 8, y: 31, width: 484, height: 361 });
+		win.setSize(300, 200);
+		expect(win.getContentBounds()).toEqual({ x: 8, y: 31, width: 284, height: 161 });
+		win.setPosition(50, 60);
+		expect(win.getContentBounds()).toEqual({ x: 58, y: 91, width: 284, height: 161 });
+		win.setContentSize(100, 100);
+		expect(win.getContentSize()).toEqual([100, 100]);
+		expect(win.getBounds()).toEqual({ x: 50, y: 60, width: 116, height: 139 });
+	});
+
 	it("tracks focus: browser-window-focus, getFocusedWindow, blur", async () => {
 		const { BrowserWindow, app } = electron;
 		const win = new BrowserWindow({});

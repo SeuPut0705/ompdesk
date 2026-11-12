@@ -186,6 +186,28 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 			if (!this.#destroyed) host.post("win.op", { winId: this.id, op, args });
 		}
 
+		/**
+		 * The mirror after a call that moves or resizes the window, as Electron answers at once: the outer rect is
+		 * what was asked, and the content rect keeps the frame's insets the shell last reported.
+		 */
+		#resized(bounds: Rect): void {
+			const old = this.#state;
+			const left = old.contentBounds.x - old.bounds.x;
+			const top = old.contentBounds.y - old.bounds.y;
+			const horizontal = old.bounds.width - old.contentBounds.width;
+			const vertical = old.bounds.height - old.contentBounds.height;
+			this.#state = {
+				...old,
+				bounds,
+				contentBounds: {
+					x: bounds.x + left,
+					y: bounds.y + top,
+					width: Math.max(0, bounds.width - horizontal),
+					height: Math.max(0, bounds.height - vertical),
+				},
+			};
+		}
+
 		/** `win.state`: the shell's account of the window. */
 		applyState(state: Partial<WinState>): void {
 			this.#state = { ...this.#state, ...state };
@@ -350,22 +372,27 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		}
 
 		setBounds(bounds: Partial<Rect>): void {
-			this.#state = { ...this.#state, bounds: { ...this.#state.bounds, ...bounds } };
+			this.#resized({ ...this.#state.bounds, ...bounds });
 			this.#op("setBounds", { bounds: this.#state.bounds });
 		}
 
 		setSize(width: number, height: number): void {
-			this.#state = { ...this.#state, bounds: { ...this.#state.bounds, width, height } };
+			this.#resized({ ...this.#state.bounds, width, height });
 			this.#op("setSize", { width, height });
 		}
 
 		setContentSize(width: number, height: number): void {
-			this.#state = { ...this.#state, contentBounds: { ...this.#state.contentBounds, width, height } };
+			const old = this.#state;
+			this.#resized({
+				...old.bounds,
+				width: width + (old.bounds.width - old.contentBounds.width),
+				height: height + (old.bounds.height - old.contentBounds.height),
+			});
 			this.#op("setContentSize", { width, height });
 		}
 
 		setPosition(x: number, y: number): void {
-			this.#state = { ...this.#state, bounds: { ...this.#state.bounds, x, y } };
+			this.#resized({ ...this.#state.bounds, x, y });
 			this.#op("setPosition", { x, y });
 		}
 
