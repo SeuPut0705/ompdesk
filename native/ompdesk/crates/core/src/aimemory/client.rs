@@ -114,7 +114,8 @@ impl Client {
     }
 
     /// One exchange: the server's JSON for a 2xx; its `error` text, else `Memory answered <status>`, for anything
-    /// else; `Memory is not running` when no answer came in `timeout`.
+    /// else; `Memory's TLS connection failed: <why>` when no TLS connection came about; `Memory is not running` when
+    /// no answer came in `timeout`.
     async fn send(
         &self,
         path: &str,
@@ -149,6 +150,10 @@ impl Client {
         };
         let response = match tokio::time::timeout(timeout, http::send(request)).await {
             Ok(Ok(response)) => response,
+            Ok(Err(http::Failure::Tls(why))) => {
+                let message = format!("Memory's TLS connection failed: {why}");
+                return Err(self.fault("memory_tls", &message));
+            }
             _ => return Err(down()),
         };
         if !(200..300).contains(&response.status) {

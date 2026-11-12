@@ -1,12 +1,21 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RM_TEMP } from "../test-fake-omp";
+import { type TestCertificates, testCertificates } from "../tls-test-rig";
 import { AiMemoryClient, DEFAULT_SERVER_URL, serverUrlFromConfig } from "./client";
 import { type FakeMemoryServer, fakeMemoryServer } from "./fake-server-test-rig";
 
 const URL_BASE = "http://127.0.0.1:49374";
+
+// The core trusts this authority beside the machine's own, through NODE_EXTRA_CA_CERTS as Node's `fetch` did. The core
+// reads it when it starts, which is after this line in this file's process.
+const TRUSTED = testCertificates();
+const caFile = join(mkdtempSync(join(tmpdir(), "ai-memory-ca-")), "ca.pem");
+writeFileSync(caFile, TRUSTED.ca);
+process.env.NODE_EXTRA_CA_CERTS = caFile;
 
 describe("serverUrlFromConfig", () => {
 	it("prefers server_url, then bind, then the default", async () => {
@@ -921,5 +930,137 @@ describe("AiMemoryClient (Memory page)", () => {
 		await expect(client.writeConclusions(PROJECT, "mac-1", [item("a"), item("b")])).rejects.toThrow("unknown");
 		routes["/admin/write-conclusions"] = json({ error: "invalid conclusion" }, 422);
 		await expect(client.writeConclusions(PROJECT, "mac-1", [item("a")])).rejects.toThrow("invalid conclusion");
+	});
+});
+
+describe("AiMemoryClient over HTTPS and redirects", () => {
+	let dataDir: string;
+	let servers: FakeMemoryServer[];
+	let seen: {
+		server: number;
+		path: string;
+		method: string;
+		body?: string;
+		authorization: string | null;
+		contentType: string | null;
+	}[];
+
+	const redirect = (location: string, status: number) => new Response(null, { status, headers: { location } });
+
+	async function start(routes: Record<string, () => Response>, tls?: TestCertificates) {
+		const index = servers.length;
+		const server = await fakeMemoryServer(
+			(url, request) => {
+				const path = url.slice(url.indexOf("/", "https://".length));
+				seen.push({
+					server: index,
+					path,
+					method: request.method,
+					...(request.body === undefined ? {} : { body: request.body }),
+					authorization: request.headers.get("authorization"),
+					contentType: request.headers.get("content-type"),
+				});
+				const route = routes[path];
+				if (!route) throw new TypeError(`unexpected ${url}`);
+				return route();
+			},
+			undefined,
+			tls,
+		);
+		servers.push(server);
+		return { server, client: new AiMemoryClient({ url: () => server.url, dataDir: () => dataDir }) };
+	}
+
+	beforeEach(async () => {
+		dataDir = await mkdtemp(join(tmpdir(), "ai-memory-https-"));
+		await mkdir(join(dataDir, "auth-tokens"));
+		await writeFile(join(dataDir, "auth-tokens", "default"), "secret-token\n");
+		servers = [];
+		seen = [];
+	});
+
+	afterEach(async () => {
+		await Promise.all(servers.map(server => server.close()));
+		await rm(dataDir, RM_TEMP);
+	});
+
+	it("talks HTTPS to a server whose certificate the machine trusts", async () => {
+		const { server, client } = await start(
+			{ "/healthz": () => Response.json({ ok: true }), "/api/v1/projects": () => Response.json([]) },
+			TRUSTED,
+		);
+		expect(server.url).toMatch(/^https:\/\/127\.0\.0\.1:/);
+		expect(await client.healthy()).toBe(true);
+		expect(await client.projects()).toEqual([]);
+		expect(seen.map(request => [request.path, request.authorization])).toEqual([
+			["/healthz", null],
+			["/api/v1/projects", "Bearer secret-token"],
+		]);
+	});
+
+	it("says the TLS connection failed, and nothing of the token, when the certificate is not trusted or no TLS answers", async () => {
+		const message = (failing: Promise<unknown>) => failing.then(String, (error: Error) => error.message);
+		const untrusted = await start({ "/api/v1/projects": () => Response.json([]) }, testCertificates());
+		expect(await untrusted.client.healthy()).toBe(false);
+		const refused = await message(untrusted.client.projects());
+		expect(refused).toMatch(/^Memory's TLS connection failed: invalid peer certificate/);
+		const plain = await start({ "/api/v1/projects": () => Response.json([]) });
+		const asTls = new AiMemoryClient({
+			url: () => plain.server.url.replace("http:", "https:"),
+			dataDir: () => dataDir,
+		});
+		expect(await message(asTls.projects())).toMatch(/^Memory's TLS connection failed: /);
+		expect(refused).not.toContain("secret-token");
+		expect(seen).toEqual([]);
+	});
+
+	it("follows redirects as fetch did, the token only within the server's own origin", async () => {
+		const elsewhere = await start({ "/api/v1/projects": () => Response.json([]) });
+		const { client } = await start({
+			"/api/v1/projects": () => redirect("/moved", 301),
+			"/moved": () => redirect(`${elsewhere.server.url}/api/v1/projects`, 307),
+			"/admin/write-page": () => redirect("/written", 303),
+			"/written": () => Response.json({ page_id: "id" }),
+			"/admin/restore-page": () => redirect("/restored", 308),
+			"/restored": () => Response.json({ page_id: "x" }),
+		});
+		expect(await client.projects()).toEqual([]);
+		await client.writePage({ workspace: "w", project: "p", path: "a.md", body: "b" });
+		await client.restorePage({ workspace: "w", project: "p", path: "a.md" }, "rev9");
+		const token = "Bearer secret-token";
+		const json = "application/json";
+		const written = JSON.stringify({ workspace: "w", project: "p", path: "a.md", body: "b" });
+		const restored = JSON.stringify({ workspace: "w", project: "p", path: "a.md", rev: "rev9" });
+		expect(seen).toEqual([
+			{ server: 1, path: "/api/v1/projects", method: "GET", authorization: token, contentType: null },
+			{ server: 1, path: "/moved", method: "GET", authorization: token, contentType: null },
+			{ server: 0, path: "/api/v1/projects", method: "GET", authorization: null, contentType: null },
+			{
+				server: 1,
+				path: "/admin/write-page",
+				method: "POST",
+				body: written,
+				authorization: token,
+				contentType: json,
+			},
+			// 303 turns a POST into a GET without its body.
+			{ server: 1, path: "/written", method: "GET", authorization: token, contentType: null },
+			{
+				server: 1,
+				path: "/admin/restore-page",
+				method: "POST",
+				body: restored,
+				authorization: token,
+				contentType: json,
+			},
+			// 308 keeps the method and the body.
+			{ server: 1, path: "/restored", method: "POST", body: restored, authorization: token, contentType: json },
+		]);
+	});
+
+	it("gives up after 20 redirects", async () => {
+		const { client } = await start({ "/api/v1/projects": () => redirect("/api/v1/projects", 302) });
+		await expect(client.projects()).rejects.toThrow("Memory is not running");
+		expect(seen.length).toBe(21);
 	});
 });
