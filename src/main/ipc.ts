@@ -1446,6 +1446,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			.catch(() => undefined);
 	pruneSchedules();
 	setInterval(pruneSchedules, 60 * 60_000).unref();
+	// What the control service reads synchronously in main changed: its snapshot is pushed (a tab's activity, the
+	// preferences above, an outside caller and the tombstones push theirs where they happen).
+	deps.summaries.onChange(() => agentControl.control.changed());
+	deps.remoteDevices.onHostOnline(() => agentControl.control.changed());
 	deps.sessionWake.current = (schedule, runId) => agentControl.wakeSession(schedule, runId);
 	// The control socket (src/main/control-socket): anything on this computer drives the same service as the tools.
 	void startControlSocket({
@@ -1999,6 +2003,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
 	/** `PREFS_CHANGED` to every window and paired page but the one that wrote the key, so the others' settings follow it. */
 	const prefChanged = (writer: ClientWindow | null, key: string): void => {
+		// The control tools' service reads the switches, the sidebar's pins and the closed-children list from main.
+		agentControl.control.changed();
 		const writerId = writer?.webContents.id;
 		for (const win of [...windowManager.getAllWindows(), ...(deps.webPages?.() ?? [])]) {
 			if (win.webContents.id !== writerId && !win.isDestroyed()) {
@@ -2008,8 +2014,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	};
 	// A deleted session leaves the closed-children record (its opener's family) with its file, also
 	// when a paired device asked the delete; a delete before this rule left its record, which goes now.
-	onSessionDeleted(() => agentControl.forgetDeleted());
-	agentControl.forgetDeleted();
+	onSessionDeleted(() => {
+		agentControl.control.changed();
+		void agentControl.forgetDeleted();
+	});
+	void agentControl.forgetDeleted();
 	ipc.handle(IPC_COMMANDS.PREFS_SET, (caller, payload: IpcPrefsSetPayload) => {
 		if (typeof payload.key !== "string") {
 			throw codedError("invalid_preference_key", "Invalid preference key");

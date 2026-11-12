@@ -322,13 +322,6 @@ export function paceLine(result: Pace): string {
 	return `Pace: ${parts.join(" · ")}`;
 }
 
-/** The short form a session row carries: `pace 22 min, 156 calls, median 4.0 s[, checks ×3 61 s (51% of tools)][, waste: …]`. */
-export function paceShort(result: Pace): string {
-	const checks = checksPart(result);
-	const cut = waste(result);
-	return `pace ${span(result.wallS)}, ${result.modelCalls} calls, median ${percentile(result.thinkGaps, 0.5).toFixed(1)} s${checks ? `, ${checks}` : ""}${cut ? `, waste: ${cut}` : ""}`;
-}
-
 const cache = new Map<string, { size: number; mtimeMs: number; pace: Pace }>();
 
 /**

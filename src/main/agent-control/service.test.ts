@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,44 +12,59 @@ import type {
 	RpcGitUnlanded,
 	RpcResponse,
 } from "../../shared/rpc-types";
-import type { ScheduleDraft, ScheduleRun } from "../../shared/schedules";
+import type {
+	Schedule,
+	ScheduleDraft,
+	ScheduleFrequency,
+	ScheduleRun,
+	SchedulesRequest,
+	SchedulesState,
+} from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
 import type { RpcTurnEdits } from "../../shared/turn-edits";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
-import { CallJournal } from "./call-journal";
 import type { MailDelivery } from "./mail";
-import { PendingCleanups } from "./pending-cleanups";
-import { SendOutbox, type SentAnswer } from "./send-outbox";
 import {
 	AgentControl,
+	type AgentControlFiles,
 	type AgentControlHost,
 	type AutopilotSource,
 	type ControlAsk,
 	type ControlDevice,
 	type ControlTab,
-	checksRun,
-	currentStep,
-	DRAFT_WAIT_MS,
-	elapsedText,
+	type HostTab,
 	type OpenedChild,
-	parseVerdict,
-	renderMessage,
-	type ScheduleRow,
-	type ScheduleSource,
+	type SchedulesHost,
+	type SentAnswer,
 	SessionFolderMissing,
 	type SpawnRequest,
 	type StoredSession,
+	type Tombstones,
+	type Tuning,
 } from "./service";
-import { SessionFates } from "./session-fates";
 import { needsPersonTurn, tabCloseStep } from "./tab-close";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 const bad = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
 
+/** A schedule as the control tools list it (`ompdesk_schedule`). */
+interface ScheduleRow {
+	id: string;
+	name: string;
+	frequency: ScheduleFrequency;
+	cwd: string;
+	enabled: boolean;
+	nextRun: string | null;
+	lastStatus: string | null;
+	wakes?: boolean;
+}
+
 interface FakeTab extends ControlTab {
+	/** In the calling session's window (the default list); a tab with this false sits in another window. */
+	here: boolean;
 	last?: string;
 	messages?: AgentMessage[];
 	/** What `get_turn_edits` answers (its newest turn's edit calls); absent = an older host refusing it. */
@@ -84,10 +99,10 @@ class FakeHost implements AgentControlHost {
 	listeners = new Set<() => void>();
 	beforeFirstPromptError: Error | null = null;
 	seq = 0;
-	/** The control-tool calls this computer recorded (`call-journal.ts`); absent: none recorded. */
-	calls?: CallJournal;
-	/** Durable sends (`send-outbox.ts`) and what the receiver's bridge says of them; absent unless a test gives them. */
-	sendOutbox?: SendOutbox;
+	/** The journal files the service keeps (calls, fates, cleanups, the send outbox): absent = none, as a bare host. */
+	files: AgentControlFiles = {};
+	/** The waits the service shortens, in ms: what the TypeScript tests moved fake timers for. */
+	tuning: Tuning = {};
 	sentMarks?: (tabId: string, marks: string[]) => Promise<SentAnswer | null>;
 	/** The app's side of `ompdesk_app`; absent unless a test gives it. */
 	appPorts?: AgentControlHost["appPorts"];
@@ -122,10 +137,25 @@ class FakeHost implements AgentControlHost {
 	fullEnabled = () => this.full;
 	/** What every row shows of the sessions this computer runs (`SessionSummaries`), by session file. */
 	localRows: SessionSummary[] = [];
-	summaryOf = (tab: Pick<ControlTab, "sessionPath">) =>
-		tab.sessionPath ? this.localRows.find(summary => summary.sessionPath === tab.sessionPath) : undefined;
 	summaries = (device?: string) => (device ? [] : this.localRows);
-	tabs = (): ControlTab[] => [...this.tabsById.values()];
+	/** Every open tab once, with its window: the service's own fields, none of what the fake omp answers with. */
+	tabs = (): HostTab[] =>
+		[...this.tabsById.values()].map(tab => {
+			const {
+				here,
+				last: _last,
+				messages: _messages,
+				turn: _turn,
+				unlanded: _unlanded,
+				todos: _todos,
+				model: _model,
+				cost: _cost,
+				spend: _spend,
+				personTurn: _personTurn,
+				...own
+			} = tab;
+			return { ...own, window: here ? "main" : "other" };
+		});
 	isStopping = (callerTabId: string) => this.stopping.has(callerTabId);
 	beforeFirstPrompt = async (child: OpenedChild) => {
 		this.first.push(child);
@@ -139,6 +169,12 @@ class FakeHost implements AgentControlHost {
 	tasks = new Map<string, string>();
 	setTask = (tabId: string, task: string) => {
 		this.tasks.set(tabId, task);
+		// The pool names the tab: its next snapshot reads the task as the title of a session stock has not named.
+		const tab = this.tabsById.get(tabId);
+		if (tab && !tab.title) {
+			tab.task = task;
+			tab.title = task;
+		}
 	};
 	view = (_caller: string, event: { tabId: string; how: string }) => {
 		this.views.push(event);
@@ -233,21 +269,25 @@ class FakeHost implements AgentControlHost {
 	};
 	closed: ClosedChild[] = [];
 	closedChildren = () => this.closed;
-	/** What became of the sessions an id named (`session-fates.ts`); two launches share one through its file. */
-	fates?: SessionFates;
-	cleanups?: PendingCleanups;
-	/** Tombstones (`deleted-sessions.ts`): when a session file, or a saved id, was deleted outside the control tools. */
-	tombstones = new Map<string, number>();
-	deletedAt = (session: { path: string; device?: string } | { id: string }) =>
-		this.tombstones.get("id" in session ? session.id : session.path);
+	/** Tombstones (`deleted-sessions.ts`): when a session file (a path), or a saved id, was deleted outside the control tools. */
+	tombstoneAt = new Map<string, number>();
+	tombstones = (): Tombstones => {
+		const tombstones: Tombstones = { byPath: [], byId: {} };
+		for (const [key, at] of this.tombstoneAt)
+			if (key.startsWith("/")) tombstones.byPath.push({ path: key, at });
+			else tombstones.byId[key] = at;
+		return tombstones;
+	};
 	/** What opening a saved session fails with (the folder it worked in is gone). */
 	reopenError: Error | null = null;
 	/** Transcript cursors the session has outgrown (it wrote more since that page). */
 	staleCursors = new Set<string>();
+	/** The schedules this computer holds, as the service's `ompdesk_schedule` lists them. */
 	scheduleRows: ScheduleRow[] = [];
-	scheduleSource: ScheduleSource | null = {
-		list: async () => this.scheduleRows,
-		save: async draft => {
+	/** The Schedules service (`command`, `create`) over `scheduleRows`; null = none on this computer. */
+	scheduleService: SchedulesHost | null = {
+		command: async request => this.#schedulesCommand(request),
+		create: async draft => {
 			const row: ScheduleRow = {
 				id: `sched${this.scheduleRows.length + 1}000`,
 				name: draft.name,
@@ -256,62 +296,101 @@ class FakeHost implements AgentControlHost {
 				enabled: draft.enabled,
 				nextRun: "2026-10-18T09:00:00.000Z",
 				lastStatus: null,
+				...(draft.wakeSession === undefined ? {} : { wakes: true as const }),
 			};
 			this.scheduleRows.push(row);
 			this.savedDrafts.push(draft);
-			return row;
+			return { id: row.id, state: this.#schedulesState() };
 		},
-		remove: async id => {
-			this.scheduleRows = this.scheduleRows.filter(row => row.id !== id);
-		},
-		update: async (id, change) => {
-			const index = this.scheduleRows.findIndex(row => row.id === id);
-			const before = this.scheduleRows[index] as ScheduleRow;
-			const draft = change({
-				name: before.name,
-				prompt: "before",
-				cwd: before.cwd,
-				frequency: before.frequency,
-				model: null,
-				autoApprove: false,
-				enabled: before.enabled,
-			});
-			this.updatedDrafts.push(draft);
-			const row: ScheduleRow = { ...before, name: draft.name, frequency: draft.frequency, enabled: draft.enabled };
-			this.scheduleRows[index] = row;
-			return row;
-		},
-		setEnabled: async (id, enabled) => {
-			const index = this.scheduleRows.findIndex(row => row.id === id);
-			const row: ScheduleRow = {
-				...(this.scheduleRows[index] as ScheduleRow),
-				enabled,
-				nextRun: enabled ? "2026-10-18T09:00:00.000Z" : null,
-			};
-			this.scheduleRows[index] = row;
-			return row;
-		},
-		runNow: async id => {
-			this.ranNow.push(id);
-		},
-		runs: async id => this.scheduleRuns.filter(run => run.scheduleId === id),
 	};
+	#schedulesState(): SchedulesState {
+		const schedule = (row: ScheduleRow): Schedule => ({
+			id: row.id,
+			createdAt: "2026-10-01T00:00:00.000Z",
+			name: row.name,
+			prompt: "before",
+			cwd: row.cwd,
+			frequency: row.frequency,
+			model: null,
+			autoApprove: false,
+			enabled: row.enabled,
+			...(row.wakes ? { wakeSession: "/s/woken.jsonl" } : {}),
+		});
+		const finished: ScheduleRun[] = this.scheduleRows.flatMap(row =>
+			row.lastStatus
+				? [
+						{
+							id: `run-${row.id}`,
+							scheduleId: row.id,
+							trigger: "schedule" as const,
+							startedAt: "2026-10-17T09:00:00.000Z",
+							endedAt: "2026-10-17T09:01:00.000Z",
+							status: row.lastStatus as ScheduleRun["status"],
+							exitCode: 0,
+							error: null,
+						},
+					]
+				: [],
+		);
+		return {
+			paused: false,
+			schedules: this.scheduleRows.map(schedule),
+			runs: [...this.scheduleRuns, ...finished],
+			nextRuns: Object.fromEntries(this.scheduleRows.map(row => [row.id, row.nextRun])),
+		};
+	}
+	#schedulesCommand(request: SchedulesRequest): SchedulesState {
+		switch (request.action) {
+			case "delete":
+				this.scheduleRows = this.scheduleRows.filter(row => row.id !== request.id);
+				break;
+			case "save": {
+				const index = this.scheduleRows.findIndex(row => row.id === request.id);
+				const before = this.scheduleRows[index] as ScheduleRow;
+				this.updatedDrafts.push(request.draft);
+				this.scheduleRows[index] = {
+					...before,
+					name: request.draft.name,
+					frequency: request.draft.frequency,
+					enabled: request.draft.enabled,
+				};
+				break;
+			}
+			case "setEnabled": {
+				const index = this.scheduleRows.findIndex(row => row.id === request.id);
+				this.scheduleRows[index] = {
+					...(this.scheduleRows[index] as ScheduleRow),
+					enabled: request.enabled,
+					nextRun: request.enabled ? "2026-10-18T09:00:00.000Z" : null,
+				};
+				break;
+			}
+			case "runNow":
+				this.ranNow.push(request.id);
+				break;
+			default:
+		}
+		return this.#schedulesState();
+	}
 	updatedDrafts: ScheduleDraft[] = [];
 	ranNow: string[] = [];
 	scheduleRuns: ScheduleRun[] = [];
 	savedDrafts: ScheduleDraft[] = [];
-	/** The device each `schedules()` call asked for (undefined = this computer). */
+	/** The device each Schedules request was sent to (undefined = this computer). */
 	scheduleDevices: (string | undefined)[] = [];
+	hasSchedules = () => this.scheduleService !== null;
 	schedules = (device?: string) => {
 		this.scheduleDevices.push(device);
-		return this.scheduleSource;
+		return this.scheduleService;
 	};
 	autopilot: AutopilotSource | undefined;
 	observe = (listener: () => void) => {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
 	};
-	text = (key: string, params: Record<string, string>) => `${key}:${params.caller}:${params.target}`;
+	/** The template of each text (`{caller}` and `{target}` are filled by the service): the core reads the language's template. */
+	text = (key: string, params: Record<string, string>) =>
+		`${key}:${params.caller ?? "{caller}"}:${params.target ?? "{target}"}`;
 	deviceList: ControlDevice[] = [];
 	devices = () => this.deviceList;
 	storedRows: StoredSession[] = [];
@@ -436,54 +515,66 @@ class FakeHost implements AgentControlHost {
 	};
 }
 
-function control(host: AgentControlHost, timers?: ConstructorParameters<typeof AgentControl>[1]) {
-	return new AgentControl(host, timers);
+/** Every service a test opened: closed after it, so the core holds none. */
+const opened: AgentControl[] = [];
+afterEach(() => {
+	for (const service of opened.splice(0)) service.close();
+});
+
+/**
+ * The waits the service makes, shortened: the TypeScript tests moved fake timers over them (link waits of 15 s, a
+ * close's 5 s, an open's 30 s), and the service now runs in the core on its own clock. A test that checks what a wait
+ * means sets its own in `host.tuning`.
+ */
+const SHORT_WAITS: Tuning = {
+	openReadyRetryMs: 600,
+	openReadyPauseMs: 10,
+	linkWaitMs: 300,
+	linkPollMs: 10,
+	reattachWaitMs: 300,
+	closeWaitMs: 1_000,
+	ompExitWaitMs: 1_500,
+	autoCloseWaitMs: 1_000,
+	draftWaitMs: 400,
+	whenGoneMs: 1_000,
+	stopWaitMs: 800,
+	abortBeforeCloseMs: 100,
+	turnStartWaitMs: 100,
+	personTurnWaitMs: 300,
+	readyPollMs: 20,
+};
+
+function control(host: FakeHost, tuning: Tuning = {}) {
+	const service = new AgentControl(host, { files: host.files, tuning: { ...SHORT_WAITS, ...host.tuning, ...tuning } });
+	opened.push(service);
+	return service;
 }
 
-/** `call` on a fake clock moved until it settles, so a bounded wait for a device's link passes in no real time. */
-async function onFakeClock<T>(call: () => Promise<T>): Promise<T> {
-	vi.useFakeTimers();
-	try {
-		const pending = call();
-		let settled = false;
-		void pending.then(
-			() => {
-				settled = true;
-			},
-			() => {
-				settled = true;
-			},
-		);
-		for (let step = 0; step < 400 && !settled; step++) await vi.advanceTimersByTimeAsync(250);
-		return await pending;
-	} finally {
-		vi.useRealTimers();
-	}
+const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
+
+/** `call` with the waits shortened (see `SHORT_WAITS`): a bounded wait for a device's link passes in no real time to speak of. */
+async function shortWaits<T>(call: () => Promise<T>): Promise<T> {
+	return call();
 }
 
 /**
  * Runs `call` while the omp of the tab it closes has not exited (`host.exited` waits on it): `pendingWhileRunning` says
- * whether `call` was still going a second of the fake clock later, and `result` is what it returned once the omp exited.
+ * whether `call` was still going a moment later, and `result` is what it returned once the omp exited.
  */
 async function whileOmpRuns<T>(
 	host: FakeHost,
 	call: () => Promise<T>,
 ): Promise<{ pendingWhileRunning: boolean; result: T }> {
-	vi.useFakeTimers();
-	try {
-		const exit = Promise.withResolvers<void>();
-		host.exited = () => exit.promise;
-		let settled = false;
-		const pending = call().finally(() => {
-			settled = true;
-		});
-		await vi.advanceTimersByTimeAsync(1_000);
-		const pendingWhileRunning = !settled;
-		exit.resolve();
-		return { pendingWhileRunning, result: await pending };
-	} finally {
-		vi.useRealTimers();
-	}
+	const exit = Promise.withResolvers<void>();
+	host.exited = () => exit.promise;
+	let settled = false;
+	const pending = call().finally(() => {
+		settled = true;
+	});
+	await sleep(250);
+	const pendingWhileRunning = !settled;
+	exit.resolve();
+	return { pendingWhileRunning, result: await pending };
 }
 
 const select = (title: string, options: string[]): ControlAsk => ({
@@ -634,15 +725,6 @@ describe("ompdesk_sessions", () => {
 	});
 });
 
-describe("elapsedText", () => {
-	it("says how long a turn has run in seconds, minutes, then hours and minutes", () => {
-		expect(elapsedText(40_400)).toBe("40 s");
-		expect(elapsedText(12 * 60_000 + 59_000)).toBe("12 min");
-		expect(elapsedText(2 * 3_600_000)).toBe("2 h");
-		expect(elapsedText(2 * 3_600_000 + 5 * 60_000)).toBe("2 h 5 min");
-	});
-});
-
 /**
  * `host` refuses its `type` command as a tab that cannot take it yet: the tab reads `status` meanwhile. With `recoverMs`
  * only the first is refused and the tab reads `ready` again that long after (an omp busy at its start whose health
@@ -770,29 +852,22 @@ describe("ompdesk_session_open", () => {
 	it("fails an open whose omp dies with a command unanswered, and says why its omp ended", async () => {
 		const host = new FakeHost({ tabId: "main0001", title: "Boss" });
 		host.unanswered.add("agent_control_worker");
-		vi.useFakeTimers();
-		try {
-			let settled = false;
-			const opening = control(host)
-				.run("main0001", T.open, { message: "go" })
-				.finally(() => {
-					settled = true;
-				});
-			await vi.advanceTimersByTimeAsync(5 * 60_000);
-			expect(settled).toBe(false);
-			const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
-			Object.assign(child, { status: "exited", failure: "omp exited with code 1: Cannot find module 'left-pad'" });
-			host.emit();
-			await vi.advanceTimersByTimeAsync(10_000);
-			const result = await opening;
-			expect(result.isError).toBe(true);
-			expect(result.text).toContain("Marking the session as a worker failed");
-			expect(result.text).toContain(
-				"its omp process exited (omp exited with code 1: Cannot find module 'left-pad')",
-			);
-		} finally {
-			vi.useRealTimers();
-		}
+		let settled = false;
+		const opening = control(host)
+			.run("main0001", T.open, { message: "go" })
+			.finally(() => {
+				settled = true;
+			});
+		// Past every wait of the open (`SHORT_WAITS`): a command with no deadline is waited for while the child lives.
+		await sleep(1_500);
+		expect(settled).toBe(false);
+		const child = [...host.tabsById.values()].find(tab => tab.tabId !== "main0001") as FakeTab;
+		Object.assign(child, { status: "exited", failure: "omp exited with code 1: Cannot find module 'left-pad'" });
+		host.emit();
+		const result = await opening;
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("Marking the session as a worker failed");
+		expect(result.text).toContain("its omp process exited (omp exited with code 1: Cannot find module 'left-pad')");
 	});
 
 	it("says why a session that could not start failed, as its omp said it", async () => {
@@ -835,8 +910,8 @@ describe("ompdesk_session_open", () => {
 		async (type, code, error, args) => {
 			const host = new FakeHost({ tabId: "main0001", title: "Boss" });
 			refuseCommand(host, type, { code, error, status: "error", recoverMs: 20 });
-			const result = await onFakeClock(() => control(host).run("main0001", T.open, { ...args, worktree: true }));
-			expect(result.isError).toBe(false);
+			const result = await shortWaits(() => control(host).run("main0001", T.open, { ...args, worktree: true }));
+			expect(result.isError, result.text).toBe(false);
 			expect(result.text).toContain("Opened session");
 			const child = [...host.tabsById.keys()].find(id => id !== "main0001") ?? "";
 			expect(host.sent.filter(entry => entry.tabId === child && entry.command.type === type)).toHaveLength(2);
@@ -854,7 +929,7 @@ describe("ompdesk_session_open", () => {
 			status: "error",
 			recoverMs: 20,
 		});
-		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go" }));
+		const result = await shortWaits(() => control(host).run("main0001", T.open, { message: "go" }));
 		expect(result.isError).toBe(false);
 		expect(result.text).toContain("It is working on your message.");
 	});
@@ -862,14 +937,14 @@ describe("ompdesk_session_open", () => {
 	it("fails an open whose child stays not ready past the bound, naming the refusal, and takes back its worktree", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		refuseCommand(host, "prompt", { code: "sidecar_not_ready", error: "Sidecar not ready (error)", status: "error" });
-		const { result, waitedMs } = await onFakeClock(async () => {
+		const { result, waitedMs } = await shortWaits(async () => {
 			const started = Date.now();
 			const result = await control(host).run("main0001", T.open, { message: "go", worktree: true });
 			return { result, waitedMs: Date.now() - started };
 		});
 		expect(result.isError).toBe(true);
 		expect(result.text).toContain("Sending the first message failed: Sidecar not ready (error)");
-		expect(waitedMs).toBeGreaterThanOrEqual(30_000);
+		expect(waitedMs).toBeGreaterThanOrEqual(600);
 		expect(host.sent.filter(entry => entry.command.type === "prompt")).toHaveLength(1);
 		expect(host.views.some(view => view.how === "close")).toBe(true);
 		expect(host.discarded).toEqual([{ branch: "omp/agent/w", device: undefined }]);
@@ -923,7 +998,7 @@ describe("ompdesk_session_open", () => {
 		host.view = (_caller, event) => {
 			host.views.push(event);
 		};
-		const result = await onFakeClock(() => control(host).run("main0001", T.open, { message: "go", worktree: true }));
+		const result = await shortWaits(() => control(host).run("main0001", T.open, { message: "go", worktree: true }));
 		expect(result.text).toContain("its tab is still open, so its worktree /wt/w and branch omp/agent/w were kept");
 		expect(host.discarded).toEqual([]);
 	});
@@ -1031,103 +1106,79 @@ describe("ompdesk_session_send", () => {
 	});
 
 	it("never promises a turn it did not see start", async () => {
-		vi.useFakeTimers();
-		try {
-			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
-			const command = host.command;
-			// The omp takes the prompt but no turn follows (its busy flag never rises).
-			host.command = async (tabId, request, timeoutMs) => {
-				if (tabId === "work0002" && request.type === "prompt") {
-					host.sent.push({ tabId, command: request });
-					return ok();
-				}
-				return command.call(host, tabId, request, timeoutMs);
-			};
-			const sending = control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
-			await vi.advanceTimersByTimeAsync(5_000);
-			const result = await sending;
-			expect(result.text).not.toContain("starts on it");
-			expect(result.text).toContain("no turn started");
-		} finally {
-			vi.useRealTimers();
-		}
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", title: "Worker" });
+		const command = host.command;
+		// The omp takes the prompt but no turn follows (its busy flag never rises).
+		host.command = async (tabId, request, timeoutMs) => {
+			if (tabId === "work0002" && request.type === "prompt") {
+				host.sent.push({ tabId, command: request });
+				return ok();
+			}
+			return command.call(host, tabId, request, timeoutMs);
+		};
+		const result = await control(host).run("main0001", T.send, { session: "work0002", message: "please review" });
+		expect(result.text).not.toContain("starts on it");
+		expect(result.text).toContain("no turn started");
 	});
 
 	it("waits while the person types into the target, then sends; gives up after a minute with nothing sent", async () => {
-		vi.useFakeTimers();
-		try {
-			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", drafting: true });
-			const service = control(host);
-			const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
-			await vi.advanceTimersByTimeAsync(5_000);
-			expect(prompts(host, "work0002")).toEqual([]);
-			(host.tabsById.get("work0002") as FakeTab).drafting = false;
-			for (const listener of host.listeners) listener();
-			expect((await sending).text).toContain("it was idle and starts on it");
-			expect(prompts(host, "work0002")).toHaveLength(1);
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002", drafting: true });
+		const service = control(host);
+		const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
+		await sleep(150);
+		expect(prompts(host, "work0002")).toEqual([]);
+		(host.tabsById.get("work0002") as FakeTab).drafting = false;
+		for (const listener of host.listeners) listener();
+		expect((await sending).text).toContain("it was idle and starts on it");
+		expect(prompts(host, "work0002")).toHaveLength(1);
 
-			(host.tabsById.get("work0002") as FakeTab).drafting = true;
-			const refused = service.run("main0001", T.send, { session: "work0002", message: "and this" });
-			await vi.advanceTimersByTimeAsync(DRAFT_WAIT_MS + 1_000);
-			const result = await refused;
-			expect(result.isError).toBe(true);
-			expect(result.text).toContain("The person is typing in");
-			expect(prompts(host, "work0002")).toHaveLength(1);
-		} finally {
-			vi.useRealTimers();
-		}
+		// The minute (`draftWaitMs`, 400 ms here) passes with the draft still there.
+		(host.tabsById.get("work0002") as FakeTab).drafting = true;
+		const result = await service.run("main0001", T.send, { session: "work0002", message: "and this" });
+		expect(result.isError).toBe(true);
+		expect(result.text).toContain("The person is typing in");
+		expect(prompts(host, "work0002")).toHaveLength(1);
 	});
 
 	it("sees a draft the person starts while the send reads the target's journal", async () => {
-		vi.useFakeTimers();
-		try {
-			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
-			// host.ts builds new tab objects on every read: a listing is a snapshot.
-			host.tabs = () => [...host.tabsById.values()].map(tab => ({ ...tab }));
-			let release = (): void => {};
-			const held = new Promise<void>(resolve => {
-				release = resolve;
-			});
-			const command = host.command;
-			host.command = async (tabId, request, timeoutMs) => {
-				if (request.type === "get_transcript_page") await held;
-				return command(tabId, request, timeoutMs);
-			};
-			const service = control(host);
-			const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
-			await vi.advanceTimersByTimeAsync(10);
-			(host.tabsById.get("work0002") as FakeTab).drafting = true;
-			release();
-			await vi.advanceTimersByTimeAsync(5_000);
-			expect(prompts(host, "work0002")).toEqual([]);
-			(host.tabsById.get("work0002") as FakeTab).drafting = false;
-			for (const listener of host.listeners) listener();
-			expect((await sending).isError).toBeFalsy();
-			expect(prompts(host, "work0002")).toHaveLength(1);
-		} finally {
-			vi.useRealTimers();
-		}
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
+		let release = (): void => {};
+		const held = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		const command = host.command;
+		host.command = async (tabId, request, timeoutMs) => {
+			if (request.type === "get_transcript_page") await held;
+			return command(tabId, request, timeoutMs);
+		};
+		const service = control(host);
+		const sending = service.run("main0001", T.send, { session: "work0002", message: "please review" });
+		await sleep(50);
+		(host.tabsById.get("work0002") as FakeTab).drafting = true;
+		release();
+		await sleep(150);
+		expect(prompts(host, "work0002")).toEqual([]);
+		(host.tabsById.get("work0002") as FakeTab).drafting = false;
+		for (const listener of host.listeners) listener();
+		expect((await sending).isError).toBeFalsy();
+		expect(prompts(host, "work0002")).toHaveLength(1);
 	});
 
 	it("answers a repeat of a delivered request at once, never waiting on the person's draft", async () => {
-		vi.useFakeTimers();
-		try {
-			const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
-			const service = control(host);
-			const args = { session: "work0002", message: "please review", request_id: "r1" };
-			expect((await service.run("main0001", T.send, args)).isError).toBeFalsy();
-			(host.tabsById.get("work0002") as FakeTab).drafting = true;
-			let answered: { text: string; isError?: boolean } | undefined;
-			void service.run("main0001", T.send, args).then(result => {
-				answered = result;
-			});
-			await vi.advanceTimersByTimeAsync(10);
-			expect(answered?.isError).toBeFalsy();
-			expect(answered?.text).toMatch(/already delivered; nothing sent again/);
-			expect(prompts(host, "work0002")).toHaveLength(1);
-		} finally {
-			vi.useRealTimers();
-		}
+		const host = new FakeHost({ tabId: "main0001", title: "Boss" }, { tabId: "work0002" });
+		const service = control(host);
+		const args = { session: "work0002", message: "please review", request_id: "r1" };
+		expect((await service.run("main0001", T.send, args)).isError).toBeFalsy();
+		(host.tabsById.get("work0002") as FakeTab).drafting = true;
+		let answered: { text: string; isError?: boolean } | undefined;
+		void service.run("main0001", T.send, args).then(result => {
+			answered = result;
+		});
+		// Well inside the draft wait (`draftWaitMs`, 400 ms here).
+		await sleep(250);
+		expect(answered?.isError).toBeFalsy();
+		expect(answered?.text).toMatch(/already delivered; nothing sent again/);
+		expect(prompts(host, "work0002")).toHaveLength(1);
 	});
 
 	it("refuses a self-send, a hidden session, an unknown id and an ambiguous prefix", async () => {
@@ -1217,18 +1268,12 @@ describe("ompdesk_session_result", () => {
 		});
 		expect(any.text).toContain("quick");
 		const slow = new FakeHost({ tabId: "main0001" }, { tabId: "work0002", busy: true });
-		vi.useFakeTimers();
-		try {
-			const waiting = control(slow).run("main0001", T.result, {
-				session: "work0002",
-				wait: true,
-				timeout_seconds: 1,
-			});
-			await vi.advanceTimersByTimeAsync(5000);
-			expect((await waiting).text).toMatch(/Still running after waiting 1 s/);
-		} finally {
-			vi.useRealTimers();
-		}
+		const waiting = control(slow).run("main0001", T.result, {
+			session: "work0002",
+			wait: true,
+			timeout_seconds: 1,
+		});
+		expect((await waiting).text).toMatch(/Still running after waiting 1 s/);
 	});
 
 	it("returns at once for a session that waits for the user's answer", async () => {
@@ -1323,19 +1368,6 @@ describe("ompdesk_session_read", () => {
 			// No omp started, no command reached the tab.
 			expect(host.sent.filter(entry => entry.tabId === "work0003")).toEqual([]);
 		}
-	});
-
-	it("currentStep and renderMessage read the tail rules", () => {
-		expect(currentStep(messages)).toBeNull();
-		expect(currentStep(messages.slice(0, 2))).toBe("running read (look at a.ts)");
-		expect(renderMessage({ role: "system" })).toBeNull();
-	});
-
-	it("never ends a shortened line on half an emoji", () => {
-		// The 160th unit is the emoji's first half: cut there, the line would carry a lone surrogate, which JSON
-		// writes as an escape a strict reader (the ompdesk CLI) refuses.
-		const line = renderMessage({ role: "bashExecution", command: `${"c".repeat(158)}😀 --flag`, exitCode: 0 });
-		expect(line).toBe(`[bash] ${"c".repeat(158)}… → exit 0`);
 	});
 });
 
@@ -1714,9 +1746,9 @@ describe("hooks for Autopilot", () => {
 		const host = new FakeHost({ tabId: "main0001" });
 		const service = control(host);
 		const ids = await service.openSessions("main0001", [{ message: "a" }, { message: "b" }]);
-		expect(service.childrenOf("main0001").sort()).toEqual([...ids].sort());
+		expect((await service.childrenOf("main0001")).sort()).toEqual([...ids].sort());
 		host.tabsById.delete(ids[0] as string);
-		expect(service.childrenOf("main0001")).toEqual([ids[1]]);
+		expect(await service.childrenOf("main0001")).toEqual([ids[1]]);
 		await service.clearQueue(ids[1] as string);
 		const types = host.sent.filter(entry => entry.tabId === ids[1]).map(entry => entry.command.type);
 		expect(types).toContain("queue_clear");
@@ -1857,7 +1889,7 @@ describe("ompdesk_merge", () => {
 		host.cardAnswer = false;
 		const result = await service.run("main0001", T.merge, { session: ids[0] });
 		expect(result.text).toContain("The user declined the merge");
-		expect(host.cards).toEqual([{ title: "mergeTitle:undefined:undefined", message: "mergeMessage:Boss:Alpha" }]);
+		expect(host.cards).toEqual([{ title: "mergeTitle:{caller}:{target}", message: "mergeMessage:Boss:Alpha" }]);
 		expect(host.merges).toEqual([]);
 	});
 
@@ -2272,7 +2304,7 @@ describe("ompdesk_schedule", () => {
 		expect(result.isError).toBe(false);
 		expect(result.text).toContain("Scheduled “[agent] nightly audit” every 60 min in /repo");
 		expect(host.cards).toEqual([
-			{ title: "scheduleTitle:undefined:undefined", message: "scheduleMessage:Boss:undefined" },
+			{ title: "scheduleTitle:{caller}:{target}", message: "scheduleMessage:Boss:{target}" },
 		]);
 		expect(host.savedDrafts[0]).toMatchObject({
 			name: "[agent] nightly audit",
@@ -2493,7 +2525,7 @@ describe("ompdesk_schedule", () => {
 
 	it("says so when there is no Schedules service", async () => {
 		const host = new FakeHost({ tabId: "main0001" });
-		host.scheduleSource = null;
+		host.scheduleService = null;
 		expect((await control(host).run("main0001", T.schedule, { action: "list" })).text).toMatch(/not available/);
 	});
 
@@ -2514,7 +2546,8 @@ describe("ompdesk_schedule", () => {
 		const remote = await service.run("remo0002", T.schedule, base);
 		expect(remote.isError).toBe(false);
 		expect(remote.text).toContain("in C:\\Users\\kim\\app on Studio");
-		expect(host.scheduleDevices).toEqual(["studio-id"]);
+		// Every request of the create went to that device (the service asks the Schedules service more than once).
+		expect(new Set(host.scheduleDevices)).toEqual(new Set(["studio-id"]));
 		expect(host.savedDrafts[0]).toMatchObject({ cwd: "C:\\Users\\kim\\app", autoApprove: false, name: "[agent] n" });
 
 		// A local caller names the host; its own folder is not a path there.
@@ -2539,7 +2572,7 @@ describe("ompdesk_schedule", () => {
 			/folder is required: name an absolute folder on this computer/,
 		);
 		expect(host.scheduleDevices.at(-1)).toBeUndefined();
-		const offline = await onFakeClock(() => service.run("main0001", T.schedule, { action: "list", device: "PC" }));
+		const offline = await shortWaits(() => service.run("main0001", T.schedule, { action: "list", device: "PC" }));
 		expect(offline.isError).toBe(true);
 		expect(offline.text).toMatch(/PC is offline/);
 	});
@@ -2571,7 +2604,7 @@ describe("ompdesk_schedule", () => {
 		// A plain create has no wake target.
 		await service.run("main0001", T.schedule, { action: "create", name: "n", prompt: "p", every_minutes: 60 });
 		expect(host.savedDrafts[1]).not.toHaveProperty("wakeSession");
-		expect(host.scheduleDevices).toEqual([undefined, undefined]);
+		expect(host.scheduleDevices.every(device => device === undefined)).toBe(true);
 		// The agent that made it can cancel it like any agent-made schedule, and the list says it wakes a session.
 		host.scheduleRows[0] = { ...(host.scheduleRows[0] as ScheduleRow), wakes: true };
 		expect((await service.run("main0001", T.schedule, { action: "list" })).text).toContain("; wakes a session");
@@ -2784,10 +2817,10 @@ describe("ompdesk_autopilot", () => {
 		expect(opened).not.toBe("remote03");
 		// The tab it opened only to start from closes; the run stays the caller's.
 		expect(host.views).toContainEqual({ tabId: opened, how: "close" });
-		expect(service.childrenOf("main0001")).toEqual(["apr10000", "apr20000"]);
+		expect(await service.childrenOf("main0001")).toEqual(["apr10000", "apr20000"]);
 
 		host.deviceList = [{ id: "dev1", name: "Mac", state: "offline" }];
-		const away = await onFakeClock(() =>
+		const away = await shortWaits(() =>
 			service.run("main0001", T.autopilot, { action: "start", device: "Mac", folder: "/far" }),
 		);
 		expect(away.text).toMatch(/offline/);
@@ -2914,7 +2947,7 @@ describe("ompdesk_autopilot", () => {
 		const { host, service } = setup();
 		host.manage = true;
 		await service.run("main0001", T.autopilot, { action: "start" });
-		expect(service.childrenOf("main0001")).toEqual(["apr10000"]);
+		expect(await service.childrenOf("main0001")).toEqual(["apr10000"]);
 	});
 });
 
@@ -3782,7 +3815,7 @@ describe("ompdesk_sessions scopes", () => {
 			.text;
 		expect(pc).toContain('1 session saved on DESKTOP-91ID999 matching "PC"');
 		expect(host.storedQueries.at(-1)).toEqual({ device: desktop.id, query: "PC" });
-		const off = await onFakeClock(() => service.run("main0001", T.list, { scope: "stored", device: "Laptop" }));
+		const off = await shortWaits(() => service.run("main0001", T.list, { scope: "stored", device: "Laptop" }));
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
 	});
@@ -3871,25 +3904,20 @@ describe("ompdesk_session_open on a device and reopen", () => {
 			(host.tabsById.get(child) as FakeTab).status = "starting";
 			return opened;
 		};
-		vi.useFakeTimers();
-		try {
-			let settled = false;
-			const opening = control(host)
-				.run("main0001", T.open, { message: "build it" })
-				.finally(() => {
-					settled = true;
-				});
-			// Far past any bound a start once had (90 s): a live start is never a failed open.
-			await vi.advanceTimersByTimeAsync(300_000);
-			expect(settled).toBe(false);
-			(host.tabsById.get(child) as FakeTab).status = "ready";
-			await vi.advanceTimersByTimeAsync(1_000);
-			const result = await opening;
-			expect(result.isError, result.text).toBe(false);
-			expect(prompts(host, child)).toEqual([expect.stringContaining("build it")]);
-		} finally {
-			vi.useRealTimers();
-		}
+		let settled = false;
+		const opening = control(host)
+			.run("main0001", T.open, { message: "build it" })
+			.finally(() => {
+				settled = true;
+			});
+		// Far past every wait of the open (`SHORT_WAITS`): a live start is never a failed open.
+		await sleep(1_500);
+		expect(settled).toBe(false);
+		(host.tabsById.get(child) as FakeTab).status = "ready";
+		host.emit();
+		const result = await opening;
+		expect(result.isError, result.text).toBe(false);
+		expect(prompts(host, child)).toEqual([expect.stringContaining("build it")]);
 	});
 
 	it("opens a session on a paired device by name; an offline one is refused", async () => {
@@ -3907,7 +3935,7 @@ describe("ompdesk_session_open on a device and reopen", () => {
 		const local = await service.run("main0001", T.open, { device: "local" });
 		expect(local.isError).toBe(false);
 		expect(host.spawned[1]?.device).toBeNull();
-		const off = await onFakeClock(() => service.run("main0001", T.open, { device: "Laptop" }));
+		const off = await shortWaits(() => service.run("main0001", T.open, { device: "Laptop" }));
 		expect(off.isError).toBe(true);
 		expect(off.text).toContain("Laptop is offline");
 		expect(host.spawned).toHaveLength(2);
@@ -4257,58 +4285,17 @@ describe("ompdesk_compare with criteria", () => {
 	});
 });
 
-describe("checksRun and parseVerdict", () => {
-	it("keeps check-like bash commands with their outcome and skips the rest", () => {
-		const messages = [
-			{
-				role: "assistant",
-				content: [{ type: "toolCall", id: "a", name: "bash", arguments: { command: "ls -la" } }],
-			},
-			{ role: "toolResult", toolCallId: "a", content: "x" },
-			{
-				role: "assistant",
-				content: [{ type: "toolCall", id: "b", name: "bash", arguments: { command: "cargo test" } }],
-			},
-			{ role: "toolResult", toolCallId: "b", content: "test result: FAILED. exit code 101" },
-			{ role: "bashExecution", command: "bun run lint", exitCode: 0 },
-		] as AgentMessage[];
-		expect(checksRun(messages)).toEqual([
-			{ command: "cargo test", passed: false, tail: "test result: FAILED. exit code 101" },
-			{ command: "bun run lint", passed: true, tail: "" },
-		]);
-	});
-
-	it("reads the verdict JSON out of prose and refuses a wrong shape", () => {
-		expect(parseVerdict('ok {"ranking":[{"session":"a","score":5}],"winner":null} done')).toMatchObject({
-			ranking: [{ session: "a", score: 5, criteria: [] }],
-			winner: null,
-		});
-		expect(parseVerdict('{"ranking":[{"session":"a","score":500}]}')).toBeNull();
-		expect(parseVerdict("no json")).toBeNull();
-	});
-});
-
 describe("ompdesk_report: sessions tell their opener", () => {
 	async function family() {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" });
-		const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
-		const service = control(host, {
-			setTimer: (fn, ms) => {
-				const timer = { fn, ms, cleared: false };
-				timers.push(timer);
-				return timer;
-			},
-			clearTimer: timer => {
-				(timer as { cleared: boolean }).cleared = true;
-			},
-		});
+		// Progress from one sender is coalesced for the mailbox window (`mailCoalesceMs`, 2 s by default).
+		const service = control(host, { mailCoalesceMs: 150 });
 		const opened = await service.run("boss0001", T.open, {
 			sessions: [{ message: "Title: part A\nDo A" }, { message: "Title: part B\nDo B" }],
 		});
 		const [a, b] = [...opened.text.matchAll(/Opened session (\w+)/g)].map(match => match[1] as string);
-		const fire = () => {
-			for (const timer of timers.splice(0)) if (!timer.cleared) timer.fn();
-		};
+		/** The coalescing window passes. */
+		const fire = () => sleep(400);
 		return { host, service, a: a as string, b: b as string, fire };
 	}
 
@@ -4465,14 +4452,14 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		await service.run(a, T.report, { kind: "progress", text: "step 1" });
 		await service.run(a, T.report, { kind: "progress", text: "step 2" });
 		expect(host.mails).toHaveLength(0);
-		fire();
+		await fire();
 		await Promise.resolve();
 		expect(host.mails).toHaveLength(1);
 		expect(host.mails[0]?.details).toMatchObject({ text: "step 2", merged: 1 });
 		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
 		await service.run(a, T.report, { kind: "progress", text: "step 3" });
 		await service.run(a, T.report, { kind: "done", text: "finished" });
-		fire();
+		await fire();
 		await Promise.resolve();
 		expect(host.mails.map(mail => mail.details.text)).toEqual(["step 2", "finished"]);
 	});
@@ -4482,7 +4469,7 @@ describe("ompdesk_report: sessions tell their opener", () => {
 		const boss = host.tabsById.get("boss0001");
 		if (boss) boss.busy = true;
 		await service.run(a, T.report, { kind: "progress", text: "halfway" });
-		fire();
+		await fire();
 		await Promise.resolve();
 		// The opener's bridge sends it as an aside while its turn runs; stock's hidden `nextTurn` is never used.
 		expect(host.mails[0]?.delivery).toEqual({ triggerTurn: false });
@@ -4649,8 +4636,8 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 		const actions = [{}, { close: true }, { delete: true }];
 		const pendingNotes = (host: FakeHost, boss: FakeTab) => {
 			boss.busy = false;
-			return (service: AgentControl) => {
-				service.personTyped("boss0001");
+			return async (service: AgentControl) => {
+				await service.personTyped("boss0001");
 				return host.mails.filter(mail => mail.to === "boss0001" && mail.content.includes("pending cleanups"));
 			};
 		};
@@ -4680,7 +4667,7 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 				if ("close" in args) expect(host.views, label).toContainEqual({ tabId: "seen0002", how: "close" });
 				if ("delete" in args) expect(host.deleted, label).toEqual(["seen0002"]);
 				expect(host.cards, label).toEqual([]);
-				expect(pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service), label).toEqual([]);
+				expect(await pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service), label).toEqual([]);
 			}
 		});
 
@@ -4698,7 +4685,7 @@ describe("closing and stopping: ownership after a relaunch, cards by risk", () =
 				expect(refused.text).toContain("pending cleanup");
 				expect(host.views).toEqual([]);
 				expect(host.deleted).toEqual([]);
-				expect(pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service)).toHaveLength(1);
+				expect(await pendingNotes(host, host.tabsById.get("boss0001") as FakeTab)(service)).toHaveLength(1);
 			}
 		});
 
@@ -4790,7 +4777,7 @@ describe("a close is told only once the tab is gone", () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss" }, { tabId: "kid00002", title: "Kid" });
 		host.parents.set("kid00002", "boss0001");
 		host.refuseClose.add("kid00002");
-		const result = await onFakeClock(() => control(host).run("boss0001", T.stop, closeArgs));
+		const result = await shortWaits(() => control(host).run("boss0001", T.stop, closeArgs));
 		expect(result.isError).toBe(true);
 		expect(result.text).toMatch(/still open/);
 		expect(host.mails).toEqual([]);
@@ -4945,7 +4932,7 @@ describe("every close path follows tabCloseStep", () => {
 			const host = new FakeHost({ tabId: "main0001" });
 			host.beforeFirstPromptError = new Error("guard failed");
 			host.spawnPatch = patch;
-			await onFakeClock(() => control(host).run("main0001", T.open, { message: "go" }));
+			await shortWaits(() => control(host).run("main0001", T.open, { message: "go" }));
 			return { host, child: host.first[0]?.tabId ?? "" };
 		},
 	};
@@ -5103,7 +5090,7 @@ describe("situation matrix", () => {
 	/** The fake as main behaves: a paired device's tab refuses while its link is down; stock's abort unwinds slowly. */
 	class MatrixHost extends FakeHost {
 		/** When stock's abort answers (ms after it is sent); null: never. The turn ends at the same moment. */
-		abortAfter: number | null = 12_000;
+		abortAfter: number | null = 200;
 		constructor(...tabs: Partial<FakeTab>[]) {
 			super(...tabs);
 			const base = this.command;
@@ -5142,7 +5129,7 @@ describe("situation matrix", () => {
 		}
 	}
 
-	function world(): MatrixHost {
+	function world(options: { linkBlips?: boolean } = {}): MatrixHost {
 		const host = new MatrixHost(
 			{ tabId: "boss0001", title: "Boss" },
 			{
@@ -5193,14 +5180,16 @@ describe("situation matrix", () => {
 		host.storedTranscripts.set(file("cccccccc-3333"), said("stored answer"));
 		host.storedTranscripts.set(file("eeeeeeee-3333"), said("sleeper answer"));
 		host.storedTranscripts.set("L:/s/2026-10-20T00-00-00-000Z_dddddddd-4444.jsonl", said("laptop answer"));
-		// The Laptop's link was blipping: it comes back two seconds in, and its tab re-attaches.
-		setTimeout(() => {
-			const lap = host.deviceList.find(device => device.id === "lap");
-			if (lap) lap.state = "online";
-			const blip = host.tabsById.get("blip5555");
-			if (blip) blip.status = "ready";
-			host.emit();
-		}, 2_000);
+		// The Laptop's link was blipping: it comes back 100 ms in (2 s on the clock the waits had; the link wait is
+		// 300 ms here, `SHORT_WAITS`), and its tab re-attaches.
+		if (options.linkBlips !== false)
+			setTimeout(() => {
+				const lap = host.deviceList.find(device => device.id === "lap");
+				if (lap) lap.state = "online";
+				const blip = host.tabsById.get("blip5555");
+				if (blip) blip.status = "ready";
+				host.emit();
+			}, 100);
 		return host;
 	}
 
@@ -5352,7 +5341,7 @@ describe("situation matrix", () => {
 	};
 
 	it.each(Object.entries(cells))("%s", async (_name, cell) => {
-		const outcome = await onFakeClock(() => {
+		const outcome = await shortWaits(() => {
 			const host = world();
 			cell.setup?.(host);
 			return control(host).run("boss0001", cell.tool, cell.args);
@@ -5367,10 +5356,9 @@ describe("situation matrix", () => {
 	});
 
 	it("waits a bounded moment only: a device that stays away fails within 20 s and says what to do", async () => {
-		const { outcome, waited } = await onFakeClock(async () => {
-			const host = world();
+		const { outcome, waited } = await shortWaits(async () => {
 			// The Laptop never comes back this time.
-			vi.clearAllTimers();
+			const host = world({ linkBlips: false });
 			const lap = host.deviceList.find(device => device.id === "lap");
 			if (lap) lap.state = "offline";
 			const started = Date.now();
@@ -5485,14 +5473,11 @@ describe("answer matrix", () => {
 });
 
 describe("a control call a paired host re-sends after this computer relaunched runs once", () => {
-	/**
-	 * `laterCalls(…, 600)` writes the journal file 1,800 times, each a synchronous atomic write of up to 500 records:
-	 * 0.4 s here, past vitest's 5 s on a loaded CI runner (check (node), 21 Oct 2026).
-	 */
-	const LATER_CALLS_TIMEOUT_MS = 30_000;
-
 	// 21 Oct 2026: a host re-sends every host tool call its omp still waits on to a relaunched device (host-services.ts
 	// `hostCalls`), and the device may have carried the call out before it died, between the effect and the result.
+	// The journal lives in the core now (`agentctl/journal/call_journal.rs`, its clock and retention pinned by its Rust
+	// tests); these tests keep the file it writes: the app's death is the file without a result, the days that pass are
+	// older `at`s, the calls the host took are `acked` records.
 	let dir: string;
 	beforeEach(() => {
 		dir = mkdtempSync(join(tmpdir(), "agent-control-calls-"));
@@ -5501,40 +5486,54 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		rmSync(dir, { recursive: true, force: true });
 	});
 	const file = () => join(dir, "agent-control-calls.json");
+	type Record_ = { key: string; at: number; acked?: boolean; result?: unknown } & Record<string, unknown>;
+	const readJournal = (): Record_[] => JSON.parse(readFileSync(file(), "utf8")) as Record_[];
+	const writeJournal = (records: Record_[]): void => writeFileSync(file(), JSON.stringify(records));
 	/** The first delivery of host call `call-1`, and the host's re-send of it to a relaunched device. */
 	const first1 = { id: "call-1" };
 	const resent1 = { id: "call-1", resent: true };
 	const DAY = 24 * 60 * 60_000;
 
 	/** This computer as it relaunched: a new caller tab id on the same session file, the journal read back from disk. */
-	function relaunch(host: FakeHost, from: string, to: string, now?: () => number): void {
+	function relaunch(host: FakeHost, from: string, to: string): void {
 		const caller = host.tabsById.get(from);
 		host.tabsById.delete(from);
 		if (caller) host.add({ ...caller, tabId: to });
 		for (const [child, parent] of host.parents) if (parent === from) host.parents.set(child, to);
-		host.calls = new CallJournal(file(), now);
 	}
 
-	/** The app dies right after the call's effect: its result is never written. */
-	function dyingAfterTheEffect(journal: CallJournal): CallJournal {
-		journal.finish = () => {};
-		return journal;
+	/** The app dies right after the calls' effects: no result was written. */
+	function diesAfterTheEffect(): void {
+		writeJournal(readJournal().map(({ result: _result, ...record }) => record));
+	}
+
+	/** The host took the result of call `callId`. */
+	function acknowledge(callId: string): void {
+		writeJournal(
+			readJournal().map(record => (record.key.endsWith(`\n${callId}`) ? { ...record, acked: true } : record)),
+		);
 	}
 
 	/** Days pass and `count` other calls run, each answered and taken by its host. */
-	function laterCalls(journal: CallJournal, clock: { at: number }, count: number): void {
-		clock.at += 4 * DAY;
-		for (let index = 0; index < count; index++) {
-			journal.begin({ key: `\n/s/other.jsonl\nlater-${index}`, tool: T.send, callerTabId: "other003" });
-			journal.finish(`\n/s/other.jsonl\nlater-${index}`, { text: "ok", isError: false });
-			journal.acknowledge(`later-${index}`);
-		}
+	function laterCalls(count: number): void {
+		const records: Record_[] = readJournal().map(record => ({ ...record, at: record.at - 4 * DAY }));
+		for (let index = 0; index < count; index++)
+			records.push({
+				key: `\n/s/other.jsonl\nlater-${index}`,
+				tool: T.send,
+				callerTabId: "other003",
+				at: Date.now(),
+				result: { text: "ok", isError: false },
+				acked: true,
+			});
+		writeJournal(records);
 	}
 
 	it("opens one session when the app died after opening it and before recording the result", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		host.files.calls = file();
 		const first = await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, first1);
+		diesAfterTheEffect();
 		const child = /Opened session (\w+)/.exec(first.text)?.[1] as string;
 		expect(child).toBeTruthy();
 
@@ -5552,7 +5551,7 @@ describe("a control call a paired host re-sends after this computer relaunched r
 
 	it("answers a finished call's result again instead of running it twice", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-		host.calls = new CallJournal(file());
+		host.files.calls = file();
 		const first = await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
 		relaunch(host, "boss0001", "boss0002");
 		const again = await control(host).run("boss0002", T.open, { message: "Do A" }, resent1);
@@ -5567,13 +5566,14 @@ describe("a control call a paired host re-sends after this computer relaunched r
 
 	it("never runs again a call whose effect cannot be found: its outcome is unknown", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		host.files.calls = file();
 		// The app dies before the session opened (the spawn never came back).
 		const spawn = host.spawn;
 		host.spawn = async () => {
 			throw new Error("the app quit");
 		};
 		await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
+		diesAfterTheEffect();
 		host.spawn = spawn;
 
 		relaunch(host, "boss0001", "boss0002");
@@ -5586,9 +5586,10 @@ describe("a control call a paired host re-sends after this computer relaunched r
 
 	it("finds the schedule a call saved before the app died, and saves no second one", async () => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-		host.calls = dyingAfterTheEffect(new CallJournal(file()));
+		host.files.calls = file();
 		const args = { action: "create", name: "Nightly", prompt: "run checks", every_minutes: 60 };
 		await control(host).run("boss0001", T.schedule, args, first1);
+		diesAfterTheEffect();
 		relaunch(host, "boss0001", "boss0002");
 		const again = await control(host).run("boss0002", T.schedule, args, resent1);
 		expect(again.isError, again.text).toBe(false);
@@ -5600,66 +5601,66 @@ describe("a control call a paired host re-sends after this computer relaunched r
 		);
 	});
 
-	it(
-		"keeps a call the host has not acknowledged past 3 days and 500 newer calls: replayed then, it still runs once",
-		async () => {
-			// A host waits on a call with no time limit, so it may re-send one days and many calls later.
-			const clock = { at: Date.UTC(2026, 9, 21) };
-			const now = () => clock.at;
-			const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-			host.calls = dyingAfterTheEffect(new CallJournal(file(), now));
-			await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
-			// A finished call whose result never reached the host stays too.
-			const finished = new CallJournal(file(), now);
-			host.calls = finished;
-			const answered = await control(host).run("boss0001", T.open, { message: "Do B" }, { id: "call-2" });
-			laterCalls(finished, clock, 600);
+	it("keeps a call the host has not acknowledged past 3 days and 500 newer calls: replayed then, it still runs once", async () => {
+		// A host waits on a call with no time limit, so it may re-send one days and many calls later.
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.files.calls = file();
+		await control(host).run("boss0001", T.open, { message: "Do A" }, first1);
+		diesAfterTheEffect();
+		// A finished call whose result never reached the host stays too.
+		const answered = await control(host).run("boss0001", T.open, { message: "Do B" }, { id: "call-2" });
+		laterCalls(600);
 
-			relaunch(host, "boss0001", "boss0002", now);
-			expect((await control(host).run("boss0002", T.open, { message: "Do A" }, resent1)).text).toMatch(
-				/before OMPdesk restarted/,
-			);
-			expect(
-				await control(host).run("boss0002", T.open, { message: "Do B" }, { id: "call-2", resent: true }),
-			).toEqual(answered);
-			expect(host.spawned).toHaveLength(2);
-		},
-		LATER_CALLS_TIMEOUT_MS,
-	);
+		relaunch(host, "boss0001", "boss0002");
+		expect((await control(host).run("boss0002", T.open, { message: "Do A" }, resent1)).text).toMatch(
+			/before OMPdesk restarted/,
+		);
+		expect(await control(host).run("boss0002", T.open, { message: "Do B" }, { id: "call-2", resent: true })).toEqual(
+			answered,
+		);
+		expect(host.spawned).toHaveLength(2);
+	});
 
-	it(
-		"forgets an acknowledged call in time, and a re-sent call it has no record of is reconciled, never run",
-		async () => {
-			const clock = { at: Date.UTC(2026, 9, 21) };
-			const now = () => clock.at;
-			const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
-			const journal = new CallJournal(file(), now);
-			host.calls = journal;
-			await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, first1);
-			journal.acknowledge("call-1");
-			laterCalls(journal, clock, 600);
-			expect(journal.get("\n/s/boss.jsonl\ncall-1")).toBeUndefined();
+	it("forgets an acknowledged call in time, and a re-sent call it has no record of is reconciled, never run", async () => {
+		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" });
+		host.files.calls = file();
+		await control(host).run("boss0001", T.open, { message: "Title: Part A\nDo A" }, first1);
+		acknowledge("call-1");
+		laterCalls(600);
+		// Any call that is recorded writes the journal, which forgets what is acknowledged and old.
+		host.add({ tabId: "other003", title: "Other", sessionPath: "/s/other.jsonl" });
+		await control(host).run("other003", T.open, { message: "Do Z" }, { id: "later-x" });
+		expect(readJournal().some(record => record.key === "\n/s/boss.jsonl\ncall-1")).toBe(false);
 
-			// Forgotten (or a new profile): the host's re-send finds the session it opened instead of opening another.
-			relaunch(host, "boss0001", "boss0002", now);
-			const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, resent1);
-			expect(again.text).toMatch(/before OMPdesk restarted/);
-			// Nothing to find: its outcome is unknown, and still nothing runs.
-			const nothing = await control(host).run(
-				"boss0002",
-				T.open,
-				{ message: "Do C" },
-				{ id: "call-9", resent: true },
-			);
-			expect(nothing.isError).toBe(true);
-			expect(nothing.text).toMatch(/outcome is unknown after OMPdesk restarted/);
-			expect(host.spawned).toHaveLength(1);
-		},
-		LATER_CALLS_TIMEOUT_MS,
-	);
+		// Forgotten (or a new profile): the host's re-send finds the session it opened instead of opening another.
+		relaunch(host, "boss0001", "boss0002");
+		const again = await control(host).run("boss0002", T.open, { message: "Title: Part A\nDo A" }, resent1);
+		expect(again.text).toMatch(/before OMPdesk restarted/);
+		// Nothing to find: its outcome is unknown, and still nothing runs.
+		const nothing = await control(host).run("boss0002", T.open, { message: "Do C" }, { id: "call-9", resent: true });
+		expect(nothing.isError).toBe(true);
+		expect(nothing.text).toMatch(/outcome is unknown after OMPdesk restarted/);
+		expect(host.spawned).toHaveLength(2);
+	});
 });
 
 describe("messages that outlive the omp they were handed to", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "agent-send-outbox-"));
+	});
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+	/** What launches share: the file the send outbox keeps (`send-outbox.json`). */
+	const outboxFile = () => join(dir, "send-outbox.json");
+	const owed = (): unknown[] => {
+		try {
+			return JSON.parse(readFileSync(outboxFile(), "utf8")) as unknown[];
+		} catch {
+			return [];
+		}
+	};
 	/** What the child's journal holds of the markers asked about (its user messages, as the bridge reads them). */
 	const journaled = (host: FakeHost, tabId: string, marks: string[]): string[] =>
 		marks.filter(mark =>
@@ -5676,7 +5677,7 @@ describe("messages that outlive the omp they were handed to", () => {
 			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl" },
 		);
 		host.parents.set("kid00002", "boss0001");
-		host.sendOutbox = new SendOutbox(null);
+		host.files.sendOutbox = outboxFile();
 		host.sentMarks = async (tabId, marks) => ({ instance: "omp-a", journaled: journaled(host, tabId, marks) });
 		const inner = host.command;
 		host.command = async (tabId, command, timeoutMs) => {
@@ -5695,13 +5696,12 @@ describe("messages that outlive the omp they were handed to", () => {
 	});
 
 	it("hands a follow-up the child's old omp queued to its omp after a relaunch, once, ahead of the next message", async () => {
-		const outbox = new SendOutbox(null);
 		const before = new FakeHost(
 			{ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
 			{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", busy: true },
 		);
 		before.parents.set("kid00002", "boss0001");
-		before.sendOutbox = outbox;
+		before.files.sendOutbox = outboxFile();
 		before.sentMarks = async () => ({ instance: "omp-a", journaled: [] });
 		const queued = await control(before).run("boss0001", T.send, {
 			session: "kid00002",
@@ -5717,12 +5717,11 @@ describe("messages that outlive the omp they were handed to", () => {
 			{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", formerIds: ["kid00002"] },
 		);
 		after.parents.set("kid00009", "boss0009");
-		after.sendOutbox = outbox;
+		after.files.sendOutbox = outboxFile();
 		after.sentMarks = async (tabId, marks) => ({ instance: "omp-b", journaled: journaled(after, tabId, marks) });
 		const service = control(after);
-		const tabOf = (path: string) => (path === "/s/kid.jsonl" ? "kid00009" : undefined);
-		await service.redeliverSends(tabOf);
-		await service.redeliverSends(tabOf);
+		await service.redeliverSends();
+		await service.redeliverSends();
 		expect(prompts(after, "kid00009")).toEqual([expect.stringContaining("Also do C")]);
 		expect(prompts(after, "kid00009")[0]).toContain("[ompdesk dispatch d1:");
 
@@ -5737,8 +5736,8 @@ describe("messages that outlive the omp they were handed to", () => {
 		child.messages = prompts(after, "kid00009").map(
 			text => ({ role: "user", content: [{ type: "text", text }], timestamp: 1 }) as AgentMessage,
 		);
-		await service.redeliverSends(tabOf);
-		expect(outbox.pending()).toEqual([]);
+		await service.redeliverSends();
+		expect(owed()).toEqual([]);
 		expect(prompts(after, "kid00009")).toHaveLength(2);
 	});
 });
@@ -5757,7 +5756,7 @@ describe("an id keeps naming its session after its tab is gone, and says when th
 	/** One launch of the app over the fates file the launches share. */
 	const launch = (...tabs: Partial<FakeTab>[]) => {
 		const host = new FakeHost({ tabId: "boss0001", title: "Boss", sessionPath: "/s/boss.jsonl" }, ...tabs);
-		host.fates = new SessionFates(join(dir, "agent-session-fates.json"));
+		host.files.fates = join(dir, "agent-session-fates.json");
 		host.storedTranscripts.set("/s/kid.jsonl", said);
 		return { host, service: control(host) };
 	};
@@ -5766,7 +5765,7 @@ describe("an id keeps naming its session after its tab is gone, and says when th
 		const first = launch(kid);
 		// The person closes the tab in its window: the pool releases it, with the session it held.
 		first.host.tabsById.delete("kid00002");
-		first.service.released("kid00002", {
+		await first.service.released("kid00002", {
 			path: "/s/kid.jsonl",
 			title: "Fix the parser",
 			cwd: "/repo",
@@ -5836,14 +5835,14 @@ describe("an id keeps naming its session after its tab is gone, and says when th
 		const { host, service } = launch({ ...kid, sessionPath: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl" });
 		// The sidebar's Delete: the tab closes as any tab does, then the file goes and a tombstone says when.
 		host.tabsById.delete("kid00002");
-		service.released("kid00002", {
+		await service.released("kid00002", {
 			path: "/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl",
 			title: "Fix the parser",
 			cwd: "/repo",
 			formerIds: [],
 		});
-		host.tombstones.set("/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl", Date.UTC(2026, 10, 9, 4, 12));
-		host.tombstones.set("01abc-other", Date.UTC(2026, 10, 9, 4, 12));
+		host.tombstoneAt.set("/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl", Date.UTC(2026, 10, 9, 4, 12));
+		host.tombstoneAt.set("01abc-other", Date.UTC(2026, 10, 9, 4, 12));
 		for (const session of ["kid00002", "01abc-kid", "01abc-other"]) {
 			const gone = await service.run("boss0001", T.read, { session });
 			expect(gone.isError, session).toBe(true);
@@ -5856,7 +5855,7 @@ describe("an id keeps naming its session after its tab is gone, and says when th
 	it("never shows a hidden session's title or transcript through the id its tab had", async () => {
 		const { host, service } = launch({ ...kid, hidden: true });
 		host.tabsById.delete("kid00002");
-		service.released("kid00002", {
+		await service.released("kid00002", {
 			path: "/s/kid.jsonl",
 			title: "Private notes",
 			cwd: "/repo",
@@ -5941,12 +5940,12 @@ describe("a cleanup refused while the person was in the session", () => {
 		expect(toBoss(host)).toEqual([]);
 
 		// The person's message joins the turn that runs: no turn of theirs starts, so the list waits.
-		service.personTyped("boss0001");
+		await service.personTyped("boss0001");
 		expect(toBoss(host)).toEqual([]);
 
 		// The turn ended; the person's next message starts one.
 		boss.busy = false;
-		service.personTyped("boss0001");
+		await service.personTyped("boss0001");
 		expect(toBoss(host)).toHaveLength(1);
 		const [note] = toBoss(host);
 		expect(note?.delivery).toEqual({ triggerTurn: false });
@@ -5958,7 +5957,7 @@ describe("a cleanup refused while the person was in the session", () => {
 		const closed = await service.run("boss0001", T.stop, { session: "seen0002", close: true });
 		expect(closed.isError, closed.text).toBe(false);
 		boss.busy = false;
-		service.personTyped("boss0001");
+		await service.personTyped("boss0001");
 		expect(toBoss(host).filter(mail => mail.content.includes("pending cleanups"))).toHaveLength(1);
 	});
 
@@ -5971,7 +5970,7 @@ describe("a cleanup refused while the person was in the session", () => {
 		(host.tabsById.get("typed003") as FakeTab).userTouched = false;
 		expect((await service.run("boss0001", T.stop, { session: "typed003", close: true })).isError).toBe(false);
 		boss.busy = false;
-		service.personTyped("boss0001");
+		await service.personTyped("boss0001");
 		expect(toBoss(host).filter(mail => mail.content.includes("pending cleanups"))).toEqual([]);
 	});
 
@@ -5980,14 +5979,14 @@ describe("a cleanup refused while the person was in the session", () => {
 		try {
 			const file = join(dir, "agent-pending-cleanups.json");
 			const before = setup();
-			before.host.cleanups = new PendingCleanups(file);
+			before.host.files.cleanups = file;
 			const first = control(before.host);
 			await first.run("boss0001", T.stop, { session: "seen0002", close: true });
 
 			// A relaunch gives the same session another tab id.
 			const after = new FakeHost({ tabId: "boss0009", title: "Boss", sessionPath: "/s/boss.jsonl" }, seen);
-			after.cleanups = new PendingCleanups(file);
-			control(after).personTyped("boss0009");
+			after.files.cleanups = file;
+			await control(after).personTyped("boss0009");
 			const told = after.mails.filter(mail => mail.to === "boss0009");
 			expect(told).toHaveLength(1);
 			expect(told[0]?.content).toContain('ompdesk_session_stop {"session":"seen0002","close":true}');
@@ -6003,21 +6002,17 @@ describe("an app action on another computer", () => {
 	const withApp = (host: FakeHost) => {
 		host.appPorts = {
 			getPref: () => undefined,
-			device: () => undefined,
 			setPref: async () => {},
 			rpc: async () => ok(usage),
 			invoke: async () => undefined,
 			fire: () => {},
 			send: () => {},
-			confirm: async () => true,
 			manageEnabled: () => true,
 			fullEnabled: () => true,
 			note: async () => {},
-			text: key => key,
 			localize: en => en,
 			sidebarView: () => ({ pinnedProjects: [], pinnedSessions: [], projectOrder: [], aliases: {} }) as never,
 			openPrivacyPane: async () => {},
-			callerTitle: () => "Boss",
 		};
 		return control(host);
 	};
@@ -6114,9 +6109,14 @@ describe("one id per session: a message names its sender and reaches the session
 		await control(host).run("main0001", T.send, { session: "ask00002", message: "받았다" });
 		const [prompt = ""] = prompts(host, "ask00002");
 		expect(prompt).toBe(wrapAgentMessage("받았다", "메인", MAIN));
-		expect(renderMessage(userText(prompt))).toBe(`[user, sent by an agent (메인, saved id ${MAIN})] 받았다`);
+		const asked = host.tabsById.get("ask00002") as FakeTab;
+		asked.messages = [userText(prompt)];
+		expect((await control(host).run("main0001", T.read, { session: "ask00002" })).text).toContain(
+			`[user, sent by an agent (메인, saved id ${MAIN})] 받았다`,
+		);
 		// What journals hold from before the id was carried reads as it did.
-		expect(renderMessage(userText(wrapAgentMessage("받았다", "메인")))).toBe(
+		asked.messages = [userText(wrapAgentMessage("받았다", "메인"))];
+		expect((await control(host).run("main0001", T.read, { session: "ask00002" })).text).toContain(
 			"[user, sent by an agent (메인)] 받았다",
 		);
 	});

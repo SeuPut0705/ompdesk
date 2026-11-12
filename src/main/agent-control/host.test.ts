@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APPROVE_PREF,
@@ -11,7 +11,6 @@ import {
 	AGENT_CONTROL_REVIEW,
 	AGENT_CONTROL_VIEW,
 	type AgentReviewEvent,
-	type AgentReviewResult,
 	AGENT_CONTROL_TOOLS as T,
 } from "../../shared/agent-control";
 import type { IpcOpenExtensionRequest, IpcSpawnTabPayload, IpcTabInfo } from "../../shared/ipc-types";
@@ -36,6 +35,21 @@ import { type AgentControlHostDeps, AgentControlRuntime, splitBranch } from "./h
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 
+const sleep = (ms: number) => new Promise<void>(done => setTimeout(done, ms));
+
+/** The waits of the service that a test of the host does not mean to wait out (see `service.test.ts`). */
+const SHORT_WAITS: NonNullable<AgentControlHostDeps["tuning"]> = {
+	openReadyRetryMs: 600,
+	openReadyPauseMs: 10,
+	linkWaitMs: 300,
+	linkPollMs: 10,
+	closeWaitMs: 1_000,
+	ompExitWaitMs: 1_500,
+	autoCloseWaitMs: 1_000,
+	turnStartWaitMs: 100,
+	readyPollMs: 20,
+};
+
 function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 	const sent: [string, unknown][] = [];
 	return {
@@ -46,6 +60,12 @@ function window(id = 1): ClientWindow & { sent: [string, unknown][] } {
 		removeListener: () => undefined,
 	};
 }
+
+/** Every runtime a test made: its service in the core is closed after the test. */
+const runtimes: AgentControlRuntime[] = [];
+afterEach(() => {
+	for (const runtime of runtimes.splice(0)) runtime.control.close();
+});
 
 function setup(
 	options: {
@@ -58,6 +78,10 @@ function setup(
 		autopilot?: AgentControlHostDeps["autopilot"];
 		/** The sweep timer's period in ms (`AgentControlHostDeps.sweepMs`). */
 		sweepMs?: number;
+		/** The core runtime's own waits in ms (`AgentControlHostDeps.runtimeTuning`): a test shortens them. */
+		runtimeTuning?: AgentControlHostDeps["runtimeTuning"];
+		/** The service's waits in ms (`AgentControlHostDeps.tuning`). */
+		tuning?: AgentControlHostDeps["tuning"];
 		/** `AgentControlHostDeps.mailOutboxFile`. */
 		mailOutboxFile?: string;
 		/** `AgentControlHostDeps.sendOutboxFile`. */
@@ -170,6 +194,8 @@ function setup(
 		schedules: options.schedules,
 		autopilot: options.autopilot,
 		sweepMs: options.sweepMs,
+		runtimeTuning: options.runtimeTuning,
+		tuning: { ...SHORT_WAITS, ...options.tuning },
 		mailOutboxFile: options.mailOutboxFile,
 		sendOutboxFile: options.sendOutboxFile,
 		sessionFatesFile: options.sessionFatesFile,
@@ -187,6 +213,7 @@ function setup(
 		},
 	};
 	const runtime = new AgentControlRuntime(deps);
+	runtimes.push(runtime);
 	return {
 		runtime,
 		win,
@@ -334,156 +361,76 @@ describe("AgentControlRuntime", () => {
 		expect(spawned[0]).toMatchObject({ task: "Fix the upload test" });
 	});
 
+	/** The review frames a window was sent (`AGENT_CONTROL_REVIEW`), as their JSON. */
+	const reviewFrames = (target: { sent: [string, unknown][] }) =>
+		target.sent
+			.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
+			.map(([, payload]) => payload as AgentReviewEvent);
+	/** The waits of the core's runtime, shortened: what the TypeScript tests moved fake timers over. */
+	const QUICK = { sweepSettleMs: 20, reviewSettleMs: 20 };
+
 	it("brings a change nobody announced onto the work board: the sweep timer pushes the review list when it differs", async () => {
-		vi.useFakeTimers();
-		try {
-			const { runtime, win } = setup({ tabs: [{ tabId: "main0001" }, { tabId: "new00003" }], sweepMs: 20 });
-			const opening = runtime.run(win, "main0001", T.open, {});
-			await vi.advanceTimersByTimeAsync(60_000);
-			await opening;
-			let current: unknown[] = [{ tabId: "new00003" }];
-			const usage = { "/s/new.jsonl": { cost: 0.25 } };
-			vi.spyOn(runtime.control, "review").mockImplementation(async () => ({ items: current, usage }) as never);
-			const frames = () =>
-				win.sent
-					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
-					.map(([, payload]) => JSON.stringify(payload));
-			await vi.advanceTimersByTimeAsync(200);
-			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [{ tabId: "new00003" }], usage }));
-			// Unchanged: the timer sends nothing more than it did.
-			const before = frames().length;
-			await vi.advanceTimersByTimeAsync(200);
-			expect(frames()).toHaveLength(before);
-			// A commit or push outside the app changed the list: the next sweep sends it.
-			current = [];
-			await vi.advanceTimersByTimeAsync(200);
-			expect(frames().at(-1)).toBe(JSON.stringify({ tabId: "main0001", items: [], usage }));
-			expect(frames()).toHaveLength(before + 1);
-		} finally {
-			vi.useRealTimers();
-		}
+		const { runtime, win, tabs } = setup({
+			tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
+			sweepMs: 40,
+			runtimeTuning: QUICK,
+		});
+		await runtime.run(win, "main0001", T.open, {});
+		await expect.poll(() => reviewFrames(win).length).toBeGreaterThan(0);
+		const first = reviewFrames(win).at(-1) as AgentReviewEvent;
+		expect(first.tabId).toBe("main0001");
+		expect(first.items.map(item => item.tabId)).toEqual(["new00003"]);
+		// Unchanged: the timer sends nothing more than it did.
+		await sleep(150);
+		const before = reviewFrames(win).length;
+		await sleep(250);
+		expect(reviewFrames(win)).toHaveLength(before);
+		// A change nobody announced (no tab activity): the next sweep sends it.
+		(tabs[1] as IpcTabInfo).title = "Renamed by stock";
+		await expect.poll(() => reviewFrames(win).length).toBe(before + 1);
+		expect(reviewFrames(win).at(-1)?.items[0]?.title).toBe("Renamed by stock");
 	});
 	it("tells the opener's board when a child restored by a relaunch closes, though the pool no longer names its opener", async () => {
-		vi.useFakeTimers();
-		try {
-			// After a relaunch only the pool knows the opener (by its session file); once the child's tab is released the
-			// pool forgets the child, so the opener is not found from it any more.
-			const { runtime, win, tabs, deps, activity } = setup({
-				tabs: [
-					{ tabId: "main0001", sessionPath: "/s/boss.jsonl" },
-					{ tabId: "kid00002", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
-				],
-				sweepMs: 0,
-			});
-			deps.pool.sessionOwner = sessionPath =>
-				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
-			let current: unknown[] = [{ tabId: "kid00002" }];
-			vi.spyOn(runtime.control, "review").mockImplementation(async () => ({ items: current, usage: {} }) as never);
-			// The board asked when it mounted: it lists the child.
-			expect((await runtime.review(win, "main0001")).items).toEqual([{ tabId: "kid00002" }]);
-			current = [];
-			tabs.splice(1, 1);
-			for (const observer of activity) observer({ type: "released", tabId: "kid00002" });
-			await vi.advanceTimersByTimeAsync(5_000);
-			const frames = win.sent.filter(([channel]) => channel === AGENT_CONTROL_REVIEW).map(([, payload]) => payload);
-			expect(frames.at(-1)).toEqual({ tabId: "main0001", items: [], usage: {} });
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-	it("never starts a timer review of an opener while its last one still reads git", async () => {
-		vi.useFakeTimers();
-		try {
-			const { runtime, win } = setup({ tabs: [{ tabId: "main0001" }, { tabId: "new00003" }], sweepMs: 20 });
-			const opening = runtime.run(win, "main0001", T.open, {});
-			await vi.advanceTimersByTimeAsync(60_000);
-			await opening;
-			const pending = Promise.withResolvers<AgentReviewResult>();
-			const review = vi.spyOn(runtime.control, "review").mockImplementation(() => pending.promise);
-			await vi.advanceTimersByTimeAsync(200);
-			expect(review).toHaveBeenCalledTimes(1);
-			pending.resolve({ items: [], usage: {} });
-			await vi.advanceTimersByTimeAsync(20);
-			expect(review).toHaveBeenCalledTimes(2);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-	it("reads a running child's step and cost again only when a board asks and the child moved on, and sends them only when they moved", async () => {
-		vi.useFakeTimers();
-		try {
-			const { runtime, win, activity } = setup({
-				tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
-				sweepMs: 1_000_000,
-			});
-			const opening = runtime.run(win, "main0001", T.open, {});
-			await vi.advanceTimersByTimeAsync(60_000);
-			await opening;
-			const running = { tabId: "new00003", title: "Kid", state: "running", step: "running bash (build)" };
-			vi.spyOn(runtime.control, "review").mockImplementation(
-				async () => ({ items: [running], usage: { "/s/new.jsonl": { cost: 0.1 } } }) as never,
-			);
-			const frames = () =>
-				win.sent
-					.filter(([channel]) => channel === AGENT_CONTROL_REVIEW)
-					.map(([, payload]) => payload as AgentReviewEvent);
-			// A full list goes out once (the child started), as before.
-			for (const observer of activity) observer({ type: "busy", tabId: "new00003" });
-			await vi.advanceTimersByTimeAsync(1_000);
-			const live = vi.spyOn(runtime.control, "liveReview").mockImplementation(async (_opener, last) => ({
-				items: last.items.map(item => ({ ...item, step: "running bash (tests)" })),
-				usage: { "/s/new.jsonl": { cost: 0.4 } },
-			}));
-			// Nobody shows the board: nothing is read, however long the child runs.
-			await vi.advanceTimersByTimeAsync(60_000);
-			expect(live).not.toHaveBeenCalled();
-			// A board asks, but the child did nothing since the list went out: nothing is read.
-			await runtime.liveReview("main0001");
-			expect(live).not.toHaveBeenCalled();
-			// It moved on (a tool call): the board's next ask reads that child alone.
-			for (const observer of activity) observer({ type: "step", tabId: "new00003" });
-			await runtime.liveReview("main0001");
-			expect(live.mock.calls[0]?.[2]).toEqual(new Set(["new00003"]));
-			expect(frames().at(-1)).toMatchObject({
-				items: [{ step: "running bash (tests)" }],
-				usage: { "/s/new.jsonl": { cost: 0.4 } },
-			});
-			// Nothing moved since: nothing is read or sent.
-			const before = frames().length;
-			await runtime.liveReview("main0001");
-			expect(frames()).toHaveLength(before);
-			expect(live).toHaveBeenCalledTimes(1);
-		} finally {
-			vi.useRealTimers();
-		}
+		// After a relaunch only the pool knows the opener (by its session file); once the child's tab is released the
+		// pool forgets the child, so the opener is not found from it any more.
+		const { runtime, win, tabs, deps, activity } = setup({
+			tabs: [
+				{ tabId: "main0001", sessionPath: "/s/boss.jsonl" },
+				{ tabId: "kid00002", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
+			],
+			sweepMs: 0,
+			runtimeTuning: QUICK,
+		});
+		deps.pool.sessionOwner = sessionPath =>
+			sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0001" } as never) : null;
+		// The board asked when it mounted: it lists the child.
+		expect((await runtime.review(win, "main0001")).items.map(item => item.tabId)).toEqual(["kid00002"]);
+		tabs.splice(1, 1);
+		for (const observer of activity) observer({ type: "released", tabId: "kid00002" });
+		await expect.poll(() => reviewFrames(win).at(-1)?.items).toEqual([]);
+		expect(reviewFrames(win).at(-1)?.tabId).toBe("main0001");
 	});
 	it("sends the opened sessions' list to a phone viewing the opener too, not only to the window that owns it", async () => {
-		vi.useFakeTimers();
-		try {
-			const phone = window(-1);
-			const { runtime, win } = setup({
-				tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
-				sweepMs: 20,
-				viewers: { main0001: [phone] },
-			});
-			vi.spyOn(runtime.control, "review").mockImplementation(
-				async () => ({ items: [{ tabId: "new00003" }], usage: {} }) as never,
-			);
-			const opening = runtime.run(win, "main0001", T.open, {});
-			await vi.advanceTimersByTimeAsync(2_000);
-			await opening;
-			const frames = (target: typeof win) =>
-				target.sent.filter(([channel]) => channel === AGENT_CONTROL_REVIEW).map(([, payload]) => payload);
-			expect(frames(win).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }], usage: {} });
-			expect(frames(phone).at(-1)).toEqual({ tabId: "main0001", items: [{ tabId: "new00003" }], usage: {} });
-			// The phone asking for the list does not make it the window the opener's tools answer through.
-			await runtime.review(phone, "main0001");
-			await runtime.run(win, "main0001", T.open, {});
-			await vi.advanceTimersByTimeAsync(2_000);
-			expect(frames(win).length).toBeGreaterThan(1);
-		} finally {
-			vi.useRealTimers();
-		}
+		const phone = window(-1);
+		const { runtime, win } = setup({
+			tabs: [{ tabId: "main0001" }, { tabId: "new00003" }],
+			sweepMs: 40,
+			runtimeTuning: QUICK,
+			viewers: { main0001: [phone] },
+		});
+		await runtime.run(win, "main0001", T.open, {});
+		await expect.poll(() => reviewFrames(win).length).toBeGreaterThan(0);
+		await expect.poll(() => reviewFrames(phone).length).toBeGreaterThan(0);
+		expect(reviewFrames(phone).at(-1)).toEqual(reviewFrames(win).at(-1));
+		expect(
+			reviewFrames(phone)
+				.at(-1)
+				?.items.map(item => item.tabId),
+		).toEqual(["new00003"]);
+		// The phone asking for the list does not make it the window the opener's tools answer through.
+		await runtime.review(phone, "main0001");
+		await runtime.run(win, "main0001", T.open, {});
+		expect(reviewFrames(win).length).toBeGreaterThan(0);
 	});
 	it("starts Autopilot through the coordinator and records the run as the caller's child", async () => {
 		const sent: { tabId: string; command: unknown }[] = [];
@@ -1201,7 +1148,7 @@ describe("AgentControlRuntime", () => {
 		}
 	}, 30_000);
 
-	it("forgets the closed record of every deleted session, on the device it was deleted on only", () => {
+	it("forgets the closed record of every deleted session, on the device it was deleted on only", async () => {
 		const { runtime, deps } = setup();
 		const record = (path: string, device?: string) => ({
 			path,
@@ -1223,14 +1170,14 @@ describe("AgentControlRuntime", () => {
 		initDeletedSessions(null);
 		try {
 			// Nothing deleted: nothing written, nobody told.
-			runtime.forgetDeleted();
+			await runtime.forgetDeleted();
 			expect(changed).not.toHaveBeenCalled();
 			deletedSessions().add("/s/kid.jsonl", "dev-1");
-			runtime.forgetDeleted();
+			await runtime.forgetDeleted();
 			expect(closed).toEqual([record("/s/kid.jsonl"), record("/s/other.jsonl")]);
 			expect(changed).toHaveBeenCalledWith(AGENT_CLOSED_CHILDREN_PREF);
 			deletedSessions().add("/s/kid.jsonl");
-			runtime.forgetDeleted();
+			await runtime.forgetDeleted();
 			expect(closed).toEqual([record("/s/other.jsonl")]);
 		} finally {
 			initDeletedSessions(null);
@@ -1273,7 +1220,7 @@ describe("AgentControlRuntime", () => {
 			expect((await stop(first, "01abc-kid")).isError).toBe(true);
 			// The owner deletes it from the sidebar: a tombstone, then the delete listener.
 			deletedSessions().add("/s/2026-11-04T10-00-00-000Z_01abc-kid.jsonl");
-			first.runtime.forgetDeleted();
+			await first.runtime.forgetDeleted();
 			for (const session of ["01abc-kid", "15bece0493c7d52b"]) {
 				const outcome = await stop(first, session);
 				expect(outcome.isError, session).toBe(false);
@@ -1450,7 +1397,6 @@ describe("AgentControlRuntime", () => {
 				return ok();
 			};
 		};
-		vi.useFakeTimers();
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-outbox-"));
 		try {
 			const file = path.join(dir, "mail-outbox.json");
@@ -1459,7 +1405,7 @@ describe("AgentControlRuntime", () => {
 					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
 					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
 				],
-				sweepMs: 1_000,
+				sweepMs: 50,
 				mailOutboxFile: file,
 			});
 			attach(before.deps);
@@ -1470,32 +1416,32 @@ describe("AgentControlRuntime", () => {
 			expect(reported.isError, reported.text).toBe(false);
 			expect(received).toEqual(["main0001"]);
 
-			// The parent's omp is killed mid-turn and the app relaunches: its session comes back in a tab with a new id.
+			// The parent's omp is killed mid-turn and the app relaunches (its service goes with it): its session comes
+			// back in a tab with a new id.
+			before.runtime.control.close();
 			const after = setup({
 				tabs: [{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" }],
-				sweepMs: 1_000,
+				sweepMs: 50,
 				mailOutboxFile: file,
 			});
 			after.deps.pool.sessionOwner = sessionPath =>
 				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0009" } as never) : null;
 			attach(after.deps);
-			await vi.advanceTimersByTimeAsync(1_000);
-			expect(received).toEqual(["main0001", "main0009"]);
+			await expect.poll(() => received).toEqual(["main0001", "main0009"]);
 
 			// Queued in the new omp: asked again, never sent a second time.
-			await vi.advanceTimersByTimeAsync(5_000);
+			await sleep(400);
 			expect(received).toEqual(["main0001", "main0009"]);
 
 			// Its next step journaled the report: one more look settles it, then nothing is sent.
 			const omp = omps.get("main0009");
 			for (const id of omp?.queued ?? []) omp?.journal.add(id);
-			await vi.advanceTimersByTimeAsync(1_000);
+			await sleep(300);
 			const asked = asks.length;
-			await vi.advanceTimersByTimeAsync(10_000);
+			await sleep(500);
 			expect(asks.length).toBe(asked);
 			expect(received).toEqual(["main0001", "main0009"]);
 		} finally {
-			vi.useRealTimers();
 			await fs.rm(dir, { recursive: true, force: true });
 		}
 	});
@@ -1519,7 +1465,6 @@ describe("AgentControlRuntime", () => {
 				return inner(target, sidecar, tabId, command, timeoutMs);
 			};
 		};
-		vi.useFakeTimers();
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-send-outbox-"));
 		try {
 			const file = path.join(dir, "send-outbox.json");
@@ -1528,7 +1473,7 @@ describe("AgentControlRuntime", () => {
 					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
 					{ tabId: "busy0002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
 				],
-				sweepMs: 1_000,
+				sweepMs: 50,
 				sendOutboxFile: file,
 			});
 			attach(before.deps);
@@ -1541,39 +1486,36 @@ describe("AgentControlRuntime", () => {
 			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002"]);
 
 			// OMPdesk relaunches (an update): that omp ends with its queue; the child's session is back in a new tab.
+			before.runtime.control.close();
 			const after = setup({
 				tabs: [
 					{ tabId: "main0009", title: "Boss", sessionPath: "/s/boss.jsonl" },
 					{ tabId: "kid00009", title: "Kid", sessionPath: "/s/kid.jsonl", openedBySession: "/s/boss.jsonl" },
 				],
-				sweepMs: 1_000,
+				sweepMs: 50,
 				sendOutboxFile: file,
 				owners: { "/s/kid.jsonl": "kid00009" },
 			});
 			attach(after.deps);
 			after.deps.pool.sidecarOf = () => ({ cwd: "/repo", status: "ready" }) as never;
-			await vi.advanceTimersByTimeAsync(1_000);
-			expect(prompted.map(entry => entry.tabId)).toEqual(["busy0002", "kid00009"]);
+			await expect.poll(() => prompted.map(entry => entry.tabId)).toEqual(["busy0002", "kid00009"]);
 			expect(prompted[1]?.message).toBe(prompted[0]?.message);
 			expect(prompted[1]?.message).toContain("[ompdesk dispatch d1:");
 
 			// That omp holds it now: asked again, never handed a second time.
-			await vi.advanceTimersByTimeAsync(5_000);
+			await sleep(400);
 			expect(prompted).toHaveLength(2);
 
 			// Its turn took it: the next look finds it in the journal, and it is owed no more.
 			journals.set("kid00009", [prompted[1]?.message ?? ""]);
-			await vi.advanceTimersByTimeAsync(1_000);
-			expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual([]);
+			await expect.poll(async () => JSON.parse(await fs.readFile(file, "utf8"))).toEqual([]);
 			expect(prompted).toHaveLength(2);
 		} finally {
-			vi.useRealTimers();
 			await fs.rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	it("keeps a report its opener's omp could not take yet, and hands it over once that omp answers", async () => {
-		vi.useFakeTimers();
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-mail-ahead-"));
 		try {
 			let up = false;
@@ -1583,7 +1525,7 @@ describe("AgentControlRuntime", () => {
 					{ tabId: "main0001", title: "Boss", sessionPath: "/s/boss.jsonl" },
 					{ tabId: "kid00002", title: "Kid", sessionPath: "/s/kid.jsonl", openedBy: "main0001" },
 				],
-				sweepMs: 1_000,
+				sweepMs: 50,
 				mailOutboxFile: path.join(dir, "mail-outbox.json"),
 				owners: { "/s/boss.jsonl": "main0001" },
 			});
@@ -1598,10 +1540,8 @@ describe("AgentControlRuntime", () => {
 			await runtime.run(win, "kid00002", T.report, { kind: "done", text: "All checks pass" });
 			expect(received).toEqual([]);
 			up = true;
-			await vi.advanceTimersByTimeAsync(1_000);
-			expect(received).toEqual(["main0001"]);
+			await expect.poll(() => received).toEqual(["main0001"]);
 		} finally {
-			vi.useRealTimers();
 			await fs.rm(dir, { recursive: true, force: true });
 		}
 	});
@@ -1943,7 +1883,9 @@ describe("a session's own wake-up", () => {
 		emit({ type: "busy", tabId: "main0001" });
 		stopped.stop();
 		await expect(stopped.done).resolves.toEqual({ code: 130 });
-		expect(rig.commands.some(entry => entry.tabId === "main0001" && entry.command.type === "abort")).toBe(true);
+		await vi.waitFor(() =>
+			expect(rig.commands.some(entry => entry.tabId === "main0001" && entry.command.type === "abort")).toBe(true),
+		);
 	});
 
 	it("opens a session no tab holds in the background, and starts an asleep one", async () => {

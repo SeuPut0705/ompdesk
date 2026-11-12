@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import { deliveryFor, type MailKind } from "./agent-control/mail";
-import { MailOutbox, redeliverMail } from "./agent-control/mail-outbox";
 import {
 	atEnd,
 	HOLD,
@@ -25,7 +24,7 @@ import { INSTALLED_OMP as omp } from "./test-bridge-probe";
  * restart (it went as a `followUp`, which stock keeps in memory until the turn that answers it). Every report a busy
  * receiver gets is now an `aside`. A quit (stdin ends, stock disposes the session) journals a queued aside; a SIGKILL
  * (a crash, a force-quit of OMPdesk) before the next step boundary loses it. So main keeps every accepted report
- * (`agent-control/mail-outbox.ts`) until the receiver's journal holds its id and sends it again, with the same id, to
+ * (the core's `agentctl/journal/mail_outbox.rs`) until the receiver's journal holds its id and sends it again, with the same id, to
  * the omp that replaces the killed one; the bridge answers whether an id is journaled or only queued.
  */
 afterAll(runCleanups);
@@ -69,18 +68,14 @@ describe.skipIf(!existsSync(omp))("a report accepted by a busy receiver whose om
 
 	it("a done SIGKILL cut before the step boundary reaches the replacing omp's journal once, through the outbox", async () => {
 		const { provider, session } = await busyOmp(TOOL);
-		const outbox = new MailOutbox(null);
+		// The outbox is the core's (`agentctl/journal/mail_outbox.rs`, its pass pinned by that module's tests): what is
+		// measured here is the receiver's side, so the kept report is a plain list and a pass the rule it follows.
 		const report = mail("done", "killed-done");
 		// What main does when the receiver accepts a report: keep it until the journal holds it.
 		expect(await session.bridge.request("agent_control.mail", report)).toEqual({});
-		outbox.keep({
-			id: "killed-done",
-			sessionPath: "/s/receiver.jsonl",
-			content: report.content,
-			details: report.details,
-			delivery: deliveryFor("done"),
-			at: Date.now(),
-		});
+		const outbox = [
+			{ id: "killed-done", content: report.content, details: report.details, delivery: deliveryFor("done") },
+		];
 		await session.kill();
 		expect(journaledMail(session.isolated)).toEqual([]);
 
@@ -92,24 +87,24 @@ describe.skipIf(!existsSync(omp))("a report accepted by a busy receiver whose om
 			session: file as string,
 		});
 		const asked: unknown[] = [];
-		const pass = () =>
-			redeliverMail(outbox, {
-				tabOf: () => "tab",
-				send: async (_tab, entry) => {
-					const answer = await again.bridge.request<{ duplicate?: boolean; journaled?: boolean }>(
-						"agent_control.mail",
-						{ content: entry.content, details: entry.details, ...entry.delivery },
-					);
-					asked.push(answer);
-					return answer;
-				},
-			});
+		// One pass: each kept report goes again, with its id, to the omp that holds the session; an answer that says the
+		// journal holds it settles it.
+		const pass = async () => {
+			for (const entry of [...outbox]) {
+				const answer = await again.bridge.request<{ duplicate?: boolean; journaled?: boolean }>(
+					"agent_control.mail",
+					{ content: entry.content, details: entry.details, ...entry.delivery },
+				);
+				asked.push(answer);
+				if (answer.duplicate && answer.journaled) outbox.splice(outbox.indexOf(entry), 1);
+			}
+		};
 		await pass();
 		await expect.poll(() => journaledMail(session.isolated), { timeout: 30_000 }).toEqual(["killed-done"]);
 		await pass();
 		await pass();
 		expect(asked).toEqual([{}, { duplicate: true, journaled: true }]);
-		expect(outbox.pending()).toEqual([]);
+		expect(outbox).toEqual([]);
 		expect(journaledMail(session.isolated)).toEqual(["killed-done"]);
 	}, 180_000);
 });

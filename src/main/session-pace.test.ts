@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pace, paceLine, paceShort, readPace, unionSeconds, waste } from "./session-pace";
+import { pace, paceLine, readPace, unionSeconds, waste } from "./session-pace";
 
 const T0 = 1_700_000_000_000;
 const user = (atS: number) =>
@@ -106,7 +106,6 @@ describe("session-pace", () => {
 	it("names model calls far above tool calls as waste past ten tool calls; one per tool call, or a short session, is none", () => {
 		const steadyPace = pace(steady(12));
 		expect(waste(steadyPace)).toBeUndefined();
-		expect(paceShort(steadyPace)).toBe("pace 3 min, 12 calls, median 5.0 s");
 		// Two thinking-only calls before each of ten tool calls: 30 model calls over 10 tool calls.
 		const lines = [user(0)];
 		for (let i = 0; i < 10; i++) {
@@ -258,7 +257,6 @@ describe("session-pace", () => {
 			expect(p.toolS).toBe(60);
 			expect(p.checks).toEqual({ runs: 2, seconds: 50 });
 			expect(paceLine(p)).toContain(" · tools 60 s · checks ×2 50 s (83% of tools) · errors 0");
-			expect(paceShort(p)).toMatch(/median [\d.]+ s, checks ×2 50 s \(83% of tools\)$/);
 		});
 
 		it("counts a wait for as long as a backgrounded check ran through it, not another job or a subagent", () => {
@@ -299,7 +297,6 @@ describe("session-pace", () => {
 			const p = pace(steady(3));
 			expect(p.checks).toBeUndefined();
 			expect(paceLine(p)).not.toContain("checks");
-			expect(paceShort(p)).not.toContain("checks");
 		});
 	});
 

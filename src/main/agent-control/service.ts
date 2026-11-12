@@ -1,11 +1,19 @@
 /**
- * OMPdesk control tools (contract `src/shared/agent-control.ts`, definitions `tools.ts`): what a call does, against
- * an `AgentControlHost` (`host.ts`) implemented over the sidecar pool, so the rules are testable without Electron.
+ * OMPdesk control tools (contract `src/shared/agent-control.ts`, definitions `tools.ts`): the TypeScript side of the
+ * service. The rules, the tool bodies, the journals and the timers live in the Rust core
+ * (`native/ompdesk/crates/core/src/agentctl/service`, and `runtime` for what the host did over the service's own
+ * state); this file is what stays: `AgentControlHost`, main's seam to the app (the sidecar pool, the RPC dispatcher,
+ * the tab spawn path, the windows' notifications and views, the cards), and `AgentControl`, the typed client that
+ * opens one service in the core over a `CorePort`.
  *
- * Every action goes through what the GUI already does for a person: the RPC dispatcher for prompts, steers,
- * follow-ups, aborts and mode commands (a paired host's tab: over the link, where the host's per-device model
- * limit and refusals apply), the tab spawn path for a new session, the renderer's own pick/split/close for the
- * view, the window's notifications, and a stock extension-UI confirmation card for what needs the person.
+ * The core asks main for what main alone holds (a command through the GUI's dispatcher, a spawn, a card, git on a
+ * paired host, the schedules, the preferences), and reads what the TypeScript service read synchronously (the open
+ * tabs and their windows, the switches, the summaries, who opened what, the tombstones) from the snapshot main hands
+ * it: main pushes it when it observes a change and before every call, and every answer carries it.
+ *
+ * What a call may fail with crosses as the fault's code: `tool_error` is a `ToolError` (the message is the agent's
+ * own). An ask main answers with a thrown error carries `ipcErrorCode(error)`, or `timeout` for an `RpcTimeoutError`,
+ * which is how the core tells `session_running`, `remote_offline` and an unanswered command apart.
  *
  * Permission levels (Settings › Tools & extensions › OMPdesk control tools):
  *   always  list, read, send, wait, answer a question, show, notify, open sessions, stop/close/delete the sessions
@@ -21,123 +29,36 @@
  *           A session the user hid from agents refuses all, whatever the switches.
  *   never   accounts, settings, permissions (those go through `ompdesk_app`).
  */
-import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash, randomBytes } from "node:crypto";
-import { z } from "zod";
-import { dispatchMark, requestMark } from "../../../resources/gui-bridge/agent-control-contracts";
-import type { SessionSpend } from "../../../resources/gui-bridge/model-setup-contracts";
+import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type {
-	AutopilotShipPreset,
-	AutopilotStartOptions,
-	AutopilotStatus,
-} from "../../../resources/gui-bridge/modes/autopilot-contracts";
-import {
-	AGENT_CARD_PREFIX,
-	AGENT_SCHEDULE_PREFIX,
-	type AgentChildUsage,
-	type AgentControlToolName,
-	type AgentControlViewEvent,
-	type AgentReviewItem,
-	type AgentReviewResult,
-	agentTaskTitle,
-	type ClosedChild,
-	type CostSplit,
-	costSplitOf,
-	MAX_CLOSED_TAB_IDS,
-	parseAgentMessage,
-	parseWorkerResult,
-	AGENT_CONTROL_TOOLS as T,
-	wrapAgentMessage,
+	AgentControlToolName,
+	AgentControlViewEvent,
+	AgentReviewItem,
+	AgentReviewResult,
+	ClosedChild,
 } from "../../shared/agent-control";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
-import { timeoutForCommand } from "../../shared/rpc-client";
 import type {
 	AgentMessage,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
-	MessageContent,
-	MessagesPage,
-	ModelInfo,
-	ModelRolesResult,
 	RpcCommand,
 	RpcResponse,
-	RpcSessionState,
-	TodoPhase,
-	WorktreeSetupReport,
 } from "../../shared/rpc-types";
-import {
-	describeFrequency,
-	type ScheduleDraft,
-	type ScheduleEvent,
-	type ScheduleFrequency,
-	type ScheduleRun,
-} from "../../shared/schedules";
-import {
-	hostedSummaries,
-	isUnsavedSession,
-	runningAgentCount,
-	type SessionSummary,
-} from "../../shared/session-summary";
-import { APPROVE_DENY, approvalChoices } from "../../shared/tool-approval";
-import {
-	type FamilyEdits,
-	type FamilyMemberEdits,
-	isGitUnlanded,
-	isTurnEdits,
-	type RpcTurnEdits,
-	turnEdits,
-} from "../../shared/turn-edits";
+import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
+import type { SessionSummary } from "../../shared/session-summary";
+import type { FamilyEdits } from "../../shared/turn-edits";
+import { CorePort } from "../core/ports";
+import { CoreError, core } from "../core/process";
 import { RpcTimeoutError } from "../rpc-client";
-import { type Pace, paceLine, paceShort } from "../session-pace";
+import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
-import { AppControl, type AppPorts, AppRefusal } from "./app-control";
-import { type AutoCloseFacts, autoCloseDecision } from "./auto-close";
-import {
-	type BranchEvidence,
-	type BranchFacts,
-	boundDiff,
-	type LandingFacts,
-	type MergeOutcome,
-	type MergePrediction,
-	mergeProblem,
-	type WorktreeRef,
-	type WorktreeRemoval,
-} from "./branches";
-import type { CallIntent, CallJournal, CallRecord } from "./call-journal";
-import { custodyOf } from "./custody";
-import { deliveryFor, type Mail, Mailbox, type MailboxDeps, type MailDelivery, mailDetails, mailText } from "./mail";
-import { type PendingCleanup, PendingCleanups } from "./pending-cleanups";
-import { pickupOf } from "./pickup";
-import {
-	deliverOwed,
-	type OutboxSend,
-	type OwedDeps,
-	receiverKey,
-	redeliverSends,
-	type SendOutbox,
-	type SentAnswer,
-} from "./send-outbox";
-import { FATE_BY, type FatedSession, fateWhen, type SessionFate, SessionFates } from "./session-fates";
-import { needsPersonTurn, tabCloseStep } from "./tab-close";
-import {
-	type AnswerArgs,
-	ARGS,
-	type AutopilotArgs,
-	type ListArgs,
-	looseArgs,
-	MESSAGE_MAX_CHARS,
-	type OpenOne,
-	READ_DEFAULT_MESSAGES,
-	READ_MAX_CHARS,
-	RESULT_MAX_CHARS,
-	RESULT_TABLE_ANSWER_CHARS,
-	RESULT_WAIT_DEFAULT_SECONDS,
-	type ReportArgs,
-	type ScheduleArgs,
-} from "./tools";
+import type { AppPorts } from "./app-control";
+import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
+import type { MailDelivery } from "./mail";
+import { ARGS, looseArgs, type OpenOne } from "./tools";
 
-/** A blocking request a session waits on, as the pool holds it. */
 export interface ControlAsk {
 	id: string;
 	request: ExtensionUIRequest;
@@ -172,8 +93,6 @@ export interface ControlTab {
 	plan?: { title: string; planFilePath: string };
 	/** The user hid this session from agents (Sidebar › Hide from other agents). */
 	hidden: boolean;
-	/** In the calling session's window (the default list); other windows' tabs are listed with scope app. */
-	here: boolean;
 	worktree?: IpcTabWorktree;
 	/** The session file; absent until the session has one. */
 	sessionPath?: string;
@@ -245,31 +164,6 @@ export interface OpenElsewhere {
 /** What the tab holding a saved session elsewhere does with it: its turn, background work, an open ask, nothing. */
 export type StoredWork = "turn" | "background" | "waiting" | "idle";
 
-/** Where a session open in no tab of this app is open: on `computer`, in a tab it runs for `holder` or its own. */
-function openInText(computer: string, holder: string | undefined): string {
-	return holder ? `open in a tab ${computer} runs for ${holder}` : `open in a tab on ${computer}`;
-}
-
-/**
- * Where a saved session no tab of this app holds is open and what it does there, as the list and a read's header
- * both say it; "" when nowhere. `step` is its running tool call (`currentStep` of its saved transcript).
- */
-function openElsewhereText(row: StoredSession, step: string | null): string {
-	const open = row.elsewhere;
-	if (!open) return "";
-	const where = openInText(row.device ? (row.deviceName ?? row.device) : "this computer", open.holder);
-	if (!open.work) return where;
-	const work =
-		open.work === "turn"
-			? `running${step ? `, ${step}` : ""}`
-			: open.work === "background"
-				? "running (background work still going)"
-				: open.work === "waiting"
-					? "waiting for the user's answer there"
-					: "idle";
-	return `${where}: ${work}`;
-}
-
 /** A paired host this computer can run sessions on (Settings › Devices). */
 export interface ControlDevice {
 	id: string;
@@ -310,40 +204,6 @@ export interface OpenedChild {
 	tag?: string;
 }
 
-/** A scheduled run as the control tools see it. */
-export interface ScheduleRow {
-	id: string;
-	name: string;
-	frequency: ScheduleFrequency;
-	cwd: string;
-	enabled: boolean;
-	/** Next start (ISO), null when it will not run. */
-	nextRun: string | null;
-	/** How the last run ended; null before the first. */
-	lastStatus: string | null;
-	/** A wake-up of a session on this computer (`target: "self"`), not a fresh run. */
-	wakes?: boolean;
-}
-
-/** The Schedules service seen by `ompdesk_schedule` (`host.ts` adapts `src/main/schedules.ts`, or a paired host's over the link). */
-export interface ScheduleSource {
-	list(): Promise<ScheduleRow[]>;
-	save(draft: ScheduleDraft): Promise<ScheduleRow>;
-	remove(id: string): Promise<void>;
-	/** Saves `change` of the schedule's stored draft (a webhook keeps its key); rejects with the service's reason. */
-	update(id: string, change: (draft: ScheduleDraft) => ScheduleDraft): Promise<ScheduleRow>;
-	setEnabled(id: string, enabled: boolean): Promise<ScheduleRow>;
-	/** A test run now; rejects when it already runs. */
-	runNow(id: string): Promise<void>;
-	/** Its kept runs, newest first. */
-	runs(id: string): Promise<ScheduleRun[]>;
-}
-
-export type ShipLevel = "commit" | "push" | "release";
-
-/** `ompdesk_autopilot`'s ship levels as the start sheet's presets. */
-const SHIP_PRESET: Record<ShipLevel, AutopilotShipPreset> = { commit: "local", push: "push", release: "release" };
-
 /** Autopilot's coordinator seen by `ompdesk_autopilot` (`host.ts` adapts `src/main/autopilot.ts`; absent where it is not). */
 export interface AutopilotSource {
 	/** The default branch of the folder's repository (a start on it, `main` or `master` asks the user). */
@@ -360,6 +220,53 @@ export interface AutopilotSource {
 	stop(tabId: string, now: boolean): Promise<AutopilotStatus>;
 }
 
+/** An open tab and the window it is in (any stable key for the window: its id). */
+export type HostTab = ControlTab & { window: string };
+
+/** What the receiver's bridge says of message markers (`agent_control_sent`): its instance and the marks its journal holds. */
+export interface SentAnswer {
+	instance: string;
+	journaled: string[];
+}
+
+/** What the receiver's bridge answers a report with: `{duplicate, journaled}` for an id it already holds or queued. */
+export interface MailAnswer {
+	duplicate?: boolean;
+	journaled?: boolean;
+}
+
+/** The sessions deleted outside the control tools (`deleted-sessions.ts`), by file and computer and by saved id. */
+export interface Tombstones {
+	byPath: { path: string; device?: string; at: number }[];
+	byId: Record<string, number>;
+}
+
+/** The Schedules service of one computer (`ScheduleService`'s `command` and `create`, or a paired host's over the link). */
+export interface SchedulesHost {
+	command(request: SchedulesRequest): Promise<SchedulesState>;
+	create(draft: ScheduleDraft): Promise<ScheduleCreated>;
+}
+
+/**
+ * What only an app that runs the core's own runtime hands over: how to reach a session the wake-up of a routine names,
+ * and where what the runtime decided goes (the work board's list to the windows showing it, the opener's prompt
+ * suggestions, the closed-children list main keeps, the end of a woken session's turn).
+ */
+export interface HostRuntime {
+	/** The sweep of the opened sessions runs this often (ms); 0 turns the timer off. */
+	sweepMs?: number;
+	/**
+	 * The tab holding `sessionPath` on this computer, started when it is asleep; the id of the tab that held it
+	 * (null: none did, and the session was opened in a background tab of the front window). Rejects when there is no
+	 * window to open it in or the open fails.
+	 */
+	reach(sessionPath: string): Promise<string | null>;
+	reviewSent(tabId: string, review: AgentReviewResult): void;
+	nextPromptChildren(tabId: string, children: { title: string; waiting?: true }[]): void;
+	closedChildren(rows: ClosedChild[]): void;
+	wakeDone(runId: string, result: { code: number | null; error?: string }): void;
+}
+
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
@@ -367,8 +274,6 @@ export interface AgentControlHost {
 	fullEnabled(): boolean;
 	/** `agentControlApprove`, or full control: an agent may approve another session's tool approval. */
 	approveEnabled(): boolean;
-	/** What every row shows of the tab's session, from the computer that runs it; undefined while it is not known. */
-	summaryOf(tab: Pick<ControlTab, "sessionPath" | "device" | "tabId">): SessionSummary | undefined;
 	/**
 	 * What every row shows of the sessions a computer runs (this one when `device` is undefined, else that paired host's
 	 * as this computer holds them): its windows' tabs and the ones it runs for paired devices. Empty while not known.
@@ -378,19 +283,31 @@ export interface AgentControlHost {
 	manageEnabled(): boolean;
 	/** The session that opened `tabId` (`ompdesk_session_open`), if any. */
 	parentOf(tabId: string): string | undefined;
+	/** The tag the open carried (Autopilot passes `autopilot-child`), if any. */
+	parentTag?(tabId: string): string | undefined;
 	/** The sessions working in `tabId`'s checkout or another worktree of its repository on this computer (`checkout-peers.ts`); `ompdesk_report` may go to them. */
 	checkoutPeers?(tabId: string): readonly string[];
-	/** Put one report into a session as a stock custom message (`ompdesk.mail`), delivered per `delivery`. */
-	mail(tabId: string, content: string, details: Record<string, unknown>, delivery: MailDelivery): Promise<void>;
+	/**
+	 * Put one report into a session as a stock custom message (`ompdesk.mail`), delivered per `delivery`, and answer what
+	 * the receiver's bridge said. A report to a caller outside OMPdesk goes to its event stream instead.
+	 */
+	mail(
+		tabId: string,
+		content: string,
+		details: Record<string, unknown>,
+		delivery: MailDelivery,
+	): Promise<MailAnswer | undefined | void>;
 	/** A child's report changed what its opener's work board shows. */
 	reviewChanged?(parentTabId: string): void;
-	/** Every open tab of this app, the caller's window first (`here`); null when the calling tab is gone. */
-	tabs(callerTabId: string): ControlTab[] | null;
+	/** Every open tab of this app once, in the pool's order, with the window it is in (a tab of any window). */
+	tabs(): HostTab[];
 	/**
-	 * A process outside OMPdesk calling over the control socket (src/main/control-socket): it has no tab, so it is
-	 * this stand-in, never listed among `tabs`. Undefined for any id that is no outside caller.
+	 * Processes outside OMPdesk calling over the control socket (src/main/control-socket), by id: each has no tab, so it
+	 * is this stand-in, never listed among `tabs`.
 	 */
-	outsideCaller?(callerTabId: string): ControlTab | undefined;
+	outsideCallers?(): Record<string, ControlTab>;
+	/** The window an outside caller acts through; undefined while the app has none open (its calls are refused). */
+	outsideWindow?(): string | undefined;
 	/** The paired hosts (Settings › Devices). */
 	devices(): ControlDevice[];
 	/** Saved sessions on this computer (device undefined) or a paired host; `query` searches titles and conversations. */
@@ -455,29 +372,14 @@ export interface AgentControlHost {
 	/** The sessions main closed after their work landed (`recordClosed`), newest last. */
 	closedChildren?(): readonly ClosedChild[];
 	/**
-	 * What became of the sessions an id was handed out for (`session-fates.ts`): a closed tab's id keeps naming its
-	 * saved session, and a deleted one's says so, across relaunches. Absent: this launch only.
+	 * Every tombstone (`deleted-sessions.ts`): when the session was deleted, from any path and any launch (the
+	 * sidebar's Delete, `/delete`, a paired device), by its file and computer, or by its saved id alone.
 	 */
-	fates?: SessionFates;
-	/**
-	 * When a tombstone (`deleted-sessions.ts`) says the session was deleted, from any path and any launch (the
-	 * sidebar's Delete, `/delete`, a paired device): by its file and computer, or by its saved id alone.
-	 */
-	deletedAt?(session: { path: string; device?: string } | { id: string }): number | undefined;
-	/** Cleanups refused while the person was in the session (`pending-cleanups.ts`). Absent: this launch only. */
-	cleanups?: PendingCleanups;
+	tombstones?(): Tombstones;
+	/** Whether the Schedules service of this computer (no `device`) or of the paired host `device` exists. */
+	hasSchedules?(device?: string): boolean;
 	/** The Schedules service of this computer (no `device`) or of the paired host `device`, or null where there is none. */
-	schedules(device?: string): ScheduleSource | null;
-	/**
-	 * The control-tool calls that change something, by their identity (`call-journal.ts`): a call a paired host re-sends
-	 * after this computer relaunched runs at most once. Absent: calls are not recorded.
-	 */
-	calls?: Pick<CallJournal, "get" | "begin" | "note" | "finish">;
-	/**
-	 * Messages sent with `ompdesk_session_send`, kept until the receiver's journal holds them (`send-outbox.ts`): a
-	 * relaunch's new omp gets one its predecessor still queued. Absent: a queued message lives only in that omp.
-	 */
-	sendOutbox?: SendOutbox;
+	schedules(device?: string): SchedulesHost | null;
 	/** The receiver's bridge about message markers (`agent_control_sent`); null when it cannot be asked. */
 	sentMarks?(tabId: string, marks: string[]): Promise<SentAnswer | null>;
 	/** Be called whenever any tab's run, ask or status changes; returns the unsubscribe. */
@@ -488,36 +390,40 @@ export interface AgentControlHost {
 	beforeFirstPrompt?(child: OpenedChild): Promise<void>;
 	/** Autopilot's coordinator (`ompdesk_autopilot`); absent where there is none. */
 	autopilot?: AutopilotSource;
-	/** Card and label text in the person's language. */
-	text(
-		key:
-			| "stopTitle"
-			| "stopMessage"
-			| "closeMessage"
-			| "deleteMessage"
-			| "answeredBy"
-			| "mergeTitle"
-			| "mergeMessage"
-			| "scheduleTitle"
-			| "scheduleMessage"
-			| "autopilotTitle"
-			| "autopilotMessage"
-			| "autopilotShipCommit"
-			| "autopilotShipPush"
-			| "autopilotShipRelease"
-			| "autopilotBranchNew"
-			| "autopilotBranchDefault"
-			| "appTitle"
-			| "appMessage"
-			| "appChanged",
-		params: Record<string, string>,
-	): string;
+	/** Card and label text in the person's language: `{name}` placeholders filled from `params` (left as written for none). */
+	text(key: TextKey, params: Record<string, string>): string;
 	/**
 	 * What `ompdesk_app` needs from the app (settings, panels, IPC handlers); absent = the tools answer that they are not
-	 * available. The service adds what needs its own sessions: `autopilot` and `rpcOn`.
+	 * available.
 	 */
-	appPorts?: Omit<AppPorts, "autopilot" | "rpcOn">;
+	appPorts?: Omit<AppPorts, "autopilot" | "rpcOn" | "confirm" | "text" | "callerTitle" | "device">;
+	/** The core's own runtime (sweeps, review pushes, redelivery); absent: the service alone, as a test of it runs. */
+	runtime?: HostRuntime;
 }
+
+/** Every text key of `AgentControlHost.text`: their templates are what main's snapshot carries. */
+export const TEXT_KEYS = [
+	"stopTitle",
+	"stopMessage",
+	"closeMessage",
+	"deleteMessage",
+	"answeredBy",
+	"mergeTitle",
+	"mergeMessage",
+	"scheduleTitle",
+	"scheduleMessage",
+	"autopilotTitle",
+	"autopilotMessage",
+	"autopilotShipCommit",
+	"autopilotShipPush",
+	"autopilotShipRelease",
+	"autopilotBranchNew",
+	"autopilotBranchDefault",
+	"appTitle",
+	"appMessage",
+	"appChanged",
+] as const;
+export type TextKey = (typeof TEXT_KEYS)[number];
 
 /** The saved session a released tab held (`TabActivity` `released`), with what only the host knows of it. */
 export interface ReleasedSession {
@@ -537,141 +443,8 @@ export interface ToolOutcome {
 	isError: boolean;
 }
 
-/**
- * What an open's commands to its child are sent with: no deadline. The first one waits for the local handler to learn
- * the session from stock `get_state`, connect to the bridge and let its modules load, all queued behind omp's own
- * startup; with several sessions working that passed 8 s (v0.46.0), then the 60 s bound that replaced it (three opens,
- * 3 to 10 Nov 2026). `RpcClient` sets no timer for it; a paired host's tab gets its link's longest window
- * (`RemoteSidecar`).
- */
-const NO_DEADLINE = Number.POSITIVE_INFINITY;
-/**
- * How long one open waits, all its commands together, for a child that answered `sidecar_not_ready` or
- * `sidecar_not_connected` to be ready again. A ready-time health check once held a busy omp in `error` and refused the
- * first message of three opens (2, 2 and 4 Nov 2026); a tab now reads ready only once its omp answered (sidecar.ts
- * `#answered`), and ipc.ts waits out a starting one, but a held session or a paired host can still refuse briefly.
- */
-const OPEN_READY_RETRY_MS = 30_000;
-/** After such an answer an open looks at the tab again no sooner than this, tab event or not (a tab that reads ready yet refuses must not be hammered). */
-const OPEN_READY_PAUSE_MS = 250;
-/** A wait re-reads the session at least this often even when no tab event arrives. */
-const POLL_MS = 3_000;
-const STATE_TIMEOUT_MS = 5_000;
-/** What a command `ompdesk_app` sends to another computer's omp gets when the command names no window of its own (`timeoutForCommand`). */
-const RPC_ON_TIMEOUT_MS = 30_000;
-const SUMMARY_CHARS = 200;
-const SESSION_PREFIX_MIN = 4;
-/** Reports after which a session waits for, or no longer expects, its receiver's next message in the same turn. */
-const WAITS_AFTER_REPORT: ReadonlySet<string> = new Set(["done", "review", "question", "blocked"]);
-/** How long a tool call waits for an untitled tab's saved name (`#nameUntitled`). */
-const NAME_LOOKUP_MS = 2_000;
-const TOOL_RESULT_CHARS = 300;
-const MESSAGE_CHARS = 1_500;
-/** An automatic close waits this long for the window to drop the tab (it refuses a tab the person uses). */
-const AUTO_CLOSE_WAIT_MS = 2_000;
-const LIST_DEFAULT_ROWS = 30;
-/** A sent message's receipt waits this long to see the target's turn start. */
-const TURN_START_WAIT_MS = 1_500;
-/**
- * A paired device's link is waited for this long while it is not online: a blip is a reconnect (1 s back-off, then up
- * to 5 s per address to dial, `RemoteClient`), so a call made during one goes through instead of failing.
- */
-const LINK_WAIT_MS = 15_000;
-/** How long a send waits for the person to send or clear a draft they are typing into its target (`#untilDraftSent`). */
-export const DRAFT_WAIT_MS = 60_000;
-/** Back on the link, a device's tab re-attaches (`error` → `starting` → its status) within this. */
-const REATTACH_WAIT_MS = 10_000;
-/** A device or tab that is not there yet is looked at again this often. */
-const LINK_POLL_MS = 250;
-/**
- * Stock's abort answers only once the turn unwound (tools, subagents, compaction), which can take longer than any
- * fixed RPC timeout. A close or delete gives it this long and goes on: closing the tab ends its omp anyway.
- */
-const ABORT_BEFORE_CLOSE_MS = 3_000;
-/** A plain stop waits this long for stock's abort to confirm; a delete, which needs the turn over, as long. */
-const STOP_WAIT_MS = 30_000;
-/** The caller's omp says who started its run within this; a bridge request, no model call. */
-const PERSON_TURN_WAIT_MS = 5_000;
-/** A close is confirmed by the window dropping the tab within this. */
-const CLOSE_WAIT_MS = 5_000;
-/** After the tab is gone, its omp gets this long to exit before the close is reported anyway. */
-const OMP_EXIT_WAIT_MS = 5_000;
-/** A title names a session by a prefix this long or longer. */
-const TITLE_PREFIX_MIN = 3;
-
-const DEFAULT_TIMERS: Pick<MailboxDeps, "setTimer" | "clearTimer"> = {
-	setTimer: (fn, ms) => setTimeout(fn, ms),
-	clearTimer: timer => clearTimeout(timer as NodeJS.Timeout),
-};
-
-/** The task text with the dispatch id its report names (a report for an older dispatch is ignored). */
-function withDispatch(message: string, dispatch: string | undefined, requestId?: string): string {
-	const marks = [
-		dispatch ? `${dispatchMark(dispatch)} report with ompdesk_report, dispatch "${dispatch}"]` : null,
-		requestId ? requestMark(requestId) : null,
-	].filter(Boolean);
-	return marks.length ? `${message}\n\n${marks.join("\n")}` : message;
-}
-
-/**
- * A command that never answered: a timeout (the omp's command queue held by a long one, such as a provider sign-in) or
- * a paired host's link timing out. The command reached the omp and runs once what holds the queue ends.
- */
-function unanswered(error: unknown): boolean {
-	if (error instanceof RpcTimeoutError) return true;
-	if (typeof error === "object" && error !== null && "code" in error && error.code === "timeout") return true;
-	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-	return message.startsWith("RPC timeout (");
-}
-
-const DISPATCH_MARK = /\[ompdesk dispatch d(\d+):/g;
-const REQUEST_MARK = /\[ompdesk request ([^\]]+)\]/g;
-
-/** The dispatch number and request ids a session's journal holds (the markers its opener's messages carried). */
-export function journalMarks(messages: readonly AgentMessage[]): { dispatch: number; requests: Set<string> } {
-	let dispatch = 0;
-	const requests = new Set<string>();
-	for (const message of messages) {
-		if (message.role !== "user") continue;
-		const text = contentText(message.content);
-		for (const match of text.matchAll(DISPATCH_MARK)) dispatch = Math.max(dispatch, Number(match[1]));
-		for (const match of text.matchAll(REQUEST_MARK)) if (match[1]) requests.add(match[1]);
-	}
-	return { dispatch, requests };
-}
-
-class ToolError extends Error {}
-
-/** The id named a session that was deleted: what the agent reads instead of "No session", and why a repeated delete is no error. */
-class SessionDeleted extends ToolError {
-	constructor(
-		name: string,
-		readonly fate: SessionFate,
-	) {
-		super(
-			`Session "${name}"${fate.title ? ` ("${oneLine(fate.title, 80)}")` : ""} was deleted${fateWhen(fate)}: its saved conversation is gone, so there is nothing to read, message, stop or reopen.${
-				fate.by === FATE_BY.throwaway
-					? " Its final answer reached the session that opened it as its done report."
-					: ""
-			} Do not look for it again; ompdesk_sessions lists the sessions that exist.`,
-		);
-	}
-}
-
-function fail(message: string): never {
-	throw new ToolError(message);
-}
-
-/** `<script> failed (exit 3)` or `<script> failed (timed out after 120s)`, for a hook's failure text. */
-function hookFailure(hook: WorktreeSetupReport): string {
-	return `${hook.script} failed (${hook.timedOut ? `timed out after ${Math.round(hook.durationMs / 1000)}s` : `exit ${hook.exitCode}`})`;
-}
-
-/** Why a tab that is `exited` or `error` cannot work, with the reason its omp gave: what a failed start is reported with. */
-function startFailure(tab: Pick<ControlTab, "status" | "failure">): string {
-	const what = tab.status === "exited" ? "its omp process exited" : "its omp failed to start";
-	return `The session could not start: ${what}${tab.failure?.trim() ? ` (${oneLine(tab.failure, 600)})` : ", and it gave no reason"}.`;
-}
+/** What a tool call refused with: the agent's own message (`tool_error` from the core). */
+export class ToolError extends Error {}
 
 /** A stored session's recorded folder is gone (`folder-missing` from the tab spawn); `saved` = disk care kept it. */
 export class SessionFolderMissing extends Error {
@@ -685,4489 +458,684 @@ export class SessionFolderMissing extends Error {
 	}
 }
 
-function responseData<T>(response: RpcResponse, what: string): T {
-	if (!response.success) fail(`${what} failed: ${response.error ?? "unknown error"}`);
-	return response.data as T;
-}
-
-/** How long a turn has run, for a session's state line (`running, <step>, for 12 min`). */
-export function elapsedText(ms: number): string {
-	const seconds = Math.max(0, Math.round(ms / 1000));
-	if (seconds < 60) return `${seconds} s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes} min`;
-	const rest = minutes % 60;
-	return `${Math.floor(minutes / 60)} h${rest ? ` ${rest} min` : ""}`;
-}
-
-/** `text`'s first `max` UTF-16 units, one fewer when that would end on half an emoji (a lone surrogate). */
-function head(text: string, max: number): string {
-	const last = text.charCodeAt(max - 1);
-	return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
-}
-
-function oneLine(text: string, max: number): string {
-	const flat = text.replace(/\s+/g, " ").trim();
-	return flat.length > max ? `${head(flat, max - 1)}…` : flat;
-}
-
-/** The id a session path carries: stock names a session file `<time>_<session id>.jsonl`. */
-function savedIdOfPath(path: string | undefined): string | undefined {
-	return path ? /_([^_/\\]+)\.jsonl$/.exec(path)?.[1] : undefined;
-}
-
-/** A name as an agent typed it, without the quotes it may have wrapped around the id. */
-function unquoted(session: string): string {
-	return session.replace(/^["'“”‘’]+|["'“”‘’]+$/g, "").trim();
-}
-
-/** Every id that names an open session: its tab id, the ids it had before relaunches and its saved id. */
-function idsOf(tab: ControlTab): string[] {
-	const saved = savedIdOfPath(tab.sessionPath);
-	return [tab.tabId, ...(tab.formerIds ?? []), ...(saved ? [saved] : [])];
-}
-
-function cut(text: string, max: number): string {
-	return text.length > max ? `${head(text, max)}\n… (cut at ${max} characters)` : text;
-}
-
-function todoProgress(phases: readonly TodoPhase[] | undefined): string | null {
-	const tasks = (phases ?? []).flatMap(phase => phase.tasks);
-	if (tasks.length === 0) return null;
-	const done = tasks.filter(task => task.status === "completed" || task.status === "abandoned").length;
-	const current = tasks.find(task => task.status === "in_progress");
-	return `todos ${done}/${tasks.length} done${current ? ` (now: ${oneLine(current.content, 80)})` : ""}`;
-}
-
 /** The session waits on someone: an open ask or approval, or a plan proposal awaiting approval (the control socket's `blocked`). */
 export function waits(tab: ControlTab): boolean {
 	return tab.asks.length > 0 || tab.plan !== undefined;
 }
 
-/** A saved session's name: its title, else the task an agent opened it for, else its first message. */
-function storedTitle(row: Pick<StoredSession, "title" | "firstMessage">): string {
-	return row.title || agentTaskTitle(row.firstMessage) || row.firstMessage || "(untitled)";
+/** What the core waits for, in ms; every field defaults to the TypeScript service's own value (`tuning.rs`). */
+export type Tuning = Partial<
+	Record<
+		| "openReadyRetryMs"
+		| "openReadyPauseMs"
+		| "pollMs"
+		| "stateTimeoutMs"
+		| "rpcOnTimeoutMs"
+		| "nameLookupMs"
+		| "autoCloseWaitMs"
+		| "turnStartWaitMs"
+		| "linkWaitMs"
+		| "draftWaitMs"
+		| "reattachWaitMs"
+		| "linkPollMs"
+		| "abortBeforeCloseMs"
+		| "stopWaitMs"
+		| "personTurnWaitMs"
+		| "closeWaitMs"
+		| "ompExitWaitMs"
+		| "readyPollMs"
+		| "resultPollMs"
+		| "clearQueueMs"
+		| "promptMs"
+		| "judgeMs"
+		| "whenGoneMs"
+		| "mailCoalesceMs"
+		| "answerGraceMs",
+		number
+	>
+>;
+
+/** What the core's runtime waits for, in ms (`RuntimeConfig`); the sweep period comes from `HostRuntime.sweepMs`. */
+export interface RuntimeTuning {
+	sweepSettleMs?: number;
+	reviewSettleMs?: number;
+	wakeTurnStartMs?: number;
 }
 
-/** A thrown error as a tool result: a `ToolError` is the agent's own message, anything else names the tool. */
-function outcomeOf(tool: AgentControlToolName, error: unknown): ToolOutcome {
-	if (error instanceof ToolError) return { text: error.message, isError: true };
-	return { text: `${tool} failed: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+/** Where the journals live (`<userData>/agent-*.json`): a path, or null for memory only; absent keeps none. */
+export interface AgentControlFiles {
+	/** What became of each session an id named (`session-fates`). */
+	fates?: string | null;
+	/** Cleanups refused while the person was in the session (`pending-cleanups`). */
+	cleanups?: string | null;
+	/** The control-tool calls that change something (`call-journal`). */
+	calls?: string | null;
+	/** Messages sent with `ompdesk_session_send` until the receiver's journal holds them (`send-outbox`). */
+	sendOutbox?: string | null;
+	/** Accepted reports until the receiver's journal holds them (`mail-outbox`); kept in memory when the runtime runs. */
+	mailOutbox?: string | null;
 }
 
-/** Calls whose effect a second run would repeat: recorded (`call-journal.ts`). Reads and a notification are not. */
-function mutates(tool: AgentControlToolName, args: unknown): boolean {
-	const action = typeof args === "object" && args !== null && "action" in args ? args.action : undefined;
-	switch (tool) {
-		case T.open:
-		case T.send:
-		case T.answer:
-		case T.stop:
-		case T.merge:
-		case T.app:
-			return true;
-		case T.schedule:
-			return action !== "list";
-		case T.autopilot:
-			return action !== "status";
-		default:
-			return false;
+export interface AgentControlOptions {
+	files?: AgentControlFiles;
+	tuning?: Tuning;
+	runtime?: RuntimeTuning;
+}
+
+/** The longest a call may wait: a tool can wait on a card, a turn or a link for as long as it takes. */
+const NO_TIMEOUT_MS = 2 ** 31 - 1;
+/** A runtime's service is opened again this long after its core ended, until it opens. */
+const REOPEN_MS = 1_000;
+/** What an open's commands to its child are sent with: no deadline. */
+const NO_DEADLINE = Number.POSITIVE_INFINITY;
+
+/** What main's snapshot holds (`HostState` in the core), as JSON. */
+interface HostSnapshot {
+	enabled: boolean;
+	fullEnabled: boolean;
+	approveEnabled: boolean;
+	manageEnabled: boolean;
+	devices: ControlDevice[];
+	closedChildren: ClosedChild[];
+	tabs: ControlTab[];
+	windowOf: Record<string, string>;
+	outsideCallers: Record<string, ControlTab>;
+	outsideWindow: string | null;
+	parents: Record<string, { callerTabId: string; tag?: string }>;
+	checkoutPeers: Record<string, string[]>;
+	summaries: Record<string, readonly SessionSummary[]>;
+	stopping: string[];
+	deleted: Tombstones;
+	scheduleDevices: string[];
+	texts: Record<string, string>;
+	app?: {
+		manage: boolean;
+		full: boolean;
+		korean: boolean;
+		sidebar: ReturnType<NonNullable<AppPortsLike["sidebarView"]>>;
+	};
+}
+
+type AppPortsLike = NonNullable<AgentControlHost["appPorts"]>;
+
+/** A handler's failure as the core reads it: `ipcErrorCode(error)`, or `timeout` for an RPC that never answered. */
+async function coded<T>(run: () => T | Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		const code = ipcErrorCode(error) ?? (error instanceof RpcTimeoutError ? "timeout" : undefined);
+		if (!code) throw error;
+		throw Object.assign(new Error(error instanceof Error ? error.message : String(error)), { code });
 	}
 }
 
-/** What a recorded call sets out to do, so its effect can be found after a relaunch (`#reconcile`). */
-function callIntent(tool: AgentControlToolName, args: unknown, caller: ControlTab): CallIntent | undefined {
-	if (typeof args !== "object" || args === null) return undefined;
-	const fields = args as Record<string, unknown>;
-	if (tool === T.open) {
-		const items = Array.isArray(fields.sessions) ? fields.sessions : [fields];
-		const open = items.flatMap(item => {
-			if (typeof item !== "object" || item === null) return [];
-			const { message, reopen } = item as Record<string, unknown>;
-			// One entry per new session (its count is what a relaunch expects); "" when the brief names no task.
-			return typeof message === "string" && message && !reopen
-				? [agentTaskTitle(wrapAgentMessage(message, caller.title)) ?? ""]
-				: [];
-		});
-		return { open };
+/** A tell: nothing answers it, so a failure of main's handler stays main's. */
+function told(run: () => void): void {
+	try {
+		run();
+	} catch (error) {
+		console.warn(`[agent-control] ${error instanceof Error ? error.message : String(error)}`);
 	}
-	if (tool === T.schedule && fields.action === "create")
-		return {
-			schedule: {
-				name: `${AGENT_SCHEDULE_PREFIX}${typeof fields.name === "string" ? fields.name : ""}`,
-				...(typeof fields.device === "string" ? { device: fields.device } : {}),
-			},
-		};
-	return undefined;
 }
 
-function label(tab: ControlTab): string {
-	if (tab.hidden) return `${tab.tabId} (hidden from agents)`;
-	const folder = tab.cwd.split(/[\\/]/).filter(Boolean).pop() ?? tab.cwd;
-	return tab.title ? `"${oneLine(tab.title, 80)}"` : `(untitled, in ${folder})`;
+function issueText(issue: { path: PropertyKey[]; message: string }): string {
+	return issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message;
+}
+
+/** The core's `agentRuntime.*`: what the host did over the service's own state, by one service's port. */
+export class RuntimeClient {
+	readonly #control: AgentControl;
+
+	constructor(control: AgentControl) {
+		this.#control = control;
+	}
+
+	/** One tab activity the pool reported, with what only main knows at that moment (`activity.rs`). */
+	activity(activity: Record<string, unknown>): Promise<void> {
+		return this.#control.callRuntime("activity", { activity });
+	}
+
+	/** What `tabId`'s work board shows changed (a child's report reached it): its review is rebuilt after a short settle. */
+	pushReview(tabId: string): Promise<void> {
+		return this.#control.callRuntime("pushReview", { tabId });
+	}
+
+	/** A tool that may change what the work board shows ran for `tabId`: its review is rebuilt and the sweep looks again. */
+	afterRun(tabId: string): Promise<void> {
+		return this.#control.callRuntime("afterRun", { tabId });
+	}
+
+	/** A paired page's Files editor changed what it holds: a child it held back may close now. */
+	sweepOpeners(): Promise<void> {
+		return this.#control.callRuntime("sweepOpeners", {});
+	}
+
+	/** The work board's opened-session rows (empty while the control tools are off). */
+	review(tabId: string): Promise<AgentReviewResult> {
+		return this.#control.callRuntime("review", { tabId });
+	}
+
+	/** What the sessions `tabId` opened changed. */
+	familyEdits(tabId: string, since?: number): Promise<FamilyEdits> {
+		return this.#control.callRuntime("familyEdits", { tabId, ...(since === undefined ? {} : { since }) });
+	}
+
+	/** Reads a running child's step and cost again, and pushes the list when they moved. */
+	liveReview(tabId: string): Promise<void> {
+		return this.#control.callRuntime("liveReview", { tabId });
+	}
+
+	/** Drops the closed record of every deleted session. */
+	forgetDeleted(): Promise<void> {
+		return this.#control.callRuntime("forgetDeleted", {});
+	}
+
+	/** The host took the result of host call `callId`: its record may be forgotten in time. */
+	acknowledge(callId: string): Promise<void> {
+		return this.#control.callRuntime("acknowledge", { callId });
+	}
+
+	/** Delivers a routine's wake-up to a session and follows its turn; `wakeDone` tells how it ended. */
+	wake(args: {
+		runId: string;
+		sessionPath: string;
+		fromTitle: string;
+		text: string;
+		stoppedCode: number;
+	}): Promise<void> {
+		return this.#control.callRuntime("wake", args);
+	}
+
+	/** Stops a run waiting for its turn: who held the session, and whether its turn had started. */
+	wakeStop(runId: string): Promise<{ holder: string | null; started: boolean }> {
+		return this.#control.callRuntime("wakeStop", { runId });
+	}
 }
 
 /**
- * A session as a line names the one it is: its title, then its saved id (the same on every computer and across
- * relaunches, unlike a tab id) and the computer it runs on.
+ * One agent-control service in the core, over `host`. Every public method is one call to it; a core that started
+ * again holds no instance of this port, so a call that finds none opens it again once.
  */
-function named(tab: ControlTab): string {
-	const saved = tab.hidden ? undefined : savedIdOfPath(tab.sessionPath);
-	const facts = [saved ? `saved id ${saved}` : null, tab.deviceName ? `on ${tab.deviceName}` : null].filter(Boolean);
-	return `${label(tab)}${facts.length ? ` (${facts.join(", ")})` : ""}`;
-}
-
-/** How a fate names a close or delete the caller made with `ompdesk_session_stop`. */
-function byCaller(caller: ControlTab): string {
-	return `${caller.title ? `the session "${oneLine(caller.title, 60)}"` : "an agent's session"} (ompdesk_session_stop)`;
-}
-
-/** Who a refused cleanup is kept for: the caller's session file and computer, else its tab id. */
-function cleanupCaller(caller: ControlTab): string {
-	return caller.sessionPath ? `${caller.device ?? ""}\n${caller.sessionPath}` : caller.tabId;
-}
-
-/** A stop, close or delete of `target` as `caller` asked for it (`pending-cleanups.ts`). */
-function cleanupOf(
-	caller: ControlTab,
-	target: ControlTab,
-	args: { close?: boolean; delete?: boolean },
-): PendingCleanup {
-	return {
-		caller: cleanupCaller(caller),
-		...(target.sessionPath ? { path: target.sessionPath } : {}),
-		...(target.device ? { device: target.device } : {}),
-		tabId: target.tabId,
-		title: target.hidden ? "" : target.title || target.task || "",
-		action: args.delete ? "delete" : args.close ? "close" : "stop",
-		at: Date.now(),
-	};
-}
-
-/** Why a session is not stopped, closed or deleted in this turn (`needsPersonTurn`). */
-function inUseRefusal(tab: ControlTab, args: { close?: boolean; delete?: boolean }): string {
-	const outcome = args.delete ? "it was not deleted" : args.close ? "it stays open" : "it keeps running";
-	const why = tab.userTouched ? "the user typed into it" : "it is in the user's view and you did not open it";
-	return `${label(tab)}: ${why}, and your current turn was not started by the user's own message (another agent's message, a report, a schedule or Autopilot started it): ${outcome}. Only a turn the user's own message starts may stop, close or delete it; ask the user.`;
-}
-
-/** A folder as two spellings of it compare: either slash, no trailing one, and a Windows drive path in any case. */
-function folderKey(folder: string): string {
-	const plain = folder.trim().replace(/\\/g, "/").replace(/\/+$/, "");
-	return /^[a-z]:\//i.test(plain) ? plain.toLowerCase() : plain;
-}
-
-/** "next 2026-…" ("next —" while every schedule is paused), "off", "done" (a once that ran), "waits for its event". */
-function scheduleState(row: ScheduleRow): string {
-	if (!row.enabled) return row.frequency.kind === "once" && row.lastStatus ? "done" : "off";
-	if (row.frequency.kind === "event") return "waits for its event";
-	return `next ${row.nextRun ?? "—"}`;
-}
-
-/** How to call a webhook trigger: the path and the key it answers to (the key is in the schedule's own trigger). */
-function webhookLine(row: ScheduleRow): string {
-	if (row.frequency.kind !== "event" || row.frequency.event.source !== "webhook") return "";
-	return ` Webhook: POST /hooks/${row.id} on that computer's OMPdesk web server (on while Mobile web is on: http://127.0.0.1:<its port> there, or its Mobile web link from the tailnet) with the header "Authorization: Bearer ${row.frequency.event.key}"; the request body is passed to the run.`;
-}
-
-/** `ompdesk_schedule {"action":"runs"}`: the kept runs, newest first, with what fired them and why one failed. */
-function scheduleRunsText(row: ScheduleRow, runs: readonly ScheduleRun[]): string {
-	if (runs.length === 0) return `“${row.name}” has not run yet; ${scheduleState(row)}.`;
-	return [
-		`Runs of “${row.name}” (${runs.length}, newest first; ${scheduleState(row)}):`,
-		...runs.map(run => {
-			const trigger = run.trigger === "manual" ? "test" : run.trigger === "event" ? "event" : "timer";
-			const detail = run.detail ? ` — fired by: ${oneLine(run.detail, 300)}` : "";
-			const error = run.error ? ` — ${run.status === "skipped" ? "why" : "reason"}: ${oneLine(run.error, 300)}` : "";
-			return `- ${run.startedAt} ${run.status} (${trigger})${run.endedAt ? ` ended ${run.endedAt}` : ""}${error}${detail}`;
-		}),
-	].join("\n");
-}
-
-/** A path without trailing separators (a root stays as it is). */
-function trimSeparators(path: string): string {
-	const trimmed = path.replace(/[\\/]+$/, "");
-	return trimmed === "" || /^[A-Za-z]:$/.test(trimmed) ? path : trimmed;
-}
-
-/** `ompdesk_autopilot start` arguments as the start sheet's options, with the level always named (never Automatic). */
-function startOptions(args: Extract<AutopilotArgs, { action: "start" }>, ship: ShipLevel): AutopilotStartOptions {
-	const advanced = args.advanced ?? {};
-	const shipPolicy: NonNullable<AutopilotStartOptions["ship"]> = {
-		...(advanced.remote ? { remote: advanced.remote } : {}),
-		...(advanced.cadence !== undefined
-			? { autoRelease: { on: true, cadence: { kind: "every" as const, n: advanced.cadence } } }
-			: {}),
-	};
-	return {
-		preset: SHIP_PRESET[ship],
-		...(Object.keys(shipPolicy).length > 0 ? { ship: shipPolicy } : {}),
-		...(args.guide ? { guide: args.guide } : {}),
-		...(args.branch ? { branch: args.branch } : {}),
-		...(advanced.focus ? { focus: advanced.focus } : {}),
-		...(advanced.limits ? { limits: advanced.limits } : {}),
-	};
-}
-
-/** A run's state as a short report for the agent. */
-export function describeRun(tab: Pick<ControlTab, "tabId" | "title">, status: AutopilotStatus): string {
-	const reason = status.reason ? ` (${status.reason}${status.detail ? `: ${oneLine(status.detail, 160)}` : ""})` : "";
-	const lines = [
-		`Autopilot run ${tab.tabId}${tab.title ? ` "${oneLine(tab.title, 80)}"` : ""}: ${status.state ?? "unknown"}${reason}; cycle ${status.cycle ?? 0}.`,
-	];
-	if (status.branch)
-		lines.push(
-			`branch ${status.branch}, base ${status.baseBranch ?? "?"}${status.target ? `, pushes to ${status.target}` : ""}, worktree ${status.root ?? "?"}`,
-		);
-	const policy = status.ship?.policy ?? status.settings?.ship;
-	if (policy)
-		lines.push(
-			`ship level ${policy.autoRelease.on ? "release" : policy.autoPush ? "push" : "commit"}, remote ${policy.remote}`,
-		);
-	const now = status.now;
-	lines.push(
-		now
-			? `now: cycle ${now.n}${now.area ? ` [${now.area}]` : ""}${now.title ? ` "${oneLine(now.title, 100)}"` : ""}`
-			: "now: between cycles",
-	);
-	lines.push(`red streak ${status.redStreak ?? 0}`);
-	const commit = [...(status.cycles ?? [])].reverse().find(cycle => cycle.commit && !cycle.reverted);
-	lines.push(
-		commit
-			? `last commit ${commit.commit?.slice(0, 9)} (cycle ${commit.n}, "${oneLine(commit.title, 80)}", verify ${commit.verify})`
-			: "last commit: none yet",
-	);
-	const push = [...(status.ship?.queue ?? [])].reverse().find(item => item.kind === "push");
-	lines.push(
-		push
-			? `last push ${push.state}${push.sha ? ` ${push.sha.slice(0, 9)}` : ""}${push.detail ? ` (${oneLine(push.detail, 100)})` : ""}`
-			: "last push: none yet",
-	);
-	const release = status.ship?.release;
-	lines.push(
-		release
-			? `last release ${release.version} ${release.state}${release.runUrl ? ` ${release.runUrl}` : ""}`
-			: "last release: none yet",
-	);
-	const children = (status.children ?? []).filter(child => child.status === "running").length;
-	if (children > 0) lines.push(`${children} child session(s) running`);
-	if (status.state === "paused")
-		lines.push("It does not continue by itself: the user resumes it on the Autopilot screen.");
-	if (status.state === "waiting_quota")
-		lines.push(
-			`It waits for the account's usage limit and goes on by itself${status.quotaResetAt ? ` at ${new Date(status.quotaResetAt).toISOString()}` : ""}.`,
-		);
-	return lines.join("\n");
-}
-
-function contentText(content: AgentMessage["content"]): string {
-	if (typeof content === "string") return content;
-	return (content ?? [])
-		.map((block: MessageContent) => (block.type === "text" ? block.text : ""))
-		.filter(Boolean)
-		.join("\n");
-}
-
-/** One transcript message as a line for another agent; null for the rows an agent has no use for. */
-export function renderMessage(message: AgentMessage): string | null {
-	switch (message.role) {
-		case "user": {
-			const text = contentText(message.content).trim();
-			if (!text) return null;
-			const wrapped = parseAgentMessage(text);
-			// The saved id names the sender for an answer; titles repeat, and a message before it carried none.
-			const sender = wrapped
-				? [wrapped.from ? oneLine(wrapped.from, 60) : null, wrapped.session ? `saved id ${wrapped.session}` : null]
-						.filter(Boolean)
-						.join(", ")
-				: "";
-			const head = wrapped ? `[user, sent by an agent${sender ? ` (${sender})` : ""}]` : "[user]";
-			return `${head} ${cut(wrapped?.body ?? text, MESSAGE_CHARS)}`;
-		}
-		case "assistant": {
-			const parts: string[] = [];
-			const text = contentText(message.content).trim();
-			if (text) parts.push(`[assistant] ${cut(text, MESSAGE_CHARS)}`);
-			if (Array.isArray(message.content))
-				for (const block of message.content)
-					if (block.type === "toolCall")
-						parts.push(`[tool call] ${block.name}${block.intent ? `: ${oneLine(block.intent, 120)}` : ""}`);
-			return parts.length ? parts.join("\n") : null;
-		}
-		case "toolResult": {
-			const text = oneLine(contentText(message.content), TOOL_RESULT_CHARS);
-			return `[tool result${message.isError ? " (error)" : ""}] ${message.toolName ?? ""} ${text}`.trimEnd();
-		}
-		case "bashExecution":
-			return `[bash] ${oneLine(message.command ?? "", 160)} → exit ${message.exitCode ?? "?"}`;
-		default:
-			return null;
-	}
-}
-
-/** A check a session ran: the command, whether it passed, and the end of its output. */
-export interface CheckRun {
-	command: string;
-	passed: boolean;
-	/** The last `CHECK_TAIL_CHARS` of its output (where runners print their summary and first failures). */
-	tail: string;
-}
-
-/** One compared session as the judge and the agent read it. */
-interface Evidence {
-	id: string;
-	/** The block the agent reads. */
-	text: string;
-	/** State, checks, diff summary and merge prediction lines, without the answer, the diff and the check output. */
-	facts: string;
-	answer: string | null;
-	checks: CheckRun[];
-	/** The worktree's diff against where it lands, already cut by its git; "" without a worktree. */
-	diff: string;
-	diffOmitted: number;
-}
-
-/** Newest transcript messages a compare reads from an open session for the checks it ran. */
-const EVIDENCE_MESSAGES = 200;
-/** The judge request's evidence, all sessions together; each session gets an equal share. */
-const JUDGE_EVIDENCE_CHARS = 60_000;
-/** Output a check keeps for the judge: its end, where runners print the summary and the failures. */
-const CHECK_TAIL_CHARS = 1_200;
-/** Newest checks per session whose output the judge reads. */
-const JUDGE_CHECKS = 4;
-
-const JUDGE_SYSTEM = `You judge the work of several coding sessions against acceptance criteria, for the agent that started them.
-Use only the evidence given: each session's state, the checks it ran (command, outcome and the end of its output, read from its transcript), its git diff against where it would land, a prediction of merging it, and its final answer.
-Read the diff yourself. A criterion no hunk implements is "no" even when the final answer claims it. A change that removes or alters behaviour no criterion asked for is a regression: name it in reasons and lower the score. A predicted merge conflict counts against the session.
-A claim that no check or diff supports counts as "unknown", not "yes". A failed check counts against the criterion it covers. A session that is still running cannot be the winner.
-Answer with JSON only, no prose around it:
-{"ranking":[{"session":"<id>","score":<0-100>,"criteria":[{"criterion":"<text>","met":"yes|partly|no|unknown","why":"<short evidence>"}],"reasons":"<one or two sentences>"}],"winner":"<id or null>","why":"<why it wins, or why none does>"}
-Rank every session, best first. Pick a winner only if it meets every criterion at least partly and beats the others on the evidence.`;
-
-const verdictSchema = z.object({
-	ranking: z.array(
-		z.object({
-			session: z.string(),
-			score: z.number().min(0).max(100),
-			criteria: z
-				.array(
-					z.object({
-						criterion: z.string(),
-						met: z.enum(["yes", "partly", "no", "unknown"]),
-						why: z.string().optional().default(""),
-					}),
-				)
-				.default([]),
-			reasons: z.string().default(""),
-		}),
-	),
-	winner: z.string().nullable().default(null),
-	why: z.string().default(""),
-});
-
-export type Verdict = z.infer<typeof verdictSchema>;
-
-/** The judge's JSON, also when a model wraps it in a fence or a sentence; null when there is none. */
-export function parseVerdict(text: string): Verdict | null {
-	const start = text.indexOf("{");
-	const end = text.lastIndexOf("}");
-	if (start < 0 || end <= start) return null;
-	try {
-		const parsed = verdictSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
-}
-
-/** What a page opens with when its `before` cursor named no page of the session as it is now, and the newest came instead. */
-function staleCursorNote(cursor: string | undefined): string {
-	return `The cursor "${cursor}" names no page of this session as it is now (it wrote more since that page, or the cursor came from its saved copy or its open tab): this is its newest page instead; page back from the cursor below.`;
-}
-
-/** One transcript page for the agent: the newest messages that fit `READ_MAX_CHARS`, and the cursor to page back. */
-function renderPage(
-	title: string,
-	session: string,
-	messages: readonly AgentMessage[],
-	totalMessages: number,
-	prevCursor: string | null,
-	note?: string,
-): string {
-	const lines = messages.map(renderMessage).filter((line): line is string => line !== null);
-	let total = 0;
-	const kept: string[] = [];
-	for (let i = lines.length - 1; i >= 0; i--) {
-		const line = lines[i] as string;
-		if (total + line.length > READ_MAX_CHARS && kept.length > 0) break;
-		total += line.length;
-		kept.unshift(line);
-	}
-	const omitted = lines.length - kept.length;
-	const head = `${title}: ${messages.length} message(s) of ${totalMessages}${omitted ? ` (${omitted} older ones of this page left out; use a smaller limit)` : ""}.`;
-	const more = prevCursor
-		? `\nEarlier messages: ompdesk_session_read {"session":"${session}","before":"${prevCursor}"}.`
-		: "";
-	return `${note ? `${note}\n` : ""}${head}\n${kept.join("\n") || "(nothing to show)"}${more}`;
-}
-
-/** A command line that checks the work (tests, types, lint, build), as a compare reports it. */
-const CHECK_COMMAND =
-	/\b(test|tests|vitest|jest|pytest|mocha|playwright|tsc|typecheck|check|lint|biome|eslint|ruff|mypy|clippy|build|cargo (test|check|build)|go (test|vet|build)|gradle|mvn|make)\b/i;
-
-/** The end of a check's output, where runners print their summary and the failures. */
-function outputTail(text: string): string {
-	const trimmed = text.trimEnd();
-	return trimmed.length > CHECK_TAIL_CHARS ? `…${trimmed.slice(-CHECK_TAIL_CHARS)}` : trimmed;
-}
-
-/** The checks a transcript ran, newest last: the command, whether it passed (exit 0 / no error), its output's end. */
-export function checksRun(messages: readonly AgentMessage[]): CheckRun[] {
-	const calls = new Map<string, string>();
-	const checks: CheckRun[] = [];
-	for (const message of messages) {
-		if (message.role === "assistant" && Array.isArray(message.content)) {
-			for (const block of message.content)
-				if (block.type === "toolCall" && block.name === "bash") {
-					const command = (block.arguments as { command?: unknown } | undefined)?.command;
-					if (typeof command === "string" && CHECK_COMMAND.test(command)) calls.set(block.id, command);
-				}
-		} else if (message.role === "toolResult") {
-			const command = message.toolCallId ? calls.get(message.toolCallId) : undefined;
-			if (command === undefined) continue;
-			const text = contentText(message.content);
-			const exit = /exit(?:ed with)? (?:code )?(\d+)/i.exec(text);
-			checks.push({ command, passed: !message.isError && (exit ? exit[1] === "0" : true), tail: outputTail(text) });
-		} else if (message.role === "bashExecution" && CHECK_COMMAND.test(message.command ?? "")) {
-			checks.push({
-				command: message.command ?? "",
-				passed: message.exitCode === 0,
-				tail: outputTail(message.output ?? ""),
-			});
-		}
-	}
-	return checks;
-}
-
-/** How a child's transcript ends: what `autoClose` reads where this launch saw nothing of its turns. */
-export interface TranscriptEnding {
-	/** The final answer: the text of the last assistant message; null when that message has none (a cut-off turn). */
-	last: string | null;
-	/** How the last assistant message ended (stock's `stopReason`). */
-	stopReason?: string;
-	/** An `ompdesk_report` of kind `done` to its opener since the last prompt it was given, not refused. */
-	reportedDone: boolean;
-	/** A prompt the person typed (neither an agent's wrapped message nor stock's synthetic one). */
-	personPrompted: boolean;
-}
-
-/** `ompdesk_report {kind: "done"}` to the opener: as the tool itself, or written to its device (`xd://ompdesk_report`). */
-function isDoneReport(name: string, args: Record<string, unknown>): boolean {
-	let report: unknown = args;
-	if (name === "write" && args.path === "xd://ompdesk_report" && typeof args.content === "string") {
-		try {
-			report = JSON.parse(args.content);
-		} catch {
-			return false;
-		}
-	} else if (name !== T.report) return false;
-	// A report to a sibling (`to`) is a note, not the end of the work it was given.
-	return (
-		typeof report === "object" && report !== null && "kind" in report && report.kind === "done" && !("to" in report)
-	);
-}
-
-export function transcriptEnding(messages: readonly AgentMessage[]): TranscriptEnding {
-	let last: string | null = null;
-	let stopReason: string | undefined;
-	let personPrompted = false;
-	let reports = new Set<string>();
-	const refused = new Set<string>();
-	for (const message of messages) {
-		if (message.role === "user") {
-			if (message.synthetic === true || message.attribution === "agent") continue;
-			const text = contentText(message.content).trim();
-			if (!text) continue;
-			// New work: a done report before it no longer speaks for what the session does now.
-			reports = new Set();
-			if (!parseAgentMessage(text)) personPrompted = true;
-		} else if (message.role === "assistant") {
-			last = contentText(message.content).trim() || null;
-			stopReason = message.stopReason;
-			if (Array.isArray(message.content))
-				for (const block of message.content)
-					if (block.type === "toolCall" && isDoneReport(block.name, block.arguments)) reports.add(block.id);
-		} else if (message.role === "toolResult" && message.isError && message.toolCallId)
-			refused.add(message.toolCallId);
-	}
-	return {
-		last,
-		...(stopReason ? { stopReason } : {}),
-		reportedDone: [...reports].some(id => !refused.has(id)),
-		personPrompted,
-	};
-}
-
-function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-/** What `git merge-tree` predicts merging a child's branch into the parent's HEAD would do. */
-function predictionLine(prediction: MergePrediction, base: string | null): string {
-	switch (prediction.kind) {
-		case "clean":
-			return `merge: no conflict with ${base ?? "the parent's HEAD"}`;
-		case "conflict":
-			return `merge: would conflict in ${prediction.files.join(", ")} (predicted by git merge-tree; nothing was touched)`;
-		case "unknown":
-			return `merge: not predicted (${oneLine(prediction.reason, 200)})`;
-	}
-}
-
-/** What the bridge's `agent_control.judge` answers (agent-control.ts); an older bridge sends only text, model, usd. */
-interface JudgeReply {
-	text?: string;
-	model?: string;
-	/** The role whose chain served it (`advisor`, else `slow`). */
-	role?: string;
-	family?: string | null;
-	mainFamily?: string | null;
-	/** Whether the judge's family differs from the caller's model; null when either is unknown. */
-	crossFamily?: boolean | null;
-	usd?: number;
-}
-
-/** " by <model> (<role> role, <family> family; …)": which model judged and whether it is another family than the caller's. */
-function judgeLabel(reply: JudgeReply | undefined): string {
-	if (!reply?.model) return "";
-	if (!reply.role) return ` by ${reply.model}`;
-	const family = reply.family ? `, ${reply.family} family` : "";
-	const relation =
-		reply.crossFamily === true
-			? `; your model is ${reply.mainFamily}`
-			: reply.crossFamily === false
-				? "; same family as your model: no model of another family had credentials"
-				: "";
-	return ` by ${reply.model} (${reply.role} role${family}${relation})`;
-}
-
-/** What a session is doing right now, from the tail of its transcript: a tool call without a result yet. */
-export function currentStep(messages: readonly AgentMessage[]): string | null {
-	const answered = new Set(messages.filter(m => m.role === "toolResult").map(m => m.toolCallId));
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-		const pending = message.content.filter(
-			(block): block is Extract<MessageContent, { type: "toolCall" }> =>
-				block.type === "toolCall" && !answered.has(block.id),
-		);
-		const last = pending.at(-1);
-		return last ? `running ${last.name}${last.intent ? ` (${oneLine(last.intent, 80)})` : ""}` : null;
-	}
-	return null;
-}
-
-interface SessionState {
-	state: RpcSessionState | null;
-	last: string | null;
-	step: string | null;
-	/** Its subagents that run now, from the summary every row reads (`AgentControlHost.summaryOf`). */
-	subagents: number;
-}
-
-type OpenArgs = OpenOne & { show?: "background" | AgentControlViewEvent["how"] };
-
-/** What closing a tab came to: gone, still open, or (a paired web page's tab) held back by what its page says. */
-type TabClose = "closed" | "kept" | "dirty";
-
-/** One command of an open to its child: `AgentControl.#openCommands`. */
-type OpenCommand = (command: RpcCommand) => Promise<RpcResponse>;
-
 export class AgentControl {
 	readonly #host: AgentControlHost;
-	/** Tabs each calling tab opened, for the "opened by you" marks. */
-	readonly #opened = new Map<string, Set<string>>();
-	/** Tabs whose stop or close is in flight. */
-	readonly #closing = new Set<string>();
-	/** Children whose review item the person settled (approved, discarded, dismissed). */
-	readonly #reviewed = new Set<string>();
-	/** Files a child's last merge conflicted in, until it merges. */
-	readonly #conflicts = new Map<string, string[]>();
-	/** Opened sessions whose answer the opener read (a result, a read, a compare, a merge) since they last ran. */
-	readonly #collected = new Set<string>();
-	/**
-	 * Children asked once to report after a turn that ended with neither a verdict line nor a done report, per tab: the
-	 * dispatch it was asked on, the answer it had then, and whether its opener has been told it still did not.
-	 */
-	readonly #nudged = new Map<
-		string,
-		{ dispatch: string | undefined; answer: string; ran: boolean; toldOpener: boolean }
-	>();
-	/** Callers whose `autoClose` pass is in flight. */
-	readonly #sweeping = new Set<string>();
-	/** Per child tab, the dispatch whose `done` report main sent for it (`#autoDone`). */
-	readonly #autoDoneFor = new Map<string, string>();
-	/** Saved sessions the last stored lists showed, by stock id: what read, reopen and compare resolve a stored id to. */
-	readonly #stored = new Map<string, StoredSession>();
-	/** Opened tabs to delete with their auto-close (`ompdesk_session_open {throwaway: true}`); this launch only. */
-	readonly #throwaway = new Set<string>();
-	/** What became of every session an id was handed out for: closed or deleted, by whom and when (`session-fates.ts`). */
-	readonly #fates: SessionFates;
-	/**
-	 * The tab that opened each session closed this launch, by `device\npath`: a caller with no session file of its own
-	 * (a process outside OMPdesk) owns what it closed until the app relaunches. A session's own opener is in its fate.
-	 */
-	readonly #closedOpeners = new Map<string, string>();
-	/** Cleanups refused while the person was in the session, until their caller's next turn the person starts. */
-	readonly #cleanups: PendingCleanups;
-	/** App actions each caller has running (`ompdesk_app`): what a background session on another computer lives for. */
-	readonly #appRuns = new Map<string, number>();
-	/** The background sessions a caller's running app actions opened on other computers, by computer (`#utilityTab`). */
-	readonly #utilityTabs = new Map<string, Map<string, Promise<string>>>();
-	/** Reports between sessions (`mail.ts`): dispatch ids, coalescing, the last report of each child. */
-	readonly #mailbox: Mailbox;
-	/** Receipts of `ompdesk_session_send` by `caller|target|request_id`: a repeat is never delivered twice. */
-	readonly #receipts = new Map<string, string>();
-	/** Recorded calls still running in this process, by key: the same call made again joins it. */
-	readonly #calling = new Map<string, Promise<ToolOutcome>>();
-	/** The recorded call a piece of work belongs to, so an open notes each tab it makes (`CallJournal.note`). */
-	readonly #callScope = new AsyncLocalStorage<{ key: string }>();
-	/** Sessions (`device\npath`) whose saved name `#nameUntitled` already looked up. */
-	readonly #namesSought = new Set<string>();
-	/** When each session last reported done, review, a question or a blocker to the one that opened it. */
-	readonly #reportedAt = new Map<string, number>();
-	/** The newest dispatch queued as a follow-up behind each busy child's turn, until its transcript shows it. */
-	readonly #queuedFollowUp = new Map<string, { n: number; id: string; from: string }>();
-	/** Sends with a request id still on their way: a same-id repeat joins one instead of sending twice. */
-	readonly #inflight = new Map<string, Promise<string>>();
-	/** The question cards of each child its opener was already told of (request ids), so a re-announced card stays one message. */
-	readonly #cardsTold = new Map<string, Set<string>>();
-	/** Each session's last read cost and split, which stand while its omp cannot answer (`#cost`, `#split`). */
-	readonly #lastSpend = new Map<string, { cost: number; split?: CostSplit }>();
-	/** Closed children's last turns (`familyEdits`), by device, session file and close: a closed file no longer changes. */
-	readonly #closedTurns = new Map<string, Promise<RpcTurnEdits>>();
+	readonly #options: AgentControlOptions;
+	readonly #port: CorePort<HostSnapshot>;
+	readonly #unobserve: () => void;
+	readonly runtime = new RuntimeClient(this);
+	#opened: Promise<void> | null = null;
+	#closed = false;
+	#last: HostSnapshot | null = null;
 
-	readonly #app: AppControl | null;
-
-	constructor(host: AgentControlHost, timers: Pick<MailboxDeps, "setTimer" | "clearTimer"> = DEFAULT_TIMERS) {
+	constructor(host: AgentControlHost, options: AgentControlOptions = {}) {
 		this.#host = host;
-		this.#fates = host.fates ?? new SessionFates(null);
-		this.#cleanups = host.cleanups ?? new PendingCleanups(null);
-		this.#app = host.appPorts
-			? new AppControl({
-					...host.appPorts,
-					autopilot: (tabId, args) => this.#appAutopilot(tabId, args),
-					rpcOn: (tabId, device, command) => this.#rpcOn(tabId, device, command),
-				})
-			: null;
-		this.#mailbox = new Mailbox({
-			now: Date.now,
-			...timers,
-			deliver: async mail => {
-				await this.#host.mail(mail.to, mailText(mail), mailDetails(mail), deliveryFor(mail.kind));
-				this.#host.reviewChanged?.(mail.to);
-			},
-		});
+		this.#options = options;
+		this.#port = new CorePort<HostSnapshot>(this.#handlers(), () => this.#snapshot());
+		this.#unobserve = host.observe(() => this.#port.push());
+		// The core's runtime has timers of its own (the sweep of the opened sessions, redelivery): it runs from the
+		// start, not from the first call.
+		if (host.runtime) this.#keepOpen();
+	}
+
+	/** Opens the service now, and again after a core that ended, until it is closed. */
+	#keepOpen(): void {
+		this.#open().then(
+			() => undefined,
+			() => this.#retryOpen(),
+		);
+	}
+
+	#retryOpen(): void {
+		if (this.#closed) return;
+		setTimeout(() => this.#keepOpen(), REOPEN_MS).unref();
+	}
+
+	/** Main observed a change in what the service reads of it: the core reads the new state from now on. */
+	changed(): void {
+		this.#port.push();
+	}
+
+	/** Closes the service in the core: what it still waits on fails. */
+	close(): void {
+		this.#closed = true;
+		this.#unobserve();
+		this.#port.close();
+		core()
+			.call("agentControl.close", { port: this.#port.id })
+			.catch(() => undefined);
 	}
 
 	/** Live tabs `callerTabId` opened. */
-	childrenOf(callerTabId: string): string[] {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return [];
-		return [...this.#openedBy(callerTabId, tabs)].filter(id => !id.startsWith("pending:"));
+	childrenOf(callerTabId: string): Promise<string[]> {
+		return this.#call("childrenOf", { callerTabId });
 	}
 
 	/**
-	 * A child showed a question card (stock `ask`, a select, confirm or text prompt): its opener hears of it as one
-	 * question in its session, as a report the child wrote would arrive, so it can answer with ompdesk_session_answer or
-	 * ask the user instead of finding the card by polling. Never OMPdesk's own confirmation cards, a session hidden from
-	 * agents, or a session `openerTabId` did not open. Local and paired-device children alike: both reach here from the
-	 * pool's ask activity.
+	 * A child showed a question card: its opener hears of it as one question in its session, so it can answer with
+	 * ompdesk_session_answer or ask the user instead of finding the card by polling.
 	 */
-	async childAsked(openerTabId: string, childTabId: string, requestId: string): Promise<void> {
-		if (!this.#host.enabled()) return;
-		const tabs = this.#host.tabs(openerTabId);
-		if (!tabs) return;
-		const child = tabs.find(tab => tab.tabId === childTabId);
-		if (!child || child.hidden) return;
-		if (this.#host.parentOf(childTabId) !== openerTabId && !this.#openedBy(openerTabId, tabs).has(childTabId)) return;
-		const ask = child.asks.find(entry => entry.id === requestId);
-		if (!ask || askTitle(ask.request).startsWith(AGENT_CARD_PREFIX)) return;
-		const told = this.#cardsTold.get(childTabId) ?? new Set<string>();
-		if (told.has(requestId)) return;
-		told.add(requestId);
-		this.#cardsTold.set(childTabId, told);
-		const mail: Mail = {
-			id: `ask-${childTabId}-${requestId}`,
-			from: childTabId,
-			fromTitle: child.title || child.task || "",
-			to: openerTabId,
-			kind: "question",
-			text: cardText(ask.request),
-			card: requestId,
-			at: Date.now(),
-		};
-		try {
-			await this.#host.mail(openerTabId, mailText(mail), mailDetails(mail), deliveryFor(mail.kind));
-		} catch (error) {
-			// Not delivered (the opener's omp restarting): a later announcement of the same card may try again.
-			told.delete(requestId);
-			throw error;
-		}
-		this.#host.reviewChanged?.(openerTabId);
+	childAsked(openerTabId: string, childTabId: string, requestId: string): Promise<void> {
+		return this.#call("childAsked", { openerTabId, childTabId, requestId });
 	}
 
 	/** Drop a tab's queued steers and follow-ups; the turn that runs is left alone. */
-	async clearQueue(tabId: string): Promise<void> {
-		responseData(await this.#host.command(tabId, { type: "queue_clear" }, 15_000), "Clearing the queue");
+	clearQueue(tabId: string): Promise<void> {
+		return this.#call("clearQueue", { tabId });
 	}
 
 	/**
 	 * A tab closed. `session`: the saved session it held, when nobody closed it through the control tools (those record
-	 * who did): its ids keep naming that session (`#fates`).
+	 * who did): its ids keep naming that session.
 	 */
-	released(tabId: string, session?: ReleasedSession): void {
-		if (session && !this.#closing.has(tabId))
-			this.#fates.closed(
-				{
-					ids: [tabId, ...session.formerIds, ...[savedIdOfPath(session.path)].filter(id => id !== undefined)],
-					path: session.path,
-					...(session.device ? { device: session.device } : {}),
-					title: session.hidden ? "" : session.title,
-					...(session.hidden ? { hidden: true as const } : {}),
-					cwd: session.cwd,
-					...(session.openedBySession ? { openedBySession: session.openedBySession } : {}),
-				},
-				FATE_BY.person,
-			);
-		this.#app?.released(tabId);
-		this.#opened.delete(tabId);
-		this.#collected.delete(tabId);
-		this.#sweeping.delete(tabId);
-		this.#closing.delete(tabId);
-		this.#reviewed.delete(tabId);
-		this.#conflicts.delete(tabId);
-		this.#mailbox.forget(tabId);
-		this.#cardsTold.delete(tabId);
-		this.#lastSpend.delete(tabId);
-		this.#queuedFollowUp.delete(tabId);
-		for (const key of this.#reportedAt.keys()) if (key.split("\n").includes(tabId)) this.#reportedAt.delete(key);
+	released(tabId: string, session?: ReleasedSession): Promise<void> {
+		return this.#call("released", { tabId, ...(session ? { session } : {}) });
 	}
 
 	/** Programmatic open (Autopilot): the same path as the tool, with a tag the tool never sets. */
-	async openSessions(callerTabId: string, sessions: readonly OpenOne[], tag?: string): Promise<string[]> {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) fail("This session's tab is gone.");
-		const caller = tabs.find(tab => tab.tabId === callerTabId);
-		if (!caller) fail("This session's tab is gone.");
-		return (await this.#openMany(caller, tabs, sessions, undefined, tag)).map(entry => entry.tabId);
+	openSessions(callerTabId: string, sessions: readonly OpenOne[], tag?: string): Promise<string[]> {
+		return this.#call("openSessions", { callerTabId, sessions, ...(tag ? { tag } : {}) });
 	}
 
 	/**
 	 * Run one control-tool call. `call` is the host tool call: its id (stock's, the same when a paired host re-sends the
 	 * call after this computer relaunched) and whether the host says it re-sends one it had handed a connection before
-	 * (`resent`). A call that changes something is recorded under the caller's session file and that id
-	 * (`call-journal.ts`), so it runs at most once; a re-sent one this computer has no record of (forgotten, or a new
-	 * profile) is reconciled like a pending one and never run blindly.
+	 * (`resent`). A call that changes something is recorded under the caller's session file and that id, so it runs at
+	 * most once; a re-sent one this computer has no record of is reconciled like a pending one and never run blindly.
 	 */
-	async run(
+	run(
 		callerTabId: string,
 		tool: AgentControlToolName,
 		args: unknown,
 		call?: { id: string; resent?: boolean },
 	): Promise<ToolOutcome> {
-		let tabs: ControlTab[];
-		try {
-			if (!this.#host.enabled())
-				fail("OMPdesk control tools are turned off (Settings › Tools & extensions). Ask the user to turn them on.");
-			tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
-			await this.#nameUntitled(tabs);
-		} catch (error) {
-			return outcomeOf(tool, error);
-		}
-		const caller = tabs.find(tab => tab.tabId === callerTabId);
-		const journal = this.#host.calls;
-		if (!journal || !call || !caller?.sessionPath || !mutates(tool, args))
-			return this.#outcome(callerTabId, tabs, tool, args);
-		const key = `${caller.device ?? ""}\n${caller.sessionPath}\n${call.id}`;
-		const joined = this.#calling.get(key);
-		if (joined) return joined;
-		const known = journal.get(key);
-		if (known?.result) return known.result;
-		let record = known;
-		if (!record && call.resent) {
-			journal.begin({ key, tool, callerTabId, intent: callIntent(tool, args, caller) });
-			record = journal.get(key);
-		}
-		const work = record
-			? this.#reconcile(record, caller, tabs)
-			: (() => {
-					journal.begin({ key, tool, callerTabId, intent: callIntent(tool, args, caller) });
-					return this.#callScope.run({ key }, () => this.#outcome(callerTabId, tabs, tool, args));
-				})();
-		this.#calling.set(key, work);
-		try {
-			const outcome = await work;
-			journal.finish(key, outcome);
-			return outcome;
-		} finally {
-			this.#calling.delete(key);
-		}
-	}
-
-	async #outcome(callerTabId: string, tabs: ControlTab[], tool: AgentControlToolName, args: unknown) {
-		try {
-			return { text: await this.#dispatch(callerTabId, tabs, tool, args), isError: false };
-		} catch (error) {
-			return outcomeOf(tool, error);
-		}
-	}
-
-	/**
-	 * A call recorded as begun before this computer restarted, with no result: its effect may have happened. What the
-	 * app holds now decides (the sessions it opened, the schedule it saved); it is never run a second time, and a call
-	 * whose effect cannot be found answers that its outcome is unknown.
-	 */
-	async #reconcile(record: CallRecord, caller: ControlTab, tabs: ControlTab[]): Promise<ToolOutcome> {
-		const already = "This call had already run before OMPdesk restarted; it was not run again.";
-		const unknown = (hint: string): ToolOutcome => ({
-			text: `This ${record.tool} call was started before OMPdesk restarted, and its outcome is unknown after OMPdesk restarted: it was not run again. ${hint}`,
-			isError: true,
+		return this.#call("run", {
+			callerTabId,
+			tool,
+			args,
+			...(call ? { call: { id: call.id, resent: call.resent === true } } : {}),
 		});
-		if (record.intent?.open) {
-			const ids = new Set(record.opened ?? []);
-			const titles = [...record.intent.open];
-			const found = tabs.filter(tab => {
-				if (tab.tabId === caller.tabId) return false;
-				if (ids.has(tab.tabId) || tab.formerIds?.some(id => ids.has(id))) return true;
-				// Opened but not noted yet (the app died in between): the caller's child opened for one of its tasks.
-				const title = tab.task ? titles.indexOf(tab.task) : -1;
-				if (title < 0 || this.#host.parentOf(tab.tabId) !== caller.tabId) return false;
-				titles.splice(title, 1);
-				return true;
-			});
-			const check = 'Check ompdesk_sessions {"mine":true} before opening it again with a new call.';
-			if (found.length === 0) return unknown(check);
-			const lines = found.map(
-				tab =>
-					`Opened session ${tab.tabId} in ${tab.cwd}${tab.deviceName ? ` on ${tab.deviceName}` : ""}. ${already}`,
-			);
-			if (found.length < record.intent.open.length)
-				lines.push(
-					`Whether the other ${record.intent.open.length - found.length} opened is unknown after OMPdesk restarted. ${check}`,
-				);
-			return { text: lines.join("\n"), isError: false };
-		}
-		if (record.intent?.schedule) {
-			const { device: deviceName, name } = record.intent.schedule;
-			const check = 'Check ompdesk_schedule {"action":"list"} before creating it again.';
-			try {
-				const device = deviceName === undefined ? null : this.#device(deviceName);
-				const rows = (await this.#host.schedules(device?.id ?? undefined)?.list()) ?? [];
-				const row = rows.findLast(entry => entry.name === name);
-				if (!row) return unknown(check);
-				return {
-					text: `Scheduled “${row.name}” ${describeFrequency(row.frequency)} in ${row.cwd}; id ${row.id}. ${already}`,
-					isError: false,
-				};
-			} catch {
-				return unknown(check);
-			}
-		}
-		return unknown("Check what it was meant to change before trying again with a new call.");
-	}
-
-	#stopping(callerTabId: string): boolean {
-		return this.#closing.has(callerTabId) || this.#host.isStopping?.(callerTabId) === true;
-	}
-
-	/**
-	 * A tab with neither a title nor a task (restored by a relaunch, or reopened) reads as its saved session's name, else
-	 * the task of its first message, from the session index of the computer it runs on. Looked up once per session and
-	 * handed to the pool, so the sidebar, the board and every later call have it too. A tool call waits for the lookup
-	 * at most `NAME_LOOKUP_MS` (a paired device's index is a network read); a later answer still reaches the pool.
-	 */
-	async #nameUntitled(tabs: ControlTab[]): Promise<void> {
-		const key = (tab: ControlTab) => `${tab.device ?? ""}\n${tab.sessionPath}`;
-		const nameless = tabs.filter(
-			tab => !tab.title && !tab.task && !tab.hidden && tab.sessionPath && !this.#namesSought.has(key(tab)),
-		);
-		if (nameless.length === 0) return;
-		for (const tab of nameless) this.#namesSought.add(key(tab));
-		const names = new Map<string, string>();
-		const lookups = [...new Set(nameless.map(tab => tab.device))].map(async device => {
-			const rows = await this.#host.stored(device).catch((): StoredSession[] => []);
-			for (const tab of nameless) {
-				const row = rows.find(entry => entry.path === tab.sessionPath && entry.device === tab.device);
-				const name = row ? row.title || agentTaskTitle(row.firstMessage) : "";
-				if (!row || !name) continue;
-				names.set(key(tab), name);
-				this.#host.setTask(tab.tabId, name);
-			}
-		});
-		const { promise: waited, resolve } = Promise.withResolvers<void>();
-		const timer = setTimeout(resolve, NAME_LOOKUP_MS);
-		timer.unref?.();
-		await Promise.race([Promise.all(lookups), waited]);
-		clearTimeout(timer);
-		for (const tab of nameless) {
-			const name = names.get(key(tab));
-			if (!name) continue;
-			tab.title = name;
-			tab.task = name;
-		}
-	}
-
-	async #dispatch(
-		callerTabId: string,
-		tabs: ControlTab[],
-		tool: AgentControlToolName,
-		given: unknown,
-	): Promise<string> {
-		const raw = looseArgs(tool, given);
-		const parsed = ARGS[tool].safeParse(raw ?? {});
-		if (!parsed.success)
-			fail(
-				`Invalid arguments for ${tool}: ${parsed.error.issues
-					.map(issue => (issue.path.length > 0 ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-					.join("; ")}`,
-			);
-		const caller = this.#callerOf(callerTabId, tabs);
-		if (!caller) fail("This session's tab is gone.");
-		switch (tool) {
-			case T.list:
-				return this.#list(caller, tabs, ARGS[T.list].parse(raw ?? {}));
-			case T.open: {
-				const args = ARGS[T.open].parse(raw ?? {});
-				const { sessions, show, ...single } = args;
-				const items = sessions ?? [single as OpenOne];
-				const results = await this.#openMany(caller, tabs, items, show);
-				const text = this.#openText(results);
-				if (!results.some(result => result.tabId)) fail(text);
-				return text;
-			}
-			case T.send: {
-				const args = ARGS[T.send].parse(raw);
-				return this.#send(caller, await this.#sendTarget(caller, tabs, args.session), args);
-			}
-			case T.result: {
-				const args = ARGS[T.result].parse(raw);
-				const ids = args.sessions ?? (args.session ? [args.session] : []);
-				const targets = await Promise.all(ids.map(id => this.#resolveAny(tabs, id, caller, "read")));
-				return this.#result(caller, targets, args, args.sessions !== undefined);
-			}
-			case T.read: {
-				const args = ARGS[T.read].parse(raw);
-				const target = await this.#resolveAny(tabs, args.session, caller, "read");
-				return "tabId" in target && "busy" in target ? this.#read(target, args) : this.#readStored(target, args);
-			}
-			case T.answer: {
-				const args = ARGS[T.answer].parse(raw);
-				return this.#answer(caller, await this.#open(tabs, args.session, caller, "answer"), args);
-			}
-			case T.focus: {
-				const args = ARGS[T.focus].parse(raw);
-				const target = await this.#open(tabs, args.session, caller, "show", { self: false, reach: false });
-				this.#refuseHidden(target, caller);
-				this.#host.view(caller.tabId, { tabId: target.tabId, how: args.how ?? "focus" });
-				return `Showing ${label(target)} (${args.how ?? "focus"}).`;
-			}
-			case T.notify: {
-				const args = ARGS[T.notify].parse(raw);
-				this.#host.notify(caller.tabId, args.title, args.body ?? "");
-				return "Notification shown.";
-			}
-			case T.stop: {
-				const args = ARGS[T.stop].parse(raw);
-				const device = args.device === undefined ? undefined : this.#device(args.device);
-				const target = await this.#resolveAny(tabs, args.session, caller, "stop", device).catch(
-					(error: unknown) => {
-						// A second delete of what is already gone: nothing to do, and no error for the agent to read.
-						if (args.delete && error instanceof SessionDeleted)
-							return `"${unquoted(args.session)}" is already deleted${fateWhen(error.fate)}: nothing to do.`;
-						throw error;
-					},
-				);
-				if (typeof target === "string") return target;
-				return "busy" in target ? this.#stop(caller, tabs, target, args) : this.#stopStored(caller, target, args);
-			}
-			case T.compare: {
-				const args = ARGS[T.compare].parse(raw ?? {});
-				return this.#compare(caller, tabs, args.sessions, args.criteria);
-			}
-			case T.report:
-				return this.#report(caller, tabs, ARGS[T.report].parse(raw));
-			case T.merge: {
-				const args = ARGS[T.merge].parse(raw);
-				return this.#merge(caller, await this.#open(tabs, args.session, caller, "merge"));
-			}
-			case T.schedule:
-				return this.#schedule(caller, ARGS[T.schedule].parse(raw));
-			case T.autopilot:
-				return this.#autopilot(caller, tabs, ARGS[T.autopilot].parse(raw));
-			case T.appList:
-				return this.#appControl().list(ARGS[T.appList].parse(raw ?? {}));
-			case T.app: {
-				const args = ARGS[T.app].parse(raw);
-				this.#appRuns.set(caller.tabId, (this.#appRuns.get(caller.tabId) ?? 0) + 1);
-				try {
-					return await this.#appControl().run(caller.tabId, args.action, args.args);
-				} catch (error) {
-					if (error instanceof AppRefusal) fail(error.message);
-					throw error;
-				} finally {
-					const running = (this.#appRuns.get(caller.tabId) ?? 1) - 1;
-					if (running > 0) this.#appRuns.set(caller.tabId, running);
-					else {
-						this.#appRuns.delete(caller.tabId);
-						await this.#closeUtilityTabs(caller.tabId);
-					}
-				}
-			}
-		}
-	}
-
-	/** The calling tab, or the process outside OMPdesk that calls over the control socket (`host.outsideCaller`). */
-	#callerOf(callerTabId: string, tabs: readonly ControlTab[]): ControlTab | undefined {
-		return tabs.find(tab => tab.tabId === callerTabId) ?? this.#host.outsideCaller?.(callerTabId);
 	}
 
 	/**
 	 * The open session `session` names for `callerTabId`, by the tools' own name rules, refused when hidden from
 	 * agents (the control socket's waits). Rejects with the tools' own message.
 	 */
-	async openTarget(callerTabId: string, session: string): Promise<ControlTab> {
-		if (!this.#host.enabled())
-			fail("OMPdesk control tools are turned off (Settings › Tools & extensions). Ask the user to turn them on.");
-		const tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
-		const caller = this.#callerOf(callerTabId, tabs) ?? fail("This session's tab is gone.");
-		const target = await this.#open(tabs, session, caller, "wait for");
-		this.#refuseHidden(target, caller);
-		return target;
+	openTarget(callerTabId: string, session: string): Promise<ControlTab> {
+		return this.#call("openTarget", { callerTabId, session });
 	}
 
-	/** The app action's way into `ompdesk_autopilot`: same parse, same card. */
-	async #appAutopilot(callerTabId: string, raw: unknown): Promise<string> {
-		const tabs = this.#host.tabs(callerTabId);
-		const caller = tabs && this.#callerOf(callerTabId, tabs);
-		if (!tabs || !caller) fail("This session's tab is gone.");
-		const parsed = ARGS[T.autopilot].safeParse(raw);
-		if (!parsed.success) fail(`Invalid arguments: ${parsed.error.issues.map(issue => issue.message).join("; ")}`);
-		return this.#autopilot(caller, tabs, parsed.data);
+	/** The person typed a prompt to `tabId`: what its omp keeps of cleanups refused while they were in the session is sent. */
+	personTyped(tabId: string): Promise<void> {
+		return this.#call("personTyped", { tabId });
 	}
 
-	#appControl(): AppControl {
-		if (!this.#app) fail("App actions are not available here.");
-		return this.#app;
+	/** Messages an omp held and lost go to the omp that holds the receiver's session now. */
+	redeliverSends(): Promise<void> {
+		return this.#call("redeliverSends", {});
 	}
 
-	/**
-	 * A session that has to be open in a tab, named any way `#find` reads (never the caller itself unless `self: false`).
-	 * One saved and open in a tab elsewhere is joined through a view of that tab (`#join`); one open nowhere fails with
-	 * the call that opens it. `reach`: a paired device's tab is waited for while its link comes back (`#reachTab`).
-	 */
-	async #open(
-		tabs: ControlTab[],
-		session: string,
-		caller: ControlTab,
-		verb: string,
-		options: { self?: false; reach?: false } = {},
-	): Promise<ControlTab> {
-		const found = await this.#find(tabs, session);
-		if (found.gone) throw new SessionDeleted(unquoted(session), found.gone);
-		if (!found.target)
-			fail(
-				`No session "${session}" open in this app or saved${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for every window, scope stored for saved ones) and use an id it lists.`,
-			);
-		const target = "busy" in found.target ? found.target : await this.#joinStored(caller, found.target, verb);
-		if (options.self !== false && target.tabId === caller.tabId)
-			fail(`You cannot ${verb} your own session with this tool.`);
-		return options.reach === false ? target : this.#reachTab(target, caller.tabId);
+	reviewItems(callerTabId: string): Promise<AgentReviewItem[]> {
+		return this.#call("reviewItems", { callerTabId });
 	}
 
-	/**
-	 * A saved session no tab of this app held when it was named, as its computer lists it now: the tab of this app that
-	 * holds it since, else a view of the tab that holds it elsewhere (`#join`). One open nowhere this app can see fails
-	 * with the call that opens it, and one whose computer's list cannot be read now fails saying so: telling to open it
-	 * again then would open a tab on a session a tab there may hold.
-	 */
-	async #joinStored(caller: ControlTab, row: StoredSession, verb: string): Promise<ControlTab> {
-		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
-		const where = row.deviceName ?? home?.name ?? "this computer";
-		const now = await (async () => {
-			if (home) await this.#reach(home);
-			const rows = await this.#overLink(row.device, () => this.#host.stored(row.device));
-			const current = rows.find(entry => entry.path === row.path) ?? row;
-			this.#stored.set(current.id, current);
-			return current;
-		})().catch((error: unknown) => {
-			if (error instanceof ToolError) throw error;
-			fail(
-				`What ${where} holds could not be read now (${error instanceof Error ? error.message : String(error)}), so whether a tab there has "${oneLine(storedTitle(row), 80)}" (${row.id}) open is not known: nothing was sent. Try again in a moment.`,
-			);
-		});
-		const live = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], now);
-		if (live) return live;
-		if (now.hidden) fail("The user hid that session from other agents.");
-		// What a computer lists as held is its windows' tabs and the tabs it runs for devices that are attached. A paired
-		// device's tab restored by a relaunch and not shown since runs no omp and tells no computer (11 Nov 2026 10:26:
-		// "문의" read as open nowhere 39 s after its host relaunched, and the agent sent to an older tab of its title).
-		if (!now.elsewhere)
-			fail(
-				`"${oneLine(storedTitle(now), 80)}" (${now.id}) is saved${now.deviceName ? ` on ${now.deviceName}` : ""} and not open in any tab OMPdesk can see: no tab of this app, and none ${where} lists. A paired computer may still show it in a tab that has not started since a relaunch (it starts when the person shows it there), which no other computer sees. To ${verb} it now, open it with ompdesk_session_open {"reopen":"${now.id}"} and ${verb} it by the id that returns: a tab elsewhere that shows it then views that tab's omp, never a second omp (ompdesk_session_read reads it without opening).`,
-			);
-		return this.#join(caller, now);
+	review(callerTabId: string): Promise<AgentReviewResult> {
+		return this.#call("review", { callerTabId });
 	}
 
-	/**
-	 * Joins a saved session open in a tab elsewhere: a tab in the caller's window that views that tab's omp (the host's
-	 * `tab.open`, or this computer's view of a tab it runs for a paired device), never a second omp on its file. It
-	 * nests under nobody and is not "opened by you": its opener stays whatever it was.
-	 */
-	async #join(caller: ControlTab, row: StoredSession): Promise<ControlTab> {
-		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
-		if (home) await this.#reach(home);
-		const { tabId } = await this.#host.spawn(caller.tabId, {
-			sessionPath: row.path,
-			device: row.device ?? null,
-			join: true,
-		});
-		await this.#whenReady(tabId, caller.tabId);
-		const joined =
-			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
-			fail(`"${oneLine(storedTitle(row), 80)}" was joined as ${tabId}, and that tab closed again.`);
-		// A view just attached names nothing until its omp says: it is the saved session it joined.
-		return joined.title || joined.task ? joined : { ...joined, title: storedTitle(row) };
+	familyEdits(callerTabId: string, since?: number): Promise<FamilyEdits> {
+		return this.#call("familyEdits", { callerTabId, ...(since === undefined ? {} : { since }) });
 	}
 
-	#refuseHidden(target: ControlTab, caller: ControlTab): void {
-		if (target.hidden && target.tabId !== caller.tabId)
-			fail(
-				"The user hid this session from other agents. Ask them to show it or to tell you what they need from it.",
-			);
-	}
-
-	/**
-	 * Tabs `callerTabId` opened: those this launch saw it open, and those whose opener the pool kept across a relaunch
-	 * (`host.parentOf`: the opener's tab, or the tab now holding the opener's session file), so ownership survives one.
-	 */
-	#openedBy(callerTabId: string, tabs: ControlTab[]): Set<string> {
-		const set = this.#opened.get(callerTabId) ?? new Set<string>();
-		const live = new Set(tabs.map(tab => tab.tabId));
-		for (const id of set) if (!id.startsWith("pending:") && !live.has(id)) set.delete(id);
-		for (const tab of tabs)
-			if (tab.tabId !== callerTabId && this.#host.parentOf(tab.tabId) === callerTabId) set.add(tab.tabId);
-		this.#opened.set(callerTabId, set);
-		return set;
-	}
-
-	async #state(tab: ControlTab): Promise<SessionState> {
-		const empty: SessionState = { state: null, last: null, step: null, subagents: 0 };
-		if (tab.hidden || (tab.status !== "ready" && tab.status !== "running")) return empty;
-		const call = <T>(command: RpcCommand, pick: (data: unknown) => T | null): Promise<T | null> =>
-			this.#host
-				.command(tab.tabId, command, STATE_TIMEOUT_MS)
-				.then(response => (response.success ? pick(response.data) : null))
-				.catch(() => null);
-		const [state, last, page] = await Promise.all([
-			call({ type: "get_state", brief: true }, data => (data as RpcSessionState | undefined) ?? null),
-			call({ type: "get_last_assistant_text" }, data =>
-				data && typeof data === "object" && "text" in data && typeof data.text === "string" ? data.text : null,
-			),
-			tab.busy ? call({ type: "get_transcript_page", fromEnd: true, limit: 8 }, transcriptPage) : null,
-		]);
-		return {
-			state,
-			last,
-			step: page ? currentStep(page.messages) : null,
-			subagents: runningAgentCount(this.#host.summaryOf(tab)),
-		};
-	}
-
-	#stateLine(tab: ControlTab, session: SessionState): string {
-		const { state, step } = session;
-		const ask = tab.asks[0];
-		if (ask) return `waiting for the user's answer: "${oneLine(askTitle(ask.request), 120)}"`;
-		if (tab.plan)
-			return `waiting for plan approval: "${oneLine(tab.plan.title || "plan", 120)}" (${tab.plan.planFilePath})`;
-		switch (tab.status) {
-			case "asleep":
-				return "not started (it starts when shown or messaged)";
-			case "starting":
-			case "restarting":
-			case "waiting": {
-				const link = tab.device ? this.#host.devices().find(entry => entry.id === tab.device) : undefined;
-				if (link && link.state !== "online")
-					return `starting: ${link.name} is ${link.state} (its link is down; this session goes on once it is back)`;
-				if (tab.startWait === "queued")
-					return "starting (waits its turn behind other sessions starting; nothing to do)";
-				if (tab.startWait === "slow")
-					return "starting (its omp has not answered yet and is still waited for; nothing was stopped)";
-				return "starting";
-			}
-			case "error":
-			case "exited": {
-				if (tab.sessionHeld)
-					return "waiting for another omp process to let go of this session (it opens here by itself then; nothing to do)";
-				return `stopped (${tab.status})`;
-			}
-		}
-		if (tab.busy || state?.isStreaming)
-			return `running${step ? `, ${step}` : ""}${tab.busySince ? `, for ${elapsedText(Date.now() - tab.busySince)}` : ""}`;
-		if (state && state.isSettled === false) return "running (background work still going)";
-		return "idle";
-	}
-
-	/** An idle session the caller opened says where it left the work (pickup.ts); every other line is as it is. */
-	#withPickup(caller: ControlTab, tab: ControlTab, session: SessionState, line: string): string {
-		if (line !== "idle" || this.#host.parentOf(tab.tabId) !== caller.tabId) return line;
-		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
-		const dispatch = this.#mailbox.current(tab.tabId);
-		const pickup = pickupOf({
-			answer: session.last,
-			...(report
-				? { report: { kind: report.kind, ...(report.dispatch ? { dispatch: report.dispatch } : {}) } }
-				: {}),
-			...(dispatch ? { dispatch } : {}),
-		});
-		return pickup ? `idle, ${pickup}` : line;
-	}
-
-	/** `"local"` is this computer (null); a paired host by id or name, else a readable failure naming them. */
-	#device(wanted: string): ControlDevice | null {
-		const lowered = wanted.toLowerCase();
-		if (lowered === "local" || lowered === "this computer") return null;
-		const devices = this.#host.devices();
-		const partial = devices.filter(device => device.name.toLowerCase().includes(lowered));
-		const found =
-			devices.find(device => device.id === wanted) ??
-			devices.find(device => device.name.toLowerCase() === lowered) ??
-			(partial.length === 1 ? partial[0] : undefined);
-		if (!found)
-			fail(
-				devices.length
-					? `No paired device "${wanted}". Paired: ${devices.map(device => `${device.name} (${device.id})`).join(", ")}; "local" is this computer.`
-					: `No paired device "${wanted}": this computer has none (Settings › Devices pairs one).`,
-			);
-		return found;
-	}
-
-	/**
-	 * A paired device once its link is up: waited for `LINK_WAIT_MS` while it connects or reconnects, so a blip never
-	 * fails a call. A device that stays away fails with what to do.
-	 */
-	async #reach(device: ControlDevice): Promise<ControlDevice> {
-		const deadline = Date.now() + LINK_WAIT_MS;
-		let current = device;
-		while (current.state !== "online") {
-			const left = deadline - Date.now();
-			if (left <= 0)
-				fail(
-					`${current.name} is ${current.state} (waited ${LINK_WAIT_MS / 1000} s for its link). It has to be on, awake and on the tailnet (Settings › Devices); call again once ompdesk_sessions lists it online, or tell the user.`,
-				);
-			await this.#nextChange(Math.min(LINK_POLL_MS, left));
-			current =
-				this.#host.devices().find(entry => entry.id === device.id) ??
-				fail(`${device.name} is no longer paired with this computer (Settings › Devices).`);
-		}
-		return current;
-	}
-
-	/**
-	 * A paired device's tab, once it can answer: while the device's link is down the tab reads `starting` (reconnecting)
-	 * and refuses every command (`remote_offline`); back online it re-attaches (`starting`, then its status). A local
-	 * tab, and one whose device is online and settled, is returned as it is.
-	 */
-	async #reachTab(tab: ControlTab, callerTabId: string): Promise<ControlTab> {
-		if (!tab.device) return tab;
-		const device = this.#host.devices().find(entry => entry.id === tab.device);
-		if (!device) return tab;
-		const away = device.state !== "online";
-		if (away) await this.#reach(device);
-		else if (tab.status !== "error") return tab;
-		// An `error` right after the link came back is the link's; one that stays is the host's own.
-		const deadline = Date.now() + REATTACH_WAIT_MS;
-		for (;;) {
-			const now = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tab.tabId);
-			if (!now) fail(`${label(tab)} was closed while ${device.name} reconnected.`);
-			const settling =
-				now.status === "error" ||
-				(away && (now.status === "starting" || now.status === "restarting" || now.status === "waiting"));
-			const left = deadline - Date.now();
-			if (!settling || left <= 0) return now;
-			await this.#nextChange(Math.min(LINK_POLL_MS, left));
-		}
-	}
-
-	/**
-	 * A read from a paired device that a link drop cut short is made once more when the link is back (reads only:
-	 * a prompt or an answer may have arrived before the drop, so those are never repeated).
-	 */
-	async #overLink<T>(deviceId: string | undefined, read: () => Promise<T>): Promise<T> {
-		try {
-			return await read();
-		} catch (error) {
-			const device = deviceId ? this.#host.devices().find(entry => entry.id === deviceId) : undefined;
-			if (!device || ipcErrorCode(error) !== "remote_offline") throw error;
-			// The link's state turns a moment after the request failed.
-			await this.#nextChange(LINK_POLL_MS);
-			await this.#reach(this.#host.devices().find(entry => entry.id === deviceId) ?? device);
-			return read();
-		}
-	}
-
-	#devicesLine(): string {
-		const devices = this.#host.devices();
-		return devices.length
-			? `Paired devices: ${devices.map(device => `${device.name} (id ${device.id}, ${device.state})`).join("; ")}; "local" is this computer. A session open in a paired device's own window, or in another device's tab there, lists with scope app; message, answer or show it by its saved id and OMPdesk joins the tab that holds it (no second omp, not your child).`
-			: "No paired devices.";
-	}
-
-	async #list(caller: ControlTab, listed: ControlTab[], args: ListArgs): Promise<string> {
-		const named = args.device === undefined ? undefined : this.#device(args.device);
-		// A device asked for by name is waited for while its link comes back; its tabs re-attach meanwhile.
-		const device = named ? await this.#reach(named) : named;
-		const tabs = device && named?.state !== "online" ? (this.#host.tabs(caller.tabId) ?? listed) : listed;
-		const limit = args.limit ?? LIST_DEFAULT_ROWS;
-		if (args.scope === "stored") return this.#listStored(caller, tabs, args, device, limit);
-		const opened = this.#openedBy(caller.tabId, tabs);
-		const query = args.query?.toLowerCase();
-		const app = args.scope === "app" || device !== undefined;
-		const candidates = await Promise.all(
-			tabs
-				.filter(
-					tab =>
-						(app || tab.here) &&
-						(device === undefined || (device === null ? !tab.device : tab.device === device.id)) &&
-						(!args.folder || tab.cwd.includes(args.folder)) &&
-						(!args.mine || opened.has(tab.tabId)) &&
-						(!query || (!tab.hidden && tab.title.toLowerCase().includes(query))),
-				)
-				.map(tab => (device ? this.#reachTab(tab, caller.tabId).catch(() => tab) : tab)),
-		);
-		const rows = await Promise.all(
-			candidates.map(async tab => {
-				const marks = [
-					tab.tabId === caller.tabId ? "this session" : null,
-					opened.has(tab.tabId) ? "opened by you" : null,
-					tab.here ? null : "another window",
-				].filter(Boolean);
-				if (tab.hidden && tab.tabId !== caller.tabId)
-					return {
-						kind: "idle",
-						text: `- ${tab.tabId} (hidden from agents by the user)${marks.length ? ` [${marks.join(", ")}]` : ""}`,
-					};
-				const [session, pace] = await Promise.all([
-					this.#state(tab),
-					tab.sessionPath ? this.#paceOf(tab.sessionPath, tab.device) : undefined,
-				]);
-				const line = this.#stateLine(tab, session);
-				const parts = [this.#withPickup(caller, tab, session, line), `folder ${tab.cwd}`];
-				if (tab.worktree) parts.push(`worktree ${tab.worktree.branch}`);
-				if (tab.deviceName) parts.push(`on ${tab.deviceName}`);
-				const model = session.state?.model;
-				if (model) parts.push(`model ${model.provider}/${model.id}`);
-				if (session.state?.planModeEnabled) parts.push("plan mode");
-				if (session.subagents) parts.push(`${session.subagents} subagent(s) running`);
-				const todos = todoProgress(session.state?.todoPhases);
-				if (todos) parts.push(todos);
-				if (pace) parts.push(paceShort(pace));
-				// The saved id is the session's on every computer and across relaunches; the tab id is this app's, this launch.
-				const saved = savedIdOfPath(tab.sessionPath);
-				const head = `- ${tab.tabId} ${label(tab)}${saved ? ` (saved id ${saved})` : ""}${marks.length ? ` [${marks.join(", ")}]` : ""}`;
-				const answer = session.last ? `\n  last answer: ${oneLine(session.last, SUMMARY_CHARS)}` : "";
-				const kind = waits(tab)
-					? "waiting"
-					: line.startsWith("running") || line.startsWith("starting")
-						? "running"
-						: "idle";
-				return { kind, text: `${head}\n  ${parts.join("; ")}${answer}` };
-			}),
-		);
-		// Sessions open in a tab no window of this app holds: one this computer runs for a paired device, and a paired
-		// host's open in its own window or in another device's tab there. Their rows show them from the same summaries;
-		// a saved id reaches each through a view of the tab that holds it (`#join`).
-		if (app && !args.mine) {
-			for (const { summary, computer } of this.#openElsewhere(tabs, device)) {
-				if (args.folder && !summary.cwd.includes(args.folder)) continue;
-				const title = summary.title || summary.autoTitle;
-				if (query && !(title ?? "").toLowerCase().includes(query)) continue;
-				const waiting = summary.ask !== undefined;
-				const running = !waiting && (summary.status === "running" || summary.status === "starting");
-				const state = waiting
-					? "waiting for the user's answer there"
-					: summary.status === "running"
-						? summary.settling
-							? "running (background work still going)"
-							: "running"
-						: summary.status === "ready"
-							? "idle"
-							: summary.failure?.message
-								? `${summary.status}: ${oneLine(summary.failure.message, SUMMARY_CHARS)}`
-								: summary.status;
-				const agents = runningAgentCount(summary);
-				const parts = [state, `folder ${summary.cwd}`, ...(agents ? [`${agents} subagent(s) running`] : [])];
-				const id = summary.sessionId ? ` (saved id ${summary.sessionId})` : "";
-				rows.push({
-					kind: waiting ? "waiting" : running ? "running" : "idle",
-					text: `- ${title ? `"${oneLine(title, 80)}"` : "(untitled)"}${id} [${openInText(computer, summary.openFor)}]\n  ${parts.join("; ")}`,
-				});
-			}
-		}
-		const kept = rows.filter(row => !args.status || row.kind === args.status);
-		const where = device
-			? `on ${device.name}`
-			: device === null
-				? "on this computer"
-				: app
-					? "in this app (every window)"
-					: "in this window";
-		const more =
-			kept.length > limit ? `\n… ${kept.length - limit} more; narrow with folder, status, query or limit.` : "";
-		const elsewhere = tabs.filter(tab => !tab.here).length;
-		const away = app ? 0 : this.#openElsewhere(tabs, device).length;
-		const others = app
-			? ""
-			: `\n${elsewhere ? `${elsewhere} more open in other windows (scope app). ` : ""}${away ? `${away} more open in tabs this app does not hold, on this computer for a paired device or on a paired device (scope app). ` : ""}Saved sessions, closed ones too: scope stored.`;
-		const shown = kept
-			.slice(0, limit)
-			.map(row => row.text)
-			.join("\n");
-		return `${kept.length} session${kept.length === 1 ? "" : "s"} ${where}:\n${shown}${more}${others}\n${this.#devicesLine()}`;
-	}
-
-	/**
-	 * The sessions open in a tab no window of this app holds, on `device` (every computer when undefined, this one when
-	 * null), with the computer's name as the lines say it: this computer's tabs it runs for paired devices, and each
-	 * paired host's tabs (its own windows' and the ones it runs for other devices). Read from the summaries every row
-	 * reads; the tabs of this app (its windows' and its own tabs on a host) are left out.
-	 */
-	#openElsewhere(
-		tabs: ControlTab[],
-		device: ControlDevice | null | undefined,
-	): { summary: SessionSummary; computer: string }[] {
-		const held = new Set(tabs.map(tab => `${tab.device ?? ""}\n${tab.sessionPath ?? ""}`));
-		const computers = device === undefined ? [null, ...this.#host.devices()] : device === null ? [null] : [device];
-		return computers.flatMap(computer => {
-			const sessions = computer
-				? this.#host.summaries(computer.id).filter(summary => !isUnsavedSession(summary))
-				: hostedSummaries(this.#host.summaries());
-			return sessions
-				.filter(summary => !held.has(`${computer?.id ?? ""}\n${summary.sessionPath}`))
-				.map(summary => ({ summary, computer: computer ? computer.name : "this computer" }));
-		});
-	}
-
-	async #listStored(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		args: ListArgs,
-		device: ControlDevice | null | undefined,
-		limit: number,
-	): Promise<string> {
-		if (args.status) fail("status filters open sessions; leave it out with scope stored.");
-		const opened = this.#openedBy(caller.tabId, tabs);
-		const mine = new Set(tabs.filter(tab => opened.has(tab.tabId)).flatMap(tab => tab.sessionPath ?? []));
-		const rows = (await this.#overLink(device?.id, () => this.#host.stored(device?.id, args.query)))
-			.filter(row => (!args.folder || row.cwd.includes(args.folder)) && (!args.mine || mine.has(row.path)))
-			.sort((a, b) => b.modified.localeCompare(a.modified));
-		for (const row of rows) this.#stored.set(row.id, row);
-		const paces = await Promise.all(
-			rows.slice(0, limit).map(row => (row.hidden ? undefined : this.#paceOf(row.path, row.device))),
-		);
-		const lines = await Promise.all(
-			rows.slice(0, limit).map(async (row, index) => {
-				if (row.hidden) return `- ${row.id} (hidden from agents by the user)`;
-				const title = storedTitle(row);
-				const elsewhere = row.tabId ? "" : openElsewhereText(row, await this.#storedStep(row));
-				const open = row.tabId ? `; open in tab ${row.tabId}` : elsewhere ? `; ${elsewhere}` : "";
-				const hit = row.snippet ? `\n  match: ${oneLine(row.snippet, SUMMARY_CHARS)}` : "";
-				// Before `changed`: the row ends with when it changed and where it is open, as every reader of it expects.
-				const pace = paces[index] ? `; ${paceShort(paces[index])}` : "";
-				return `- ${row.id} "${oneLine(title, 80)}"\n  folder ${row.cwd}; ${row.messages} message(s); ${row.status}${pace}; changed ${row.modified}${open}${hit}`;
-			}),
-		);
-		const where = device ? `saved on ${device.name}` : "saved on this computer";
-		const more = rows.length > limit ? `\n… ${rows.length - limit} more; narrow with folder, query or limit.` : "";
-		return `${rows.length} session${rows.length === 1 ? "" : "s"} ${where}${args.query ? ` matching "${args.query}"` : ""}:\n${lines.join("\n")}${more}\nRead one with ompdesk_session_read; open it again with ompdesk_session_open {"reopen":"<id>"}.\n${this.#devicesLine()}`;
-	}
-
-	/** The tool call a saved session runs in a tab elsewhere (its turn's `currentStep`, from the saved transcript). */
-	async #storedStep(row: StoredSession): Promise<string | null> {
-		if (row.elsewhere?.work !== "turn") return null;
-		return currentStep(await this.#host.storedMessages(row).catch((): AgentMessage[] => []));
-	}
-
-	/** A session's pace, or undefined: a pace never blocks or fails the caller. */
-	async #paceOf(path: string, device?: string): Promise<Pace | undefined> {
-		try {
-			return await this.#host.sessionPace?.({ path, ...(device ? { device } : {}) });
-		} catch {
-			return undefined;
-		}
-	}
-
-	/**
-	 * Waits for a started tab to be ready, however long its start takes (queued, an omp slow to answer, a paired host's
-	 * link down): a live start is never a failed one (the owner's rule, 9 Nov 2026). Only a tab that closed, exited or
-	 * reads `error` fails it, with the reason its omp gave (`startFailure`). `recoverUntil` (a deadline) is for a tab
-	 * that was ready and then refused a command: an `error` it reads may still turn ready (a session another omp held
-	 * lets go), so it is waited out until then.
-	 */
-	async #whenReady(tabId: string, callerTabId: string, recoverUntil?: number): Promise<void> {
-		for (;;) {
-			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
-			if (!tab) fail("The new session's tab closed before it was ready.");
-			if (tab.status === "ready" || tab.status === "running") return;
-			if (tab.status === "exited") fail(startFailure(tab));
-			// Another omp still holds the session: the tab opens it by itself once that omp lets go.
-			if (tab.status === "error" && !tab.sessionHeld) {
-				if (recoverUntil === undefined || Date.now() >= recoverUntil) fail(startFailure(tab));
-				await this.#nextChange(Math.min(500, recoverUntil - Date.now()));
-				continue;
-			}
-			await this.#nextChange(500);
-		}
-	}
-
-	/**
-	 * The commands of an open (worker marker, model, plan mode, first message or goal) to the child `tabId`. None has a
-	 * deadline (the owner's rule: no fixed time limit ends work as an error; `Marking the session as a worker failed: RPC
-	 * timeout (60000ms)` failed three opens in a week whose omp was only slow to answer under load): a command is waited
-	 * for as long as the child lives, and only a child that closed, exited or failed ends it, with the reason its omp
-	 * gave. A child that answers `sidecar_not_ready` or `sidecar_not_connected` is briefly not ready: wait for its status
-	 * to read ready again (an `error` for at most `OPEN_READY_RETRY_MS`), then send the command once more.
-	 */
-	#openCommands(tabId: string, callerTabId: string): OpenCommand {
-		let until: number | undefined;
-		/** Why the child can answer nothing any more, or undefined while it lives. */
-		const ended = (): string | undefined => {
-			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
-			if (!tab) return "The new session's tab closed before it was set up.";
-			return tab.status === "exited" || (tab.status === "error" && !tab.sessionHeld) ? startFailure(tab) : undefined;
-		};
-		const refused = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
-		/** The command's answer, however long the child takes; a child that ended answers with why. */
-		const answerOf = async (command: RpcCommand): Promise<RpcResponse> => {
-			const answer = this.#host.command(tabId, command, NO_DEADLINE).then(
-				response => ({ response }),
-				(error: unknown) => ({ error }),
-			);
-			for (;;) {
-				const settled = await Promise.race([answer, this.#nextChange(POLL_MS).then(() => null)]);
-				if (settled && "response" in settled) return settled.response;
-				// An omp that died answers nothing more: its tab's status says so.
-				const why = ended();
-				if (why) return refused(why);
-				if (settled) throw settled.error;
-			}
-		};
-		return async command => {
-			for (;;) {
-				const response = await answerOf(command);
-				if (response.success) return response;
-				const said = response.error ?? "No answer";
-				const because = (why: string | undefined) => (why && why !== said ? refused(`${said}. ${why}`) : response);
-				if (response.code !== "sidecar_not_ready" && response.code !== "sidecar_not_connected")
-					return because(ended());
-				until ??= Date.now() + OPEN_READY_RETRY_MS;
-				if (Date.now() >= until) return because(ended());
-				try {
-					await this.#nextChange(Math.min(OPEN_READY_PAUSE_MS, until - Date.now()));
-					await this.#whenReady(tabId, callerTabId, until);
-				} catch (error) {
-					return because(error instanceof ToolError ? error.message : undefined);
-				}
-			}
-		};
-	}
-
-	/** Resolves on the next tab event or after `ms`, whichever comes first. */
-	#nextChange(ms: number): Promise<void> {
-		const { promise, resolve } = Promise.withResolvers<void>();
-		const done = (): void => {
-			clearTimeout(timer);
-			off();
-			resolve();
-		};
-		const timer = setTimeout(done, Math.max(0, ms));
-		const off = this.#host.observe(done);
-		return promise;
-	}
-
-	/**
-	 * `wanted` is a `provider/id`, a model id, or one of the person's model roles (`task`, `smol`, …: stock's
-	 * `modelRoles` in config.yml, read through the caller's omp at open time), which names what that role runs on now.
-	 * Never a model id written down anywhere in OMPdesk (the owner's rule, 4 Nov 2026).
-	 */
-	async #resolveModel(send: OpenCommand, wanted: string): Promise<ModelInfo> {
-		const data = responseData<{ models?: ModelInfo[] }>(
-			await send({ type: "get_available_models" }),
-			"Reading the model list",
-		);
-		const models = data?.models ?? [];
-		const lowered = wanted.toLowerCase();
-		if (!wanted.includes("/")) {
-			const roles = responseData<ModelRolesResult>(
-				await send({ type: "get_model_roles", compact: true }),
-				"Reading the model roles",
-			);
-			const role = roles?.roles.find(entry => entry.id.toLowerCase() === lowered);
-			if (role) {
-				const selector = role.effective?.model ?? role.model;
-				const found = selector
-					? models.find(model => `${model.provider}/${model.id}`.toLowerCase() === selector.toLowerCase())
-					: undefined;
-				if (found) return found;
-				fail(
-					selector
-						? `The ${role.id} role is set to "${selector}", which no available model matches. Fix the role in Settings › Models, or give provider/id.`
-						: `The ${role.id} role names no model. Set it in Settings › Models, or give provider/id.`,
-				);
-			}
-		}
-		const exact = models.find(model => `${model.provider}/${model.id}`.toLowerCase() === lowered);
-		if (exact) return exact;
-		const byId = models.filter(model => model.id.toLowerCase() === lowered);
-		if (byId.length === 1 && byId[0]) return byId[0];
-		const near = models
-			.filter(model => `${model.provider}/${model.id}`.toLowerCase().includes(lowered))
-			.slice(0, 8)
-			.map(model => `${model.provider}/${model.id}`);
-		fail(
-			byId.length > 1
-				? `Model "${wanted}" is offered by several providers: ${byId.map(m => `${m.provider}/${m.id}`).join(", ")}. Give provider/id.`
-				: `No model "${wanted}".${near.length ? ` Close matches: ${near.join(", ")}.` : " Use provider/id as the model picker lists it."}`,
-		);
-	}
-
-	async #openMany(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		items: readonly OpenOne[],
-		show?: OpenArgs["show"],
-		tag?: string,
-	): Promise<OpenResult[]> {
-		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
-		const opened = this.#openedBy(caller.tabId, tabs);
-		// Marked before the first await, so "opened by you" covers sessions still starting.
-		const reservations = items.map(() => `pending:${Math.random()}`);
-		for (const key of reservations) opened.add(key);
-		const outcomes = await Promise.allSettled(
-			items.map((item, index) => this.#openOne(caller, item, reservations[index] as string, opened, tag)),
-		);
-		const results: OpenResult[] = outcomes.map(outcome =>
-			outcome.status === "fulfilled"
-				? outcome.value
-				: {
-						tabId: "",
-						error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
-					},
-		);
-		const first = results.find(result => result.tabId);
-		if (show && show !== "background" && first) this.#host.view(caller.tabId, { tabId: first.tabId, how: show });
-		return results.map(result => {
-			const tab = result.tabId
-				? this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === result.tabId)
-				: undefined;
-			return { ...result, where: tab ? `${tab.cwd}${tab.deviceName ? ` on ${tab.deviceName}` : ""}` : undefined };
-		});
-	}
-
-	async #openOne(
-		caller: ControlTab,
-		args: OpenOne,
-		reservation: string,
-		opened: Set<string>,
-		tag: string | undefined,
-	): Promise<OpenResult> {
-		const worktreeArg = args.worktree === true ? {} : args.worktree === false ? undefined : args.worktree;
-		let device: string | null | undefined;
-		let target: ControlDevice | null | undefined;
-		if (args.device !== undefined) {
-			target = this.#device(args.device);
-			if (target) target = await this.#reach(target);
-			device = target ? target.id : null;
-		}
-		let sessionPath: string | undefined;
-		/** The saved session a reopen names. */
-		let reopened: StoredSession | undefined;
-		/** A reopen of a session open in a tab elsewhere: where, as the lists say it. It joins that tab (`#join`). */
-		let joined: string | undefined;
-		if (args.reopen) {
-			const found = await this.#storedSession(args.reopen, target);
-			const row =
-				found.row ??
-				fail(
-					`No saved session "${args.reopen}" ${target ? `on ${target.name}` : target === null ? "on this computer" : "on this computer or a paired device"}${unreachedText(found.unreached)}. List them with ompdesk_sessions {"scope":"stored"} (with device for a paired device's).`,
-				);
-			if (row.hidden) fail("The user hid that session from other agents.");
-			const now = await this.#currentRow(row);
-			const open = this.#liveTab(this.#host.tabs(caller.tabId) ?? [], now);
-			if (open)
-				fail(
-					`That session is already open as ${open.tabId}: use it directly (ompdesk_session_send, ompdesk_session_read).`,
-				);
-			if (args.device !== undefined && (device ?? undefined) !== row.device)
-				fail("A saved session opens on the device it is saved on; leave device out with reopen.");
-			if (now.elsewhere)
-				joined = openInText(now.device ? (now.deviceName ?? now.device) : "this computer", now.elsewhere.holder);
-			if (joined && args.throwaway)
-				fail(`That session is ${joined}: it is not yours to throw away. Reopen it without throwaway.`);
-			const home = row.device ? this.#host.devices().find(entry => entry.id === row.device) : undefined;
-			if (home) await this.#reach(home);
-			// It opens in the folder it worked in, never another: the same folder named again is no conflict.
-			if (args.folder !== undefined && folderKey(args.folder) !== folderKey(row.cwd))
-				fail(
-					`A saved session opens in the folder it worked in (${row.cwd}), never another: leave folder out with reopen. To work in ${args.folder}, open a new session there and name this one in its brief (its transcript: ompdesk_session_read {"session":"${row.id}"}).`,
-				);
-			reopened = row;
-			sessionPath = row.path;
-			device = row.device ?? null;
-		}
-		let tabId: string;
-		let worktree: IpcTabWorktree | undefined;
-		let prepared: string | undefined;
-		// Its row reads as the work it was opened for from its first frame, not "New session" until stock names it.
-		const task = args.message && !sessionPath ? agentTaskTitle(wrapAgentMessage(args.message, caller.title)) : null;
-		try {
-			({ tabId, worktree, prepared } = await this.#host.spawn(caller.tabId, {
-				...(sessionPath ? {} : { folder: args.folder }),
-				worktree: worktreeArg,
-				...(device !== undefined ? { device } : {}),
-				...(sessionPath ? { sessionPath } : {}),
-				...(sessionPath && args.restore ? { restoreSaved: true as const } : {}),
-				...(tag ? { tag } : {}),
-				...(task ? { task } : {}),
-				...(joined ? { join: true as const } : {}),
-			}));
-		} catch (error) {
-			if (!(error instanceof SessionFolderMissing) || !args.reopen || !reopened) throw error;
-			fail(this.#folderGone(error, args.reopen, reopened, "reopen"));
-		} finally {
-			opened.delete(reservation);
-		}
-		// A session joined where it is open stays whoever's it was: never "opened by you".
-		if (!joined) opened.add(tabId);
-		const call = this.#callScope.getStore();
-		if (call) this.#host.calls?.note(call.key, tabId);
-		try {
-			await this.#whenReady(tabId, caller.tabId);
-			const send = this.#openCommands(tabId, caller.tabId);
-			const notes: string[] = [];
-			// Journaled in the child, so its main agent gets the worker contract (gui-bridge agent-control.ts) from its
-			// first turn on, across relaunches; a session the user opened (and reopened here) never carries it.
-			if (joined) notes.push(`joined: it is ${joined}, so this tab views that one (no second omp, not your child)`);
-			else if (sessionPath) notes.push("reopened");
-			else
-				responseData(
-					await send({ type: "agent_control_worker", from: caller.title || "another session" }),
-					"Marking the session as a worker",
-				);
-			if (args.model) {
-				const model = await this.#resolveModel(send, args.model);
-				responseData(
-					await send({ type: "set_model", provider: model.provider, modelId: model.id }),
-					"Setting the model",
-				);
-				notes.push(`model ${model.provider}/${model.id}`);
-			}
-			if (args.mode === "plan") {
-				responseData(await send({ type: "set_plan_mode", enabled: true }), "Turning on plan mode");
-				notes.push("plan mode");
-			}
-			if (worktree) notes.push(`worktree ${worktree.branch}`);
-			if (prepared) notes.push(prepared);
-			await this.#host.beforeFirstPrompt?.({
-				tabId,
-				callerTabId: caller.tabId,
-				...(worktree ? { worktree: { path: worktree.path, branch: worktree.branch } } : {}),
-				...(tag ? { tag } : {}),
-			});
-			// Before its first message: a quick lookup may end before this call returns.
-			if (args.throwaway) {
-				this.#throwaway.add(tabId);
-				notes.push("throwaway: closed and deleted once its Result: ok answer reaches you");
-			}
-			if (args.message) {
-				if (args.mode === "goal") {
-					// The goal command starts the objective turn itself.
-					responseData(await send({ type: "set_goal", objective: args.message }), "Setting the goal");
-					notes.push("goal set");
-				} else {
-					responseData(
-						await send({
-							type: "prompt",
-							message: wrapAgentMessage(
-								withDispatch(args.message, this.#mailbox.dispatch(tabId)),
-								caller.title,
-								savedIdOfPath(caller.sessionPath),
-							),
-							streamingBehavior: "followUp",
-						}),
-						"Sending the first message",
-					);
-				}
-			}
-			return {
-				tabId,
-				notes,
-				worktree: worktree?.branch,
-				started: args.message !== undefined,
-			};
-		} catch (error) {
-			// A child that cannot be set up does not linger half-configured, nor does the worktree made for it.
-			opened.delete(tabId);
-			this.#throwaway.delete(tabId);
-			const tabDevice = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === tabId)?.device;
-			const closing = this.#closeTab(caller.tabId, tabId, { waitMs: CLOSE_WAIT_MS });
-			if (!worktree) {
-				void closing.catch(() => undefined);
-				throw error;
-			}
-			const made = worktree;
-			const message = error instanceof Error ? error.message : String(error);
-			// Its worktree goes only once the tab is gone and its omp has exited (it works there until then): a tab
-			// still open (the window kept it, or it is slow to close) works there, so the worktree stays and is named.
-			if ((await closing.catch((): TabClose => "kept")) !== "closed")
-				throw new Error(
-					`${message} (its tab is still open, so its worktree ${made.path} and branch ${made.branch} were kept)`,
-				);
-			const removal = await this.#host.discardWorktree(made, tabDevice).catch(() => null);
-			if (removal === "removed") throw error;
-			throw new Error(
-				removal === "branch-kept"
-					? `${message} (its worktree ${made.path} was removed; git kept the branch ${made.branch})`
-					: `${message} (git kept its worktree ${made.path} and branch ${made.branch}: something changed there or it is in use)`,
-			);
-		}
-	}
-
-	#openText(results: OpenResult[]): string {
-		const lines = results.map(result =>
-			result.tabId
-				? `Opened session ${result.tabId}${result.where ? ` in ${result.where}` : ""}${result.notes?.length ? ` (${result.notes.join(", ")})` : ""}. ${
-						result.started
-							? "It is working on your message."
-							: `It is idle; give it work with ompdesk_session_send {"session":"${result.tabId}","message":"…"}.`
-					}`
-				: `Could not open a session: ${result.error}`,
-		);
-		const ids = results.filter(result => result.tabId).map(result => result.tabId);
-		if (ids.length > 0 && results.some(result => result.started))
-			lines.push(
-				`They report back to you with ompdesk_report (done, question): end your turn and you are woken. To block now instead: ompdesk_session_result {"sessions":${JSON.stringify(ids)},"wait":true}.`,
-			);
-		return lines.join("\n");
-	}
-
-	async #ensureStarted(target: ControlTab, callerTabId: string): Promise<void> {
-		if (target.status === "ready" || target.status === "running") return;
-		if (target.status === "error" || target.status === "exited")
-			fail(
-				`${label(target)} is stopped (${target.status}${target.failure?.trim() ? `: ${oneLine(target.failure, 300)}` : ""}); the user has to restart it.`,
-			);
-		if (target.status === "asleep") this.#host.start(target.tabId);
-		await this.#whenReady(target.tabId, callerTabId);
-	}
-
-	async #send(
-		caller: ControlTab,
-		target: ControlTab,
-		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
-	): Promise<string> {
-		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
-		this.#refuseHidden(target, caller);
-		if (caller.tabId === target.tabId) fail("A session cannot message itself.");
-		// Idempotent: a retried call (a flaky link, a paired device) gets the first receipt, never a second delivery.
-		const receiptKey = args.request_id
-			? `${caller.sessionPath ?? caller.tabId}|${target.sessionPath ?? target.tabId}|${args.request_id}`
-			: undefined;
-		const known = receiptKey ? this.#receipts.get(receiptKey) : undefined;
-		if (known) return `${known} (request ${args.request_id} was already delivered; nothing sent again)`;
-		// A same-id call arriving while the first is still on its way joins it instead of sending again.
-		const pending = receiptKey ? this.#inflight.get(receiptKey) : undefined;
-		if (pending) return `${await pending} (request ${args.request_id} was already delivered; nothing sent again)`;
-		if (!receiptKey) return this.#deliverSend(caller, target, args, undefined);
-		const delivery = this.#deliverSend(caller, target, args, receiptKey);
-		this.#inflight.set(receiptKey, delivery);
-		try {
-			return await delivery;
-		} finally {
-			this.#inflight.delete(receiptKey);
-		}
-	}
-
-	/**
-	 * A message never starts a turn under the person's hands: while they have a draft in the target's composer, a send
-	 * waits for it to be sent or cleared (`DRAFT_WAIT_MS`), then fails saying so. Idea after OpenRig's draft-aware
-	 * delivery (mvschwarz/openrig ROADMAP, Apache-2.0).
-	 */
-	async #untilDraftSent(caller: ControlTab, target: ControlTab): Promise<void> {
-		const deadline = Date.now() + DRAFT_WAIT_MS;
-		// The live tab, never the listing `target` came from: the person may have started typing since.
-		const draftingNow = (): boolean =>
-			(this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId) ?? target).drafting === true;
-		let drafting = draftingNow();
-		while (drafting) {
-			const left = deadline - Date.now();
-			if (left <= 0)
-				fail(
-					`The person is typing in ${label(target)} (a draft sits in its composer): nothing was sent, so their message and yours do not collide. Try again once they have sent it, or report with ompdesk_report.`,
-				);
-			await this.#nextChange(Math.min(1000, left));
-			drafting = draftingNow();
-		}
-	}
-
-	async #deliverSend(
-		caller: ControlTab,
-		found: ControlTab,
-		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
-		receiptKey: string | undefined,
-	): Promise<string> {
-		await this.#ensureStarted(found, caller.tabId);
-		// The tab as it is now, never the row it was named by: one woken from asleep has its omp's title, folder, turn
-		// and asks only now, and the receipt and the delivery go by those (11 Nov 2026: an asleep tab's leftovers made the
-		// receipt read "(untitled, in work) … it was idle" for a session waiting for the user's answer).
-		const live = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === found.tabId);
-		const target = live
-			? live.title || live.task
-				? live
-				: { ...live, title: found.title || found.task || "" }
-			: found;
-		const outbox = this.#host.sendOutbox;
-		const path = target.sessionPath;
-		if (!outbox || !path) return this.#handSend(caller, target, args, receiptKey, null);
-		// One delivery to a session at a time: what is still owed to it goes first, and the sweep never sends again what
-		// this send is handing over.
-		return outbox.lane(receiverKey(path, target.device), () =>
-			this.#handSend(caller, target, args, receiptKey, { outbox, path }),
-		);
-	}
-
-	async #handSend(
-		caller: ControlTab,
-		target: ControlTab,
-		args: { message: string; delivery?: "follow_up" | "steer"; request_id?: string },
-		receiptKey: string | undefined,
-		kept: { outbox: SendOutbox; path: string } | null,
-	): Promise<string> {
-		const from = caller.sessionPath ?? caller.tabId;
-		if (kept) {
-			// Messages an omp before this one held and lost (a relaunch) reach it first, in order.
-			await deliverOwed(kept.outbox, { ...this.#owedDeps(), tabOf: () => target.tabId }, kept.path, target.device);
-			// A resend of a message still on its way (its first send timed out, say) never runs it twice.
-			const same = kept.outbox.waiting(from, kept.path, target.device, args.message);
-			if (same)
-				return `Sent to ${named(target)}: this same message is already on its way there${same.dispatch ? ` (dispatch d${same.dispatch})` : ""} and runs once; nothing sent again.`;
-		}
-		// The target's journal is the durable record: a relaunch (or a retry whose first receipt was lost) finds the
-		// request already there, and the last dispatch it was given.
-		const marks = await this.#journalMarks(target.tabId);
-		if (args.request_id && marks.requests.has(args.request_id))
-			return `Sent to ${named(target)}: request ${args.request_id} was already delivered; nothing sent again.`;
-		// Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
-		await this.#untilDraftSent(caller, target);
-		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
-		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
-		const ownChild =
-			this.#host.parentOf(target.tabId) === caller.tabId ||
-			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
-		// Steer unless a follow-up is asked for (the owner's call, 6 Nov 2026: an agent's instruction to a running session
-		// waited for its whole turn). A follow-up to one that already reported back to the caller in this turn waits in
-		// it (an answer) or wraps up: it would sit unseen behind that turn, so it reaches it between steps instead.
-		const reported = this.#reportedAt.get(`${target.tabId}\n${caller.tabId}`);
-		const followUp = args.delivery === "follow_up";
-		const promoted = running && followUp && reported !== undefined && reported >= (target.busySince ?? 0);
-		// A follow-up queues the next task of a session the caller opened behind its turn. Any other session would hold
-		// it in its queue until that turn ends, seen only by the person (12 Nov 2026), so it gets a steer, unless a card
-		// of the person's is open there: stock closes that card for a steer ("Ask interrupted by message").
-		const steer = !followUp || promoted || (!ownChild && target.asks.length === 0);
-		// A dispatch still owed from before a relaunch is not in the journal yet: the next one is numbered past it.
-		if (ownChild)
-			this.#mailbox.seed(
-				target.tabId,
-				Math.max(marks.dispatch, kept?.outbox.lastDispatch(kept.path, target.device) ?? 0),
-			);
-		const dispatch = ownChild ? this.#mailbox.dispatch(target.tabId) : undefined;
-		// Every message names itself, so the receiver's journal can tell main it arrived.
-		const requestId = args.request_id ?? (dispatch || !kept ? undefined : `m-${randomBytes(4).toString("hex")}`);
-		const message = wrapAgentMessage(
-			withDispatch(args.message, dispatch, requestId),
-			caller.title,
-			savedIdOfPath(caller.sessionPath),
-		);
-		const streamingBehavior = steer ? "steer" : "followUp";
-		let entry: OutboxSend | undefined;
-		let instance = `tab:${target.tabId}`;
-		if (kept) {
-			const mark = dispatch ? dispatchMark(dispatch) : requestMark(requestId as string);
-			instance = (await this.#host.sentMarks?.(target.tabId, [mark]).catch(() => null))?.instance ?? instance;
-			entry = {
-				mark,
-				...(dispatch ? { dispatch: Number(dispatch.slice(1)) } : {}),
-				sessionPath: kept.path,
-				...(target.device ? { device: target.device } : {}),
-				from,
-				body: args.message,
-				message,
-				streamingBehavior,
-				at: Date.now(),
-			};
-			kept.outbox.keep(entry);
-		}
-		// A command that never answered still reached the omp: one holding its command queue (stock's `login` while a
-		// provider sign-in waits) runs the prompt once that ends. Saying it failed made senders send it again.
-		let held = false;
-		let response: RpcResponse | undefined;
-		try {
-			response = await this.#host.command(target.tabId, { type: "prompt", message, streamingBehavior }, 30_000);
-			held = !response.success && unanswered(response.error);
-		} catch (error) {
-			if (!unanswered(error)) {
-				if (entry) kept?.outbox.settle(entry);
-				throw error;
-			}
-			held = true;
-		}
-		if (!held && response && !response.success) {
-			if (entry) kept?.outbox.settle(entry);
-			// An omp that is not ready runs nothing there: never a success receipt.
-			fail(
-				`Not delivered to ${named(target)}: its omp refused the message (${response.error ?? "no reason given"}). Nothing runs there; nothing was sent.`,
-			);
-		}
-		if (entry) kept?.outbox.handed(entry, instance);
-		if (running && !steer && dispatch && !held)
-			this.#queuedFollowUp.set(target.tabId, { n: Number(dispatch.slice(1)), id: dispatch, from: caller.tabId });
-		const started = !running && !held && (await this.#turnStarts(caller.tabId, target.tabId));
-		const how = held
-			? "queued: its omp is busy with another command (a provider sign-in, for one), and the message runs once that ends, so do not send it again"
-			: !running
-				? started
-					? "it was idle and starts on it"
-					: `it was idle, but no turn started within ${TURN_START_WAIT_MS / 1000} s: see ompdesk_session_result before sending it again`
-				: target.asks.length > 0
-					? // Its turn stands on a question card: a steer or a follow-up is read only after the person answers.
-						`it is ${this.#stateLine(target, { state: null, last: null, step: null, subagents: 0 })}, so it reads this only after the user answers`
-					: promoted
-						? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
-						: steer
-							? `delivered as steer (${followUp ? "you did not open it, and a follow-up waits only behind the turn of a session you opened, so " : ""}it reads it between steps)`
-							: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
-		const receipt = `Sent to ${named(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
-		if (receiptKey) this.#receipts.set(receiptKey, receipt);
-		return receipt;
-	}
-
-	/** How an owed message reaches a receiver's omp (`send-outbox.ts`); `tabOf` is the caller's to give. */
-	#owedDeps(): Omit<OwedDeps, "tabOf"> {
-		return {
-			sent: (tabId, marks) => this.#host.sentMarks?.(tabId, marks) ?? Promise.resolve(null),
-			prompt: async (tabId, entry) => {
-				try {
-					const response = await this.#host.command(
-						tabId,
-						{ type: "prompt", message: entry.message, streamingBehavior: entry.streamingBehavior },
-						30_000,
-					);
-					return response.success || unanswered(response.error) ? "handed" : "refused";
-				} catch (error) {
-					return unanswered(error) ? "handed" : "refused";
-				}
-			},
-			drained: async tabId => {
-				const response = await this.#host.command(tabId, { type: "get_state" }, STATE_TIMEOUT_MS);
-				const state = response.success
-					? (response.data as { isStreaming?: unknown; queuedMessageCount?: unknown } | undefined)
-					: undefined;
-				return state?.isStreaming === false && state.queuedMessageCount === 0;
-			},
-		};
-	}
-
-	/**
-	 * One pass over every session still owed a message (the runtime's sweep): `tabOf` names the tab holding it now, a
-	 * relaunch's new one included.
-	 */
-	redeliverSends(tabOf: OwedDeps["tabOf"]): Promise<void> {
-		const outbox = this.#host.sendOutbox;
-		return outbox ? redeliverSends(outbox, { ...this.#owedDeps(), tabOf }) : Promise.resolve();
-	}
-
-	/** `journalMarks` of a session's recent transcript; nothing when it cannot be read (not started, gone). */
-	async #journalMarks(tabId: string): Promise<{ dispatch: number; requests: Set<string> }> {
-		const page = await this.#host
-			.command(tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)
-			.then(response => (response.success ? transcriptPage(response.data) : null))
-			.catch(() => null);
-		return journalMarks(page?.messages ?? []);
-	}
-
-	/** Receipt stage "turn started": the target is seen running within a few seconds of an accepted message. */
-	async #turnStarts(callerTabId: string, tabId: string): Promise<boolean> {
-		const deadline = Date.now() + TURN_START_WAIT_MS;
-		for (;;) {
-			const tab = this.#host.tabs(callerTabId)?.find(entry => entry.tabId === tabId);
-			if (tab?.busy) return true;
-			if (!tab || Date.now() >= deadline) return false;
-			await this.#nextChange(Math.min(250, deadline - Date.now()));
-		}
-	}
-
-	/**
-	 * The work board's view of a child's mail to its opener: its last report, and whether its question waits. A
-	 * question to a sibling or a checkout peer waits on that session, not here; one the child carried on from (a turn
-	 * that started after it, e.g. the person answered in its own tab) waits no longer.
-	 */
-	#reportFields(tab: ControlTab): Pick<AgentReviewItem, "report" | "waiting"> {
-		const opener = this.#host.parentOf(tab.tabId);
-		const state = opener ? this.#mailbox.state(tab.tabId, opener) : undefined;
-		if (!state) return {};
-		const carriedOn = tab.busy && (tab.busySince ?? 0) > state.last.at;
-		return {
-			report: { kind: state.last.kind, text: oneLine(state.last.text, 240), at: state.last.at },
-			...(state.waiting && !carriedOn ? { waiting: true as const } : {}),
-		};
-	}
-
-	/**
-	 * `ompdesk_report`: an opened session tells its opener (or a sibling) about its work; any session tells another one
-	 * working in the same checkout or repository (`host.checkoutPeers`) what it is about to do, or asks it to hold or commit.
-	 */
-	async #report(caller: ControlTab, tabs: ControlTab[], args: ReportArgs): Promise<string> {
-		const parent = this.#host.parentOf(caller.tabId);
-		const target = args.to ? await this.#open(tabs, args.to, caller, "report to") : undefined;
-		const peer =
-			target !== undefined &&
-			target.tabId !== parent &&
-			(this.#host.checkoutPeers?.(caller.tabId) ?? []).includes(target.tabId);
-		if (peer) this.#refuseHidden(target, caller);
-		else if (!parent)
-			fail(
-				"ompdesk_report goes to the session that opened you, a sibling it opened, or a session working in the same checkout (the <shared-checkout> section names those); nobody opened this one, and it shares no checkout with that session. Use ompdesk_session_send to write to a session.",
-			);
-		else if (target && target.tabId !== parent && this.#host.parentOf(target.tabId) !== parent)
-			fail(
-				"You can report only to the session that opened you, to a sibling it opened, or to a session working in the same checkout.",
-			);
-		const to = target?.tabId ?? (parent as string);
-		// A peer is woken only by a question or a blocker (and only when idle: a busy one gets it as an aside); every
-		// other report reaches it as a note with no turn.
-		const kind = peer
-			? args.kind === "question" || args.kind === "blocked"
-				? args.kind
-				: "note"
-			: to === parent
-				? args.kind
-				: "note";
-		// A worktree child that says it is done reports what its git holds with it (custody.ts).
-		const reportsDone = to === parent && (kind === "done" || kind === "review");
-		const [custody, pace] = await Promise.all([
-			reportsDone && caller.worktree
-				? this.#host
-						.branchFacts(caller.worktree, caller.device)
-						.then(facts => custodyOf(facts, args.files))
-						.catch(() => null)
-				: null,
-			// How the finished session spent its time; the opener sees waste it can brief away next time.
-			reportsDone && caller.sessionPath ? this.#paceOf(caller.sessionPath, caller.device) : undefined,
-		]);
-		const mail: Mail = {
-			// The same report from the same session file is the same id, so a call stock re-runs after a relaunch
-			// (its result lost in the crash) is recognized by the receiver's journal instead of arriving twice.
-			id:
-				args.id ??
-				createHash("sha256")
-					.update(
-						[
-							caller.sessionPath ?? caller.tabId,
-							// The receiver by its session file too: tab ids are new after a relaunch.
-							tabs.find(tab => tab.tabId === to)?.sessionPath ?? to,
-							args.kind,
-							args.dispatch ?? "",
-							args.text,
-						].join("\u0000"),
-					)
-					.digest("hex")
-					.slice(0, 24),
-			from: caller.tabId,
-			fromTitle: caller.title,
-			to,
-			kind,
-			text: [args.text, custody?.line, pace ? paceLine(pace) : undefined].filter(Boolean).join("\n\n"),
-			...(args.files ? { files: args.files } : {}),
-			...(args.checks ? { checks: args.checks } : {}),
-			...(args.dispatch ? { dispatch: args.dispatch } : {}),
-			at: Date.now(),
-		};
-		if (!this.#mailbox.knows(caller.tabId))
-			this.#mailbox.seed(caller.tabId, (await this.#journalMarks(caller.tabId)).dispatch);
-		const outcome = await this.#mailbox.post(mail);
-		if (parent) this.#host.reviewChanged?.(parent);
-		if (outcome !== "duplicate" && outcome !== "stale" && WAITS_AFTER_REPORT.has(args.kind))
-			this.#reportedAt.set(`${caller.tabId}\n${to}`, Date.now());
-		const waiting =
-			(await this.#queuedNote(caller, tabs)) +
-			(custody?.gap && outcome !== "duplicate" && outcome !== "stale"
-				? ` It carries what your git holds, and that disagrees with the report: ${custody.gap} Then report again.`
-				: "");
-		switch (outcome) {
-			case "duplicate":
-				return `Report ${mail.id} was already delivered; nothing sent again.${waiting}`;
-			case "stale":
-				return `Ignored: dispatch ${args.dispatch} is no longer current (the session that opened you has since sent dispatch ${this.#mailbox.current(caller.tabId)}). Work on its latest message.${waiting}`;
-			case "queued":
-				return `Progress noted; it reaches the session shortly (several progress reports arrive as the latest one).${waiting}`;
-			default:
-				return mail.kind === "question" || mail.kind === "blocked"
-					? `Delivered. Wait for the answer: it comes as a message (between your steps while this turn runs); do not guess the decision meanwhile.${waiting}`
-					: `Delivered.${waiting}`;
-		}
-	}
-
-	/**
-	 * Stock shows a queued follow-up to nobody until the turn ends, so a session that reports and then waits in the same
-	 * turn never sees the message it waits for. When one is queued for `caller` and its transcript does not hold it yet,
-	 * the report's answer says so.
-	 */
-	async #queuedNote(caller: ControlTab, tabs: ControlTab[]): Promise<string> {
-		const queued = this.#queuedFollowUp.get(caller.tabId);
-		if (!queued) return "";
-		if ((await this.#journalMarks(caller.tabId)).dispatch >= queued.n) {
-			this.#queuedFollowUp.delete(caller.tabId);
-			return "";
-		}
-		const sender = tabs.find(tab => tab.tabId === queued.from);
-		return ` A message from ${sender ? label(sender) : queued.from} (dispatch ${queued.id}) waits for you, queued until this turn ends: end your turn now to read it, rather than waiting for it in this turn.`;
-	}
-
-	async #sessionSummary(
-		caller: ControlTab,
-		tab: ControlTab,
-		perAnswer: number,
-	): Promise<{ settled: boolean; text: string }> {
-		this.#refuseHidden(tab, caller);
-		const session = await this.#state(tab);
-		const line = this.#stateLine(tab, session);
-		const settled = line === "idle" || line.startsWith("stopped") || line.startsWith("not started");
-		const todos = todoProgress(session.state?.todoPhases);
-		const hint = waits(tab) ? " It needs an answer: ompdesk_session_answer, or tell the user." : "";
-		const body = session.last ? cut(session.last, perAnswer) : "(no answer yet)";
-		const pace = tab.sessionPath ? await this.#paceOf(tab.sessionPath, tab.device) : undefined;
-		return {
-			settled: settled || waits(tab),
-			text: `${label(tab)} [${tab.tabId}]: ${this.#withPickup(caller, tab, session, line)}.${todos ? ` ${todos}.` : ""}${hint}\n${pace ? `${paceShort(pace)}\n` : ""}Last answer:\n${body}`,
-		};
-	}
-
-	async #result(
-		caller: ControlTab,
-		targets: (ControlTab | StoredSession)[],
-		args: { wait?: boolean; until?: "all" | "any"; timeout_seconds?: number },
-		table: boolean,
-	): Promise<string> {
-		const seconds = args.timeout_seconds ?? RESULT_WAIT_DEFAULT_SECONDS;
-		const deadline = Date.now() + seconds * 1000;
-		const perAnswer = table ? RESULT_TABLE_ANSWER_CHARS : RESULT_MAX_CHARS;
-		// A saved session no tab holds is finished as its file says; it is read once.
-		const saved = new Map(
-			await Promise.all(
-				targets.flatMap(target => {
-					if ("busy" in target) return [];
-					if (target.hidden) fail("The user hid a session you asked about from other agents.");
-					return [
-						Promise.all([
-							this.#overLink(target.device, () => this.#host.storedMessages(target)),
-							this.#paceOf(target.path, target.device),
-						]).then(([messages, pace]) => {
-							const last = transcriptEnding(messages).last;
-							const where = `saved${target.deviceName ? ` on ${target.deviceName}` : ""}, not open in any tab`;
-							return [
-								target.id,
-								{
-									settled: true,
-									text: `"${oneLine(storedTitle(target), 80)}" [${target.id}]: ${where}.\n${pace ? `${paceShort(pace)}\n` : ""}Last answer:\n${last ? cut(last, perAnswer) : "(no answer)"}`,
-								},
-							] as const;
-						}),
-					];
-				}),
-			),
-		);
-		const ids = targets.map(target => ("busy" in target ? target.tabId : target.id));
-		return this.#resultUntil(caller, targets, ids, saved, args, seconds, deadline, perAnswer);
-	}
-
-	async #resultUntil(
-		caller: ControlTab,
-		targets: (ControlTab | StoredSession)[],
-		ids: string[],
-		saved: ReadonlyMap<string, { settled: boolean; text: string }>,
-		args: { wait?: boolean; until?: "all" | "any" },
-		seconds: number,
-		deadline: number,
-		perAnswer: number,
-	): Promise<string> {
-		for (;;) {
-			const tabs = this.#host.tabs(caller.tabId);
-			const current = targets.map(target =>
-				"busy" in target ? tabs?.find(tab => tab.tabId === target.tabId) : target,
-			);
-			const gone = current.findIndex(tab => !tab);
-			if (gone >= 0) fail(`${label(targets[gone] as ControlTab)} was closed while you waited.`);
-			const summaries = await Promise.all(
-				current.map((target, index) =>
-					target && "busy" in target
-						? this.#sessionSummary(caller, target, perAnswer)
-						: (saved.get(ids[index] as string) as { settled: boolean; text: string }),
-				),
-			);
-			const done = summaries.filter(summary => summary.settled).length;
-			const ready = args.until === "any" ? done > 0 : done === summaries.length;
-			const timedOut = Date.now() >= deadline;
-			if (!args.wait || ready || timedOut) {
-				// The opener has the answer now: the session may close once its work landed.
-				for (const [index, summary] of summaries.entries()) {
-					const target = current[index];
-					if (summary.settled && target && "busy" in target) this.#collected.add(target.tabId);
-				}
-				const note =
-					args.wait && timedOut && !ready
-						? `Still running after waiting ${seconds} s (${done}/${summaries.length} finished).\n`
-						: "";
-				return `${note}${summaries.map(summary => summary.text).join("\n\n")}`;
-			}
-			await this.#nextChange(Math.min(POLL_MS, deadline - Date.now()));
-		}
-	}
-
-	async #read(target: ControlTab, args: { limit?: number; before?: string }): Promise<string> {
-		const caller = { tabId: "" } as ControlTab;
-		this.#refuseHidden(target, caller);
-		if (target.status !== "ready" && target.status !== "running") {
-			// A tab with no omp (deferred after a relaunch, asleep): its saved file on the computer it runs on answers,
-			// and nothing starts it.
-			if (target.sessionPath) return this.#readStored(this.#tabRow(target, target.sessionPath), args);
-			fail(`${label(target)} has not started; there is no transcript to read yet.`);
-		}
-		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
-		const ask = (cursor: string | undefined) =>
-			this.#overLink(target.device, async () => {
-				const response = await this.#host.command(
-					target.tabId,
-					cursor
-						? { type: "get_transcript_page", cursor, limit }
-						: { type: "get_transcript_page", fromEnd: true, limit },
-					30_000,
-				);
-				if (!response.success && response.code === "remote_offline")
-					throw new Error(`[remote_offline] ${response.error}`);
-				return response;
-			});
-		let response = await ask(args.before);
-		// A cursor names a page of the transcript as it was: one more message since makes it stale (`stale_cursor`),
-		// and the index a saved read returned is none of a live tab's. The newest page answers instead of a failure.
-		const restarted = !response.success && args.before !== undefined;
-		if (restarted) response = await ask(undefined);
-		const page =
-			transcriptPage(responseData<unknown>(response, "Reading the transcript")) ??
-			fail("The transcript page came back empty.");
-		this.#collected.add(target.tabId);
-		return renderPage(
-			label(target),
-			target.tabId,
-			page.messages,
-			page.totalMessages,
-			page.prevCursor ?? null,
-			restarted ? staleCursorNote(args.before) : undefined,
-		);
-	}
-
-	/**
-	 * A saved session's transcript, paged from its end; the cursor is the index of the page's first message. The header
-	 * says where it is open as the stored list does, read again now: a listed row says only what was true then. A cursor
-	 * that is no index of this transcript (past its end, or the cursor a read of its open tab returned) restarts from
-	 * the newest page.
-	 */
-	async #readStored(row: StoredSession, args: { limit?: number; before?: string }): Promise<string> {
-		if (row.hidden) fail("The user hid this session from other agents.");
-		const [messages, now] = await Promise.all([
-			this.#overLink(row.device, () => this.#host.storedMessages(row)),
-			row.tabId ? row : this.#currentRow(row),
-		]);
-		// The row a closed tab's id resolved to says what was true when it closed; the list says what is true now.
-		if (now.hidden) fail("The user hid this session from other agents.");
-		const limit = args.limit ?? READ_DEFAULT_MESSAGES;
-		const asked = args.before !== undefined && /^\d+$/.test(args.before) ? Number(args.before) : undefined;
-		const restarted = args.before !== undefined && (asked === undefined || asked > messages.length);
-		const end = restarted || asked === undefined ? messages.length : asked;
-		const start = Math.max(0, end - limit);
-		const open = now.tabId
-			? `open in tab ${now.tabId}`
-			: openElsewhereText(now, now.elsewhere?.work === "turn" ? currentStep(messages) : null) || "not open";
-		const title = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""}, ${open})`;
-		return renderPage(
-			title,
-			row.id,
-			messages.slice(start, end),
-			messages.length,
-			start > 0 ? String(start) : null,
-			restarted ? staleCursorNote(args.before) : undefined,
-		);
-	}
-
-	/** `row` as its computer lists it now (kept for the next lookup); the row itself when that list cannot be read. */
-	async #currentRow(row: StoredSession): Promise<StoredSession> {
-		const rows = await this.#host.stored(row.device).catch((): StoredSession[] => []);
-		const now = rows.find(entry => entry.path === row.path);
-		if (!now) return row;
-		this.#stored.set(now.id, now);
-		return now;
-	}
-
-	/**
-	 * Every way an agent names a session, the first match wins: a tab id; an id the tab had before a relaunch (whole
-	 * only: tab ids are random, so it names that session alone); the saved (stock) id of the session a tab holds; a
-	 * unique prefix of a tab id or of that saved id; the id of a tab that closed, in any launch (`#fateOf`: the saved
-	 * session it held; `gone` when that session was deleted); the title, exactly or by a unique prefix in any case (a
-	 * hidden session's title is private and never matched); then a saved session no tab holds (`#storedSession`, on
-	 * `device` when given; `gone` for a saved id a tombstone names). An ambiguous name fails, naming the candidates.
-	 */
-	async #find(
-		tabs: ControlTab[],
-		session: string,
-		device?: ControlDevice | null,
-	): Promise<{ target?: ControlTab | StoredSession; gone?: SessionFate; unreached: string[] }> {
-		const name = unquoted(session);
-		const only = (matches: ControlTab[]): ControlTab | undefined => {
-			if (matches.length > 1)
-				fail(
-					`"${name}" matches several sessions: ${matches
-						.slice(0, 6)
-						.map(tab => `${tab.tabId} ${named(tab)}`)
-						.join("; ")}. Use the saved id of the one you mean.`,
-				);
-			return matches[0];
-		};
-		// Stock names a session file `<time>_<session id>.jsonl` (`savedIdOfPath`).
-		const listed = this.#stored.get(name);
-		const tab =
-			tabs.find(entry => entry.tabId === name) ??
-			tabs.find(entry => entry.formerIds?.includes(name)) ??
-			tabs.find(entry => savedIdOfPath(entry.sessionPath) === name) ??
-			(listed ? this.#liveTab(tabs, listed) : undefined) ??
-			(name.length >= SESSION_PREFIX_MIN
-				? (only(tabs.filter(entry => entry.tabId.startsWith(name))) ??
-					only(tabs.filter(entry => savedIdOfPath(entry.sessionPath)?.startsWith(name))))
-				: undefined);
-		if (tab) return { target: tab, unreached: [] };
-		// A tab that closed, whoever closed it and in whichever launch: its id still names the saved session it held (or
-		// the tab that has it open again). A deleted session's id names what became of it. The session's own saved id is
-		// read from its computer's list below, which also says where else it is open.
-		const fate = this.#fateOf(name);
-		if (fate?.state === "deleted") return { gone: fate, unreached: [] };
-		if (fate?.path && savedIdOfPath(fate.path) !== name) {
-			const closed: StoredSession = [...this.#stored.values()].find(
-				row => row.path === fate.path && row.device === fate.device,
-			) ?? {
-				id: name,
-				path: fate.path,
-				title: fate.title,
-				firstMessage: "",
-				cwd: fate.cwd,
-				modified: "",
-				messages: 0,
-				status: "",
-				hidden: fate.hidden === true,
-				...(fate.device
-					? { device: fate.device, deviceName: this.#host.devices().find(entry => entry.id === fate.device)?.name }
-					: {}),
-			};
-			return { target: this.#liveTab(tabs, closed) ?? closed, unreached: [] };
-		}
-		const wanted = name.toLowerCase();
-		const titled = tabs.filter(entry => !entry.hidden);
-		const titleOf = (entry: ControlTab): string => (entry.title || entry.task || "").trim().toLowerCase();
-		// A session open in a tab no window of this app holds (a paired computer's window, a tab one computer runs for
-		// another) owns its title as much as a tab here does: a title both hold is ambiguous, and a tab whose title only
-		// starts with a name that session holds whole is not the one meant (12 Nov 2026: two "문의" sessions, one
-		// open on a paired computer, and every message by title went to the older tab here).
-		const away = this.#openElsewhere(tabs, undefined).map(({ summary, computer }) => {
-			const title = summary.title || summary.autoTitle || "";
-			const id = summary.sessionId ? `saved id ${summary.sessionId}, ` : "";
-			return {
-				title: title.trim().toLowerCase(),
-				text: `"${oneLine(title, 80)}" (${id}${openInText(computer, summary.openFor)})`,
-			};
-		});
-		const holders = (match: (title: string) => boolean): { tab?: ControlTab; away: boolean } => {
-			const here = titled.filter(entry => match(titleOf(entry)));
-			const there = away.filter(entry => entry.title && match(entry.title));
-			if (here.length + there.length > 1)
-				fail(
-					`"${name}" matches several sessions: ${[
-						...here.map(entry => `${entry.tabId} ${named(entry)}`),
-						...there.map(entry => entry.text),
-					]
-						.slice(0, 6)
-						.join("; ")}. Use the saved id of the one you mean.`,
-				);
-			return { ...(here[0] ? { tab: here[0] } : {}), away: there.length > 0 };
-		};
-		const exact = holders(title => title === wanted);
-		const byTitle =
-			exact.tab ??
-			(!exact.away && wanted.length >= TITLE_PREFIX_MIN
-				? holders(title => title.startsWith(wanted)).tab
-				: undefined);
-		if (byTitle) return { target: byTitle, unreached: [] };
-		// A saved id a tombstone names is listed by no index any more (and a row an earlier list printed is stale).
-		const deletedAt = this.#host.deletedAt?.({ id: name });
-		if (deletedAt !== undefined)
-			return {
-				gone: { ids: [name], title: "", cwd: "", state: "deleted", at: deletedAt, by: FATE_BY.app },
-				unreached: [],
-			};
-		const { row, unreached } = await this.#storedSession(name, device);
-		return { target: row ? (this.#liveTab(tabs, row) ?? row) : undefined, unreached };
-	}
-
-	/**
-	 * What became of the session `id` named (`#fates`), with what only other records know: a tombstone turns a closed
-	 * session into a deleted one (the sidebar's Delete, another device), and a close recorded before the fates existed
-	 * is read from the closed-children list.
-	 */
-	#fateOf(id: string): SessionFate | undefined {
-		const known = this.#fates.find(id);
-		const legacy = known
-			? undefined
-			: (this.#host.closedChildren?.() ?? []).findLast(child => child.tabIds?.includes(id));
-		const fate: SessionFate | undefined =
-			known ??
-			(legacy
-				? {
-						ids: legacy.tabIds ?? [id],
-						path: legacy.path,
-						...(legacy.device ? { device: legacy.device } : {}),
-						title: legacy.title,
-						cwd: legacy.cwd,
-						openedBySession: legacy.openedBySession,
-						state: "closed",
-						at: legacy.closedAt,
-						by: FATE_BY.autoClose,
-					}
-				: undefined);
-		if (!fate?.path || fate.state === "deleted") return fate;
-		const deletedAt = this.#host.deletedAt?.({ path: fate.path, ...(fate.device ? { device: fate.device } : {}) });
-		return deletedAt === undefined ? fate : { ...fate, state: "deleted", at: deletedAt, by: FATE_BY.app };
-	}
-
-	/**
-	 * A saved session by stock id, unique id prefix or exact title: the rows the last stored lists printed first, then
-	 * a fresh read of the index of `device` (this computer when null). With `device` undefined, a name not saved here
-	 * is looked up on every paired device too: a saved id names its session wherever it is saved, also after a relaunch
-	 * forgot the lists. `unreached` names the devices whose index could not be read.
-	 */
-	async #storedSession(
-		session: string,
-		device?: ControlDevice | null,
-	): Promise<{ row?: StoredSession; unreached: string[] }> {
-		const where = device === undefined ? undefined : (device?.id ?? undefined);
-		const find = (): StoredSession | undefined => {
-			const rows = [...this.#stored.values()].filter(row => device === undefined || row.device === where);
-			const exact = rows.find(row => row.id === session);
-			if (exact) return exact;
-			const several = (matches: StoredSession[]): StoredSession | undefined => {
-				if (matches.length > 1)
-					fail(
-						`"${session}" matches several saved sessions: ${matches
-							.slice(0, 6)
-							.map(row => `${row.id} "${oneLine(storedTitle(row), 60)}"`)
-							.join("; ")}. Use the full id.`,
-					);
-				return matches[0];
-			};
-			const wanted = session.toLowerCase();
-			return (
-				(session.length >= SESSION_PREFIX_MIN
-					? several(rows.filter(row => row.id.startsWith(session)))
-					: undefined) ??
-				several(rows.filter(row => !row.hidden && storedTitle(row).trim().toLowerCase() === wanted))
-			);
-		};
-		const known = find();
-		if (known) return { row: known, unreached: [] };
-		const load = async (deviceId: string | undefined): Promise<void> => {
-			const rows = await this.#overLink(deviceId, () => this.#host.stored(deviceId)).catch((error: unknown) => {
-				// This computer's index is read through omp's own session code (the stock helper): its error alone (an
-				// omp module that failed to load, 11 Nov 2026) said nothing of what the call did or that it can pass later.
-				if (deviceId !== undefined || error instanceof ToolError) throw error;
-				fail(
-					`This computer's list of saved sessions could not be read (${error instanceof Error ? error.message : String(error)}), so "${session}" was not looked up and nothing was done. Try again in a moment.`,
-				);
-			});
-			for (const row of rows) this.#stored.set(row.id, row);
-		};
-		if (device !== undefined) {
-			if (device) await this.#reach(device);
-			await load(device?.id);
-			return { row: find(), unreached: [] };
-		}
-		await load(undefined);
-		const local = find();
-		if (local) return { row: local, unreached: [] };
-		const unreached: string[] = [];
-		await Promise.all(
-			this.#host.devices().map(async paired => {
-				try {
-					await load((await this.#reach(paired)).id);
-				} catch {
-					unreached.push(paired.name);
-				}
-			}),
-		);
-		return { row: find(), unreached };
-	}
-
-	/**
-	 * The tab that has a saved session open now. A listed row's `tabId` is only what was true when it was listed: that
-	 * tab may have closed since (the device closed it), or now hold another session (a new session or a switch in it),
-	 * or another tab opened the session after the list. Only the tab holding the row's file is it.
-	 */
-	#liveTab(tabs: ControlTab[], row: StoredSession): ControlTab | undefined {
-		return tabs.find(tab => tab.sessionPath === row.path && tab.device === row.device);
-	}
-
-	/** An open session, or a saved one (open in a tab: that tab). `device`: where a saved id is looked up. */
-	async #resolveAny(
-		tabs: ControlTab[],
-		session: string,
-		self: ControlTab,
-		verb: string,
-		device?: ControlDevice | null,
-	): Promise<ControlTab | StoredSession> {
-		const found = await this.#find(tabs, session, device);
-		if (found.gone) throw new SessionDeleted(unquoted(session), found.gone);
-		const target =
-			found.target ??
-			fail(
-				`No session "${session}" open in this app or saved ${device ? `on ${device.name}` : device === null ? "on this computer" : "on this computer or a paired device"}${unreachedText(found.unreached)}. Call ompdesk_sessions (scope app for open ones, scope stored for saved ones, with device for a paired device's) and use an id it lists.`,
-			);
-		if (!("busy" in target)) return target;
-		if (target.tabId === self.tabId) fail(`You cannot ${verb} your own session with this tool.`);
-		return this.#reachTab(target, self.tabId);
-	}
-
-	async #answer(caller: ControlTab, target: ControlTab, args: AnswerArgs): Promise<string> {
-		this.#refuseHidden(target, caller);
-		const asks = target.asks.filter(ask => !askTitle(ask.request).startsWith(AGENT_CARD_PREFIX));
-		if (asks.length === 0 && target.plan) return this.#answerPlan(caller, target, target.plan, args);
-		if (asks.length === 0)
-			fail(
-				target.asks.length > 0
-					? "That is a confirmation card for the user (OMPdesk asks the person before an agent action); only the user answers it."
-					: `${label(target)} is not waiting for an answer (${this.#stateLine(target, { state: null, last: null, step: null, subagents: 0 })}). See where it is with ompdesk_session_result; only a session ompdesk_sessions lists as waiting can be answered.`,
-			);
-		const ask = args.request ? asks.find(entry => entry.id === args.request) : asks[0];
-		if (!ask) fail(`No pending request "${args.request}" there. Pending: ${asks.map(entry => entry.id).join(", ")}.`);
-		const request = ask.request;
-		let response: ExtensionUIResponse;
-		let summary: string;
-		if (request.method === "select") {
-			const approval = approvalChoices(request);
-			// `approve` answers a tool approval; on a plain choice card it names no option.
-			const wanted =
-				args.choice ??
-				(args.approve === undefined || !approval ? undefined : args.approve ? approval.once : APPROVE_DENY);
-			if (wanted === undefined)
-				fail(
-					[
-						`No choice given: pass \`choice\` with one of: ${request.options.map(option => `"${option}"`).join(" | ")}.`,
-						...(args.text !== undefined ? ["`text` answers a text prompt, not this choice card."] : []),
-						...(args.approve !== undefined
-							? ["`approve` answers a tool approval or a yes/no card, not this choice."]
-							: []),
-						...(request.options.includes(OTHER_OPTION)
-							? [
-									`To give an answer of your own, choose "${OTHER_OPTION}": the session then asks for the text, which you answer with \`text\`.`,
-								]
-							: []),
-					].join(" "),
-				);
-			const choice = pickOption(request.options, wanted);
-			// Every approving answer (this call, for the session, a remembered folder or file) needs the user's leave;
-			// Deny never does.
-			if (approval && choice !== APPROVE_DENY && !this.#host.approveEnabled())
-				fail(
-					"사용자 승인이 필요해요: this is a tool approval in another session and the user has not let agents approve for them (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Deny is allowed.",
-				);
-			response = { type: "extension_ui_response", id: ask.id, value: choice };
-			summary = `"${choice}" to "${oneLine(request.title, 100)}"`;
-		} else if (request.method === "confirm") {
-			// A yes or no, however it was given.
-			const said = args.choice ?? args.text;
-			if (args.approve === undefined && said === undefined)
-				fail(`This is a yes/no card ("${oneLine(request.title, 100)}"): pass \`approve\` true or false.`);
-			const yes = args.approve ?? /^\s*(y|yes|ok|true|confirm|approve|allow)/i.test(said ?? "");
-			response = { type: "extension_ui_response", id: ask.id, confirmed: yes };
-			summary = `${yes ? "yes" : "no"} to "${oneLine(request.title, 100)}"`;
-		} else if (request.method === "input" || request.method === "editor") {
-			// The words to type, whichever field carried them.
-			const text = args.text ?? args.choice;
-			if (text === undefined)
-				fail(`This is a text prompt ("${oneLine(request.title, 100)}"): pass \`text\` with the answer to type.`);
-			response = { type: "extension_ui_response", id: ask.id, value: text };
-			summary = `text to "${oneLine(request.title, 100)}"`;
-		} else if (request.method === "ask") {
-			const one = request.questions.length === 1;
-			// One question takes `choice` or `text` as its answer too; several need `answers`, one entry each.
-			const given =
-				args.answers ??
-				(one && (args.choice !== undefined || args.text !== undefined)
-					? [
-							{
-								...(args.choice !== undefined ? { selected: [args.choice] } : {}),
-								...(args.text ? { text: args.text } : {}),
-							},
-						]
-					: []);
-			if (!one && given.length === 0)
-				fail(
-					`This card asks ${request.questions.length} questions: pass \`answers\` with one entry each: [${request.questions
-						.map(
-							question =>
-								`{"id": "${question.id}", "selected": [<one of ${question.options.map(option => `"${option.label}"`).join(" | ")}>]}`,
-						)
-						.join(", ")}] (or "text" instead of "selected" for an answer of your own).`,
-				);
-			const answers = request.questions.map(question => {
-				const mine = given.find(entry => entry.id === question.id) ?? (one ? given[0] : undefined);
-				if (!mine)
-					fail(
-						`No answer for question "${question.id}" (${oneLine(question.question, 80)}): pass \`answers\` ([{"id": "${question.id}", "selected": [<one of ${question.options.map(option => `"${option.label}"`).join(" | ")}>]}], or "text" instead of "selected" for an answer of your own).`,
-					);
-				const labels = question.options.map(option => option.label);
-				const selected = (mine.selected ?? []).map(name => pickOption(labels, name));
-				if (selected.length === 0 && !mine.text)
-					fail(`Question "${question.id}": choose an option (${labels.join(" | ")}) or give text.`);
-				if (selected.length > 1 && !question.multi) fail(`Question "${question.id}" takes one option.`);
-				return { id: question.id, selectedOptions: selected, ...(mine.text ? { customInput: mine.text } : {}) };
-			});
-			response = { type: "extension_ui_response", id: ask.id, answers };
-			summary = `${answers.length} answer(s)`;
-		} else {
-			return fail(
-				`That request (${request.method}) is not a question an agent can answer: show it to the user with ompdesk_tab_focus.`,
-			);
-		}
-		await this.#host.answer(target.tabId, ask.id, response);
-		await this.#host.markAnswered(target.tabId, caller.title || caller.tabId).catch(() => undefined);
-		return `Answered ${label(target)}: ${summary}. It continues now.`;
-	}
-
-	/**
-	 * A plan proposal, through the same `plan_approval` command the plan card sends: approve with an option, or
-	 * reject (with `text`, stock's feedback turn). Approving follows the tool-approval rule; rejecting always works.
-	 */
-	async #answerPlan(
-		caller: ControlTab,
-		target: ControlTab,
-		plan: { title: string; planFilePath: string },
-		args: AnswerArgs,
-	): Promise<string> {
-		const approve = args.approve ?? (args.choice === undefined ? undefined : !/^(reject|deny|no)/i.test(args.choice));
-		if (approve === undefined)
-			fail("Give approve: true (choice execute, compact or keep_context) or approve: false (text = feedback).");
-		const name = `"${oneLine(plan.title || "plan", 100)}"`;
-		let command: RpcCommand;
-		let summary: string;
-		if (approve) {
-			const option = args.choice === undefined || args.choice === "Approve" ? "execute" : args.choice;
-			if (option !== "execute" && option !== "compact" && option !== "keep_context")
-				fail(`Plan option "${option}": use execute, compact or keep_context.`);
-			if (!this.#host.approveEnabled())
-				fail(
-					"사용자 승인이 필요해요: approving another session's plan needs the user's permission for agents to approve (Settings › Tools & extensions). Tell the user, or show the session with ompdesk_tab_focus. Rejecting with feedback is allowed.",
-				);
-			command = { type: "plan_approval", approved: true, option };
-			summary = `approved plan ${name} (${option})`;
-		} else {
-			const feedback = args.text?.trim();
-			command = { type: "plan_approval", approved: false, ...(feedback ? { feedback } : {}) };
-			summary = feedback ? `rejected plan ${name} with feedback` : `rejected plan ${name}`;
-		}
-		responseData(await this.#host.command(target.tabId, command), "Answering the plan");
-		await this.#host.markAnswered(target.tabId, caller.title || caller.tabId).catch(() => undefined);
-		return `Answered ${label(target)}: ${summary}.${approve || args.text?.trim() ? " It continues now." : ""}`;
-	}
-
-	/**
-	 * Own children: free. Others: one confirmation card unless the user let agents manage other sessions (default
-	 * on). Deleting a saved session another session opened always asks: a delete cannot be undone. A session the person
-	 * typed into, or one the caller did not open that the person looks at, is stopped, closed or deleted only in a turn
-	 * their own message started (`needsPersonTurn`, `#personTurn`); the caller's own session is never held back because
-	 * the person looks at it.
-	 */
-	async #stop(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		target: ControlTab,
-		args: { close?: boolean; delete?: boolean },
-	): Promise<string> {
-		this.#refuseHidden(target, caller);
-		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
-		const params = { caller: caller.title || "—", target: target.title || target.tabId };
-		let byPerson: boolean | undefined;
-		const allowed = async (tab: ControlTab) => {
-			if (!needsPersonTurn(tab, own)) return true;
-			byPerson ??= await this.#personTurn(caller);
-			return byPerson;
-		};
-		if (!(await allowed(target))) this.#refuseInUse(caller, tabs, target, args);
-		// Closing the tab of a session that rests (no turn, no question, the person neither looks at it nor typed into
-		// it since) loses nothing: its session stays saved and reopens as it was. That needs no card, whoever opened it.
-		const resting = !target.busy && !waits(target) && !needsPersonTurn(target, false);
-		const harmless = args.close === true && !args.delete && resting;
-		if (!own && !harmless && !this.#host.fullEnabled() && (args.delete === true || !this.#host.manageEnabled())) {
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("stopTitle", params),
-				this.#host.text(args.delete ? "deleteMessage" : args.close ? "closeMessage" : "stopMessage", params),
-			);
-			if (!approved)
-				return `The user declined: ${label(target)} keeps running. Do not ask again unless they tell you to.`;
-		}
-		this.#closing.add(target.tabId);
-		const running = target.busy && (target.status === "ready" || target.status === "running");
-		let confirmed = !running;
-		try {
-			// Stock answers an abort once the turn unwound; a close never waits on that (closing ends the omp), a stop
-			// and a delete (which needs the turn over) wait a bounded while and say what they saw.
-			if (running)
-				confirmed = await this.#abort(
-					caller,
-					target,
-					args.close && !args.delete ? ABORT_BEFORE_CLOSE_MS : STOP_WAIT_MS,
-				);
-			if (args.delete) {
-				// The card and the lines took time: the person may have opened it meanwhile.
-				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && !(await allowed(now))) this.#refuseInUse(caller, tabs, target, args);
-				await this.#deleteWhenIdle(caller, target);
-				this.#fates.deleted(this.#fated(target, own ? caller.sessionPath : undefined), byCaller(caller));
-			} else if (args.close) {
-				const now = this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId);
-				if (now && !(await allowed(now))) this.#refuseInUse(caller, tabs, target, args);
-				// Checked just above: the in-use rule lets this close go.
-				const outcome = await this.#closeTab(caller.tabId, target.tabId, { waitMs: CLOSE_WAIT_MS, cleared: true });
-				if (outcome === "kept")
-					fail(
-						`${label(target)} is still open: its window kept the tab (it is that window's last tab, or it holds unsaved Files edits). Ask the user to close it; its session is saved either way.`,
-					);
-				if (outcome === "dirty")
-					fail(
-						`${label(target)} is still open: its page holds unsaved edits in the Files editor of this tab, and closing it would lose them. Ask the user to save or discard them, then close it again; its session is saved either way.`,
-					);
-				this.#rememberClosed(target, own ? caller : null, byCaller(caller));
-			}
-			// Told only once the tab is gone: a close that did not happen sends no note.
-			if (args.close || args.delete)
-				await this.#within(this.#journalClose(caller, target, args.delete === true), ABORT_BEFORE_CLOSE_MS);
-		} finally {
-			this.#closing.delete(target.tabId);
-		}
-		// What was asked is done: nothing of it waits for the caller's next turn of the person's.
-		this.#cleanups.drop(cleanupOf(caller, target, args));
-		if (args.delete) {
-			const done = `Stopped, closed and deleted ${label(target)}.`;
-			return own && target.worktree ? `${done} ${await this.#dropWorktree(target.worktree, target.device)}` : done;
-		}
-		if (args.close) return `Closed ${label(target)} (its session stays saved).`;
-		if (!running) return `${label(target)} was not running; nothing to stop.`;
-		if (confirmed || !this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === target.tabId)?.busy)
-			return `Stopped ${label(target)}.`;
-		return `Asked ${label(target)} to stop; it has not confirmed after ${STOP_WAIT_MS / 1000} s (a tool or subagent is still unwinding) and stops once that ends. Check it with ompdesk_session_result {"session":"${target.tabId}"}, or end it now with ompdesk_session_stop {"session":"${target.tabId}","close": true} (closing ends its omp; the session stays saved).`;
-	}
-
-	/**
-	 * Whether the person's own typed message started the caller's current run, as its omp's bridge says (gui-bridge
-	 * turn-origin.ts, from main's `typed_prompt` word, never the text). Another agent's message, a report, a schedule,
-	 * Autopilot or a relaunch's continuation did not; an outside process has no omp to ask, and an omp that cannot say
-	 * counts as not.
-	 */
-	async #personTurn(caller: ControlTab): Promise<boolean> {
-		const response = await this.#host
-			.command(caller.tabId, { type: "agent_control_turn" }, PERSON_TURN_WAIT_MS)
-			.catch(() => undefined);
-		const data = response?.success === true ? response.data : undefined;
-		return typeof data === "object" && data !== null && "person" in data && data.person === true;
-	}
-
-	/** Stock's abort, answered within `waitMs` (true) or not yet (false); it is sent either way and never fails. */
-	async #abort(caller: ControlTab, target: ControlTab, waitMs: number): Promise<boolean> {
-		const answered = this.#host
-			.command(target.tabId, { type: "abort", origin: { agentControl: caller.tabId } }, waitMs)
-			.then(response => response.success)
-			.catch(() => false);
-		return (await this.#within(answered, waitMs)) === true;
-	}
-
-	/** `promise`'s value, or undefined once `ms` passed (the promise runs on). */
-	async #within<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-		const late = Promise.withResolvers<undefined>();
-		const timer = setTimeout(() => late.resolve(undefined), ms);
-		try {
-			return await Promise.race([promise, late.promise]);
-		} finally {
-			clearTimeout(timer);
-		}
-	}
-
-	/**
-	 * Main deletes a session only while no turn runs in it (`session_running`); an abort's turn ends a moment after it
-	 * was sent, so the delete is tried again until `STOP_WAIT_MS` passed.
-	 */
-	async #deleteWhenIdle(caller: ControlTab, target: ControlTab): Promise<void> {
-		const deadline = Date.now() + STOP_WAIT_MS;
-		for (;;) {
-			try {
-				await this.#host.deleteSession(caller.tabId, target.tabId);
-				return;
-			} catch (error) {
-				const left = deadline - Date.now();
-				if (ipcErrorCode(error) !== "session_running") throw error;
-				if (left <= 0)
-					fail(
-						`${label(target)} is still finishing its turn after ${STOP_WAIT_MS / 1000} s, so it was not deleted. Close it first (ompdesk_session_stop {"session":"${target.tabId}","close": true}), then delete its saved session by its saved id from ompdesk_sessions {"scope":"stored"}.`,
-					);
-				await this.#nextChange(Math.min(LINK_POLL_MS * 4, left));
-			}
-		}
-	}
-
-	/** A saved session the caller opened whose tab was closed: this launch, or recorded under the caller's session. */
-	#ownClosed(caller: ControlTab, row: Pick<StoredSession, "path" | "device">): boolean {
-		if (this.#closedOpeners.get(receiverKey(row.path, row.device)) === caller.tabId) return true;
-		if (caller.sessionPath === undefined) return false;
-		return (
-			this.#fates.of(row.path, row.device)?.openedBySession === caller.sessionPath ||
-			(this.#host.closedChildren?.() ?? []).some(
-				child =>
-					child.openedBySession === caller.sessionPath && child.path === row.path && child.device === row.device,
-			)
-		);
-	}
-
-	/**
-	 * Where a message goes: an open session (`#open`), or a child the caller opened whose tab was closed once its work was
-	 * done, opened again in the background, since the message is more work for it (an agent was told "saved but not
-	 * open in any tab" for its own child's id, and gave the work to a new session instead).
-	 */
-	async #sendTarget(caller: ControlTab, tabs: ControlTab[], session: string): Promise<ControlTab> {
-		const row = (await this.#find(tabs, session)).target;
-		if (!row || "busy" in row || row.hidden || !this.#ownClosed(caller, row))
-			return this.#open(tabs, session, caller, "send to");
-		const home = row.device ? this.#host.devices().find(device => device.id === row.device) : undefined;
-		if (home) await this.#reach(home);
-		const { tabId } = await this.#host
-			.spawn(caller.tabId, { sessionPath: row.path, device: row.device ?? null })
-			.catch((error: unknown) => {
-				if (error instanceof SessionFolderMissing) fail(this.#folderGone(error, unquoted(session), row, "send"));
-				throw error;
-			});
-		await this.#whenReady(tabId, caller.tabId);
-		return (
-			this.#host.tabs(caller.tabId)?.find(entry => entry.tabId === tabId) ??
-			fail(`"${oneLine(storedTitle(row), 80)}" was opened again as ${tabId}, and its tab closed before the message.`)
-		);
-	}
-
-	/**
-	 * What a caller is told when a saved session cannot open because the folder it worked in is gone (the tab spawn's
-	 * `folder-missing`: a session never opens in another folder): what removed the folder, whether anything was lost,
-	 * and the call that goes on from here. One text for a reopen and for a message to a closed child (measured 3 to 10
-	 * Nov 2026: 3 sends failed on "The folder this saved session belongs in no longer exists" and nothing more).
-	 */
-	#folderGone(
-		error: SessionFolderMissing,
-		session: string,
-		row: Pick<StoredSession, "path" | "device">,
-		wanted: "reopen" | "send",
-	): string {
-		const { folder, saved } = error;
-		const read = `ompdesk_session_read {"session":"${session}"}`;
-		if (saved)
-			return `The folder this saved session worked in (${folder}) was removed by OMPdesk's disk care, which saved it first (saved worktree ${saved.id}${saved.branch ? `, branch ${saved.branch}` : ""}, removed ${new Date(saved.removedAt).toISOString()}). Put it back and open the session there with ompdesk_session_open ${JSON.stringify({ reopen: session, restore: true })}${wanted === "send" ? ", then send your message to the id that returns" : ""}; the person can also restore it from Work tree › Saved worktrees on the computer that holds it.`;
-		// The control tools remove a finished child's worktree themselves once its work landed: then nothing was lost.
-		const landed = (this.#host.closedChildren?.() ?? []).findLast(
-			child => child.path === row.path && child.device === row.device && child.cwd !== folder,
-		);
-		const why = landed
-			? `: OMPdesk removed that worktree when it closed the session on ${new Date(landed.closedAt).toISOString().slice(0, 10)}, because its work had landed (clean tree, its branch in ${landed.cwd}), so nothing was lost`
-			: " and nothing of it was saved";
-		const next = `ompdesk_session_open ${JSON.stringify({ message: "…", ...(landed ? { folder: landed.cwd } : {}), worktree: true })}`;
-		return `The folder this saved session worked in no longer exists (${folder})${why}. A session opens only in the folder it worked in, so this one takes no more work${wanted === "send" ? " and your message was not delivered" : ""}. Give the follow-up to a new session (${next}) and name this one in its brief: its transcript stays readable with ${read}.`;
-	}
-
-	/**
-	 * Refuses a stop, close or delete `needsPersonTurn` holds back, asked in a turn the person's own message did not
-	 * start (that rule stands), and keeps it as a pending cleanup: its caller is told the list once, at the start of its
-	 * next turn the person starts (`personTyped`), when the same call works. A caller that is no tab (a process outside
-	 * OMPdesk) has no such turn, so nothing is kept for it.
-	 */
-	#refuseInUse(
-		caller: ControlTab,
-		tabs: readonly ControlTab[],
-		target: ControlTab,
-		args: { close?: boolean; delete?: boolean },
-	): never {
-		const kept = tabs.some(tab => tab.tabId === caller.tabId);
-		if (kept) this.#cleanups.add(cleanupOf(caller, target, args));
-		fail(
-			`${inUseRefusal(target, args)}${kept ? " OMPdesk kept this as a pending cleanup: it lists it to you at the start of your next turn the user's own message starts, and the same call works then." : ""}`,
-		);
-	}
-
-	/**
-	 * The person typed a prompt to `tabId` (main's word for a window's, the phone page's or a paired device's prompt;
-	 * never read from the text). When that prompt starts the tab's turn, the cleanups its agent was refused are listed
-	 * to it once, as a note ahead of the turn: the calls work in a turn the person started. A prompt that joins a
-	 * running turn starts none, so the list waits.
-	 */
-	personTyped(tabId: string): void {
-		const tabs = this.#host.tabs(tabId);
-		const caller = tabs?.find(tab => tab.tabId === tabId);
-		if (!tabs || !caller || caller.busy) return;
-		const pending = this.#cleanups.take(cleanupCaller(caller));
-		const lines = pending.flatMap(entry => {
-			const tab = tabs.find(open =>
-				entry.path !== undefined
-					? open.sessionPath === entry.path && open.device === entry.device
-					: open.tabId === entry.tabId || open.formerIds?.includes(entry.tabId) === true,
-			);
-			// A closed tab leaves only a delete to do, and only while its session is still saved.
-			if (!tab && (entry.action !== "delete" || this.#fateOf(entry.tabId)?.state !== "closed")) return [];
-			const id = tab?.tabId ?? entry.tabId;
-			const call = `ompdesk_session_stop ${JSON.stringify({ session: id, ...(entry.action === "stop" ? {} : { [entry.action]: true }) })}`;
-			return [
-				`- ${id}${entry.title ? ` "${oneLine(entry.title, 80)}"` : ""}: ${entry.action}${tab ? "" : " (its tab is closed since, its session still saved)"}, asked ${new Date(entry.at).toISOString().slice(0, 16).replace("T", " ")} UTC: ${call}`,
-			];
-		});
-		if (lines.length === 0) return;
-		const text = `OMPdesk: pending cleanups (${lines.length}). You asked for these while the user was in the session, in a turn their own message had not started, and were refused. The user's own message starts this turn, so each call works now: make the ones that are still wanted, and leave a session the user still uses.\n${lines.join("\n")}`;
-		const details = {
-			id: `cleanups:${tabId}:${Date.now()}`,
-			from: tabId,
-			fromTitle: "OMPdesk",
-			kind: "note",
-			label: "note",
-			text,
-		};
-		// Not told (its omp cannot take a note now): the list waits for the next such turn.
-		void this.#host.mail(tabId, text, details, deliveryFor("note")).catch(() => {
-			for (const entry of pending) this.#cleanups.add(entry);
-		});
-	}
-
-	/**
-	 * `ompdesk_app`'s route to another computer (`AppPorts.rpcOn`): `command` to an omp on the computer `wanted` names.
-	 * The caller's own session when it runs there, else another session of this app that runs there and is up, else a
-	 * session opened there in the background (`#utilityTab`): no message, no model call.
-	 */
-	async #rpcOn(callerTabId: string, wanted: string, command: RpcCommand): Promise<RpcResponse> {
-		const tabs = this.#host.tabs(callerTabId) ?? fail("This session's tab is gone.");
-		const caller = this.#callerOf(callerTabId, tabs) ?? fail("This session's tab is gone.");
-		const named = this.#device(wanted);
-		const device = named ? await this.#reach(named) : null;
-		const timeoutMs = timeoutForCommand(command) ?? RPC_ON_TIMEOUT_MS;
-		const there = (tab: ControlTab): boolean =>
-			(tab.device ?? null) === (device?.id ?? null) &&
-			(tab.status === "ready" || tab.status === "running") &&
-			!this.#closing.has(tab.tabId);
-		const via = there(caller) ? caller : tabs.find(tab => there(tab) && !tab.hidden);
-		if (via) return this.#host.command(via.tabId, command, timeoutMs);
-		const scoped = this.#appRuns.has(callerTabId);
-		try {
-			return await this.#host.command(await this.#utilityTab(callerTabId, device), command, timeoutMs);
-		} finally {
-			// Outside an app action nothing ends the session later: it goes with this call.
-			if (!scoped) await this.#closeUtilityTabs(callerTabId);
-		}
-	}
-
-	/**
-	 * The background session `callerTabId`'s app action uses on `device` (null: this computer), opened at its first
-	 * command there and shared by the action's other commands and by its caller's other running actions; all of them
-	 * are closed and deleted when the caller's last running action ends (`#closeUtilityTabs`). One omp start per action,
-	 * not one per command: reading a setting's schema, its value and writing it are three.
-	 */
-	#utilityTab(callerTabId: string, device: ControlDevice | null): Promise<string> {
-		const opened = this.#utilityTabs.get(callerTabId) ?? new Map<string, Promise<string>>();
-		this.#utilityTabs.set(callerTabId, opened);
-		const key = device?.id ?? "";
-		const known = opened.get(key);
-		if (known) return known;
-		const starting = (async () => {
-			const { tabId } = await this.#host.spawn(callerTabId, { device: device?.id ?? null });
-			// Its close and delete are no close of a session anyone was given an id for.
-			this.#closing.add(tabId);
-			try {
-				await this.#whenReady(tabId, callerTabId);
-			} catch (error) {
-				await this.#discardUtility(callerTabId, tabId);
-				throw error;
-			}
-			return tabId;
-		})();
-		opened.set(key, starting);
-		// A start that failed is none: the next command there starts another.
-		starting.catch(() => opened.delete(key));
-		return starting;
-	}
-
-	async #closeUtilityTabs(callerTabId: string): Promise<void> {
-		const opened = this.#utilityTabs.get(callerTabId);
-		if (!opened) return;
-		this.#utilityTabs.delete(callerTabId);
-		await Promise.all(
-			[...opened.values()].map(async starting => {
-				const tabId = await starting.catch(() => undefined);
-				if (tabId) await this.#discardUtility(callerTabId, tabId);
-			}),
-		);
-	}
-
-	/** Stock wrote the session's file at once: the delete closes the tab and removes that file. One with no file yet only closes. */
-	async #discardUtility(callerTabId: string, tabId: string): Promise<void> {
-		await this.#host
-			.deleteSession(callerTabId, tabId)
-			.catch(() => this.#closeTab(callerTabId, tabId, { waitMs: CLOSE_WAIT_MS }))
-			.catch(() => undefined);
-		this.#closing.delete(tabId);
-	}
-
-	/**
-	 * A saved session no tab holds: nothing runs to stop or close; a delete removes its file on the device it is saved
-	 * on (the sidebar's delete). One the caller opened (its tab closed this launch, or main recorded closing it under
-	 * the caller's session) is deleted without a card, as an open one it opened is; any other asks unless full control
-	 * is on.
-	 */
-	async #stopStored(
-		caller: ControlTab,
-		row: StoredSession,
-		args: { close?: boolean; delete?: boolean },
-	): Promise<string> {
-		if (row.hidden) fail("The user hid that session from other agents.");
-		const name = `"${oneLine(storedTitle(row), 80)}" (saved${row.deviceName ? ` on ${row.deviceName}` : ""})`;
-		if (!args.delete) return `${name} is not open in any tab: nothing to stop or close.`;
-		const own = this.#ownClosed(caller, row);
-		if (!own && !this.#host.fullEnabled()) {
-			const params = { caller: caller.title || "—", target: storedTitle(row) || row.id };
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("stopTitle", params),
-				this.#host.text("deleteMessage", params),
-			);
-			if (!approved) return `The user declined: ${name} stays saved. Do not ask again unless they tell you to.`;
-		}
-		await this.#host.deleteStored(row);
-		this.#stored.delete(row.id);
-		this.#closedOpeners.delete(receiverKey(row.path, row.device));
-		this.#fates.deleted(
-			{
-				ids: [row.id],
-				path: row.path,
-				...(row.device ? { device: row.device } : {}),
-				title: storedTitle(row),
-				cwd: row.cwd,
-			},
-			byCaller(caller),
-		);
-		return `Deleted ${name}.`;
-	}
-
-	/**
-	 * A deleted child's worktree and branch go only when nothing would be lost (clean tree, untracked files included,
-	 * branch tip in the parent's HEAD or upstream); otherwise both stay and the answer says what is unlanded.
-	 */
-	async #dropWorktree(worktree: WorktreeRef, device: string | undefined): Promise<string> {
-		const removal = await this.#host.removeSafeWorktree(worktree, device).catch(() => null);
-		if (removal === "removed") return `Removed its worktree ${worktree.path} and branch ${worktree.branch}.`;
-		if (removal === "branch-kept")
-			return `Removed its worktree ${worktree.path}; kept branch ${worktree.branch}: it moved after its work was checked as landed, so it may hold new commits.`;
-		const facts = await this.#host.branchFacts(worktree, device).catch(() => null);
-		const unlanded = facts
-			? [
-					facts.merged ? null : `${facts.commitsAhead} commit(s) not in the base or its upstream`,
-					facts.uncommitted ? `${facts.uncommitted} uncommitted file(s)` : null,
-					facts.untracked ? `${facts.untracked} untracked file(s)` : null,
-				].filter(Boolean)
-			: [];
-		return `Kept its worktree ${worktree.path} and branch ${worktree.branch}${unlanded.length ? `: ${unlanded.join(", ")}` : ""}. Land it with git there, or remove it yourself if the work is not wanted.`;
-	}
-
-	/** A close is journaled as one quiet line in both sessions (best effort: a line never blocks the close). */
-	async #journalClose(caller: ControlTab, target: ControlTab, deleted: boolean): Promise<void> {
-		const at = Date.now();
-		const line = (from: ControlTab, text: string) => ({
-			id: `close:${target.sessionPath ?? target.tabId}:${at}:${from.tabId}`,
-			from: from.tabId,
-			fromTitle: from.title,
-			kind: "note",
-			label: "note",
-			text,
-		});
-		const quiet = deliveryFor("note");
-		const closed = `${deleted ? "Deleted" : "Closed"} ${label(target)}${deleted ? "" : " (its session stays saved)"}.`;
-		await Promise.allSettled([
-			this.#host.mail(caller.tabId, closed, line(caller, closed), quiet),
-			this.#host.mail(
-				target.tabId,
-				`${caller.title || "Another session"} closed this session's tab.`,
-				line(caller, `closed this tab`),
-				quiet,
-			),
-		]);
-	}
-
-	/** What a compare reads from one session: its final answer, the checks it ran and its worktree's diff. */
-	async #evidence(caller: ControlTab, target: ControlTab | StoredSession, diffChars: number): Promise<Evidence> {
-		const open = "busy" in target;
-		if (open) this.#refuseHidden(target, caller);
-		else if (target.hidden) fail("The user hid a session you asked to compare from other agents.");
-		const id = open ? target.tabId : target.id;
-		const name = open ? label(target) : `"${oneLine(storedTitle(target), 80)}" (saved)`;
-		let messages: readonly AgentMessage[] = [];
-		let state = "saved, not open";
-		let answer: string | null = null;
-		if (open) {
-			const session = await this.#state(target);
-			state = this.#stateLine(target, session);
-			answer = session.last;
-			if (target.status === "ready" || target.status === "running")
-				messages =
-					transcriptPage(
-						await this.#host
-							.command(
-								target.tabId,
-								{ type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES },
-								30_000,
-							)
-							.then(response => (response.success ? response.data : null))
-							.catch(() => null),
-					)?.messages ?? [];
-		} else {
-			messages = await this.#host.storedMessages(target);
-			const last = [...messages].reverse().find(message => message.role === "assistant");
-			answer = last ? contentText(last.content).trim() || null : null;
-		}
-		const checks = checksRun(messages);
-		const checkLine = checks.length
-			? `checks run: ${checks
-					.slice(-8)
-					.map(check => `\`${oneLine(check.command, 100)}\` ${check.passed ? "passed" : "FAILED"}`)
-					.join("; ")}`
-			: "checks run: none seen in its transcript";
-		const lines = [`- ${id} ${name}: ${state}`, `  ${checkLine}`];
-		const worktree = open ? target.worktree : undefined;
-		let diff = "";
-		let diffOmitted = 0;
-		if (!worktree) lines.push("  no worktree: no branch to diff");
-		else {
-			const [facts, read] = await Promise.all([
-				this.#host.branchFacts(worktree, target.device).catch((error: unknown) => errorText(error)),
-				this.#host.branchEvidence(worktree, diffChars, target.device).catch((error: unknown) => errorText(error)),
-			]);
-			if (typeof facts === "string") lines.push(`  could not read its branch: ${facts}`);
-			else {
-				const added = facts.files.reduce((sum, file) => sum + file.added, 0);
-				const removed = facts.files.reduce((sum, file) => sum + file.removed, 0);
-				const shown = facts.files
-					.slice(0, 12)
-					.map(file => `${file.path} +${file.added} −${file.removed}`)
-					.join(", ");
-				const more = facts.files.length > 12 ? `, … ${facts.files.length - 12} more` : "";
-				const toMerge = !facts.merged && facts.commitsAhead > 0;
-				const prediction: MergePrediction =
-					typeof read === "string" ? { kind: "unknown", reason: read } : read.merge;
-				if (open && toMerge && prediction.kind === "conflict") this.#conflicts.set(target.tabId, prediction.files);
-				else if (open && prediction.kind === "clean") this.#conflicts.delete(target.tabId);
-				const problem =
-					mergeProblem(worktree, facts) ??
-					(toMerge && prediction.kind === "conflict"
-						? `merging would conflict; ask that session to merge ${facts.baseBranch} into its branch and resolve the conflicts, then compare again.`
-						: null);
-				lines.push(
-					`  branch ${facts.branch} → ${facts.baseBranch ?? "(detached)"}: ${facts.commitsAhead} commit(s) ahead, ${facts.files.length} file(s) changed (+${added} −${removed})${facts.merged ? ", already merged" : ""}`,
-					`  uncommitted ${facts.uncommitted}, untracked ${facts.untracked}${shown ? `\n  files: ${shown}${more}` : ""}`,
-					...(toMerge ? [`  ${predictionLine(prediction, facts.baseBranch)}`] : []),
-					`  ${problem ? `cannot merge yet: ${problem}` : "ready to merge with ompdesk_merge"}`,
-				);
-			}
-			if (typeof read !== "string") {
-				diff = read.diff;
-				diffOmitted = read.diffOmitted;
-			}
-		}
-		const facts = lines.slice(1).join("\n");
-		lines.push(`  final answer: ${answer ? oneLine(answer, 700) : "(none yet)"}`);
-		return { id, text: lines.join("\n"), facts, answer, checks, diff, diffOmitted };
-	}
-
-	/**
-	 * Each session's evidence (final answer, checks from its transcript, worktree diff and merge prediction); with
-	 * criteria, one judge request on the caller's omp (stock's advisor chain, then slow, a model of another family than
-	 * the caller's when one has credentials) grades them and names a winner. A failed judge leaves the evidence with
-	 * `Verdict: unavailable`. Runs no tests.
-	 */
-	async #compare(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		ids: string[] | undefined,
-		criteria: string[] | undefined,
-	): Promise<string> {
-		const own = this.#openedBy(caller.tabId, tabs);
-		const targets = ids
-			? await Promise.all(ids.map(id => this.#resolveAny(tabs, id, caller, "compare")))
-			: tabs.filter(tab => own.has(tab.tabId) && tab.worktree);
-		if (targets.length === 0)
-			fail("No worktree sessions to compare. Open sessions with worktree: true, or pass sessions.");
-		const diffChars = criteria ? Math.floor(JUDGE_EVIDENCE_CHARS / targets.length) : 0;
-		const evidence = await Promise.all(targets.map(target => this.#evidence(caller, target, diffChars)));
-		for (const target of targets) if ("busy" in target) this.#collected.add(target.tabId);
-		const blocks = evidence.map(entry => entry.text).join("\n");
-		if (!criteria)
-			return `${blocks}\nCompare runs no tests: ask each session to run them (ompdesk_session_send) and read its answer. Pass criteria to have them judged.`;
-		const verdict = await this.#judge(caller, evidence, criteria).catch(
-			(error: unknown) =>
-				`Verdict: unavailable (${oneLine(errorText(error), 400)}). Judge the evidence below yourself or compare again.`,
-		);
-		return `${verdict}\n\nEvidence:\n${blocks}`;
-	}
-
-	async #judge(caller: ControlTab, evidence: Evidence[], criteria: string[]): Promise<string> {
-		const per = Math.floor(JUDGE_EVIDENCE_CHARS / evidence.length);
-		const session = (entry: Evidence): string => {
-			const answer = cut(entry.answer ?? "(none)", Math.max(500, Math.floor(per * 0.2)));
-			let checksLeft = Math.floor(per * 0.15);
-			const checks: string[] = [];
-			for (const check of entry.checks.slice(-JUDGE_CHECKS).reverse()) {
-				const block = `$ ${oneLine(check.command, 200)} → ${check.passed ? "passed" : "FAILED"}\n${check.tail}`;
-				if (block.length > checksLeft) break;
-				checksLeft -= block.length;
-				checks.unshift(block);
-			}
-			const room = Math.max(0, per - entry.facts.length - answer.length - checks.join("\n").length - 200);
-			const bounded = entry.diff.length > room ? boundDiff(entry.diff, room) : { text: entry.diff, omitted: 0 };
-			const omitted = entry.diffOmitted + bounded.omitted;
-			return [
-				`<session id="${entry.id}">`,
-				entry.facts,
-				...(checks.length ? ["check output (newest last):", ...checks] : []),
-				"final answer:",
-				answer,
-				...(bounded.text
-					? [`diff${omitted ? ` (${omitted} characters left out)` : ""}:`, bounded.text]
-					: entry.diff || omitted
-						? [`diff: ${omitted} characters, none fit`]
-						: []),
-				"</session>",
-			].join("\n");
-		};
-		const user = [
-			"Acceptance criteria:",
-			...criteria.map((criterion, index) => `${index + 1}. ${criterion}`),
-			"",
-			...evidence.map(session),
-		].join("\n");
-		const reply = responseData<JudgeReply>(
-			await this.#host.command(caller.tabId, { type: "agent_control_judge", system: JUDGE_SYSTEM, user }, 180_000),
-			"Judging",
-		);
-		const parsed = parseVerdict(reply?.text ?? "");
-		const cost = `${judgeLabel(reply)}${typeof reply?.usd === "number" ? `, $${reply.usd.toFixed(4)}` : ""}`;
-		if (!parsed) return `Judge${cost} (its answer was not the expected JSON):\n${cut(reply?.text ?? "", 4000)}`;
-		const known = new Set(evidence.map(entry => entry.id));
-		const ranking = parsed.ranking.filter(row => known.has(row.session)).sort((a, b) => b.score - a.score);
-		const lines = [`Verdict${cost}:`];
-		ranking.forEach((row, index) => {
-			lines.push(`${index + 1}. ${row.session}: ${row.score}/100. ${oneLine(row.reasons, 400)}`);
-			for (const item of row.criteria)
-				lines.push(
-					`   - ${item.met}: ${oneLine(item.criterion, 120)}${item.why ? ` (${oneLine(item.why, 200)})` : ""}`,
-				);
-		});
-		lines.push(
-			parsed.winner && known.has(parsed.winner)
-				? `Winner: ${parsed.winner}. ${oneLine(parsed.why, 500)}`
-				: `No winner: ${oneLine(parsed.why || "none meets the criteria", 500)}`,
-		);
-		return lines.join("\n");
-	}
-
-	/** Merge a worktree session's branch into the parent checkout: one card unless the user turned it off. */
-	async #merge(caller: ControlTab, target: ControlTab): Promise<string> {
-		const worktree = this.#mergeable(caller, target);
-		const facts = await this.#host.branchFacts(worktree, target.device);
-		const problem = mergeProblem(worktree, facts);
-		if (problem) fail(problem);
-		if (!this.#host.manageEnabled()) {
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("mergeTitle", {}),
-				this.#host.text("mergeMessage", {
-					caller: caller.title || "—",
-					target: target.title || target.tabId,
-					branch: worktree.branch,
-					base: facts.baseBranch ?? "",
-					cwd: worktree.baseCwd,
-				}),
-			);
-			if (!approved)
-				return `The user declined the merge of ${worktree.branch}. Do not ask again unless they tell you to.`;
-		}
-		return this.#runMerge(target, worktree);
-	}
-
-	#mergeable(caller: ControlTab, target: ControlTab): WorktreeRef {
-		this.#refuseHidden(target, caller);
-		if (!target.worktree)
-			fail(`${label(target)} has no worktree branch to merge (open sessions with worktree: true).`);
-		if (target.busy || waits(target)) fail(`${label(target)} is still working or waiting; collect its result first.`);
-		return target.worktree;
-	}
-
-	async #runMerge(target: ControlTab, worktree: WorktreeRef): Promise<string> {
-		const outcome = await this.#host.mergeBranch(worktree, target.title, target.device);
-		if (!outcome.merged && outcome.reason === "hook")
-			fail(
-				`Pre-merge hook ${hookFailure(outcome.hook)} in ${worktree.path}; the merge was not started. Output tail:\n${outcome.hook.outputTail}\nLog: ${outcome.hook.logPath}`,
-			);
-		if (!outcome.merged) {
-			this.#conflicts.set(target.tabId, outcome.files);
-			const ask = `Ask ${label(target)} to merge the parent's branch into its own and resolve, then try again.`;
-			fail(
-				outcome.predicted
-					? `Merging ${worktree.branch} would conflict in ${outcome.files.join(", ")} (predicted by git merge-tree): no merge was attempted and ${worktree.baseCwd} is unchanged. ${ask}`
-					: `Merge conflict in ${outcome.files.join(", ")}: the merge was aborted and ${worktree.baseCwd} is unchanged. ${ask}`,
-			);
-		}
-		this.#conflicts.delete(target.tabId);
-		this.#reviewed.add(target.tabId);
-		this.#collected.add(target.tabId);
-		const post = outcome.postMerge
-			? ` Post-merge hook ${hookFailure(outcome.postMerge)}; the merge stays. Output tail:\n${outcome.postMerge.outputTail}\nLog: ${outcome.postMerge.logPath}`
-			: "";
-		return `Merged ${worktree.branch} into ${worktree.baseCwd} (${outcome.sha}${outcome.summary ? `: ${outcome.summary}` : ""}). Nothing was pushed.${post}`;
-	}
-
-	/**
-	 * A child's review item, or null when nothing is left to review: an idle child whose branch landed (its tip is in the
-	 * parent's branch or the upstream it tracks) with no uncommitted or untracked file, which ended well and waits on
-	 * no answer. A landed child with files left over lists only those files.
-	 */
-	async #reviewItem(tab: ControlTab, session: SessionState): Promise<AgentReviewItem | null> {
-		// A tab restored but not started (asleep) runs nothing; one starting or restarting may still be working.
-		const running =
-			tab.busy || waits(tab) || (tab.status !== "ready" && tab.status !== "running" && tab.status !== "asleep");
-		const conflict = this.#conflicts.get(tab.tabId);
-		const item: AgentReviewItem = {
-			tabId: tab.tabId,
-			...(tab.sessionPath ? { sessionPath: tab.sessionPath } : {}),
-			...(tab.device ? { device: tab.device } : {}),
-			title: tab.title || tab.task || "",
-			state: running ? "running" : conflict ? "conflict" : "needs-review",
-			commitsAhead: 0,
-			files: 0,
-			added: 0,
-			removed: 0,
-			uncommitted: 0,
-			answer: session.last ? oneLine(session.last, 240) : "",
-			...(running && session.step ? { step: session.step } : {}),
-			...(running && tab.busySince ? { runningSince: tab.busySince } : {}),
-			...(!running &&
-			(tab.lastRun?.stopReason === "error" ||
-				tab.lastRun?.stopReason === "aborted" ||
-				parseWorkerResult(session.last)?.kind === "problem")
-				? { failed: true as const }
-				: {}),
-			...(conflict ? { note: conflict.join(", ") } : {}),
-			...this.#reportFields(tab),
-			// Its plan waits for approval, or a question card of its own waits for an answer: the opener (or the person)
-			// answers it, nothing is left to review. The card's own question goes along, for the line under its row.
-			...(() => {
-				const card = tab.asks.find(entry => !askTitle(entry.request).startsWith(AGENT_CARD_PREFIX));
-				const question = card ? askTitle(card.request).trim() : tab.plan ? tab.plan.title?.trim() : "";
-				return tab.plan || card
-					? { waiting: true as const, ...(question ? { question: oneLine(question, 240) } : {}) }
-					: {};
-			})(),
-		};
-		if (!tab.worktree) return item;
-		try {
-			const facts = await this.#host.branchFacts(tab.worktree, tab.device);
-			const clean = facts.uncommitted === 0 && facts.untracked === 0;
-			if (facts.merged && clean && !running && !item.failed && !item.waiting) {
-				this.#conflicts.delete(tab.tabId);
-				return null;
-			}
-			return {
-				...item,
-				branch: facts.branch,
-				baseBranch: facts.baseBranch,
-				commitsAhead: facts.commitsAhead,
-				files: facts.files.length,
-				added: facts.files.reduce((sum, file) => sum + file.added, 0),
-				removed: facts.files.reduce((sum, file) => sum + file.removed, 0),
-				// Untracked files are work the branch does not hold yet either.
-				uncommitted: facts.uncommitted + facts.untracked,
-			};
-		} catch {
-			return { ...item, branch: tab.worktree.branch };
-		}
-	}
-
-	/** The sessions `callerTabId` opened that wait for the person (or still run), for the work board. */
-	async reviewItems(callerTabId: string): Promise<AgentReviewItem[]> {
-		return (await this.review(callerTabId)).items;
-	}
-
-	/**
-	 * The work board's list (`reviewItems`) plus what every session `callerTabId` opened runs on and has cost, the
-	 * landed ones without an item included: the family's cost counts them all.
-	 */
-	async review(callerTabId: string): Promise<AgentReviewResult> {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return { items: [], usage: {} };
-		await this.#nameUntitled(tabs);
-		const own = this.#openedBy(callerTabId, tabs);
-		const children = tabs.filter(tab => own.has(tab.tabId) && !tab.hidden);
-		// The session's own journal too: the family's cost (Work tree head) is it plus all it opened.
-		const caller = tabs.find(tab => tab.tabId === callerTabId);
-		const usageOf = async (tab: ControlTab, session?: SessionState): Promise<AgentChildUsage> => {
-			const [state, cost, split] = await Promise.all([
-				session ?? this.#state(tab),
-				this.#cost(tab),
-				this.#split(tab),
-			]);
-			const model = state.state?.model;
-			return { ...(model ? { model: `${model.provider}/${model.id}` } : {}), cost, ...(split ? { split } : {}) };
-		};
-		const [rows, callerUsage] = await Promise.all([
-			Promise.all(
-				children.map(async tab => {
-					const session = await this.#state(tab);
-					const [item, usage] = await Promise.all([
-						this.#reviewed.has(tab.tabId) ? null : this.#reviewItem(tab, session),
-						usageOf(tab, session),
-					]);
-					return { item, usage, key: tab.sessionPath ?? tab.tabId };
-				}),
-			),
-			caller ? usageOf({ ...caller, hidden: false }) : undefined,
-		]);
-		const usage: Record<string, AgentChildUsage> = Object.fromEntries(rows.map(row => [row.key, row.usage]));
-		if (caller && callerUsage) usage[caller.sessionPath ?? callerTabId] = callerUsage;
-		return { items: rows.flatMap(row => (row.item ? [row.item] : [])), usage };
-	}
-
-	/**
-	 * What each session `callerTabId` opened changed, for its work board's "Changed" row: its newest turn's edit calls
-	 * (`get_turn_edits` of its own omp, or its saved file while it is not started) and, in a worktree, what its branch
-	 * has not landed (`get_git_unlanded`); with `since`, also each one closed after its work landed since then (its
-	 * saved file, read once). Asked through main, so a window viewing the opener (a phone) counts children it holds no
-	 * tab of. A session hidden from agents is left out.
-	 */
-	async familyEdits(callerTabId: string, since?: number): Promise<FamilyEdits> {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return { members: [] };
-		const own = this.#openedBy(callerTabId, tabs);
-		const ask = <T>(
-			tab: ControlTab,
-			type: "get_turn_edits" | "get_git_unlanded",
-			valid: (data: unknown) => data is T,
-		) =>
-			this.#host
-				.command(tab.tabId, { type }, STATE_TIMEOUT_MS)
-				.then(response => (response.success && valid(response.data) ? response.data : null))
-				.catch(() => null);
-		const open = await Promise.all(
-			tabs
-				.filter(tab => own.has(tab.tabId) && !tab.hidden)
-				.map(async (tab): Promise<FamilyMemberEdits> => {
-					const ready = tab.status === "ready" || tab.status === "running";
-					const saved = tab.sessionPath ? this.#tabRow(tab, tab.sessionPath) : undefined;
-					const [edits, unlanded] = await Promise.all([
-						ready
-							? ask(tab, "get_turn_edits", isTurnEdits)
-							: saved
-								? this.#host
-										.storedMessages(saved)
-										.then(messages => turnEdits(messages, tab.cwd))
-										.catch(() => null)
-								: null,
-						tab.worktree && ready ? ask(tab, "get_git_unlanded", isGitUnlanded) : null,
-					]);
-					return {
-						key: tab.sessionPath ?? tab.tabId,
-						title: tab.title || tab.task || "",
-						live: tab.busy || waits(tab),
-						...(tab.device ? { device: tab.device } : {}),
-						edits,
-						unlanded,
-					};
-				}),
-		);
-		const caller = tabs.find(tab => tab.tabId === callerTabId);
-		const shown = new Set(tabs.map(tab => `${tab.device ?? ""}\0${tab.sessionPath ?? ""}`));
-		const closed =
-			since !== undefined && caller?.sessionPath
-				? (this.#host.closedChildren?.() ?? []).filter(
-						child =>
-							child.openedBySession === caller.sessionPath &&
-							child.closedAt >= since &&
-							!shown.has(`${child.device ?? ""}\0${child.path}`),
-					)
-				: [];
-		return { members: [...open, ...(await Promise.all(closed.map(child => this.#closedEdits(child))))] };
-	}
-
-	/**
-	 * A closed child's last turn never changes: its saved file is read once, on the computer it ran on (a paired
-	 * device's through its stock helper); a failed read is tried again on the next ask.
-	 */
-	#closedEdits(child: ClosedChild): Promise<FamilyMemberEdits> {
-		// Reopened and closed again, the same file holds a newer last turn: each close is its own version.
-		const where = `${child.device ?? ""}\0${child.path}\0${child.closedAt}`;
-		let turn = this.#closedTurns.get(where);
-		if (!turn) {
-			const row: StoredSession = {
-				id: child.path,
-				path: child.path,
-				title: child.title,
-				firstMessage: "",
-				cwd: child.cwd,
-				modified: "",
-				messages: 0,
-				status: "",
-				hidden: false,
-				...(child.device ? { device: child.device } : {}),
-			};
-			turn = this.#host.storedMessages(row).then(messages => turnEdits(messages, child.cwd));
-			this.#closedTurns.set(where, turn);
-			turn.catch(() => this.#closedTurns.delete(where));
-		}
-		return turn
-			.catch(() => null)
-			.then(edits => ({
-				key: child.path,
-				title: child.title,
-				live: false,
-				...(child.device ? { device: child.device } : {}),
-				edits,
-				unlanded: null,
-			}));
-	}
-
-	/**
-	 * `last` (the review list last sent) with what moves inside a running child's turn read again: its step and what
-	 * it has cost so far. Only the running children (of `only`, when given: those that moved on since) are read, with
-	 * no git. Null when none of `callerTabId`'s children it would read runs.
-	 */
-	async liveReview(
+	liveReview(
 		callerTabId: string,
 		last: AgentReviewResult,
-		only?: ReadonlySet<string>,
+		only?: ReadonlySet<string> | readonly string[],
 	): Promise<AgentReviewResult | null> {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return null;
-		const own = this.#openedBy(callerTabId, tabs);
-		const running = tabs.filter(
-			tab => own.has(tab.tabId) && !tab.hidden && tab.busy && (only === undefined || only.has(tab.tabId)),
-		);
-		if (running.length === 0) return null;
-		const usage = { ...last.usage };
-		const items = [...last.items];
-		await Promise.all(
-			running.map(async tab => {
-				const [page, cost, split] = await Promise.all([
-					this.#host
-						.command(tab.tabId, { type: "get_transcript_page", fromEnd: true, limit: 8 }, STATE_TIMEOUT_MS)
-						.then(response => (response.success ? transcriptPage(response.data) : null))
-						.catch(() => null),
-					this.#cost(tab),
-					this.#split(tab),
-				]);
-				const key = tab.sessionPath ?? tab.tabId;
-				const { split: _split, ...kept } = usage[key] ?? { cost: 0 };
-				usage[key] = { ...kept, cost, ...(split ? { split } : {}) };
-				const index = items.findIndex(item => item.tabId === tab.tabId);
-				const item = items[index];
-				if (item?.state !== "running" || !page) return;
-				const { step: _step, ...rest } = item;
-				const step = currentStep(page.messages);
-				items[index] = { ...rest, ...(step ? { step } : {}) };
-			}),
-		);
-		return { items, usage };
+		return this.#call("liveReview", { callerTabId, last, ...(only ? { only: [...only] } : {}) });
 	}
 
-	/**
-	 * What a session has cost over its whole journal (the title bar's figure). While its omp cannot say (restarting, a
-	 * paired device's link down, a read past its timeout) the last figure read stands: a cost never drops to nothing.
-	 */
-	async #cost(tab: ControlTab): Promise<number> {
-		if (tab.hidden) return 0;
-		const response =
-			tab.status === "ready" || tab.status === "running"
-				? await this.#host.command(tab.tabId, { type: "get_session_stats" }, STATE_TIMEOUT_MS).catch(() => null)
-				: null;
-		if (!response?.success) return this.#lastSpend.get(tab.tabId)?.cost ?? 0;
-		const stats = response.data as { cost?: unknown; history?: { cost?: unknown } } | undefined;
-		const read = typeof stats?.history?.cost === "number" ? stats.history.cost : stats?.cost;
-		const cost = typeof read === "number" && Number.isFinite(read) && read > 0 ? read : 0;
-		this.#lastSpend.set(tab.tabId, { ...this.#lastSpend.get(tab.tabId), cost });
-		return cost;
+	/** One pass over the sessions `callerTabId` opened whose work landed. */
+	autoClose(callerTabId: string): Promise<void> {
+		return this.#call("autoClose", { callerTabId });
 	}
 
-	/**
-	 * The session's spend split into a metered charge and a subscription's estimate, classed by its own host
-	 * (`get_session_spend`: its journal per provider, that computer's auth data); the last split read while its omp
-	 * cannot say.
-	 */
-	async #split(tab: ControlTab): Promise<CostSplit | undefined> {
-		if (tab.hidden) return undefined;
-		const response =
-			tab.status === "ready" || tab.status === "running"
-				? await this.#host.command(tab.tabId, { type: "get_session_spend" }, STATE_TIMEOUT_MS).catch(() => null)
-				: null;
-		const spend = response?.success ? (response.data as SessionSpend | undefined) : undefined;
-		if (!spend?.providers) return this.#lastSpend.get(tab.tabId)?.split;
-		const split = costSplitOf(spend.providers);
-		this.#lastSpend.set(tab.tabId, { cost: this.#lastSpend.get(tab.tabId)?.cost ?? 0, split });
-		return split;
+	/** Called by `RuntimeClient`. */
+	callRuntime<T>(method: string, args: Record<string, unknown>): Promise<T> {
+		return this.#invoke(`agentRuntime.${method}`, args, true);
 	}
 
-	/**
-	 * Resolves once the tab is out of the caller's window and its omp has exited, or after a few seconds. The omp
-	 * outlives its tab by a moment, and where it works is no folder to remove or hand on while it does (Windows).
-	 */
-	async #whenGone(callerTabId: string, tabId: string, waitMs = 10_000): Promise<void> {
-		const deadline = Date.now() + waitMs;
-		while (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId) && Date.now() < deadline)
-			await this.#nextChange(Math.min(500, deadline - Date.now()));
-		// The window kept the tab: its omp runs on.
-		if (this.#host.tabs(callerTabId)?.some(tab => tab.tabId === tabId)) return;
-		await this.#within(this.#host.exited(tabId), OMP_EXIT_WAIT_MS);
+	#call<T>(method: string, args: Record<string, unknown>): Promise<T> {
+		return this.#invoke("agentControl.call", { method, args }, true);
 	}
 
-	/**
-	 * Close one open tab and wait for it to be gone, as `tabCloseStep` decides from the tab now. `kept`: the tab is
-	 * still open; `dirty`: not touched, its paired page's unsaved Files edits in it are the person's. `cleared`: the
-	 * caller checked the in-use rule for this close (`needsPersonTurn`) and it lets it go.
-	 */
-	async #closeTab(
-		callerTabId: string,
-		tabId: string,
-		how: { auto?: boolean; waitMs: number; cleared?: boolean },
-	): Promise<TabClose> {
-		const tabs = this.#host.tabs(callerTabId);
-		if (!tabs) return "kept";
-		const tab = tabs.find(entry => entry.tabId === tabId);
-		if (!tab) return "closed";
-		const step = tabCloseStep(tab, how.cleared === true);
-		if (step.action === "keep") return step.reason === "dirty" ? "dirty" : "kept";
-		if (step.action === "ask-window")
-			this.#host.view(callerTabId, { tabId, how: "close", ...(how.auto ? { auto: true } : {}) });
-		else if (!(await this.#host.release(callerTabId, tabId))) return "kept";
-		await this.#whenGone(callerTabId, tabId, how.waitMs);
-		return this.#host.tabs(callerTabId)?.some(entry => entry.tabId === tabId) ? "kept" : "closed";
-	}
-
-	/**
-	 * Close the sessions `callerTabId` opened whose work has landed and that nobody is using (`autoCloseDecision`):
-	 * the tab closes the way the person's close does (the window refuses it for a tab in use), the session file stays
-	 * (a throwaway child's is deleted) and the opener's family keeps a row for it; the worktree goes only when its
-	 * branch is merged and it is clean.
-	 * Called on tab activity and on a timer by `AgentControlRuntime`; one pass per caller at a time.
-	 */
-	async autoClose(callerTabId: string): Promise<void> {
-		if (!this.#host.enabled() || this.#sweeping.has(callerTabId)) return;
-		const tabs = this.#host.tabs(callerTabId);
-		const caller = tabs?.find(tab => tab.tabId === callerTabId);
-		if (!tabs || !caller?.sessionPath) return;
-		this.#sweeping.add(callerTabId);
-		try {
-			const openerIdle = !caller.busy && caller.resuming !== true && !waits(caller);
-			for (const tab of tabs) {
-				if (!this.#openedBy(callerTabId, tabs).has(tab.tabId) || this.#closing.has(tab.tabId)) continue;
-				if (tab.busy || waits(tab)) {
-					this.#collected.delete(tab.tabId);
-					const asked = this.#nudged.get(tab.tabId);
-					if (asked && tab.busy) asked.ran = true;
-					continue;
-				}
-				if (!tab.autoClosable || tab.hidden) continue;
-				// A child restored after a relaunch is judged by its transcript: not started (asleep), or started and
-				// not run yet this launch (no lastRun). One this launch opened waits for its first turn to end.
-				if (tab.status !== "ready" && !(tab.restored && tab.status === "asleep")) continue;
-				if (!tab.lastRun && !tab.restored) continue;
-				const facts = await this.#autoCloseFacts(tab, openerIdle);
-				const reported = await this.#autoDone(caller, tabs, tab, facts);
-				// A problem child's tab holds the only live trace of its failure, and a throwaway child's session goes with
-				// its tab: the report just sent is read in the opener's next turn, so the tab closes in a later pass (the
-				// opener idle again, or a read of it).
-				if (reported && (facts.result === "problem" || facts.throwaway)) continue;
-				// A question or blocker the opener has not answered is the child waiting: it stays open for the answer.
-				if (facts.result === "problem" && this.#mailbox.state(tab.tabId, caller.tabId)?.waiting) continue;
-				const decision = autoCloseDecision(facts);
-				if (decision.action === "close") await this.#autoCloseTab(caller, tab, decision);
-				else await this.#nudgeSilent(caller, tab, facts);
-			}
-		} finally {
-			this.#sweeping.delete(callerTabId);
-		}
-	}
-
-	/**
-	 * A child whose turn ended well with a verdict line (`Result: ok` / `Result: problem — <reason>`) and sent its
-	 * opener nothing on the current dispatch gets its `done` report sent for it: the final answer, through `#report`
-	 * (custody line, outbox, dedupe id, delivery). Measured: the child's own `ompdesk_report` done cost every worker
-	 * dispatch two extra model requests. Never a failed or stopped turn, one the person typed into, or a dispatch that
-	 * already has a report. A child a relaunch restored counts once a turn of this launch ended (it went on with its
-	 * cut-off work, or took a message after the relaunch): its journal says whether it reported that work itself, and
-	 * a report main sent before the relaunch has the same id, which the opener's journal drops. Resolves true when it
-	 * sent the report.
-	 */
-	async #autoDone(caller: ControlTab, tabs: ControlTab[], tab: ControlTab, facts: AutoCloseFacts): Promise<boolean> {
-		if (
-			!facts.openedByAgent ||
-			!facts.idle ||
-			!facts.settled ||
-			!facts.answered ||
-			facts.ended !== "ok" ||
-			(facts.result !== "ok" && facts.result !== "problem") ||
-			facts.userTouched ||
-			(tab.restored && !tab.lastRun) ||
-			this.#host.parentOf(tab.tabId) !== caller.tabId
-		)
-			return false;
-		if (tab.restored) {
-			if (!this.#mailbox.knows(tab.tabId))
-				this.#mailbox.seed(tab.tabId, (await this.#journalMarks(tab.tabId)).dispatch);
-			if (transcriptEnding(await this.#transcript(tab, false)).reportedDone) return false;
-		}
-		const dispatch = this.#mailbox.current(tab.tabId);
-		const state = this.#mailbox.state(tab.tabId, caller.tabId);
-		// A question or blocker the opener has not answered stays the child's standing word: a done would read as settled.
-		if (state?.waiting) return false;
-		// Only a finishing report of this dispatch stands for the answer: a milestone's progress or a note leaves the finish
-		// to tell.
-		const report = state?.last;
-		if (report && report.dispatch === dispatch && (report.kind === "done" || report.kind === "review")) return false;
-		if (this.#autoDoneFor.get(tab.tabId) === (dispatch ?? "")) return false;
-		const answer = ((await this.#state(tab)).last ?? "").trim();
-		if (!parseWorkerResult(answer)) return false;
-		this.#autoDoneFor.set(tab.tabId, dispatch ?? "");
-		const sent = await this.#report(tab, tabs, {
-			kind: "done",
-			text: cut(answer, MESSAGE_MAX_CHARS),
-			...(dispatch ? { dispatch } : {}),
-		}).then(
-			() => true,
-			() => false,
-		);
-		return sent;
-	}
-
-	/**
-	 * A child whose turn ended well but said nothing about its work (no verdict line, no report on its current dispatch)
-	 * is asked once to report; if its next turn still says nothing, its opener is told once. Never a child the person
-	 * typed into, one restored by a relaunch, a failed or stopped turn, or one still working. Idea after OpenRig's stuck
-	 * sweep and its custody rule that a closed item names how it ended (mvschwarz/openrig,
-	 * docs/as-built/architecture/coordination-primitive.md, Apache-2.0).
-	 */
-	async #nudgeSilent(caller: ControlTab, tab: ControlTab, facts: AutoCloseFacts): Promise<void> {
-		if (
-			!facts.openedByAgent ||
-			!facts.idle ||
-			!facts.settled ||
-			!facts.answered ||
-			facts.ended !== "ok" ||
-			facts.result !== "missing" ||
-			facts.userTouched ||
-			tab.restored
-		)
-			return;
-		const dispatch = this.#mailbox.current(tab.tabId);
-		const report = this.#mailbox.state(tab.tabId, caller.tabId)?.last;
-		if (report && report.dispatch === dispatch) return;
-		const answer = (await this.#state(tab)).last ?? "";
-		const asked = this.#nudged.get(tab.tabId);
-		const quiet = (text: string) => ({
-			id: `nudge:${tab.sessionPath ?? tab.tabId}:${dispatch ?? ""}:${text.length}`,
-			from: caller.tabId,
-			fromTitle: caller.title,
-			kind: "note",
-			label: "note",
-			text,
-		});
-		if (!asked || asked.dispatch !== dispatch) {
-			this.#nudged.set(tab.tabId, { dispatch, answer, ran: false, toldOpener: false });
-			const text = `OMPdesk: your turn ended with no \`Result: ok\` / \`Result: problem — <reason>\` line and no ompdesk_report about this work. Report where it stands now with ompdesk_report (kind done, blocked or question${dispatch ? `, dispatch "${dispatch}"` : ""}), and end your final answer with the Result line.`;
-			await this.#host
-				.mail(tab.tabId, text, quiet(text), { triggerTurn: true, deliverAs: "aside" })
-				.catch(() => undefined);
-			return;
-		}
-		// Still nothing after the turn it was asked in (seen running since, or a new answer is in): its opener hears of
-		// it, once.
-		if (asked.toldOpener || (!asked.ran && answer === asked.answer)) return;
-		asked.toldOpener = true;
-		const text = `${label(tab)} ended its turn again without a verdict line or a report, after OMPdesk asked it to report. Read its answer (ompdesk_session_result) or ask it where the work stands.`;
-		await this.#host.mail(caller.tabId, text, quiet(text), deliveryFor("note")).catch(() => undefined);
-	}
-
-	async #autoCloseFacts(tab: ControlTab, openerIdle: boolean): Promise<AutoCloseFacts> {
-		const asleep = tab.status === "asleep";
-		const session = asleep ? null : await this.#state(tab);
-		// The transcript speaks where this launch saw nothing (restored, asleep) and for an answer without a verdict
-		// line, whose final `done` report may stand for it.
-		const ending =
-			asleep || tab.restored || !parseWorkerResult(session?.last ?? null)
-				? transcriptEnding(await this.#transcript(tab, asleep))
-				: null;
-		const last = session?.last ?? ending?.last ?? null;
-		const branch = tab.worktree
-			? await this.#host
-					.landing(tab.worktree, tab.device)
-					.catch(() => ({ hasWork: false, landed: false, clean: false }))
-			: null;
-		const stopReason = tab.lastRun?.stopReason ?? ending?.stopReason;
-		return {
-			openedByAgent: tab.autoClosable === true,
-			stored: typeof tab.sessionPath === "string",
-			idle: asleep || (session?.state != null && session.state.isStreaming !== true),
-			settled: asleep || session?.state?.isSettled !== false,
-			answered: (last ?? "").trim() !== "",
-			ended: stopReason === "error" || stopReason === "aborted" ? "failed" : "ok",
-			result: parseWorkerResult(last)?.kind ?? (ending?.reportedDone ? "ok" : "missing"),
-			branch,
-			looked: tab.looked === true,
-			userTouched: tab.userTouched === true || (tab.restored === true && ending?.personPrompted === true),
-			collected: openerIdle || this.#collected.has(tab.tabId),
-			throwaway: this.#throwaway.has(tab.tabId),
-		};
-	}
-
-	/** A tab's saved session as a stored row, read on the computer the tab runs on. */
-	#tabRow(tab: ControlTab, path: string): StoredSession {
-		return {
-			id: tab.tabId,
-			path,
-			title: tab.title,
-			firstMessage: "",
-			cwd: tab.cwd,
-			modified: "",
-			messages: 0,
-			status: "",
-			hidden: tab.hidden,
-			tabId: tab.tabId,
-			...(tab.device ? { device: tab.device } : {}),
-			...(tab.deviceName ? { deviceName: tab.deviceName } : {}),
-		};
-	}
-
-	/** A child's newest messages: the saved file of one not started (on the computer it runs on), else its live omp. */
-	async #transcript(tab: ControlTab, asleep: boolean): Promise<AgentMessage[]> {
-		if (asleep) {
-			if (!tab.sessionPath) return [];
-			return this.#host.storedMessages(this.#tabRow(tab, tab.sessionPath)).catch(() => []);
-		}
-		const response = await this.#host
-			.command(tab.tabId, { type: "get_transcript_page", fromEnd: true, limit: EVIDENCE_MESSAGES }, STATE_TIMEOUT_MS)
-			.catch(() => null);
-		return (response?.success ? transcriptPage(response.data)?.messages : null) ?? [];
-	}
-
-	/** A tab's session as a fate records it; `openedBySession`: its opener's session file, when known. */
-	#fated(tab: ControlTab, openedBySession?: string): FatedSession {
-		return {
-			ids: idsOf(tab),
-			...(tab.sessionPath ? { path: tab.sessionPath } : {}),
-			...(tab.device ? { device: tab.device } : {}),
-			title: tab.hidden ? "" : tab.title || tab.task || "",
-			...(tab.hidden ? { hidden: true as const } : {}),
-			cwd: tab.cwd,
-			...(openedBySession ? { openedBySession } : {}),
-		};
-	}
-
-	/** A tab the control tools closed keeps naming its saved session (`#fates`); `opener`: the caller, when it opened it. */
-	#rememberClosed(tab: ControlTab, opener: ControlTab | null, by: string): void {
-		if (!tab.sessionPath) return;
-		this.#fates.closed(this.#fated(tab, opener?.sessionPath), by);
-		if (opener) this.#closedOpeners.set(receiverKey(tab.sessionPath, tab.device), opener.tabId);
-	}
-
-	/**
-	 * A throwaway child's saved session goes with its tab, on the computer it is saved on (the sidebar's delete), and its
-	 * opener gets one quiet line saying so. Not when a tab holds the session again (the person reopened it meanwhile)
-	 * or the delete failed: then it stays like any closed child. Resolves true when it was deleted.
-	 */
-	async #deleteThrowaway(caller: ControlTab, tab: ControlTab, path: string): Promise<boolean> {
-		if (this.#host.tabs(caller.tabId)?.some(open => open.sessionPath === path && open.device === tab.device))
-			return false;
-		try {
-			await this.#host.deleteStored(this.#tabRow(tab, path));
-		} catch {
-			return false;
-		}
-		this.#fates.deleted(this.#fated(tab, caller.sessionPath), FATE_BY.throwaway);
-		const text = `Deleted ${label(tab)}: it was opened as throwaway and its answer reached you.`;
-		await this.#host
-			.mail(
-				caller.tabId,
-				text,
-				{
-					id: `throwaway:${tab.device ?? ""}:${path}`,
-					from: tab.tabId,
-					fromTitle: tab.title,
-					kind: "note",
-					label: "note",
-					text,
-				},
-				deliveryFor("note"),
-			)
-			.catch(() => undefined);
-		return true;
-	}
-
-	async #autoCloseTab(
-		caller: ControlTab,
-		tab: ControlTab,
-		decision: { removeWorktree: boolean; deleteSession: boolean },
-	): Promise<void> {
-		// A tab the close would keep (its paired page's unsaved Files edits): not worth reading the child.
-		if (tabCloseStep(tab).action === "keep") return;
-		this.#closing.add(tab.tabId);
-		try {
-			// Read before the close: the closed record keeps them for the opener's family cost.
-			const [model, cost, split] = await Promise.all([
-				this.#host
-					.command(tab.tabId, { type: "get_state", brief: true }, STATE_TIMEOUT_MS)
-					.then(response => (response.success ? (response.data as RpcSessionState | undefined)?.model : null))
-					.catch(() => null),
-				this.#cost(tab),
-				this.#split(tab),
-			]);
-			// Not closed (the window kept it, the person came to it meanwhile, or its paired page holds unsaved Files
-			// edits in it): nothing else changes, and a later pass tries again.
-			const outcome = await this.#closeTab(caller.tabId, tab.tabId, { auto: true, waitMs: AUTO_CLOSE_WAIT_MS });
-			if (outcome !== "closed") return;
-			this.#throwaway.delete(tab.tabId);
-			const removed =
-				decision.removeWorktree && tab.worktree
-					? (await this.#host.removeSafeWorktree(tab.worktree, tab.device).catch(() => null)) !== null
-					: false;
-			const path = tab.sessionPath as string;
-			// A worktree git kept would lose the session that names it: then the session stays too.
-			if (decision.deleteSession && (!tab.worktree || removed) && (await this.#deleteThrowaway(caller, tab, path)))
-				return;
-			this.#rememberClosed(tab, caller, FATE_BY.autoClose);
-			this.#host.recordClosed({
-				path,
-				openedBySession: caller.sessionPath as string,
-				title: tab.title || tab.task || "",
-				cwd: removed && tab.worktree ? tab.worktree.baseCwd : tab.cwd,
-				...(tab.device ? { device: tab.device } : {}),
-				// The ids its opener was given keep naming the session after a relaunch (`#find`).
-				tabIds: [tab.tabId, ...(tab.formerIds ?? [])].slice(0, MAX_CLOSED_TAB_IDS),
-				closedAt: Date.now(),
-				...(model ? { model: `${model.provider}/${model.id}` } : {}),
-				...(cost > 0 ? { cost } : {}),
-				...(split ? { split } : {}),
-			});
-		} finally {
-			this.#closing.delete(tab.tabId);
-		}
-	}
-
-	/**
-	 * `ompdesk_schedule`: create, list, change or cancel the runs an agent put on the Schedules service of a device (a
-	 * timer, once, or an event), test one now and read its run history. Only agent-made ones can be changed.
-	 */
-	async #schedule(caller: ControlTab, args: ScheduleArgs): Promise<string> {
-		// Default: the device the caller's own session runs on, so its folder is a path there.
-		let device: ControlDevice | null;
-		if (args.target === "self") {
-			if (caller.device)
-				fail(
-					`This session runs on ${caller.deviceName ?? caller.device}: a session wakes itself only on the computer it runs on, and only from that computer's own app.`,
-				);
-			device = null;
-		} else if (args.device !== undefined) device = this.#device(args.device);
-		else if (caller.device) {
-			const own = this.#host.devices().find(entry => entry.id === caller.device);
-			if (!own) fail(`${caller.deviceName ?? caller.device} is no longer a paired device.`);
-			device = own;
-		} else device = null;
-		if (device) device = await this.#reach(device);
-		const where = device ? `on ${device.name}` : "on this computer";
-		const source = this.#host.schedules(device?.id);
-		if (!source) fail(`Scheduled runs are not available ${where}.`);
-		const rows = await source.list();
-		if (args.action === "list") {
-			if (rows.length === 0) return `No scheduled runs ${where}.`;
-			return [
-				`Scheduled runs ${where}:`,
-				...rows.map(
-					row =>
-						`- ${row.id} “${row.name}” ${describeFrequency(row.frequency)}${row.wakes ? "" : ` in ${row.cwd}`}; ${scheduleState(row)}${row.lastStatus ? `; last run ${row.lastStatus}` : ""}${row.wakes ? "; wakes a session" : ""}${row.name.startsWith(AGENT_SCHEDULE_PREFIX) ? " [made by an agent: you can change it]" : " [the user's own: leave it]"}`,
-				),
-			].join("\n");
-		}
-		const deviceArg = device ? `,"device":${JSON.stringify(device.name)}` : "";
-		if (args.action !== "create") {
-			const id = args.id ?? "";
-			const row =
-				rows.find(entry => entry.id === id) ??
-				rows.find(entry => id.length >= SESSION_PREFIX_MIN && entry.id.startsWith(id));
-			if (!row)
-				fail(`No scheduled run "${id}" ${where}. ompdesk_schedule {"action":"list"${deviceArg}} shows them.`);
-			if (args.action === "runs") return scheduleRunsText(row, await source.runs(row.id));
-			if (!row.name.startsWith(AGENT_SCHEDULE_PREFIX))
-				fail(`“${row.name}” is the user's own schedule; only the user changes it (Settings › Schedules).`);
-			switch (args.action) {
-				case "cancel":
-					await source.remove(row.id);
-					return `Cancelled “${row.name}” ${where}.`;
-				case "pause":
-				case "resume": {
-					const changed = await source.setEnabled(row.id, args.action === "resume");
-					return `${args.action === "resume" ? "Resumed" : "Paused"} “${changed.name}” ${where}; ${scheduleState(changed)}.`;
-				}
-				case "run":
-					await source.runNow(row.id);
-					return `Started a test run of “${row.name}” ${where}. ompdesk_schedule {"action":"runs","id":"${row.id}"${deviceArg}} shows how it ends.`;
-				case "update": {
-					const frequency = this.#frequencyOf(caller, args, device);
-					const changed = await source.update(row.id, draft => ({
-						...draft,
-						...(args.name ? { name: `${AGENT_SCHEDULE_PREFIX}${args.name}` } : {}),
-						...(args.prompt ? { prompt: args.prompt } : {}),
-						...(args.model ? { model: args.model } : {}),
-						...(frequency ? { frequency, enabled: true } : {}),
-					}));
-					return `Updated “${changed.name}” ${where}: ${describeFrequency(changed.frequency)}; ${scheduleState(changed)}.${webhookLine(changed)}`;
-				}
-			}
-		}
-		const frequency = this.#frequencyOf(caller, args, device);
-		if (!frequency) fail("create needs exactly one of every_minutes, daily_at, at, in_minutes or on.");
-		// The caller's folder is a path on its own device; another device needs its folder named.
-		if (!args.folder && device?.id !== caller.device) fail(`folder is required: name an absolute folder ${where}.`);
-		const cwd = args.folder ?? caller.cwd;
-		if (!(cwd.startsWith("/") || /^[A-Za-z]:[\\/]/.test(cwd))) fail("folder must be an absolute path.");
-		// A wake-up goes to the caller's own session file, which is a path on this computer only.
-		let wakeSession: string | undefined;
-		if (args.target === "self") {
-			if (!caller.sessionPath)
-				fail("This session has no saved file yet, so it cannot wake itself. Try again after its first message.");
-			wakeSession = caller.sessionPath;
-		}
-		const name = `${AGENT_SCHEDULE_PREFIX}${args.name ?? ""}`;
-		if (!this.#host.manageEnabled()) {
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("scheduleTitle", {}),
-				this.#host.text("scheduleMessage", {
-					caller: caller.title || "—",
-					name: args.name ?? "",
-					when: describeFrequency(frequency),
-					folder: device ? `${cwd} (${device.name})` : cwd,
-				}),
+	async #invoke<T>(wire: string, params: Record<string, unknown>, retry: boolean): Promise<T> {
+		const opening = this.#open();
+		// What the call reads of main is main as it is now: the snapshot is taken before anything awaits, and the call
+		// waits until the core applied it (the core runs each request on a task of its own, so a push sent just before
+		// a call is not known to land first).
+		const { seq, state } = this.#port.first();
+		await opening;
+		await core()
+			.call("ports.push", { port: this.#port.id, seq, state })
+			.then(
+				() => undefined,
+				() => undefined,
 			);
-			if (!approved) return "The user declined the schedule. Do not ask again unless they tell you to.";
-		}
-		const row = await source.save({
-			name,
-			prompt: args.prompt ?? "",
-			cwd,
-			frequency,
-			model: args.model ?? null,
-			autoApprove: false,
-			enabled: true,
-			...(wakeSession === undefined ? {} : { wakeSession }),
-		});
-		const when = describeFrequency(row.frequency);
-		const start = (word: string) =>
-			row.frequency.kind === "event" ? "it waits for its event" : `next ${word} ${row.nextRun ?? "—"}`;
-		if (wakeSession !== undefined)
-			return `Scheduled “${row.name}” ${when}: it wakes this session with the prompt, opening it in the background if no tab holds it; id ${row.id}; ${start("wake")}. It runs only while OMPdesk is open on this computer; the owner sees it in Settings › Schedules with its runs. ${frequency.kind === "once" ? "It is deleted once its run succeeds (a failed one stays a day)." : `Cancel it when you no longer need it with ompdesk_schedule {"action":"cancel","id":"${row.id}"}.`}${webhookLine(row)}`;
-		return `Scheduled “${row.name}” ${when} in ${cwd} ${where}; id ${row.id}; ${start("run")}. It runs only while OMPdesk is open ${where}, never with auto-approve; cancel it with ompdesk_schedule {"action":"cancel","id":"${row.id}"${deviceArg}}.${webhookLine(row)}`;
-	}
-
-	/** The one start `args` names, or undefined when it names none (an update that keeps the timing). */
-	#frequencyOf(caller: ControlTab, args: ScheduleArgs, device: ControlDevice | null): ScheduleFrequency | undefined {
-		if (args.every_minutes !== undefined) return { kind: "interval", minutes: args.every_minutes };
-		if (args.daily_at !== undefined)
-			return { kind: "daily", time: args.daily_at, days: [...new Set(args.days ?? [])].sort() };
-		if (args.at !== undefined) return { kind: "once", at: new Date(Date.parse(args.at)).toISOString() };
-		if (args.in_minutes !== undefined)
-			return { kind: "once", at: new Date(Date.now() + args.in_minutes * 60_000).toISOString() };
-		const on = args.on;
-		if (!on) return undefined;
-		const absolute = (path: string, what: string) => {
-			if (!(path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path))) fail(`${what} must be an absolute path.`);
-			return path;
-		};
-		let event: ScheduleEvent;
-		switch (on.source) {
-			case "webhook":
-				// The service makes the key.
-				event = { source: "webhook", key: "" };
-				break;
-			case "github":
-				event = { source: "github", repo: on.repo, events: on.events };
-				break;
-			case "files":
-				event = { source: "files", path: absolute(on.path, "on.path") };
-				break;
-			case "git": {
-				// The caller's folder is a path on its own device only.
-				if (!on.repo && device?.id !== caller.device) fail("on.repo is required on another device.");
-				event = { source: "git", repo: absolute(on.repo ?? caller.cwd, "on.repo"), branch: on.branch };
-				break;
-			}
-			case "session":
-				event = { source: "session", events: on.events, ...(on.folder ? { folder: on.folder } : {}) };
-				break;
-			case "email":
-				event = {
-					source: "email",
-					account: on.account,
-					...(on.from ? { from: on.from } : {}),
-					...(on.subject ? { subject: on.subject } : {}),
-					...(on.to ? { to: on.to } : {}),
-				};
-				break;
-		}
-		return { kind: "event", event };
-	}
-
-	/** `ompdesk_autopilot`: start, read or stop an Autopilot run through the coordinator the Autopilot screen uses. */
-	async #autopilot(caller: ControlTab, tabs: ControlTab[], args: AutopilotArgs): Promise<string> {
-		const source = this.#host.autopilot;
-		if (!source) fail("Autopilot is not available here.");
-		if (args.action === "start") return this.#autopilotStart(caller, tabs, source, args);
-		const target = await this.#open(tabs, args.session, caller, args.action === "stop" ? "stop" : "read");
-		this.#refuseHidden(target, caller);
-		const own = this.#openedBy(caller.tabId, tabs).has(target.tabId);
-		if (args.action === "status") {
-			if (!own && !this.#host.manageEnabled())
-				fail(
-					`${label(target)} is not an Autopilot run you started. Reading other runs needs the user's "Let agents manage other sessions" setting.`,
-				);
-			return describeRun(target, await this.#runStatus(source, target));
-		}
-		const before = await this.#runStatus(source, target);
-		if (before.state === "ended") return `${describeRun(target, before)}\nIt has ended already.`;
-		if (!own && !this.#host.manageEnabled()) {
-			const params = { caller: caller.title || "—", target: target.title || target.tabId };
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("stopTitle", params),
-				this.#host.text("stopMessage", params),
-			);
-			if (!approved)
-				return `The user declined: ${label(target)} keeps running. Do not ask again unless they tell you to.`;
-		}
-		const now = args.now === true;
-		if (before.state === "stopping" && !now) return `${describeRun(target, before)}\nIt is ending already.`;
-		this.#closing.add(target.tabId);
 		try {
-			const after = await source.stop(target.tabId, now);
-			return `${describeRun(target, after)}\n${
-				now
-					? "Stopped now: the turn in flight was aborted and the run is paused (the user can resume it on the Autopilot screen)."
-					: "Ending: it finishes the cycle in flight, then closes its children and stops. It will not continue by itself."
-			}`;
-		} finally {
-			this.#closing.delete(target.tabId);
-		}
-	}
-
-	async #runStatus(source: AutopilotSource, target: ControlTab): Promise<AutopilotStatus> {
-		const status = await source.status(target.tabId);
-		if (!status.active || status.role === "child") fail(`${label(target)} is not an Autopilot run.`);
-		return status;
-	}
-
-	async #autopilotStart(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		source: AutopilotSource,
-		args: Extract<AutopilotArgs, { action: "start" }>,
-	): Promise<string> {
-		if (this.#stopping(caller.tabId)) fail("Autopilot is ending: start nothing new.");
-		const folder = args.folder === undefined ? trimSeparators(caller.cwd) : trimSeparators(args.folder);
-		if (!(folder.startsWith("/") || /^[A-Za-z]:[\\/]/.test(folder))) fail("folder must be an absolute path.");
-		let device = caller.device;
-		let deviceName = caller.deviceName;
-		if (args.device !== undefined) {
-			const found = this.#device(args.device);
-			if (found) await this.#reach(found);
-			device = found?.id;
-			deviceName = found?.name;
-		}
-		let sourceTab = [caller, ...tabs]
-			.filter(tab => tab.device === device && !tab.hidden && trimSeparators(tab.cwd) === folder)
-			.sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"))[0];
-		if (!sourceTab && device === undefined)
-			fail(
-				`${folder} is not open in a session of this window on this computer. Autopilot starts from a folder one of those sessions has open: open one there first (ompdesk_session_open with folder), or use your own folder.`,
-			);
-		// On a paired host nothing has the folder open: a session there to start from, closed again once the run started.
-		let sourceOpened: string | undefined;
-		try {
-			if (!sourceTab) {
-				sourceOpened = (await this.#host.spawn(caller.tabId, { folder, device })).tabId;
-				await this.#whenReady(sourceOpened, caller.tabId);
-				sourceTab =
-					this.#host.tabs(caller.tabId)?.find(tab => tab.tabId === sourceOpened) ??
-					fail(`The session opened on ${deviceName ?? device} to start from is gone.`);
-			}
-			return await this.#autopilotFrom(caller, tabs, source, args, sourceTab, folder, deviceName);
+			return (await core().call<T>(wire, { port: this.#port.id, ...params }, { timeoutMs: NO_TIMEOUT_MS })).result;
 		} catch (error) {
-			if (error instanceof ToolError) throw error;
-			return fail(`Autopilot did not start: ${error instanceof Error ? error.message : String(error)}`);
-		} finally {
-			// Best effort, no note: a web page's tab is released in main, a desktop window closes its own.
-			if (sourceOpened)
-				void this.#closeTab(caller.tabId, sourceOpened, { waitMs: CLOSE_WAIT_MS }).catch(() => undefined);
+			if (!(error instanceof CoreError)) throw error;
+			if ((error.code === "no_instance" || error.code === "no_runtime") && retry) {
+				this.#opened = null;
+				return this.#invoke(wire, params, false);
+			}
+			if (error.code === "tool_error") throw new ToolError(error.message);
+			throw error;
 		}
 	}
 
-	/** The card, then the coordinator's start from `sourceTab` (on whichever computer runs it). */
-	async #autopilotFrom(
-		caller: ControlTab,
-		tabs: ControlTab[],
-		source: AutopilotSource,
-		args: Extract<AutopilotArgs, { action: "start" }>,
-		sourceTab: ControlTab,
-		folder: string,
-		deviceName: string | undefined,
-	): Promise<string> {
-		const where = deviceName ? `${folder} on ${deviceName}` : folder;
-		const plan = await source.plan(sourceTab.tabId);
-		// A start always names its level: the card says what it will do, and an omitted one commits only.
-		const ship = args.ship ?? "commit";
-		const advanced = args.advanced ?? {};
-		if (advanced.cadence !== undefined && ship !== "release")
-			fail("advanced.cadence goes with ship release (it is the release rhythm).");
-		const onDefaultBranch =
-			args.branch?.kind === "existing" &&
-			(args.branch.name === plan.defaultBranch || args.branch.name === "main" || args.branch.name === "master");
-		const opened = this.#openedBy(caller.tabId, tabs);
-		if (!this.#host.fullEnabled() && (!this.#host.manageEnabled() || ship === "release" || onDefaultBranch)) {
-			const branch =
-				args.branch?.kind === "existing"
-					? onDefaultBranch
-						? this.#host.text("autopilotBranchDefault", { name: args.branch.name })
-						: args.branch.name
-					: (args.branch?.name ?? this.#host.text("autopilotBranchNew", {}));
-			const approved = await this.#host.confirm(
-				caller.tabId,
-				this.#host.text("autopilotTitle", {}),
-				this.#host.text("autopilotMessage", {
-					caller: caller.title || "—",
-					folder: where,
-					ship: this.#host.text(
-						ship === "release"
-							? "autopilotShipRelease"
-							: ship === "push"
-								? "autopilotShipPush"
-								: "autopilotShipCommit",
-						{},
-					),
-					branch,
+	#open(): Promise<void> {
+		this.#opened ??= this.#start().then(
+			() => undefined,
+			error => {
+				this.#opened = null;
+				throw error;
+			},
+		);
+		return this.#opened;
+	}
+
+	async #start(): Promise<void> {
+		const host = this.#host;
+		const files = this.#options.files ?? {};
+		const file = (path: string | null | undefined) => (path === undefined ? undefined : { file: path });
+		const sweepMs = host.runtime?.sweepMs;
+		await core().call("agentControl.open", {
+			port: this.#port.id,
+			...this.#port.first(),
+			files: {
+				...(files.fates ? { fates: files.fates } : {}),
+				...(files.cleanups ? { cleanups: files.cleanups } : {}),
+				...(files.calls !== undefined ? { calls: file(files.calls) } : {}),
+				...(files.sendOutbox !== undefined ? { sendOutbox: file(files.sendOutbox) } : {}),
+				...(files.mailOutbox !== undefined || host.runtime ? { mailOutbox: file(files.mailOutbox ?? null) } : {}),
+			},
+			caps: {
+				reviewChanged: host.reviewChanged !== undefined,
+				sessionPace: host.sessionPace !== undefined,
+				sentMarks: host.sentMarks !== undefined,
+				beforeFirstPrompt: host.beforeFirstPrompt !== undefined,
+				autopilot: host.autopilot !== undefined,
+				appPorts: host.appPorts !== undefined,
+			},
+			tuning: this.#options.tuning ?? {},
+			...(host.runtime
+				? { runtime: { ...(sweepMs === undefined ? {} : { sweepMs }), ...this.#options.runtime } }
+				: {}),
+		});
+		// A core that ends takes the service with it: the next call opens it again.
+		this.#port.held().catch(() => {
+			this.#opened = null;
+			if (this.#host.runtime) this.#retryOpen();
+		});
+	}
+
+	/** Main's synchronous reads, at this moment (`HostState`). A read that throws leaves the last good snapshot. */
+	#snapshot(): HostSnapshot {
+		try {
+			this.#last = this.#build();
+		} catch (error) {
+			if (!this.#last) throw error;
+			console.warn(`[agent-control] snapshot: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		return this.#last as HostSnapshot;
+	}
+
+	#build(): HostSnapshot {
+		const host = this.#host;
+		const hosted = host.tabs();
+		const tabs: ControlTab[] = [];
+		const windowOf: Record<string, string> = {};
+		for (const { window, ...tab } of hosted) {
+			tabs.push(tab);
+			windowOf[tab.tabId] = window;
+		}
+		const devices = host.devices();
+		const parents: HostSnapshot["parents"] = {};
+		const checkoutPeers: HostSnapshot["checkoutPeers"] = {};
+		const stopping: string[] = [];
+		for (const tab of tabs) {
+			const parent = host.parentOf(tab.tabId);
+			if (parent !== undefined) {
+				const tag = host.parentTag?.(tab.tabId);
+				parents[tab.tabId] = { callerTabId: parent, ...(tag === undefined ? {} : { tag }) };
+			}
+			const peers = host.checkoutPeers?.(tab.tabId) ?? [];
+			if (peers.length > 0) checkoutPeers[tab.tabId] = [...peers];
+			if (host.isStopping?.(tab.tabId) === true) stopping.push(tab.tabId);
+		}
+		// This computer's rows, each paired host's, and a host a tab still runs on that is no longer paired.
+		const computers = new Set<string>(devices.map(device => device.id));
+		for (const tab of tabs) if (tab.device) computers.add(tab.device);
+		const summaries: HostSnapshot["summaries"] = { "": host.summaries() };
+		for (const device of computers) summaries[device] = host.summaries(device);
+		const texts: Record<string, string> = {};
+		for (const key of TEXT_KEYS) texts[key] = host.text(key, {});
+		const app = host.appPorts;
+		return {
+			enabled: host.enabled(),
+			fullEnabled: host.fullEnabled(),
+			approveEnabled: host.approveEnabled(),
+			manageEnabled: host.manageEnabled(),
+			devices,
+			closedChildren: [...(host.closedChildren?.() ?? [])],
+			tabs,
+			windowOf,
+			outsideCallers: host.outsideCallers?.() ?? {},
+			outsideWindow: host.outsideWindow?.() ?? null,
+			parents,
+			checkoutPeers,
+			summaries,
+			stopping,
+			deleted: host.tombstones?.() ?? { byPath: [], byId: {} },
+			scheduleDevices: ["", ...devices.map(device => device.id)].filter(
+				device => host.hasSchedules?.(device === "" ? undefined : device) === true,
+			),
+			texts,
+			...(app
+				? {
+						app: {
+							manage: app.manageEnabled(),
+							full: app.fullEnabled(),
+							korean: app.localize("en", "ko") === "ko",
+							sidebar: app.sidebarView(),
+						},
+					}
+				: {}),
+		};
+	}
+
+	/** What the core asks of main (`host.rs`), by the TypeScript host method's own name. */
+	#handlers() {
+		const host = this.#host;
+		const apps = () => {
+			const app = host.appPorts;
+			if (!app) throw new Error("App actions are not available here.");
+			return app;
+		};
+		const schedules = (device: string | null | undefined) => {
+			const source = host.schedules(device ?? undefined);
+			if (!source) throw new Error("Schedules are not available here.");
+			return source;
+		};
+		const autopilot = () => {
+			if (!host.autopilot) throw new Error("Autopilot is not available here.");
+			return host.autopilot;
+		};
+		const device = (value: string | null | undefined) => value ?? undefined;
+		// A tell's effect (a tab closed or started, a name set) changes what main holds: the core reads it from the
+		// snapshot pushed right after, the one a step that waits for that effect looks at.
+		const tell = (run: () => void) => {
+			told(run);
+			this.#port.push();
+		};
+		return {
+			"args.parse": ({ tool, args, loose }: { tool: AgentControlToolName; args: unknown; loose: boolean }) =>
+				coded(() => {
+					// A model's JSON written as text is read as what it spells, for every tool and nesting; the
+					// parser's output (trimmed, defaults applied) is what the tool body reads.
+					const parsed = ARGS[tool].safeParse(loose ? (looseArgs(tool, args) ?? {}) : args);
+					if (parsed.success) return { ok: true, args: parsed.data };
+					return {
+						ok: false,
+						error: loose
+							? `Invalid arguments for ${tool}: ${parsed.error.issues.map(issueText).join("; ")}`
+							: `Invalid arguments: ${parsed.error.issues.map(issue => issue.message).join("; ")}`,
+					};
 				}),
-			);
-			if (!approved) return "The user declined Autopilot. Do not ask again unless they tell you to.";
-		}
-		const started = await source.start(caller.tabId, sourceTab.tabId, startOptions(args, ship));
-		opened.add(started.tabId);
-		return [
-			`Started Autopilot in session ${started.tabId}${deviceName ? ` (it runs on ${deviceName}, in ${folder})` : ""}.`,
-			describeRun({ tabId: started.tabId, title: "" }, started),
-			`It works by itself: read it with ompdesk_autopilot {"action":"status","session":"${started.tabId}"}, end it with {"action":"stop","session":"${started.tabId}"}. Do not send it messages.`,
-		].join("\n");
+			mail: ({
+				tabId,
+				content,
+				details,
+				delivery,
+			}: {
+				tabId: string;
+				content: string;
+				details: Record<string, unknown>;
+				delivery: MailDelivery;
+			}) => coded(async () => (await host.mail(tabId, content, details, delivery)) ?? null),
+			command: ({
+				tabId,
+				command,
+				timeoutMs,
+				noDeadline,
+			}: {
+				tabId: string;
+				command: RpcCommand;
+				timeoutMs?: number;
+				noDeadline?: boolean;
+			}) => coded(() => host.command(tabId, command, noDeadline ? NO_DEADLINE : timeoutMs)),
+			spawn: ({ callerTabId, request }: { callerTabId: string; request: SpawnRequest }) =>
+				coded(async () => {
+					try {
+						return await host.spawn(callerTabId, request);
+					} catch (error) {
+						if (error instanceof SessionFolderMissing)
+							return { folderMissing: { folder: error.folder, saved: error.saved } };
+						throw error;
+					}
+				}),
+			release: ({ callerTabId, tabId }: { callerTabId: string; tabId: string }) =>
+				coded(() => host.release(callerTabId, tabId)),
+			exited: ({ tabId }: { tabId: string }) => coded(async () => (await host.exited(tabId)) ?? null),
+			markAnswered: ({ tabId, byTitle }: { tabId: string; byTitle: string }) =>
+				coded(async () => (await host.markAnswered(tabId, byTitle)) ?? null),
+			deleteSession: ({ callerTabId, tabId }: { callerTabId: string; tabId: string }) =>
+				coded(async () => (await host.deleteSession(callerTabId, tabId)) ?? null),
+			deleteStored: ({ session }: { session: StoredSession }) =>
+				coded(async () => (await host.deleteStored(session)) ?? null),
+			confirm: ({ callerTabId, title, message }: { callerTabId: string; title: string; message: string }) =>
+				coded(() => host.confirm(callerTabId, title, message)),
+			answer: ({
+				tabId,
+				requestId,
+				response,
+			}: {
+				tabId: string;
+				requestId: string;
+				response: ExtensionUIResponse;
+			}) => coded(async () => (await host.answer(tabId, requestId, response)) ?? null),
+			stored: ({ device: where, query }: { device?: string | null; query?: string | null }) =>
+				coded(() => host.stored(device(where), query ?? undefined)),
+			storedMessages: ({ session }: { session: StoredSession }) => coded(() => host.storedMessages(session)),
+			sessionPace: ({ path, device: where }: { path: string; device?: string | null }) =>
+				coded(async () => (await host.sessionPace?.({ path, ...(where ? { device: where } : {}) })) ?? null),
+			branchFacts: ({ worktree, device: where }: { worktree: WorktreeRef; device?: string | null }) =>
+				coded(() => host.branchFacts(worktree, device(where))),
+			landing: ({ worktree, device: where }: { worktree: WorktreeRef; device?: string | null }) =>
+				coded(() => host.landing(worktree, device(where))),
+			branchEvidence: ({
+				worktree,
+				diffChars,
+				device: where,
+			}: {
+				worktree: WorktreeRef;
+				diffChars: number;
+				device?: string | null;
+			}) => coded(() => host.branchEvidence(worktree, diffChars, device(where))),
+			mergeBranch: ({
+				worktree,
+				label,
+				device: where,
+			}: {
+				worktree: WorktreeRef;
+				label: string;
+				device?: string | null;
+			}) => coded(() => host.mergeBranch(worktree, label, device(where))),
+			removeSafeWorktree: ({ worktree, device: where }: { worktree: WorktreeRef; device?: string | null }) =>
+				coded(async () => (await host.removeSafeWorktree(worktree, device(where))) ?? null),
+			discardWorktree: ({ worktree, device: where }: { worktree: WorktreeRef; device?: string | null }) =>
+				coded(async () => (await host.discardWorktree(worktree, device(where))) ?? null),
+			sentMarks: ({ tabId, marks }: { tabId: string; marks: string[] }) =>
+				coded(async () => (await host.sentMarks?.(tabId, marks)) ?? null),
+			beforeFirstPrompt: ({ child }: { child: OpenedChild }) =>
+				coded(async () => (await host.beforeFirstPrompt?.(child)) ?? null),
+			"autopilot.plan": ({ sourceTabId }: { sourceTabId: string }) => coded(() => autopilot().plan(sourceTabId)),
+			"autopilot.start": ({
+				callerTabId,
+				sourceTabId,
+				options,
+			}: {
+				callerTabId: string;
+				sourceTabId: string;
+				options: AutopilotStartOptions;
+			}) => coded(() => autopilot().start(callerTabId, sourceTabId, options)),
+			"autopilot.status": ({ tabId }: { tabId: string }) => coded(() => autopilot().status(tabId)),
+			"autopilot.stop": ({ tabId, now }: { tabId: string; now: boolean }) =>
+				coded(() => autopilot().stop(tabId, now)),
+			"schedules.command": ({ device: where, request }: { device?: string | null; request: SchedulesRequest }) =>
+				coded(() => schedules(where).command(request)),
+			"schedules.create": ({ device: where, draft }: { device?: string | null; draft: ScheduleDraft }) =>
+				coded(() => schedules(where).create(draft)),
+			"appPorts.getPref": ({ key }: { key: string }) =>
+				coded(() => {
+					const value = apps().getPref(key);
+					return value === undefined ? null : value;
+				}),
+			"appPorts.setPref": ({ tabId, key, value }: { tabId: string; key: string; value: unknown }) =>
+				coded(async () => (await apps().setPref(tabId, key, value)) ?? null),
+			"appPorts.rpc": ({ tabId, command }: { tabId: string; command: RpcCommand }) =>
+				coded(() => apps().rpc(tabId, command)),
+			"appPorts.invoke": ({ tabId, channel, args }: { tabId: string; channel: string; args: unknown[] }) =>
+				coded(async () => (await apps().invoke(tabId, channel, args)) ?? null),
+			"appPorts.note": ({ tabId, text }: { tabId: string; text: string }) =>
+				coded(async () => (await apps().note(tabId, text)) ?? null),
+			"appPorts.openPrivacyPane": ({ pane }: { pane: Parameters<AppPortsLike["openPrivacyPane"]>[0] }) =>
+				coded(async () => (await apps().openPrivacyPane(pane)) ?? null),
+			reach: ({ sessionPath }: { sessionPath: string }) => {
+				const runtime = host.runtime;
+				if (!runtime) throw new Error("This app runs no core runtime.");
+				return coded(() => runtime.reach(sessionPath));
+			},
+			// Tells: nothing answers them.
+			start: ({ tabId }: { tabId: string }) => tell(() => host.start(tabId)),
+			setTask: ({ tabId, task }: { tabId: string; task: string }) => tell(() => host.setTask(tabId, task)),
+			view: ({ callerTabId, event }: { callerTabId: string; event: AgentControlViewEvent }) =>
+				tell(() => host.view(callerTabId, event)),
+			notify: ({ callerTabId, title, body }: { callerTabId: string; title: string; body: string }) =>
+				told(() => host.notify(callerTabId, title, body)),
+			reviewChanged: ({ parentTabId }: { parentTabId: string }) => told(() => host.reviewChanged?.(parentTabId)),
+			recordClosed: ({ child }: { child: ClosedChild }) => tell(() => host.recordClosed(child)),
+			"appPorts.fire": ({ tabId, channel, args }: { tabId: string; channel: string; args: unknown[] }) =>
+				tell(() => apps().fire(tabId, channel, args)),
+			"appPorts.send": ({ tabId, event }: { tabId: string; event: Parameters<AppPortsLike["send"]>[1] }) =>
+				told(() => apps().send(tabId, event)),
+			reviewSent: ({ tabId, review }: { tabId: string; review: AgentReviewResult }) =>
+				told(() => host.runtime?.reviewSent(tabId, review)),
+			nextPromptChildren: ({ tabId, children }: { tabId: string; children: { title: string; waiting?: true }[] }) =>
+				told(() => host.runtime?.nextPromptChildren(tabId, children)),
+			closedChildren: ({ rows }: { rows: ClosedChild[] }) => tell(() => host.runtime?.closedChildren(rows)),
+			wakeDone: ({ runId, code, error }: { runId: string; code: number | null; error?: string }) =>
+				told(() => host.runtime?.wakeDone(runId, { code, ...(error === undefined ? {} : { error }) })),
+		};
 	}
-}
-
-interface OpenResult {
-	tabId: string;
-	notes?: string[];
-	worktree?: string;
-	started?: boolean;
-	where?: string;
-	error?: string;
-}
-
-/** A `get_transcript_page` payload with its messages, or null for anything else. */
-function transcriptPage(data: unknown): MessagesPage | null {
-	return data && typeof data === "object" && "messages" in data && Array.isArray(data.messages)
-		? (data as MessagesPage)
-		: null;
-}
-
-function askTitle(request: ExtensionUIRequest): string {
-	if (request.method === "ask") return request.questions[0]?.question ?? "";
-	return "title" in request && typeof request.title === "string" ? request.title : "";
-}
-
-/** Stock's label for the custom-answer row of a choice card (`OTHER_OPTION` in the stock ask tool). */
-const OTHER_OPTION = "Other (type your own)";
-
-/** What a question card asks and which `ompdesk_session_answer` field answers it, for its opener's mail. */
-function cardText(request: ExtensionUIRequest): string {
-	switch (request.method) {
-		case "select":
-			return `${request.title}\noptions: ${request.options.map(option => `"${option}"`).join(" | ")}\nanswer with: choice (one option exactly as written)`;
-		case "confirm":
-			return `${request.title}${request.message ? `\n${request.message}` : ""}\nanswer with: approve (true or false)`;
-		case "input":
-		case "editor":
-			return `${request.title}\nanswer with: text`;
-		case "ask":
-			return [
-				...request.questions.map(
-					question =>
-						`[${question.id}] ${question.question}\noptions: ${question.options.map(option => `"${option.label}"`).join(" | ")}${question.multi ? " (several allowed)" : ""}`,
-				),
-				'answer with: answers ([{"id": <question id>, "selected": [<option>]}], or "text" for an answer of your own)',
-			].join("\n");
-		default:
-			return askTitle(request);
-	}
-}
-
-/** The option named `wanted` (case-insensitive, or a unique prefix), or a readable failure listing the options. */
-function pickOption(options: readonly string[], wanted: string): string {
-	const lowered = wanted.trim().toLowerCase();
-	const exact = options.find(option => option.toLowerCase() === lowered);
-	if (exact) return exact;
-	const near = options.filter(option => option.toLowerCase().startsWith(lowered));
-	if (near.length === 1 && near[0]) return near[0];
-	return fail(`"${wanted}" is not one of: ${options.join(" | ")}.`);
-}
-
-/** The tail of a "no such session" failure naming the devices whose saved sessions could not be searched. */
-function unreachedText(devices: readonly string[]): string {
-	return devices.length
-		? ` (${devices.join(", ")} could not be searched: not online; call again once it is, or name the device)`
-		: "";
 }

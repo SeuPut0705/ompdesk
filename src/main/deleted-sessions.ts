@@ -70,6 +70,11 @@ export class DeletedSessions {
 		return undefined;
 	}
 
+	/** Every tombstone, oldest first: what the agent-control service reads of them. */
+	list(): { path: string; device?: string; at: number }[] {
+		return [...this.#entries.values()].map(entry => ({ ...entry }));
+	}
+
 	add(path: string, device?: string, now = Date.now()): void {
 		const key = keyOf(path, device);
 		this.#entries.delete(key);

@@ -11,10 +11,6 @@ import { stat } from "node:fs/promises";
 import { isAbsolute, posix, resolve } from "node:path";
 import type { AutopilotAction, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import {
-	MAX_NEXT_PROMPT_CHILDREN,
-	type NextPromptChild,
-} from "../../../resources/gui-bridge/modes/next-prompt-contracts";
-import {
 	AGENT_CARD_PREFIX,
 	AGENT_CLOSED_CHILDREN_PREF,
 	AGENT_CONTROL_APP,
@@ -29,7 +25,6 @@ import {
 	type AgentControlToolName,
 	type AgentControlViewEvent,
 	type AgentReviewEvent,
-	type AgentReviewItem,
 	type AgentReviewResult,
 	agentControlApproveEnabled,
 	agentControlEnabled,
@@ -63,14 +58,8 @@ import {
 	type RpcResponse,
 	type RpcWorktreeCreateResult,
 } from "../../shared/rpc-types";
-import type {
-	Schedule,
-	ScheduleCreated,
-	ScheduleDraft,
-	SchedulesRequest,
-	SchedulesState,
-} from "../../shared/schedules";
-import { type SessionSummary, unsavedSessionKey, type VersionedSummaries } from "../../shared/session-summary";
+import type { Schedule } from "../../shared/schedules";
+import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
 import type { FamilyEdits } from "../../shared/turn-edits";
 import { deletedSessions } from "../deleted-sessions";
 import { discardOpenedWorktree } from "../disk/saved-worktrees";
@@ -86,13 +75,12 @@ import {
 import type { RunProcess, ScheduleService } from "../schedules";
 import type { Pace } from "../session-pace";
 import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
-import type { SidecarPool } from "../sidecar-pool";
+import type { SidecarPool, TabActivity } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import { recordTurnStop } from "../turn-stop-log";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
 import { sessionOpenFolders } from "../worktree-orphans";
-import type { AppPorts } from "./app-control";
 import {
 	type BranchEvidence,
 	type BranchFacts,
@@ -106,41 +94,47 @@ import {
 	type WorktreeRef,
 	type WorktreeRemoval,
 } from "./branches";
-import { CallJournal } from "./call-journal";
-import { type Mail, type MailDelivery, mailDetails, mailText } from "./mail";
-import { MailOutbox, redeliverMail } from "./mail-outbox";
-import { PendingCleanups } from "./pending-cleanups";
-import { SendOutbox, type SentAnswer } from "./send-outbox";
+import type { MailDelivery } from "./mail";
 import {
 	AgentControl,
 	type AgentControlHost,
 	type AutopilotSource,
 	type ControlAsk,
 	type ControlTab,
+	type HostTab,
+	type MailAnswer,
 	type OpenElsewhere,
 	type OpenedChild,
-	type ScheduleRow,
+	type ReleasedSession,
+	type RuntimeTuning,
+	type SchedulesHost,
+	type SentAnswer,
 	SessionFolderMissing,
 	type SpawnRequest,
 	type StoredWork,
+	type Tombstones,
 	type ToolOutcome,
+	type Tuning,
 } from "./service";
-import { FATE_BY, SessionFates } from "./session-fates";
 import { tabCloseStep } from "./tab-close";
 
 /** A confirmation card waits for the person this long. */
 export const CARD_TIMEOUT_MS = 10 * 60_000;
-/** A woken session that starts no turn on its routine's mail within this long fails that run (folded into context). */
-const WAKE_TURN_START_MS = 120_000;
 const WORKTREE_PREFIX = "omp/agent/";
-/** A child's activity comes in bursts; its review item is rebuilt (git runs) once it settles. */
-const REVIEW_SETTLE_MS = 400;
-/** A burst of tab activity becomes one auto-close pass after this. */
-const SWEEP_SETTLE_MS = 1_000;
-/** Opened sessions are looked at this often even without activity (a merge or push elsewhere moves no tab). */
-const SWEEP_INTERVAL_MS = 10_000;
 /** A receiver's bridge answers which messages its journal holds within this (a socket request, no omp command queue). */
 const SENT_MARKS_TIMEOUT_MS = 8_000;
+
+/** Every tombstone, by file and computer and by saved id (stock names a session file `<time>_<session id>.jsonl`). */
+function tombstones(): Tombstones {
+	const byPath: Tombstones["byPath"] = [];
+	const byId: Tombstones["byId"] = {};
+	for (const entry of deletedSessions().list()) {
+		byPath.push(entry);
+		const id = /_([^_/\\]+)\.jsonl$/.exec(entry.path)?.[1];
+		if (id && byId[id] === undefined) byId[id] = entry.at;
+	}
+	return { byPath, byId };
+}
 
 /** What a session does now, by its summary (the one rows read); unknown before its omp is up. */
 function summaryWork(summary: SessionSummary): StoredWork | undefined {
@@ -205,19 +199,22 @@ export interface AgentControlHostDeps {
 	/** Close a session's tab and delete its saved file (the sidebar's delete). */
 	deleteSession: (sessionPath: string, device: string | undefined) => Promise<void>;
 	text: AgentControlHost["text"];
-	/** How often opened sessions are looked at for closing; 0 turns the timer off (default 10 s). */
+	/** How often opened sessions are looked at for closing, in the core's runtime; 0 turns the timer off (default 10 s). */
 	sweepMs?: number;
 	/** A parent's review list went to its windows: a paired device viewing that session hears it too. */
 	reviewSent?: (callerTabId: string, review: AgentReviewResult) => void;
-	/** Where accepted reports wait for their receiver's journal (`mail-outbox.ts`); absent: kept in memory only. */
+	/** The waits of the core's service and runtime, in ms (a test shortens them; absent: the defaults). */
+	tuning?: Tuning;
+	runtimeTuning?: RuntimeTuning;
+	/** Where accepted reports wait for their receiver's journal (`mail-outbox`); absent: kept in memory only. */
 	mailOutboxFile?: string | null;
-	/** Where sent messages wait for their receiver's journal (`send-outbox.ts`); absent: kept in memory only. */
+	/** Where sent messages wait for their receiver's journal (`send-outbox`); absent: kept in memory only. */
 	sendOutboxFile?: string | null;
-	/** Where the control-tool calls that change something are recorded (`call-journal.ts`); absent: in memory only. */
+	/** Where the control-tool calls that change something are recorded (`call-journal`); absent: in memory only. */
 	callJournalFile?: string | null;
-	/** Where what became of each session an id named is kept (`session-fates.ts`); absent: in memory only. */
+	/** Where what became of each session an id named is kept (`session-fates`); absent: in memory only. */
 	sessionFatesFile?: string | null;
-	/** Where cleanups refused while the person was in the session wait (`pending-cleanups.ts`); absent: in memory only. */
+	/** Where cleanups refused while the person was in the session wait (`pending-cleanups`); absent: in memory only. */
 	pendingCleanupsFile?: string | null;
 	/** The app is quitting: the tabs its windows release now are not closed sessions, and the next launch restores them. */
 	quitting?: () => boolean;
@@ -316,121 +313,38 @@ export class AgentControlRuntime {
 	/** Who opened a tab and for what (Autopilot's tag). */
 	readonly #parents = new Map<string, { callerTabId: string; tag?: string }>();
 	readonly control: AgentControl;
-	/** Debounce timers of the review pushes, per parent tab. */
-	readonly #reviewTimers = new Map<string, NodeJS.Timeout>();
-	/** The review list last sent per parent tab (JSON), so the timer pushes only what changed. */
-	readonly #reviewSent = new Map<string, string>();
-	/**
-	 * Child tab → the opener whose review list (pushed, or read by its board) last named it. A child restored by a
-	 * relaunch has its opener only in the pool, which forgets it with the tab: its release must still reach that board.
-	 */
-	readonly #listedIn = new Map<string, string>();
-	/**
-	 * Openers whose timer review is still reading git: the next tick skips them. A review reads every child's branch,
-	 * so on a slow machine one tick's read outlived the next and the git processes piled up without end.
-	 */
-	readonly #sweepReviews = new Set<string>();
-	/** Openers whose live read (`liveReview`) has not answered yet: a request meanwhile is dropped. */
-	readonly #liveReviews = new Set<string>();
-	/** Children whose running turn moved on (the pool's `step`) since their last live read. */
-	readonly #moved = new Set<string>();
-	/** The running or waiting children last told to each parent's prompt suggestions (JSON). */
-	readonly #childrenSent = new Map<string, string>();
 	/** Tabs a person sent a prompt of their own (`noteUserPrompt`): never closed by themselves. */
 	readonly #userPrompted = new Set<string>();
 	/** Run tabs `ompdesk_autopilot` started: they end with their run, not with the rules for opened sessions. */
 	readonly #autopilotRuns = new Set<string>();
-	/** Debounce timers of the auto-close passes, per opener tab. */
-	readonly #sweepTimers = new Map<string, NodeJS.Timeout>();
-	/** Accepted reports until the receiver's journal holds them (`mail-outbox.ts`). */
-	readonly #outbox: MailOutbox;
-	/** Control-tool calls by their identity, so one a paired host re-sends after a relaunch runs once. */
-	readonly #calls: CallJournal;
-	/** What became of the sessions an id was handed out for (`session-fates.ts`). */
-	readonly #fates: SessionFates;
-	/** Cleanups refused while the person was in the session (`pending-cleanups.ts`). */
-	readonly #cleanups: PendingCleanups;
-	#redelivering = false;
-	/** Messages sent with `ompdesk_session_send` until the receiver's journal holds them (`send-outbox.ts`). */
-	readonly #sends: SendOutbox;
-	#resending = false;
-	/** A pass was asked for while one ran: it runs once more when that one ends. */
-	#redeliverAgain = false;
 	/** Callers outside OMPdesk by id (`runOutside`), kept while the app runs: their sessions' provenance. */
 	readonly #outside = new Map<string, OutsideCaller>();
 	/** Whoever hears the reports addressed to an outside caller (the control socket's event stream). */
 	readonly #outsideMail = new Set<(callerId: string, text: string) => void>();
 	/** The card each outside caller shows now, if any: the next one waits for it. */
 	readonly #outsideCards = new Map<string, Promise<void>>();
+	/** The routines' wake-ups waiting for their turn, by run: how each ended is what the core tells (`wakeDone`). */
+	readonly #wakes = new Map<string, (result: { code: number | null; error?: string }) => void>();
 
 	constructor(deps: AgentControlHostDeps) {
 		this.#deps = deps;
-		this.#outbox = new MailOutbox(deps.mailOutboxFile ?? null);
-		this.#sends = new SendOutbox(deps.sendOutboxFile ?? null);
-		this.#calls = new CallJournal(deps.callJournalFile ?? null);
-		this.#fates = new SessionFates(deps.sessionFatesFile ?? null);
-		this.#cleanups = new PendingCleanups(deps.pendingCleanupsFile ?? null);
-		this.control = new AgentControl(this.#host());
-		deps.pool.observeTabs(activity => {
-			const parent =
-				this.#openerOf(activity.tabId) ??
-				(activity.type === "released" ? this.#listedIn.get(activity.tabId) : undefined);
-			// A running child moved on: the next live read takes its step and cost; nothing else changed.
-			if (activity.type === "step") {
-				if (parent) this.#moved.add(activity.tabId);
-				return;
-			}
-			if (parent) this.#pushReview(parent);
-			// A child's question card tells its opener (local and paired-device children alike); an Autopilot run's
-			// children are answered by its approver, and the run reads them itself.
-			if (
-				activity.type === "ask" &&
-				parent &&
-				this.#parents.get(activity.tabId)?.tag === undefined &&
-				!this.#autopilotRuns.has(parent) &&
-				!this.#deps.isAutopilotRun?.(parent)
-			)
-				this.control.childAsked(parent, activity.tabId, activity.requestId).catch(() => undefined);
-			// A turn that ended changed the session's own cost, the base of its family's (sidebar chip, Work tree).
-			if (activity.type === "idle") this.#pushReview(activity.tabId);
-			// A child finishing, or an opener going idle (it can no longer collect), may let a child close.
-			this.#sweepSoon(parent ?? activity.tabId);
-			if (activity.type === "released") {
-				this.#windows.delete(activity.tabId);
-				this.#parents.delete(activity.tabId);
-				this.#reviewSent.delete(activity.tabId);
-				this.#childrenSent.delete(activity.tabId);
-				this.#userPrompted.delete(activity.tabId);
-				this.#moved.delete(activity.tabId);
-				this.#listedIn.delete(activity.tabId);
-				const held = deps.quitting?.() ? undefined : activity.session;
-				const openerWin = parent ? this.#win(parent) : undefined;
-				const opener =
-					parent && openerWin && !openerWin.isDestroyed()
-						? deps.pool.tabsForWindow(openerWin).find(tab => tab.tabId === parent)?.sessionPath
-						: undefined;
-				this.control.released(
-					activity.tabId,
-					held && {
-						...held,
-						...(!held.device && this.#hiddenPaths().has(held.path) ? { hidden: true } : {}),
-						...(opener ? { openedBySession: opener } : {}),
-					},
-				);
-			}
+		this.control = new AgentControl(this.#host(), {
+			tuning: deps.tuning,
+			runtime: deps.runtimeTuning,
+			files: {
+				fates: deps.sessionFatesFile ?? null,
+				cleanups: deps.pendingCleanupsFile ?? null,
+				calls: deps.callJournalFile ?? null,
+				sendOutbox: deps.sendOutboxFile ?? null,
+				mailOutbox: deps.mailOutboxFile ?? null,
+			},
 		});
+		// Every tab activity goes to the core's runtime, which decides what it means (the sweep of the opened sessions,
+		// the review board, a child's question for its opener); main adds what only it knows at that moment.
+		deps.pool.observeTabs(activity => this.#activity(activity));
 		// A paired page's changed word about its Files editor (its unsaved edits saved or dropped) lets a child it held
 		// back close now, not at the next timer tick.
-		deps.fileEdits.onReport(() => {
-			for (const opener of this.#openers()) this.#sweepSoon(opener);
-		});
-		const every = deps.sweepMs ?? SWEEP_INTERVAL_MS;
-		if (every > 0)
-			setInterval(() => {
-				this.#sweepAll();
-				this.#redeliverMail();
-				this.#redeliverSends();
-			}, every).unref();
+		deps.fileEdits.onReport(() => void this.control.runtime.sweepOpeners().catch(() => undefined));
 	}
 
 	/** The tab Autopilot (or anyone) opened this one for, if the control tools opened it. */
@@ -438,14 +352,59 @@ export class AgentControlRuntime {
 		return this.#parents.get(tabId);
 	}
 
+	/** One pool activity, to the core's runtime with the opener, the card rule and the released session main knows. */
+	#activity(activity: TabActivity): void {
+		const { pool } = this.#deps;
+		const parent = this.#openerOf(activity.tabId);
+		// A child's question card tells its opener (local and paired-device children alike); an Autopilot run's
+		// children are answered by its approver, and the run reads them itself.
+		const announce =
+			activity.type === "ask" &&
+			parent !== undefined &&
+			this.#parents.get(activity.tabId)?.tag === undefined &&
+			!this.#autopilotRuns.has(parent) &&
+			!this.#deps.isAutopilotRun?.(parent);
+		let session: ReleasedSession | undefined;
+		if (activity.type === "released") {
+			const held = this.#deps.quitting?.() ? undefined : activity.session;
+			const openerWin = parent ? this.#win(parent) : undefined;
+			const opener =
+				parent && openerWin && !openerWin.isDestroyed()
+					? pool.tabsForWindow(openerWin).find(tab => tab.tabId === parent)?.sessionPath
+					: undefined;
+			if (held)
+				session = {
+					...held,
+					...(!held.device && this.#hiddenPaths().has(held.path) ? { hidden: true } : {}),
+					...(opener ? { openedBySession: opener } : {}),
+				};
+		}
+		void this.control.runtime
+			.activity({
+				type: activity.type,
+				tabId: activity.tabId,
+				...(activity.type === "ask" ? { requestId: activity.requestId } : {}),
+				...(activity.type === "idle" && activity.outcome ? { outcome: activity.outcome } : {}),
+				...(parent ? { parent } : {}),
+				...(announce ? { announce: true } : {}),
+				...(session ? { session } : {}),
+			})
+			.catch(() => undefined);
+		if (activity.type === "released") {
+			this.#windows.delete(activity.tabId);
+			this.#parents.delete(activity.tabId);
+			this.#userPrompted.delete(activity.tabId);
+		}
+	}
+
 	/**
 	 * A session's own wake-up came due (`ompdesk_schedule` with `target: "self"`, run by `ScheduleService`): the
-	 * schedule's prompt reaches that session as a mail that starts a turn, through the outbox like
-	 * every report (an omp that misses it gets it again). A session no tab here holds is opened in a background tab of
-	 * the front window, an asleep one is started; a session whose file is gone, or with no window to open it in, fails
-	 * the run with the reason. Delivered, the run follows the turn it started (or the one it joined): it ends when that
-	 * turn ends, with the turn's error if it failed; a tab closed meanwhile, or no turn within `WAKE_TURN_START_MS`, fails
-	 * it. `stop()` stops that turn.
+	 * schedule's prompt reaches that session as a mail that starts a turn, through the outbox like every report (an omp
+	 * that misses it gets it again). A session no tab here holds is opened in a background tab of the front window, an
+	 * asleep one is started; a session whose file is gone, or with no window to open it in, fails the run with the
+	 * reason. Delivered, the run follows the turn it started (or the one it joined): it ends when that turn ends, with
+	 * the turn's error if it failed; a tab closed meanwhile, or no turn within the core's wake wait, fails it. `stop()`
+	 * stops that turn. The core keeps the mail and follows the turn; this reaches the session and reports the end.
 	 */
 	async wakeSession(schedule: Schedule, runId: string): Promise<RunProcess> {
 		if (schedule.wakeSession === undefined) throw new Error("This schedule wakes no session");
@@ -457,114 +416,64 @@ export class AgentControlRuntime {
 			))
 		)
 			throw new Error(`The session to wake is gone (${sessionPath})`);
-		const mail: Mail = {
-			id: `wake-${runId}`,
-			from: "ompdesk",
-			fromTitle: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || "Scheduled wake",
-			to: "",
-			kind: "note",
-			text: schedule.prompt,
-			instruction: "One of your routines started this turn: act on it now.",
-			at: Date.now(),
-		};
-		const { pool } = this.#deps;
-		const owner = () => pool.sessionOwner(sessionPath)?.tabId;
 		const { promise: done, resolve } = Promise.withResolvers<{ code: number | null; error?: string }>();
-		let tabId = owner();
-		let started = tabId !== undefined && pool.tabFacts(tabId)?.busy === true;
-		// After the delivery any `idle` ends the turn the mail started or joined: a turn that starts and ends within one
-		// event batch is announced as `idle` alone, with no `busy` before it.
-		let delivered = false;
-		let timer: NodeJS.Timeout | undefined;
-		// Watched from before the delivery, so a turn that starts and ends at once is never missed.
-		const unobserve = pool.observeTabs(activity => {
-			tabId = owner() ?? tabId;
-			if (activity.tabId !== tabId) return;
-			if (activity.type === "busy") started = true;
-			else if (activity.type === "released")
-				finish({ code: null, error: "The session's tab closed before its turn ended" });
-			else if (activity.type === "idle" && (started || delivered)) {
-				const outcome = activity.outcome;
-				if (outcome?.stopReason === "aborted") finish({ code: SUPERVISOR_STOPPED_CODE });
-				else if (outcome?.stopReason === "error")
-					finish({ code: null, error: outcome.errorMessage || "The turn ended with an error" });
-				else finish({ code: 0 });
-			}
-		});
-		const finish = (result: { code: number | null; error?: string }) => {
-			unobserve();
-			clearTimeout(timer);
-			resolve(result);
-		};
+		this.#wakes.set(runId, resolve);
 		try {
-			await this.#reach(sessionPath, mail, { triggerTurn: true, deliverAs: "aside" });
+			await this.control.runtime.wake({
+				runId,
+				sessionPath,
+				fromTitle: schedule.name.replace(AGENT_SCHEDULE_PREFIX, "").trim() || "Scheduled wake",
+				text: schedule.prompt,
+				stoppedCode: SUPERVISOR_STOPPED_CODE,
+			});
 		} catch (error) {
-			unobserve();
 			// Nothing woke: the run fails, and the mail is not left to turn up in this session later.
-			this.#outbox.settle(mail.id);
+			this.#wakes.delete(runId);
 			throw error;
 		}
-		delivered = true;
-		tabId = owner() ?? tabId;
-		if (tabId !== undefined && pool.tabFacts(tabId)?.busy === true) started = true;
-		timer = setTimeout(() => {
-			if (!started) finish({ code: null, error: "The session started no turn on the wake-up within 2 minutes" });
-		}, WAKE_TURN_START_MS);
-		timer.unref();
 		return {
 			done,
 			stop: () => {
-				const holder = owner();
-				if (holder && started) {
-					recordTurnStop({ command: "abort", tab: holder, by: "schedule", surface: "routine-stop" });
-					void this.#hostCommand(holder, { type: "abort" }).catch(() => undefined);
-				}
-				finish({ code: SUPERVISOR_STOPPED_CODE });
+				void this.control.runtime.wakeStop(runId).then(
+					({ holder, started }) => {
+						if (holder && started) {
+							recordTurnStop({ command: "abort", tab: holder, by: "schedule", surface: "routine-stop" });
+							void this.#hostCommand(holder, { type: "abort" }).catch(() => undefined);
+						}
+					},
+					() => resolve({ code: SUPERVISOR_STOPPED_CODE }),
+				);
 			},
 		};
 	}
 
 	/**
-	 * Keeps `mail` for the session file until its journal holds it and sends it to the tab holding that session; an
-	 * asleep tab is started, and with no tab the session is opened in a background tab of the front window. Rejects
-	 * when there is no window to open it in, or the open fails; the mail stays kept.
+	 * The tab holding `sessionPath` (an asleep one is started), or null after the session was opened in a background
+	 * tab of the front window. Rejects when there is no window to open it in, or the open fails.
 	 */
-	async #reach(sessionPath: string, mail: Mail, delivery: MailDelivery): Promise<void> {
+	async #reach(sessionPath: string): Promise<string | null> {
 		const { pool } = this.#deps;
 		const owner = pool.sessionOwner(sessionPath);
 		const ownerWin = owner ? this.#win(owner.tabId) : undefined;
 		const tab = ownerWin ? pool.tabsForWindow(ownerWin).find(entry => entry.tabId === owner?.tabId) : undefined;
-		this.#keepAndSend(sessionPath, { ...mail, to: tab?.tabId ?? "" }, delivery);
-		if (tab?.status === "asleep") void this.#deps.pool.startTab(tab.tabId);
-		if (tab) return;
+		if (tab?.status === "asleep") void pool.startTab(tab.tabId);
+		if (tab) return tab.tabId;
 		const win = this.#deps.outsideWindow?.();
 		if (!win) throw new Error("No window to open the session in.");
 		await this.#deps.spawnTab(win, { sessionPath });
-	}
-
-	/** Keeps a report in the outbox until the session's journal holds it, and sends it to its tab when there is one. */
-	#keepAndSend(sessionPath: string, mail: Mail, delivery: MailDelivery): void {
-		const content = mailText(mail);
-		const details = mailDetails(mail);
-		this.#outbox.keep({ id: mail.id, sessionPath, content, details, delivery, at: mail.at });
-		const tabId = this.#deps.pool.sessionOwner(sessionPath)?.tabId;
-		// No tab yet, or its omp starting: the outbox pass sends it once the tab answers.
-		if (tabId)
-			this.#sendMail(tabId, content, details, delivery)
-				.then(answer => {
-					if (answer?.duplicate && answer.journaled) this.#outbox.settle(mail.id);
-				})
-				.catch(() => undefined);
+		return null;
 	}
 
 	/** A person (not an agent) sent `tabId` a prompt: its session never closes by itself again. */
 	noteUserPrompt(tabId: string): void {
-		if (this.#openerOf(tabId)) this.#userPrompted.add(tabId);
+		if (!this.#openerOf(tabId)) return;
+		this.#userPrompted.add(tabId);
+		this.control.changed();
 	}
 
 	/** The person typed a prompt to `tabId` in a window, on the phone page or on a paired device (main's word, not the text). */
 	personTyped(tabId: string): void {
-		this.control.personTyped(tabId);
+		void this.control.personTyped(tabId).catch(() => undefined);
 	}
 
 	/**
@@ -597,87 +506,14 @@ export class AgentControlRuntime {
 		return parent ? parent.tag === undefined : this.#restoredOpener(info) !== undefined;
 	}
 
-	/** Look for sessions to close shortly (one pass absorbs a burst of activity). */
-	#sweepSoon(tabId: string): void {
-		if (this.#sweepTimers.has(tabId)) return;
-		const timer = setTimeout(() => {
-			this.#sweepTimers.delete(tabId);
-			void this.control.autoClose(tabId).catch(() => undefined);
-		}, SWEEP_SETTLE_MS);
-		timer.unref();
-		this.#sweepTimers.set(tabId, timer);
-	}
-
-	/**
-	 * Every opener with children, on the timer: a merge, push or commit outside the app is no tab activity, so
-	 * neither the auto-close pass nor the work board's review list would otherwise notice that a child's work landed
-	 * (it leaves the queue) or appeared (it joins).
-	 */
-	#sweepAll(): void {
-		const openers = this.#openers();
-		for (const opener of openers) {
-			this.#sweepSoon(opener);
-			if (this.#sweepReviews.has(opener)) continue;
-			this.#sweepReviews.add(opener);
-			void this.control
-				.review(opener)
-				.then(
-					review => {
-						const last = this.#reviewSent.get(opener) ?? JSON.stringify({ items: [], usage: {} });
-						if (JSON.stringify(review) !== last) this.#sendReview(opener, review);
-					},
-					() => undefined,
-				)
-				.finally(() => this.#sweepReviews.delete(opener));
-		}
-	}
-
-	/** The tabs that opened a session the auto-close pass may close, over every window. */
-	#openers(): Set<string> {
-		const openers = new Set<string>();
-		const { pool } = this.#deps;
-		for (const win of pool.tabWindows()) {
-			if (win.isDestroyed()) continue;
-			for (const info of pool.tabsForWindow(win)) {
-				const opener = this.#autoClosable(info) ? this.#openerOf(info.tabId) : undefined;
-				// An outside caller has no session to collect into: its sessions stay until it closes them.
-				if (opener && !isOutside(opener)) openers.add(opener);
-			}
-		}
-		return openers;
-	}
-
 	/**
 	 * A running child's step and cost move inside its turn, with no busy or idle edge to push them. A work board that
 	 * shows the opener's children asks for them (`agent_control_review {live: true}`, only while it is mounted in a
-	 * visible window: renderer `WorkBoardOpened.tsx` `useLiveReview`); only the running children whose omp sent a step
-	 * since (the pool's `step` activity: a tool call started or ended, a reply was written) are read, over the list last
-	 * sent, and it is pushed only when they moved and no fuller list went out meanwhile. A child that did nothing costs
-	 * nothing, on this computer or over a paired device's link.
+	 * visible window: renderer `WorkBoardOpened.tsx` `useLiveReview`); the core reads only the running children whose
+	 * omp sent a step since, and pushes the list when they moved.
 	 */
 	async liveReview(callerTabId: string): Promise<void> {
-		const sent = this.#reviewSent.get(callerTabId);
-		if (
-			!sent ||
-			this.#liveReviews.has(callerTabId) ||
-			this.#sweepReviews.has(callerTabId) ||
-			this.#reviewTimers.has(callerTabId)
-		)
-			return;
-		const last = JSON.parse(sent) as AgentReviewResult;
-		const moved = new Set(
-			last.items.flatMap(item => (item.state === "running" && this.#moved.has(item.tabId) ? [item.tabId] : [])),
-		);
-		if (moved.size === 0) return;
-		for (const tabId of moved) this.#moved.delete(tabId);
-		this.#liveReviews.add(callerTabId);
-		try {
-			const review = await this.control.liveReview(callerTabId, last, moved);
-			if (!review || this.#reviewSent.get(callerTabId) !== sent) return;
-			if (JSON.stringify(review) !== sent) this.#sendReview(callerTabId, review);
-		} finally {
-			this.#liveReviews.delete(callerTabId);
-		}
+		await this.control.runtime.liveReview(callerTabId);
 	}
 
 	/** The closed-children list main keeps (`ClosedChild`), newest last; the child's own record is replaced. */
@@ -686,41 +522,26 @@ export class AgentControlRuntime {
 		if (!prefs.set) return;
 		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF)).filter(row => row.path !== child.path);
 		rows.push(child);
-		prefs.set(AGENT_CLOSED_CHILDREN_PREF, rows.slice(-MAX_CLOSED_CHILDREN));
+		this.#setClosedChildren(rows.slice(-MAX_CLOSED_CHILDREN));
+	}
+
+	/** Writes the list and tells every window and the service. */
+	#setClosedChildren(rows: ClosedChild[]): void {
+		const { prefs } = this.#deps;
+		if (!prefs.set) return;
+		prefs.set(AGENT_CLOSED_CHILDREN_PREF, rows);
 		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+		this.control.changed();
 	}
 
 	/**
 	 * Drop the closed record of every deleted session (`deleted-sessions.ts`): a deleted session never comes back, and
 	 * its record kept it in its opener's family. Run on every delete and once at startup, for records a delete before
-	 * this rule left behind.
+	 * this rule left behind. The core decides (it holds the fates); the rest of the list comes back to `#setClosedChildren`.
 	 */
-	forgetDeleted(): void {
-		const { prefs } = this.#deps;
-		if (!prefs.set) return;
-		const rows = parseClosedChildren(prefs.get(AGENT_CLOSED_CHILDREN_PREF));
-		const gone = rows.filter(row => deletedSessions().has(row.path, row.device));
-		if (gone.length === 0) return;
-		// The ids its opener was given keep naming the deleted session: they say what became of it (`session-fates.ts`).
-		for (const row of gone)
-			if (row.tabIds?.length)
-				this.#fates.deleted(
-					{
-						ids: row.tabIds,
-						path: row.path,
-						...(row.device ? { device: row.device } : {}),
-						title: row.title,
-						cwd: row.cwd,
-						openedBySession: row.openedBySession,
-					},
-					FATE_BY.app,
-					deletedSessions().at(row.path, row.device),
-				);
-		prefs.set(
-			AGENT_CLOSED_CHILDREN_PREF,
-			rows.filter(row => !gone.includes(row)),
-		);
-		prefs.changed?.(AGENT_CLOSED_CHILDREN_PREF);
+	forgetDeleted(): Promise<void> {
+		if (!this.#deps.prefs.set) return Promise.resolve();
+		return this.control.runtime.forgetDeleted().catch(() => undefined);
 	}
 
 	/** Execute one control host-tool call made by `callerTabId`'s main agent; `call` is the host tool call (service.ts `run`). */
@@ -738,16 +559,14 @@ export class AgentControlRuntime {
 			tool === "ompdesk_merge" ||
 			tool === "ompdesk_session_stop" ||
 			tool === "ompdesk_autopilot"
-		) {
-			this.#pushReview(callerTabId);
-			this.#sweepSoon(callerTabId);
-		}
+		)
+			void this.control.runtime.afterRun(callerTabId).catch(() => undefined);
 		return outcome;
 	}
 
 	/** The host took the result of host call `callId`: its record may be forgotten in time (`CallJournal.acknowledge`). */
 	acknowledge(callId: string): void {
-		this.#calls.acknowledge(callId);
+		void this.control.runtime.acknowledge(callId).catch(() => undefined);
 	}
 
 	/**
@@ -770,7 +589,7 @@ export class AgentControlRuntime {
 
 	/** Every open tab of the app as the tools see it, from no session's window (the control socket's waits). */
 	controlTabs(): ControlTab[] {
-		return this.#allTabs(undefined);
+		return this.#hostTabs().map(({ window: _window, ...tab }) => tab);
 	}
 
 	onOutsideMail(listener: (callerId: string, text: string) => void): () => void {
@@ -783,6 +602,7 @@ export class AgentControlRuntime {
 		this.#outside.delete(caller.id);
 		this.#windows.delete(caller.id);
 		this.#outsideCards.delete(caller.id);
+		this.control.changed();
 	}
 
 	/** Bind an outside caller to the front window; the refusal's text when there is none. */
@@ -799,21 +619,13 @@ export class AgentControlRuntime {
 	async review(win: ClientWindow, callerTabId: string): Promise<AgentReviewResult> {
 		// A window viewing the tab (a phone) asks too; the owner stays the one its tools answer through.
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
-		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { items: [], usage: {} };
-		const review = await this.control.review(callerTabId);
-		this.#noteListed(callerTabId, review.items);
-		return review;
-	}
-
-	#noteListed(callerTabId: string, items: readonly AgentReviewItem[]): void {
-		for (const item of items) this.#listedIn.set(item.tabId, callerTabId);
+		return this.control.runtime.review(callerTabId);
 	}
 
 	/** What the sessions this one opened changed (the work board's "Changed" row; read-only). */
 	async familyEdits(win: ClientWindow, callerTabId: string, since?: number): Promise<FamilyEdits> {
 		if (!this.#deps.pool.windowOfTab(callerTabId)) this.#windows.set(callerTabId, win);
-		if (!agentControlEnabled(this.#deps.prefs.get(AGENT_CONTROL_PREF))) return { members: [] };
-		return this.control.familyEdits(callerTabId, since);
+		return this.control.runtime.familyEdits(callerTabId, since);
 	}
 
 	/**
@@ -821,49 +633,13 @@ export class AgentControlRuntime {
 	 * children (they are tabs of the window that opened them), so these rows are all it knows of them: without
 	 * them its work strip said nothing while the children worked.
 	 */
-	#sendReview(callerTabId: string, review: AgentReviewResult): void {
-		// No board shows an outside caller's sessions: it lists them with ompdesk_sessions.
-		if (isOutside(callerTabId)) return;
-		this.#reviewSent.set(callerTabId, JSON.stringify(review));
-		this.#noteListed(callerTabId, review.items);
+	#reviewSent(callerTabId: string, review: AgentReviewResult): void {
 		const showing = this.#deps.pool.windowsShowingTab(callerTabId);
 		const own = this.#win(callerTabId);
 		for (const win of own && !showing.includes(own) ? [own, ...showing] : showing)
 			if (!win.isDestroyed())
 				win.webContents.send(AGENT_CONTROL_REVIEW, { tabId: callerTabId, ...review } satisfies AgentReviewEvent);
 		this.#deps.reviewSent?.(callerTabId, review);
-		this.#sendChildren(callerTabId, review.items);
-	}
-
-	/**
-	 * The opener's prompt suggestions learn which sessions it opened still run or wait (bridge next-prompt): those run
-	 * in their own tabs, so the opener's omp lists none of them as running work, and a suggestion once told the user
-	 * to approve work a child was already doing.
-	 */
-	#sendChildren(callerTabId: string, items: AgentReviewItem[]): void {
-		const children: NextPromptChild[] = items
-			.filter(item => item.state === "running" || item.waiting)
-			.slice(0, MAX_NEXT_PROMPT_CHILDREN)
-			.map(item => ({ title: item.title.slice(0, 200), ...(item.waiting ? { waiting: true } : {}) }));
-		const json = JSON.stringify(children);
-		if (json === (this.#childrenSent.get(callerTabId) ?? "[]")) return;
-		this.#childrenSent.set(callerTabId, json);
-		void this.#hostCommand(callerTabId, { type: "set_next_prompt_children", children });
-	}
-
-	/** The parent's review list changed (a child started, finished or closed): push it after a short settle. */
-	#pushReview(callerTabId: string): void {
-		if (isOutside(callerTabId)) return;
-		clearTimeout(this.#reviewTimers.get(callerTabId));
-		const timer = setTimeout(() => {
-			this.#reviewTimers.delete(callerTabId);
-			void this.control.review(callerTabId).then(
-				review => this.#sendReview(callerTabId, review),
-				() => undefined,
-			);
-		}, REVIEW_SETTLE_MS);
-		timer.unref();
-		this.#reviewTimers.set(callerTabId, timer);
 	}
 
 	/** The window a tab's calls go through: the one remembered for it, else the window that owns it (any window). */
@@ -881,13 +657,13 @@ export class AgentControlRuntime {
 		return agentHiddenPaths(this.#deps.prefs.get(AGENT_HIDDEN_PREFS_KEY));
 	}
 
-	/** Every open tab of the app, `own`'s first (the caller's window: `here`), then every other window's. */
-	#allTabs(own: ClientWindow | undefined): ControlTab[] {
+	/** Every open tab of the app once, in the pool's order, with the window it is in (any window). */
+	#hostTabs(): HostTab[] {
 		const { pool } = this.#deps;
 		const hidden = this.#hiddenPaths();
 		const seen = new Set<string>();
-		const tabs: ControlTab[] = [];
-		for (const win of own ? [own, ...pool.tabWindows().filter(other => other !== own)] : pool.tabWindows()) {
+		const tabs: HostTab[] = [];
+		for (const win of pool.tabWindows()) {
 			if (win.isDestroyed()) continue;
 			const open = pool.openRequests(win);
 			for (const info of pool.tabsForWindow(win)) {
@@ -896,13 +672,13 @@ export class AgentControlRuntime {
 				const asks = open
 					.filter(entry => entry.tabId === info.tabId && !entry.signIn && askOf(entry.request))
 					.map(entry => ({ id: entry.request.id, request: entry.request }));
-				tabs.push(this.#controlTab(info, asks, hidden, win === own));
+				tabs.push({ ...this.#controlTab(info, asks, hidden), window: String(win.webContents.id) });
 			}
 		}
 		return tabs;
 	}
 
-	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>, here: boolean): ControlTab {
+	#controlTab(info: IpcTabInfo, asks: ControlAsk[], hidden: Set<string>): ControlTab {
 		const plan = this.#deps.pool.pendingPlan(info.tabId);
 		const autoClosable = this.#autoClosable(info);
 		const formerIds = this.#deps.pool.formerTabIds(info.tabId);
@@ -930,7 +706,6 @@ export class AgentControlRuntime {
 			asks,
 			...(plan ? { plan } : {}),
 			hidden: !info.device && typeof info.sessionPath === "string" && hidden.has(info.sessionPath),
-			here,
 			...(info.worktree ? { worktree: info.worktree } : {}),
 			...(info.sessionPath ? { sessionPath: info.sessionPath } : {}),
 			...(info.task ? { task: info.task } : {}),
@@ -1175,14 +950,9 @@ export class AgentControlRuntime {
 	#host(): AgentControlHost {
 		const deps = this.#deps;
 		return {
-			calls: this.#calls,
 			enabled: () => this.#controlEnabled(),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			approveEnabled: () => this.#approveEnabled(),
-			summaryOf: tab => {
-				const key = tab.sessionPath ?? unsavedSessionKey(tab.tabId);
-				return deps.summaries?.(tab.device)?.sessions.find(session => session.sessionPath === key);
-			},
 			summaries: device => deps.summaries?.(device)?.sessions ?? [],
 			manageEnabled: () =>
 				agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)) ||
@@ -1191,35 +961,17 @@ export class AgentControlRuntime {
 			// The opener this launch saw, else the one the pool kept across a relaunch: its tab id, or (tab ids are new
 			// after a relaunch) the tab now holding the opener's session file.
 			parentOf: tabId => this.#openerOf(tabId),
+			parentTag: tabId => this.#parents.get(tabId)?.tag,
+			// What the receiver's bridge answers: the core keeps the report until the receiver's journal holds it
+			// (`mail-outbox`) and sends it again to whatever omp holds the receiver's session next.
 			mail: async (tabId, content, details, delivery) => {
 				// A report to a caller outside OMPdesk goes to its event stream (the control socket), not into a session.
 				if (isOutside(tabId)) {
 					for (const listener of this.#outsideMail) listener(tabId, content);
-					return;
+					return undefined;
 				}
-				// A queued aside is journaled at the receiver's next step boundary (or when a quit disposes it); a killed
-				// omp loses it, and one restarting cannot take it at all. Kept before it is sent, until the receiver's
-				// journal holds it, and sent again to whatever omp holds the receiver's session next.
-				const id = details.id;
-				const win = this.#win(tabId);
-				const info = win ? deps.pool.tabsForWindow(win).find(entry => entry.tabId === tabId) : undefined;
-				const kept =
-					typeof id === "string" && info?.sessionPath
-						? {
-								id,
-								sessionPath: info.sessionPath,
-								...(info.device ? { device: info.device } : {}),
-								content,
-								details,
-								delivery,
-								at: Date.now(),
-							}
-						: null;
-				if (kept) this.#outbox.keep(kept);
-				const answer = await this.#sendMail(tabId, content, details, delivery);
-				if (kept && answer?.duplicate && answer.journaled) this.#outbox.settle(kept.id);
+				return this.#sendMail(tabId, content, details, delivery);
 			},
-			sendOutbox: this.#sends,
 			sentMarks: async (tabId, marks) => {
 				const response = await this.#hostCommand(
 					tabId,
@@ -1231,18 +983,13 @@ export class AgentControlRuntime {
 					? { instance: data.instance, journaled: data.journaled.filter(mark => typeof mark === "string") }
 					: null;
 			},
-			reviewChanged: parentTabId => this.#pushReview(parentTabId),
-			tabs: callerTabId => {
-				const own = this.#win(callerTabId);
-				if (!own || own.isDestroyed()) return null;
-				if (!isOutside(callerTabId) && !deps.pool.tabsForWindow(own).some(info => info.tabId === callerTabId))
-					return null;
-				return this.#allTabs(own);
-			},
-			outsideCaller: callerTabId => {
-				const caller = this.#outside.get(callerTabId);
-				return caller
-					? {
+			reviewChanged: parentTabId => void this.control.runtime.pushReview(parentTabId).catch(() => undefined),
+			tabs: () => this.#hostTabs(),
+			outsideCallers: () =>
+				Object.fromEntries(
+					[...this.#outside].map(([id, caller]) => [
+						id,
+						{
 							tabId: caller.id,
 							title: caller.title,
 							cwd: caller.cwd,
@@ -1250,9 +997,12 @@ export class AgentControlRuntime {
 							busy: false,
 							asks: [],
 							hidden: false,
-							here: true,
-						}
-					: undefined;
+						} satisfies ControlTab,
+					]),
+				),
+			outsideWindow: () => {
+				const win = deps.outsideWindow?.();
+				return win && !win.isDestroyed() ? String(win.webContents.id) : undefined;
 			},
 			devices: () =>
 				(deps.remote?.hosts() ?? []).map(host => ({ id: host.deviceId, name: host.name, state: host.state })),
@@ -1436,84 +1186,49 @@ export class AgentControlRuntime {
 				),
 			recordClosed: child => this.#recordClosed(child),
 			closedChildren: () => parseClosedChildren(deps.prefs.get(AGENT_CLOSED_CHILDREN_PREF)),
-			fates: this.#fates,
-			cleanups: this.#cleanups,
-			deletedAt: session =>
-				"id" in session ? deletedSessions().atOfId(session.id) : deletedSessions().at(session.path, session.device),
+			tombstones: () => tombstones(),
+			hasSchedules: device => (device ? deps.remote !== undefined : deps.schedules?.() != null),
 			schedules: device => {
 				// The machine that runs the schedules: this computer's service, or a paired host's own over the link
 				// (`host.schedules.*`), which checks the draft the same way.
-				let command: (request: SchedulesRequest) => Promise<SchedulesState>;
-				let create: (draft: ScheduleDraft) => Promise<ScheduleCreated>;
 				if (device) {
 					const remote = deps.remote;
 					if (!remote) return null;
-					command = async request =>
-						SchedulesStateSchema.parse(
-							await remote.request<unknown>(device, "host.schedules.command", { request }),
-						);
-					create = async draft =>
-						ScheduleCreatedSchema.parse(
-							await remote.request<unknown>(device, "host.schedules.create", { draft }),
-						);
-				} else {
-					const service = deps.schedules?.();
-					if (!service) return null;
-					command = request => service.command(request);
-					create = draft => service.create(draft);
+					return {
+						command: async request =>
+							SchedulesStateSchema.parse(
+								await remote.request<unknown>(device, "host.schedules.command", { request }),
+							),
+						create: async draft =>
+							ScheduleCreatedSchema.parse(
+								await remote.request<unknown>(device, "host.schedules.create", { draft }),
+							),
+					} satisfies SchedulesHost;
 				}
-				const rowOf = (state: SchedulesState, schedule: Schedule): ScheduleRow => ({
-					id: schedule.id,
-					name: schedule.name,
-					frequency: schedule.frequency,
-					cwd: schedule.cwd,
-					enabled: schedule.enabled,
-					nextRun: state.nextRuns[schedule.id] ?? null,
-					lastStatus: state.runs.find(run => run.scheduleId === schedule.id)?.status ?? null,
-					...(schedule.wakeSession === undefined ? {} : { wakes: true }),
-				});
+				const service = deps.schedules?.();
+				if (!service) return null;
 				return {
-					list: async () => {
-						const state = await command({ action: "get" });
-						return state.schedules.map(schedule => rowOf(state, schedule));
-					},
-					save: async draft => {
-						// The id comes from the save itself: a diff against an earlier read would hand a concurrent
-						// create's schedule to this caller.
-						const { id, state } = await create(draft);
-						const made = state.schedules.find(schedule => schedule.id === id);
-						if (!made) throw new Error("The schedule was not saved.");
-						return rowOf(state, made);
-					},
-					remove: async id => {
-						await command({ action: "delete", id });
-					},
-					update: async (id, change) => {
-						const before = (await command({ action: "get" })).schedules.find(schedule => schedule.id === id);
-						if (!before) throw new Error("The schedule is gone.");
-						const { id: _id, createdAt: _createdAt, device: _device, ...draft } = before;
-						const state = await command({ action: "save", id, draft: change(draft) });
-						const saved = state.schedules.find(schedule => schedule.id === id);
-						if (!saved) throw new Error("The schedule is gone.");
-						return rowOf(state, saved);
-					},
-					setEnabled: async (id, enabled) => {
-						const state = await command({ action: "setEnabled", id, enabled });
-						const saved = state.schedules.find(schedule => schedule.id === id);
-						if (!saved) throw new Error("The schedule is gone.");
-						return rowOf(state, saved);
-					},
-					runNow: async id => {
-						await command({ action: "runNow", id });
-					},
-					runs: async id => (await command({ action: "get" })).runs.filter(run => run.scheduleId === id),
-				};
+					command: request => service.command(request),
+					create: draft => service.create(draft),
+				} satisfies SchedulesHost;
 			},
 			observe: listener => deps.pool.observeTabs(() => listener()),
 			isStopping: callerTabId => deps.isStopping?.(callerTabId) === true,
 			beforeFirstPrompt: deps.beforeFirstPrompt,
 			text: deps.text,
 			appPorts: deps.app ? this.#appPorts(deps.app) : undefined,
+			runtime: {
+				...(deps.sweepMs === undefined ? {} : { sweepMs: deps.sweepMs }),
+				reach: sessionPath => this.#reach(sessionPath),
+				reviewSent: (callerTabId, review) => this.#reviewSent(callerTabId, review),
+				nextPromptChildren: (callerTabId, children) =>
+					void this.#hostCommand(callerTabId, { type: "set_next_prompt_children", children }),
+				closedChildren: rows => this.#setClosedChildren(rows),
+				wakeDone: (runId, result) => {
+					this.#wakes.get(runId)?.(result);
+					this.#wakes.delete(runId);
+				},
+			},
 		};
 	}
 
@@ -1545,7 +1260,7 @@ export class AgentControlRuntime {
 		return response.success && (response.data as { approved?: boolean } | undefined)?.approved === true;
 	}
 
-	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): Omit<AppPorts, "autopilot" | "rpcOn"> {
+	#appPorts(app: NonNullable<AgentControlHostDeps["app"]>): NonNullable<AgentControlHost["appPorts"]> {
 		const deps = this.#deps;
 		const window = (tabId: string): ClientWindow => {
 			const win = this.#win(tabId);
@@ -1554,7 +1269,6 @@ export class AgentControlRuntime {
 		};
 		return {
 			getPref: key => deps.prefs.get(key),
-			device: tabId => deps.pool.sidecarOf(tabId)?.device,
 			setPref: async (tabId, key, value) => {
 				await app.invoke(window(tabId), IPC_COMMANDS.PREFS_SET, [{ key, value }]);
 			},
@@ -1565,23 +1279,14 @@ export class AgentControlRuntime {
 				const win = this.#win(tabId);
 				if (win && !win.isDestroyed()) win.webContents.send(AGENT_CONTROL_APP, event);
 			},
-			confirm: (tabId, title, message) => this.#confirm(tabId, title, message),
 			manageEnabled: () => agentControlManageEnabled(deps.prefs.get(AGENT_CONTROL_MANAGE_PREF)),
 			fullEnabled: () => agentControlFullEnabled(deps.prefs.get(AGENT_CONTROL_FULL_PREF)),
 			note: async (tabId, text) => {
 				await this.#hostCommand(tabId, { type: "agent_control_note", text });
 			},
-			text: (key, params) => deps.text(key, params),
 			localize: app.localize,
 			sidebarView: () => sidebarViewOf(deps.prefs.get(AGENT_HIDDEN_PREFS_KEY)),
 			openPrivacyPane: pane => app.openPrivacyPane(pane),
-			callerTitle: tabId => {
-				const outside = this.#outside.get(tabId);
-				if (outside) return outside.title;
-				const win = this.#win(tabId);
-				const title = win ? deps.pool.tabsForWindow(win).find(tab => tab.tabId === tabId)?.title : undefined;
-				return title || "this session";
-			},
 		};
 	}
 
@@ -1591,7 +1296,7 @@ export class AgentControlRuntime {
 		content: string,
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
-	): Promise<{ duplicate?: boolean; journaled?: boolean } | undefined> {
+	): Promise<MailAnswer | undefined> {
 		const response = await this.#hostCommand(tabId, {
 			type: "agent_control_mail",
 			content,
@@ -1600,49 +1305,7 @@ export class AgentControlRuntime {
 			...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
 		});
 		if (!response.success) throw new Error(response.error ?? "The report could not be delivered.");
-		return typeof response.data === "object" && response.data !== null
-			? (response.data as { duplicate?: boolean; journaled?: boolean })
-			: undefined;
-	}
-
-	/**
-	 * Messages an omp held and lost (a relaunch, a crash) go to the omp that holds the receiver's session now. A receiver
-	 * restored but not started is started: the message is work waiting for it.
-	 */
-	#redeliverSends(): void {
-		if (this.#resending) return;
-		this.#resending = true;
-		const { pool } = this.#deps;
-		void this.control
-			.redeliverSends((sessionPath, device) => {
-				const owner = pool.sessionOwner(sessionPath, device);
-				if (!owner || owner.hosted) return undefined;
-				const sidecar = pool.sidecarOf(owner.tabId);
-				// Restored and never shown: no omp yet. Started here; a later pass hands it the message.
-				if (sidecar?.status === "asleep") void pool.startTab(owner.tabId);
-				return sidecar?.status === "ready" ? owner.tabId : undefined;
-			})
-			.finally(() => {
-				this.#resending = false;
-			});
-	}
-
-	/** Accepted reports whose receiver's journal does not hold them yet, sent again to its live tab. */
-	#redeliverMail(): void {
-		if (this.#redelivering) {
-			this.#redeliverAgain = true;
-			return;
-		}
-		this.#redelivering = true;
-		void redeliverMail(this.#outbox, {
-			tabOf: (sessionPath, device) => this.#deps.pool.sessionOwner(sessionPath, device)?.tabId,
-			send: (tabId, mail) => this.#sendMail(tabId, mail.content, mail.details, mail.delivery),
-		}).finally(() => {
-			this.#redelivering = false;
-			if (!this.#redeliverAgain) return;
-			this.#redeliverAgain = false;
-			this.#redeliverMail();
-		});
+		return typeof response.data === "object" && response.data !== null ? (response.data as MailAnswer) : undefined;
 	}
 
 	async #hostCommand(tabId: string, command: RpcCommand, timeoutMs = CARD_TIMEOUT_MS): Promise<RpcResponse> {
