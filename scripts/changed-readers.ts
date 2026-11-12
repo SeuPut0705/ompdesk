@@ -13,6 +13,14 @@ const git = (args: string[], cwd?: string) =>
 		.split("\n")
 		.filter(Boolean);
 
+/**
+ * The commit a change is measured from: `HEAD` as given, any other ref by where this branch left it (`git merge-base`),
+ * so `--base origin/main` on a branch behind it counts this branch's own work, not what landed on main since.
+ */
+export function changeBase(base: string, cwd?: string): string {
+	return base === "HEAD" ? base : (git(["merge-base", base, "HEAD"], cwd)[0] ?? base);
+}
+
 /** Every path changed against `base`: the working tree's diff, deleted files included, and the untracked files. */
 export function changedPaths(base: string, cwd?: string): string[] {
 	return [

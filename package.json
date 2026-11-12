@@ -26,7 +26,7 @@
     "gen:licenses": "bun scripts/generate-third-party-notices.ts",
     "licenses:check": "bun scripts/generate-third-party-notices.ts --check",
     "check": "node scripts/lint-surfaces.mjs && biome check . && bun run check:types",
-    "check:types": "bun scripts/build-lock.ts --kind vitest -- tsc --noEmit",
+    "check:types": "bun scripts/build-lock.ts --kind vitest -- tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc/check.tsbuildinfo",
     "lint": "biome lint .",
     "fix": "biome check --write --unsafe .",
     "fmt": "biome format --write .",

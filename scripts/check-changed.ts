@@ -11,11 +11,14 @@
  * and a test-runner input (vitest's config, package.json, bun.lock) runs the whole vitest suite.
  *
  * 1. Side by side: typecheck (always whole: a type error shows up far from the
- *    edit), biome on the changed files, the surface policy, and `vitest related`
- *    (every test file that imports a changed file, directly or transitively, and every
- *    one whose text names a changed file, a deleted one or CHANGELOG.md included:
- *    `scripts/changed-readers.ts`), and
- *    `scripts/lint-fix-tests.mjs` over this branch's unpublished commits.
+ *    edit), biome on the changed files, the surface policy, vitest, and
+ *    `scripts/lint-fix-tests.mjs` over this branch's unpublished commits. vitest runs
+ *    `vitest related` (every test file that imports a changed file, directly or
+ *    transitively) while the change reaches at most `RELATED_CAP` test files; a wider
+ *    change runs the tests one step away (changed tests and tests importing a changed
+ *    file) and says how many it leaves to CI's `check` (`scripts/changed-tests.ts`, with
+ *    the measurement behind it). Either way it also runs every test whose text names a
+ *    changed file, a deleted one or CHANGELOG.md included (`scripts/changed-readers.ts`).
  * 2. Then, unless `--no-e2e` or nothing matches: `bun run build` (reused when
  *    out/ matches) and the Playwright specs that touch what changed: a changed
  *    spec, a spec whose file name or text mentions a changed source file's
@@ -39,14 +42,18 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { en } from "../src/renderer/locales/en";
 import { acquireLock, describeExit, type RunResult, run, runLocked, runSteps } from "./build-lock";
-import { changedPaths, changedReaders } from "./changed-readers";
+import { changeBase, changedPaths, changedReaders } from "./changed-readers";
 import { changedScope } from "./changed-scope";
 import { specsFor } from "./changed-specs";
+import { pickTests, RELATED_CAP, reach, sourceImports } from "./changed-tests";
 import { browsersNeeded, missingBrowsers, missingBrowsersNotice } from "./e2e-browsers";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
-const base = args.includes("--base") ? args[args.indexOf("--base") + 1] : "HEAD";
+// `--base origin/main` on a branch behind main measures from where the branch left it: what landed since is not this
+// change (measured 12 Nov 2026: a branch five commits behind read 41 changed files reaching 763 tests for its own 7
+// reaching 130).
+const base = changeBase(args.includes("--base") ? (args[args.indexOf("--base") + 1] ?? "HEAD") : "HEAD");
 
 const git = (...a: string[]) =>
 	execFileSync("git", a, { encoding: "utf8", maxBuffer: 64 << 20 })
@@ -98,10 +105,20 @@ const specs = flag("--no-e2e")
 		});
 const supportChanged = changed.some(file => /^e2e\/(?!.*\.e2e\.ts$)/.test(file));
 const readers = changedReaders(base);
+const changedSources = changed.filter(
+	file => /^(?:src|resources|scripts)\//.test(file) && /\.[cm]?[jt]sx?$/.test(file),
+);
+const reached = reach(changed, sourceImports());
+const tests = pickTests(changedSources, readers, reached);
+const testsLine =
+	tests.command === "related"
+		? `the ${reached.related.length} test file(s) the change reaches`
+		: `the change reaches ${reached.related.length} test files (over ${RELATED_CAP}); running the ${tests.files.length} that are changed, import a changed file or name one, and leaving ${tests.left} that reach it only through other files to CI's check (here: bunx vitest related --run ${changedSources.join(" ")})`;
 
 if (flag("--list")) {
 	console.log(`changed (${changed.length}):\n${changed.map(file => `  ${file}`).join("\n")}`);
 	console.log(`tests naming them (${readers.length}):\n${readers.map(file => `  ${file}`).join("\n")}`);
+	console.log(`vitest: ${testsLine}`);
 	console.log(`specs (${specs.length}):\n${specs.map(spec => `  ${spec}`).join("\n")}`);
 	process.exit(0);
 }
@@ -111,12 +128,6 @@ if (changed.length === 0 && readers.length === 0) {
 }
 
 const biomeFiles = changed.filter(file => BIOME_DIRS.test(file) && BIOME_EXT.test(file));
-const relatedFiles = [
-	...new Set([
-		...changed.filter(file => /^(?:src|resources|scripts)\//.test(file) && /\.[cm]?[jt]sx?$/.test(file)),
-		...readers,
-	]),
-];
 const CHECKS: Array<readonly [string, string[]]> = [["types", ["bun", "run", "check:types"]]];
 // biome.json ignores some of these (stylesheets): a change of only those is no failure.
 if (biomeFiles.length > 0)
@@ -125,8 +136,14 @@ CHECKS.push(["surfaces", ["node", "scripts/lint-surfaces.mjs"]]);
 // This branch's fix commits each change a test (or say `no-test: <reason>`), before CI refuses the push.
 CHECKS.push(["fix-tests", ["bun", "scripts/lint-fix-tests.mjs"]]);
 if (scope.allTests) CHECKS.push(["vitest", ["bunx", "vitest", "run"]]);
-else if (relatedFiles.length > 0) {
-	CHECKS.push(["vitest", ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...relatedFiles]]);
+else if (tests.files.length > 0) {
+	CHECKS.push([
+		"vitest",
+		tests.command === "related"
+			? ["bunx", "vitest", "related", "--run", "--passWithNoTests", ...tests.files]
+			: ["bunx", "vitest", "run", "--passWithNoTests", ...tests.files],
+	]);
+	console.log(`[check:changed] vitest: ${testsLine}`);
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
