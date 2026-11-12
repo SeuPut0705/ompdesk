@@ -122,6 +122,10 @@ Object.assign(window as unknown as Record<string, unknown>, {
 		system: { openExternal },
 		localEngines: { get: localEnginesGet, set: localEnginesSet },
 		accountRotation: { get: accountRotationGet, set: vi.fn(async () => {}) },
+		creditSpend: {
+			get: vi.fn(async () => ({ enabled: false })),
+			set: vi.fn(async (enabled: boolean) => ({ enabled })),
+		},
 	},
 });
 

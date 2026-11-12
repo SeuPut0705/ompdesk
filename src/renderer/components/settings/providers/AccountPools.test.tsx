@@ -85,6 +85,10 @@ Object.assign(window as unknown as Record<string, unknown>, {
 		ui: { respondExtensionUi: vi.fn() },
 		system: { openExternal: vi.fn(async () => {}) },
 		accountRotation: { get: vi.fn(async () => ({ mode: "quota", evenSupported: true })), set: vi.fn(async () => {}) },
+		creditSpend: {
+			get: vi.fn(async () => ({ enabled: false })),
+			set: vi.fn(async (enabled: boolean) => ({ enabled })),
+		},
 	},
 });
 Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
