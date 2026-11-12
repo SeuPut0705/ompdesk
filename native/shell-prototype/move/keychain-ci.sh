@@ -60,7 +60,7 @@ step "6. as on the developer's Mac: a keychain reached through a test HOME (the 
 H2=$W/home2; mkdir -p "$H2/Library/Keychains"; KC2=$H2/Library/Keychains/proto.keychain-db
 HOME=$H2 security create-keychain -p $PW "$KC2" && HOME=$H2 security unlock-keychain -p $PW "$KC2" && HOME=$H2 security set-keychain-settings "$KC2"
 ln -s proto.keychain-db "$H2/Library/Keychains/login.keychain-db"; HOME=$H2 security default-keychain
-env -i HOME=$H2 PATH=/usr/bin:/bin limit 90 s1/OMPdesk.app/Contents/MacOS/OMPdesk --user-data-dir=$W/ud2 2>/dev/null | grep userData
+limit 90 env -i HOME=$H2 PATH=/usr/bin:/bin TMPDIR=$W/ s1/OMPdesk.app/Contents/MacOS/OMPdesk --user-data-dir=$W/ud2 2>/dev/null | grep userData
 HOME=$H2 security dump-keychain -a "$KC2" | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,45p' | grep -E 'authorizations|description: cdhash|requirement'
 kill $WATCH 2>/dev/null
 step "security dialogs logged"
