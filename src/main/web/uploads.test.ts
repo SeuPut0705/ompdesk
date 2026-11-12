@@ -1,42 +1,89 @@
-/** `POST /upload`'s storage: names, the 25 MiB file cap, the 200 MiB daily cap, the 24 h TTL, 0600/0700 modes. */
+/**
+ * `POST /upload`'s storage, run against the real core process (the store lives in `crates/core/src/web/uploads.rs`):
+ * names, the 25 MiB file cap, the 200 MiB daily cap, the 24 h TTL, 0600/0700 modes.
+ *
+ * Differences from the TypeScript suite, each forced by the move: `receive` was called with a node request and is now
+ * the core method `web.uploads.receive` (the body and its two headers; `POST /upload` itself is the core's web
+ * server's), and `safeUploadName` is no export any more, so its table runs through `store` and reads the name the
+ * core kept. The store's folder is `<userData>/web-uploads`.
+ */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync } from "node:fs";
-import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { attachHere, LOCAL_UPLOAD_DEVICE, safeUploadName, UPLOAD_TTL_MS, UploadError, UploadStore } from "./uploads";
+import { CoreError, core } from "../core/process";
+import { attachHere, LOCAL_UPLOAD_DEVICE, type StoredUpload, UPLOAD_TTL_MS, UploadError, UploadStore } from "./uploads";
 
+let userData: string;
 let root: string;
 beforeEach(() => {
-	root = mkdtempSync(join(tmpdir(), "web-uploads-"));
+	userData = mkdtempSync(join(tmpdir(), "web-uploads-"));
+	root = join(userData, "web-uploads");
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => rmSync(userData, { recursive: true, force: true }));
+
+interface Upload {
+	contentType: string;
+	body: Uint8Array;
+	/** Absent when the request declared no length. */
+	contentLength?: number;
+}
 
 /** A request carrying `file` as multipart field `file`. */
-async function request(name: string, bytes: Uint8Array, field = "file", declare = true): Promise<IncomingMessage> {
+async function request(name: string, bytes: Uint8Array, field = "file", declare = true): Promise<Upload> {
 	const form = new FormData();
 	form.set(field, new File([new Uint8Array(bytes)], name));
 	const encoded = new Response(form);
-	const body = Buffer.from(await encoded.arrayBuffer());
-	const headers: Record<string, string> = { "content-type": encoded.headers.get("content-type") ?? "" };
-	if (declare) headers["content-length"] = String(body.length);
-	return Object.assign(Readable.from([body]), { headers }) as unknown as IncomingMessage;
+	const body = new Uint8Array(await encoded.arrayBuffer());
+	return {
+		contentType: encoded.headers.get("content-type") ?? "",
+		body,
+		...(declare ? { contentLength: body.length } : {}),
+	};
 }
 
 const fileMaxBytes = 1000;
-const store = (now = () => Date.now()) =>
-	new UploadStore({ root, now, fileMaxBytes, dailyMaxBytes: 2500, ttlMs: UPLOAD_TTL_MS });
+const dailyMaxBytes = 2500;
 
-describe("safeUploadName", () => {
-	it("keeps one safe path segment", () => {
-		expect(safeUploadName("photo.jpg")).toBe("photo.jpg");
-		expect(safeUploadName("../../etc/passwd")).toBe("passwd");
-		expect(safeUploadName("C:\\Users\\me\\a b.png")).toBe("a b.png");
-		expect(safeUploadName(".hidden")).toBe("hidden");
-		expect(safeUploadName("a\u0000b\nc.txt")).toBe("abc.txt");
-		expect(safeUploadName("")).toBe("upload");
-		expect(safeUploadName("x".repeat(300))).toHaveLength(200);
+/** A store with the suite's small caps and the clock `now`; `receive` is the core's `POST /upload` handling. */
+const store = (now = () => Date.now()) => {
+	const uploads = new UploadStore({ userData, now, fileMaxBytes, dailyMaxBytes, ttlMs: UPLOAD_TTL_MS });
+	const receive = async (deviceId: string, upload: Upload): Promise<StoredUpload> => {
+		try {
+			const { contentType, contentLength, body } = upload;
+			const answer = await core().call<StoredUpload>(
+				"web.uploads.receive",
+				{
+					userData,
+					deviceId,
+					contentType,
+					contentLength,
+					now: now(),
+					limits: { fileMaxBytes, dailyMaxBytes, ttlMs: UPLOAD_TTL_MS },
+				},
+				{ bin: body },
+			);
+			return answer.result;
+		} catch (error) {
+			const status = error instanceof CoreError ? /^upload_(\d+)$/.exec(error.code)?.[1] : undefined;
+			if (status !== undefined) throw new UploadError(Number(status), (error as Error).message);
+			throw error;
+		}
+	};
+	return Object.assign(uploads, { receive });
+};
+
+describe("the name a file is kept under", () => {
+	it("is one safe path segment", async () => {
+		const uploads = store();
+		const kept = async (raw: string) => (await uploads.store("names", raw, new Uint8Array([1]))).name;
+		expect(await kept("photo.jpg")).toBe("photo.jpg");
+		expect(await kept("../../etc/passwd")).toBe("passwd");
+		expect(await kept("C:\\Users\\me\\a b.png")).toBe("a b.png");
+		expect(await kept(".hidden")).toBe("hidden");
+		expect(await kept("a\u0000b\nc.txt")).toBe("abc.txt");
+		expect(await kept("")).toBe("upload");
+		expect(await kept("x".repeat(300))).toHaveLength(200);
 	});
 });
 
@@ -75,9 +122,7 @@ describe("UploadStore", () => {
 
 	it("refuses a body that is not multipart or has no file field", async () => {
 		const uploads = store();
-		const wrongType = Object.assign(Readable.from([Buffer.from("{}")]), {
-			headers: { "content-type": "application/json" },
-		}) as unknown as IncomingMessage;
+		const wrongType: Upload = { contentType: "application/json", body: Buffer.from("{}"), contentLength: 2 };
 		await expect(uploads.receive("dev1", wrongType)).rejects.toMatchObject({ status: 415 });
 		await expect(
 			uploads.receive("dev1", await request("a.txt", new Uint8Array([1]), "other")),

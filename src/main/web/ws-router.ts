@@ -804,7 +804,11 @@ export class WsConnection {
 						? await this.#landUploads(args)
 						: args;
 			if (dir === "send") {
-				registry.send(channel, caller, this.#translate(channel, landed));
+				registry.send(
+					channel,
+					caller,
+					channel === IPC_COMMANDS.FS_MEDIA_RELEASE ? await this.#translateMediaRelease(landed) : landed,
+				);
 				return undefined;
 			}
 			const result = await registry.invoke(channel, caller, landed);
@@ -931,10 +935,9 @@ export class WsConnection {
 		) {
 			return result;
 		}
-		const size = "size" in result && typeof result.size === "number" ? result.size : 0;
 		const url = result.url;
 		const open = (range: string | undefined): Promise<Response> => mediaOpen(url, range);
-		return { ...result, url: blobs.addMedia(this.deviceId, { url, mime: result.mime, size, open }) };
+		return { ...result, url: blobs.addMedia(this.deviceId, { url, mime: result.mime, open }) };
 	}
 
 	/**
@@ -976,11 +979,11 @@ export class WsConnection {
 	}
 
 	/** `FS_MEDIA_RELEASE` names the `/blob` URL the page holds; the handler knows the `omp-media://` one. */
-	#translate(channel: string, args: readonly unknown[]): readonly unknown[] {
-		if (channel !== IPC_COMMANDS.FS_MEDIA_RELEASE || typeof args[0] !== "string") return args;
+	async #translateMediaRelease(args: readonly unknown[]): Promise<readonly unknown[]> {
+		if (typeof args[0] !== "string") return args;
 		const { blobs } = this.#router.deps;
-		const media = blobs.mediaUrl(this.deviceId, args[0]);
-		blobs.release(this.deviceId, args[0]);
+		const media = await blobs.mediaUrl(this.deviceId, args[0]).catch(() => null);
+		await blobs.release(this.deviceId, args[0]).catch(() => false);
 		return media === null ? args : [media];
 	}
 }

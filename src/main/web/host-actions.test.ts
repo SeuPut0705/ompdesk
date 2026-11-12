@@ -225,10 +225,10 @@ describe("blob URLs for host files", () => {
 			download: true,
 		});
 		expect(absolute).toMatchObject({ ok: true });
-		expect(blobs.size).toBe(2);
+		expect(await blobs.count()).toBe(2);
 		if (relative.ok) {
 			await call(WEB_HOST_CHANNELS.BLOB_RELEASE, relative.url);
-			expect(blobs.release("dev1", relative.url)).toBe(false);
+			expect(await blobs.release("dev1", relative.url)).toBe(false);
 		}
 	});
 

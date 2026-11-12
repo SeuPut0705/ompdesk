@@ -2618,7 +2618,7 @@ describe("LocalHostServices", () => {
 	it("keeps a file a device attaches in its own upload folder and answers the path, refusing as the store does", async () => {
 		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
 		try {
-			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const { services } = setup(60_000, { uploads: new UploadStore({ userData: root }) });
 			const x = new FakeConnection(peer("device-x"));
 			const bytes = Buffer.from([80, 75, 3, 4, 0, 1, 2]);
 			const { path } = (await services.call(
@@ -2627,7 +2627,7 @@ describe("LocalHostServices", () => {
 				{ name: "계약서 수정.docx", dataBase64: bytes.toString("base64"), rtab: "t", cwd: workDir },
 				x,
 			)) as { path: string };
-			expect(path.startsWith(join(root, "device-x"))).toBe(true);
+			expect(path.startsWith(join(root, "web-uploads", "device-x"))).toBe(true);
 			expect(path.endsWith("계약서 수정.docx")).toBe(true);
 			expect(readFileSync(path)).toEqual(bytes);
 
@@ -2655,7 +2655,7 @@ describe("LocalHostServices", () => {
 	it("builds a file past one link frame from its parts, in order, and drops parts out of order or past the limit", async () => {
 		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
 		try {
-			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const { services } = setup(60_000, { uploads: new UploadStore({ userData: root }) });
 			const x = new FakeConnection(peer("device-x"));
 			const part = (upload: string, index: number, last: boolean, bytes: Buffer) =>
 				services.call(
@@ -2668,7 +2668,7 @@ describe("LocalHostServices", () => {
 			const second = Buffer.alloc(10, 2);
 			expect(await part("upload-aaaa", 0, false, first)).toEqual({ received: 1000 });
 			const { path } = (await part("upload-aaaa", 1, true, second)) as { path: string };
-			expect(path.startsWith(join(root, "device-x"))).toBe(true);
+			expect(path.startsWith(join(root, "web-uploads", "device-x"))).toBe(true);
 			expect(readFileSync(path)).toEqual(Buffer.concat([first, second]));
 
 			// A part that skips one drops what was held: the file is never stored with a hole in it.
@@ -2706,7 +2706,7 @@ describe("LocalHostServices", () => {
 		const root = mkdtempSync(join(tmpdir(), "host-uploads-"));
 		vi.useFakeTimers();
 		try {
-			const { services } = setup(60_000, { uploads: new UploadStore({ root }) });
+			const { services } = setup(60_000, { uploads: new UploadStore({ userData: root }) });
 			const x = new FakeConnection(peer("device-x"));
 			const part = (upload: string, index: number, last: boolean) =>
 				services.call(

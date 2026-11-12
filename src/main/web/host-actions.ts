@@ -226,9 +226,9 @@ export function createHostActions(deps: HostActionsDeps): WebChannelTable {
 		return { ok: true, url, mime, size: info.size, name };
 	};
 
-	const blobRelease = (context: WebCallContext, args: readonly unknown[]): void => {
+	const blobRelease = async (context: WebCallContext, args: readonly unknown[]): Promise<void> => {
 		const given = parse(BlobUrl, args[0]);
-		deps.blobs.release(context.deviceId, typeof given === "string" ? given : given.url);
+		await deps.blobs.release(context.deviceId, typeof given === "string" ? given : given.url).catch(() => false);
 	};
 
 	const modelsRead = (): WebModelsText => deps.models.read();

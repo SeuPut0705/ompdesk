@@ -1,4 +1,12 @@
-/** `/blob/<token>`: Range answers, per-device tokens, expiry, and never rendering active content inline. */
+/**
+ * `/blob/<token>`: Range answers, per-device tokens, expiry, and never rendering active content inline, run against the
+ * real core process (the store lives in `crates/core/src/web/blobs.rs`).
+ *
+ * Differences from the TypeScript suite, each forced by the move: the web server that serves `/blob/` is the core's,
+ * so a node server here relays each request to the core method `web.blobs.serve` (the whole answer: status, headers,
+ * body) and `fetch` reads what it wrote; `parseRange`'s cases are Rust tests (`blobs.rs`) since it is no TypeScript
+ * export any more; `store.size` is the async `store.count()`, and `mediaUrl`, `release` are async.
+ */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -6,39 +14,41 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BLOB_IDLE_TTL_MS, BlobStore, parseRange } from "./blobs";
-
-describe("parseRange", () => {
-	it("reads a single bytes range", () => {
-		expect(parseRange(undefined, 10)).toBeNull();
-		expect(parseRange("bytes=0-3", 10)).toEqual({ start: 0, end: 3 });
-		expect(parseRange("bytes=4-", 10)).toEqual({ start: 4, end: 9 });
-		expect(parseRange("bytes=-3", 10)).toEqual({ start: 7, end: 9 });
-		expect(parseRange("bytes=5-500", 10)).toEqual({ start: 5, end: 9 });
-		expect(parseRange("bytes=-500", 10)).toEqual({ start: 0, end: 9 });
-	});
-
-	it("refuses a range it cannot serve", () => {
-		for (const bad of ["bytes=10-", "bytes=5-2", "bytes=-0", "bytes=-", "items=0-1", "bytes=0-1,3-4", "bytes=a-b"]) {
-			expect(parseRange(bad, 10), bad).toBe("invalid");
-		}
-	});
-});
+import { core } from "../core/process";
+import { BLOB_IDLE_TTL_MS, BlobStore } from "./blobs";
 
 let dir: string;
 let server: Server;
 let store: BlobStore;
 let clock: { now: number };
+let userData: string;
 let baseUrl: string;
 const bytes = Buffer.from("0123456789");
 
 beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), "web-blobs-"));
+	userData = join(dir, "user-data");
 	clock = { now: 1_000_000 };
-	store = new BlobStore({ now: () => clock.now });
+	store = new BlobStore({ userData, now: () => clock.now });
 	server = createServer((req, res) => {
 		const device = req.headers["x-device"];
-		void store.serve(typeof device === "string" ? device : "none", req.url ?? "", req, res);
+		core()
+			.call<{ status: number; headers: [string, string][] }>("web.blobs.serve", {
+				userData,
+				deviceId: typeof device === "string" ? device : "none",
+				target: req.url ?? "",
+				method: req.method,
+				range: req.headers.range,
+				now: clock.now,
+			})
+			.then(({ result, bin }) => {
+				res.writeHead(result.status, Object.fromEntries(result.headers));
+				res.end(bin ? Buffer.from(bin) : undefined);
+			})
+			.catch(error => {
+				res.writeHead(500);
+				res.end(String(error));
+			});
 	});
 	await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
 	baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -88,7 +98,6 @@ describe("BlobStore", () => {
 		const url = store.addMedia("dev1", {
 			url: "omp-media://stream/t",
 			mime: "video/webm",
-			size: 10,
 			open: async range =>
 				new Response(range ? "234" : "0123456789", {
 					status: range ? 206 : 200,
@@ -100,8 +109,8 @@ describe("BlobStore", () => {
 		expect(part.headers.get("content-range")).toBe("bytes 2-4/10");
 		expect(await part.text()).toBe("234");
 		expect(await (await get(url)).text()).toBe("0123456789");
-		expect(store.mediaUrl("dev1", url)).toBe("omp-media://stream/t");
-		expect(store.mediaUrl("dev2", url)).toBeNull();
+		expect(await store.mediaUrl("dev1", url)).toBe("omp-media://stream/t");
+		expect(await store.mediaUrl("dev2", url)).toBeNull();
 	});
 
 	it("answers 404 for another device's token, an unknown token and a released one", async () => {
@@ -109,8 +118,8 @@ describe("BlobStore", () => {
 		expect((await get(url, { "x-device": "dev2" })).status).toBe(404);
 		expect((await get("/blob/nope")).status).toBe(404);
 		expect((await get("/blob/../etc")).status).toBe(404);
-		expect(store.release("dev2", url)).toBe(false);
-		expect(store.release("dev1", url)).toBe(true);
+		expect(await store.release("dev2", url)).toBe(false);
+		expect(await store.release("dev1", url)).toBe(true);
 		expect((await get(url)).status).toBe(404);
 	});
 
@@ -145,11 +154,11 @@ describe("BlobStore", () => {
 		expect((await get(marked)).status).toBe(404);
 	});
 
-	it("forgets a device's blobs and caps how many it keeps", () => {
+	it("forgets a device's blobs and caps how many it keeps", async () => {
 		for (let i = 0; i < 70; i++) store.addBytes("dev1", new Uint8Array(1), "text/plain");
-		expect(store.size).toBe(64);
+		expect(await store.count()).toBe(64);
 		store.addBytes("dev2", new Uint8Array(1), "text/plain");
 		store.releaseDevice("dev1");
-		expect(store.size).toBe(1);
+		expect(await store.count()).toBe(1);
 	});
 });

@@ -1,265 +1,200 @@
 /**
  * `/blob/<token>`: what a page fetches instead of receiving it in a WebSocket frame (a file the viewer shows,
- * a recording a player streams, a download). Each token is random, belongs to one device (its cookie must
- * match) and dies after 30 minutes without a request. The three sources: a file on disk, bytes main already
- * holds, or a stream `MediaStreams` serves. Answers honour `Range`. A blob is never rendered as a page: HTML,
- * SVG and scripts are served as attachments, everything carries `nosniff` and a sandboxing CSP.
+ * a recording a player streams, a download). The store lives in the core (`crates/core/src/web/blobs.rs`, which
+ * has the rules: one device per token, 30 minutes idle, 64 a device, `Range`, attachments for active content) and
+ * is served by the web server there. This is its client. A URL is handed back at once: main mints the token (24 random
+ * bytes, base64url) and registers it with an ordered push, before the page can learn the URL from a frame that is
+ * written after it.
+ *
+ * A file and bytes the core holds itself. A media stream only main can open (`MediaStreams.handle`, a fetch
+ * `Response`): the core asks (`web.media.open`), `pump` answers with the status, the headers and the body's chunks, as
+ * fast as the core consumed them (`web.media.ack`), and stops when the HTTP client went (`web.media.cancel`).
  */
-import { randomBytes } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
-import { pipeline } from "node:stream/promises";
+import { randomBytes, randomUUID } from "node:crypto";
+import { CORE_EXITED, type CoreProcess, core } from "../core/process";
 
 export const BLOB_URL_PREFIX = "/blob/";
 export const BLOB_IDLE_TTL_MS = 30 * 60_000;
-const MAX_BLOBS_PER_DEVICE = 64;
 
-/** Types a browser would run or render as a document: only ever downloaded. */
-const ACTIVE_CONTENT =
-	/^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|(text|application)\/(x-)?javascript)\b/i;
+/** Bytes pushed to the core that it has not reported taking yet, at most. */
+const MEDIA_WINDOW_BYTES = 1024 * 1024;
+/** The headers of a media answer the page needs; the core copies these and no others. */
+const MEDIA_HEADERS = ["content-type", "content-length", "content-range", "accept-ranges"] as const;
 
-type BlobSource =
-	| { kind: "file"; abs: string }
-	| { kind: "bytes"; bytes: Uint8Array }
-	| { kind: "media"; url: string; size: number; open: (range: string | undefined) => Promise<Response> };
+type MediaOpen = (range: string | undefined) => Promise<Response>;
 
-interface BlobEntry {
-	deviceId: string;
-	source: BlobSource;
-	mime: string;
-	name: string;
-	download: boolean;
-	touchedAt: number;
+/** The media blobs this process registered, by token: `open` answers the core's asks. */
+const media = new Map<string, { userData: string; open: MediaOpen }>();
+
+interface Pumping {
+	sent: number;
+	acked: number;
+	cancelled: boolean;
+	wake: (() => void) | null;
+}
+const pumping = new Map<number, Pumping>();
+let listeningTo: CoreProcess | null = null;
+
+function listen(): void {
+	const process = core();
+	if (listeningTo === process) return;
+	listeningTo = process;
+	process.on("web.media.open", data => {
+		// The core's own event: its shape is the one `blobs.rs` writes.
+		const ask = data as { userData: string; stream: number; token: string; url: string; range: string | null };
+		const entry = media.get(ask.token);
+		if (entry?.userData === ask.userData) void pump(ask.stream, entry.open, ask.range ?? undefined);
+	});
+	process.on("web.media.ack", data => {
+		const { stream, bytes } = data as { stream: number; bytes: number };
+		const state = pumping.get(stream);
+		if (!state) return;
+		state.acked += bytes;
+		state.wake?.();
+	});
+	process.on("web.media.cancel", data => {
+		const state = pumping.get((data as { stream: number }).stream);
+		if (!state) return;
+		state.cancelled = true;
+		state.wake?.();
+	});
+	process.on("web.media.drop", data => {
+		const { userData, token } = data as { userData: string; token: string };
+		if (media.get(token)?.userData === userData) media.delete(token);
+	});
+	process.on(CORE_EXITED, () => {
+		media.clear();
+		for (const state of pumping.values()) {
+			state.cancelled = true;
+			state.wake?.();
+		}
+	});
 }
 
-export interface ByteRange {
-	start: number;
-	end: number;
-}
-
-/** A single `bytes=` range of a `size`-byte body: a range, `null` for none given, `"invalid"` when it cannot be met. */
-export function parseRange(header: string | undefined, size: number): ByteRange | null | "invalid" {
-	if (header === undefined || header === "") return null;
-	const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-	if (!match) return "invalid";
-	const [, from = "", to = ""] = match;
-	if (from === "" && to === "") return "invalid";
-	if (from === "") {
-		const suffix = Number(to);
-		if (suffix === 0) return "invalid";
-		return { start: Math.max(0, size - suffix), end: size - 1 };
+/** Answers one `web.media.open`: the stream's head, its chunks within the window, its end. */
+async function pump(stream: number, open: MediaOpen, range: string | undefined): Promise<void> {
+	const state: Pumping = { sent: 0, acked: 0, cancelled: false, wake: null };
+	pumping.set(stream, state);
+	const push = (method: string, params: object, bin?: Uint8Array): void => {
+		try {
+			core().push(method, { stream, ...params }, bin);
+		} catch {
+			// The core is gone; the stream went with it.
+		}
+	};
+	try {
+		const response = await open(range);
+		const headers: Record<string, string> = {};
+		for (const name of MEDIA_HEADERS) {
+			const value = response.headers.get(name);
+			if (value) headers[name] = value;
+		}
+		push("web.media.head", { status: response.status, headers });
+		const reader = response.body?.getReader();
+		try {
+			while (reader && !state.cancelled) {
+				while (state.sent - state.acked >= MEDIA_WINDOW_BYTES && !state.cancelled) {
+					const { promise, resolve } = Promise.withResolvers<void>();
+					state.wake = resolve;
+					await promise;
+				}
+				if (state.cancelled) break;
+				const { done, value } = await reader.read();
+				if (done) break;
+				push("web.media.chunk", {}, value);
+				state.sent += value.byteLength;
+			}
+		} finally {
+			void reader?.cancel().catch(() => {});
+		}
+		push("web.media.end", {});
+	} catch (error) {
+		push("web.media.end", { error: error instanceof Error ? error.message : String(error) });
+	} finally {
+		pumping.delete(stream);
 	}
-	const start = Number(from);
-	const end = to === "" ? size - 1 : Math.min(Number(to), size - 1);
-	if (start >= size || start > end) return "invalid";
-	return { start, end };
-}
-
-function contentDisposition(name: string, attachment: boolean): string {
-	const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
-	return `${attachment ? "attachment" : "inline"}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 export class BlobStore {
-	readonly #entries = new Map<string, BlobEntry>();
+	readonly #userData: string;
 	readonly #now: () => number;
-	readonly #ttlMs: number;
 
-	constructor(opts: { now?: () => number; ttlMs?: number } = {}) {
+	/** `userData` names the store in the core: the web server there serves the one of the same `userData`. */
+	constructor(opts: { userData?: string; now?: () => number } = {}) {
+		this.#userData = opts.userData ?? `private:${randomUUID()}`;
 		this.#now = opts.now ?? Date.now;
-		this.#ttlMs = opts.ttlMs ?? BLOB_IDLE_TTL_MS;
 	}
 
-	get size(): number {
-		return this.#entries.size;
+	/** How many blobs the store holds. */
+	async count(): Promise<number> {
+		return (await core().call<{ size: number }>("web.blobs.count", { userData: this.#userData })).result.size;
 	}
 
 	addFile(deviceId: string, file: { abs: string; mime: string; name: string; download?: boolean }): string {
-		return this.#add(deviceId, { kind: "file", abs: file.abs }, file.mime, file.name, file.download === true);
+		return this.#add(deviceId, {
+			kind: "file",
+			abs: file.abs,
+			mime: file.mime,
+			name: file.name,
+			download: file.download === true,
+		});
 	}
 
 	addBytes(deviceId: string, bytes: Uint8Array, mime: string, name = "file"): string {
-		return this.#add(deviceId, { kind: "bytes", bytes }, mime, name, false);
+		return this.#add(deviceId, { kind: "bytes", mime, name }, bytes);
 	}
 
 	/** A stream main's `MediaStreams` serves (`url` is its `omp-media://` address); `open` answers a range request. */
-	addMedia(
-		deviceId: string,
-		media: { url: string; mime: string; size: number; open: (range: string | undefined) => Promise<Response> },
-	): string {
-		return this.#add(deviceId, { kind: "media", ...media }, media.mime, "media", false);
+	addMedia(deviceId: string, stream: { url: string; mime: string; open: MediaOpen }): string {
+		listen();
+		return this.#add(
+			deviceId,
+			{ kind: "media", url: stream.url, mime: stream.mime, name: "media" },
+			undefined,
+			stream.open,
+		);
 	}
 
 	/** The `omp-media://` address behind a blob URL of this device, or null. */
-	mediaUrl(deviceId: string, blobUrl: string): string | null {
-		const entry = this.#lookup(deviceId, tokenOf(blobUrl));
-		return entry?.source.kind === "media" ? entry.source.url : null;
+	async mediaUrl(deviceId: string, blobUrl: string): Promise<string | null> {
+		const { result } = await core().call<{ url: string | null }>("web.blobs.mediaUrl", {
+			userData: this.#userData,
+			deviceId,
+			url: blobUrl,
+			now: this.#now(),
+		});
+		return result.url;
 	}
 
-	release(deviceId: string, blobUrl: string): boolean {
-		const token = tokenOf(blobUrl);
-		return token !== null && this.#entries.get(token)?.deviceId === deviceId && this.#entries.delete(token);
+	async release(deviceId: string, blobUrl: string): Promise<boolean> {
+		const { result } = await core().call<{ released: boolean }>("web.blobs.release", {
+			userData: this.#userData,
+			deviceId,
+			url: blobUrl,
+		});
+		return result.released;
 	}
 
 	releaseDevice(deviceId: string): void {
-		for (const [token, entry] of this.#entries) {
-			if (entry.deviceId === deviceId) this.#entries.delete(token);
-		}
+		core().push("web.blobs.releaseDevice", { userData: this.#userData, deviceId });
 	}
 
-	/** Answer `GET /blob/<token>` for the authenticated `deviceId`. */
-	async serve(deviceId: string, blobUrl: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
-		const entry = this.#lookup(deviceId, tokenOf(blobUrl));
-		if (!entry) {
-			this.#fail(res, 404);
-			return;
-		}
-		const attachment =
-			entry.download ||
-			new URL(blobUrl, "http://x").searchParams.get("dl") === "1" ||
-			ACTIVE_CONTENT.test(entry.mime);
-		const base: Record<string, string> = {
-			"content-type": entry.mime,
-			"accept-ranges": "bytes",
-			"content-disposition": contentDisposition(entry.name, attachment),
-			"x-content-type-options": "nosniff",
-			"cache-control": "private, no-store",
-			"content-security-policy": "sandbox; default-src 'none'",
-			"cross-origin-resource-policy": "same-origin",
-		};
-		try {
-			const { source } = entry;
-			if (source.kind === "media") await this.#serveMedia(source, base, req, res);
-			else if (source.kind === "bytes") await this.#serveBytes(source.bytes, base, req, res);
-			else await this.#serveFile(source.abs, base, req, res);
-		} catch (error) {
-			if (!res.headersSent) this.#fail(res, 404);
-			else res.destroy(error instanceof Error ? error : undefined);
-		}
-	}
-
-	#add(deviceId: string, source: BlobSource, mime: string, name: string, download: boolean): string {
-		this.#sweep();
-		const mine = [...this.#entries].filter(([, entry]) => entry.deviceId === deviceId);
-		if (mine.length >= MAX_BLOBS_PER_DEVICE) {
-			const oldest = mine.reduce((a, b) => (a[1].touchedAt <= b[1].touchedAt ? a : b));
-			this.#entries.delete(oldest[0]);
-		}
+	#add(
+		deviceId: string,
+		blob: {
+			kind: "file" | "bytes" | "media";
+			mime: string;
+			name: string;
+			download?: boolean;
+			abs?: string;
+			url?: string;
+		},
+		bytes?: Uint8Array,
+		open?: MediaOpen,
+	): string {
 		const token = randomBytes(24).toString("base64url");
-		this.#entries.set(token, { deviceId, source, mime, name, download, touchedAt: this.#now() });
+		if (open) media.set(token, { userData: this.#userData, open });
+		core().push("web.blobs.add", { userData: this.#userData, deviceId, token, now: this.#now(), ...blob }, bytes);
 		return `${BLOB_URL_PREFIX}${token}`;
 	}
-
-	#lookup(deviceId: string, token: string | null): BlobEntry | undefined {
-		if (token === null) return undefined;
-		const entry = this.#entries.get(token);
-		if (!entry || entry.deviceId !== deviceId) return undefined;
-		if (this.#now() - entry.touchedAt > this.#ttlMs) {
-			this.#entries.delete(token);
-			return undefined;
-		}
-		entry.touchedAt = this.#now();
-		return entry;
-	}
-
-	#sweep(): void {
-		const now = this.#now();
-		for (const [token, entry] of this.#entries) {
-			if (now - entry.touchedAt > this.#ttlMs) this.#entries.delete(token);
-		}
-	}
-
-	#fail(res: ServerResponse, status: number): void {
-		res.writeHead(status, { "content-type": "text/plain", "cache-control": "no-store" });
-		res.end();
-	}
-
-	#head(res: ServerResponse, base: Record<string, string>, size: number, range: ByteRange | null): void {
-		if (range) {
-			res.writeHead(206, {
-				...base,
-				"content-length": String(range.end - range.start + 1),
-				"content-range": `bytes ${range.start}-${range.end}/${size}`,
-			});
-		} else {
-			res.writeHead(200, { ...base, "content-length": String(size) });
-		}
-	}
-
-	async #serveFile(
-		abs: string,
-		base: Record<string, string>,
-		req: IncomingMessage,
-		res: ServerResponse,
-	): Promise<void> {
-		const info = await stat(abs);
-		if (!info.isFile()) throw new Error("not a file");
-		const range = parseRange(req.headers.range, info.size);
-		if (range === "invalid") {
-			res.writeHead(416, { ...base, "content-range": `bytes */${info.size}` });
-			res.end();
-			return;
-		}
-		this.#head(res, base, info.size, range);
-		if (req.method === "HEAD" || info.size === 0) {
-			res.end();
-			return;
-		}
-		await pipeline(createReadStream(abs, range ? { start: range.start, end: range.end } : {}), res);
-	}
-
-	async #serveBytes(
-		bytes: Uint8Array,
-		base: Record<string, string>,
-		req: IncomingMessage,
-		res: ServerResponse,
-	): Promise<void> {
-		const range = parseRange(req.headers.range, bytes.length);
-		if (range === "invalid") {
-			res.writeHead(416, { ...base, "content-range": `bytes */${bytes.length}` });
-			res.end();
-			return;
-		}
-		this.#head(res, base, bytes.length, range);
-		res.end(req.method === "HEAD" ? undefined : range ? bytes.subarray(range.start, range.end + 1) : bytes);
-	}
-
-	async #serveMedia(
-		source: Extract<BlobSource, { kind: "media" }>,
-		base: Record<string, string>,
-		req: IncomingMessage,
-		res: ServerResponse,
-	): Promise<void> {
-		const answer = await source.open(req.headers.range);
-		const headers: Record<string, string> = { ...base };
-		for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) {
-			const value = answer.headers.get(name);
-			if (value) headers[name] = value;
-		}
-		res.writeHead(answer.status, headers);
-		if (req.method === "HEAD" || !answer.body) {
-			res.end();
-			return;
-		}
-		const body = answer.body.getReader();
-		try {
-			for (;;) {
-				const { done, value } = await body.read();
-				if (done) break;
-				if (!res.write(value)) await new Promise<void>(resolve => res.once("drain", resolve));
-				if (res.destroyed) break;
-			}
-		} finally {
-			void body.cancel().catch(() => {});
-			res.end();
-		}
-	}
-}
-
-/** The token of `/blob/<token>[?query]`, or null. */
-function tokenOf(blobUrl: string): string | null {
-	if (!blobUrl.startsWith(BLOB_URL_PREFIX)) return null;
-	const token = blobUrl.slice(BLOB_URL_PREFIX.length).split(/[?#]/, 1)[0];
-	return token && /^[A-Za-z0-9_-]+$/.test(token) ? token : null;
 }

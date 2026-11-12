@@ -1017,7 +1017,7 @@ describe("binary and media results", () => {
 		expect(small?.v).toEqual({ ok: true, mime: "text/plain", size: 2, truncated: false, dataBase64: "aGk=" });
 		expect(large?.v).not.toHaveProperty("data");
 		expect(large?.v.blobUrl).toMatch(/^\/blob\/[\w-]+$/);
-		expect(r.blobs.size).toBe(1);
+		expect(await r.blobs.count()).toBe(1);
 	});
 
 	it("hands a file the page saves for itself out like a read: behind a blob URL past the inline size", async () => {
@@ -1044,11 +1044,10 @@ describe("binary and media results", () => {
 		await r.settle();
 		const url = (r.socket.frames("res")[0] as { v: { url: string } }).v.url;
 		expect(url).toMatch(/^\/blob\/[\w-]+$/);
-		expect(r.blobs.mediaUrl("dev1", url)).toBe("omp-media://stream/tok");
+		expect(await r.blobs.mediaUrl("dev1", url)).toBe("omp-media://stream/tok");
 		r.frame({ t: "snd", ch: IPC_COMMANDS.FS_MEDIA_RELEASE, a: [url] });
-		await r.settle();
-		expect(r.send.mock.calls[0]?.[2]).toEqual(["omp-media://stream/tok"]);
-		expect(r.blobs.mediaUrl("dev1", url)).toBeNull();
+		await vi.waitFor(() => expect(r.send.mock.calls[0]?.[2]).toEqual(["omp-media://stream/tok"]));
+		expect(await r.blobs.mediaUrl("dev1", url)).toBeNull();
 	});
 });
 

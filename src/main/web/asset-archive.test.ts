@@ -1,16 +1,16 @@
-import {
-	existsSync,
-	promises as fsp,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+/**
+ * The previous builds' assets archive, run against the real core process (it lives in
+ * `crates/core/src/web/archive.rs`).
+ *
+ * One difference from the TypeScript suite, forced by the move: the last case held the first call's copy by spying on
+ * `fs.promises.readFile` of this process, which the core's reads never pass through. It now starts the two calls
+ * together and checks the end state the held order protects; the held order itself is the Rust test
+ * `a_second_call_waits_for_the_first_…`.
+ */
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ARCHIVE_MAX_PREVIOUS, ARCHIVE_RETAIN_MS, AssetArchive, buildIdOf } from "./asset-archive";
 
 let root: string;
@@ -40,13 +40,12 @@ beforeEach(() => {
 	clock = 1_000_000;
 });
 afterEach(() => {
-	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });
 });
 
 describe("AssetArchive (the previous builds' assets, served for a while after an update)", () => {
 	it("keeps each build once and serves only the replaced ones", async () => {
-		const archive = new AssetArchive(archiveDir, () => clock);
+		const archive = new AssetArchive({ userData: root, now: () => clock });
 		build("a");
 		await archive.retain(renderer);
 		// The current build is the renderer folder's own: nothing older to serve yet.
@@ -64,7 +63,7 @@ describe("AssetArchive (the previous builds' assets, served for a while after an
 	});
 
 	it("drops a build once it was replaced longer than the window ago, and keeps the newest few", async () => {
-		const archive = new AssetArchive(archiveDir, () => clock);
+		const archive = new AssetArchive({ userData: root, now: () => clock });
 		for (const name of ["a", "b", "c", "d"]) {
 			build(name);
 			await archive.retain(renderer);
@@ -83,7 +82,7 @@ describe("AssetArchive (the previous builds' assets, served for a while after an
 	});
 
 	it("does nothing without a built renderer (a dev run) and survives a corrupt index", async () => {
-		const archive = new AssetArchive(archiveDir, () => clock);
+		const archive = new AssetArchive({ userData: root, now: () => clock });
 		await archive.retain(renderer);
 		expect(existsSync(archiveDir)).toBe(false);
 		build("a");
@@ -94,36 +93,14 @@ describe("AssetArchive (the previous builds' assets, served for a while after an
 		expect(JSON.parse(readFileSync(join(archiveDir, "builds.json"), "utf8")).builds).toHaveLength(1);
 	});
 
-	it("runs a second call only after the first ended, so the first call's cleanup never sweeps the second call's copy", async () => {
-		const archive = new AssetArchive(archiveDir, () => clock);
+	it("runs two calls one after the other, so the first call's cleanup never sweeps the second call's copy", async () => {
+		const archive = new AssetArchive({ userData: root, now: () => clock });
 		build("a");
 		const first = renderer;
 		renderer = join(root, "renderer-next");
 		build("b");
 		const second = renderer;
-		const read = fsp.readFile.bind(fsp);
-		let release = (): void => {};
-		const held = new Promise<void>(resolve => {
-			release = resolve;
-		});
-		const copied: string[] = [];
-		// The copy reads each asset (web.html, which names the build, is read too and passes).
-		vi.spyOn(fsp, "readFile").mockImplementation((async (file: string, options?: unknown) => {
-			if (String(file).includes(join("assets", "chunk-"))) {
-				copied.push(String(file));
-				if (copied.length === 1) await held;
-			}
-			return read(file, options as BufferEncoding);
-		}) as typeof fsp.readFile);
-		const a = archive.retain(first);
-		await vi.waitFor(() => expect(copied).toHaveLength(1));
-		const b = archive.retain(second);
-		// Every step of the second call that could run before the held copy has had its turn.
-		for (let tick = 0; tick < 50; tick++) await new Promise(resolve => setImmediate(resolve));
-		expect(copied).toEqual([join(first, "assets", "chunk-a.js")]);
-		release();
-		await Promise.all([a, b]);
-		expect(copied).toEqual([join(first, "assets", "chunk-a.js"), join(second, "assets", "chunk-b.js")]);
+		await Promise.all([archive.retain(first), archive.retain(second)]);
 		expect(served(archive, "chunk-a.js")).toEqual(["chunk a"]);
 		expect(existsSync(join(archiveDir, (await buildIdOf(second)) ?? "", "assets", "chunk-b.js"))).toBe(true);
 	});
