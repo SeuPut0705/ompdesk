@@ -1053,6 +1053,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         sh(&dir, &["init", "-q", "-b", "main"]);
+        sh(&dir, &["config", "user.name", "T"]);
+        sh(&dir, &["config", "user.email", "t@example.com"]);
         // The core's gits read the host's config: Git for Windows sets core.autocrlf system-wide.
         sh(&dir, &["config", "core.autocrlf", "false"]);
         sh(&dir, &["config", "commit.gpgsign", "false"]);
