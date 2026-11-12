@@ -24,6 +24,8 @@ runs:
         src/main/omp-processes.test.ts
         src/main/session-processes.test.ts
         src/main/setup/runner.test.ts
+        src/main/setup/download.test.ts
+        src/main/setup/archives.test.ts
         src/main/stock-helper.test.ts
         src/main/models-config.test.ts
         src/main/bridge-input-history.test.ts
