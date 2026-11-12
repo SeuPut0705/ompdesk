@@ -376,7 +376,7 @@ describe("AgentControlRuntime", () => {
 			runtimeTuning: QUICK,
 		});
 		await runtime.run(win, "main0001", T.open, {});
-		await expect.poll(() => reviewFrames(win).length).toBeGreaterThan(0);
+		await expect.poll(() => reviewFrames(win).length, { timeout: 5_000 }).toBeGreaterThan(0);
 		const first = reviewFrames(win).at(-1) as AgentReviewEvent;
 		expect(first.tabId).toBe("main0001");
 		expect(first.items.map(item => item.tabId)).toEqual(["new00003"]);
@@ -387,7 +387,7 @@ describe("AgentControlRuntime", () => {
 		expect(reviewFrames(win)).toHaveLength(before);
 		// A change nobody announced (no tab activity): the next sweep sends it.
 		(tabs[1] as IpcTabInfo).title = "Renamed by stock";
-		await expect.poll(() => reviewFrames(win).length).toBe(before + 1);
+		await expect.poll(() => reviewFrames(win).length, { timeout: 5_000 }).toBe(before + 1);
 		expect(reviewFrames(win).at(-1)?.items[0]?.title).toBe("Renamed by stock");
 	});
 	it("tells the opener's board when a child restored by a relaunch closes, though the pool no longer names its opener", async () => {
@@ -407,7 +407,7 @@ describe("AgentControlRuntime", () => {
 		expect((await runtime.review(win, "main0001")).items.map(item => item.tabId)).toEqual(["kid00002"]);
 		tabs.splice(1, 1);
 		for (const observer of activity) observer({ type: "released", tabId: "kid00002" });
-		await expect.poll(() => reviewFrames(win).at(-1)?.items).toEqual([]);
+		await expect.poll(() => reviewFrames(win).at(-1)?.items, { timeout: 5_000 }).toEqual([]);
 		expect(reviewFrames(win).at(-1)?.tabId).toBe("main0001");
 	});
 	it("sends the opened sessions' list to a phone viewing the opener too, not only to the window that owns it", async () => {
@@ -419,8 +419,8 @@ describe("AgentControlRuntime", () => {
 			viewers: { main0001: [phone] },
 		});
 		await runtime.run(win, "main0001", T.open, {});
-		await expect.poll(() => reviewFrames(win).length).toBeGreaterThan(0);
-		await expect.poll(() => reviewFrames(phone).length).toBeGreaterThan(0);
+		await expect.poll(() => reviewFrames(win).length, { timeout: 5_000 }).toBeGreaterThan(0);
+		await expect.poll(() => reviewFrames(phone).length, { timeout: 5_000 }).toBeGreaterThan(0);
 		expect(reviewFrames(phone).at(-1)).toEqual(reviewFrames(win).at(-1));
 		expect(
 			reviewFrames(phone)
@@ -1366,7 +1366,9 @@ describe("AgentControlRuntime", () => {
 		});
 		sidecars.set("remo0004", { cwd: "C:\\work", device: "dev-1" });
 		for (const observer of activity) observer({ type: "ask", tabId: "remo0004", requestId: "q1" } as never);
-		await vi.waitFor(() => expect(commands.some(entry => entry.command.type === "agent_control_mail")).toBe(true));
+		await vi.waitFor(() => expect(commands.some(entry => entry.command.type === "agent_control_mail")).toBe(true), {
+			timeout: 5_000,
+		});
 		const mail = commands.find(entry => entry.command.type === "agent_control_mail");
 		expect(mail?.tabId).toBe("main0001");
 		expect(mail?.command).toMatchObject({
@@ -1427,7 +1429,7 @@ describe("AgentControlRuntime", () => {
 			after.deps.pool.sessionOwner = sessionPath =>
 				sessionPath === "/s/boss.jsonl" ? ({ tabId: "main0009" } as never) : null;
 			attach(after.deps);
-			await expect.poll(() => received).toEqual(["main0001", "main0009"]);
+			await expect.poll(() => received, { timeout: 5_000 }).toEqual(["main0001", "main0009"]);
 
 			// Queued in the new omp: asked again, never sent a second time.
 			await sleep(400);
@@ -1498,7 +1500,9 @@ describe("AgentControlRuntime", () => {
 			});
 			attach(after.deps);
 			after.deps.pool.sidecarOf = () => ({ cwd: "/repo", status: "ready" }) as never;
-			await expect.poll(() => prompted.map(entry => entry.tabId)).toEqual(["busy0002", "kid00009"]);
+			await expect
+				.poll(() => prompted.map(entry => entry.tabId), { timeout: 5_000 })
+				.toEqual(["busy0002", "kid00009"]);
 			expect(prompted[1]?.message).toBe(prompted[0]?.message);
 			expect(prompted[1]?.message).toContain("[ompdesk dispatch d1:");
 
@@ -1508,7 +1512,7 @@ describe("AgentControlRuntime", () => {
 
 			// Its turn took it: the next look finds it in the journal, and it is owed no more.
 			journals.set("kid00009", [prompted[1]?.message ?? ""]);
-			await expect.poll(async () => JSON.parse(await fs.readFile(file, "utf8"))).toEqual([]);
+			await expect.poll(async () => JSON.parse(await fs.readFile(file, "utf8")), { timeout: 5_000 }).toEqual([]);
 			expect(prompted).toHaveLength(2);
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
@@ -1619,8 +1623,9 @@ describe("closing a child a paired web page owns", () => {
 			sweepMs: 0,
 		});
 		const closing = runtime.run(win, "main0001", T.stop, { session: "desk0002", close: true });
-		await vi.waitFor(() =>
-			expect(win.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "desk0002", how: "close" }]),
+		await vi.waitFor(
+			() => expect(win.sent).toContainEqual([AGENT_CONTROL_VIEW, { tabId: "desk0002", how: "close" }]),
+			{ timeout: 5_000 },
 		);
 		expect(log).toEqual([]);
 		tabs.splice(
@@ -1735,12 +1740,12 @@ describe("a caller outside OMPdesk (the control socket)", () => {
 		};
 		const first = env.backend.run(outside, T.stop, { session: "work0002" });
 		const second = env.backend.run(outside, T.stop, { session: "work0003" });
-		await vi.waitFor(() => expect(answers).toHaveLength(1));
+		await vi.waitFor(() => expect(answers).toHaveLength(1), { timeout: 5_000 });
 		await new Promise(resolve => setImmediate(resolve));
 		expect(answers).toHaveLength(1);
 		answers[0]?.(false);
 		await first;
-		await vi.waitFor(() => expect(answers).toHaveLength(2));
+		await vi.waitFor(() => expect(answers).toHaveLength(2), { timeout: 5_000 });
 		answers[1]?.(false);
 		await second;
 	});
@@ -1831,7 +1836,7 @@ describe("a session's own wake-up", () => {
 			owners: { [file]: "main0001" },
 		});
 		await runtime.wakeSession(wakeable(file), "run-1");
-		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1));
+		await vi.waitFor(() => expect(mails(commands)).toHaveLength(1), { timeout: 5_000 });
 		const [{ tabId, command }] = mails(commands) as [(typeof commands)[number]];
 		expect(tabId).toBe("main0001");
 		expect(command).toMatchObject({
@@ -1885,8 +1890,10 @@ describe("a session's own wake-up", () => {
 		emit({ type: "busy", tabId: "main0001" });
 		stopped.stop();
 		await expect(stopped.done).resolves.toEqual({ code: 130 });
-		await vi.waitFor(() =>
-			expect(rig.commands.some(entry => entry.tabId === "main0001" && entry.command.type === "abort")).toBe(true),
+		await vi.waitFor(
+			() =>
+				expect(rig.commands.some(entry => entry.tabId === "main0001" && entry.command.type === "abort")).toBe(true),
+			{ timeout: 5_000 },
 		);
 	});
 

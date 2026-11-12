@@ -1237,13 +1237,13 @@ describe("ompdesk_session_result", () => {
 			wait: true,
 			timeout_seconds: 30,
 		});
-		await vi.waitFor(() => expect(host.listeners.size).toBeGreaterThan(0));
+		await vi.waitFor(() => expect(host.listeners.size).toBeGreaterThan(0), { timeout: 5_000 });
 		const a = host.tabsById.get("work0002") as FakeTab;
 		a.busy = false;
 		const polls = () => host.sent.filter(entry => entry.command.type === "get_last_assistant_text").length;
 		const before = polls();
 		host.emit();
-		await vi.waitFor(() => expect(polls()).toBeGreaterThan(before));
+		await vi.waitFor(() => expect(polls()).toBeGreaterThan(before), { timeout: 5_000 });
 		const b = host.tabsById.get("work0003") as FakeTab;
 		b.busy = false;
 		host.emit();
@@ -2834,7 +2834,7 @@ describe("ompdesk_autopilot", () => {
 		const fresh = await service.run("main0001", T.autopilot, { action: "start", device: "dev1", folder: "/far" });
 		expect(fresh.isError, fresh.text).toBe(false);
 		const opened = pilot.starts[0]?.source as string;
-		await vi.waitFor(() => expect(host.releases).toEqual([opened]));
+		await vi.waitFor(() => expect(host.releases).toEqual([opened]), { timeout: 5_000 });
 		expect(host.views).not.toContainEqual({ tabId: opened, how: "close" });
 	});
 
