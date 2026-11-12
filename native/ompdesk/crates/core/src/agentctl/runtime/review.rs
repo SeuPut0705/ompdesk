@@ -197,7 +197,8 @@ impl Runtime {
         if let Some(review) = answer {
             let review = json_of(&review);
             let current = self.rt().review_sent.get(tab).cloned();
-            if current.as_deref() == Some(sent.as_str()) && sent != review.to_string() {
+            let now = review.to_string();
+            if current.as_deref() == Some(sent.as_str()) && sent != now {
                 self.send_review(tab, review);
             }
         }

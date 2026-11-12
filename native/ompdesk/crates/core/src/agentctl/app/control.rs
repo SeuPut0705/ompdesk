@@ -270,7 +270,7 @@ impl<P: AppPorts> AppControl<P> {
             .iter()
             .filter(|action| {
                 let own = action.area.to_lowercase();
-                if !area.is_empty() && !(own == area || own.starts_with(&format!("{area}/"))) {
+                if !area.is_empty() && own != area && !own.starts_with(&format!("{area}/")) {
                     return false;
                 }
                 query.is_empty()

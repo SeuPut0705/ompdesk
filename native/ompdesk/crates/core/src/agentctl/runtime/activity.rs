@@ -137,7 +137,8 @@ impl Runtime {
                         .get(&opener)
                         .cloned()
                         .unwrap_or_else(|| super::no_review().to_string());
-                    if last != review.to_string() {
+                    let now = review.to_string();
+                    if last != now {
                         me.send_review(&opener, review);
                     }
                 }
