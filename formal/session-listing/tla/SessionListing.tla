@@ -211,8 +211,8 @@ Announce(f2, r2) ==
 \* ===== the host's tabs change: each handler ends by calling listingChanged() in the same synchronous block =====
 
 \* @code src/main/remote/host-services.ts:1684-1723 #createTab: the device's tab holds its session now; listingChanged()
-\* @code src/main/sidecar-pool.ts:679-689 a window tab acquired a session: #registerSessionFile, then #notifyWindowTabsChanged -> listingChanged
-\* @code src/main/sidecar-pool.ts:2107-2116 #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
+\* @code native/ompdesk/crates/core/src/pool/windows.rs:131-195 Ctx::acquire_inner: a window tab acquired a session: #registerSessionFile, then #notifyWindowTabsChanged -> listingChanged
+\* @code native/ompdesk/crates/core/src/pool/routes.rs:50-88 Ctx::register_session_file_of: #registerSessionFile: a file taken calls onSessionFilesChanged -> listingChanged
 Open(t, s) ==
     /\ ~Busy
     /\ file[t] = NoS /\ t \notin pendReg /\ nChanges < MaxChanges
@@ -221,7 +221,9 @@ Open(t, s) ==
     /\ UNCHANGED <<pendReg, rec, idx, hs, lkv, hsl, ip, fd, post, nIdx, nTicks, nDrops, nForeign, seen>>
 
 \* @code src/main/remote/host-services.ts:2383-2412 #closeTab ... listingChanged()
-\* @code src/main/sidecar-pool.ts:1322-1331 #releaseEntry lets the file go (#unregisterSessionFile); 1846-1847 releaseTab -> #notifyWindowTabsChanged -> listingChanged
+\* @code native/ompdesk/crates/core/src/pool/windows.rs:331-347 Ctx::release_entry: #releaseEntry lets the file go (#unregisterSessionFile); releaseTab -> #notifyWindowTabsChanged -> listingChanged
+\* @code native/ompdesk/crates/core/src/pool/windows.rs:349-436 Ctx::release_detached
+\* @code native/ompdesk/crates/core/src/pool/api.rs:1272-1279 Ctx::release_tab
 Close(t) ==
     /\ ~Busy
     /\ (file[t] # NoS \/ t \in pendReg) /\ nChanges < MaxChanges
@@ -231,7 +233,7 @@ Close(t) ==
     /\ UNCHANGED <<rec, idx, hs, lkv, hsl, ip, fd, post, nIdx, nTicks, nDrops, nForeign, seen>>
 
 \* @code src/main/remote/host-services.ts:1782-1791 'session' handler: tab.sessionFile = identity.sessionFile; listingChanged() when it changed
-\* @code src/main/sidecar-pool.ts:1018-1029 'session' handler of a window tab: register the file, notify when it changed
+\* @code native/ompdesk/crates/core/src/pool/listen.rs:251-304 Ctx::feed_session: 'session' handler of a window tab: register the file, notify when it changed
 Switch(t, s) ==
     /\ ~Busy
     /\ file[t] # NoS /\ file[t] # s /\ nChanges < MaxChanges
@@ -239,9 +241,9 @@ Switch(t, s) ==
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<pendReg, rec, idx, hs, lkv, hsl, ip, fd, post, nIdx, nTicks, nDrops, nForeign, seen>>
 
-\* @code src/main/sidecar-pool.ts:993-1005 sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined)
-\* @code src/main/sidecar-pool.ts:2118-2124 #unregisterSessionFile: the let-go calls onSessionFilesChanged
-\* @code src/main/index.ts:1105 onSessionFilesChanged -> hostServices.listingChanged()
+\* @code native/ompdesk/crates/core/src/pool/listen.rs:212-247 Ctx::feed_session_info: sessionInfoUpdate with another sessionId unregisters the file (entry.sessionFile = undefined)
+\* @code native/ompdesk/crates/core/src/pool/routes.rs:99-118 Ctx::unregister_session_file_of: #unregisterSessionFile: the let-go calls onSessionFilesChanged
+\* @code src/main/index.ts:1401-1404 onSessionFilesChanged -> hostServices.listingChanged()
 IdChange(t) ==
     /\ ~Busy
     /\ t \in WinTabs /\ file[t] # NoS /\ nChanges < MaxChanges
@@ -251,7 +253,7 @@ IdChange(t) ==
     /\ nChanges' = nChanges + 1
     /\ UNCHANGED <<rec, idx, hs, lkv, hsl, ip, fd, post, nIdx, nTicks, nDrops, nForeign, seen>>
 
-\* @code src/main/sidecar-pool.ts:1018-1029 the `session` identity arrives (get_state, heartbeat): register the file and notify
+\* @code native/ompdesk/crates/core/src/pool/listen.rs:251-304 Ctx::feed_session: the `session` identity arrives (get_state, heartbeat): register the file and notify
 Reregister(t, s) ==
     /\ ~Busy
     /\ t \in pendReg
@@ -259,7 +261,7 @@ Reregister(t, s) ==
     /\ pendReg' = pendReg \ {t}
     /\ UNCHANGED <<rec, idx, hs, lkv, hsl, ip, fd, post, cn, seen>>
 
-\* @code src/main/index.ts:980-990 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
+\* @code src/main/index.ts:1256-1265 sessionOpeners(): the closed-child record (AGENT_CLOSED_CHILDREN_PREF) appears or goes
 \* @code src/main/ipc.ts:1285 the pref changed: hostedTabs.listingChanged()
 Record ==
     /\ ~Busy

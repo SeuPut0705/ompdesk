@@ -13,7 +13,7 @@ Why tests miss it: the host sends what changed, numbered; a receiver's copy is r
 ## In scope
 
 - The host's shared list: `LocalHostServices.#deviceList` (`SessionListShare`: the numbered copy, `changed()`, `stale()`, `current()`, `#publish`), `sessions.list`, `sessionsChanged()` and its debounce, `listingChanged()`, `#listing()`, `#listingSnapshot`, the delta or bare event to each device (host-services.ts, session-list-share.ts, shared/session-list-delta.ts).
-- The window tabs' side that feeds `windowSessionFiles()` and `sessionOpeners()` (sidecar-pool.ts), the closed-child record merged by `sessionOpeners()` (index.ts).
+- The window tabs' side that feeds `windowSessionFiles()` and `sessionOpeners()` (the core pool's `acquire_inner`, `release_entry`, `register_session_file_of`, `unregister_session_file_of`, `feed_session`, `feed_session_info`, `window_session_files`, `session_openers` in `native/ompdesk/crates/core/src/pool/`; the TypeScript `src/main/sidecar-pool.ts` is its client), the closed-child record merged by `sessionOpeners()` (index.ts).
 - The index's changes as the host sees them (session-index.ts: delete, move, rename's `relist`, the watch's `#notifyChange`) and a device's delete, rename and move through the host (ipc.ts, host-services.ts).
 - The paired computer's copy of the host's list: `HostSessionList` (`hostChanged`, `#read`, `stale`), `RemoteDevices` events, link state and `hostSessionsStale` (host-session-list.ts, devices.ts).
 - The window's feed: `refresh()` (one read in flight, one queued), the delta handler (note while a read is under way, apply at the held version, ignore the same version, debounce otherwise), the answer, a failed read's retry, `deleteSession`, `renameSession`, `reconcile`/`sameRow` (session-list.ts).
