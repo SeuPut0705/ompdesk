@@ -25,10 +25,13 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 
 commit_once() {
-	local head index tree new changed allowed
+	local head index scratch tree new changed allowed
 	head=$(git rev-parse HEAD)
 	index=$(mktemp "${TMPDIR:-/tmp}/agent-commit.XXXXXX")
-	trap 'rm -f "$index"' RETURN
+	# One folder for the parse probes, gone on every way out: mktemp's own file, beside a probe named after it, stayed
+	# behind once per TypeScript file of every commit.
+	scratch=$(mktemp -d "${TMPDIR:-/tmp}/agent-commit-probe.XXXXXX")
+	trap 'rm -rf "$index" "$scratch"' RETURN
 	GIT_INDEX_FILE="$index" git read-tree "$head"
 	check_fresh "$head" || return 1
 	if [ -n "$patch" ]; then
@@ -42,11 +45,9 @@ commit_once() {
 	while IFS= read -r file; do
 		case "$file" in
 		*.ts | *.tsx | *.mts)
-			local probe
-			probe=$(mktemp "${TMPDIR:-/tmp}/agent-commit-probe.XXXXXX").${file##*.}
+			local probe="$scratch/probe.${file##*.}"
 			GIT_INDEX_FILE="$index" git show ":$file" >"$probe"
-			bun build --no-bundle "$probe" >/dev/null || { rm -f "$probe"; echo "agent-commit: $file does not parse" >&2; return 1; }
-			rm -f "$probe"
+			bun build --no-bundle "$probe" >/dev/null || { echo "agent-commit: $file does not parse" >&2; return 1; }
 			;;
 		esac
 	done < <(GIT_INDEX_FILE="$index" git diff --cached --name-only --diff-filter=AM "$head")
