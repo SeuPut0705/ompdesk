@@ -1,0 +1,26 @@
+[package]
+name = "ompdesk-checks"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "ompdesk_checks"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+# The journal, the pool's owner records and the runners' reports are JSON; `preserve_order` as the rest of the
+# workspace builds serde_json, so no second build of it.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+# The content hash of a check's input set; already linked by the core.
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+# flock for the heavy slots, setsid for a detached check runner, kill(0) for liveness, the RAM size.
+libc = "0.2"

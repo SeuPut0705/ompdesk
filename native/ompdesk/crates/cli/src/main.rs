@@ -22,6 +22,9 @@ fn main() {
     if argv.first().is_some_and(|arg| arg == "--") {
         argv.remove(0);
     }
+    if let Some(code) = ompdesk_checks::cli::dispatch(&argv) {
+        std::process::exit(code);
+    }
     let env: HashMap<String, String> = std::env::vars_os()
         .map(|(k, v)| {
             (
