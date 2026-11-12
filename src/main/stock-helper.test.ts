@@ -199,6 +199,44 @@ describe("StockHelper request timeout", () => {
 		await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
 		expect(children).toHaveLength(1);
 	});
+
+	it("starts a fresh stock worker once the installed omp changed under an idle one, and keeps it while it is busy", async () => {
+		let installed = "18.18.9";
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const { helper, children } = await helperOnWorker(30_000, { ompStamp: () => installed });
+			// omp was reinstalled under the running worker: its module registry holds the old files, and a module it
+			// imports later comes from the new ones (12 Nov 2026: "Export named … not found" on every worktree create).
+			installed = "18.19.0";
+			await expect(helper.request("fast", {})).resolves.toBe("ok");
+			expect(children).toHaveLength(2);
+			await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
+			// Unchanged: the same worker answers.
+			await expect(helper.request("fast", {})).resolves.toBe("ok");
+			expect(children).toHaveLength(2);
+			// A change while a request still runs on the worker waits for it: nothing in flight is cut.
+			const gated = helper.request("gated", {});
+			await vi.waitFor(() => expect(children).toHaveLength(2));
+			installed = "18.19.1";
+			const queued = helper.request("fast", {});
+			await fs.writeFile(path.join(dir, "release"), "");
+			await expect(gated).resolves.toBe("gated");
+			await expect(queued).resolves.toBe("ok");
+			expect(children).toHaveLength(2);
+			await expect(helper.request("fast", {})).resolves.toBe("ok");
+			expect(children).toHaveLength(3);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("never retires the terminals worker for a changed omp: its live shells would go with it", async () => {
+		let installed = "18.18.9";
+		const { helper, children } = await helperOnWorker(30_000, { worker: "terminals", ompStamp: () => installed });
+		installed = "18.19.0";
+		await expect(helper.request("fast", {})).resolves.toBe("ok");
+		expect(children).toHaveLength(1);
+	});
 });
 
 describe("helperWorker", () => {

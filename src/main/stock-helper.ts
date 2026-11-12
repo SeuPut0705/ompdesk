@@ -1,5 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
+import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { withoutControlEnv } from "./control-socket/env";
@@ -48,6 +49,8 @@ export interface StockHelperOptions {
 	idleExitMs?: number;
 	/** Test seam: the worker process to talk to; production starts `stock-helper/host.ts` on the user's omp. */
 	spawnWorker?: () => Promise<ChildProcessWithoutNullStreams>;
+	/** Test seam: what identifies the installed omp now (production: its package.json's time and size), or null. */
+	ompStamp?: () => string | null;
 }
 
 /** One lazy worker for main-side stock operations. Keeps stock caches warm
@@ -75,6 +78,11 @@ export class StockHelper {
 	readonly #requestTimeoutMs: number;
 	readonly #recycleGraceMs: number;
 	readonly #spawnWorker: () => Promise<ChildProcessWithoutNullStreams>;
+	readonly #ompStamp: () => string | null;
+	/** The omp package the running worker was started on, so a request can see it was replaced since. */
+	#ompRoot: string | null = null;
+	/** {@link StockHelperOptions.ompStamp} when the running worker started. */
+	#startedStamp: string | null = null;
 
 	constructor(bridgeDir: string, options: StockHelperOptions = {}) {
 		this.#bridgeDir = bridgeDir;
@@ -83,6 +91,17 @@ export class StockHelper {
 		this.#recycleGraceMs = options.recycleGraceMs ?? RECYCLE_GRACE_MS;
 		this.#idleExitMs = options.idleExitMs ?? (this.#worker === "extensions" ? EXTENSIONS_IDLE_EXIT_MS : 0);
 		this.#spawnWorker = options.spawnWorker ?? (() => this.#spawnStockWorker());
+		this.#ompStamp = options.ompStamp ?? (() => this.#packageStamp());
+	}
+
+	#packageStamp(): string | null {
+		if (!this.#ompRoot) return null;
+		try {
+			const stat = statSync(join(this.#ompRoot, "package.json"));
+			return `${stat.mtimeMs}:${stat.size}`;
+		} catch {
+			return null;
+		}
 	}
 
 	async #spawnStockWorker(): Promise<ChildProcessWithoutNullStreams> {
@@ -90,6 +109,7 @@ export class StockHelper {
 		if (!omp.ok) throw refuseWithoutOmp(omp.error);
 		const root = ompPackageRoot(omp.runtime.bin);
 		if (!root) throw new Error("Cannot locate omp package");
+		this.#ompRoot = root;
 		if (this.#stopped) throw new Error("Stock helper stopped");
 		return spawn("bun", [join(this.#bridgeDir, "stock-helper", "host.ts"), this.#worker], {
 			stdio: ["pipe", "pipe", "pipe"],
@@ -104,8 +124,33 @@ export class StockHelper {
 		});
 	}
 
+	/**
+	 * omp was reinstalled (`omp update`, a terminal's `bun install -g`) while this worker ran, and nothing is in
+	 * flight on it. Its module registry holds the old files and any module it imports later comes from the new ones,
+	 * so a call can fail on an export one version has and the other lacks (12 Nov 2026, Windows: "Export named
+	 * 'JUDGMENT_IMAGE_PATCH_SIDE' not found" on every worktree create after an update OMPdesk did not run). Nothing
+	 * in flight means no request the worker was sent is unanswered and no other request is on its way to it (the
+	 * asking one is in `#pending` too). The terminals worker is never retired here: its live shells would go with it.
+	 */
+	#outlivedItsOmp(): boolean {
+		if (this.#worker === "terminals" || this.#startedStamp === null) return false;
+		if (this.#unanswered.size > 0 || this.#pending.size > 1) return false;
+		const now = this.#ompStamp();
+		return now !== null && now !== this.#startedStamp;
+	}
+
+	/** Lets the worker go with nothing in flight: it ends on its stdin, and the next request starts a fresh one. */
+	#retire(child: ChildProcessWithoutNullStreams): void {
+		console.warn(`omp stock helper: omp changed under the ${this.#worker} worker; starting a fresh one`);
+		this.#child = null;
+		this.#clearOverdue();
+		this.#clearIdle();
+		child.stdin.end();
+	}
+
 	async #start(): Promise<ChildProcessWithoutNullStreams> {
 		if (this.#stopped) throw new Error("Stock helper stopped");
+		if (this.#child && this.#outlivedItsOmp()) this.#retire(this.#child);
 		if (this.#child) return this.#child;
 		if (this.#starting) return this.#starting;
 		this.#starting = (async () => {
@@ -115,6 +160,7 @@ export class StockHelper {
 				throw new Error("Stock helper stopped");
 			}
 			this.#child = child;
+			this.#startedStamp = this.#ompStamp();
 			// Stock warnings stay off the JSON-lines response stream. Do not log session data.
 			child.stderr.resume();
 			const input = createInterface({ input: child.stdout });
