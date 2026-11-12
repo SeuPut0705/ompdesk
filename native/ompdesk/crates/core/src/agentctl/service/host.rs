@@ -418,9 +418,7 @@ impl Host {
             });
             Some((outbox, id.to_owned()))
         });
-        let answer = self
-            .send_mail(tab_id, content, details, delivery)
-            .await?;
+        let answer = self.send_mail(tab_id, content, details, delivery).await?;
         if let (Some((outbox, id)), Some(answer)) = (kept, answer)
             && answer.duplicate
             && answer.journaled

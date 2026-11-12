@@ -54,8 +54,8 @@ use self::types::{
     Target, Tool, ToolOutcome,
 };
 use self::util::{Flight, OrderedMap};
-use crate::agentctl::journal::mail_outbox::MailOutbox;
 use crate::agentctl::journal::call_journal::{CallBegin, CallJournal, CallRecord, CallResult};
+use crate::agentctl::journal::mail_outbox::MailOutbox;
 use crate::agentctl::journal::pending_cleanups::PendingCleanups;
 use crate::agentctl::journal::send_outbox::SendOutbox;
 use crate::agentctl::journal::session_fates::{FatedSession, SessionFates, fate_by};

@@ -443,11 +443,13 @@ impl AgentControl {
             .and_then(|tabs| tabs.into_iter().find(|tab| tab.tab_id == tab_id))
             .and_then(|tab| tab.device);
         let Some(made) = worktree else {
-            // Closed in the background: the caller is not kept waiting for a tab that is going.
+            // Closed in the background: the caller is not kept waiting for a tab that is going. The close starts
+            // here, before the open answers (its ask of the window or main's release is sent first, as the
+            // TypeScript's call ran to its first await), and goes on by itself.
             let control = self.clone();
             let (caller_id, closing_id) = (caller.tab_id.clone(), tab_id.clone());
             let wait_ms = self.tuning.close_wait_ms;
-            tokio::spawn(async move {
+            let mut closing = Box::pin(async move {
                 let _ = control
                     .close_tab(
                         &caller_id,
@@ -460,6 +462,13 @@ impl AgentControl {
                     )
                     .await;
             });
+            tokio::select! {
+                biased;
+                () = &mut closing => {}
+                () = std::future::ready(()) => {
+                    tokio::spawn(closing);
+                }
+            }
             return Err(error);
         };
         let message = error.message();
@@ -766,7 +775,10 @@ impl OpenCommand<'_> {
             .command(self.tab_id, command, Deadline::None);
         tokio::pin!(answer);
         loop {
+            // The answer first: main's answers and snapshots reach the core in the order main saw them, so an answer
+            // main had before the tab's status changed wins the race, as the TypeScript's `Promise.race` gave it.
             tokio::select! {
+                biased;
                 settled = &mut answer => {
                     return match settled {
                         Ok(response) => Ok(response),
@@ -779,14 +791,21 @@ impl OpenCommand<'_> {
                 }
                 () = self.control.host.next_change(self.control.tuning.poll_ms) => {
                     if let Some(why) = self.ended() {
-                        // The tab's status and main's answer to the command reach the core as two messages: a
-                        // child whose command was refused because it is not ready reads `error` a moment before
-                        // the refusal arrives. The answer, if it is on its way, says more than the status does.
-                        let grace = Duration::from_millis(self.control.tuning.answer_grace_ms);
-                        return match tokio::time::timeout(grace, &mut answer).await {
-                            Ok(Ok(response)) => Ok(response),
-                            _ => Ok(RpcResponse::refused(why)),
-                        };
+                        // The TypeScript sent the command and only then began to wait: a status main set while it took
+                        // the command (a refusal says the tab is not ready, the tab reads `error` at that moment) was
+                        // no change to it. Main writes its answers and snapshots in the order it settles them, so one
+                        // round trip shows whether main had already answered: then the answer counts, as it did.
+                        let _ = self.control.host.fresh().await;
+                        tokio::select! {
+                            biased;
+                            settled = &mut answer => {
+                                if let Ok(response) = settled {
+                                    return Ok(response);
+                                }
+                            }
+                            () = std::future::ready(()) => {}
+                        }
+                        return Ok(RpcResponse::refused(why));
                     }
                 }
             }

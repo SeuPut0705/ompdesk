@@ -6,9 +6,10 @@
 //!   nothing answers it, and it reaches main in the order the core sent it (one writer).
 //! - Main's state (what a TypeScript caller read synchronously) is a snapshot main takes at the moment it observes a
 //!   change and pushes (`ports.push {port, seq, state}`), and also hands with every answer (`state`, `seq`): a step
-//!   that resumes after an ask reads main as it was when main answered, never older. The numbers order the snapshots
-//!   across the core's concurrent request tasks: an older one never replaces a newer one. After a wait on the core's
-//!   own clock a step asks for the state (`fresh`), as the TypeScript read it after its timer.
+//!   that resumes after an ask reads main as it was when main answered, never older. Answers and snapshots apply in
+//!   the order main wrote them (each in its request's synchronous part), and the numbers keep an older snapshot from
+//!   replacing a newer one. After a wait on the core's own clock a step asks for the state (`fresh`), as the
+//!   TypeScript read it after its timer.
 //! - `ports.held {port}` answers once the port closed (`ports.close`, or the subsystem dropped it); a core that dies
 //!   fails it, which is how main learns its port is gone.
 
@@ -316,11 +317,19 @@ pub(crate) fn apply_answer<S: DeserializeOwned + Send + Sync + 'static>(
     Sink::answer(port, ask, result);
 }
 
+/// `ports.answer`, `ports.push` and `ports.close` act in their handler's synchronous part, which the server runs in
+/// its read loop before it reads the next line (`server.rs` `begin`): each applies in the order main wrote it, so a
+/// step reads main's answers and snapshots in the order main observed them, and a call main sends after a push
+/// starts on that push's state. Nothing here waits.
 pub fn register(registry: &mut Registry) {
-    registry.add("ports.answer", |call| Box::pin(answer(call)));
-    registry.add("ports.push", |call| Box::pin(push(call)));
-    registry.add("ports.close", |call| Box::pin(close(call)));
+    registry.add("ports.answer", |call| now(answer(&call)));
+    registry.add("ports.push", |call| now(push(&call)));
+    registry.add("ports.close", |call| now(close(&call)));
     registry.add("ports.held", |call| Box::pin(held(call)));
+}
+
+fn now(result: Result<Reply, Fault>) -> crate::server::Answer {
+    Box::pin(std::future::ready(result))
 }
 
 fn sink(port: u64) -> Option<Arc<dyn Sink>> {
@@ -344,7 +353,7 @@ struct AnswerParams {
     state: Option<Box<RawValue>>,
 }
 
-async fn answer(call: Call) -> Result<Reply, Fault> {
+fn answer(call: &Call) -> Result<Reply, Fault> {
     let params: AnswerParams = call.params()?;
     let Some(port) = sink(params.port) else {
         return Reply::json(&());
@@ -374,7 +383,7 @@ struct PushParams {
     state: Box<RawValue>,
 }
 
-async fn push(call: Call) -> Result<Reply, Fault> {
+fn push(call: &Call) -> Result<Reply, Fault> {
     let params: PushParams = call.params()?;
     if let Some(port) = sink(params.port) {
         port.state(params.seq, &params.state)?;
@@ -387,7 +396,7 @@ struct PortParams {
     port: u64,
 }
 
-async fn close(call: Call) -> Result<Reply, Fault> {
+fn close(call: &Call) -> Result<Reply, Fault> {
     let params: PortParams = call.params()?;
     if let Some(port) = sink(params.port) {
         port.close();

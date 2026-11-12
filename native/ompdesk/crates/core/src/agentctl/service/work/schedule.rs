@@ -335,7 +335,8 @@ impl AgentControl {
             }));
         }
         if let Some(at) = &args.at {
-            let Some(ms) = crate::schedules::rules::date_parse(at, &crate::schedules::rules::Local) else {
+            let Some(ms) = crate::schedules::rules::date_parse(at, &crate::schedules::rules::Local)
+            else {
                 return Err(Fail::other("Invalid time value"));
             };
             return Ok(Some(ScheduleFrequency::Once {

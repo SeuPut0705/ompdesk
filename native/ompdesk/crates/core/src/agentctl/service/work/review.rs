@@ -35,7 +35,9 @@ fn js_num(value: f64) -> Value {
 /// `epochMs`: a time as milliseconds, from an ISO string or a number; None when it is neither.
 fn epoch_ms(value: Option<&Value>) -> Option<f64> {
     let ms = match value? {
-        Value::String(text) => crate::schedules::rules::date_parse(text, &crate::schedules::rules::Local)? as f64,
+        Value::String(text) => {
+            crate::schedules::rules::date_parse(text, &crate::schedules::rules::Local)? as f64
+        }
         Value::Number(number) => number.as_f64()?,
         _ => return None,
     };

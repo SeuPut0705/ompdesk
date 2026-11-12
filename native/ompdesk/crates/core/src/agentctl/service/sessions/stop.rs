@@ -349,10 +349,16 @@ impl AgentControl {
                 ));
             }
             if facts.uncommitted != 0 {
-                unlanded.push(format!("{} uncommitted file(s)", number(facts.uncommitted as f64)));
+                unlanded.push(format!(
+                    "{} uncommitted file(s)",
+                    number(facts.uncommitted as f64)
+                ));
             }
             if facts.untracked != 0 {
-                unlanded.push(format!("{} untracked file(s)", number(facts.untracked as f64)));
+                unlanded.push(format!(
+                    "{} untracked file(s)",
+                    number(facts.untracked as f64)
+                ));
             }
         }
         format!(

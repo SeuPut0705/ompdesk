@@ -31,11 +31,14 @@
  */
 import type { AutopilotStartOptions, AutopilotStatus } from "../../../resources/gui-bridge/modes/autopilot-contracts";
 import type {
+	AgentAppEvent,
 	AgentControlToolName,
 	AgentControlViewEvent,
 	AgentReviewItem,
 	AgentReviewResult,
 	ClosedChild,
+	PrivacyPane,
+	SidebarView,
 } from "../../shared/agent-control";
 import { ipcErrorCode } from "../../shared/ipc-error-codes";
 import type { IpcSavedFolder, IpcTabRunOutcome, IpcTabWorktree, TabStatus } from "../../shared/ipc-types";
@@ -54,7 +57,6 @@ import { CoreError, core } from "../core/process";
 import { RpcTimeoutError } from "../rpc-client";
 import type { Pace } from "../session-pace";
 import type { FileEdits } from "../web/file-edit-reports";
-import type { AppPorts } from "./app-control";
 import type { BranchEvidence, BranchFacts, LandingFacts, MergeOutcome, WorktreeRef, WorktreeRemoval } from "./branches";
 import type { MailDelivery } from "./mail";
 import { ARGS, looseArgs, type OpenOne } from "./tools";
@@ -265,6 +267,42 @@ export interface HostRuntime {
 	nextPromptChildren(tabId: string, children: { title: string; waiting?: true }[]): void;
 	closedChildren(rows: ClosedChild[]): void;
 	wakeDone(runId: string, result: { code: number | null; error?: string }): void;
+}
+
+/** What `ompdesk_app` needs from the app; `host.ts` builds it; the core's `agentctl/app` asks through it. */
+export interface AppPorts {
+	getPref(key: string): unknown;
+	/** The paired host the calling session's tab runs on (its `device`); undefined = this computer. */
+	device(callerTabId: string): string | undefined;
+	/** Write a preference through `PREFS_SET` (its validation and side effects included). */
+	setPref(callerTabId: string, key: string, value: unknown): Promise<void>;
+	rpc(callerTabId: string, command: RpcCommand): Promise<RpcResponse>;
+	/**
+	 * Send an RPC command to an omp on the computer `device` names (a paired device by name or id as ompdesk_sessions
+	 * lists it, or "local" = this computer): the caller's own session when it runs there, else another open session
+	 * there, else a background session opened for the running action and closed and deleted after it. Rejects with a
+	 * readable message when the device is unknown or unreachable.
+	 */
+	rpcOn(callerTabId: string, device: string, command: RpcCommand): Promise<RpcResponse>;
+	invoke(callerTabId: string, channel: string, args: readonly unknown[]): Promise<unknown>;
+	fire(callerTabId: string, channel: string, args: readonly unknown[]): void;
+	send(callerTabId: string, event: AgentAppEvent): void;
+	confirm(callerTabId: string, title: string, message: string): Promise<boolean>;
+	manageEnabled(): boolean;
+	/** `agentControlFull`: no card at all, and the agent-power switches become writable. */
+	fullEnabled(): boolean;
+	/** Journal a line in the caller's session. Best effort. */
+	note(callerTabId: string, text: string): Promise<void>;
+	text(key: "appTitle" | "appMessage" | "appChanged", params: Record<string, string>): string;
+	/** The English or the Korean text, by the app's language. */
+	localize(en: string, ko: string): string;
+	/** What the person's sidebar holds of pins, aliases and project order (never the agent-hidden list). */
+	sidebarView(): SidebarView;
+	/** Open a macOS Privacy & Security pane (this computer's System Settings); rejects off macOS. */
+	openPrivacyPane(pane: PrivacyPane): Promise<void>;
+	callerTitle(callerTabId: string): string;
+	/** `ompdesk_autopilot` itself (its card and folder rules); the app actions go through it, never around it. */
+	autopilot(callerTabId: string, args: unknown): Promise<string>;
 }
 
 export interface AgentControlHost {
@@ -489,8 +527,7 @@ export type Tuning = Partial<
 		| "promptMs"
 		| "judgeMs"
 		| "whenGoneMs"
-		| "mailCoalesceMs"
-		| "answerGraceMs",
+		| "mailCoalesceMs",
 		number
 	>
 >;
@@ -808,18 +845,10 @@ export class AgentControl {
 	}
 
 	async #invoke<T>(wire: string, params: Record<string, unknown>, retry: boolean): Promise<T> {
-		const opening = this.#open();
-		// What the call reads of main is main as it is now: the snapshot is taken before anything awaits, and the call
-		// waits until the core applied it (the core runs each request on a task of its own, so a push sent just before
-		// a call is not known to land first).
-		const { seq, state } = this.#port.first();
-		await opening;
-		await core()
-			.call("ports.push", { port: this.#port.id, seq, state })
-			.then(
-				() => undefined,
-				() => undefined,
-			);
+		await this.#open();
+		// What the call reads of main is main as it is now: the core applies a push in the order main wrote it, so the
+		// call that follows starts on it.
+		this.#port.push();
 		try {
 			return (await core().call<T>(wire, { port: this.#port.id, ...params }, { timeoutMs: NO_TIMEOUT_MS })).result;
 		} catch (error) {

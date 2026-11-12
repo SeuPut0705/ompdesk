@@ -45,7 +45,6 @@ import {
 	type Tombstones,
 	type Tuning,
 } from "./service";
-import { needsPersonTurn, tabCloseStep } from "./tab-close";
 
 const ok = (data: unknown = {}): RpcResponse => ({ type: "response", success: true, data }) as RpcResponse;
 const bad = (error: string): RpcResponse => ({ type: "response", success: false, error }) as RpcResponse;
@@ -4900,6 +4899,18 @@ describe("closing a tab a paired web page owns", () => {
  * "releases the tab it opened to start from…" under `ompdesk_autopilot`). A path may stop earlier (stop refuses a tab
  * the person is at, auto-close keeps it), never release or ask the window against the rule.
  */
+/**
+ * The rule as the close paths must apply it (`rules/tab_close.rs` in the core): a desktop tab is asked of its window, a
+ * paired web page's tab is kept when its page holds unsaved Files edits or, unless the close was cleared, when the
+ * person is at it, and released otherwise.
+ */
+function expectedStep(tab: Partial<FakeTab>, cleared: boolean): { action: "ask-window" | "release" | "keep" } {
+	if (tab.webEdits === undefined) return { action: "ask-window" };
+	if (tab.webEdits === "dirty") return { action: "keep" };
+	if (!cleared && (tab.userTouched === true || tab.looked === true)) return { action: "keep" };
+	return { action: "release" };
+}
+
 describe("every close path follows tabCloseStep", () => {
 	const EDITS: (FileEdits | undefined)[] = [undefined, "clean", "unreported", "dirty"];
 	const PEOPLE: Partial<FakeTab>[] = [{}, { looked: true }, { userTouched: true }];
@@ -4942,7 +4953,7 @@ describe("every close path follows tabCloseStep", () => {
 			for (const webEdits of EDITS)
 				for (const person of PEOPLE) {
 					const patch: Partial<FakeTab> = { ...(webEdits ? { webEdits } : {}), ...person };
-					const step = tabCloseStep(patch, name === "stop" && !needsPersonTurn(patch, true));
+					const step = expectedStep(patch, name === "stop" && patch.userTouched !== true);
 					const { host, child } = await path(patch);
 					const label = JSON.stringify(patch);
 					expect(child, label).not.toBe("");

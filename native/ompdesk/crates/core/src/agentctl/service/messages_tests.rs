@@ -142,7 +142,12 @@ async fn a_send_to_an_idle_child_hands_over_a_numbered_dispatch_and_repeats_its_
             None,
         )
         .await;
-    assert_eq!(to_itself.text, "A session cannot message itself.");
+    // The tool resolves its target first, and that refuses the caller's own session (`#sendTarget`), as the
+    // TypeScript did before `#send` could say it.
+    assert_eq!(
+        to_itself.text,
+        "You cannot send to your own session with this tool."
+    );
     control.host.port().close();
 }
 

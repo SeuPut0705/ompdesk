@@ -643,8 +643,7 @@ async fn a_call_is_refused_while_the_tools_are_off_or_the_tab_is_gone() {
 }
 
 #[tokio::test]
-async fn an_invalid_call_is_answered_with_main_s_validation_and_a_valid_one_runs_its_family_body()
- {
+async fn an_invalid_call_is_answered_with_main_s_validation_and_a_valid_one_runs_its_family_body() {
     let state = state_with(vec![session_tab("a", "/s/x_1.jsonl")], &[("a", "w")]);
     let (control, asked) = rig(
         7_203,

@@ -133,7 +133,7 @@ const DELIVERY: crate::agentctl::rules::mail::MailDelivery =
 async fn a_report_is_kept_until_the_receiver_s_journal_holds_it() {
     // The bridge says queued, not journaled: the report stays kept.
     let (control, _runtime, _told) = rig(
-        7_301,
+        7_401,
         state(vec![tab("boss", "/s/boss.jsonl")]),
         with_outbox(),
         |method, _| match method {
@@ -153,7 +153,7 @@ async fn a_report_is_kept_until_the_receiver_s_journal_holds_it() {
 
     // The bridge already holds it in its journal: settled at once.
     let (control, _runtime, _told) = rig(
-        7_302,
+        7_402,
         state(vec![tab("boss", "/s/boss.jsonl")]),
         with_outbox(),
         |_, _| Ok(json!({ "duplicate": true, "journaled": true })),
@@ -171,7 +171,7 @@ async fn a_report_is_kept_until_the_receiver_s_journal_holds_it() {
 async fn a_report_to_an_outside_caller_or_a_tab_with_no_session_file_is_kept_nowhere() {
     let mut bare = tab("bare", "");
     bare.as_object_mut().unwrap().remove("sessionPath");
-    let (control, _runtime, told) = rig(7_303, state(vec![bare]), with_outbox(), |_, _| {
+    let (control, _runtime, told) = rig(7_403, state(vec![bare]), with_outbox(), |_, _| {
         Ok(Value::Null)
     });
     control
@@ -199,7 +199,7 @@ async fn a_pass_sends_a_kept_report_again_to_the_tab_that_holds_its_session_unti
     ]));
     let queue = answers.clone();
     let (control, runtime, told) = rig(
-        7_304,
+        7_404,
         state(vec![tab("boss9", "/s/boss.jsonl")]),
         with_outbox(),
         move |method, _| match method {
@@ -300,7 +300,7 @@ async fn woken(id: u64, run: &str) -> (AgentControl, Arc<Runtime>, Told) {
 
 #[tokio::test]
 async fn a_wake_up_is_kept_and_handed_to_the_tab_that_holds_the_session() {
-    let (control, _runtime, told) = woken(7_305, "run-1").await;
+    let (control, _runtime, told) = woken(7_405, "run-1").await;
     // Kept for the receiver's journal, sent to its tab as a note that starts a turn.
     let kept = control.host.outbox().unwrap().pending();
     assert_eq!(kept.len(), 1);
@@ -332,7 +332,7 @@ async fn a_wake_up_is_kept_and_handed_to_the_tab_that_holds_the_session() {
 
 #[tokio::test]
 async fn a_wake_up_ends_with_the_turn_it_started() {
-    let (control, runtime, told) = woken(7_306, "run-a").await;
+    let (control, runtime, told) = woken(7_406, "run-a").await;
     // Another tab's activity ends nothing.
     runtime.activity(activity(ActivityKind::Idle, "other", Some(("stop", None))));
     settle().await;
@@ -351,7 +351,7 @@ async fn a_wake_up_ends_with_the_turn_it_started() {
 
 #[tokio::test]
 async fn a_turn_that_started_and_ended_in_one_batch_ends_the_run_too_and_a_stop_is_its_own_code() {
-    let (control, runtime, told) = woken(7_307, "run-q").await;
+    let (control, runtime, told) = woken(7_407, "run-q").await;
     runtime.activity(activity(ActivityKind::Idle, "boss", Some(("stop", None))));
     assert_eq!(done(&told, "run-q").await.unwrap()["code"], 0);
 
@@ -389,7 +389,7 @@ async fn a_turn_that_started_and_ended_in_one_batch_ends_the_run_too_and_a_stop_
 
 #[tokio::test(start_paused = true)]
 async fn a_wake_up_that_starts_no_turn_fails_its_run() {
-    let (control, _runtime, told) = woken(7_308, "run-t").await;
+    let (control, _runtime, told) = woken(7_408, "run-t").await;
     assert!(told_of(&told, "wakeDone").is_empty());
     tokio::time::sleep(std::time::Duration::from_millis(120_001)).await;
     assert_eq!(
@@ -403,7 +403,7 @@ async fn a_wake_up_that_starts_no_turn_fails_its_run() {
 async fn a_wake_up_whose_session_cannot_be_reached_fails_and_keeps_nothing() {
     let (control, runtime, _told) =
         rig(
-            7_309,
+            7_409,
             state(vec![]),
             with_outbox(),
             |method, _| match method {
@@ -444,7 +444,7 @@ async fn the_openers_are_the_tabs_that_opened_a_session_the_auto_close_may_close
         "by-outside": { "callerTabId": "outside:cli#1" },
         "person": { "callerTabId": "boss" },
     });
-    let (control, runtime, _told) = rig(7_310, st, Files::default(), |_, _| Ok(Value::Null));
+    let (control, runtime, _told) = rig(7_410, st, Files::default(), |_, _| Ok(Value::Null));
     // An outside caller has no session to collect into, and a tab the rules do not close counts for none. (The
     // Autopilot child's `autoClosable` is false from main; here it is marked on, as main never does, and counts.)
     assert_eq!(runtime.openers(), vec!["boss".to_owned()]);
@@ -467,7 +467,7 @@ async fn a_deleted_session_leaves_the_closed_list_and_its_ids_keep_naming_it() {
         record("/s/other.jsonl", None)
     ]);
     st["deleted"] = json!({ "byPath": [{ "path": "/s/kid.jsonl", "device": "dev-1", "at": 7.0 }] });
-    let (control, runtime, told) = rig(7_311, st, Files::default(), |_, _| Ok(Value::Null));
+    let (control, runtime, told) = rig(7_411, st, Files::default(), |_, _| Ok(Value::Null));
     runtime.forget_deleted();
     settle().await;
     let rows = told_of(&told, "closedChildren");
@@ -487,7 +487,7 @@ async fn a_deleted_session_leaves_the_closed_list_and_its_ids_keep_naming_it() {
     );
 
     // Nothing deleted: main is told nothing.
-    let (control, runtime, told) = rig(7_312, state(vec![]), Files::default(), |_, _| {
+    let (control, runtime, told) = rig(7_412, state(vec![]), Files::default(), |_, _| {
         Ok(Value::Null)
     });
     runtime.forget_deleted();
@@ -520,7 +520,7 @@ fn asks_of(told: &Told, method: &str) -> usize {
 
 #[tokio::test]
 async fn a_timer_review_of_an_opener_never_starts_while_its_last_one_still_reads() {
-    let (control, runtime, told) = rig(7_320, family(), Files::default(), |method, _| {
+    let (control, runtime, told) = rig(7_420, family(), Files::default(), |method, _| {
         // Whatever a review asks main for (the child's state, git) never answers.
         if method == "command" {
             Err(HOLD.to_owned())
@@ -547,7 +547,7 @@ async fn a_timer_review_of_an_opener_never_starts_while_its_last_one_still_reads
 
 #[tokio::test]
 async fn a_running_child_is_read_again_only_when_it_moved_and_a_list_went_out() {
-    let (control, runtime, told) = rig(7_321, family(), Files::default(), quiet_main);
+    let (control, runtime, told) = rig(7_421, family(), Files::default(), quiet_main);
     // Nothing was sent yet: a board that asks has nothing to compare to.
     runtime.live_review("boss").await;
     assert_eq!(asks_of(&told, "command"), 0);
