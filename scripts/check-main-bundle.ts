@@ -317,7 +317,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The Fable limit in the chat's work status (12 Nov 2026, `lib/usage-windows.ts` `accountWindows` with the session's
 // model, `UsageGauges` and its tooltip; the work board's meter row is the first screen): measured 2,198,011 on c5803493
 // by ci.yml's build, 273 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_198_011;
+// omp 18.19.0's Liquid AI provider mark (12 Nov 2026, `provider-marks.ts`: the composer's model chip draws a provider's
+// mark, so the table of marks is the first screen) and the two strings of a ChatGPT account's unlimited credits in the
+// English catalog: measured 2,198,582 on c5d23902 by ci.yml's build, 571 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_198_582;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
