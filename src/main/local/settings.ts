@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import type {
+	AccountCredits,
 	AccountUsageState,
 	ProviderAccount,
 	ProviderAccountsResult,
@@ -45,6 +46,8 @@ export interface BridgeProviderAccounts {
 		identityKey?: string | null;
 		/** The account's saved rate-limit resets (bridge feature `resetPasses`). */
 		resetPasses?: ResetPasses;
+		/** What the account has left to spend, while above zero. */
+		credits?: AccountCredits;
 	}>;
 }
 
@@ -77,6 +80,7 @@ export function mergeProviderAccounts(
 			...(quota?.fetchedAt !== undefined ? { fetchedAt: quota.fetchedAt } : {}),
 			...(pools ? { identityKey: quota?.identityKey ?? null } : {}),
 			...(quota?.resetPasses ? { resetPasses: quota.resetPasses } : {}),
+			...(quota?.credits ? { credits: quota.credits } : {}),
 		};
 	});
 	return {

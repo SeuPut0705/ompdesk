@@ -1474,6 +1474,73 @@ describe("ProviderAccounts", () => {
 		}
 	});
 
+	it("shows the credits an account has left in one column down the whole list, and nothing where there are none", async () => {
+		const claudeAccounts: ProviderAccount[] = [
+			{
+				...accounts[0],
+				credits: { kind: "monthlyCap", limitId: "anthropic:extra", remaining: 35.2, limit: 50, unit: "usd" },
+			},
+			accounts[1],
+		];
+		const codexAccounts: ProviderAccount[] = [
+			{
+				...accounts[0],
+				credentialId: 21,
+				label: "personal@example.com",
+				inUse: false,
+				limits: [
+					{ id: "openai-codex:5h", label: "5 Hour", windowId: "5h", usedFraction: 0.12 },
+					{ id: "openai-codex:7d", label: "7 Day", windowId: "7d", usedFraction: 0.2 },
+				],
+				credits: { kind: "balance", limitId: "factory-droid:extra-balance", remaining: 1200, unit: "credits" },
+			},
+			{ ...accounts[1], credentialId: 22, label: "team@example.org", limits: [] },
+		];
+		getProviders.mockResolvedValue(
+			providersResponse(
+				snapshot([
+					claude,
+					row("openai-codex", { name: "OpenAI Codex", authKind: "oauth", loginAvailable: true, modelCount: 2 }),
+				]),
+			),
+		);
+		getProviderAccounts.mockImplementation(async (...args: unknown[]) => ({
+			type: "response",
+			command: "get_provider_accounts",
+			success: true,
+			data: {
+				providerId: args[0],
+				accounts: args[0] === "anthropic" ? claudeAccounts : codexAccounts,
+			},
+		}));
+		useSessionStore.setState({ status: "ready" });
+		await mount(<ProvidersSection />);
+		const slot = (id: number) =>
+			document.querySelector(`[data-provider-account="${id}"] [data-account-credits-slot]`);
+		// Dollars as dollars, a provider's own credits as a number in the UI language.
+		expect(slot(7)?.textContent).toBe(`${translate("providers.accounts.credits")}$35.20`);
+		expect(slot(7)?.querySelector("[data-account-credits]")?.getAttribute("data-account-credits")).toBe("monthlyCap");
+		expect(slot(21)?.textContent).toBe(`${translate("providers.accounts.credits")}1,200`);
+		// Every other row keeps the slot, empty, so the ticket and ⋯ stand where they stand in the rows above.
+		for (const id of [9, 22]) {
+			expect(slot(id)).not.toBeNull();
+			expect(slot(id)?.childElementCount).toBe(0);
+		}
+		// The figure is no gauge: the windows stay as they were.
+		const gauges = (id: number) =>
+			Array.from(document.querySelectorAll(`[data-provider-account="${id}"] .omp-usage-gauge-text`)).map(
+				gauge => gauge.textContent,
+			);
+		expect(gauges(7)).toEqual(["5H6%", "7D61%"]);
+		expect(gauges(21)).toEqual(["5H12%", "7D20%"]);
+	});
+
+	it("keeps no credits slot in a list where no account has credits", async () => {
+		await mountWithAccounts();
+		expect(document.querySelector("[data-account-credits-slot]")).toBeNull();
+		expect(text()).not.toContain(translate("providers.accounts.credits"));
+	});
+
 	it("lists no accounts for a provider signed in with an API key", async () => {
 		getProviders.mockResolvedValue(
 			providersResponse(snapshot([row("deepseek", { authKind: "apikey", loginAvailable: true })])),

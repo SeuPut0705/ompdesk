@@ -7,8 +7,8 @@
  * (the plan stock's name carries, the account count), and at the right a visible "Add account"
  * button for a subscription (hidden for a provider with one credential) beside the provider-level ⋯.
  * A subscription's accounts are `ConnectedRow`s under it, indented, without the mark or the name:
- * account, state badges, quota, a reset pass, and only that account's actions, on one line where
- * the list is wide (the quota under the account where it is not). No row says it is signed in:
+ * account, state badges, quota, the credits it has left, a reset pass, and only that account's actions, on one line
+ * where the list is wide (the quota and the credits under the account where it is not). No row says it is signed in:
  * every provider and account listed is. A provider with one credential (API key, env) is the
  * header alone, with its detail and any abnormal-state badges on the same line.
  * `data-provider-row` is on the group, `data-provider-account` on each account row.
@@ -152,9 +152,10 @@ export function ProviderGroupItem({
 /**
  * One account of a subscription, indented under its header: no mark, no provider name. From 42 rem of list (`@2xl`:
  * Settings in the default 1280 px window), one line:
- * account and badges, quota, reset pass, ⋯; narrower, the quota takes the line under them. The quota and reset-pass
- * slots keep their width in every row of a provider (`quota` and `pass` may be empty), so the same window stands in
- * the same column down the list.
+ * account and badges, quota, credits, reset pass, ⋯; narrower, the quota takes the line under them and the credits
+ * the line under that, so neither pushes the ticket or the ⋯ off the first line. The quota, credits and reset-pass
+ * slots keep their width in every row of the list (`quota`, `credits` and `pass` may be empty), so the same window
+ * stands in the same column down the list.
  */
 export function ConnectedRow({
 	account,
@@ -164,6 +165,7 @@ export function ConnectedRow({
 	badges,
 	quota,
 	quotaColumns = 0,
+	credits,
 	pass,
 	menu,
 	busy = false,
@@ -182,6 +184,8 @@ export function ConnectedRow({
 	quota?: ReactNode;
 	/** Gauge columns the provider's accounts share (0: none reports a quota): the quota slot's width on the one-line row. */
 	quotaColumns?: number;
+	/** What the account has left to spend, `null` for an account without; `undefined` when no account of the list has any. */
+	credits?: ReactNode;
 	/** The account's reset pass, `null` for an account without one; `undefined` when no account of the provider has any. */
 	pass?: ReactNode;
 	/** This account's actions; no menu when empty. */
@@ -216,9 +220,17 @@ export function ConnectedRow({
 						{quota}
 					</div>
 				)}
+				{credits !== undefined && (
+					<span
+						className="order-5 flex basis-full empty:hidden @2xl:order-3 @2xl:min-h-(--sc-control-sm) @2xl:w-[6.5rem] @2xl:shrink-0 @2xl:basis-auto @2xl:items-center @2xl:justify-end @2xl:empty:flex"
+						data-account-credits-slot
+					>
+						{credits}
+					</span>
+				)}
 				{pass !== undefined && (
 					<span
-						className="order-2 flex shrink-0 justify-end empty:hidden @2xl:order-3 @2xl:w-[3.75rem] @2xl:empty:flex"
+						className="order-2 flex shrink-0 justify-end empty:hidden @2xl:order-4 @2xl:w-[3.75rem] @2xl:empty:flex"
 						data-account-pass
 					>
 						{pass}
@@ -226,7 +238,7 @@ export function ConnectedRow({
 				)}
 				<RowMenu
 					busy={busy}
-					className="order-3 @2xl:order-4"
+					className="order-3 @2xl:order-5"
 					label={t("providers.row.actions", { name: actionName })}
 					menu={menu}
 				/>

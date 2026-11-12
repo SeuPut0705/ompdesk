@@ -2402,6 +2402,15 @@ export interface ResetPassRedeemResult {
 /** Stock omp's usage health of one account (`ModelUsageAccountHealth.state`). */
 export type AccountUsageState = "healthy" | "reserve" | "depleted" | "unknown";
 
+/**
+ * What an account has left to spend beyond its plan windows, read from stock's usage report
+ * (resources/gui-bridge/account-credits.ts); present only while something is left. `balance`: prepaid credits or
+ * dollars (Factory, Charm Hyper, Command Code). `monthlyCap`: what is left of the month's cap on extra usage (Claude).
+ */
+export type AccountCredits =
+	| { kind: "balance"; limitId: string; remaining: number; unit: "usd" | "credits" }
+	| { kind: "monthlyCap"; limitId: string; remaining: number; limit: number; unit: "usd" | "credits" };
+
 export interface ProviderAccount {
 	credentialId: number;
 	/** Email or account id, plus the org when one email holds two subscriptions (stock `/logout` label). */
@@ -2426,6 +2435,8 @@ export interface ProviderAccount {
 	identityKey?: string | null;
 	/** The account's saved rate-limit resets, when the provider reports any. */
 	resetPasses?: ResetPasses;
+	/** What the account has left to spend, while above zero. Its stock limit is not among `limits`. */
+	credits?: AccountCredits;
 }
 
 export interface ProviderAccountsResult {

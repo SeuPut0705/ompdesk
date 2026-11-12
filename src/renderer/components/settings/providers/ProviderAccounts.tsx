@@ -12,15 +12,15 @@
  * account says how old its quota is in the quota's tooltip, and "Refresh quotas" has stock probe the
  * provider now. On omp 18.8.1+ each account with an identity key offers to copy it (the name
  * `task.agentAccountPools` matches) and a shortcut to the Account pools editor. An account with saved
- * rate-limit resets shows them and can spend one (ResetPasses.tsx). Names in toasts and dialogs are the
- * brand (`group.shortName`), as in the list.
+ * rate-limit resets shows them and can spend one (ResetPasses.tsx); one with money or credits left says how much
+ * (`CreditsFigure`). Names in toasts and dialogs are the brand (`group.shortName`), as in the list.
  */
 
 import { Copy, RefreshCw, Trash2, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../../../shared/rpc-types";
+import type { AccountCredits, ProviderAccount, ProviderAccountsResult, UsageLimit } from "../../../../shared/rpc-types";
 import { type InlineFailure, inlineFailure } from "../../../lib/error-detail";
-import { copyText, formatClock, formatSpan } from "../../../lib/format";
+import { copyText, formatClock, formatCredits, formatSpan } from "../../../lib/format";
 import { useT } from "../../../lib/i18n";
 import { useNowTick } from "../../../lib/now-tick";
 import { useTabRpc } from "../../../lib/tab-rpc";
@@ -34,6 +34,7 @@ import {
 	InlineNotice,
 	MAX_USAGE_COLUMNS,
 	NEAR_FRACTION,
+	Tooltip,
 	UsageGauges,
 	usageTooltip,
 } from "../../common";
@@ -70,10 +71,11 @@ export function accountNames(labels: readonly string[]): { address: string; suff
 /**
  * What every account row of the list shares, so the same window stands in the same column from one provider to the
  * next (Claude's three gauges over ChatGPT's two): the gauge columns of the provider that has most, and whether any
- * account has a reset pass.
+ * account has credits left or a reset pass.
  */
 export interface AccountRowLayout {
 	quotaColumns: number;
+	credits: boolean;
 	pass: boolean;
 }
 
@@ -84,6 +86,7 @@ export function accountRowLayout(results: readonly (ProviderAccountsResult | nul
 			MAX_USAGE_COLUMNS,
 			Math.max(0, ...lists.map(accounts => gaugeColumns(accounts.map(quotaLimits)).length)),
 		),
+		credits: lists.some(accounts => accounts.some(account => account.credits !== undefined)),
 		pass: lists.some(accounts => accounts.some(account => account.resetPasses !== undefined)),
 	};
 }
@@ -214,6 +217,27 @@ function AccountBadges({ account }: { account: ProviderAccount }) {
 				<Badge variant="warning">{t("providers.accounts.low")}</Badge>
 			)}
 		</>
+	);
+}
+
+/**
+ * What the account has left to spend, one quiet labelled figure ("Credits $35.20"); its tooltip says what it is: the
+ * month's extra usage left of its cap, or prepaid credits.
+ */
+function CreditsFigure({ credits }: { credits: AccountCredits }) {
+	const t = useT();
+	const left = formatCredits(credits.remaining, credits.unit);
+	const what =
+		credits.kind === "monthlyCap"
+			? t("providers.accounts.creditsMonthlyCap", { left, limit: formatCredits(credits.limit, credits.unit) })
+			: t("providers.accounts.creditsBalance", { left });
+	return (
+		<Tooltip content={what}>
+			<Badge data-account-credits={credits.kind} size="xs" variant="muted">
+				{t("providers.accounts.credits")}
+				<span className="text-(--sc-text-secondary) tabular-nums">{left}</span>
+			</Badge>
+		</Tooltip>
 	);
 }
 
@@ -363,6 +387,9 @@ export function ProviderAccountRows({
 						) : null
 					}
 					busy={removing === account.credentialId}
+					credits={
+						!layout.credits ? undefined : account.credits ? <CreditsFigure credits={account.credits} /> : null
+					}
 					key={account.credentialId}
 					menu={[
 						...(typeof account.identityKey === "string"

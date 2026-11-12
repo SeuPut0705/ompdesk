@@ -187,6 +187,24 @@ describe("get_provider_accounts handler", () => {
 	});
 });
 
+describe("credits", () => {
+	it("carries what an account has left through the merge, and nothing for an account without", () => {
+		const credits = {
+			kind: "monthlyCap",
+			limitId: "anthropic:extra",
+			remaining: 35.2,
+			limit: 50,
+			unit: "usd",
+		} as const;
+		const result = mergeProviderAccounts("anthropic", [work, home], {
+			providerId: "anthropic",
+			accounts: [{ credentialId: 9, state: "healthy", limits: [], credits }],
+		});
+		expect(result.accounts[0]).not.toHaveProperty("credits");
+		expect(result.accounts[1].credits).toEqual(credits);
+	});
+});
+
 describe("reset passes", () => {
 	const passes = { count: 2, usableCount: 2, clears: ["5h"], early: false, creditId: "g1", redeemable: true };
 

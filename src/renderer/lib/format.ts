@@ -291,6 +291,11 @@ export function formatUsd(value: number): string {
 	return formatCost(value, Math.abs(value) < 0.01 ? 4 : 2);
 }
 
+/** What an account has left: dollars as `formatUsd`, a provider's own credits as a number in the UI language. */
+export function formatCredits(amount: number, unit: "usd" | "credits"): string {
+	return unit === "usd" ? formatUsd(amount) : amount.toLocaleString(uiLocale(), { maximumFractionDigits: 2 });
+}
+
 /**
  * A list price per million tokens: "$3", "$0.15", "$0.075", "$75". Three decimals under a dollar, so a cheap model's
  * price is never rounded away; insignificant zeros trimmed.

@@ -54,9 +54,77 @@ export default function(pi) {
 }
 `;
 
+/**
+ * Each shape of credits stock reports (pi-ai usage/*.ts), as made-up reports from a runtime usage provider of made-up
+ * API-key providers (stock `UsageService.setProvider`: no request leaves the process), read back through the bridge's
+ * `provider_accounts` and `usage`.
+ */
+const CREDITS_PROBE = `
+import { methods } from "./settings";
+export default function(pi) {
+ pi.on("session_start", async () => {
+  try {
+   const session = pi.pi.AgentRegistry.global().get(pi.pi.MAIN_AGENT_ID).session;
+   const env = {pi, session: () => session, context: () => undefined, emit: () => {}};
+   const auth = session.modelRegistry.authStorage;
+   const window5h = provider => ({id: provider + ":5h", label: "5 Hour", scope: {provider, windowId: "5h", shared: true}, window: {id: "5h", label: "5 Hour", durationMs: 18000000}, amount: {used: 20, limit: 100, usedFraction: 0.2, unit: "percent"}, status: "ok"});
+   const shapes = {
+    "ompdesk-credits-balance": provider => [{id: "charm-hyper:credits", label: "Credit balance", scope: {provider, windowId: "balance", shared: true}, amount: {remaining: 1200, unit: "credits"}}],
+    "ompdesk-credits-factory": provider => [window5h(provider), {id: "factory-droid:extra-balance", label: "Extra usage balance", scope: {provider}, amount: {used: 0, limit: 12.4, remaining: 12.4, usedFraction: 0, remainingFraction: 1, unit: "usd"}, status: "ok"}],
+    "ompdesk-credits-cap": provider => [window5h(provider), {id: "anthropic:extra", label: "Claude Extra Usage", scope: {provider, windowId: "extra"}, amount: {used: 14.8, limit: 50, remaining: 35.2, usedFraction: 0.296, remainingFraction: 0.704, unit: "usd"}, status: "ok"}],
+    "ompdesk-credits-uncapped": provider => [{id: "anthropic:extra", label: "Claude Extra Usage", scope: {provider, windowId: "extra"}, amount: {used: 3, unit: "usd"}}],
+    "ompdesk-credits-spent": provider => [{id: "anthropic:extra", label: "Claude Extra Usage", scope: {provider, windowId: "extra"}, amount: {used: 50, limit: 50, remaining: 0, usedFraction: 1, remainingFraction: 0, unit: "usd"}, status: "exhausted"}],
+    "ompdesk-credits-zero": provider => [{id: "commandcode:balance", label: "Credit balance", scope: {provider, windowId: "balance", shared: true}, amount: {remaining: 0, unit: "credits"}}],
+    "ompdesk-credits-none": provider => [window5h(provider)],
+   };
+   const accounts = {};
+   for (const [provider, limits] of Object.entries(shapes)) {
+    auth.usage.setProvider(provider, {id: provider, supports: () => true, fetchUsage: async () => ({provider, fetchedAt: Date.now(), limits: limits(provider)})});
+    await auth.credentials.upsert(provider, {type: "api_key", key: "throwaway-not-a-real-key"});
+    const [account] = (await methods.provider_accounts({providerId: provider}, env)).accounts;
+    accounts[provider] = {credits: account?.credits ?? null, limits: account ? account.limits.map(limit => limit.id) : null};
+   }
+   const factory = (await methods.usage({}, env)).reports.find(report => report.provider === "ompdesk-credits-factory")?.limits.find(limit => limit.id === "factory-droid:extra-balance");
+   const balanceShare = factory ? {usedFraction: factory.usedFraction ?? null, used: factory.used ?? null} : "missing";
+   console.error("CREDITS_PROBE=" + JSON.stringify({accounts, balanceShare}));
+   process.exit(0);
+  } catch (error) {
+   console.error("CREDITS_PROBE=" + JSON.stringify({ error: String((error && error.stack) || error) }));
+   process.exit(1);
+  }
+ });
+}
+`;
+
 describe.skipIf(!existsSync(omp))("stock account selectors and listing, with no account of the person's", () => {
 	it("matches reports, shapes reset passes, keeps a literal model id and lists a stored credential", () => {
 		expect(runBridgeProbe(SELECTORS_PROBE, "SELECTORS_PROBE")).toEqual({ failures: [], stored: 1, listed: true });
+	}, 120_000);
+
+	it("passes the credits an account has left and never a gauge of a balance", () => {
+		expect(runBridgeProbe(CREDITS_PROBE, "CREDITS_PROBE")).toEqual({
+			accounts: {
+				"ompdesk-credits-balance": {
+					credits: { kind: "balance", limitId: "charm-hyper:credits", remaining: 1200, unit: "credits" },
+					limits: [],
+				},
+				// Factory's balance as a cap of itself (`used: 0`): a balance, never a 0 % window.
+				"ompdesk-credits-factory": {
+					credits: { kind: "balance", limitId: "factory-droid:extra-balance", remaining: 12.4, unit: "usd" },
+					limits: ["ompdesk-credits-factory:5h"],
+				},
+				// Claude's extra usage: what is left of the month's cap, said as credits and not as a gauge.
+				"ompdesk-credits-cap": {
+					credits: { kind: "monthlyCap", limitId: "anthropic:extra", remaining: 35.2, limit: 50, unit: "usd" },
+					limits: ["ompdesk-credits-cap:5h"],
+				},
+				"ompdesk-credits-uncapped": { credits: null, limits: [] },
+				"ompdesk-credits-spent": { credits: null, limits: [] },
+				"ompdesk-credits-zero": { credits: null, limits: [] },
+				"ompdesk-credits-none": { credits: null, limits: ["ompdesk-credits-none:5h"] },
+			},
+			balanceShare: { usedFraction: null, used: null },
+		});
 	}, 120_000);
 });
 

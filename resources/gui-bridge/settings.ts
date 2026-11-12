@@ -36,6 +36,7 @@ import {
 import { listLogoutAccounts, logoutCredential } from "@oh-my-pi/pi-coding-agent/slash-commands/helpers/logout";
 import { SETTING_TABS, TAB_GROUPS, TAB_METADATA } from "@oh-my-pi/pi-tui/overlays/settings-defs";
 import { getAgentDir, MAIN_CONFIG_FILENAMES } from "@oh-my-pi/pi-utils";
+import { accountCredits, creditKind } from "./account-credits";
 import { matchReportAccount, type StoredAccount } from "./accounts-core";
 import { guard, probe } from "./health";
 import { idleSettingChanged } from "./idle-compaction";
@@ -458,14 +459,20 @@ async function refreshCatalog(env: BridgeEnv, session: AgentSession, forceRefres
 // ============================================================================
 
 function shapeLimit(limit: UsageLimit) {
+	// A balance is no window: Factory's `used: 0` against itself would read as a 0 % gauge.
+	const balance = creditKind(limit.id) === "balance";
 	return {
 		id: limit.id,
 		label: limit.label,
-		usedFraction: resolveUsedFraction(limit),
-		used: limit.amount.used,
-		limit: limit.amount.limit,
+		...(balance
+			? {}
+			: {
+					usedFraction: resolveUsedFraction(limit),
+					used: limit.amount.used,
+					limit: limit.amount.limit,
+					remainingFraction: limit.amount.remainingFraction,
+				}),
 		unit: limit.amount.unit,
-		remainingFraction: limit.amount.remainingFraction,
 		windowId: limit.window?.id ?? limit.scope.windowId,
 		windowLabel: limit.window?.label,
 		resetsAt: limit.window?.resetsAt,
@@ -684,7 +691,8 @@ async function identityKeyResolver(env: BridgeEnv): Promise<IdentityKeyResolver 
  * string `omp usage accounts` prints; `null` for an API key or an OAuth
  * account without identity) and the result names the credential provider id
  * pools are keyed by. An account whose report lists saved rate-limit resets
- * carries them as `resetPasses` (reset-passes-core.ts).
+ * carries them as `resetPasses` (reset-passes-core.ts), one with money or
+ * credits left carries it as `credits` (account-credits.ts).
  */
 async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProviderId: string, refresh: boolean) {
 	const provider = getOAuthCredentialProvider(loginProviderId);
@@ -730,7 +738,9 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 		rows.map(async row => {
 			const report = await read(row);
 			const accountHealth = healthById.get(row.id);
-			const limits = report ? report.limits.map(shapeLimit) : [];
+			// The credits are said once, as `credits`, never as a quota window.
+			const limits = report ? report.limits.filter(limit => !creditKind(limit.id)).map(shapeLimit) : [];
+			const credits = report ? accountCredits(report.limits) : undefined;
 			const stored = authStorage.oauth
 				.accounts(provider, sessionId)
 				.find(account => account.credentialId === row.id);
@@ -746,6 +756,7 @@ async function providerAccounts(env: BridgeEnv, session: AgentSession, loginProv
 					? { identityKey: row.credential.type === "oauth" ? identityKey(provider, row.credential) : null }
 					: {}),
 				...(resetPasses ? { resetPasses } : {}),
+				...(credits ? { credits } : {}),
 			};
 		}),
 	);

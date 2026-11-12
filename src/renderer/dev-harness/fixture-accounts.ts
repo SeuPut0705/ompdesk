@@ -148,7 +148,11 @@ function twoKinds(): NonNullable<ProviderAccount["resetPasses"]> {
 export function accountsFor(providerId: string): ProviderAccount[] {
 	switch (providerId) {
 		case "anthropic": {
-			const work = account(1, "work@example.com", "anthropic", 0.34, 0.52, { inUse: true });
+			// What is left of the month's extra usage cap, the one account that has any.
+			const work = account(1, "work@example.com", "anthropic", 0.34, 0.52, {
+				inUse: true,
+				credits: { kind: "monthlyCap", limitId: "anthropic:extra", remaining: 35.2, limit: 50, unit: "usd" },
+			});
 			const home = account(2, "home@example.com", "anthropic", 1, 0.9, {
 				limitedUntil: Date.now() + 95 * MINUTE,
 				resetPasses: twoKinds(),
