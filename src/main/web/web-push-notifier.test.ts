@@ -11,8 +11,9 @@ import {
 	type WebPushSubscriptionJson,
 } from "../../shared/web-push";
 import type { TabFacts } from "../sidecar-pool";
-import { WebDevices } from "./devices-store";
+import { type WebDevice, WebDevices } from "./devices-store";
 import type { PushOptions, PushResult } from "./push";
+import { seededDevice, writeWebDevices } from "./test-web-devices";
 import { COMPLETION_DEBOUNCE_MS, WebPushNotifier } from "./web-push-notifier";
 
 interface Sent {
@@ -26,15 +27,29 @@ let dir: string;
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "push-notifier-"));
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+const opened: WebDevices[] = [];
+afterEach(async () => {
+	for (const devices of opened.splice(0)) {
+		await devices.flush();
+		devices.close();
+	}
+	rmSync(dir, { recursive: true, force: true });
+});
 
 const subscriptionOf = (deviceId: string): WebPushSubscriptionJson => ({
 	endpoint: `https://push.example.com/${deviceId}`,
 	keys: { p256dh: "p".repeat(87), auth: "a".repeat(22) },
 });
 
+/**
+ * A notifier over a device list the core holds. Pairing is the web edge's, so the phones a test names are written
+ * to the folder's `web-devices.json` by `ready()`, which opens the list; call it after the last `phone()`.
+ */
 function rig(options: { language?: UiLanguage } = {}) {
-	const devices = new WebDevices(dir);
+	const folder = mkdtempSync(join(dir, "rig-"));
+	const seeded: WebDevice[] = [];
+	let devices: WebDevices | undefined;
+	let notifier: WebPushNotifier | undefined;
 	const sent: Sent[] = [];
 	const visible = new Set<string>();
 	const tabs = new Map<string, TabFacts>();
@@ -42,30 +57,44 @@ function rig(options: { language?: UiLanguage } = {}) {
 	let now = 0;
 	let nextTimer = 1;
 	let result: PushResult = "sent";
-	const notifier = new WebPushNotifier({
-		devices,
-		sender: {
-			send: async (subscription, payload, pushOptions) => {
-				const deviceId = subscription.endpoint.split("/").at(-1) ?? "";
-				sent.push({ deviceId, payload, options: pushOptions });
-				return result;
+	const open = async () => {
+		writeWebDevices(folder, seeded);
+		const list = new WebDevices(folder);
+		opened.push(list);
+		await list.ready();
+		devices = list;
+		notifier = new WebPushNotifier({
+			devices: list,
+			sender: {
+				send: async (subscription, payload, pushOptions) => {
+					const deviceId = subscription.endpoint.split("/").at(-1) ?? "";
+					sent.push({ deviceId, payload, options: pushOptions });
+					return result;
+				},
 			},
-		},
-		visible: deviceId => visible.has(deviceId),
-		tabFacts: tabId => tabs.get(tabId) ?? null,
-		language: () => options.language ?? "en",
-		setTimer: (fn, ms) => {
-			const handle = nextTimer++;
-			timers.set(handle, { at: now + ms, fn });
-			return handle;
-		},
-		clearTimer: handle => {
-			timers.delete(handle as number);
-		},
-	});
+			visible: deviceId => visible.has(deviceId),
+			tabFacts: tabId => tabs.get(tabId) ?? null,
+			language: () => options.language ?? "en",
+			setTimer: (fn, ms) => {
+				const handle = nextTimer++;
+				timers.set(handle, { at: now + ms, fn });
+				return handle;
+			},
+			clearTimer: handle => {
+				timers.delete(handle as number);
+			},
+		});
+	};
 	return {
-		devices,
-		notifier,
+		ready: open,
+		get devices(): WebDevices {
+			if (!devices) throw new Error("call ready() first");
+			return devices;
+		},
+		get notifier(): WebPushNotifier {
+			if (!notifier) throw new Error("call ready() first");
+			return notifier;
+		},
 		sent,
 		visible,
 		tab(tabId: string, facts: Partial<TabFacts> = {}) {
@@ -77,13 +106,16 @@ function rig(options: { language?: UiLanguage } = {}) {
 			name: string,
 			push: { categories?: readonly WebPushCategory[]; hideContent?: boolean; subscribed?: boolean } = {},
 		) {
-			const { device } = devices.create({ name, userAgent: "", tailscaleLogin: null, publicKeyJwk: null });
-			devices.setPush(device.deviceId, {
-				subscription: push.subscribed === false ? null : subscriptionOf(device.deviceId),
-				hideContent: push.hideContent ?? false,
-				categories: push.categories ?? WEB_PUSH_CATEGORIES,
+			const { record } = seededDevice({ name, userAgent: "", tailscaleLogin: null });
+			seeded.push({
+				...record,
+				push: {
+					subscription: push.subscribed === false ? null : subscriptionOf(record.deviceId),
+					hideContent: push.hideContent ?? false,
+					categories: push.categories ?? WEB_PUSH_CATEGORIES,
+				},
 			});
-			return device.deviceId;
+			return record.deviceId;
 		},
 		advance(ms: number) {
 			const target = now + ms;
@@ -106,12 +138,13 @@ function rig(options: { language?: UiLanguage } = {}) {
 const done = (reply = "Fixed the parser and added two tests."): IpcTabRunOutcome => ({ stopReason: "stop", reply });
 
 describe("autopilot notices", () => {
-	it("pushes a run's stop at once to a hidden phone that wants errors, never to one looking at its page", () => {
+	it("pushes a run's stop at once to a hidden phone that wants errors, never to one looking at its page", async () => {
 		const r = rig();
 		const hidden = r.phone("iPhone");
 		const looking = r.phone("iPad");
 		const noErrors = r.phone("Pixel", { categories: ["completion"] });
 		r.visible.add(looking);
+		await r.ready();
 		r.notifier.notice("t9", { kind: "error", title: "Autopilot paused", body: "The repository folder is gone." });
 		expect(r.sent.map(entry => entry.deviceId)).toEqual([hidden]);
 		expect(r.sent[0]?.payload).toMatchObject({
@@ -125,10 +158,11 @@ describe("autopilot notices", () => {
 });
 
 describe("completion", () => {
-	it("pushes a finished turn once, a debounce after it settled, with the tab's title and the reply's opening", () => {
+	it("pushes a finished turn once, a debounce after it settled, with the tab's title and the reply's opening", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		r.tab("t1", { title: "Refactor parser" });
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: done("## Summary\n- **Fixed** the `parser`.") });
 		expect(r.sent).toEqual([]);
 		r.advance(COMPLETION_DEBOUNCE_MS - 1);
@@ -150,19 +184,21 @@ describe("completion", () => {
 		]);
 	});
 
-	it("says `Complete` when the reply has no prose, and OMPdesk when the tab has no title", () => {
+	it("says `Complete` when the reply has no prose, and OMPdesk when the tab has no title", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1", { title: "" });
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		expect(r.sent[0]?.payload).toMatchObject({ title: "OMPdesk", body: "Complete" });
 	});
 
-	it("stays quiet when the tab runs again within the debounce (a retry or a follow-up)", () => {
+	it("stays quiet when the tab runs again within the debounce (a retry or a follow-up)", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: done() });
 		r.advance(1000);
 		r.notifier.handle({ type: "busy", tabId: "t1" });
@@ -174,26 +210,29 @@ describe("completion", () => {
 		expect(r.sent.map(item => item.payload.body)).toEqual(["Second."]);
 	});
 
-	it("checks the tab again when the debounce ends: busy, waiting for the connection, retrying or gone say nothing", () => {
+	it("checks the tab again when the debounce ends: busy, waiting for the connection, retrying or gone say nothing", async () => {
 		for (const facts of [{ busy: true }, { awaitingConnection: true }, { retrying: true }] as const) {
 			const r = rig();
 			r.phone("iPhone");
 			r.tab("t1", facts);
+			await r.ready();
 			r.notifier.handle({ type: "idle", tabId: "t1", outcome: done() });
 			r.advance(COMPLETION_DEBOUNCE_MS);
 			expect(r.sent, JSON.stringify(facts)).toEqual([]);
 		}
 		const gone = rig();
 		gone.phone("iPhone");
+		await gone.ready();
 		gone.notifier.handle({ type: "idle", tabId: "t1", outcome: done() });
 		gone.advance(COMPLETION_DEBOUNCE_MS);
 		expect(gone.sent).toEqual([]);
 	});
 
-	it("says nothing for Stop, for no outcome (a compaction ended) and for a run it already announced", () => {
+	it("says nothing for Stop, for no outcome (a compaction ended) and for a run it already announced", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: { stopReason: "aborted" } });
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: undefined });
 		r.advance(COMPLETION_DEBOUNCE_MS);
@@ -207,10 +246,11 @@ describe("completion", () => {
 		expect(r.sent).toHaveLength(1);
 	});
 
-	it("pushes a failed turn as an error with the message", () => {
+	it("pushes a failed turn as an error with the message", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({
 			type: "idle",
 			tabId: "t1",
@@ -225,10 +265,11 @@ describe("completion", () => {
 		expect(r.sent[0]?.options).toEqual({ ttl: 3600, urgency: "normal" });
 	});
 
-	it("reads in the host's UI language", () => {
+	it("reads in the host's UI language", async () => {
 		const r = rig({ language: "ko" });
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: { stopReason: "stop" } });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		expect(r.sent[0]?.payload.body).toBe("완료");
@@ -236,10 +277,11 @@ describe("completion", () => {
 });
 
 describe("asks", () => {
-	it("pushes an ask at once, high urgency, kept long, with the question", () => {
+	it("pushes an ask at once, high urgency, kept long, with the question", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		r.tab("t1", { title: "Deploy" });
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Run  the migration?" });
 		expect(r.sent).toEqual([
 			{
@@ -250,20 +292,22 @@ describe("asks", () => {
 		]);
 	});
 
-	it("falls back to the stock wording when the request carries no title", () => {
+	it("falls back to the stock wording when the request carries no title", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "" });
 		expect(r.sent[0]?.payload.body).toBe("Waiting for your input");
 		expect(r.sent[0]?.payload.title).toBe("Tab t1");
 	});
 
-	it("retracts the notification with a silent clear when the ask is answered, withdrawn or its tab ends", () => {
+	it("retracts the notification with a silent clear when the ask is answered, withdrawn or its tab ends", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		r.tab("t1");
 		r.tab("t2");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		r.advance(10_000);
 		r.notifier.handle({ type: "askClosed", tabId: "t1", requestId: "q1" });
@@ -282,31 +326,34 @@ describe("asks", () => {
 		expect(r.sent.at(-1)?.payload).toMatchObject({ kind: "clear", tag: "tab:t2" });
 	});
 
-	it("retracts nothing that was never pushed: category off, visible page", () => {
+	it("retracts nothing that was never pushed: category off, visible page", async () => {
 		const r = rig();
 		const off = r.phone("off", { categories: ["completion"] });
 		const seen = r.phone("seen");
 		r.visible.add(seen);
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		r.notifier.handle({ type: "askClosed", tabId: "t1", requestId: "q1" });
 		expect(r.sent.filter(item => item.deviceId === off || item.deviceId === seen)).toEqual([]);
 	});
 
-	it("does not send the clear to a device whose page is in the foreground: the page closes its own notice", () => {
+	it("does not send the clear to a device whose page is in the foreground: the page closes its own notice", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		r.visible.add(id);
 		r.notifier.handle({ type: "askClosed", tabId: "t1", requestId: "q1" });
 		expect(r.sent).toHaveLength(1);
 	});
 
-	it("keeps the banner while another ask of the tab is open", () => {
+	it("keeps the banner while another ask of the tab is open", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "One?" });
 		r.advance(10_000);
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q2", text: "Two?" });
@@ -316,10 +363,11 @@ describe("asks", () => {
 		expect(r.sent.filter(item => item.payload.kind === "clear")).toHaveLength(1);
 	});
 
-	it("does not announce the same request twice", () => {
+	it("does not announce the same request twice", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		expect(r.sent).toHaveLength(1);
@@ -327,13 +375,14 @@ describe("asks", () => {
 });
 
 describe("who is told", () => {
-	it("pushes only to devices with a subscription whose category is on", () => {
+	it("pushes only to devices with a subscription whose category is on", async () => {
 		const r = rig();
 		const all = r.phone("all");
 		const askOnly = r.phone("ask only", { categories: ["ask"] });
 		const none = r.phone("none", { categories: [] });
 		const unsubscribed = r.phone("unsubscribed", { subscribed: false });
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: done() });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		expect(r.sent.map(item => item.deviceId)).toEqual([all]);
@@ -344,12 +393,13 @@ describe("who is told", () => {
 		expect([none, unsubscribed].some(deviceId => r.sent.some(item => item.deviceId === deviceId))).toBe(false);
 	});
 
-	it("never pushes to a device whose page is in the foreground; the others still hear", () => {
+	it("never pushes to a device whose page is in the foreground; the others still hear", async () => {
 		const r = rig();
 		const looking = r.phone("looking");
 		const away = r.phone("away");
 		r.visible.add(looking);
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		expect(r.sent.map(item => item.deviceId)).toEqual([away]);
 		// Once its page goes to the background it is told again.
@@ -358,11 +408,12 @@ describe("who is told", () => {
 		expect(r.sent.some(item => item.deviceId === looking)).toBe(true);
 	});
 
-	it("drops a summary whose device came to the foreground while the window ran", () => {
+	it("drops a summary whose device came to the foreground while the window ran", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "a", requestId: "q1", text: "A?" });
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q2", text: "B?" });
 		expect(r.sent).toHaveLength(1);
@@ -371,11 +422,12 @@ describe("who is told", () => {
 		expect(r.sent).toHaveLength(1);
 	});
 
-	it("hides names and text for a device that asked for it, keeping the click target", () => {
+	it("hides names and text for a device that asked for it, keeping the click target", async () => {
 		const r = rig();
 		const id = r.phone("private", { hideContent: true });
 		const open = r.phone("open");
 		r.tab("t1", { title: "Secret migration" });
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: done("Dropped the production table.") });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		r.advance(4000);
@@ -389,10 +441,11 @@ describe("who is told", () => {
 		expect(r.sent.find(item => item.deviceId === open)?.payload.title).toBe("Secret migration");
 	});
 
-	it("hides content in the host's language", () => {
+	it("hides content in the host's language", async () => {
 		const r = rig({ language: "ko" });
 		r.phone("private", { hideContent: true });
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: { stopReason: "error", errorMessage: "boom" } });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		expect(r.sent[0]?.payload).toMatchObject({ title: "작업이 오류로 중단됐어요", body: "" });
@@ -400,10 +453,11 @@ describe("who is told", () => {
 });
 
 describe("batching (notification-batch.ts)", () => {
-	it("pushes the first event at once and one summary at the end of the 4 s window, replacing it", () => {
+	it("pushes the first event at once and one summary at the end of the 4 s window, replacing it", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		for (const tab of ["a", "b", "c"]) r.tab(tab);
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "a", outcome: done("A done.") });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		expect(r.sent).toHaveLength(1);
@@ -427,11 +481,12 @@ describe("batching (notification-batch.ts)", () => {
 		});
 	});
 
-	it("ranks ask > error > completion: the summary is as urgent as its strongest member", () => {
+	it("ranks ask > error > completion: the summary is as urgent as its strongest member", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "a", outcome: done() });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q1", text: "Go?" });
@@ -443,11 +498,12 @@ describe("batching (notification-batch.ts)", () => {
 		expect(summary?.payload.tabId).toBeUndefined();
 	});
 
-	it("counts a tab once, the strongest kind winning", () => {
+	it("counts a tab once, the strongest kind winning", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "a", requestId: "q1", text: "Go?" });
 		r.notifier.handle({ type: "idle", tabId: "b", outcome: done() });
 		r.advance(COMPLETION_DEBOUNCE_MS);
@@ -457,12 +513,13 @@ describe("batching (notification-batch.ts)", () => {
 		expect(r.sent.at(-1)?.payload.title).toBe("1 task finished · 1 needs you");
 	});
 
-	it("keeps each device's window to itself and feeds it only the categories it wants", () => {
+	it("keeps each device's window to itself and feeds it only the categories it wants", async () => {
 		const r = rig();
 		const everything = r.phone("everything");
 		const askOnly = r.phone("ask only", { categories: ["ask"] });
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "a", outcome: done() });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		r.notifier.handle({ type: "idle", tabId: "b", outcome: done() });
@@ -475,11 +532,12 @@ describe("batching (notification-batch.ts)", () => {
 		]);
 	});
 
-	it("takes a retracted ask out of the pending summary", () => {
+	it("takes a retracted ask out of the pending summary", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "a", outcome: done() });
 		r.advance(COMPLETION_DEBOUNCE_MS);
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q1", text: "Go?" });
@@ -488,11 +546,12 @@ describe("batching (notification-batch.ts)", () => {
 		expect(r.sent.at(-1)?.payload).toMatchObject({ kind: "batch", title: "1 task finished", tabId: "a" });
 	});
 
-	it("sends no summary when every ask of the window was retracted", () => {
+	it("sends no summary when every ask of the window was retracted", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "a", requestId: "q1", text: "A?" });
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q2", text: "B?" });
 		r.notifier.handle({ type: "askClosed", tabId: "a", requestId: "q1" });
@@ -501,11 +560,12 @@ describe("batching (notification-batch.ts)", () => {
 		expect(r.sent.filter(item => item.payload.kind === "batch")).toEqual([]);
 	});
 
-	it("hides the tab names in a summary for a device that hides content", () => {
+	it("hides the tab names in a summary for a device that hides content", async () => {
 		const r = rig();
 		r.phone("private", { hideContent: true });
 		r.tab("a", { title: "Secret A" });
 		r.tab("b", { title: "Secret B" });
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "a", requestId: "q1", text: "Go?" });
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q2", text: "Go?" });
 		r.advance(4000);
@@ -520,6 +580,7 @@ describe("subscription lifecycle", () => {
 		const id = r.phone("iPhone");
 		r.tab("t1");
 		r.setResult("gone");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		await r.settle();
 		expect(r.devices.get(id)?.push).toMatchObject({ subscription: null, hideContent: false });
@@ -532,6 +593,7 @@ describe("subscription lifecycle", () => {
 		const id = r.phone("iPhone");
 		r.tab("t1");
 		r.setResult("failed");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		await r.settle();
 		expect(r.devices.get(id)?.push?.subscription).not.toBeNull();
@@ -542,6 +604,7 @@ describe("subscription lifecycle", () => {
 		const id = r.phone("iPhone");
 		r.tab("t1");
 		r.setResult("gone");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "t1", requestId: "q1", text: "Go?" });
 		const fresh = { ...subscriptionOf(id), endpoint: `https://push.example.com/new/${id}` };
 		r.devices.setPush(id, { subscription: fresh, hideContent: false, categories: WEB_PUSH_CATEGORIES });
@@ -549,12 +612,13 @@ describe("subscription lifecycle", () => {
 		expect(r.devices.get(id)?.push?.subscription).toEqual(fresh);
 	});
 
-	it("takes a revoked device out: its pending summary goes with it", () => {
+	it("takes a revoked device out: its pending summary goes with it", async () => {
 		const r = rig();
 		const id = r.phone("iPhone");
 		const other = r.phone("other");
 		r.tab("a");
 		r.tab("b");
+		await r.ready();
 		r.notifier.handle({ type: "ask", tabId: "a", requestId: "q1", text: "A?" });
 		r.notifier.handle({ type: "ask", tabId: "b", requestId: "q2", text: "B?" });
 		r.devices.onRevoked(deviceId => r.notifier.dropDevice(deviceId));
@@ -566,10 +630,11 @@ describe("subscription lifecycle", () => {
 		expect(r.sent.some(item => item.deviceId === id)).toBe(false);
 	});
 
-	it("drops the debounce of a released tab", () => {
+	it("drops the debounce of a released tab", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("t1");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "t1", outcome: done() });
 		r.notifier.handle({ type: "released", tabId: "t1" });
 		r.dropTab("t1");
@@ -577,10 +642,11 @@ describe("subscription lifecycle", () => {
 		expect(r.sent).toEqual([]);
 	});
 
-	it("dispose cancels everything pending", () => {
+	it("dispose cancels everything pending", async () => {
 		const r = rig();
 		r.phone("iPhone");
 		r.tab("a");
+		await r.ready();
 		r.notifier.handle({ type: "idle", tabId: "a", outcome: done() });
 		r.notifier.dispose();
 		r.advance(10_000);
