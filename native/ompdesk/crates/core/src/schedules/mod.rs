@@ -115,38 +115,41 @@ fn webhook_key() -> String {
 struct Journal {
     file: PathBuf,
     queue: Mutex<Option<mpsc::Sender<String>>>,
-    /// Held across a write's rename, so the last write (`close`) never lands under an older one.
-    writing: Arc<Mutex<()>>,
+    /// The writer thread, joined by `close`: nothing of it lands after the last write, not even a temp file.
+    writer: Mutex<Option<std::thread::JoinHandle<()>>>,
     closed: Arc<AtomicBool>,
 }
 
 impl Journal {
     fn open(file: PathBuf) -> Journal {
         let (queue, texts) = mpsc::channel::<String>();
-        let writing = Arc::new(Mutex::new(()));
         let closed = Arc::new(AtomicBool::new(false));
-        let writer = (file.clone(), Arc::clone(&writing), Arc::clone(&closed));
-        std::thread::spawn(move || {
-            let (file, writing, closed) = writer;
-            while let Ok(mut text) = texts.recv() {
-                // Only the newest state is worth writing.
-                while let Ok(newer) = texts.try_recv() {
-                    text = newer;
-                }
-                let _writing = locked(&writing);
-                let open = || !closed.load(Ordering::SeqCst);
-                if let Err(fault) = write_atomic_if(&file, text.as_bytes(), None, 0o777, &open) {
-                    eprintln!(
-                        "ompdesk-core: couldn't save the schedules: {}",
-                        fault.message
-                    );
+        let writer = std::thread::spawn({
+            let (file, closed) = (file.clone(), Arc::clone(&closed));
+            move || {
+                while let Ok(mut text) = texts.recv() {
+                    // Only the newest state is worth writing.
+                    while let Ok(newer) = texts.try_recv() {
+                        text = newer;
+                    }
+                    let open = || !closed.load(Ordering::SeqCst);
+                    if !open() {
+                        continue;
+                    }
+                    if let Err(fault) = write_atomic_if(&file, text.as_bytes(), None, 0o777, &open)
+                    {
+                        eprintln!(
+                            "ompdesk-core: couldn't save the schedules: {}",
+                            fault.message
+                        );
+                    }
                 }
             }
         });
         Journal {
             file,
             queue: Mutex::new(Some(queue)),
-            writing,
+            writer: Mutex::new(Some(writer)),
             closed,
         }
     }
@@ -157,11 +160,13 @@ impl Journal {
         }
     }
 
-    /// The last content, written before this returns; nothing older lands after it.
+    /// The last content, written before this returns, once the writer thread ended: nothing older lands after it.
     fn close(&self, text: &str) {
         self.closed.store(true, Ordering::SeqCst);
         locked(&self.queue).take();
-        let _writing = locked(&self.writing);
+        if let Some(writer) = locked(&self.writer).take() {
+            let _ = writer.join();
+        }
         if let Err(fault) = write_atomic_if(&self.file, text.as_bytes(), None, 0o777, &|| true) {
             eprintln!(
                 "ompdesk-core: couldn't save the schedules on quit: {}",

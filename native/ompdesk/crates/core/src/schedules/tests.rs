@@ -510,3 +510,22 @@ fn a_charge_asked_while_the_schedule_goes_is_given_back() {
     assert!(matches!(engine.outs.as_slice(), [Out::Refund { charge }] if *charge == ask));
     assert_eq!(engine.state()["runs"], serde_json::json!([]));
 }
+
+/// The journal's writer thread can be holding an older state when the quit's close writes the last one; nothing of
+/// it may land after the close, not even its temp file, or the folder cannot be removed (`ENOTEMPTY` on Windows).
+#[test]
+fn nothing_of_the_journal_lands_after_its_close() {
+    for round in 0..200 {
+        let dir = crate::fs::disk::make_temp_dir("ompdesk-core-journal-").unwrap();
+        let file = dir.join("schedules.json");
+        let journal = super::Journal::open(file.clone());
+        journal.keep("older".into());
+        journal.close("last");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "last",
+            "round {round}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap_or_else(|error| panic!("round {round}: {error}"));
+    }
+}
