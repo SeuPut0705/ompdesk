@@ -3,20 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelResult } from "./distill-model";
-import {
-	chainJudges,
-	JEV_MIN_CONFIDENCE,
-	jevJudge,
-	jevRequest,
-	jevVerdict,
-	type PageDigest,
-	type PagePair,
-	type PairJudge,
-	pageText,
-	parseSmolVerdicts,
-	smolJudge,
-	smolMessage,
-} from "./memory-judge";
+import { jevJudge, type PageDigest, type PagePair, smolJudge } from "./memory-judge";
 
 const page = (title: string, saved: string, text = "body"): PageDigest => ({
 	path: `decisions/${title}.md`,
@@ -27,101 +14,6 @@ const page = (title: string, saved: string, text = "body"): PageDigest => ({
 	text,
 });
 const pair = (a = "old", b = "new"): PagePair => ({ a: page(a, "2026-10-18"), b: page(b, "2026-10-19") });
-
-describe("pageText", () => {
-	it("drops the H1 and the source line and folds whitespace", () => {
-		expect(pageText("# Title\n\nFirst   line\nsecond.\n\n_Source: the owner's messages #1 (memory upkeep)._")).toBe(
-			"First line second.",
-		);
-	});
-
-	it("cuts a long body", () => {
-		expect(pageText(`# T\n\n${"x".repeat(5000)}`).length).toBe(600);
-	});
-});
-
-describe("parseSmolVerdicts", () => {
-	const answer = (pairs: unknown) => JSON.stringify({ pairs });
-
-	it("reads one verdict per shown id", () => {
-		expect(
-			parseSmolVerdicts(
-				answer([
-					{ id: "p2", relation: "a_outdated" },
-					{ id: "p1", relation: "unrelated" },
-				]),
-				2,
-			).map(verdict => verdict?.relation),
-		).toEqual(["unrelated", "a_outdated"]);
-	});
-
-	it("accepts the object in one code fence", () => {
-		expect(
-			parseSmolVerdicts(`\`\`\`json\n${answer([{ id: "p1", relation: "duplicate" }])}\n\`\`\``, 1)[0]?.relation,
-		).toBe("duplicate");
-	});
-
-	it("leaves everything undecided when the text is not one JSON object", () => {
-		expect(parseSmolVerdicts("Sure! Here you go: {}", 2)).toEqual([null, null]);
-		expect(parseSmolVerdicts(`${answer([{ id: "p1", relation: "duplicate" }])} thanks`, 1)).toEqual([null]);
-		expect(parseSmolVerdicts("[]", 1)).toEqual([null]);
-	});
-
-	it("refuses an unknown relation, an id never shown and a pair answered twice", () => {
-		const verdicts = parseSmolVerdicts(
-			answer([
-				{ id: "p1", relation: "obsolete" },
-				{ id: "p9", relation: "duplicate" },
-				{ id: "p2", relation: "duplicate" },
-				{ id: "p2", relation: "unrelated" },
-				{ id: "p3", relation: "a_outdated" },
-			]),
-			3,
-		);
-		expect(verdicts.map(verdict => verdict?.relation ?? null)).toEqual([null, null, "a_outdated"]);
-	});
-});
-
-describe("smolMessage", () => {
-	it("numbers the pairs, marks older and newer, and adds the rules outline only when there is one", () => {
-		const withRules = smolMessage([pair("pairing code", "tailscale")], "## Tailscale\n- No pairing code");
-		expect(withRules.user).toContain("p1");
-		expect(withRules.user).toContain("A (2026-10-18");
-		expect(withRules.user).toContain("B (2026-10-19");
-		expect(withRules.user).toContain("No pairing code");
-		expect(smolMessage([pair()], "").user).not.toContain("rules file");
-		expect(withRules.system).toContain("When you are not sure");
-	});
-});
-
-describe("jevVerdict", () => {
-	const answers = (choice: string, probability: number) => ({
-		relation: { type: "choice", choice, probabilities: { [choice]: probability }, confidence: 0.9 },
-	});
-
-	it("maps the choice and applies the confidence bar", () => {
-		expect(jevVerdict(answers("A_outdated", 0.96))).toEqual({ relation: "a_outdated", confidence: 0.96 });
-		expect(jevVerdict(answers("duplicate", JEV_MIN_CONFIDENCE - 0.01))).toBeNull();
-		expect(jevVerdict(answers("duplicate", JEV_MIN_CONFIDENCE))?.relation).toBe("duplicate");
-	});
-
-	it("reads anything else as no verdict", () => {
-		expect(jevVerdict(null)).toBeNull();
-		expect(jevVerdict({ relation: { type: "noul", noul: 0.9 } })).toBeNull();
-		expect(jevVerdict(answers("nonsense", 0.99))).toBeNull();
-		expect(jevVerdict(answers("constructor", 0.99))).toBeNull();
-	});
-});
-
-describe("jevRequest", () => {
-	it("puts both notes, older first, and never the rules outline", () => {
-		const request = jevRequest(pair());
-		expect(Object.keys(request.questions)).toEqual(["relation"]);
-		expect(request.state.noteA.saved).toBe("2026-10-18");
-		expect(request.state.noteB.saved).toBe("2026-10-19");
-		expect(request.state).not.toHaveProperty("currentRules");
-	});
-});
 
 describe("smolJudge", () => {
 	const result = (text: string): ModelResult => ({
@@ -171,51 +63,6 @@ describe("smolJudge", () => {
 		});
 		expect(await judge([], "")).toBeNull();
 		expect(called).toBe(false);
-	});
-});
-
-describe("chainJudges", () => {
-	const answering =
-		(by: "jev" | "smol", decided: boolean[], seen: number[]): PairJudge =>
-		async pairs => {
-			seen.push(pairs.length);
-			return {
-				by,
-				verdicts: decided.map(yes => (yes ? { relation: "duplicate", confidence: 0.9 } : null)),
-				model: by,
-				costUsd: 1,
-				ms: 1,
-			};
-		};
-
-	it("uses the first judge that answers for the whole batch and does not ask a later one about pairs it left undecided", async () => {
-		const jevSeen: number[] = [];
-		const smolSeen: number[] = [];
-		const judgment = await chainJudges(
-			answering("jev", [true, false, true], jevSeen),
-			answering("smol", [true, true, true], smolSeen),
-		)([pair(), pair(), pair()], "");
-		expect(jevSeen).toEqual([3]);
-		expect(smolSeen).toEqual([]);
-		expect(judgment?.by).toBe("jev");
-		expect(judgment?.verdicts.map(verdict => verdict?.relation ?? null)).toEqual(["duplicate", null, "duplicate"]);
-		expect(judgment?.costUsd).toBe(1);
-	});
-
-	it("goes on to the next judge when one did not answer at all", async () => {
-		const smolSeen: number[] = [];
-		const judgment = await chainJudges(async () => null, answering("smol", [true], smolSeen))([pair()], "");
-		expect(judgment?.by).toBe("smol");
-		expect(smolSeen).toEqual([1]);
-	});
-
-	it("did not decide when no judge decided", async () => {
-		expect(
-			await chainJudges(
-				async () => null,
-				async () => null,
-			)([pair()], ""),
-		).toBeNull();
 	});
 });
 

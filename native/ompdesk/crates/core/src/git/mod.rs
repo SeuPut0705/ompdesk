@@ -14,7 +14,7 @@
 
 mod branches;
 mod checkout;
-mod freshness;
+pub(crate) mod freshness;
 mod origin;
 mod orphans;
 pub(crate) mod parse;

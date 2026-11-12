@@ -4,6 +4,7 @@
 
 pub mod aimemory;
 pub mod browsers;
+pub mod care;
 pub mod control;
 pub mod disk;
 pub mod ext;

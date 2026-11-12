@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AiMemoryPage, AiMemoryPageRef, AiMemoryProject, AiMemoryProjectRef } from "../../shared/ai-memory";
-import { type CurateClient, type CurateLogDetails, curateMemory, projectRules } from "./curate";
+import { type CurateClient, type CurateLogDetails, curateMemory } from "./curate";
 import type { PagePair, PairJudge, Relation } from "./memory-judge";
 
 interface Seed {
@@ -379,41 +379,5 @@ describe("curateMemory", () => {
 		const successors = memory.retired.map(item => item.successor);
 		expect(retired.filter(path => successors.includes(path))).toEqual([]);
 		expect(new Set(retired).size).toBe(retired.length);
-	});
-});
-
-describe("projectRules", () => {
-	it("reads the rules outline of the folder the project's newest session ran in", async () => {
-		const asked: string[] = [];
-		const rules = projectRules(
-			{
-				sessions: async () => [
-					{
-						id: "s2",
-						cwd: "",
-						agent: "omp",
-						startedAt: null,
-						endedAt: null,
-						observations: 0,
-						consolidation: null,
-					},
-					{
-						id: "s1",
-						cwd: "/work/demo",
-						agent: "omp",
-						startedAt: null,
-						endedAt: null,
-						observations: 0,
-						consolidation: null,
-					},
-				],
-			},
-			async cwd => {
-				asked.push(cwd);
-				return "## Tailscale\n- **No pairing code**: identity only";
-			},
-		);
-		expect(await rules({ workspace: WS, project: PROJECT })).toContain("No pairing code");
-		expect(asked).toEqual(["/work/demo"]);
 	});
 });

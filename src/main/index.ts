@@ -5,7 +5,6 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { homedir, release } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -95,12 +94,9 @@ import { agentDir } from "./agent-paths";
 import { migrateAgentPowers } from "./agent-power-migration";
 import { lowerAgentPriority } from "./agent-priority";
 import { MemoryCare } from "./ai-memory/care";
-import { careUnits } from "./ai-memory/care-units";
 import { AiMemoryClient } from "./ai-memory/client";
 import { ompLaunch } from "./ai-memory/core-asks";
-import { runSmol } from "./ai-memory/distill-model";
 import { registerAiMemoryIpc } from "./ai-memory/ipc";
-import { chainJudges, jevJudge, type PairJudge, smolJudge } from "./ai-memory/memory-judge";
 import { RecallTermsIndex } from "./ai-memory/recall-terms";
 import { AiMemoryService, pidFileControl } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
@@ -1762,34 +1758,18 @@ app.whenReady().then(() => {
 	});
 	// Memory's own care (src/main/ai-memory/care.ts): after each update and then daily it fills in older conversations'
 	// conclusions, hides pages a newer one repeats or contradicts and pages naming files that are gone; quiet but for the
-	// runtime log and one line in Settings › Memory › Maintenance with Undo.
-	const upkeepCwd = join(app.getPath("temp"), "ompdesk-memory-upkeep");
-	const memoryJudge: PairJudge = async (pairs, rules) => {
-		const omp = await systemOmp();
-		if (!omp.ok) return null;
-		await mkdir(upkeepCwd, { recursive: true });
-		const judges = [
-			jevJudge({
-				omp: omp.runtime,
-				hostFile: join(bridgeDir, "memory-judge-host.ts"),
-				enabled: () => judgeAssistEnabled(prefs.get(JUDGE_ASSIST_PREF)),
-				cwd: upkeepCwd,
-			}),
-		];
-		// The cheap model reads stored pages to the provider, as learning reads conversations.
-		judges.push(smolJudge({ model: async message => runSmol(await ompLaunch(), message, upkeepCwd) }));
-		return chainJudges(...judges)(pairs, rules);
-	};
+	// runtime log and one line in Settings › Memory › Maintenance with Undo. The core runs the units; main hands every
+	// tick the sessions folder, this computer's device id, how to judge (the judge switch is read per tick) and git's rules.
 	aiMemoryCare = new MemoryCare({
 		client: memoryClient,
-		units: careUnits({
-			client: memoryClient,
-			judge: () => memoryJudge,
-			sessionsDir: sessionIndex.sessionsDir,
-			readMessages: path => sessionIndex.readMessages(path),
-			origin: () => devices.deviceId,
-			log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),
-		}),
+		sessionsDir: sessionIndex.sessionsDir,
+		origin: () => devices.deviceId,
+		judge: {
+			enabled: () => judgeAssistEnabled(prefs.get(JUDGE_ASSIST_PREF)),
+			hostFile: join(bridgeDir, "memory-judge-host.ts"),
+			cwd: join(app.getPath("temp"), "ompdesk-memory-upkeep"),
+		},
+		omp: ompLaunch,
 		version: app.getVersion(),
 		stateFile: join(app.getPath("userData"), "ai-memory", "care.json"),
 		log: (message, details) => writeRuntimeLog({ source: "ai-memory", message, details }),

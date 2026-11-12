@@ -4,8 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { wrapAgentMessage } from "../../shared/agent-control";
 import type { AiMemoryObservation, AiMemorySession } from "../../shared/ai-memory";
-import type { DistillMessage } from "./distill";
-import type { ModelResult } from "./distill-model";
+import type { DistillMessage, ModelResult } from "./distill-model";
 import {
 	MemoryUpkeep,
 	UPKEEP_DAILY_MAX,
