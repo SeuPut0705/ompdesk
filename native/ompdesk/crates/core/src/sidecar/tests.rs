@@ -122,6 +122,18 @@ fn fake_omp(mode: &str) {
                 std::thread::sleep(Duration::from_millis(300));
                 reply(json!({ "slow": true }));
             }
+            "stream" => {
+                // Two updates of one reply, each with its whole partial, as stock writes them.
+                for text in ["a", "ab"] {
+                    let message = json!({ "role": "assistant", "content": [{ "type": "text", "text": text }], "timestamp": 9 });
+                    say(&json!({
+                        "type": "message_update", "message": message,
+                        "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "b", "partial": message },
+                    })
+                    .to_string());
+                }
+                reply(json!({}));
+            }
             "prompt" => {
                 let user = json!({ "role": "user", "content": "hi", "timestamp": 1 });
                 let assistant = json!({ "role": "assistant", "content": "ok", "timestamp": 2 });
@@ -1194,4 +1206,59 @@ async fn the_end_of_the_cores_input_stops_the_omps() {
         assert!(log(&rig).contains("eof"), "{}", log(&rig));
     }
     let _ = std::fs::remove_dir_all(&rig.dir);
+}
+
+#[tokio::test]
+async fn main_and_subscribers_get_a_messages_later_updates_reduced_and_a_restarted_omps_first_whole()
+ {
+    let mut rig = Rig::new("slim", "ok").await;
+    let mut tapped = super::subscribe(&rig.tab);
+    let _open = rig.open(no_queue());
+    rig.tab_call("sidecar.start", json!({})).await.unwrap();
+    rig.status("ready").await;
+    let stream = json!({ "command": { "type": "stream" } });
+    rig.tab_call("sidecar.command", stream.clone())
+        .await
+        .unwrap();
+    rig.drain();
+    let updates = |rig: &Rig| -> Vec<Value> {
+        frames(rig)
+            .into_iter()
+            .filter(|f| f["type"] == "message_update")
+            .collect()
+    };
+    let first = updates(&rig);
+    assert_eq!(first.len(), 2);
+    assert_eq!(first[0]["message"]["content"][0]["text"], "a");
+    assert_eq!(
+        first[1],
+        json!({
+            "type": "message_update",
+            "message": { "role": "assistant", "timestamp": 9 },
+            "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "b" },
+        })
+    );
+    // A restart tears the omp down: the same message's next update goes whole, as main's decoder starts over too.
+    rig.tab_call("sidecar.restart", json!({})).await.unwrap();
+    rig.status("ready").await;
+    rig.tab_call("sidecar.command", stream).await.unwrap();
+    rig.drain();
+    let again = updates(&rig);
+    assert_eq!(again.len(), 4);
+    assert_eq!(again[2]["message"]["content"][0]["text"], "a");
+    assert!(again[3]["message"].get("content").is_none());
+    // An in-core subscriber reads the very bytes main read.
+    let mut tapped_updates = Vec::new();
+    while let Ok(event) = tapped.try_recv() {
+        if event.name == "sidecar.frame"
+            && let Some(bin) = event.bin
+        {
+            let frame: Value = serde_json::from_slice(&bin).unwrap();
+            if frame["type"] == "message_update" {
+                tapped_updates.push(frame);
+            }
+        }
+    }
+    assert_eq!(tapped_updates, again);
+    finish(rig).await;
 }
