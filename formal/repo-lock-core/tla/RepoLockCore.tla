@@ -74,13 +74,13 @@ StepEnds ==
     /\ step' = "done"
     /\ UNCHANGED <<req, toCore, toMain, registered, cancelled, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:195-212 a request registers its cancel flag before the next frame is read
+\* @code native/ompdesk/crates/core/src/server.rs:236-255 a request registers its cancel flag before the next frame is read
 CoreReadsRequest ==
     /\ coreUp /\ toCore # <<>> /\ Head(toCore) = "request"
     /\ toCore' = Tail(toCore) /\ registered' = TRUE /\ handler' = "running"
     /\ UNCHANGED <<step, req, toMain, cancelled, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:189-194 a cancel sets the flag of a request still in flight; else nothing
+\* @code native/ompdesk/crates/core/src/server.rs:231-235 a cancel sets the flag of a request still in flight; else nothing
 CoreReadsCancel ==
     /\ coreUp /\ toCore # <<>> /\ Head(toCore) = "cancel"
     /\ toCore' = Tail(toCore)
@@ -124,14 +124,14 @@ DiskEnds ==
     /\ disk' = 0
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:242-252 the handler returns (done, failed or cancelled); a git's task or a disk call's worker may still run, the scratch store is gone
+\* @code native/ompdesk/crates/core/src/server.rs:302-311 the handler returns (done, failed or cancelled); a git's task or a disk call's worker may still run, the scratch store is gone
 HandlerEnds ==
     /\ coreUp /\ handler = "running"
     /\ scratch # "made"
     /\ handler' = "finished"
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/server.rs:253-254 the answer waits until every scope clone (a git's supervisor, a disk call's worker) is gone
+\* @code native/ompdesk/crates/core/src/server.rs:312-314 the answer waits until every scope clone (a git's supervisor, a disk call's worker) is gone
 CoreAnswers ==
     /\ coreUp /\ handler = "finished" /\ ~answered
     /\ WaitGroup => alive = 0

@@ -155,6 +155,20 @@
 			],
 			"syncCommit": "b351ec34c0e40ec1e352774a7d67633d7a6e3d05",
 			"verifySkill": ".omp/skills/session-processes-verify/SKILL.md"
+		},
+		{
+			"id": "stock-lane",
+			"title": "Stock helper lane: when the core ends a worker, and no request stranded or worker forgotten",
+			"kind": "tla",
+			"dir": "stock-lane/tla",
+			"spec": "StockLane.tla",
+			"matrix": "matrix.json",
+			"mutations": "mutations.json",
+			"covers": [
+				"native/ompdesk/crates/core/src/stock/mod.rs"
+			],
+			"syncCommit": "c609c6c45e9e2ec1391e6765ae6025b8b30707e7",
+			"verifySkill": ".omp/skills/stock-lane-verify/SKILL.md"
 		}
 	]
 }

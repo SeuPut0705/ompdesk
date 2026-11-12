@@ -1,0 +1,58 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<title>stock-lane verification</title><style>
+:root{--bg:#fff;--fg:#1c1f24;--muted:#6a7280;--line:#d8dce3;--bad:#c62828;--good:#1b7f3b;--warn:#b26a00;--card:#f6f7f9;--code:#eef0f3}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e6e8ec;--muted:#9aa3b2;--line:#2c313a;--bad:#ff6b6b;--good:#55c27a;--warn:#e0a040;--card:#1b1e24;--code:#222731}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.55rem;margin:.2rem 0 .6rem}h2{font-size:1.15rem;margin:2rem 0 .6rem;border-bottom:1px solid var(--line);padding-bottom:.3rem}h3{font-size:1rem;margin:.2rem 0}
+.verdict{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--good);border-radius:8px;padding:12px 14px}
+.verdict.bad{border-left-color:var(--bad)}.verdict.warn{border-left-color:var(--warn)}.verdict p{margin:.2rem 0}
+.counts{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:99px;padding:1px 10px;font-size:.82rem;background:var(--bg)}
+.pill.bad{color:var(--bad);border-color:var(--bad)}.pill.good{color:var(--good);border-color:var(--good)}.pill.warn{color:var(--warn);border-color:var(--warn)}
+section.finding{border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:14px 0;background:var(--card)}
+.meta{color:var(--muted);font-size:.86rem}
+table{border-collapse:collapse;width:100%;font-size:.86rem;margin:.5rem 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:left;vertical-align:top}th{background:var(--code)}
+tr.violation td{background:color-mix(in srgb,var(--bad) 14%,transparent)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.84rem}
+code{background:var(--code);padding:0 4px;border-radius:4px}pre{background:var(--code);padding:10px 12px;border-radius:6px;overflow-x:auto}pre code{background:none;padding:0}
+figure.diagram{margin:10px 0;color:var(--fg)}figure.diagram svg{max-width:100%;height:auto}figcaption{color:var(--muted);font-size:.82rem}
+ul{padding-left:1.2rem}footer{margin-top:2.5rem;color:var(--muted);font-size:.8rem}
+</style></head><body><main>
+<h1>stock-lane verification</h1>
+<div class="verdict bad"><p><strong>Design check of the stock helper lane as it moved into the core (native-rust 6b), then tied to the code. All seven frozen properties hold within 2 requests, 3 workers and 3 starts on a lane of each kind, and within 3 requests, 2 workers and 2 starts on the stock lane; 11 of 11 mutations are detected. No counterexample was found, so there is no finding to reproduce. Two design points came from the model: start numbers come from one process-wide sequence, so an answer to a start asked before a stop is never taken for a later start&#39;s, and a stop forgets the start it asked for.</strong></p><div class="counts">
+<span class="pill ">0 confirmed</span><span class="pill ">0 suspected</span><span class="pill ">0 refuted</span><span class="pill ">0 fixed</span>
+<span class="pill bad">7 of 11 properties hold</span>
+<span class="pill ">workflow W3</span>
+<span class="pill ">2026-11-12T10:00:00Z</span></div></div>
+<h2>Findings</h2>
+<p>No finding: no counterexample within the stated bounds.</p>
+<h2>What was verified</h2><table><thead><tr><th>Property</th><th>Kind</th><th>Result</th><th>Tool</th><th>Bounds</th><th>Evidence</th></tr></thead><tbody>
+<tr><td><code>NothingInFlightIsCut</code> (frozen)<br>A worker is let go for a changed omp or for idleness only with no request in flight on it.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>TerminalsWorkerIsNeverEnded</code> (frozen)<br>The terminals worker, which holds every live shell, is ended only at a stop.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>OnlyTheStockWorkerIsRecycled</code> (frozen)<br>Only the stock worker is ever ended as hung.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>OnlyAStuckWorkerIsRecycled</code> (frozen)<br>A worker is ended as hung only for a timed-out request it was sent and has not answered.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NoRequestStranded</code> (frozen)<br>A request in the lane&#39;s books waits for a start that was asked for, or is unanswered on the lane&#39;s own worker.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NoWorkerIsForgotten</code> (frozen)<br>Every worker that runs with its stdin open is the lane&#39;s worker.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>AStartAskedBeforeAStopStartsNothing</code> (frozen)<br>An answer to a start asked for before a stop starts no worker.<br><span class="meta">source: formal/stock-lane/Properties.md</span></td><td>invariant</td><td><span class="pill good">holds</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NeverRecycles</code><br>Sanity, must be violated: a worker is ended as hung.</td><td>invariant</td><td><span class="pill warn">violated</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NeverRetires</code><br>Sanity, must be violated: a worker is let go for a changed omp.</td><td>invariant</td><td><span class="pill warn">violated</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NeverIdleExits</code><br>Sanity, must be violated: a worker is let go for idleness.</td><td>invariant</td><td><span class="pill warn">violated</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+<tr><td><code>NeverAnswersLate</code><br>Sanity, must be violated: a worker answers a request whose caller timed out.</td><td>invariant</td><td><span class="pill warn">violated</span></td><td>TLC2 2026.10.28.014557</td><td>Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3</td><td><code>formal/stock-lane/evidence/2026-11-12-verify.txt</code></td></tr>
+</tbody></table>
+<h2>Model scope and assumptions</h2>
+<h3>Modeled</h3><ul><li>Lane::request with the retire of a worker that outlived its omp</li><li>the start asked of main (stock.launch) and its late, failed or missing answer</li><li>the request&#39;s timeout in its handler and Lane::gave_up</li><li>Lane::line (a worker&#39;s answer, read by its reader thread, handled by the lane)</li><li>Lane::overdue (the stock worker ended as hung)</li><li>Lane::idle (the extensions worker&#39;s idle exit)</li><li>a worker that answers in any order, never answers, or exits at any moment</li><li>Lane::stop and a lane used again after it</li><li>omp replaced at any moment</li></ul>
+<h3>Abstracted</h3><ul><li>one lane; the table of lanes and its lock are not modelled</li><li>the fresh lane after a stop is the same lane, emptied</li><li>timers fire at any moment after they were armed</li></ul>
+<h3>Out of scope</h3><ul><li>the worker&#39;s own queue and withdrawal (resources/gui-bridge/stock-helper/dispatch.ts)</li><li>time: how long a grace or an idle exit is, the idle epoch</li><li>the wait for exits at a stop, the workers ending with the core</li><li>liveness</li><li>main&#39;s side of stock.launch</li></ul>
+<h3>Assumptions</h3><ul><li>A1: the lane takes one message at a time (one task, one inbox) and is the only one to answer a caller</li><li>A2: start numbers never repeat in the process (NEXT_ID)</li></ul>
+<h2>Trust base</h2>
+<p class="meta">not recorded</p>
+<h2>Re-run</h2>
+<pre><code>bun &lt;tools-dir&gt;/scripts/verify-all.ts formal --only stock-lane</code></pre>
+<h2>Next steps</h2><ul><li>After editing native/ompdesk/crates/core/src/stock/mod.rs: bun formal/stock-lane/retag.ts, rerun, restamp.</li><li>3 requests with 3 workers and 3 starts did not finish in 10 minutes: not checked.</li></ul>
+<footer>Generated by ompdesk-formal-verify report.ts from findings.json. A pass means no counterexample within the stated bounds, not that the code is correct.</footer>
+</main></body></html>

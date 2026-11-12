@@ -182,6 +182,7 @@ pub fn registry() -> Registry {
     crate::control::register(&mut registry);
     crate::tailscale::register(&mut registry);
     crate::ssh::register(&mut registry);
+    crate::stock::register(&mut registry);
     registry
 }
 
@@ -263,10 +264,12 @@ where
     crate::control::close_all(&ending).await;
     crate::ssh::close_all(&ending);
     crate::schedules::close_all(&ending);
+    crate::stock::close_all(&ending).await;
     while tasks.join_next().await.is_some() {
         crate::control::close_all(&ending).await;
         crate::ssh::close_all(&ending);
         crate::schedules::close_all(&ending);
+        crate::stock::close_all(&ending).await;
     }
     drop(frames);
     let written = writer.await.map_err(io::Error::other)?;

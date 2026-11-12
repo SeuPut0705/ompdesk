@@ -163,11 +163,11 @@ describe.skipIf(!existsSync(omp) || !existsSync(stockRoot))("stock history and c
 			// Reads are the stock helper's, on the same history.db the tab's omp writes: the handle it opened first still
 			// sees a write another process makes after, with no change notice.
 			helper = new StockHelper(path.resolve("resources/gui-bridge"), {
-				spawnWorker: async () =>
-					spawn("bun", [path.resolve("resources/gui-bridge/stock-helper/host.ts"), "stock"], {
-						env: { ...env, OMP_PACKAGE_ROOT: stockRoot },
-						stdio: ["pipe", "pipe", "pipe"],
-					}),
+				launch: async () => ({
+					bin: "bun",
+					args: [path.resolve("resources/gui-bridge/stock-helper/host.ts"), "stock"],
+					env: { ...env, OMP_PACKAGE_ROOT: stockRoot },
+				}),
 			});
 			const recent = await helper.request<Array<{ prompt: string }>>("history.recent", { limit: 20 });
 			expect(recent.some(entry => entry.prompt === "from terminal omp")).toBe(true);

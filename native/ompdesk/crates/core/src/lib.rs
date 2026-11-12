@@ -22,6 +22,7 @@ pub mod schedules;
 pub mod server;
 pub mod sessions;
 pub mod ssh;
+pub mod stock;
 pub mod supervise;
 mod sys;
 pub mod tailscale;

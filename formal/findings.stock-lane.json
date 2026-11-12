@@ -1,0 +1,169 @@
+{
+	"concern": "stock-lane",
+	"workflow": "W3",
+	"generated_at": "2026-11-12T10:00:00Z",
+	"summary": "Design check of the stock helper lane as it moved into the core (native-rust 6b), then tied to the code. All seven frozen properties hold within 2 requests, 3 workers and 3 starts on a lane of each kind, and within 3 requests, 2 workers and 2 starts on the stock lane; 11 of 11 mutations are detected. No counterexample was found, so there is no finding to reproduce. Two design points came from the model: start numbers come from one process-wide sequence, so an answer to a start asked before a stop is never taken for a later start's, and a stop forgets the start it asked for.",
+	"scope": {
+		"modeled": [
+			"Lane::request with the retire of a worker that outlived its omp",
+			"the start asked of main (stock.launch) and its late, failed or missing answer",
+			"the request's timeout in its handler and Lane::gave_up",
+			"Lane::line (a worker's answer, read by its reader thread, handled by the lane)",
+			"Lane::overdue (the stock worker ended as hung)",
+			"Lane::idle (the extensions worker's idle exit)",
+			"a worker that answers in any order, never answers, or exits at any moment",
+			"Lane::stop and a lane used again after it",
+			"omp replaced at any moment"
+		],
+		"abstracted": [
+			"one lane; the table of lanes and its lock are not modelled",
+			"the fresh lane after a stop is the same lane, emptied",
+			"timers fire at any moment after they were armed"
+		],
+		"out_of_scope": [
+			"the worker's own queue and withdrawal (resources/gui-bridge/stock-helper/dispatch.ts)",
+			"time: how long a grace or an idle exit is, the idle epoch",
+			"the wait for exits at a stop, the workers ending with the core",
+			"liveness",
+			"main's side of stock.launch"
+		],
+		"assumptions": [
+			"A1: the lane takes one message at a time (one task, one inbox) and is the only one to answer a caller",
+			"A2: start numbers never repeat in the process (NEXT_ID)"
+		]
+	},
+	"properties": [
+		{
+			"name": "NothingInFlightIsCut",
+			"kind": "invariant",
+			"statement": "NothingInFlightIsCut == ~cut",
+			"meaning": "A worker is let go for a changed omp or for idleness only with no request in flight on it.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "TerminalsWorkerIsNeverEnded",
+			"kind": "invariant",
+			"statement": "TerminalsWorkerIsNeverEnded == Kind = \"terminals\" => \\A g \\in Workers : endedBy[g] \\in {\"none\", \"stop\"}",
+			"meaning": "The terminals worker, which holds every live shell, is ended only at a stop.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "OnlyTheStockWorkerIsRecycled",
+			"kind": "invariant",
+			"statement": "OnlyTheStockWorkerIsRecycled == \\A g \\in Workers : endedBy[g] = \"recycle\" => Kind = \"stock\"",
+			"meaning": "Only the stock worker is ever ended as hung.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "OnlyAStuckWorkerIsRecycled",
+			"kind": "invariant",
+			"statement": "OnlyAStuckWorkerIsRecycled == \\A p \\in recycledFor : sent[p[2]] = p[1] /\\ caller[p[2]] = \"timedout\" /\\ p \\notin read",
+			"meaning": "A worker is ended as hung only for a timed-out request it was sent and has not answered.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NoRequestStranded",
+			"kind": "invariant",
+			"statement": "NoRequestStranded == \\A r \\in pending : \\/ (r \\in waiting /\\ launching # None /\\ running = None) \\/ (running # None /\\ sent[r] = running /\\ r \\in unanswered)",
+			"meaning": "A request in the lane's books waits for a start that was asked for, or is unanswered on the lane's own worker.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NoWorkerIsForgotten",
+			"kind": "invariant",
+			"statement": "NoWorkerIsForgotten == \\A g \\in Workers : life[g] = \"up\" => g = running",
+			"meaning": "Every worker that runs with its stdin open is the lane's worker.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "AStartAskedBeforeAStopStartsNothing",
+			"kind": "invariant",
+			"statement": "AStartAskedBeforeAStopStartsNothing == ~staleStart",
+			"meaning": "An answer to a start asked for before a stop starts no worker.",
+			"source": "formal/stock-lane/Properties.md",
+			"frozen": true,
+			"result": "holds",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3, one lane of each kind (stock 89,630 states, terminals 35,318, extensions 101,328); stock lane also Reqs={r1,r2,r3}, MaxWorkers=2, MaxLaunches=2 (4,459,158 states)",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NeverRecycles",
+			"kind": "invariant",
+			"statement": "NeverRecycles == \\A g \\in Workers : endedBy[g] # \"recycle\"",
+			"meaning": "Sanity, must be violated: a worker is ended as hung.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NeverRetires",
+			"kind": "invariant",
+			"statement": "NeverRetires == \\A g \\in Workers : endedBy[g] # \"retire\"",
+			"meaning": "Sanity, must be violated: a worker is let go for a changed omp.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NeverIdleExits",
+			"kind": "invariant",
+			"statement": "NeverIdleExits == \\A g \\in Workers : endedBy[g] # \"idle\"",
+			"meaning": "Sanity, must be violated: a worker is let go for idleness.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		},
+		{
+			"name": "NeverAnswersLate",
+			"kind": "invariant",
+			"statement": "NeverAnswersLate == \\A r \\in Reqs : ~(caller[r] = \"timedout\" /\\ \\E g \\in Workers : <<g, r>> \\in read)",
+			"meaning": "Sanity, must be violated: a worker answers a request whose caller timed out.",
+			"result": "violated",
+			"tool": "TLC2 2026.10.28.014557",
+			"bounds": "Reqs={r1,r2}, MaxWorkers=3, MaxLaunches=3",
+			"evidence": "formal/stock-lane/evidence/2026-11-12-verify.txt"
+		}
+	],
+	"findings": [],
+	"rerun": [
+		"bun <tools-dir>/scripts/verify-all.ts formal --only stock-lane"
+	],
+	"next_steps": [
+		"After editing native/ompdesk/crates/core/src/stock/mod.rs: bun formal/stock-lane/retag.ts, rerun, restamp.",
+		"3 requests with 3 workers and 3 starts did not finish in 10 minutes: not checked."
+	]
+}

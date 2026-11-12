@@ -1,0 +1,41 @@
+
+== stock-lane: Stock helper lane: when the core ends a worker, and no request stranded or worker forgotten (tla)
+TLC (tla2tools release 1.8.0)  java 21 (cache)  spec StockLane.tla
+  TLC reports itself as version 2026.10.28.014557
+ok    stock-lane-all-invariants: no violation  (89630 distinct states, 401272 generated, depth 21, 6.5s)
+ok    terminals-lane-all-invariants: no violation  (35318 distinct states, 150562 generated, depth 20, 4.0s)
+ok    extensions-lane-all-invariants: no violation  (101328 distinct states, 457573 generated, depth 22, 5.8s)
+ok    stock-lane-three-requests: no violation  (4459158 distinct states, 23409624 generated, depth 26, 98.1s)
+ok    a-recycle-is-reachable: invariant NeverRecycles (as expected)  (172 distinct states, 305 generated, depth 6, 2.8s)
+ok    a-retire-is-reachable: invariant NeverRetires (as expected)  (365 distinct states, 703 generated, depth 7, 3.0s)
+ok    an-idle-exit-is-reachable: invariant NeverIdleExits (as expected)  (146 distinct states, 252 generated, depth 6, 2.7s)
+ok    a-late-answer-is-reachable: invariant NeverAnswersLate (as expected)  (176 distinct states, 311 generated, depth 6, 2.7s)
+PASS  matrix: all 8 runs ended as expected
+ok    stock-lane: TLC matrix
+baseline: pass
+DETECTED retires-a-worker-with-a-request-in-flight: failed on NothingInFlightIsCut
+DETECTED retires-the-terminals-worker: failed on TerminalsWorkerIsNeverEnded
+DETECTED recycles-any-worker-that-hung: failed on OnlyTheStockWorkerIsRecycled
+DETECTED a-late-grace-ends-whatever-runs: failed on OnlyAStuckWorkerIsRecycled
+DETECTED an-answered-request-stays-overdue: failed on OnlyAStuckWorkerIsRecycled
+DETECTED idle-exit-with-a-request-in-flight: failed on NothingInFlightIsCut
+DETECTED a-start-asked-before-a-stop-starts-a-worker: failed on AStartAskedBeforeAStopStartsNothing
+DETECTED a-stop-keeps-the-start-it-asked-for: failed on AStartAskedBeforeAStopStartsNothing
+DETECTED an-exit-fails-nothing: failed on NoRequestStranded
+DETECTED a-failed-start-leaves-its-waiters: failed on NoRequestStranded
+DETECTED a-second-worker-beside-the-first: failed on NoWorkerIsForgotten
+WAIVED   TypeOK: Shape check only: no behaviour change breaks it without also breaking a property above it.
+covered  NothingInFlightIsCut (by retires-a-worker-with-a-request-in-flight, idle-exit-with-a-request-in-flight)
+covered  TerminalsWorkerIsNeverEnded (by retires-the-terminals-worker)
+covered  OnlyTheStockWorkerIsRecycled (by recycles-any-worker-that-hung)
+covered  OnlyAStuckWorkerIsRecycled (by a-late-grace-ends-whatever-runs, an-answered-request-stays-overdue)
+covered  NoRequestStranded (by an-exit-fails-nothing, a-failed-start-leaves-its-waiters)
+covered  NoWorkerIsForgotten (by a-second-worker-beside-the-first)
+covered  AStartAskedBeforeAStopStartsNothing (by a-start-asked-before-a-stop-starts-a-worker, a-stop-keeps-the-start-it-asked-for)
+11 of 11 mutations detected
+ok    stock-lane: mutations
+ok    stock-lane: @code tags resolve
+      changed since sync: native/ompdesk/crates/core/src/stock/mod.rs
+DRIFT  stock-lane: drift - DRIFT: 1 covered item(s) changed since c609c6c45e; check the model still describes them, then re-stamp
+
+DRIFT  stock-lane: 3 of 4 ok, 1 drift

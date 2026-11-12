@@ -20,6 +20,7 @@ import * as path from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import type { IpcSessionsChanged, SessionInfo } from "../shared/ipc-types";
+import { core } from "./core/process";
 import { initDeletedSessions } from "./deleted-sessions";
 import { ompPackageRoot } from "./omp-runtime";
 import type { HostConnection } from "./remote/host-server";
@@ -95,13 +96,13 @@ function memoryStorage(map: Map<string, string>) {
 	};
 }
 
-/** CPU seconds the stock helper workers have used (every `host.ts` child of this process). */
+/** CPU seconds the stock helper workers have used (every `host.ts` child of the core process, which starts them). */
 function helperCpuMs(): number {
 	const out = execFileSync("ps", ["-A", "-o", "ppid=,time=,command="], { encoding: "utf8" });
 	let total = 0;
 	for (const line of out.split("\n")) {
 		const match = /^\s*(\d+)\s+(\S+)\s+(.*)$/.exec(line);
-		if (!match || Number(match[1]) !== process.pid || !match[3]?.includes("stock-helper/host.ts")) continue;
+		if (!match || Number(match[1]) !== core().pid || !match[3]?.includes("stock-helper/host.ts")) continue;
 		const parts = (match[2] ?? "0").split(":").map(Number);
 		const seconds = parts.reduce((sum, part) => sum * 60 + part, 0);
 		total += seconds * 1000;

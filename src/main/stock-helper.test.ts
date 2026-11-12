@@ -1,12 +1,14 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { readFileSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDispatcher } from "../../resources/gui-bridge/stock-helper/dispatch";
-import { helperWorker, StockHelper, type StockHelperOptions } from "./stock-helper";
+import { core } from "./core/process";
+import { StockHelper, type StockHelperOptions } from "./stock-helper";
 
 let dir: string;
 const helpers: StockHelper[] = [];
@@ -28,6 +30,8 @@ async function workerScript(): Promise<string> {
 		`import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createDispatcher } from ${JSON.stringify(dispatch)};
+// Each worker process the core starts, in order: the core holds the process, a test sees it by its pid.
+appendFileSync(process.env.WORKER_PIDS, process.pid + "\\n");
 // slow takes real time; gated runs until the test writes "release", so a helper timeout cuts it short
 // whatever the machine's load does to either side's timers.
 const methods = {
@@ -38,6 +42,7 @@ const methods = {
 		return "slow";
 	},
 	gated: async () => {
+		appendFileSync(${JSON.stringify(path.join(dir, "gated-started"))}, "gated\\n");
 		while (!existsSync(${JSON.stringify(path.join(dir, "release"))})) await new Promise(done => setTimeout(done, 10));
 		return "gated";
 	},
@@ -57,42 +62,52 @@ input.on("line", line => {
 	return script;
 }
 
-async function helperOnWorker(requestTimeoutMs: number, options: Omit<StockHelperOptions, "spawnWorker"> = {}) {
+async function helperOnWorker(requestTimeoutMs: number, options: Omit<StockHelperOptions, "launch"> = {}) {
 	const script = await workerScript();
-	const children: ChildProcessWithoutNullStreams[] = [];
+	const pids = path.join(dir, `pids-${helpers.length}`);
+	// What stands for omp's package.json: its time and size are what identifies the installed omp.
+	const stampFile = path.join(dir, "omp-package.json");
+	let installs = 0;
+	const install = (version: string) => fs.writeFile(stampFile, version + " ".repeat(++installs));
+	await install("18.18.9");
 	const helper = new StockHelper(dir, {
 		requestTimeoutMs,
 		...options,
-		spawnWorker: async () => {
-			const child = spawn("bun", [script], { stdio: ["pipe", "pipe", "pipe"] });
-			children.push(child);
-			return child;
-		},
+		launch: async () => ({ bin: "bun", args: [script], env: { ...process.env, WORKER_PIDS: pids }, stampFile }),
 	});
 	helpers.push(helper);
 	// Started before a test's timed part: a request's timeout runs through its worker's start, and a cold
 	// `bun` on a busy machine takes longer than the 100-250 ms these tests time out on.
 	await helper.request("fast", {}, { timeoutMs: 30_000 });
-	return { helper, children };
+	/** The pid of every worker process started for this helper so far. */
+	const workers = () => readFileSync(pids, "utf8").trim().split("\n").map(Number);
+	return { helper, workers, install };
 }
 
-const gone = (child: ChildProcessWithoutNullStreams | undefined) =>
-	child !== undefined && (child.exitCode !== null || child.signalCode !== null);
+function gone(pid: number | undefined): boolean {
+	if (pid === undefined) return false;
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch {
+		return true;
+	}
+}
 
 describe("StockHelper request timeout", () => {
 	it("fails only the slow request and keeps a worker whose late answer comes within the grace", async () => {
-		const { helper, children } = await helperOnWorker(200, { recycleGraceMs: 30_000 });
+		const { helper, workers } = await helperOnWorker(200, { recycleGraceMs: 30_000 });
 		await expect(helper.request("gated", {})).rejects.toThrow("timed out");
-		expect(children).toHaveLength(1);
-		expect(children[0]?.exitCode).toBeNull();
+		expect(workers()).toHaveLength(1);
+		expect(gone(workers()[0])).toBe(false);
 		// The gated request keeps running in the worker; the next one queues behind it.
 		await fs.writeFile(path.join(dir, "release"), "");
 		await expect(helper.request("fast", {}, { timeoutMs: 30_000 })).resolves.toBe("ok");
-		expect(children).toHaveLength(1);
+		expect(workers()).toHaveLength(1);
 	});
 
 	it("never runs a queued mutation whose caller already timed out, and its acknowledged withdrawal keeps the worker", async () => {
-		const { helper, children } = await helperOnWorker(250, { recycleGraceMs: 2000 });
+		const { helper, workers } = await helperOnWorker(250, { recycleGraceMs: 2000 });
 		const gated = helper.request("gated", {});
 		const gatedTimedOut = expect(gated).rejects.toThrow("timed out");
 		const mutate = helper.request("mutate", "late");
@@ -115,43 +130,44 @@ describe("StockHelper request timeout", () => {
 		// Past both graces: the skipped mutation was acknowledged, so nothing counts as hung. A real wait: the
 		// grace is the helper's own timer on a real worker process, which fake timers cannot drive.
 		await sleep(2100);
-		expect(children).toHaveLength(1);
-		expect(gone(children[0])).toBe(false);
+		expect(workers()).toHaveLength(1);
+		expect(gone(workers()[0])).toBe(false);
 	});
 
 	it("recycles the stock worker when a request hangs past its timeout plus the grace, and starts afresh lazily", async () => {
-		const { helper, children } = await helperOnWorker(150, { recycleGraceMs: 150 });
+		const { helper, workers } = await helperOnWorker(150, { recycleGraceMs: 150 });
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			await expect(helper.request("hang", {})).rejects.toThrow("timed out");
 			// Queued behind the hung request: fails with the restart instead of waiting out its own timeout.
 			const queued = helper.request("fast", {});
 			await expect(queued).rejects.toThrow(/timed out|restarted/);
-			await vi.waitFor(() => expect(gone(children[0])).toBe(true));
-			expect(warn).toHaveBeenCalledWith(expect.stringContaining("hung"));
+			await vi.waitFor(() => expect(gone(workers()[0])).toBe(true));
+			// The core says so on its stderr, which main logs as it arrives.
+			await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(expect.stringContaining("hung")));
 			// A fresh worker starts here, and a request's timeout runs through its start: a cold `bun` on a
 			// Windows runner takes longer than the 150 ms this helper's hang detection runs on.
 			await expect(helper.request("fast", {}, { timeoutMs: 10_000 })).resolves.toBe("ok");
-			expect(children).toHaveLength(2);
+			expect(workers()).toHaveLength(2);
 		} finally {
 			warn.mockRestore();
 		}
 	});
 
 	it("never recycles the terminals worker: its PTYs outlive a timed-out request", async () => {
-		const { helper, children } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "terminals" });
+		const { helper, workers } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "terminals" });
 		await expect(helper.request("hang", {})).rejects.toThrow("timed out");
 		await sleep(250);
-		expect(gone(children[0])).toBe(false);
-		expect(children).toHaveLength(1);
+		expect(gone(workers()[0])).toBe(false);
+		expect(workers()).toHaveLength(1);
 	});
 
 	it("never recycles the extensions worker: a plugin upgrade may run past any request timeout", async () => {
-		const { helper, children } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "extensions" });
+		const { helper, workers } = await helperOnWorker(100, { recycleGraceMs: 100, worker: "extensions" });
 		await expect(helper.request("hang", {})).rejects.toThrow("timed out");
 		await sleep(250);
-		expect(gone(children[0])).toBe(false);
-		expect(children).toHaveLength(1);
+		expect(gone(workers()[0])).toBe(false);
+		expect(workers()).toHaveLength(1);
 	});
 
 	it("lets one request carry its own timeout, longer or shorter than the helper's default", async () => {
@@ -165,7 +181,7 @@ describe("StockHelper request timeout", () => {
 	it("times a request out even while its worker never finishes starting", async () => {
 		const helper = new StockHelper(dir, {
 			requestTimeoutMs: 100,
-			spawnWorker: () => new Promise<never>(() => {}),
+			launch: () => new Promise<never>(() => {}),
 		});
 		helpers.push(helper);
 		await expect(helper.request("fast", {})).rejects.toThrow("timed out");
@@ -182,73 +198,106 @@ describe("StockHelper request timeout", () => {
 	});
 
 	it("ends an idle worker once every request it was sent is answered, and starts a fresh one on the next", async () => {
-		const { helper, children } = await helperOnWorker(5000, { worker: "extensions", idleExitMs: 150 });
-		await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
+		const { helper, workers } = await helperOnWorker(5000, { worker: "extensions", idleExitMs: 150 });
+		await vi.waitFor(() => expect(gone(workers()[0])).toBe(true), { timeout: 10_000 });
 		await expect(helper.request("fast", {}, { timeoutMs: 30_000 })).resolves.toBe("ok");
-		expect(children).toHaveLength(2);
+		expect(workers()).toHaveLength(2);
 	});
 
 	it("keeps an idle-exit worker up while a request it was sent still runs, even one whose caller timed out", async () => {
-		const { helper, children } = await helperOnWorker(100, { worker: "extensions", idleExitMs: 150 });
+		const { helper, workers } = await helperOnWorker(100, { worker: "extensions", idleExitMs: 150 });
 		await expect(helper.request("gated", {})).rejects.toThrow("timed out");
 		// A plugin upgrade past its timeout: the worker is still at it, so it stays.
 		await sleep(500);
-		expect(gone(children[0])).toBe(false);
+		expect(gone(workers()[0])).toBe(false);
 		// Its late answer leaves the lane empty: now it ends.
 		await fs.writeFile(path.join(dir, "release"), "");
-		await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
-		expect(children).toHaveLength(1);
+		await vi.waitFor(() => expect(gone(workers()[0])).toBe(true), { timeout: 10_000 });
+		expect(workers()).toHaveLength(1);
 	});
 
 	it("starts a fresh stock worker once the installed omp changed under an idle one, and keeps it while it is busy", async () => {
-		let installed = "18.18.9";
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			const { helper, children } = await helperOnWorker(30_000, { ompStamp: () => installed });
+			const { helper, workers, install } = await helperOnWorker(30_000);
 			// omp was reinstalled under the running worker: its module registry holds the old files, and a module it
 			// imports later comes from the new ones (12 Nov 2026: "Export named … not found" on every worktree create).
-			installed = "18.19.0";
+			await install("18.19.0");
 			await expect(helper.request("fast", {})).resolves.toBe("ok");
-			expect(children).toHaveLength(2);
-			await vi.waitFor(() => expect(gone(children[0])).toBe(true), { timeout: 10_000 });
+			expect(workers()).toHaveLength(2);
+			await vi.waitFor(() => expect(gone(workers()[0])).toBe(true), { timeout: 10_000 });
 			// Unchanged: the same worker answers.
 			await expect(helper.request("fast", {})).resolves.toBe("ok");
-			expect(children).toHaveLength(2);
+			expect(workers()).toHaveLength(2);
 			// A change while a request still runs on the worker waits for it: nothing in flight is cut.
 			const gated = helper.request("gated", {});
-			await vi.waitFor(() => expect(children).toHaveLength(2));
-			installed = "18.19.1";
+			// The core reads the stamp when the request reaches it: the change comes once the worker runs the request.
+			await vi.waitFor(() => expect(readFileSync(path.join(dir, "gated-started"), "utf8")).toBe("gated\n"));
+			expect(workers()).toHaveLength(2);
+			await install("18.19.1");
 			const queued = helper.request("fast", {});
 			await fs.writeFile(path.join(dir, "release"), "");
 			await expect(gated).resolves.toBe("gated");
 			await expect(queued).resolves.toBe("ok");
-			expect(children).toHaveLength(2);
+			expect(workers()).toHaveLength(2);
 			await expect(helper.request("fast", {})).resolves.toBe("ok");
-			expect(children).toHaveLength(3);
+			expect(workers()).toHaveLength(3);
 		} finally {
 			warn.mockRestore();
 		}
 	});
 
 	it("never retires the terminals worker for a changed omp: its live shells would go with it", async () => {
-		let installed = "18.18.9";
-		const { helper, children } = await helperOnWorker(30_000, { worker: "terminals", ompStamp: () => installed });
-		installed = "18.19.0";
+		const { helper, workers, install } = await helperOnWorker(30_000, { worker: "terminals" });
+		await install("18.19.0");
 		await expect(helper.request("fast", {})).resolves.toBe("ok");
-		expect(children).toHaveLength(1);
+		expect(workers()).toHaveLength(1);
+	});
+
+	it("ends its workers with the core, however the core ends", async () => {
+		const { helper, workers } = await helperOnWorker(30_000, { worker: "terminals" });
+		const hung = helper.request("hang", {});
+		const failed = expect(hung).rejects.toThrow("ompdesk-core exited");
+		// A crash of the app's core: nothing closes the worker's stdin in an orderly way and no stop is sent.
+		process.kill(core().pid as number, "SIGKILL");
+		await failed;
+		await vi.waitFor(() => expect(gone(workers()[0])).toBe(true), { timeout: 10_000 });
+		// The next request starts a core and a worker again.
+		const next = await helperOnWorker(30_000, { worker: "terminals" });
+		expect(gone(next.workers()[0])).toBe(false);
 	});
 });
 
 describe("helperWorker", () => {
-	it("sends terminals and PTYs to their own worker, extension calls to the extensions lane, everything else to the stock lane", () => {
-		expect(helperWorker("terminal.request")).toBe("terminals");
-		expect(helperWorker("terminal.dispose")).toBe("terminals");
-		expect(helperWorker("pty.request")).toBe("terminals");
-		expect(helperWorker("extensions.inventory")).toBe("extensions");
-		expect(helperWorker("extensions.plugin.upgrade")).toBe("extensions");
-		expect(helperWorker("sessions.list")).toBe("stock");
-		expect(helperWorker("models.validate")).toBe("stock");
-		expect(helperWorker("accounts.providers")).toBe("stock");
+	it("sends terminals and PTYs to their own worker, extension calls to the extensions lane, everything else to the stock lane", async () => {
+		const routed = [
+			["terminal.request", "terminals"],
+			["terminal.dispose", "terminals"],
+			["pty.request", "terminals"],
+			["extensions.inventory", "extensions"],
+			["extensions.plugin.upgrade", "extensions"],
+			["sessions.list", "stock"],
+			["models.validate", "stock"],
+			["accounts.providers", "stock"],
+		] as const;
+		// A worker that answers every method with the worker it was started as.
+		const script = path.join(dir, "which-worker.ts");
+		const dispatch = path.resolve("resources/gui-bridge/stock-helper/dispatch.ts");
+		await fs.writeFile(
+			script,
+			`import { createInterface } from "node:readline";
+import { createDispatcher } from ${JSON.stringify(dispatch)};
+const methods = Object.fromEntries(${JSON.stringify(routed.map(([method]) => method))}.map(method => [method, () => process.argv[2]]));
+const input = createInterface({ input: process.stdin });
+input.on("close", () => process.exit(0));
+input.on("line", createDispatcher(methods, line => process.stdout.write(line + "\\n"), true));
+`,
+		);
+		const helper = new StockHelper(dir, {
+			launch: async worker => ({ bin: "bun", args: [script, worker], env: process.env }),
+		});
+		helpers.push(helper);
+		for (const [method, worker] of routed) expect(await helper.request(method, {})).toBe(worker);
 	});
 });
 

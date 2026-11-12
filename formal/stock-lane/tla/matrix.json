@@ -1,0 +1,56 @@
+{
+	"runs": [
+		{
+			"name": "stock-lane-all-invariants",
+			"config": "MC.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "terminals-lane-all-invariants",
+			"config": "MC_terminals.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "extensions-lane-all-invariants",
+			"config": "MC_extensions.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "stock-lane-three-requests",
+			"config": "MC_three_requests.cfg",
+			"expect": "pass",
+			"deadlock": false
+		},
+		{
+			"name": "a-recycle-is-reachable",
+			"config": "MC_sanity_NeverRecycles.cfg",
+			"expect": "invariant",
+			"property": "NeverRecycles",
+			"deadlock": false
+		},
+		{
+			"name": "a-retire-is-reachable",
+			"config": "MC_sanity_NeverRetires.cfg",
+			"expect": "invariant",
+			"property": "NeverRetires",
+			"deadlock": false
+		},
+		{
+			"name": "an-idle-exit-is-reachable",
+			"config": "MC_sanity_NeverIdleExits.cfg",
+			"expect": "invariant",
+			"property": "NeverIdleExits",
+			"deadlock": false
+		},
+		{
+			"name": "a-late-answer-is-reachable",
+			"config": "MC_sanity_NeverAnswersLate.cfg",
+			"expect": "invariant",
+			"property": "NeverAnswersLate",
+			"deadlock": false
+		}
+	]
+}

@@ -1,0 +1,134 @@
+{
+	"checker": {
+		"kind": "tlc",
+		"config": "MC.cfg",
+		"workers": 4,
+		"timeoutSec": 900,
+		"deadlock": false
+	},
+	"properties": [
+		"TypeOK",
+		"NothingInFlightIsCut",
+		"TerminalsWorkerIsNeverEnded",
+		"OnlyTheStockWorkerIsRecycled",
+		"OnlyAStuckWorkerIsRecycled",
+		"NoRequestStranded",
+		"NoWorkerIsForgotten",
+		"AStartAskedBeforeAStopStartsNothing"
+	],
+	"waive": {
+		"TypeOK": "Shape check only: no behaviour change breaks it without also breaking a property above it."
+	},
+	"mutations": [
+		{
+			"name": "retires-a-worker-with-a-request-in-flight",
+			"why": "outlived_its_omp without the unanswered check: a worker still running a session move is let go because omp's package.json changed, and the next request starts a second worker beside it.",
+			"file": "StockLane.tla",
+			"search": "Outlived == running # None /\\ Retires /\\ changed /\\ unanswered = {} /\\ pending = {}",
+			"replace": "Outlived == running # None /\\ Retires /\\ changed /\\ pending = {}",
+			"breaks": "NothingInFlightIsCut",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "retires-the-terminals-worker",
+			"why": "outlived_its_omp without the terminals check: every live shell goes when omp is updated in a terminal.",
+			"file": "StockLane.tla",
+			"search": "Retires == Kind # \"terminals\"",
+			"replace": "Retires == TRUE",
+			"breaks": "TerminalsWorkerIsNeverEnded",
+			"config": "MC_terminals.cfg",
+			"isolate": true
+		},
+		{
+			"name": "recycles-any-worker-that-hung",
+			"why": "gave_up arms the grace for every kind: a plugin upgrade past its timeout, or a slow terminal request, gets its worker killed.",
+			"file": "StockLane.tla",
+			"search": "Recycles == Kind = \"stock\"",
+			"replace": "Recycles == TRUE",
+			"breaks": "OnlyTheStockWorkerIsRecycled",
+			"config": "MC_extensions.cfg",
+			"isolate": true
+		},
+		{
+			"name": "a-late-grace-ends-whatever-runs",
+			"why": "overdue without its checks (the worker the grace was armed for, still silent on that request): the grace of a request sent to a worker that already exited kills the fresh worker that replaced it.",
+			"file": "StockLane.tla",
+			"search": "    /\\ IF g = running /\\ r \\in overdue\n         THEN /\\ recycledFor' = recycledFor \\cup {<<running, r>>}",
+			"replace": "    /\\ IF running # None\n         THEN /\\ recycledFor' = recycledFor \\cup {<<running, r>>}",
+			"breaks": "OnlyAStuckWorkerIsRecycled",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "an-answered-request-stays-overdue",
+			"why": "line does not clear the overdue mark: a worker whose late answer or withdrawal came within the grace is still killed when the grace passes.",
+			"file": "StockLane.tla",
+			"search": "              /\\ overdue' = overdue \\ {r}\n              /\\ unanswered' = unanswered \\ {r}",
+			"replace": "              /\\ overdue' = overdue\n              /\\ unanswered' = unanswered \\ {r}",
+			"breaks": "OnlyAStuckWorkerIsRecycled",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "idle-exit-with-a-request-in-flight",
+			"why": "idle without the unanswered check: the extensions worker is let go in the middle of a plugin upgrade whose caller timed out.",
+			"file": "StockLane.tla",
+			"search": "    /\\ IF g = running /\\ unanswered = {}\n         THEN LetGo(\"idle\")",
+			"replace": "    /\\ IF g = running\n         THEN LetGo(\"idle\")",
+			"breaks": "NothingInFlightIsCut",
+			"config": "MC_extensions.cfg",
+			"isolate": true
+		},
+		{
+			"name": "a-start-asked-before-a-stop-starts-a-worker",
+			"why": "launched without the check of which start it answers: a stop (an omp update) is followed by a worker started from the answer to the start asked before it, on the files being replaced.",
+			"file": "StockLane.tla",
+			"search": "    /\\ IF launching # l\n         THEN UNCHANGED <<caller, pending, sent, waiting, launching, running, made, life, unanswered, idles, changed,",
+			"replace": "    /\\ IF launching = None\n         THEN UNCHANGED <<caller, pending, sent, waiting, launching, running, made, life, unanswered, idles, changed,",
+			"breaks": "AStartAskedBeforeAStopStartsNothing",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "a-stop-keeps-the-start-it-asked-for",
+			"why": "stop does not forget the start in flight: its answer starts a worker after the stop answered.",
+			"file": "StockLane.tla",
+			"search": "    /\\ Fail\n    /\\ launching' = None\n    /\\ stopAt' = launches",
+			"replace": "    /\\ Fail\n    /\\ launching' = launching\n    /\\ stopAt' = launches",
+			"breaks": "AStartAskedBeforeAStopStartsNothing",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "an-exit-fails-nothing",
+			"why": "exited forgets the worker without failing what waited on it: those requests sit until their own timeouts with nothing to answer them.",
+			"file": "StockLane.tla",
+			"search": "              /\\ overdue' = {}\n              /\\ Fail\n         ELSE UNCHANGED <<caller, pending, waiting, running, unanswered, overdue>>",
+			"replace": "              /\\ overdue' = {}\n              /\\ UNCHANGED <<caller, pending, waiting>>\n         ELSE UNCHANGED <<caller, pending, waiting, running, unanswered, overdue>>",
+			"breaks": "NoRequestStranded",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "a-failed-start-leaves-its-waiters",
+			"why": "launched does not fail the waiting requests when main says no worker can start: they wait out their timeouts and the next request finds a queue nobody serves.",
+			"file": "StockLane.tla",
+			"search": "                   ELSE /\\ Fail\n                        /\\ UNCHANGED <<sent, running, made, life, unanswered, idles, changed, staleStart>>",
+			"replace": "                   ELSE /\\ UNCHANGED <<caller, pending, waiting>>\n                        /\\ UNCHANGED <<sent, running, made, life, unanswered, idles, changed, staleStart>>",
+			"breaks": "NoRequestStranded",
+			"config": "MC.cfg",
+			"isolate": true
+		},
+		{
+			"name": "a-second-worker-beside-the-first",
+			"why": "request asks for a start although a worker runs: its answer replaces the lane's worker, and the first one stays up with nothing left to end it.",
+			"file": "StockLane.tla",
+			"search": "         ELSE IF running # None\n         THEN /\\ sent' = [sent EXCEPT ![r] = running]",
+			"replace": "         ELSE IF running # None /\\ launching # None\n         THEN /\\ sent' = [sent EXCEPT ![r] = running]",
+			"breaks": "NoWorkerIsForgotten",
+			"config": "MC.cfg",
+			"isolate": true
+		}
+	]
+}
