@@ -1,46 +1,65 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseMacSysctl, parsePs, treeBytes, windowsReading } from "./memory-sampler";
+import { listProcesses, type ProcessRow, readMemory, treeBytes } from "./memory-sampler";
+import { DIES_WITH_TEST } from "./test-fake-omp";
 
-const GiB = 1024 ** 3;
+// parseMacSysctl, windowsReading and parsePs moved to the core process with their cases
+// (native/ompdesk/crates/core/src/memory/mod.rs); the cases below read this computer through it.
 
-describe("parseMacSysctl", () => {
-	it("reads the kernel's pressure level and free percentage of RAM", () => {
-		expect(parseMacSysctl("1\n80\n17179869184\n")).toEqual({
-			totalBytes: 16 * GiB,
-			availableBytes: Math.round(16 * GiB * 0.8),
-			pressure: "normal",
-		});
-		expect(parseMacSysctl("2\n14\n17179869184\n")?.pressure).toBe("warn");
-		expect(parseMacSysctl("4\n3\n17179869184\n")?.pressure).toBe("critical");
+describe("the core's reading of this computer", () => {
+	it("reports the RAM the OS reports, and no more available than there is", async () => {
+		const reading = await readMemory();
+		// Windows and Linux count whole KB; macOS' hw.memsize is a multiple of one.
+		expect(reading?.totalBytes).toBe(Math.floor(os.totalmem() / 1024) * 1024);
+		expect(reading?.availableBytes).toBeGreaterThanOrEqual(0);
+		expect(["normal", "warn", "critical"]).toContain(reading?.pressure);
+		// Windows: the available physical memory node reads too, a moment apart.
+		if (process.platform === "win32")
+			expect(Math.abs((reading?.availableBytes ?? 0) - os.freemem())).toBeLessThan(os.totalmem() / 4);
 	});
 
-	it("is no reading when the values are missing", () => {
-		expect(parseMacSysctl("")).toBeNull();
-		expect(parseMacSysctl("1\nabc\n0")).toBeNull();
-	});
-});
-
-describe("windowsReading", () => {
-	it("is a warning under a tenth of RAM available and critical under a twentieth", () => {
-		const total = 16 * 1024 * 1024;
-		expect(windowsReading(total, total * 0.5)?.pressure).toBe("normal");
-		expect(windowsReading(total, total * 0.08)?.pressure).toBe("warn");
-		expect(windowsReading(total, total * 0.04)?.pressure).toBe("critical");
-		expect(windowsReading(0, 0)).toBeNull();
+	it("lists this process under its parent, and a child it starts under it", async () => {
+		// The child says when node is up in it: a process a moment old holds almost no memory yet.
+		const child = spawn(
+			process.execPath,
+			["-e", `${DIES_WITH_TEST} process.stdout.write("up"); setInterval(() => {}, 1e9)`],
+			{ stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+		);
+		try {
+			await once(child.stdout, "data");
+			const rows = (await listProcesses()) ?? [];
+			const own = rows.find(row => row.pid === process.pid);
+			const started = rows.find(row => row.pid === child.pid);
+			expect(own?.ppid).toBe(process.ppid);
+			expect(started?.ppid).toBe(process.pid);
+			// Resident bytes of a process that holds vitest: tens of MB, within a factor of what node reports for itself.
+			const rss = process.memoryUsage().rss;
+			expect(own?.bytes).toBeGreaterThan(rss / 4);
+			expect(own?.bytes).toBeLessThan(rss * 4);
+			expect(started?.bytes).toBeGreaterThan(1024 ** 2);
+			expect(treeBytes(rows, process.pid)).toBeGreaterThanOrEqual((own?.bytes ?? 0) + (started?.bytes ?? 0));
+			// Windows names each image (idle release tells conhost.exe from work by it); ps names none.
+			expect(own?.name?.toLowerCase()).toBe(
+				process.platform === "win32" ? path.basename(process.execPath).toLowerCase() : undefined,
+			);
+		} finally {
+			child.kill();
+		}
 	});
 });
 
 describe("process trees", () => {
-	const rows = parsePs(
-		[
-			"    1     0  1000",
-			"  100     1  2000",
-			"  101   100  3000",
-			"  102   101  4000",
-			"  200     1  9000",
-			"garbage",
-		].join("\n"),
-	);
+	const KB = 1024;
+	const rows: ProcessRow[] = [
+		{ pid: 1, ppid: 0, bytes: 1000 * KB },
+		{ pid: 100, ppid: 1, bytes: 2000 * KB },
+		{ pid: 101, ppid: 100, bytes: 3000 * KB },
+		{ pid: 102, ppid: 101, bytes: 4000 * KB },
+		{ pid: 200, ppid: 1, bytes: 9000 * KB },
+	];
 
 	it("sums a session's omp and everything below it", () => {
 		expect(treeBytes(rows, 100)).toBe((2000 + 3000 + 4000) * 1024);

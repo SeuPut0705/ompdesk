@@ -158,7 +158,7 @@ import { MailAccounts, plainImapConnect } from "./mail-accounts";
 import { McpHub } from "./mcp-hub";
 import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
-import { type ProcessRow, testMemoryReading } from "./memory-sampler";
+import { testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
 import { deleteModelsProvider, insertModelsProvider, listModelsProviders } from "./models-config";
@@ -1142,11 +1142,6 @@ app.whenReady().then(() => {
 	startMemoryWatch({
 		tabs: () => [...sidecarPool.memoryTabs(), ...hostServices.memoryTabs()],
 		log: (message, details) => writeRuntimeLog({ source: "memory", message, details }),
-		sampler: {
-			platform: process.platform,
-			systemMemory: () => process.getSystemMemoryInfo(),
-			windowsProcesses: () => stockHelperRequest<ProcessRow[]>("processes.memory", undefined, { timeoutMs: 4_000 }),
-		},
 		...(testMemory ? { testReading: () => testMemoryReading(testMemory) } : {}),
 		...(ampleTestMemory
 			? {

@@ -5,6 +5,7 @@
 pub mod fs;
 pub mod gh;
 pub mod git;
+pub mod memory;
 mod run;
 pub mod server;
 mod sys;

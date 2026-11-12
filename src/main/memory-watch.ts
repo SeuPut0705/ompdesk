@@ -1,9 +1,10 @@
 /**
  * Main's wiring of idle release (idle-release.ts): one reading every `SAMPLE_MS` (the OS's level and each session's
- * process tree, memory-sampler.ts), and the release of a quiet tab's omp while memory is short.
+ * process tree, read by the core process through memory-sampler.ts), and the release of a quiet tab's omp while
+ * memory is short.
  */
 import { IdleRelease } from "./idle-release";
-import { listProcesses, type MemoryReading, readMemory, type SamplerDeps, treeBytes } from "./memory-sampler";
+import { listProcesses, type MemoryReading, readMemory, treeBytes } from "./memory-sampler";
 
 /** How often memory is read. */
 export const SAMPLE_MS = 5_000;
@@ -20,7 +21,6 @@ export interface MemoryWatchDeps {
 	/** This computer's own tabs and the ones it runs for paired devices, with their omp's pid. */
 	tabs(): MemoryTab[];
 	log(message: string, details: Record<string, unknown>): void;
-	sampler: SamplerDeps;
 	/** A fixed reading for tests (`OMP_GUI_TEST_MEMORY`, a JSON file read each sample); undefined reads the OS. */
 	testReading?: () => MemoryReading | null;
 	sampleMs?: number;
@@ -38,14 +38,14 @@ function gb(bytes: number): number {
 /** Start reading memory; a quiet tab is released while it is short. */
 export function startMemoryWatch(deps: MemoryWatchDeps): void {
 	let sampling = false;
-	const idle = new IdleRelease(deps.releaseQuietMs, deps.sampler.platform);
+	const idle = new IdleRelease(deps.releaseQuietMs);
 	const sample = async (): Promise<void> => {
 		if (sampling) return;
 		sampling = true;
 		try {
 			const [reading, rows] = await Promise.all([
-				deps.testReading ? Promise.resolve(deps.testReading()) : readMemory(deps.sampler),
-				listProcesses(deps.sampler),
+				deps.testReading ? Promise.resolve(deps.testReading()) : readMemory(),
+				listProcesses(),
 			]);
 			const release = deps.release;
 			if (rows && release) {

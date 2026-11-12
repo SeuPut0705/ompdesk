@@ -28,8 +28,7 @@ const EXTENSIONS_IDLE_EXIT_MS = 60_000;
  * shares the stock worker's serial lane. */
 export type HelperWorker = "stock" | "terminals" | "extensions";
 export function helperWorker(method: string): HelperWorker {
-	if (method.startsWith("terminal.") || method.startsWith("pty.") || method.startsWith("processes."))
-		return "terminals";
+	if (method.startsWith("terminal.") || method.startsWith("pty.")) return "terminals";
 	if (method.startsWith("extensions.")) return "extensions";
 	return "stock";
 }
