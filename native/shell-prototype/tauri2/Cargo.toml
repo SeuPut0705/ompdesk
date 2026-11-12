@@ -1,0 +1,26 @@
+[package]
+name = "shell-tauri2"
+version = "0.0.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[workspace]
+
+[dependencies]
+tauri = { version = "2.12", features = ["unstable", "tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+serde_json = "1"
+shell-migrate = { path = "../migrate" }
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_UI_Shell", "Win32_System_Com"] }
+tungstenite = "0.27"
+base64 = "0.22"
+jpeg-decoder = "0.3"
+
+[build-dependencies]
+tauri-build = "2"
+
+[profile.release]
+opt-level = 2
+debug = false

@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>preview-test</title>
+<style>html,body{margin:0;height:100%;background:#d33;transition:none}
+#target{position:fixed;left:40px;top:60px;width:200px;height:120px;font:16px sans-serif;cursor:pointer}</style></head>
+<body><button id="target">click me</button>
+<script>
+window.__clicks=0;
+document.getElementById('target').addEventListener('click',()=>{
+  window.__clicks=(window.__clicks||0)+1;
+  document.body.style.background=document.body.style.background==='rgb(51, 170, 51)'?'#d33':'#3a3';
+  document.documentElement.style.background=document.body.style.background;
+});
+</script></body></html>

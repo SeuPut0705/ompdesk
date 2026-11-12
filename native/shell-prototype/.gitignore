@@ -1,0 +1,8 @@
+target/
+dist/
+results/
+*.log.jsonl
+/shell-assets/stand-in.js
+/shell-assets/video.webm
+/cef/cef-bin/
+/tauri2/gen/

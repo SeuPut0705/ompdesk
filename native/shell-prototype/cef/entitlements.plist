@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements for a CEF app. Source (UNVERIFIED, recalled, not re-read on a Mac): CEF's
+     tests/cefclient/resources/mac/{cefclient,helper}.entitlements and Chromium's chrome/app/{app,helper-renderer}.entitlements:
+     V8 needs JIT + unsigned executable memory (renderer helper), and the app loads the CEF framework / third-party dylibs
+     that are signed with a different identity (ad-hoc here), hence disable-library-validation. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,20 @@
+[package]
+name = "shell-cef"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+cef = { version = "156.4.0", default-features = false, features = ["build-util"] }
+serde_json = "1"
+base64 = "0.22"
+tray-icon = "0.21"
+shell-migrate = { path = "../../migrate" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSResponder", "NSUserInterfaceValidation", "NSView", "NSWindow"] }
+objc2-foundation = "0.3.2"
