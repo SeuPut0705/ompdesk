@@ -4,6 +4,7 @@
 
 pub mod control;
 pub mod disk;
+pub mod ext;
 pub mod fs;
 pub mod gh;
 pub mod git;

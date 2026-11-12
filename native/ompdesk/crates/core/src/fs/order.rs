@@ -18,16 +18,27 @@ pub struct NameOrder {
 
 impl NameOrder {
     pub fn new(locale: &str) -> NameOrder {
+        Self::with(locale, true)
+    }
+
+    /// `a.localeCompare(b)` under `locale`: the same collation, digits compared one by one (`item10` before `item2`).
+    pub fn text(locale: &str) -> NameOrder {
+        Self::with(locale, false)
+    }
+
+    fn with(locale: &str, numeric: bool) -> NameOrder {
         let locale = Locale::try_from_str(locale).unwrap_or(Locale::UNKNOWN);
-        let collator = Self::collator(&locale)
-            .or_else(|| Self::collator(&Locale::UNKNOWN))
+        let collator = Self::collator(&locale, numeric)
+            .or_else(|| Self::collator(&Locale::UNKNOWN, numeric))
             .unwrap_or_else(|| unreachable!("the root collation is compiled in"));
         NameOrder { collator, locale }
     }
 
-    fn collator(locale: &Locale) -> Option<CollatorBorrowed<'static>> {
+    fn collator(locale: &Locale, numeric: bool) -> Option<CollatorBorrowed<'static>> {
         let mut prefs = CollatorPreferences::from(locale);
-        prefs.numeric_ordering = Some(CollationNumericOrdering::True);
+        if numeric {
+            prefs.numeric_ordering = Some(CollationNumericOrdering::True);
+        }
         Collator::try_new(prefs, CollatorOptions::default()).ok()
     }
 
