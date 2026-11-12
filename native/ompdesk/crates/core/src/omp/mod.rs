@@ -954,17 +954,33 @@ mod tests {
         assert_eq!(read(Path::new(&file)), "{\"omps\":[]}\n");
     }
 
-    /// A shell that loops, with `argument` in its command line; `deaf` ignores SIGTERM.
+    /// A shell that loops, with `argument` in its command line; `deaf` ignores SIGTERM. Started at once, it returns
+    /// only after the shell runs its script (it prints `ready` once SIGTERM is ignored): until then the pid may still
+    /// exec another image (macOS's `/bin/sh` execs the shell `/private/var/select/sh` names), and a command line read
+    /// meanwhile is not the leftover's, nor does a SIGTERM then find it deaf.
     #[cfg(unix)]
-    fn looping(argument: &str, deaf: bool) -> Command {
+    fn looping(started: &mut Started, argument: &str, deaf: bool) -> u32 {
+        use std::io::BufRead;
         let mut command = Command::new("sh");
         let script = if deaf {
-            "trap '' TERM; while :; do sleep 1; done"
+            "trap '' TERM; echo ready; while :; do sleep 1; done"
         } else {
-            "while :; do sleep 1; done"
+            "echo ready; while :; do sleep 1; done"
         };
-        command.args(["-c", script, "sh", argument]);
         command
+            .args(["-c", script, "sh", argument])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = command.spawn().unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let pid = child.id();
+        started.0.push(child);
+        assert_eq!(line, "ready\n", "{pid} never ran its script");
+        pid
     }
 
     /// Waits for children as the app that spawned them would, so one that ended leaves no zombie holding its pid.
@@ -993,9 +1009,9 @@ mod tests {
         let bridge = temp.0.join("gui-bridge").to_string_lossy().into_owned();
         let index = format!("{bridge}/index.ts");
         let mut started = Started::default();
-        let polite = started.spawn(looping(&index, false));
-        let deaf = started.spawn(looping(&index, true));
-        let stranger = started.spawn(looping("/elsewhere/index.ts", false));
+        let polite = looping(&mut started, &index, false);
+        let deaf = looping(&mut started, &index, true);
+        let stranger = looping(&mut started, "/elsewhere/index.ts", false);
         let entry = |pid| Entry { pid, started: None };
         std::fs::write(
             &file,
