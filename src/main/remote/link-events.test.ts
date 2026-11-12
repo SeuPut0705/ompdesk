@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentProgress, AgentSessionEvent, MessageContent, SubagentFrame } from "../../shared/rpc-types";
 import { BATCH_INTERVAL_MS } from "../event-batcher";
 import { createMessageUpdateSlimmer } from "../message-update-slim";
@@ -13,6 +13,12 @@ import {
 	type LinkEventDecoder,
 	type WireSubagentFrame,
 } from "./link-events";
+import { writeCaptured } from "./link-events-capture";
+
+vi.mock("./link-events", async importOriginal =>
+	(await import("./link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("link-events"));
 
 type Update = Extract<AgentSessionEvent, { type: "message_update" }>;
 

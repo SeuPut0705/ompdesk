@@ -1,7 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage, SubagentFrame } from "../shared/rpc-types";
 import { BATCH_INTERVAL_MS } from "./event-batcher";
+import { writeCaptured } from "./remote/link-events-capture";
 import { createSubagentFrameBatcher, slimSubagentFrame } from "./subagent-frames";
+
+vi.mock("./subagent-frames", async importOriginal =>
+	(await import("./remote/link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("subagent-frames"));
 
 const reply = (text: string): AgentMessage => ({
 	role: "assistant",

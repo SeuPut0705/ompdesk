@@ -1,9 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { createMessagesStore } from "../renderer/stores/messages";
 import { createToolsStore, selectToolEntry } from "../renderer/stores/tools";
 import type { AgentMessage, AgentSessionEvent, AssistantMessageEvent, MessageContent } from "../shared/rpc-types";
 import { createMessageUpdateSlimmer, slimMessageUpdate } from "./message-update-slim";
 import { createLinkEventDecoder, createLinkEventEncoder } from "./remote/link-events";
+import { writeCaptured } from "./remote/link-events-capture";
+
+vi.mock("./message-update-slim", async importOriginal =>
+	(await import("./remote/link-events-capture")).captureModule(await importOriginal<object>()),
+);
+vi.mock("./remote/link-events", async importOriginal =>
+	(await import("./remote/link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("message-update-slim"));
 
 type MessageUpdate = Extract<AgentSessionEvent, { type: "message_update" }>;
 

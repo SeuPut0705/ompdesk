@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { withoutFrameBookkeeping } from "./frame-bookkeeping";
+import { writeCaptured } from "./remote/link-events-capture";
+
+vi.mock("./frame-bookkeeping", async importOriginal =>
+	(await import("./remote/link-events-capture")).captureModule(await importOriginal<object>()),
+);
+afterAll(() => writeCaptured("frame-bookkeeping"));
 
 const reply = {
 	role: "assistant",
