@@ -2,9 +2,13 @@
  * Disk care: OMPdesk keeps the disk it fills in check by itself, losing nothing. One run, at launch (2 minutes in,
  * unless a run ended within the last 20 hours) and then daily, or when the person presses Clean up / an agent asks:
  *
- * 1. Build output and dependencies of idle worktrees: an orphaned worktree (no open tab on any device) that no one
+ * 1. Build output and dependencies of idle worktrees: a linked worktree (no open tab on any device) that no one
  *    changed for `DISK_CARE_ARTIFACT_IDLE_DAYS` and no running process works in loses every ignored entry its project
- *    makes again (the core's rule table, `crates/core/src/disk/regenerable.rs`). This is most of `~/.omp/wt`.
+ *    makes again (the core's rule table, `crates/core/src/disk/regenerable.rs`). This is most of `~/.omp/wt`, and of
+ *    the worktrees agents make with a plain `git worktree add` anywhere else: every linked worktree git lists for a
+ *    repository this computer knows (the sidebar's projects, the repositories of the `gui-` folders) is read, wherever
+ *    its folder is. The main checkout is never touched, and steps 2 and 3 remove only OMPdesk's own `gui-` worktrees:
+ *    a folder a person made by hand is never removed.
  * 2. Landed worktrees: the Work tree view's rule (`sweepLandedWorktrees`), branch kept, now with the private archive
  *    of what no tool makes again first (git's removal deletes ignored files).
  * 3. Idle worktrees with unlanded work: untouched for `DISK_CARE_REMOVE_IDLE_DAYS`, no process inside, no half-done
@@ -35,11 +39,11 @@ import type { RpcOrphanWorktree } from "../../shared/rpc-types";
 import { withRepoLock } from "../local/git/exec";
 import type { IpcRegistry } from "../web/ipc-registry";
 import {
+	linkedWorktreePaths,
 	listAllOrphans,
 	type OrphanDeps,
 	type OrphanListing,
 	orphanRepositories,
-	orphanWorktreePaths,
 	sweepLandedWorktrees,
 } from "../worktree-orphans";
 import { withRemovalClaim } from "../worktree-removals";
@@ -202,10 +206,10 @@ export class DiskCare {
 		const folders = await (this.#deps.processFolders ?? processWorkingFolders)();
 		let worktreeRoot: string | null = null;
 		await step("worktrees", async () => {
-			const { root, repos } = await orphanRepositories(this.#deps);
+			const { root, repos, known } = await orphanRepositories(this.#deps);
 			worktreeRoot = root;
 			if (!this.#deps.worktrees) return;
-			const preRead = await this.#artifacts(repos, folders, tally);
+			const preRead = await this.#artifacts(known, folders, tally);
 			// One reading of every orphan's state for both steps after the artifacts went (dropping them can leave a
 			// worktree clean): it only picks candidates, each removal reads its worktree again under its locks.
 			const listed = await listAllOrphans(this.#deps, { root, repos });
@@ -271,7 +275,7 @@ export class DiskCare {
 	}
 
 	/**
-	 * Drops idle orphans' regenerable output. Returns what it read of each worktree before any claim, for the save step's
+	 * Drops the regenerable output of idle linked worktrees of `repos`, OMPdesk's or not. Returns what it read of each worktree before any claim, for the save step's
 	 * pre-filter: the files, and the idle days when nothing was dropped (a drop writes the worktree's folder).
 	 */
 	async #artifacts(
@@ -281,7 +285,7 @@ export class DiskCare {
 	): Promise<Map<string, PreRead>> {
 		const preRead = new Map<string, PreRead>();
 		const paths: string[] = [];
-		for (const repo of repos) paths.push(...((await orphanWorktreePaths(repo, this.#deps).catch(() => null)) ?? []));
+		for (const repo of repos) paths.push(...((await linkedWorktreePaths(repo, this.#deps).catch(() => null)) ?? []));
 		for (const worktree of paths) {
 			// A worktree git cannot read (a broken checkout) is left alone, as the orphan listing leaves it out.
 			const files = await readWorktreeFiles(worktree).catch(() => null);

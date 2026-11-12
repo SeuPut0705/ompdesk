@@ -280,13 +280,13 @@ struct DiscardRemoveParams {
     tip: String,
 }
 
-/// `root`: the worktree root's real path, `open`: the real folders open sessions use, `only`: the one real path to
-/// keep (a removal re-reads just that one).
+/// `root`: the worktree root's real path (none: every linked worktree, wherever it is), `open`: the real folders open
+/// sessions use, `only`: the one real path to keep (a removal re-reads just that one).
 #[derive(Deserialize)]
 struct CandidatesParams {
     git: Runner,
     primary: String,
-    root: String,
+    root: Option<String>,
     open: Vec<String>,
     only: Option<String>,
 }

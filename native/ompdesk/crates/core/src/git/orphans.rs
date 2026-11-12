@@ -84,11 +84,12 @@ pub struct Candidates {
 
 /// OMPdesk's linked worktrees of the repository at `primary`, unread (one `git worktree list`): not locked, a real
 /// folder strictly inside `root` named `gui-…`, `only` that one when asked, and none an open folder is or is inside
-/// (those are `inUse`).
+/// (those are `inUse`). Without a `root`, every linked worktree of the repository wherever its folder is and whoever
+/// made it (disk care drops build output there and removes none); the main checkout is never one.
 pub async fn candidates(
     git: &Git,
     primary: &str,
-    root: String,
+    root: Option<String>,
     open: Vec<String>,
     only: Option<String>,
 ) -> Result<Candidates, Fault> {
@@ -102,10 +103,13 @@ pub async fn candidates(
             let Ok(real) = branches::real(&entry.path) else {
                 continue;
             };
-            let gui = Path::new(&real)
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with("gui-"));
-            if !inside(&root, &real) || !gui || only.as_ref().is_some_and(|only| *only != real) {
+            let ours = root.as_ref().is_none_or(|root| {
+                inside(root, &real)
+                    && Path::new(&real)
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().starts_with("gui-"))
+            });
+            if !ours || only.as_ref().is_some_and(|only| *only != real) {
                 continue;
             }
             if open

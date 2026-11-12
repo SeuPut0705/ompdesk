@@ -123,11 +123,18 @@ async function listing(cwd: string, deps: OrphanDeps, only?: string): Promise<Li
 }
 
 /**
- * The real paths of the OMPdesk-made linked worktrees of `cwd`'s repository that no open session uses, without reading
- * them (no state): for a caller that reads each one itself.
+ * The real paths of every linked worktree of `cwd`'s repository that no open session uses and git does not list
+ * locked, wherever its folder is and whoever made it (OMPdesk's under the worktree root, a person's or an agent's
+ * plain `git worktree add` anywhere), without reading them: for disk care's build-output step, which reads each one
+ * itself and removes none. The main checkout is never one.
  */
-export async function orphanWorktreePaths(cwd: string, deps: OrphanDeps): Promise<string[]> {
-	return (await candidatesOf(cwd, deps)).candidates.map(candidate => candidate.path);
+export async function linkedWorktreePaths(cwd: string, deps: OrphanDeps): Promise<string[]> {
+	const found = await coreGit<Pick<Candidates, "candidates">>(
+		"git.orphanCandidates",
+		{ primary: await primaryRoot(cwd), root: null, open: deps.openFolders().map(realFolder) },
+		1,
+	);
+	return found.candidates.map(candidate => candidate.path);
 }
 
 /** The OMPdesk-made linked worktrees of `cwd`'s repository that no open session uses, newest commit first. */
@@ -228,22 +235,29 @@ export interface SweepReport {
  * Stock's global worktree root (`worktree.base`) and the primary checkouts its `gui-` folders belong to, plus each
  * known project whose own `worktree.base` puts its worktrees in another folder holding `gui-` folders. A folder git
  * cannot place (a removed repository, a stray directory) holds nothing a rule may judge.
+ * `known`: every repository this computer knows, those plus each known project's, whether or not it has a `gui-`
+ * folder: where disk care looks for linked worktrees made by hand (`linkedWorktreePaths`).
  */
-export async function orphanRepositories(deps: OrphanDeps): Promise<{ root: string; repos: string[] }> {
+export async function orphanRepositories(
+	deps: OrphanDeps,
+): Promise<{ root: string; repos: string[]; known: string[] }> {
 	const { root } = await stockWorktreeLocation(deps.bridge, os.homedir());
 	const repos = new Set<string>();
 	for (const name of await guiFolders(root)) {
 		const primary = await primaryRoot(path.join(root, name)).catch(() => null);
 		if (primary) repos.add(realFolder(primary));
 	}
+	const known = new Set(repos);
 	for (const folder of deps.projects?.() ?? []) {
 		const primary = await primaryRoot(folder).catch(() => null);
-		if (!primary || repos.has(realFolder(primary))) continue;
+		if (!primary) continue;
+		known.add(realFolder(primary));
+		if (repos.has(realFolder(primary))) continue;
 		const own = await stockWorktreeLocation(deps.bridge, primary).catch(() => null);
 		if (!own || path.resolve(own.root) === path.resolve(root)) continue;
 		if ((await guiFolders(own.root)).length > 0) repos.add(realFolder(primary));
 	}
-	return { root, repos: [...repos] };
+	return { root, repos: [...repos], known: [...known] };
 }
 
 async function guiFolders(root: string): Promise<string[]> {

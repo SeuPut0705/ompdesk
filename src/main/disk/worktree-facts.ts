@@ -70,10 +70,25 @@ export function worktreeHead(worktree: string): Promise<string> {
 	return coreGit("disk.head", { worktree }, 1);
 }
 
-/** stock omp's session folder for a cwd under the home folder: `-` plus the path from home with `/` as `-`. */
-function sessionFolder(worktree: string): string {
-	const relative = path.relative(os.homedir(), worktree);
-	return path.join(agentDir(), "sessions", `-${relative.split(path.sep).join("-")}`);
+/**
+ * stock omp's session folder for a cwd (`worktree`, a real path), as `getDefaultSessionDirName` names it
+ * (pi-coding-agent `session/session-paths.ts`; main reads it without an omp): under the temp folder `-tmp-<path
+ * from it>`, else under the home folder `-<path from it>`, else `--<the whole path>--`, each with `/`, `\` and `:`
+ * as `-`. A worktree made by hand can be anywhere, so all three count. Pinned by `worktree-facts.test.ts`.
+ */
+export function sessionFolder(worktree: string): string {
+	const within = (root: string): string | null => {
+		const relative = path.relative(realFolder(root), worktree);
+		return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)) ? relative : null;
+	};
+	const dashed = (text: string): string => text.replace(/[/\\:]/g, "-");
+	const temp = within(os.tmpdir());
+	const home = within(os.homedir());
+	let name = `--${dashed(worktree.replace(/^[/\\]/, ""))}--`;
+	// The temp folder first: it is the more specific one where it sits inside the home folder (Windows).
+	if (temp !== null) name = temp === "" ? "-tmp" : `-tmp-${dashed(temp)}`;
+	else if (home !== null) name = `-${dashed(home)}`;
+	return path.join(agentDir(), "sessions", name);
 }
 
 /**
