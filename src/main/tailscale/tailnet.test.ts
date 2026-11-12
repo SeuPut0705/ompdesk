@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { isTailnetAddress, STATUS_CACHE_MS, Tailnet, WHOIS_CACHE_MAX, WHOIS_CACHE_MS } from "./tailnet";
-import { defaultTailscaleScenario, fakeTailscaleExecutor } from "./test-fake-tailscale";
+import { defaultTailscaleScenario, fakeTailscaleCli } from "./test-fake-tailscale";
 
+/** A test says "Tailscale is installed" with this; the CLI the core process runs is the fake's own. */
 const LOCATED = { path: "/fake/tailscale", variant: "mac-standalone", app: null, env: {} } as const;
 
 function rig(patch: Parameters<typeof defaultTailscaleScenario>[0] = {}) {
@@ -9,9 +10,9 @@ function rig(patch: Parameters<typeof defaultTailscaleScenario>[0] = {}) {
 	const calls: string[][] = [];
 	const clock = { now: 1_000 };
 	const located = { value: LOCATED as typeof LOCATED | null };
+	const fake = fakeTailscaleCli(scenario, calls);
 	const tailnet = new Tailnet({
-		locate: async () => located.value,
-		exec: fakeTailscaleExecutor(scenario, calls),
+		locate: async () => (located.value ? fake() : null),
 		now: () => clock.now,
 	});
 	return { tailnet, scenario, calls, clock, located };

@@ -1,155 +1,235 @@
 /**
- * Running the `tailscale` CLI. Every call is an argument array (no shell; a Windows `.cmd` stand-in goes through
- * cmd.exe the way `spawn.ts` does it) with a 10 s ceiling, through an injectable executor so the whole of Mobile
- * web's logic runs against fixtures in tests. Decisions are only ever made from `--json` output; the human text
- * on stderr is shown to the user and searched for a `login.tailscale.com` link, nothing else.
+ * The `tailscale` CLI, as main asks for it. Running it, reading what it prints and the rules of publishing with
+ * `serve` are the core process's (`native/ompdesk/crates/core/src/tailscale/`); this file is their typed client.
+ * Main decides how the CLI runs and hands that over with every request: the binary a lookup found, main's whole
+ * environment with the located CLI's own variables over it, a 10 s ceiling and a 4 MiB cap. Decisions are only ever
+ * made from `--json` output; the human text is shown to the user and searched for a `login.tailscale.com` link,
+ * nothing else.
+ *
+ * A request made in one of Mobile web's steps is held to that step: it never starts in a stopped step, a step
+ * stopped while it runs has its CLI ended by the core (asked, then killed 2 s later) with no other started, the
+ * chain's next step waits until the core is done with it, and the stopped step goes no further. A core process that
+ * cannot answer reads as a CLI that could not run: no exit code, the core's message as what it said.
  */
-import { execFile, spawn } from "node:child_process";
-import { needsShell, spawnArgs, spawnCommand } from "../spawn";
+import { spawn } from "node:child_process";
+import { CoreError, core } from "../core/process";
+import type { CoreRunner } from "../local/git/exec";
+import { currentStepSignal, throwIfStepStalled, trackEffect } from "../serial-chain";
 import type { LocatedTailscale } from "./locate";
+import type { TailscaleStatus } from "./status";
+import type { TailnetPeer } from "./whois";
 
 export const CLI_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT = 4 * 1024 * 1024;
 /** A whois answers from the daemon's own netmap: slower than this is a daemon in trouble. */
 export const WHOIS_TIMEOUT_MS = 4_000;
+/** Room past a request's CLI ceilings: the end of a CLI that ran past one, and the round trip. */
+const CORE_SLACK_MS = 2_000 + 5_000;
 
-export interface ExecOptions {
-	/** Added over the app's own environment. */
-	env?: Record<string, string>;
-	timeoutMs?: number;
+/** Main's environment now, with `extra` over it, as the plain strings a request carries. */
+function mainEnv(extra: Record<string, string> = {}): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+	return { ...env, ...extra };
+}
+
+/** What a run outside the located CLI gets (`plutil`, the app's starter): main's environment and the CLI's limits. */
+export function runRules(): { env: Record<string, string>; timeoutMs: number; maxBytes: number } {
+	return { env: mainEnv(), timeoutMs: CLI_TIMEOUT_MS, maxBytes: MAX_OUTPUT };
 }
 
 /**
- * - `code`: the exit code; null when the process did not exit by itself (timeout, could not start).
- * - `timedOut`: the ceiling killed it (its partial output is kept).
- * - `spawnError`: it could not be started (`ENOENT`, `EACCES`).
+ * A request to the core whose CLI runs take `cliMs` in all, held to the chain step it is made in (see the top of
+ * this file). Outside any step it is a plain request.
  */
-export interface ExecResult {
-	code: number | null;
-	stdout: string;
-	stderr: string;
-	timedOut: boolean;
-	spawnError: string | null;
+async function tailscaleRequest<T>(method: string, params: object, cliMs: number): Promise<T> {
+	throwIfStepStalled();
+	const ended = Promise.withResolvers<void>();
+	void trackEffect(method, ended.promise);
+	try {
+		const answer = await core().call<T>(method, params, {
+			timeoutMs: cliMs + CORE_SLACK_MS,
+			signal: currentStepSignal(),
+			onEnded: ended.resolve,
+		});
+		throwIfStepStalled();
+		return answer.result;
+	} catch (error) {
+		throwIfStepStalled();
+		throw error;
+	}
 }
 
-export type TailscaleExecutor = (file: string, args: string[], options?: ExecOptions) => Promise<ExecResult>;
+/** `status --json` as one call reported it. */
+export interface StatusRead {
+	/** The exit code; null when the CLI did not exit by itself (its ceiling) or could not start. */
+	code: number | null;
+	/** It could not be started (`ENOENT`, `EACCES`). */
+	spawnError: string | null;
+	/** The first non-empty line of what the call said (its stderr, else its stdout): what Settings shows under "Details". */
+	line: string | null;
+	/** The document it printed, whatever its exit code; null when it printed none. */
+	status: TailscaleStatus | null;
+	/**
+	 * Why `serve` over HTTPS cannot work on the tailnet that document describes, or null when it can: MagicDNS is
+	 * off, the tailnet has no certificate domain for this machine, or `https` is not among its capabilities.
+	 */
+	httpsProblem: string | null;
+}
 
-/** The real executor: `execFile` over the spawn helpers. */
-export const execFileExecutor: TailscaleExecutor = (file, args, options = {}) => {
-	const { promise, resolve } = Promise.withResolvers<ExecResult>();
-	const platform = process.platform;
-	execFile(
-		spawnCommand(file, platform),
-		spawnArgs(file, args, platform),
-		{
-			env: { ...process.env, ...options.env },
-			shell: needsShell(file, platform),
-			timeout: options.timeoutMs ?? CLI_TIMEOUT_MS,
-			windowsHide: true,
-			maxBuffer: MAX_OUTPUT,
-			encoding: "utf8",
-		},
-		(error, stdout, stderr) => {
-			if (!error) {
-				resolve({ code: 0, stdout, stderr, timedOut: false, spawnError: null });
-				return;
-			}
-			const code = typeof error.code === "number" ? error.code : null;
-			resolve({
-				code,
-				stdout,
-				stderr: stderr || (code === null ? error.message : ""),
-				timedOut: error.killed === true && code === null && typeof error.code !== "string",
-				spawnError: typeof error.code === "string" ? error.code : null,
-			});
-		},
-	);
-	return promise;
-};
+/** `up` as one call reported it. */
+export interface UpResult {
+	code: number | null;
+	line: string | null;
+	/** The sign-in link in `up --json` output: its `AuthURL`, from the first line that has one. */
+	authUrl: string | null;
+	/** The `login.tailscale.com` link in what it said. */
+	loginUrl: string | null;
+}
 
-/** One located Tailscale CLI: what it needs in its environment and the calls Mobile web makes. */
+/** "Start the Tailscale app" as it ended: 0 when it started. */
+export interface AppStart {
+	code: number | null;
+	line: string | null;
+}
+
+/** What OMPdesk published: the prefs record `mobileWeb.serve`. */
+export interface ServeRecord {
+	host: string;
+	port: number;
+	/** `http://127.0.0.1:<local port>`, without the secret path. */
+	target: string;
+}
+
+export type Published =
+	/** The serve configuration could not be read, or no port is free. */
+	| { kind: "blocked"; detail: string }
+	/** Tailscale lets the internet reach the port: nothing is served there. `ours`: the handler on it is OMPdesk's. */
+	| { kind: "exposed"; port: number; ours: boolean }
+	/** `serve` refused; `guide` is the `login.tailscale.com` page it named ("enable HTTPS"). */
+	| { kind: "refused"; detail: string; guide: string | null }
+	/** Our handler is already there with this target. */
+	| { kind: "reuse"; port: number }
+	/** `serve` took the command; `confirm` says whether the handler is in place. */
+	| { kind: "published"; port: number };
+
+/** After a publish: in place and private, not in place, or in place and reachable from the internet. */
+export type Confirmed = "ready" | "missing" | "exposed";
+
+export type Unpublished =
+	/** No record: nothing was published. */
+	| { kind: "none" }
+	/** The handler is no longer exactly what the record says: only the record goes. */
+	| { kind: "record-dropped" }
+	| { kind: "removed" }
+	/** `off`: our handler was taken down before this failed, so the record goes; else it stays. */
+	| { kind: "failed"; detail: string; off: boolean };
+
+/** One located Tailscale CLI: what it needs in its environment and the calls Mobile web and computer sharing make. */
 export class TailscaleCli {
 	readonly located: LocatedTailscale;
-	readonly #exec: TailscaleExecutor;
 
-	constructor(located: LocatedTailscale, exec: TailscaleExecutor) {
+	constructor(located: LocatedTailscale) {
 		this.located = located;
-		this.#exec = exec;
 	}
 
-	run(args: string[], timeoutMs: number = CLI_TIMEOUT_MS): Promise<ExecResult> {
-		return this.#exec(this.located.path, args, { env: this.located.env, timeoutMs });
+	#runner(): CoreRunner {
+		return {
+			bin: this.located.path,
+			args: [],
+			env: mainEnv(this.located.env),
+			timeoutMs: CLI_TIMEOUT_MS,
+			maxBytes: MAX_OUTPUT,
+		};
 	}
 
-	status(): Promise<ExecResult> {
-		return this.run(["status", "--json"]);
+	/** `method` over this CLI; `failed` words the answer of a core process that could not give one. */
+	async #ask<T>(method: string, params: object, cliMs: number, failed: (message: string) => T): Promise<T> {
+		try {
+			return await tailscaleRequest<T>(method, { tailscale: this.#runner(), ...params }, cliMs);
+		} catch (error) {
+			if (error instanceof CoreError) return failed(error.message);
+			throw error;
+		}
 	}
 
-	serveStatus(): Promise<ExecResult> {
-		return this.run(["serve", "status", "--json"]);
-	}
-
-	/** `up` brings Tailscale up; with `--json` it reports the sign-in link while it waits, so it is cut short. */
-	up(json: boolean): Promise<ExecResult> {
-		return this.run(json ? ["up", "--json"] : ["up"]);
-	}
-
-	/** Read-only: the control server's URL, for a self-hosted tailnet's sign-in page. */
-	debugPrefs(): Promise<ExecResult> {
-		return this.run(["debug", "prefs"]);
+	status(): Promise<StatusRead> {
+		return this.#ask("tailscale.status", {}, CLI_TIMEOUT_MS, line => ({
+			code: null,
+			spawnError: null,
+			line,
+			status: null,
+			httpsProblem: null,
+		}));
 	}
 
 	/** Read-only: the node and user behind a tailnet address (`ip` is already checked to be one). */
-	whois(ip: string): Promise<ExecResult> {
-		return this.run(["whois", "--json", ip], WHOIS_TIMEOUT_MS);
+	whois(ip: string): Promise<TailnetPeer | null> {
+		return this.#ask("tailscale.whois", { ip, timeoutMs: WHOIS_TIMEOUT_MS }, WHOIS_TIMEOUT_MS, () => null);
 	}
 
-	/** Publish `https://<this machine>:<port>` to the tailnet, proxied to `target`. Only ever our own port. */
-	servePublish(port: number, target: string): Promise<ExecResult> {
-		return this.run(["serve", "--bg", `--https=${port}`, target]);
+	/** `up` brings Tailscale up; with `--json` it reports the sign-in link while it waits, so it is cut short. */
+	up(json: boolean, timeoutMs: number = CLI_TIMEOUT_MS): Promise<UpResult> {
+		return this.#ask("tailscale.up", { json, timeoutMs }, timeoutMs, line => ({
+			code: null,
+			line,
+			authUrl: null,
+			loginUrl: null,
+		}));
 	}
 
-	/** Remove the handler on `port`. Only ever called for a handler this OMPdesk published. */
-	serveOff(port: number): Promise<ExecResult> {
-		return this.run(["serve", `--https=${port}`, "off"]);
+	/** Read-only: the host of the control server this Tailscale signs in to (a self-hosted tailnet), or null. */
+	controlHost(): Promise<string | null> {
+		return this.#ask("tailscale.controlHost", {}, CLI_TIMEOUT_MS, () => null);
 	}
-}
 
-/** The first non-empty line of what a failed call said: what Settings shows under "Details". */
-export function firstLine(result: Pick<ExecResult, "stderr" | "stdout">, fallback: string): string {
-	const text = (result.stderr || result.stdout)
-		.split(/\r?\n/)
-		.map(line => line.trim())
-		.find(Boolean);
-	return text ?? fallback;
-}
-
-const LOGIN_URL = /https:\/\/login\.tailscale\.com\/[^\s"'<>)]*/;
-
-/** The `login.tailscale.com` link in a command's human output (sign-in, "enable HTTPS"), or null. */
-export function extractLoginUrl(text: string): string | null {
-	return LOGIN_URL.exec(text)?.[0] ?? null;
-}
-
-/** The sign-in link in `up --json` output: its `AuthURL`, from the first line that has one. */
-export function authUrlFromUpJson(stdout: string): string | null {
-	for (const line of stdout.split(/\r?\n/)) {
-		const text = line.trim();
-		if (!text.startsWith("{")) continue;
-		try {
-			const parsed: unknown = JSON.parse(text);
-			const url = typeof parsed === "object" && parsed !== null && "AuthURL" in parsed ? parsed.AuthURL : undefined;
-			if (typeof url === "string" && url) return url;
-		} catch {
-			// A partial line (the call was cut short): the next one may be whole.
-		}
+	/** The installed version, or null when the CLI does not say within `timeoutMs`. */
+	version(timeoutMs: number): Promise<string | null> {
+		return this.#ask("tailscale.version", { timeoutMs }, timeoutMs, () => null);
 	}
-	return null;
+
+	/**
+	 * Publish `https://<host>:<port>` to the tailnet, proxied to `target` (`base` plus the secret path): our own
+	 * earlier port when `record` (the pref, whatever it holds) still names our handler, else the first port from
+	 * `first` up that nothing uses. Only ever our own port.
+	 */
+	publish(request: {
+		host: string;
+		target: string;
+		base: string;
+		record: unknown;
+		first: number;
+	}): Promise<Published> {
+		const record = request.record ?? null;
+		return this.#ask("tailscale.publish", { ...request, record }, 2 * CLI_TIMEOUT_MS, detail => ({
+			kind: "blocked",
+			detail,
+		}));
+	}
+
+	/** After `publish` answered `published`: whether the handler is in place, proxying to exactly `target`. */
+	confirm(request: { host: string; port: number; base: string; target: string }): Promise<Confirmed> {
+		return this.#ask("tailscale.confirm", request, CLI_TIMEOUT_MS, () => "missing");
+	}
+
+	/**
+	 * Take our handler down: only when `record` (the pref, whatever it holds) matches what is there exactly, and
+	 * then check that the user's other handlers are as they were. Only ever a handler this OMPdesk published.
+	 */
+	unpublish(record: unknown, secret: string): Promise<Unpublished> {
+		const params = { record: record ?? null, secret };
+		return this.#ask("tailscale.unpublish", params, 3 * CLI_TIMEOUT_MS, detail => ({
+			kind: "failed",
+			detail,
+			off: false,
+		}));
+	}
 }
 
 /**
  * Whether `openExternal` may be given `url` for a sign-in: https on Tailscale's own login host, or on the host of
- * the control server this tailnet signs in to (`controlHost`, a self-hosted one). Nothing else is ever opened.
+ * the control server this tailnet signs in to (`controlHost`, a self-hosted one). Nothing else is ever opened. Main's
+ * own check of what it hands Electron, read while a status is applied.
  */
 export function loginUrlAllowed(url: string, controlHost: string | null): boolean {
 	let parsed: URL;
@@ -163,48 +243,34 @@ export function loginUrlAllowed(url: string, controlHost: string | null): boolea
 	return host === "login.tailscale.com" || (controlHost !== null && host === controlHost.toLowerCase());
 }
 
-/** The host of `ControlURL` in `debug prefs` JSON, or null. */
-export function controlHostFromPrefs(stdout: string): string | null {
-	try {
-		const parsed: unknown = JSON.parse(stdout);
-		const url =
-			typeof parsed === "object" && parsed !== null && "ControlURL" in parsed ? parsed.ControlURL : undefined;
-		return typeof url === "string" && url ? new URL(url).hostname : null;
-	} catch {
-		return null;
-	}
-}
-
 /**
  * Start the Tailscale app: `open -a Tailscale` on macOS, `tailscale-ipn.exe` beside the CLI on Windows.
- * `override` (`OMP_GUI_TEST_TAILSCALE_OPEN`) is a test's stand-in, run instead, so a test never starts the
- * user's own Tailscale.
+ * `standIn` (`OMP_GUI_TEST_TAILSCALE_OPEN`) is a test's stand-in, run instead, so a test never starts the user's
+ * own Tailscale.
  */
-export function startTailscaleApp(
+export async function startTailscaleApp(
 	located: LocatedTailscale,
 	platform: "darwin" | "win32",
-	exec: TailscaleExecutor,
-	override: string | null,
-): Promise<ExecResult> {
-	if (override) return exec(override, []);
-	if (platform === "darwin") {
-		if (!located.app) {
-			const stderr = "This Tailscale has no app to start: start its daemon (tailscaled) yourself";
-			return Promise.resolve({ code: 1, stdout: "", stderr, timedOut: false, spawnError: null });
+	standIn: string | null,
+): Promise<AppStart> {
+	if (standIn || platform === "darwin") {
+		try {
+			const params = { platform, standIn, app: located.app, rules: runRules() };
+			return await tailscaleRequest<AppStart>("tailscale.startApp", params, CLI_TIMEOUT_MS);
+		} catch (error) {
+			if (error instanceof CoreError) return { code: null, line: error.message };
+			throw error;
 		}
-		return exec("/usr/bin/open", ["-a", located.app]);
 	}
-	// The tray app keeps running after this returns, so it is started detached rather than awaited.
+	// The tray app keeps running after OMPdesk quits, and every process the core starts ends with it: main starts
+	// this one itself, detached rather than awaited.
 	const ipn = located.path.replace(/tailscale\.exe$/i, "tailscale-ipn.exe");
-	const { promise, resolve } = Promise.withResolvers<ExecResult>();
+	const { promise, resolve } = Promise.withResolvers<AppStart>();
 	const child = spawn(ipn, [], { detached: true, stdio: "ignore" });
-	child.once("error", error => {
-		const code = (error as NodeJS.ErrnoException).code;
-		resolve({ code: null, stdout: "", stderr: error.message, timedOut: false, spawnError: code ?? "ERROR" });
-	});
+	child.once("error", error => resolve({ code: null, line: error.message }));
 	child.once("spawn", () => {
 		child.unref();
-		resolve({ code: 0, stdout: "", stderr: "", timedOut: false, spawnError: null });
+		resolve({ code: 0, line: null });
 	});
 	return promise;
 }

@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MobileWebState } from "../../shared/mobile-web";
 import type { SetupItemState } from "../../shared/setup";
-import type { ExecResult } from "./cli";
-import type { LocatedTailscale } from "./locate";
+import type { AppStart } from "./cli";
 import {
 	BLOCK_RETRY_MS,
 	FAST_POLL_MS,
@@ -19,11 +18,14 @@ import {
 import {
 	defaultTailscaleScenario,
 	type FakeTailscaleScenario,
-	fakeTailscaleExecutor,
+	fakeTailscaleCli,
 	startFakeApp,
 	USER_SERVE,
 	USER_SERVE_HOST,
 } from "./test-fake-tailscale";
+
+// Every CLI call of a case is a real process the core starts (through cmd.exe on Windows): a busy runner needs room.
+vi.setConfig({ testTimeout: 60_000 });
 
 const LOCAL_PORT = 51000;
 const TARGET = `http://127.0.0.1:${LOCAL_PORT}`;
@@ -31,7 +33,7 @@ const SECRET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
 /** What serve proxies to: the local address plus the secret path only serve's traffic carries. */
 const FULL_TARGET = `${TARGET}/${SECRET}`;
 const HOST = USER_SERVE_HOST;
-const ok: ExecResult = { code: 0, stdout: "", stderr: "", timedOut: false, spawnError: null };
+const ok: AppStart = { code: 0, line: null };
 
 interface Options {
 	scenario?: Partial<FakeTailscaleScenario>;
@@ -44,7 +46,7 @@ interface Options {
 function harness(options: Options = {}) {
 	const scenario = defaultTailscaleScenario(options.scenario);
 	const calls: string[][] = [];
-	const exec = fakeTailscaleExecutor(scenario, calls);
+	const located = fakeTailscaleCli(scenario, calls);
 	const store = new Map<string, unknown>(Object.entries(options.prefs ?? {}));
 	const prefs = {
 		get: (key: string) => store.get(key),
@@ -57,7 +59,6 @@ function harness(options: Options = {}) {
 		configure: vi.fn(),
 	};
 	let installed = options.installed ?? true;
-	const located: LocatedTailscale = { path: "/fake/tailscale", variant: "mac-cli", app: null, env: {} };
 	let setupItem: SetupItemState | null = null;
 	const setup = {
 		installForConnection: vi.fn(async () => {
@@ -80,14 +81,21 @@ function harness(options: Options = {}) {
 		server,
 		serveSecret: () => SECRET,
 		setup,
-		locate: async () => (installed ? located : null),
-		exec,
+		locate: async () => (installed ? located() : null),
 		startApp,
 		openExternal,
 		openSystemSettings,
 		onState: state => states.push(state),
 		now: () => now,
 	});
+	// A poll runs the CLI in the core process, so it ends in its own time: keep each one to wait for.
+	const polls: Promise<unknown>[] = [];
+	const refresh = service.refresh.bind(service);
+	service.refresh = () => {
+		const poll = refresh();
+		polls.push(poll.catch(() => undefined));
+		return poll;
+	};
 	return {
 		service,
 		scenario,
@@ -114,6 +122,10 @@ function harness(options: Options = {}) {
 			return service.state();
 		},
 		writes: () => calls.filter(args => args[0] === "serve" && args[1] !== "status"),
+		/** Resolves once every poll the service started by itself (its timer, a watch) has ended. */
+		async settle() {
+			while (polls.length > 0) await polls.shift();
+		},
 	};
 }
 
@@ -521,6 +533,8 @@ describe("MobileWebService phases", () => {
 				error => error,
 			);
 			const next = h.service.request({ action: "retry" });
+			// The first step's status is a real CLI run: it is at its server before the clock moves.
+			await vi.waitFor(() => expect(h.server.start).toHaveBeenCalledTimes(1), { timeout: 15_000 });
 			await vi.advanceTimersByTimeAsync(TAILSCALE_STEP_MAX_MS);
 			expect(((await hung) as Error).name).toBe("StepStalledError");
 			await next;
@@ -541,6 +555,8 @@ describe("MobileWebService phases", () => {
 				error => error,
 			);
 			const next = h.service.request({ action: "retry" });
+			// The first step's status is a real CLI run: it is at its server before the clock moves.
+			await vi.waitFor(() => expect(h.server.start).toHaveBeenCalledTimes(1), { timeout: 15_000 });
 			await vi.advanceTimersByTimeAsync(TAILSCALE_STEP_MAX_MS);
 			expect(((await stale) as Error).name).toBe("StepStalledError");
 			await next;
@@ -707,7 +723,7 @@ describe("MobileWebService phases", () => {
 		});
 		h.install(setupItem("present"));
 		await h.service.request({ action: "install" });
-		await vi.waitFor(() => expect(h.startApp).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(h.startApp).toHaveBeenCalledTimes(1), { timeout: 15_000 });
 		// The app is up by the next look.
 		await h.service.refresh();
 		expect(h.service.state().phase).toBe("ready");
@@ -829,10 +845,16 @@ describe("MobileWebService allowed users and requests", () => {
 		await vi.advanceTimersByTimeAsync(POLL_MS - 1);
 		expect(statusCalls()).toBe(base);
 		await vi.advanceTimersByTimeAsync(1);
+		await h.settle();
 		expect(statusCalls()).toBe(base + 1);
 		await h.service.request({ action: "watch", on: true });
+		await h.settle();
 		const watched = statusCalls();
-		await vi.advanceTimersByTimeAsync(FAST_POLL_MS * 3);
+		// Each poll is a real CLI run: the next one is timed from its end.
+		for (let poll = 0; poll < 3; poll++) {
+			await vi.advanceTimersByTimeAsync(FAST_POLL_MS);
+			await h.settle();
+		}
 		expect(statusCalls()).toBeGreaterThanOrEqual(watched + 3);
 		await h.service.request({ action: "watch", on: false });
 		const slow = statusCalls();
@@ -898,18 +920,26 @@ function setupItem(phase: SetupItemState["phase"], partial: Partial<SetupItemSta
 	};
 }
 
-describe("src/main/tailscale never resets serve or runs Funnel", () => {
-	const dir = __dirname;
-	const sources = readdirSync(dir).filter(
-		name => name.endsWith(".ts") && !name.endsWith(".test.ts") && !name.startsWith("test-"),
-	);
+describe("Tailscale's code never resets serve or runs Funnel", () => {
+	const core = join(__dirname, "../../../native/ompdesk/crates/core/src/tailscale");
+	const sources: Array<[name: string, file: string]> = [
+		...readdirSync(__dirname)
+			.filter(name => name.endsWith(".ts") && !name.endsWith(".test.ts") && !name.startsWith("test-"))
+			.map((name): [string, string] => [name, join(__dirname, name)]),
+		// The core process builds every command main's side asks for.
+		...readdirSync(core)
+			.filter(name => name.endsWith(".rs"))
+			.map((name): [string, string] => [`core ${name}`, join(core, name)]),
+	];
 
 	it("has sources to check", () => {
-		expect(sources).toEqual(expect.arrayContaining(["cli.ts", "locate.ts", "serve.ts", "service.ts", "status.ts"]));
+		expect(sources.map(([name]) => name)).toEqual(
+			expect.arrayContaining(["cli.ts", "locate.ts", "service.ts", "status.ts", "core mod.rs", "core serve.rs"]),
+		);
 	});
 
-	it.each(sources)("%s has no `serve reset` and no funnel command", name => {
-		const text = readFileSync(join(dir, name), "utf8");
+	it.each(sources)("%s has no `serve reset` and no funnel command", (_name, file) => {
+		const text = readFileSync(file, "utf8");
 		// A reset subcommand, as a word or an argument.
 		expect(text).not.toMatch(/\bserve\s+reset\b/);
 		expect(text).not.toMatch(/["'`]reset["'`]/);

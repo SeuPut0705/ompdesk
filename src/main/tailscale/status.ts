@@ -1,9 +1,8 @@
 /**
- * `tailscale status --json`, reduced to what Mobile web decides on. Only the keys below are read (zod strips the
- * rest, and a key of an unexpected shape reads as absent instead of failing the whole document), so a Tailscale
- * that adds or reshapes fields keeps working. The text form of `status` is never parsed.
+ * `tailscale status --json`, reduced to what Mobile web and computer sharing decide on: the shape the core process
+ * answers (`native/ompdesk/crates/core/src/tailscale/status.rs` reads the document; only the keys it names count, so
+ * a Tailscale that adds or reshapes fields keeps working). The text form of `status` is never parsed.
  */
-import { z } from "zod";
 
 /** The `BackendState`s that matter; anything else reads as `unknown`. */
 export type BackendKind =
@@ -21,47 +20,6 @@ export const MIN_TAILSCALE_VERSION = "1.52.0";
 /** The admin pages the user is sent to. */
 export const ADMIN_DNS_URL = "https://login.tailscale.com/admin/dns";
 export const ADMIN_MACHINES_URL = "https://login.tailscale.com/admin/machines";
-
-/** A value that is absent, null or of the wrong type reads as `undefined`. */
-const lenient = <T extends z.ZodTypeAny>(schema: T) => schema.nullish().catch(undefined);
-
-const PeerSchema = z.object({
-	ID: lenient(z.string()),
-	HostName: lenient(z.string()),
-	DNSName: lenient(z.string()),
-	OS: lenient(z.string()),
-	Online: lenient(z.boolean()),
-	UserID: lenient(z.number()),
-	TailscaleIPs: lenient(z.array(z.string())),
-	/** The peer's current direct endpoint (`ip:port`, often its LAN address); empty when relayed. */
-	CurAddr: lenient(z.string()),
-	/** Every endpoint the peer advertises (`ip:port`). */
-	Addrs: lenient(z.array(z.string())),
-});
-
-const StatusSchema = z.object({
-	Version: lenient(z.string()),
-	BackendState: z.string(),
-	AuthURL: lenient(z.string()),
-	TailscaleIPs: lenient(z.array(z.string())),
-	Self: lenient(
-		z.object({
-			ID: lenient(z.string()),
-			HostName: lenient(z.string()),
-			DNSName: lenient(z.string()),
-			UserID: lenient(z.number()),
-			Capabilities: lenient(z.array(z.string())),
-			CapMap: lenient(z.record(z.unknown())),
-			KeyExpiry: lenient(z.string()),
-		}),
-	),
-	CertDomains: lenient(z.array(z.string())),
-	CurrentTailnet: lenient(z.object({ MagicDNSEnabled: lenient(z.boolean()) })),
-	MagicDNSSuffix: lenient(z.string()),
-	User: lenient(z.record(z.object({ LoginName: lenient(z.string()) }))),
-	Peer: lenient(z.record(PeerSchema)),
-	ClientVersion: lenient(z.object({ RunningLatest: lenient(z.boolean()), LatestVersion: lenient(z.string()) })),
-});
 
 export interface TailscaleStatus {
 	/** `BackendState` as Tailscale spelled it. */
@@ -107,97 +65,4 @@ export interface TailnetNode {
 	login: string | null;
 	/** The hosts of the node's current and advertised endpoints (its LAN or public addresses, not tailnet ones). */
 	endpoints: string[];
-}
-
-const BACKENDS: Record<string, BackendKind> = {
-	Running: "running",
-	NeedsLogin: "needs-login",
-	Stopped: "stopped",
-	NeedsMachineAuth: "needs-machine-auth",
-	Starting: "starting",
-	NoState: "no-state",
-	InUseOtherUser: "in-use-other-user",
-};
-
-/** Peers that count as the user's phone or tablet. */
-const MOBILE_OS = /^(ios|ipados|android)$/i;
-
-/** The host parts of `ip:port` / `[v6]:port` endpoints, without repeats. */
-function endpointHosts(endpoints: string[]): string[] {
-	const hosts = new Set<string>();
-	for (const endpoint of endpoints) {
-		const host = /^\[([^\]]+)\]:\d+$/.exec(endpoint)?.[1] ?? /^([^:]+):\d+$/.exec(endpoint)?.[1];
-		if (host) hosts.add(host);
-	}
-	return [...hosts];
-}
-
-/** The status document in `stdout`, or null when it is not one. */
-export function parseStatus(stdout: string): TailscaleStatus | null {
-	let json: unknown;
-	try {
-		json = JSON.parse(stdout);
-	} catch {
-		return null;
-	}
-	const parsed = StatusSchema.safeParse(json);
-	if (!parsed.success) return null;
-	const doc = parsed.data;
-	const userId = doc.Self?.UserID ?? null;
-	const loginOf = (id: number | null | undefined): string | null =>
-		id === null || id === undefined ? null : (doc.User?.[String(id)]?.LoginName ?? null);
-	const phones: string[] = [];
-	const peers: TailnetNode[] = [];
-	for (const peer of Object.values(doc.Peer ?? {})) {
-		const name = peer.HostName || peer.DNSName?.split(".")[0] || "";
-		if (peer.ID && name) {
-			peers.push({
-				nodeId: peer.ID,
-				name,
-				ips: peer.TailscaleIPs ?? [],
-				os: peer.OS ?? null,
-				online: peer.Online === true,
-				login: loginOf(peer.UserID),
-				endpoints: endpointHosts([peer.CurAddr ?? "", ...(peer.Addrs ?? [])]),
-			});
-		}
-		if (userId === null) continue;
-		if (peer.Online !== true || peer.UserID !== userId || !peer.OS || !MOBILE_OS.test(peer.OS)) continue;
-		if (name) phones.push(name);
-	}
-	const dnsName = doc.Self?.DNSName?.replace(/\.$/, "") || null;
-	return {
-		backendState: doc.BackendState,
-		backend: BACKENDS[doc.BackendState] ?? "unknown",
-		version: doc.Version?.split("-")[0] || null,
-		authUrl: doc.AuthURL || null,
-		dnsName,
-		userId,
-		login: loginOf(userId),
-		certDomains: doc.CertDomains ?? [],
-		magicDns: doc.CurrentTailnet?.MagicDNSEnabled ?? null,
-		capabilities: [...(doc.Self?.Capabilities ?? []), ...Object.keys(doc.Self?.CapMap ?? {})],
-		keyExpiry: doc.Self?.KeyExpiry ?? null,
-		// `RunningLatest` is omitted when false; `LatestVersion` is only set then.
-		updateAvailable: doc.ClientVersion?.RunningLatest !== true && Boolean(doc.ClientVersion?.LatestVersion),
-		phones,
-		selfIps: doc.TailscaleIPs ?? [],
-		selfNodeId: doc.Self?.ID || null,
-		selfName: doc.Self?.HostName || dnsName?.split(".")[0] || null,
-		peers,
-	};
-}
-
-/**
- * Why `serve` over HTTPS cannot work on this tailnet, or null when it can: MagicDNS is off, the tailnet has no
- * certificate domain for this machine (HTTPS is not enabled), or Tailscale reports capabilities and `https`
- * is not among them.
- */
-export function httpsProblem(status: TailscaleStatus): string | null {
-	if (status.magicDns === false) return "MagicDNS is off for this tailnet";
-	if (status.certDomains.length === 0) return "HTTPS certificates are not enabled for this tailnet";
-	if (status.capabilities.length > 0 && !status.capabilities.includes("https")) {
-		return "This machine has no https capability";
-	}
-	return null;
 }

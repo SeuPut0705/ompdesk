@@ -1,15 +1,16 @@
 /**
  * Read-only Tailscale facts for sharing this computer with other OMPdesk computers (src/main/remote/): the tailnet
  * (`status --json`: this machine's addresses, the other nodes) and who an address belongs to (`whois`). Works
- * whether or not Mobile web is on; never changes Tailscale. Answers are cached briefly: a status for 3 s (a
- * connection and a list refresh share one), a successful whois for 60 s (one per connection would cost a CLI
- * call each).
+ * whether or not Mobile web is on; never changes Tailscale. The CLI runs and what they print are the core process's
+ * (`cli.ts` is its client); what is kept here is computer sharing's own state by main's clock: the CLI it found, and
+ * its brief answers, a status for 3 s (a connection and a list refresh share one), a successful whois for 60 s (one
+ * per connection would cost a CLI call each).
  */
 import { isIP } from "node:net";
-import { TailscaleCli, type TailscaleExecutor } from "./cli";
+import { TailscaleCli } from "./cli";
 import type { LocatedTailscale } from "./locate";
-import { parseStatus, type TailscaleStatus } from "./status";
-import { parseWhois, type TailnetPeer } from "./whois";
+import type { TailscaleStatus } from "./status";
+import type { TailnetPeer } from "./whois";
 
 export const STATUS_CACHE_MS = 3_000;
 export const WHOIS_CACHE_MS = 60_000;
@@ -30,7 +31,6 @@ export function isTailnetAddress(ip: string): boolean {
 
 export interface TailnetDeps {
 	locate: () => Promise<LocatedTailscale | null>;
-	exec: TailscaleExecutor;
 	now?: () => number;
 }
 
@@ -59,8 +59,8 @@ export class Tailnet {
 
 	async #readStatus(): Promise<TailscaleStatus | null> {
 		const cli = await this.#cliOrNull();
-		const result = cli ? await cli.status() : null;
-		const value = result && result.code === 0 ? parseStatus(result.stdout) : null;
+		const read = cli ? await cli.status() : null;
+		const value = read?.code === 0 ? read.status : null;
 		this.#status = { value, installed: cli !== null, at: this.#now() };
 		return value;
 	}
@@ -82,8 +82,7 @@ export class Tailnet {
 		if (cached && this.#now() - cached.at < WHOIS_CACHE_MS) return cached.peer;
 		const cli = await this.#cliOrNull();
 		if (!cli) return null;
-		const result = await cli.whois(address);
-		const peer = result.code === 0 ? parseWhois(result.stdout) : null;
+		const peer = await cli.whois(address);
 		if (!peer) return null;
 		if (this.#whois.size >= WHOIS_CACHE_MAX) this.#whois.clear();
 		this.#whois.set(address, { peer, at: this.#now() });
@@ -94,7 +93,7 @@ export class Tailnet {
 	#cliOrNull(): Promise<TailscaleCli | null> {
 		this.#cli ??= this.#deps
 			.locate()
-			.then(located => (located ? new TailscaleCli(located, this.#deps.exec) : null))
+			.then(located => (located ? new TailscaleCli(located) : null))
 			.catch(() => null);
 		const cli = this.#cli;
 		void cli.then(found => {

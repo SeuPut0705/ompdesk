@@ -1,10 +1,15 @@
 /**
  * Test-only stand-in for the `tailscale` CLI: the scenario a test plays, and `answer`, what the real CLI would
- * print and change for each command Mobile web runs. Vitest drives it in-process through `fakeTailscaleExecutor`;
- * the e2e fake (`e2e/fixture/fake-tailscale.ts`) runs the same `answer` as a real executable over a JSON file.
+ * print and change for each command Mobile web runs. Vitest plays it through `fakeTailscaleCli`: an executable the
+ * core process runs, which asks the test's own process for each answer, so a test changes the scenario in place;
+ * the e2e fake (`e2e/fixture/fake-tailscale.ts`) runs the same `answer` as an executable over a JSON file.
  * It never touches a real daemon, and it refuses `serve reset` and `funnel` (exit 99) so a regression is loud.
  */
-import type { ExecResult, TailscaleExecutor } from "./cli";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { type AddressInfo, createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { LocatedTailscale } from "./locate";
 
 export type FakeBackendState =
 	| "Running"
@@ -306,11 +311,96 @@ export function startFakeApp(scenario: FakeTailscaleScenario): void {
 	scenario.backendState = scenario.afterStart;
 }
 
-/** An executor over `scenario` (mutated by `serve`/`up`); `calls` collects every argv it was given. */
-export function fakeTailscaleExecutor(scenario: FakeTailscaleScenario, calls: string[][] = []): TailscaleExecutor {
-	return async (_file, args) => {
-		calls.push(args);
-		const { code, stdout, stderr } = answer(args, scenario);
-		return { code, stdout, stderr, timedOut: false, spawnError: null } satisfies ExecResult;
+/**
+ * What a fake CLI runs as: it sends its arguments to the test's process (the relay below) and prints and exits as
+ * that answers. Plain CommonJS, so node starts it without a transform.
+ */
+const RELAY = `const net = require("node:net");
+const [port, id] = process.env.FAKE_TAILSCALE_RELAY.split(":");
+const socket = net.connect(Number(port), "127.0.0.1", () => {
+	socket.write(JSON.stringify({ id, argv: process.argv.slice(2) }) + "\\n");
+});
+let text = "";
+socket.setEncoding("utf8");
+socket.on("data", chunk => {
+	text += chunk;
+});
+socket.on("end", () => {
+	const { code, stdout, stderr } = JSON.parse(text);
+	process.stdout.write(stdout, () => process.stderr.write(stderr, () => process.exit(code)));
+});
+socket.on("error", error => {
+	process.stderr.write("fake-tailscale: " + error.message + "\\n", () => process.exit(98));
+});
+`;
+
+interface Relay {
+	port: number;
+	dir: string;
+	script: string;
+}
+
+const fakes = new Map<string, { scenario: FakeTailscaleScenario; calls: string[][] }>();
+let relay: Promise<Relay> | null = null;
+
+/** One loopback listener a test process: each fake CLI's run asks it, and it answers from that fake's scenario. */
+function startRelay(): Promise<Relay> {
+	const { promise, resolve, reject } = Promise.withResolvers<Relay>();
+	const server = createServer(socket => {
+		let text = "";
+		socket.setEncoding("utf8");
+		socket.on("error", () => undefined);
+		socket.on("data", chunk => {
+			text += chunk;
+			if (!text.endsWith("\n")) return;
+			const { id, argv } = JSON.parse(text) as { id: string; argv: string[] };
+			const fake = fakes.get(id);
+			if (!fake) {
+				socket.end(JSON.stringify({ code: 97, stdout: "", stderr: `fake-tailscale: no scenario ${id}\n` }));
+				return;
+			}
+			fake.calls.push(argv);
+			const { code, stdout, stderr } = answer(argv, fake.scenario);
+			socket.end(JSON.stringify({ code, stdout, stderr }));
+		});
+	});
+	// The test process ends whether or not the listener is open.
+	server.unref();
+	server.once("error", reject);
+	server.listen(0, "127.0.0.1", () => {
+		const dir = mkdtempSync(join(tmpdir(), "omp-gui-fake-tailscale-"));
+		process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+		const script = join(dir, "relay.cjs");
+		writeFileSync(script, RELAY);
+		resolve({ port: (server.address() as AddressInfo).port, dir, script });
+	});
+	return promise;
+}
+
+/**
+ * A fake CLI over `scenario` (read when a command runs, mutated by `serve`/`up`); `calls` collects every argv it was
+ * given. The answer is a lookup: the located CLI is a real executable (a `.cmd` on Windows, a shell script
+ * elsewhere) that the core process runs like any Tailscale, made at the first lookup.
+ */
+export function fakeTailscaleCli(
+	scenario: FakeTailscaleScenario,
+	calls: string[][] = [],
+): () => Promise<LocatedTailscale> {
+	let located: Promise<LocatedTailscale> | null = null;
+	const install = async (): Promise<LocatedTailscale> => {
+		relay ??= startRelay();
+		const { port, dir, script } = await relay;
+		const id = String(fakes.size + 1);
+		fakes.set(id, { scenario, calls });
+		const address = `FAKE_TAILSCALE_RELAY=${port}:${id}`;
+		const node = process.execPath;
+		const path = join(dir, process.platform === "win32" ? `tailscale-${id}.cmd` : `tailscale-${id}`);
+		if (process.platform === "win32") writeFileSync(path, `@set "${address}"\r\n@"${node}" "${script}" %*\r\n`);
+		else writeFileSync(path, `#!/bin/sh\n${address} exec "${node}" "${script}" "$@"\n`, { mode: 0o755 });
+		return { path, variant: "mac-cli", app: null, env: {} };
+	};
+	return () => {
+		located ??= install();
+		return located;
 	};
 }

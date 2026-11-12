@@ -205,8 +205,8 @@ import { StatsServerManager } from "./stats-server";
 import { stockHelperRequest, stopStockHelper } from "./stock-helper";
 import { seedSpellchecker } from "./system-languages";
 import { type PersistedTabLayout, sanitizePersistedTabLayouts, type TabLayoutDrop } from "./tab-layout";
-import { execFileExecutor, startTailscaleApp } from "./tailscale/cli";
-import { locateTailscale, readBundleId, systemLocateDeps } from "./tailscale/locate";
+import { startTailscaleApp } from "./tailscale/cli";
+import { locateTailscale } from "./tailscale/locate";
 import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { exitWithLauncher } from "./test-launcher-exit";
@@ -1230,13 +1230,14 @@ app.whenReady().then(() => {
 	};
 	const locateTs = async () =>
 		tailscaleOs
-			? locateTailscale(
-					systemLocateDeps(tailscaleOs, stringPref("mobileWeb.tailscaleBin"), spawnPath, mac =>
-						readBundleId(mac, execFileExecutor),
-					),
-				)
+			? locateTailscale({
+					platform: tailscaleOs,
+					pref: stringPref("mobileWeb.tailscaleBin"),
+					pathEnv: await spawnPath(),
+					bundle: true,
+				})
 			: null;
-	const tailnet = new Tailnet({ locate: locateTs, exec: execFileExecutor });
+	const tailnet = new Tailnet({ locate: locateTs });
 	// A test launch never changes the machine's power settings (a killed test app would leave them changed), and a
 	// second instance must not undo the running one's hold as a leftover.
 	lidAwake =
@@ -2301,10 +2302,9 @@ app.whenReady().then(() => {
 		serveSecret: () => host.serveSecret(),
 		setup,
 		locate: locateTs,
-		exec: execFileExecutor,
 		startApp: located =>
 			tailscaleOs
-				? startTailscaleApp(located, tailscaleOs, execFileExecutor, process.env.OMP_GUI_TEST_TAILSCALE_OPEN || null)
+				? startTailscaleApp(located, tailscaleOs, process.env.OMP_GUI_TEST_TAILSCALE_OPEN || null)
 				: Promise.reject(new Error("Mobile web needs macOS or Windows")),
 		openExternal: url => shell.openExternal(url),
 		openSystemSettings: () =>

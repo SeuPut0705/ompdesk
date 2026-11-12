@@ -9,59 +9,45 @@
  * The page's server is started once the tailnet is ready to publish it (its address needs this machine's MagicDNS
  * name) and stopped when the switch goes off or Funnel exposes our port. The `tailscale serve` handler stays in
  * the daemon when the app quits (it is restored on the next launch); turning the switch off removes our handler
- * and nothing else (serve.ts).
+ * and nothing else (the core process's `serve.rs`, through `cli.ts`).
  */
 
 import { isIP } from "node:net";
 import { z } from "zod";
-import type { MobileWebPhase, MobileWebRequest, MobileWebState, MobileWebTailscale } from "../../shared/mobile-web";
+import {
+	MOBILE_WEB_PORT,
+	type MobileWebPhase,
+	type MobileWebRequest,
+	type MobileWebState,
+	type MobileWebTailscale,
+} from "../../shared/mobile-web";
 import type { SetupItemState, SetupState } from "../../shared/setup";
 import { compareVersions } from "../../shared/version";
 import { fencedCall, SerialChain, StepStalledError, throwIfStepStalled } from "../serial-chain";
 import {
-	authUrlFromUpJson,
-	controlHostFromPrefs,
-	type ExecResult,
-	extractLoginUrl,
-	firstLine,
+	type AppStart,
 	loginUrlAllowed,
+	type ServeRecord,
+	type StatusRead,
 	TailscaleCli,
-	type TailscaleExecutor,
+	type Unpublished,
 } from "./cli";
 import type { LocatedTailscale } from "./locate";
-import {
-	funnelOn,
-	handlerIsOurs,
-	ownProxy,
-	parseServeStatus,
-	planPublish,
-	readServeRecord,
-	type ServeRecord,
-	sameServeConfig,
-	withoutPort,
-} from "./serve";
-import {
-	ADMIN_DNS_URL,
-	ADMIN_MACHINES_URL,
-	httpsProblem,
-	MIN_TAILSCALE_VERSION,
-	parseStatus,
-	type TailscaleStatus,
-} from "./status";
-import { parseWhois, type TailnetPeer } from "./whois";
+import { ADMIN_DNS_URL, ADMIN_MACHINES_URL, MIN_TAILSCALE_VERSION, type TailscaleStatus } from "./status";
+import type { TailnetPeer } from "./whois";
 
 /**
- * `deps` with every call that reaches outside (the CLI's executor, the locate, the server, the app, the browser, the
- * install) fenced to its chain step: a step that was stopped for running past its bound can still resume when
- * one of them settles, and must neither start the next call nor go on to write state the next step owns. The fence
- * throws before a call starts and as soon as it returns; outside any step it does nothing.
+ * `deps` with every call that reaches outside (the locate, the server, the app, the browser, the install) fenced to
+ * its chain step: a step that was stopped for running past its bound can still resume when one of them settles, and
+ * must neither start the next call nor go on to write state the next step owns. The fence throws before a call
+ * starts and as soon as it returns; outside any step it does nothing. The CLI's calls are held to the step by their
+ * client (`cli.ts`).
  */
 function fenced(deps: MobileWebServiceDeps): MobileWebServiceDeps {
 	const guard = fencedCall;
 	return {
 		...deps,
 		locate: guard(() => deps.locate()),
-		exec: guard((file, args, options) => deps.exec(file, args, options)),
 		startApp: guard(located => deps.startApp(located)),
 		openExternal: guard(url => deps.openExternal(url)),
 		openSystemSettings: guard(() => deps.openSystemSettings()),
@@ -134,9 +120,8 @@ export interface MobileWebServiceDeps {
 	setup: MobileWebSetupPort;
 	/** The Tailscale CLI of this machine (reads `mobileWeb.tailscaleBin` itself), or null. */
 	locate: () => Promise<LocatedTailscale | null>;
-	exec: TailscaleExecutor;
 	/** Start the Tailscale app (macOS `open -a Tailscale`, Windows `tailscale-ipn.exe`). */
-	startApp: (located: LocatedTailscale) => Promise<ExecResult>;
+	startApp: (located: LocatedTailscale) => Promise<AppStart>;
 	openExternal: (url: string) => Promise<void>;
 	openSystemSettings: () => Promise<void>;
 	onState: (state: MobileWebState) => void;
@@ -177,13 +162,6 @@ export function cleanLogins(values: readonly unknown[]): string[] {
 	}
 	return logins;
 }
-
-/** What turning our handler off did. `failed` keeps the record: the handler may still be there. */
-type Unpublished =
-	| { kind: "none" }
-	| { kind: "removed" }
-	| { kind: "record-dropped" }
-	| { kind: "failed"; detail: string };
 
 export class MobileWebService {
 	readonly #deps: MobileWebServiceDeps;
@@ -363,8 +341,7 @@ export class MobileWebService {
 		if (!this.#enabled || isIP(address) === 0) return null;
 		const cli = await this.#cliOrNull();
 		if (!cli) return null;
-		const result = await cli.whois(address);
-		return result.code === 0 ? parseWhois(result.stdout) : null;
+		return cli.whois(address);
 	}
 
 	/** One poll tick now, then the next is scheduled. */
@@ -438,7 +415,12 @@ export class MobileWebService {
 		this.#timer = null;
 		this.#phase = "off";
 		this.#emit();
-		const cli = await this.#cliOrNull();
+		// A lookup that fails (the core process cannot answer) leaves the handler and its record for the next
+		// launch; the switch still goes off.
+		const cli = await this.#cliOrNull().catch(() => {
+			throwIfStepStalled();
+			return null;
+		});
 		const removed: Unpublished = cli ? await this.#unpublish(cli) : { kind: "none" };
 		await this.#stopServer();
 		this.#resetRound();
@@ -487,8 +469,8 @@ export class MobileWebService {
 
 	async #launchApp(cli: TailscaleCli): Promise<void> {
 		this.#appStartedAt = this.#now();
-		const result = await this.#deps.startApp(cli.located);
-		this.#launchError = result.code === 0 ? null : firstLine(result, "Could not start Tailscale");
+		const started = await this.#deps.startApp(cli.located);
+		this.#launchError = started.code === 0 ? null : (started.line ?? "Could not start Tailscale");
 	}
 
 	async #login(): Promise<void> {
@@ -498,9 +480,9 @@ export class MobileWebService {
 		let url = status?.authUrl ?? this.#loginUrl;
 		if (!url) {
 			const up = await cli.up(true);
-			url = authUrlFromUpJson(up.stdout) ?? extractLoginUrl(`${up.stderr}\n${up.stdout}`);
+			url = up.authUrl ?? up.loginUrl;
 			if (!url) {
-				this.#detail = firstLine(up, "Tailscale gave no sign-in link");
+				this.#detail = up.line ?? "Tailscale gave no sign-in link";
 				this.#emit();
 				return;
 			}
@@ -568,23 +550,22 @@ export class MobileWebService {
 			this.#phase = "not-installed";
 			return;
 		}
-		const result = await cli.status();
-		if (result.spawnError === "ENOENT" || result.spawnError === "EACCES") {
+		const read = await cli.status();
+		if (read.spawnError === "ENOENT" || read.spawnError === "EACCES") {
 			this.#cli = null;
 			this.#forgetTailscale();
 			this.#phase = "not-installed";
 			return;
 		}
-		const status = parseStatus(result.stdout);
-		if (!status) {
-			await this.#unreachable(cli, result);
+		if (!read.status) {
+			await this.#unreachable(cli, read);
 			return;
 		}
-		await this.#applyStatus(cli, status);
+		await this.#applyStatus(cli, read.status, read.httpsProblem);
 	}
 
 	/** Tailscale does not answer: its app or daemon is not running (or the OS holds it up). */
-	async #unreachable(cli: TailscaleCli, result: ExecResult): Promise<void> {
+	async #unreachable(cli: TailscaleCli, read: StatusRead): Promise<void> {
 		this.#status = null;
 		this.#phones = [];
 		this.#published = false;
@@ -596,10 +577,10 @@ export class MobileWebService {
 		}
 		const waitingOnOs = this.#appStartedAt !== null && this.#now() - this.#appStartedAt >= OS_APPROVAL_AFTER_MS;
 		this.#phase = waitingOnOs ? "needs-os-approval" : "app-not-running";
-		this.#detail = this.#launchError ?? firstLine(result, "Tailscale is not running");
+		this.#detail = this.#launchError ?? read.line ?? "Tailscale is not running";
 	}
 
-	async #applyStatus(cli: TailscaleCli, status: TailscaleStatus): Promise<void> {
+	async #applyStatus(cli: TailscaleCli, status: TailscaleStatus, httpsProblem: string | null): Promise<void> {
 		this.#status = status;
 		this.#launchError = null;
 		this.#version = status.version;
@@ -620,7 +601,7 @@ export class MobileWebService {
 			case "running":
 				this.#appStartedAt = null;
 				this.#guideUrl = null;
-				await this.#whenRunning(cli, status);
+				await this.#whenRunning(cli, status, httpsProblem);
 				return;
 			case "needs-login":
 				this.#whenNeedsLogin(status);
@@ -664,12 +645,11 @@ export class MobileWebService {
 		if (!this.#upTried) {
 			this.#upTried = true;
 			const up = await cli.up(false);
-			this.#upError = up.code === 0 ? null : firstLine(up, "tailscale up failed");
-			const link = extractLoginUrl(`${up.stderr}\n${up.stdout}`);
-			if (link) this.#loginUrl = link;
-			const again = parseStatus((await cli.status()).stdout);
-			if (again && again.backend !== "stopped") {
-				await this.#applyStatus(cli, again);
+			this.#upError = up.code === 0 ? null : (up.line ?? "tailscale up failed");
+			if (up.loginUrl) this.#loginUrl = up.loginUrl;
+			const again = await cli.status();
+			if (again.status && again.status.backend !== "stopped") {
+				await this.#applyStatus(cli, again.status, again.httpsProblem);
 				return;
 			}
 		}
@@ -677,9 +657,9 @@ export class MobileWebService {
 		this.#detail = this.#upError ?? "Tailscale is turned off";
 	}
 
-	async #whenRunning(cli: TailscaleCli, status: TailscaleStatus): Promise<void> {
+	async #whenRunning(cli: TailscaleCli, status: TailscaleStatus, httpsProblem: string | null): Promise<void> {
 		const host = status.dnsName;
-		const problem = httpsProblem(status) ?? (host ? null : "This machine has no MagicDNS name");
+		const problem = httpsProblem ?? (host ? null : "This machine has no MagicDNS name");
 		if (problem || !host) {
 			this.#published = false;
 			this.#phase = "https-disabled";
@@ -720,30 +700,35 @@ export class MobileWebService {
 		const base = `http://127.0.0.1:${this.#localPort}`;
 		// Serve joins the target's path to every request's path: only traffic through serve carries the secret.
 		const target = `${base}/${this.#deps.serveSecret()}`;
-		const read = await cli.serveStatus();
-		const config = read.code === 0 ? parseServeStatus(read.stdout) : null;
-		if (!config) return this.#block("serve-blocked", firstLine(read, "Could not read the serve configuration"));
-		const record = readServeRecord(this.#deps.prefs.get(MOBILE_WEB_PREFS.serve));
-		const plan = planPublish(config, host, target, record);
-		if (plan.kind === "none") return this.#block("serve-blocked", "No free port for the page on this machine");
-		if (funnelOn(config, host, plan.port))
-			return this.#refuseFunnel(
-				host,
-				plan.port,
-				handlerIsOurs(config, { host, port: plan.port, target: base }, target),
-			);
-		if (plan.kind === "publish") {
-			this.#published = false;
-			const result = await cli.servePublish(plan.port, target);
-			if (result.code !== 0) return this.#refused(result);
-			const next: ServeRecord = { host, port: plan.port, target: base };
-			this.#deps.prefs.set(MOBILE_WEB_PREFS.serve, next);
-			const after = await cli.serveStatus();
-			const verified = after.code === 0 ? parseServeStatus(after.stdout) : null;
-			if (!verified || ownProxy(verified, next, target) !== target) {
-				return this.#block("serve-blocked", "Tailscale accepted the command, but the handler is not in place");
+		const outcome = await cli.publish({
+			host,
+			target,
+			base,
+			record: this.#deps.prefs.get(MOBILE_WEB_PREFS.serve),
+			first: MOBILE_WEB_PORT,
+		});
+		switch (outcome.kind) {
+			case "blocked":
+				return this.#block("serve-blocked", outcome.detail);
+			case "exposed":
+				return this.#refuseFunnel(host, outcome.port, outcome.ours);
+			case "refused":
+				// A "turn on HTTPS" page in `serve`'s words means the tailnet needs it, anything else is a block.
+				if (outcome.guide) this.#serveGuide = outcome.guide;
+				return this.#block(outcome.guide ? "https-disabled" : "serve-blocked", outcome.detail);
+			case "published": {
+				this.#published = false;
+				const next: ServeRecord = { host, port: outcome.port, target: base };
+				this.#deps.prefs.set(MOBILE_WEB_PREFS.serve, next);
+				const confirmed = await cli.confirm({ host, port: outcome.port, base, target });
+				if (confirmed === "missing") {
+					return this.#block("serve-blocked", "Tailscale accepted the command, but the handler is not in place");
+				}
+				if (confirmed === "exposed") return this.#refuseFunnel(host, outcome.port, true);
+				break;
 			}
-			if (funnelOn(verified, host, plan.port)) return this.#refuseFunnel(host, plan.port, true);
+			case "reuse":
+				break;
 		}
 		this.#blocked = null;
 		this.#serveGuide = null;
@@ -752,12 +737,12 @@ export class MobileWebService {
 		// secret path), and only for an allowed tailnet user.
 		this.#deps.server.configure({
 			host,
-			publicPort: plan.port,
+			publicPort: outcome.port,
 			secure: true,
 			servePrefix: this.#deps.serveSecret(),
 		});
 		this.#published = true;
-		this.#port = plan.port;
+		this.#port = outcome.port;
 		this.#phase = "ready";
 		this.#detail = null;
 		this.#guideUrl = null;
@@ -769,13 +754,6 @@ export class MobileWebService {
 		this.#phase = phase;
 		this.#detail = detail;
 		this.#guideUrl = phase === "https-disabled" ? (this.#serveGuide ?? ADMIN_DNS_URL) : null;
-	}
-
-	/** `serve` refused: a "turn on HTTPS" page in its words means the tailnet needs it, anything else is a block. */
-	#refused(result: ExecResult): void {
-		const guide = extractLoginUrl(`${result.stderr}\n${result.stdout}`);
-		if (guide) this.#serveGuide = guide;
-		this.#block(guide ? "https-disabled" : "serve-blocked", firstLine(result, "tailscale serve failed"));
 	}
 
 	/** Funnel exposes our port: nothing is served, the page's server stops. */
@@ -794,33 +772,17 @@ export class MobileWebService {
 	 * other handlers are as they were. A record that no longer matches is only forgotten.
 	 */
 	async #unpublish(cli: TailscaleCli): Promise<Unpublished> {
-		const record = readServeRecord(this.#deps.prefs.get(MOBILE_WEB_PREFS.serve));
-		if (!record) {
-			if (this.#deps.prefs.get(MOBILE_WEB_PREFS.serve) !== undefined)
-				this.#deps.prefs.delete(MOBILE_WEB_PREFS.serve);
-			return { kind: "none" };
-		}
-		const read = await cli.serveStatus();
-		const before = read.code === 0 ? parseServeStatus(read.stdout) : null;
-		if (!before) return { kind: "failed", detail: firstLine(read, "Could not read the serve configuration") };
-		if (!handlerIsOurs(before, record, `${record.target}/${this.#deps.serveSecret()}`)) {
-			this.#deps.prefs.delete(MOBILE_WEB_PREFS.serve);
-			return { kind: "record-dropped" };
-		}
-		const off = await cli.serveOff(record.port);
-		if (off.code !== 0) return { kind: "failed", detail: firstLine(off, "tailscale serve off failed") };
-		const check = await cli.serveStatus();
-		const after = check.code === 0 ? parseServeStatus(check.stdout) : null;
-		this.#deps.prefs.delete(MOBILE_WEB_PREFS.serve);
-		this.#published = false;
-		if (!after) return { kind: "failed", detail: "Could not confirm that the serve handler was removed" };
-		if (!sameServeConfig(after, withoutPort(before, record.port))) {
-			return {
-				kind: "failed",
-				detail: "Tailscale's serve configuration is not what it should be after removing OMPdesk's handler",
-			};
-		}
-		return { kind: "removed" };
+		const stored = this.#deps.prefs.get(MOBILE_WEB_PREFS.serve);
+		const outcome = await cli.unpublish(stored, this.#deps.serveSecret());
+		// No record: whatever else the pref held goes. A handler that was taken down takes its record with it, also
+		// when the check after it failed; any other failure keeps the record: the handler may still be there.
+		const forget =
+			outcome.kind === "none"
+				? stored !== undefined
+				: outcome.kind === "record-dropped" || outcome.kind === "removed" || outcome.off;
+		if (forget) this.#deps.prefs.delete(MOBILE_WEB_PREFS.serve);
+		if (outcome.kind === "removed" || (outcome.kind === "failed" && outcome.off)) this.#published = false;
+		return outcome;
 	}
 
 	async #stopServer(): Promise<void> {
@@ -835,15 +797,14 @@ export class MobileWebService {
 	async #cliOrNull(): Promise<TailscaleCli | null> {
 		if (this.#cli) return this.#cli;
 		const located = await this.#deps.locate();
-		this.#cli = located ? new TailscaleCli(located, this.#deps.exec) : null;
+		this.#cli = located ? new TailscaleCli(located) : null;
 		return this.#cli;
 	}
 
 	/** The host of the control server this Tailscale signs in to (a self-hosted tailnet), asked once. */
 	async #controlHostFor(cli: TailscaleCli): Promise<string | null> {
 		if (this.#controlHost === null) {
-			const result = await cli.debugPrefs();
-			this.#controlHost = result.code === 0 ? controlHostFromPrefs(result.stdout) : null;
+			this.#controlHost = await cli.controlHost();
 		}
 		return this.#controlHost;
 	}

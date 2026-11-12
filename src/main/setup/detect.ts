@@ -16,8 +16,8 @@ import { ompBunMinimum, ompPackageRoot, parseOmpVersion, refreshSystemOmp, syste
 import { writeRuntimeLog } from "../runtime-log";
 import { brewBinDirs, spawnPath } from "../shell-env";
 import { executableName, findOnPath, needsShell, spawnArgs, spawnCommand } from "../spawn";
-import { execFileExecutor } from "../tailscale/cli";
-import { locateTailscale, systemLocateDeps } from "../tailscale/locate";
+import { TailscaleCli } from "../tailscale/cli";
+import { locateTailscale } from "../tailscale/locate";
 import { AGENT_DESKTOP_MIN_VERSION } from "./archives";
 import { readGitAslrOverride } from "./git-aslr";
 import { findGitBash, managedAgentDesktop } from "./paths";
@@ -253,21 +253,16 @@ export async function detectAgentDesktop(
  * Tailscale (Mobile web): installed when its CLI is found where Mobile web looks for it (tailscale/locate.ts). Whether
  * the daemon runs or is signed in is Mobile web's own state machine, never an install question, so a CLI that
  * does not answer `version` still counts as installed.
+ *
+ * The lookup is the core process's. When that cannot answer (its binary is damaged or gone: what setup is there to
+ * repair), Tailscale reads as not found and the rest of the detection goes on: it is an optional item that is never
+ * installed by itself.
  */
 export async function detectTailscale(platform: SetupPlatform, pathEnv: string): Promise<SetupPresence> {
 	if (platform === "other") return { kind: "missing" };
-	const located = await locateTailscale(
-		systemLocateDeps(
-			platform,
-			null,
-			async () => pathEnv,
-			async () => null,
-		),
-	);
+	const located = await locateTailscale({ platform, pref: null, pathEnv, bundle: false }).catch(() => null);
 	if (!located) return { kind: "missing" };
-	const result = await execFileExecutor(located.path, ["version"], { env: located.env, timeoutMs: 15_000 });
-	const first = result.code === 0 ? (result.stdout.split(/\r?\n/)[0] ?? "") : "";
-	return { kind: "present", version: /\d+\.\d+\.\d+/.exec(first)?.[0] ?? null, path: located.path };
+	return { kind: "present", version: await new TailscaleCli(located).version(15_000), path: located.path };
 }
 
 /**
