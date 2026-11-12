@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write as _};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -89,6 +90,9 @@ struct Inner {
     root: PathBuf,
     /// Bytes of uploads in flight, so parallel requests cannot together pass the daily cap.
     pending: Mutex<HashMap<String, u64>>,
+    /// Counts the reservations given back: a reservation whose file landed while another request read the folder is
+    /// counted by neither the folder it read nor the pending bytes it then sees, so that request reads again.
+    released: AtomicU64,
 }
 
 #[derive(Clone)]
@@ -112,6 +116,7 @@ pub fn open(user_data: &Path) -> Arc<UploadStore> {
             inner: Arc::new(Inner {
                 root,
                 pending: Mutex::default(),
+                released: AtomicU64::new(0),
             }),
         })
     }))
@@ -231,6 +236,7 @@ struct Reserved {
 impl Drop for Reserved {
     fn drop(&mut self) {
         let mut pending = lock(&self.inner.pending);
+        self.inner.released.fetch_add(1, Ordering::SeqCst);
         let left = pending
             .get(&self.device)
             .copied()
@@ -372,10 +378,16 @@ impl UploadStore {
         now: i64,
         bytes: impl FnOnce(i64) -> Result<u64, UploadFailure>,
     ) -> Result<(Reserved, i64), UploadFailure> {
-        let inner = Arc::clone(&self.inner);
-        let name = device.to_owned();
-        let live = blocking(move || inner.live_bytes(&name, now, limits.ttl_ms)).await;
-        let mut pending = lock(&self.inner.pending);
+        let (mut pending, live) = loop {
+            let seen = self.inner.released.load(Ordering::SeqCst);
+            let inner = Arc::clone(&self.inner);
+            let name = device.to_owned();
+            let live = blocking(move || inner.live_bytes(&name, now, limits.ttl_ms)).await;
+            let pending = lock(&self.inner.pending);
+            if self.inner.released.load(Ordering::SeqCst) == seen {
+                break (pending, live);
+            }
+        };
         let used = live + pending.get(device).copied().unwrap_or(0);
         let room = limits.daily_max as i64 - used as i64;
         let reserve = bytes(room)?;
@@ -536,7 +548,13 @@ impl Uploads for UploadStore {
         Box::pin(async move {
             let (parts, mut body) = request.into_parts();
             let stored = self
-                .receive_body(now_ms(), Limits::default(), &device, &parts.headers, &mut body)
+                .receive_body(
+                    now_ms(),
+                    Limits::default(),
+                    &device,
+                    &parts.headers,
+                    &mut body,
+                )
                 .await;
             if stored.is_err() {
                 // What a refused upload did not read is read out, as node's server dumped it: a socket closed with
@@ -1069,6 +1087,7 @@ mod tests {
             inner: Arc::new(Inner {
                 root: store.inner.root.clone(),
                 pending: Mutex::default(),
+                released: AtomicU64::new(0),
             }),
         };
         let again = receive(&restarted, "dev1", form("file", "c", &chunk), true).await;

@@ -91,7 +91,8 @@ async fn start(call: Call) -> Result<Reply, Fault> {
             user_data,
         }),
         push_public_key: Arc::new(move || {
-            super::push::loaded(&key_dir).map_or_else(String::new, |vapid| vapid.public_key().to_owned())
+            super::push::loaded(&key_dir)
+                .map_or_else(String::new, |vapid| vapid.public_key().to_owned())
         }),
         clock: Arc::new(now_ms),
     });
@@ -100,10 +101,16 @@ async fn start(call: Call) -> Result<Reply, Fault> {
             // node's words for the same failure.
             Fault::new(
                 "EADDRINUSE",
-                format!("listen EADDRINUSE: address already in use {SERVER_HOST}:{}", params.port),
+                format!(
+                    "listen EADDRINUSE: address already in use {SERVER_HOST}:{}",
+                    params.port
+                ),
             )
         } else {
-            Fault::new("web_listen", format!("listen {SERVER_HOST}:{}: {error}", params.port))
+            Fault::new(
+                "web_listen",
+                format!("listen {SERVER_HOST}:{}: {error}", params.port),
+            )
         }
     })?;
     let port = started.port;

@@ -441,9 +441,8 @@ impl Edge {
         drop(listener);
         self.inner.deps.desktop.decline_all();
         self.inner.deps.router.close_all(1001, "server stopping");
-        let mut sockets = std::mem::take(
-            &mut *self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner()),
-        );
+        let mut sockets =
+            std::mem::take(&mut *self.inner.sockets.lock().unwrap_or_else(|e| e.into_inner()));
         // A close handshake needs a moment; a peer that does not answer is cut off.
         let _ = tokio::time::timeout(CLOSE_GRACE, async {
             while sockets.join_next().await.is_some() {}
@@ -646,7 +645,16 @@ impl Edge {
             Check::Ok { login, target } => (login, target),
             Check::Refused {
                 status, why, login, ..
-            } => return Ok(Self::refuse(&call, &policy, status, why, login.as_deref(), kind)),
+            } => {
+                return Ok(Self::refuse(
+                    &call,
+                    &policy,
+                    status,
+                    why,
+                    login.as_deref(),
+                    kind,
+                ));
+            }
         };
         if is_hook {
             return self.hook(&call, request, &pathname).await;
