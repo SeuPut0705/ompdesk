@@ -81,6 +81,12 @@ subtle = "2"
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 brotli = { version = "8", default-features = false, features = ["std"] }
 yawc = { version = "0.5", default-features = false, features = ["zlib"] }
+# The WebSocket handshake is answered here, byte for byte as `ws` answers it (yawc's own answer differs: it puts
+# `client_max_window_bits=9` where `ws` says nothing), so the `Sec-WebSocket-Accept` digest is computed here
+# (sha1, 0.10 as yawc's own) and yawc only frames the upgraded stream; `futures-util` is its `Sink` for sending.
+# Both are already in the lockfile through yawc.
+sha1 = "0.10"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
 [target.'cfg(unix)'.dependencies]
 # errno values for node's error codes (`ENOENT: no such file or directory, stat '…'`), and the SIGTERM that asks a
