@@ -592,7 +592,9 @@ impl AgentControl {
         if let Some(opened) = source_opened {
             let control = self.clone();
             let caller_tab_id = caller.tab_id.clone();
-            tokio::spawn(async move {
+            // Started before the tool answers (its ask of the window or main's release goes first, as the
+            // TypeScript's unawaited call ran to its first await), then left to finish by itself.
+            let mut closing = Box::pin(async move {
                 let wait_ms = control.tuning.close_wait_ms;
                 let _ = control
                     .close_tab(
@@ -606,6 +608,13 @@ impl AgentControl {
                     )
                     .await;
             });
+            tokio::select! {
+                biased;
+                () = &mut closing => {}
+                () = std::future::ready(()) => {
+                    tokio::spawn(closing);
+                }
+            }
         }
         result
     }

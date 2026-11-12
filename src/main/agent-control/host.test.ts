@@ -1540,7 +1540,9 @@ describe("AgentControlRuntime", () => {
 			await runtime.run(win, "kid00002", T.report, { kind: "done", text: "All checks pass" });
 			expect(received).toEqual([]);
 			up = true;
-			await expect.poll(() => received).toEqual(["main0001"]);
+			// The next sweep tick hands it over: in the core, a tick asks main for its state, then for the tab and the
+			// mail, three round trips that a loaded runner can stretch past the poll's default second.
+			await expect.poll(() => received, { timeout: 10_000 }).toEqual(["main0001"]);
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
 		}

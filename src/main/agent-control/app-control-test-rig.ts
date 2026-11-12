@@ -9,7 +9,7 @@
  * A refusal the core makes (code `app_refusal`) is thrown here as an `AppRefusal` with the core's message.
  */
 import type { AgentAppEvent, PrivacyPane, SidebarView } from "../../shared/agent-control";
-import type { RpcCommand, RpcResponse } from "../../shared/rpc-types";
+import type { RpcCommand } from "../../shared/rpc-types";
 import { CorePort } from "../core/ports";
 import { CoreError, core } from "../core/process";
 import type { AppPorts } from "./service";
