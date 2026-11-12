@@ -455,15 +455,6 @@ export const LAUNCH_CONTINUATION_ATTEMPTS = 3;
 // ---- the client of the core's `resume` instance ------------------------------------------------------------------------
 
 /** One id per outcome or stock-retry object: the rules compared them by identity (judged once, the failure a hold is for). */
-let epoch = 0;
-if (process.env.H2_DEBUG) {
-	const realSetImmediate = setImmediate;
-	const bump = () => {
-		epoch++;
-		realSetImmediate(bump);
-	};
-	bump();
-}
 const objectIds = new WeakMap<object, number>();
 let objectSequence = 0;
 
@@ -668,7 +659,6 @@ export class TurnResume {
 
 	/** What the core pushed, in order: effects whose value the rules did not use. */
 	#item(item: HubItem): void {
-		if (process.env.H2_DEBUG) console.error("ITEM", epoch, JSON.stringify(item).slice(0, 100));
 		const deps = this.#deps;
 		const tab = item.tab as string;
 		switch (item.k) {
@@ -711,15 +701,16 @@ export class TurnResume {
 				break;
 			case "schedule": {
 				const timer = item.timer as number;
-				if (process.env.H2_DEBUG) console.error("SCHEDULE", epoch, timer, item.ms, Date.now());
 				const cancel = deps.scheduledRetry.schedule(() => {
-					if (process.env.H2_DEBUG) console.error("FIRE", epoch, timer, Date.now());
-					this.#timers.delete(timer);
 					if (this.#id !== null) this.#call("timer", { timer });
 				}, item.ms as number);
 				this.#timers.set(timer, cancel);
 				break;
 			}
+			// The core let go of a handle without cancelling it (it overwrote it): the cancel function is not kept.
+			case "forgetTimer":
+				this.#timers.delete(item.timer as number);
+				break;
 			case "cancelTimer": {
 				const timer = item.timer as number;
 				this.#timers.get(timer)?.();
@@ -767,7 +758,6 @@ export class TurnResume {
 
 	/** What the core asks. Collaborators the rules called synchronously answer at once; promises of main's are returned. */
 	#ask(q: string, item: HubItem): unknown {
-		if (process.env.H2_DEBUG) console.error("ASK", epoch, q, item.sync, (new Error().stack ?? "").split("\n").filter(l => /#drain|#call|#handle|#answer|queueMicrotask|then/.test(l)).map(l => l.trim().replace(/\(.*\)/, "").slice(0, 40)).join("|"));
 		const deps = this.#deps;
 		switch (q) {
 			case "look": {

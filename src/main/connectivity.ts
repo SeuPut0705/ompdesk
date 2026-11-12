@@ -173,12 +173,15 @@ export class ConnectivityMonitor {
 			case "schedule": {
 				const timer = item.timer as number;
 				const cancel = this.#deps.schedule(() => {
-					this.#timers.delete(timer);
 					if (this.#id !== null) this.#call("timer", { timer, isOnline: this.#deps.isOnline() });
 				}, item.ms as number);
 				this.#timers.set(timer, cancel);
 				break;
 			}
+			// The core let go of a handle without cancelling it (it overwrote it): the cancel function is not kept.
+			case "forgetTimer":
+				this.#timers.delete(item.timer as number);
+				break;
 			case "cancelTimer": {
 				const timer = item.timer as number;
 				this.#timers.get(timer)?.();
