@@ -9,6 +9,10 @@
  * are installed), read from node_modules, and Electron itself. This is a superset of
  * what Rollup tree-shook into `out/`, never a subset. The few devDependencies the
  * bundles import are type-only (unified, remark-parse, micromark-*), so none are added.
+ * A package built for some platforms only (its package.json names `os` or `cpu`: a
+ * prebuilt native addon such as `@napi-rs/canvas-win32-x64-msvc`) is left out: no bundle
+ * can carry a `.node` file, and which one is installed depends on the machine, so the
+ * file would differ between the computers that check it.
  *
  * Dependency-free and deterministic: sorted names, no dates, LF line endings.
  */
@@ -29,6 +33,8 @@ interface PackageJson {
 	licenses?: { type?: string }[];
 	dependencies?: Record<string, string>;
 	optionalDependencies?: Record<string, string>;
+	os?: string[];
+	cpu?: string[];
 }
 
 interface Component {
@@ -114,6 +120,7 @@ function collect(): { components: Component[]; missing: string[] } {
 			return;
 		}
 		const pkg = readJson(join(dir, "package.json"));
+		if (pkg.os || pkg.cpu) return;
 		const key = `${pkg.name}@${pkg.version}`;
 		if (seen.has(key)) return;
 		seen.set(key, {

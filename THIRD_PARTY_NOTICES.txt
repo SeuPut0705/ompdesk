@@ -10,7 +10,7 @@ edit it by hand.
 Electron (MIT) bundles Chromium and its third-party components, whose notices ship in
 LICENSES.chromium.html beside this file.
 
-355 npm components, in 169 license texts.
+354 npm components, in 168 license texts.
 
 ==============================================================================
 1. Components bundled with the app (npm)
@@ -6974,12 +6974,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-------------------------------------------------------------------------------
-
-@napi-rs/canvas-win32-x64-msvc 1.0.10 (MIT)
-
-This package ships no license file; its package.json declares MIT.
 
 ------------------------------------------------------------------------------
 
