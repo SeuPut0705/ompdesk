@@ -71,13 +71,14 @@ pub(super) fn kept(folder: &Folder, hash: &str) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// One blob: from the folder, else from the host (as `fetch` answers it: the host's base64, None when it has none),
-/// kept only when its bytes match its address. None leaves the reference as it is: the renderer shows that picture
+/// One blob: from the folder (unless the caller just found it `unkept` there), else from the host (as `fetch` answers
+/// it: the host's base64, None when it has none), kept only when its bytes match its address. None leaves the reference as it is: the renderer shows that picture
 /// as unavailable.
 pub(super) async fn load<F, R>(
     folder: &Arc<Folder>,
     reference: &str,
     limit: u64,
+    unkept: bool,
     fetch: F,
 ) -> Option<String>
 where
@@ -88,10 +89,12 @@ where
     if !is_hash(&hash) {
         return None;
     }
-    let reading = folder.clone();
-    let wanted = hash.clone();
-    if let Some(kept) = blocking(move || kept(&reading, &wanted)).await.ok()? {
-        return Some(kept);
+    if !unkept {
+        let reading = folder.clone();
+        let wanted = hash.clone();
+        if let Some(kept) = blocking(move || kept(&reading, &wanted)).await.ok()? {
+            return Some(kept);
+        }
     }
     let data = fetch().await.filter(|data| !data.is_empty())?;
     let bytes = node_base64(&data);
@@ -157,7 +160,7 @@ async fn shared(
         reference: &reference,
         data: None,
     };
-    loading.data = load(folder, &reference, limit, || async {
+    loading.data = load(folder, &reference, limit, true, || async {
         let mut data = Map::new();
         data.insert("ref".into(), Value::String(reference.clone()));
         let answer = ask(events, Some(scope), asker, "blob", data).await.ok()?;
@@ -182,16 +185,41 @@ struct ResolveParams {
 pub async fn resolve(call: Call) -> Result<Reply, Fault> {
     let params: ResolveParams = call.params()?;
     let folder = folder::folder(&params.dir);
-    let reads = params.refs.into_iter().map(|reference| {
-        shared(
-            &folder,
-            reference,
-            params.limit,
-            &call.events,
-            &call.scope,
-            params.asker,
-        )
-    });
+    // The folder first, every reference in one read, so the host is asked for what it lacks in the order of `refs`, as
+    // the TypeScript asked it: each `shared` below sends its ask on its first poll, and `join_all` polls in order.
+    let reading = folder.clone();
+    let wanted = params.refs.clone();
+    let on_disk: Vec<Option<String>> = blocking(move || {
+        wanted
+            .iter()
+            .map(|reference| {
+                let hash = reference.strip_prefix(BLOB_REF_PREFIX)?;
+                if is_hash(hash) {
+                    kept(&reading, hash)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    })
+    .await?;
+    let reads = params
+        .refs
+        .into_iter()
+        .zip(on_disk)
+        .map(|(reference, on_disk)| {
+            let folder = &folder;
+            let events = &call.events;
+            let scope = &call.scope;
+            async move {
+                match on_disk {
+                    Some(data) => Some(data),
+                    None => {
+                        shared(folder, reference, params.limit, events, scope, params.asker).await
+                    }
+                }
+            }
+        });
     let found = futures_util::future::join_all(reads).await;
     Reply::json(&found)
 }
