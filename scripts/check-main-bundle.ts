@@ -314,7 +314,10 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // Fallback models in Settings › Models & accounts (12 Nov 2026): their strings in the English catalog, which the first
 // screen loads (the block itself is Settings', off it), less the Agent row they replace: measured 2,197,738 on the
 // working tree beside other uncommitted Settings strings, 46 bytes over.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_197_738;
+// The Fable limit in the chat's work status (12 Nov 2026, `lib/usage-windows.ts` `accountWindows` with the session's
+// model, `UsageGauges` and its tooltip; the work board's meter row is the first screen): measured 2,198,011 on c5803493
+// by ci.yml's build, 273 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_198_011;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
