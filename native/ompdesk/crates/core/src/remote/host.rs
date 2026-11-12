@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
-use tokio::task::AbortHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 
 use super::address;
 use super::handshake::{self, Bound, GatePass, HostEnd, HostSide, Opened};
@@ -25,7 +25,7 @@ const TRAFFIC_LOG: Duration = Duration::from_secs(60);
 /// One host (main's `RemoteHost`, by its number).
 #[derive(Default)]
 pub struct Host {
-    listeners: Vec<AbortHandle>,
+    listeners: Vec<JoinHandle<()>>,
     /// The links its handshakes became, and the handshakes running.
     links: HashSet<u64>,
     aborts: HashMap<u64, AbortHandle>,
@@ -115,7 +115,7 @@ pub async fn listen(
     identity: Arc<Identity>,
 ) -> Result<Listening, Fault> {
     let id = params.host;
-    close_listeners(id);
+    close_listeners(id).await;
     let mut out = Listening {
         port: None,
         listening: Vec::new(),
@@ -185,7 +185,7 @@ pub async fn listen(
         let entry = state.hosts.entry(id).or_default();
         for listener in listeners {
             let task = tokio::spawn(accept(listener, Arc::clone(&config), events.clone()));
-            entry.listeners.push(task.abort_handle());
+            entry.listeners.push(task);
         }
         let log_port = *candidate != candidates[0] && entry.logged_port != Some(port);
         if log_port {
@@ -214,25 +214,27 @@ pub async fn listen(
     Ok(out)
 }
 
-/// Stops listening at once; links accepted on these listeners stay open.
-pub fn close_listeners(host: u64) {
-    let mut state = super::state();
-    if let Some(entry) = state.hosts.get_mut(&host) {
-        for listener in entry.listeners.drain(..) {
-            listener.abort();
-        }
+/// Stops listening and returns once the sockets are closed (the next listen takes the same port); links accepted on
+/// these listeners stay open.
+pub async fn close_listeners(host: u64) {
+    let listeners: Vec<JoinHandle<()>> = match super::state().hosts.get_mut(&host) {
+        Some(entry) => entry.listeners.drain(..).collect(),
+        None => Vec::new(),
+    };
+    for listener in listeners {
+        listener.abort();
+        // An aborted task's future, and the listener it owns, are dropped before its handle resolves.
+        let _ = listener.await;
     }
 }
 
 /// Stops listening and ends every connection of the host, in its handshake or linked.
-pub fn stop(host: u64) {
+pub async fn stop(host: u64) {
+    close_listeners(host).await;
     let mut state = super::state();
     let Some(mut entry) = state.hosts.remove(&host) else {
         return;
     };
-    for listener in entry.listeners.drain(..) {
-        listener.abort();
-    }
     for (_, handshake) in entry.aborts.drain() {
         handshake.abort();
     }
