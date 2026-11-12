@@ -669,3 +669,92 @@ pub fn file_identity(file: &std::fs::File) -> std::io::Result<(u32, u64, u32)> {
         information.links,
     ))
 }
+
+/// libuv's `lstat` counts a Windows link by the UTF-8 bytes of its target text, not the reparse entry's `EndOfFile`.
+#[cfg(windows)]
+pub fn file_link_size(file: &std::fs::File) -> std::io::Result<u64> {
+    use std::ffi::c_void;
+    use std::io;
+    use std::os::windows::io::AsRawHandle;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn DeviceIoControl(
+            device: *mut c_void,
+            code: u32,
+            input: *mut c_void,
+            input_bytes: u32,
+            output: *mut c_void,
+            output_bytes: u32,
+            returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+    }
+
+    const FSCTL_GET_REPARSE_POINT: u32 = 0x0009_00a8;
+    const IO_REPARSE_TAG_SYMLINK: u32 = 0xa000_000c;
+    const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xa000_0003;
+    let mut buffer = [0u16; 8_192];
+    let mut returned = 0;
+    // SAFETY: `file` is a live handle opened on the reparse point itself. The aligned output buffer has the
+    // advertised 16 KiB capacity, `returned` is writable, and neither pointer outlives this synchronous call.
+    if unsafe {
+        DeviceIoControl(
+            file.as_raw_handle(),
+            FSCTL_GET_REPARSE_POINT,
+            std::ptr::null_mut(),
+            0,
+            buffer.as_mut_ptr().cast(),
+            16_384,
+            &raw mut returned,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid link reparse data");
+    let units = usize::try_from(returned).map_err(|_| invalid())? / 2;
+    let buffer = buffer.get(..units).ok_or_else(invalid)?;
+    if buffer.len() < 8 {
+        return Err(invalid());
+    }
+    let tag = u32::from(buffer[0]) | (u32::from(buffer[1]) << 16);
+    let base = match tag {
+        IO_REPARSE_TAG_SYMLINK => 10,
+        IO_REPARSE_TAG_MOUNT_POINT => 8,
+        _ => return Err(invalid()),
+    };
+    if buffer[4] % 2 != 0 || buffer[5] % 2 != 0 {
+        return Err(invalid());
+    }
+    let start = base + usize::from(buffer[4]) / 2;
+    let end = start + usize::from(buffer[5]) / 2;
+    let target = buffer.get(start..end).ok_or_else(invalid)?;
+    let nt = target.starts_with(&[92, 63, 63, 92]);
+    let drive = nt
+        && target.len() >= 6
+        && ((65..=90).contains(&target[4]) || (97..=122).contains(&target[4]))
+        && target[5] == 58
+        && (target.len() == 6 || target[6] == 92);
+    if tag == IO_REPARSE_TAG_MOUNT_POINT && !drive {
+        return Err(invalid());
+    }
+    let unc = nt
+        && target.len() >= 8
+        && target[4] | 32 == 117
+        && target[5] | 32 == 110
+        && target[6] | 32 == 99
+        && target[7] == 92;
+    let (target, prefix) = if drive {
+        (&target[4..], 0)
+    } else if unc {
+        (&target[8..], 2)
+    } else {
+        (target, 0)
+    };
+    Ok(prefix
+        + char::decode_utf16(target.iter().copied())
+            .map(|character| character.map_or(3, |character| character.len_utf8() as u64))
+            .sum::<u64>())
+}

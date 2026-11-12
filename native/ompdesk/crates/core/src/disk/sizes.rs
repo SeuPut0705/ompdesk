@@ -203,7 +203,11 @@ fn lstat(path: &Path) -> Option<Entry> {
         ino: index,
         dev: u64::from(volume),
         links: u64::from(links),
-        bytes: meta.len(),
+        bytes: if meta.is_symlink() {
+            crate::sys::file_link_size(&file).ok()?
+        } else {
+            meta.len()
+        },
     })
 }
 
@@ -658,6 +662,75 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn measures_windows_links_as_entries_and_hardlinks_once() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        let dir = tree("windows-links");
+        let root = dir.join("tree");
+        write(&root, "file", 10_000);
+        write(&dir, "outside/big", 500_000);
+        fs::hard_link(root.join("file"), root.join("again")).unwrap();
+        symlink_dir(dir.join("outside"), root.join("dir-link")).unwrap();
+        symlink_file(dir.join("outside/big"), root.join("file-link")).unwrap();
+        let measured = measure(&root, None, 0.0, &Scope::detached()).unwrap();
+        let expected = 10_000
+            + dir.join("outside").to_string_lossy().len() as u64
+            + dir.join("outside/big").to_string_lossy().len() as u64;
+        assert_eq!(measured.bytes, expected);
+        assert_eq!(measured.work.readdir, 1);
+        assert_eq!(
+            full(&root.join("dir-link")),
+            dir.join("outside").to_string_lossy().len() as u64
+        );
+        crate::disk::tree::remove(&dir, false, &Scope::detached()).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    // Windows 11, 12 Nov 2026: node captured junction=77, directory=77, file=82, gone=14, unc=22, verbatim=82 bytes.
+    // Absolute target lengths depend on this run's temp path; compare with node rather than pinning that path.
+    fn measures_windows_reparse_links_as_node_does() {
+        let dir = tree("node-links");
+        let root = dir.join("tree");
+        write(&dir, "outside/kept", 100_000);
+        fs::create_dir_all(&root).unwrap();
+        let output = std::process::Command::new("node")
+            .arg("-e")
+            .arg(
+                r#"const fs = require("node:fs"), p = require("node:path");
+const root = process.argv[1], outside = p.join(root, "..", "outside");
+for (const [name, target, type] of [
+    ["junction", p.resolve(outside), "junction"],
+    ["directory", p.resolve(outside), "dir"],
+    ["file", p.resolve(outside, "kept"), "file"],
+    ["gone", p.join("..", "missing-한"), "file"],
+    ["verbatim", "\\\\?\\" + p.resolve(outside, "kept"), "file"],
+    ["unc", "\\\\?\\UNC\\server\\share\\missing", "file"],
+]) fs.symlinkSync(target, p.join(root, name), type);
+console.log(JSON.stringify(Object.fromEntries(fs.readdirSync(root).map(
+    name => [name, fs.lstatSync(p.join(root, name)).size]
+))));"#,
+            )
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let captured: BTreeMap<String, u64> = serde_json::from_slice(&output.stdout).unwrap();
+        println!("Windows node lstat capture: {captured:?}");
+        for (name, expected) in &captured {
+            assert_eq!(full(&root.join(name)), *expected, "{name}");
+        }
+        let measured = measure(&root, None, 0.0, &Scope::detached()).unwrap();
+        assert_eq!(measured.bytes, captured.values().sum::<u64>());
+        assert_eq!(measured.work.readdir, 1, "no link target is descended");
+        assert_eq!(
+            fs::read(dir.join("outside/kept")).unwrap(),
+            vec![b'x'; 100_000]
+        );
+        crate::disk::tree::remove(&dir, false, &Scope::detached()).unwrap();
+    }
+
     /// A file system that refuses a name that is not UTF-8 (APFS answers EILSEQ) cannot hold one: nothing to measure.
     #[cfg(unix)]
     #[test]
@@ -747,7 +820,15 @@ mod tests {
         write(&target, "a/b/two", 70_000);
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3_600);
         for folder in ["a/b", "a", ""] {
-            fs::File::open(target.join(folder))
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                options.access_mode(0x100).custom_flags(0x0200_0000);
+            }
+            options
+                .open(target.join(folder))
                 .unwrap()
                 .set_modified(old)
                 .unwrap();

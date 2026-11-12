@@ -113,7 +113,7 @@ fn walk_files(root: &str, relative: &str, out: &mut Vec<Archived>) -> Result<(),
     out.push(Archived {
         path: relative.to_owned(),
         mode: mode_of(&meta),
-        size: meta.len(),
+        size: tree::entry_size(&path, &meta)?,
         link: meta.file_type().is_symlink(),
         overwrite: false,
     });
@@ -290,7 +290,11 @@ pub async fn check(
             .filter(|file| !excluded(file, &exclude))
         {
             live(&held)?;
-            total += std::fs::symlink_metadata(under(&root, file)).map_or(0, |meta| meta.len());
+            let path = under(&root, file);
+            total += std::fs::symlink_metadata(&path)
+                .ok()
+                .and_then(|meta| tree::entry_size(&path, &meta).ok())
+                .unwrap_or(0);
         }
         Ok(total)
     })
@@ -736,8 +740,11 @@ pub fn settle(worktree: &str, archive_dir: &str, scope: &Scope) -> Result<bool, 
     let manifest = read_manifest(archive_dir)?;
     relative_entries(manifest.files.iter().map(|file| file.path.as_str()))?;
     let intact = manifest.files.iter().all(|file| {
-        std::fs::symlink_metadata(under(worktree, &file.path))
-            .is_ok_and(|meta| meta.len() == file.size)
+        let path = under(worktree, &file.path);
+        std::fs::symlink_metadata(&path)
+            .ok()
+            .and_then(|meta| tree::entry_size(&path, &meta).ok())
+            == Some(file.size)
     });
     if intact {
         remove(Path::new(archive_dir), false, scope)?;
@@ -1020,6 +1027,65 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn archives_and_restores_windows_links_and_readonly_files() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+        let dir = std::env::temp_dir().join(format!(
+            "ompdesk-core-archive-windows-{}",
+            std::process::id()
+        ));
+        let worktree = dir.join("wt");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("kept"), "kept").unwrap();
+        fs::write(worktree.join("readonly"), "original").unwrap();
+        tree::chmod(&worktree.join("readonly"), 0o444).unwrap();
+        symlink_dir(&outside, worktree.join("dir-link")).unwrap();
+        symlink_file(outside.join("kept"), worktree.join("file-link")).unwrap();
+        let archive = dir.join("saved/one");
+        let wt = worktree.to_string_lossy();
+        let scope = Scope::detached();
+        let (files, _) = write_archive(
+            &wt,
+            &["readonly".into(), "dir-link".into(), "file-link".into()],
+            &archive.to_string_lossy(),
+            &["readonly".into()],
+            &scope,
+        )
+        .unwrap();
+        assert_eq!(files, 3);
+        assert!(
+            !fs::metadata(archive.join("files/readonly"))
+                .unwrap()
+                .permissions()
+                .readonly()
+        );
+        tree::remove(&worktree, false, &scope).unwrap();
+        fs::create_dir_all(&worktree).unwrap();
+        fs::write(worktree.join("readonly"), "checkout").unwrap();
+        tree::chmod(&worktree.join("readonly"), 0o444).unwrap();
+        assert_eq!(
+            restore(&wt, &archive.to_string_lossy(), &scope).unwrap(),
+            (3, 0)
+        );
+        assert_eq!(fs::read(worktree.join("readonly")).unwrap(), b"original");
+        assert!(
+            fs::metadata(worktree.join("readonly"))
+                .unwrap()
+                .permissions()
+                .readonly()
+        );
+        assert_eq!(fs::read_link(worktree.join("dir-link")).unwrap(), outside);
+        assert_eq!(
+            fs::read_link(worktree.join("file-link")).unwrap(),
+            outside.join("kept")
+        );
+        assert_eq!(fs::read(outside.join("kept")).unwrap(), b"kept");
+        tree::remove(&dir, false, &scope).unwrap();
+    }
+
     #[test]
     fn keeps_a_worktree_whose_archive_is_too_big_and_writes_nothing_after_a_cancel() {
         let dir = std::env::temp_dir().join(format!(
@@ -1054,7 +1120,13 @@ mod tests {
         fs::write(dir.join("outside/kept"), "kept").unwrap();
         let wt = worktree.to_string_lossy().into_owned();
         let scope = Scope::detached();
-        for bad in ["../outside/", "/", "./", ""] {
+        let bad_entries = ["../outside/", "/", "./", ""];
+        #[cfg(windows)]
+        let bad_entries =
+            bad_entries
+                .into_iter()
+                .chain(["C:\\x", "\\\\server\\share\\x", "a:b", "..\\x"]);
+        for bad in bad_entries {
             let entries = vec![
                 Droppable {
                     path: "out/".into(),

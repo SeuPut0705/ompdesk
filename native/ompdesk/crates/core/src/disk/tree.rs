@@ -233,6 +233,22 @@ pub fn read_link(path: &Path) -> Result<PathBuf, Fault> {
     fs::read_link(path).map_err(|error| fault(&error, "readlink", path))
 }
 
+pub fn entry_size(path: &Path, meta: &fs::Metadata) -> Result<u64, Fault> {
+    #[cfg(windows)]
+    if meta.is_symlink() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let file = fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(0x0200_0000 | 0x0020_0000)
+            .open(path)
+            .map_err(|error| fault(&error, "lstat", path))?;
+        return crate::sys::file_link_size(&file).map_err(|error| fault(&error, "lstat", path));
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+    Ok(meta.len())
+}
+
 /// Waits of a refused rename (`RETRY_MS` in `atomic-file.ts`): 20 ms doubling, about 5 s in all.
 const RENAME_RETRY_MS: [u64; 8] = [20, 40, 80, 160, 320, 640, 1_280, 2_560];
 
@@ -340,6 +356,48 @@ mod tests {
         );
         remove(&target, false, &Scope::detached()).unwrap();
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn removes_windows_directory_links_without_touching_their_target() {
+        use std::os::windows::fs::symlink_dir;
+        let dir = temp("windows-links");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("kept.txt"), "kept").unwrap();
+        let target = dir.join("target");
+        fs::create_dir_all(&target).unwrap();
+        symlink_dir(&outside, target.join("symlink")).unwrap();
+        let junction = target.join("junction");
+        let made = std::process::Command::new("cmd.exe")
+            .args(["/D", "/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        assert!(fs::symlink_metadata(&junction).unwrap().is_symlink());
+        remove(&target, true, &Scope::detached()).unwrap();
+        assert!(!target.exists());
+        assert_eq!(fs::read(outside.join("kept.txt")).unwrap(), b"kept");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn removes_a_windows_readonly_file_and_a_long_path() {
+        let dir = temp("windows-readonly");
+        let deep = dir
+            .join("long-component".repeat(10))
+            .join("long-component".repeat(10));
+        fs::create_dir_all(&deep).unwrap();
+        let file = deep.join("readonly");
+        fs::write(&file, "git object").unwrap();
+        chmod(&file, 0o444).unwrap();
+        assert!(fs::metadata(&file).unwrap().permissions().readonly());
+        remove(&dir, true, &Scope::detached()).unwrap();
+        assert!(!dir.exists());
     }
 
     #[test]
