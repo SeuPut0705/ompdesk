@@ -284,7 +284,7 @@ flowchart LR
 
 ### 3.3 When to start the hub program
 
-Before the shell is swapped, each hub unit adds a pipe hop to every command it serves and a mirror of its state in main, and wins nothing at run time: main still parses every omp event to hand it to Electron's windows. The ledger's step 3 says the swap is taken when the CEF prototype passes. The cheaper order is waves 1–4 now, the prototype next, and the hub program once the prototype passes, with 9a (the command entry) as its first unit. If the owner wants the hubs earlier, 9c's mirror pattern (main keeps a copy written only from the core's events) and 3a's snapshot pattern are how; each unit then has to show, by its parity suite and its formal model, that no same-tick read sees a stale mirror.
+Before the shell is swapped, each hub unit adds a pipe hop to every command it serves and a mirror of its state in main, and wins nothing at run time: main still parses every omp event to hand it to Electron's windows. The ledger says the shell is chosen by a prototype that measures three candidates (CEF, the system webview alone, the system webview with a separate Chromium for the Preview) against one pass list. The cheaper order is waves 1–4 now, the prototype next, and the hub program once the prototype passes, with 9a (the command entry) as its first unit. If the owner wants the hubs earlier, 9c's mirror pattern (main keeps a copy written only from the core's events) and 3a's snapshot pattern are how; each unit then has to show, by its parity suite and its formal model, that no same-tick read sees a stale mirror.
 
 ## 4. What cannot move until the shell is swapped
 
