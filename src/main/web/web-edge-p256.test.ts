@@ -32,8 +32,8 @@ interface Proof {
 	signature: string;
 }
 interface Made {
-	publicKeyJwk: JsonWebKey;
-	otherPublicKeyJwk: JsonWebKey;
+	publicKeyJwk: NodeJsonWebKey;
+	otherPublicKeyJwk: NodeJsonWebKey;
 	proofs: Proof[];
 }
 
@@ -96,7 +96,9 @@ for (const name of ["chromium", "webkit"] as const) {
 			try {
 				const page = await browser.newPage();
 				// WebCrypto needs a secure context: an https origin the page never reaches.
-				await page.route("https://device.example/", route => route.fulfill({ contentType: "text/html", body: "<!doctype html>" }));
+				await page.route("https://device.example/", route =>
+					route.fulfill({ contentType: "text/html", body: "<!doctype html>" }),
+				);
 				await page.goto("https://device.example/");
 				const made = await page.evaluate(inPage, NONCES);
 				captured[name] = made;
@@ -109,12 +111,25 @@ for (const name of ["chromium", "webkit"] as const) {
 					for (const at of [0, 31, 32, 63]) {
 						const flipped = Buffer.from(raw);
 						flipped[at] = (flipped[at] ?? 0) ^ 0x01;
-						expect(verifyDeviceProof(made.publicKeyJwk, nonce, flipped.toString("base64url")), `bit flipped at ${at}`).toBe(false);
+						expect(
+							verifyDeviceProof(made.publicKeyJwk, nonce, flipped.toString("base64url")),
+							`bit flipped at ${at}`,
+						).toBe(false);
 					}
 					expect(verifyDeviceProof(made.otherPublicKeyJwk, nonce, signature), "another key").toBe(false);
 					expect(verifyDeviceProof(made.publicKeyJwk, nonce, der(raw).toString("base64url")), "DER").toBe(false);
-					expect(verifyDeviceProof(made.publicKeyJwk, nonce, raw.subarray(0, 63).toString("base64url")), "63 bytes").toBe(false);
-					expect(verifyDeviceProof(made.publicKeyJwk, nonce, Buffer.concat([raw, Buffer.from([0])]).toString("base64url")), "65 bytes").toBe(false);
+					expect(
+						verifyDeviceProof(made.publicKeyJwk, nonce, raw.subarray(0, 63).toString("base64url")),
+						"63 bytes",
+					).toBe(false);
+					expect(
+						verifyDeviceProof(
+							made.publicKeyJwk,
+							nonce,
+							Buffer.concat([raw, Buffer.from([0])]).toString("base64url"),
+						),
+						"65 bytes",
+					).toBe(false);
 					expect(verifyDeviceProof(made.publicKeyJwk, nonce, ""), "empty").toBe(false);
 				}
 			} finally {

@@ -18,7 +18,9 @@ import {
 	type KeyObject,
 	randomBytes,
 } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import type { Socket } from "node:net";
+import { join } from "node:path";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
@@ -653,4 +655,12 @@ export async function legacyHostHandshake(
 	const deviceHello = await link.receive(10_000);
 	link.send({ t: "hello", protocol: 1, ...hello });
 	return { init, hello: deviceHello };
+}
+
+/** The identity file `remote-identity.json` as a released build wrote it, for a profile made before its app runs. */
+export async function writeLegacyIdentity(userData: string): Promise<{ deviceId: string; publicKey: string }> {
+	const { deviceId, publicKey, privateKey } = legacyIdentity();
+	const file = { v: 1, deviceId, publicKey, privateKey: exportPrivateKey(privateKey) };
+	await writeFile(join(userData, "remote-identity.json"), `${JSON.stringify(file, null, "\t")}\n`, { mode: 0o600 });
+	return { deviceId, publicKey };
 }
