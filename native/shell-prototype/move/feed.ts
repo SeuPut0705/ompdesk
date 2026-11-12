@@ -2,20 +2,21 @@
 // Windows asset is the handoff installer. The app reaches it through Chromium's own switches
 // (`--host-resolver-rules=MAP api.github.com 127.0.0.1:<port>` + `--ignore-certificate-errors`), so the updater code
 // that runs is exactly the released one.
-// bun feed.ts --setup <ompdesk-windows-setup.exe> --version 0.200.0 [--port 8443]
+// bun feed.ts --setup <ompdesk-windows-setup.exe> | --mac <ompdesk-mac-arm64.dmg> --version 0.200.0 [--port 8443]
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
-	options: { setup: { type: "string" }, version: { type: "string" }, port: { type: "string", default: "8443" } },
+	options: { setup: { type: "string" }, mac: { type: "string" }, version: { type: "string" }, port: { type: "string", default: "8443" } },
 });
-const setup = values.setup ?? "";
+const mac = values.mac !== undefined;
+const setup = values.mac ?? values.setup ?? "";
 const version = values.version ?? "0.200.0";
 const bytes = new Uint8Array(await Bun.file(setup).arrayBuffer());
 const sha512 = createHash("sha512").update(bytes).digest("base64");
-const name = "ompdesk-windows-setup.exe";
+const name = mac ? "ompdesk-mac-arm64.dmg" : "ompdesk-windows-setup.exe";
 const certDir = join(import.meta.dir, "..", "results");
 const key = join(certDir, "feed-key.pem");
 const cert = join(certDir, "feed-cert.pem");
@@ -23,7 +24,7 @@ if (!existsSync(cert)) {
 	await Bun.$`mkdir -p ${certDir}`;
 	await Bun.$`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${key} -out ${cert} -days 2 -subj /CN=api.github.com`.quiet();
 }
-const metadata = { version, releaseDate: new Date().toISOString(), files: { windows: { name, size: bytes.length, sha512 } } };
+const metadata = { version, releaseDate: new Date().toISOString(), files: { [mac ? "mac" : "windows"]: { name, size: bytes.length, sha512 } } };
 const release = {
 	tag_name: `v${version}`,
 	name: `v${version}`,
@@ -39,9 +40,14 @@ const server = Bun.serve({
 	fetch(request) {
 		const url = new URL(request.url);
 		console.log(JSON.stringify({ at: Date.now(), method: request.method, path: url.pathname }));
+		// The token probe (update-auth.ts checkRepoAccess): a public repository answers 200.
+		if (url.pathname === "/repos/SeuPut0705/ompdesk") return Response.json({ full_name: "SeuPut0705/ompdesk", private: false });
 		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/latest") return Response.json(release);
 		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases") return Response.json([release]);
-		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1")
+		// macOS reads the asset as GitHub serves it: a 302 from the API to the storage host (updater.ts signedAssetUrl).
+		if (mac && url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1")
+			return new Response(null, { status: 302, headers: { location: `https://api.github.com/download/${name}` } });
+		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1" || url.pathname === `/download/${name}`)
 			return new Response(bytes, { headers: { "content-type": "application/octet-stream" } });
 		return new Response("not here", { status: 404 });
 	},

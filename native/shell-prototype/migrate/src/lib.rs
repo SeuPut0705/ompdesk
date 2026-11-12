@@ -102,6 +102,10 @@ pub fn decrypt_safe_storage(user_data: &Path, blob: &[u8]) -> Result<String, Str
 #[cfg(target_os = "macos")]
 pub fn decrypt_safe_storage(_user_data: &Path, blob: &[u8]) -> Result<String, String> {
     use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+    // The prototype never reads a real user's keychain item: only the move test's HOME (shell `--proto-home`) is allowed.
+    if std::env::var_os("OMPDESK_PROTO_KEYCHAIN_OK").is_none() {
+        return Err("keychain read disabled outside the move test (no --proto-home)".into());
+    }
     let service = std::env::var("OMPDESK_PROTO_KEYCHAIN_SERVICE").unwrap_or_else(|_| "ompdesk Safe Storage".into());
     let account = std::env::var("OMPDESK_PROTO_KEYCHAIN_ACCOUNT").unwrap_or_else(|_| "ompdesk Key".into());
     let password = security_framework::passwords::get_generic_password(&service, &account)

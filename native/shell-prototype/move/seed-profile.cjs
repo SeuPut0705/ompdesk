@@ -7,6 +7,19 @@ const path = require("node:path");
 app.setName("ompdesk");
 app.whenReady().then(async () => {
 	const dir = app.getPath("userData");
+	// SEED_READ=1: only read the token back (a later launch of the same, or of a re-signed, bundle).
+	if (process.env.SEED_READ) {
+		let out;
+		try {
+			const plain = safeStorage.decryptString(fs.readFileSync(path.join(dir, "update-token.bin")));
+			out = { ok: true, sha256_8: require("node:crypto").createHash("sha256").update(plain).digest("hex").slice(0, 8) };
+		} catch (error) {
+			out = { ok: false, error: String(error) };
+		}
+		console.log(JSON.stringify({ read: out }));
+		app.quit();
+		return;
+	}
 	const token = process.env.STAND_IN_TOKEN || "ghp_STANDIN_not_a_real_token_0123456789";
 	fs.writeFileSync(path.join(dir, "update-token.bin"), safeStorage.encryptString(token), { mode: 0o600 });
 	fs.writeFileSync(path.join(dir, "deleted-sessions.json"), JSON.stringify({ version: 1, entries: [] }));

@@ -96,7 +96,7 @@ fn inject_index(cfg: &Cfg, html: String) -> Vec<u8> {
     let _ = cfg;
     if !h.contains("data-platform") {
         if let Some(i) = h.find("<html") {
-            h.insert_str(i + 5, " data-platform=\"win32\"");
+            h.insert_str(i + 5, if cfg!(windows) { " data-platform=\"win32\"" } else { " data-platform=\"darwin\"" });
         }
     }
     h.into_bytes()
@@ -118,7 +118,7 @@ pub fn serve(cfg: &Cfg, method: &str, target: &str, range: Option<&str>, body: &
         return Reply::new(204);
     }
     if path == "/__shell/shell-ui.js" {
-        let js = format!("window.__SHELL={{mode:{:?},platform:\"win32\"}};\n{UI_JS}", cfg.mode);
+        let js = format!("window.__SHELL={{mode:{:?},platform:{:?}}};\n{UI_JS}", cfg.mode, if cfg!(windows) { "win32" } else { "darwin" });
         let mut r = Reply::new(200).header("Content-Type", "text/javascript; charset=utf-8");
         r.body = js.into_bytes();
         return r;

@@ -5,10 +5,10 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import sharp from "sharp";
 
-const root = join(homedir(), "AppData/Local/ms-playwright");
+const root = process.platform === "darwin" ? join(homedir(), "Library/Caches/ms-playwright") : join(homedir(), "AppData/Local/ms-playwright");
 const dir = readdirSync(root).find(name => name.startsWith("ffmpeg-"));
 if (!dir) throw new Error("no Playwright ffmpeg");
-const ffmpeg = join(root, dir, "ffmpeg-win64.exe");
+const ffmpeg = join(root, dir, process.platform === "darwin" ? "ffmpeg-mac" : "ffmpeg-win64.exe");
 const out = resolve(import.meta.dir, "../shell-assets/video.webm");
 const fps = 15;
 const seconds = 60;

@@ -1,4 +1,5 @@
 mod cdp;
+#[cfg(windows)]
 mod hit;
 mod preview;
 mod scheme;
@@ -17,7 +18,12 @@ use tauri::webview::{PageLoadEvent, WebviewBuilder};
 use tauri::window::WindowBuilder;
 use tauri::{Manager, PhysicalPosition, PhysicalSize, RunEvent, WebviewUrl, WindowEvent};
 
+#[cfg(windows)]
 const SCHEME_URL: &str = "ompdesk-proto://";
+// macOS: its own scheme, so Launch Services never hands it candidate (a)'s links.
+#[cfg(not(windows))]
+const SCHEME_URL: &str = "ompdesk-proto-t2://";
+#[cfg(windows)]
 const WV_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-allow-origins=*";
 
 // ---------------------------------------------------------------- log
@@ -86,7 +92,13 @@ fn parse_args() -> Args {
         debug_port: None,
         user_data: std::env::var_os("OMPDESK_PROTO_USER_DATA")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("ompdesk-proto")),
+            .unwrap_or_else(|| {
+                if cfg!(windows) {
+                    PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("ompdesk-proto")
+                } else {
+                    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/ompdesk-proto-t2")
+                }
+            }),
         log: None,
         selftest: false,
         exit_after: None,
@@ -193,7 +205,11 @@ fn mark(bit: u8) {
 
 /// cef-child: the WebView2 child window outranks the foreign window in z-order; put the host's on top.
 fn raise_host() {
+    #[cfg(not(windows))]
+    return;
+    #[cfg(windows)]
     let s = sh();
+    #[cfg(windows)]
     if let Some(h) = s.host.lock().unwrap().as_ref() {
         let n = hit::raise_host_child(*s.hwnd.lock().unwrap(), h.pid());
         log("preview.raise", json!({"raised": n}));
@@ -207,8 +223,10 @@ fn layout(w: u32, h: u32, scale: f64) -> (i32, i32, i32, i32) {
 }
 
 // ---------------------------------------------------------------- CDP through WebView2
+#[cfg(windows)]
 struct Wv2Cdp(tauri::Webview);
 
+#[cfg(windows)]
 impl Cdp for Wv2Cdp {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
         use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
@@ -251,10 +269,18 @@ fn run_selftests() {
         .to_string();
     if s.args.preview.is_some() {
         match s.args.mode {
+            #[cfg(windows)]
             PMode::Webview2 => {
                 let wv = s.preview_wv.lock().unwrap().clone().expect("preview webview");
                 selftest::run(&mut Wv2Cdp(wv), &s.out_dir);
                 selftest::external(s.args.debug_port, &filter);
+            }
+            // WKWebView: no DevTools protocol in-process (no CallDevToolsProtocolMethod equivalent) and no
+            // remote-debugging port; the only remote inspector is Safari's over webinspectord (not CDP).
+            #[cfg(not(windows))]
+            PMode::Webview2 => {
+                log("selftest.cdp_evaluate", json!({"ok": false, "error": "WKWebView exposes no CDP: no in-process DevTools call, no debugging port"}));
+                selftest::external(s.args.debug_port.or(Some(9302)), &filter);
             }
             _ => {
                 let port = s.args.cdp_port;
@@ -270,8 +296,17 @@ fn run_selftests() {
             }
         }
     }
+    #[cfg(not(windows))]
+    {
+        log("selftest.hittest", json!({"ok": null, "skipped": "WM_NCHITTEST is Windows-only"}));
+        return;
+    }
+    #[cfg(windows)]
     let t = Instant::now();
+    #[cfg(windows)]
     let mut pts: Vec<(String, f64, f64)> = vec![];
+    #[cfg(windows)]
+    {
     let mut regions = Value::Null;
     if let Some(wv) = s.page_wv.lock().unwrap().clone() {
         let js = "(()=>{const out=[];for(const el of document.querySelectorAll('*')){const cs=getComputedStyle(el);if((cs.webkitAppRegion||cs.appRegion)==='drag'){const r=el.getBoundingClientRect();if(r.width>20&&r.height>10)out.push([r.x,r.y,r.width,r.height,String(el.className)])}}return out})()";
@@ -293,6 +328,7 @@ fn run_selftests() {
     v["ok"] = json!(ok);
     v["ms"] = json!(t.elapsed().as_millis() as u64);
     log("selftest.hittest", v);
+    }
 }
 
 // ---------------------------------------------------------------- scheme handler
@@ -334,6 +370,27 @@ fn handle(app: &tauri::AppHandle, method: &str, target: &str, range: Option<&str
         }
         _ => scheme::serve(&s.cfg, method, target, range, body),
     }
+}
+
+#[cfg(windows)]
+fn bargs_of() -> String {
+    let mut b = WV_ARGS.to_string();
+    if let Some(p) = sh().args.debug_port {
+        b += &format!(" --remote-debugging-port={p}");
+    }
+    b
+}
+#[cfg(not(windows))]
+fn bargs_of() -> String {
+    String::new()
+}
+#[cfg(windows)]
+fn wv_args<R: tauri::Runtime>(b: WebviewBuilder<R>, a: &str) -> WebviewBuilder<R> {
+    b.additional_browser_args(a)
+}
+#[cfg(not(windows))]
+fn wv_args<R: tauri::Runtime>(b: WebviewBuilder<R>, _a: &str) -> WebviewBuilder<R> {
+    b
 }
 
 // ---------------------------------------------------------------- main
@@ -404,6 +461,7 @@ fn main() {
             *LOG.lock().unwrap() = File::create(&log_path).ok();
 
             let app_id = std::env::var("OMPDESK_PROTO_APP_ID").unwrap_or_else(|_| "com.seuput.ompdesk.proto".into());
+            #[cfg(windows)]
             unsafe {
                 let _ = windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(&windows::core::HSTRING::from(app_id.as_str()));
             }
@@ -418,31 +476,44 @@ fn main() {
             shell_migrate::run(&user_data, &s.cfg.webview_dir, &mut |e, f| log(e, f));
 
             // window + page webview
+            #[cfg(windows)]
             let window = WindowBuilder::new(app, "main")
                 .title("OMPdesk proto (tauri2)")
                 .inner_size(1280.0, 800.0)
                 .decorations(false)
                 .build()?;
+            // macOS: Electron's `hiddenInset`: the page runs under a transparent title bar, traffic lights at (18, 17).
+            #[cfg(target_os = "macos")]
+            let window = WindowBuilder::new(app, "main")
+                .title("OMPdesk proto (tauri2)")
+                .inner_size(1280.0, 800.0)
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(18.0, 17.0))
+                .build()?;
             let size = window.inner_size()?;
             let scale = window.scale_factor()?;
             *s.scale.lock().unwrap() = scale;
-            *s.hwnd.lock().unwrap() = window.hwnd()?.0 as isize;
-            hit::install_forwarder(*s.hwnd.lock().unwrap());
-
-            let mut bargs = WV_ARGS.to_string();
-            if let Some(p) = s.args.debug_port {
-                bargs += &format!(" --remote-debugging-port={p}");
+            #[cfg(windows)]
+            {
+                *s.hwnd.lock().unwrap() = window.hwnd()?.0 as isize;
+                hit::install_forwarder(*s.hwnd.lock().unwrap());
             }
+
+            #[cfg(windows)]
             let mut url = "http://app.localhost/index.html".to_string();
+            #[cfg(not(windows))]
+            let mut url = "app://localhost/index.html".to_string();
             if let Some(q) = &s.args.query {
                 url += &format!("?{q}");
             }
             let nav_start = Arc::new(Mutex::new(Instant::now()));
             let ns = nav_start.clone();
             let page_wv = window.add_child(
-                WebviewBuilder::new("page", WebviewUrl::External(url.parse()?))
+                wv_args(WebviewBuilder::new("page", WebviewUrl::External(url.parse()?))
                     .auto_resize()
-                    .additional_browser_args(&bargs)
+                    .devtools(true)
+                    , &bargs_of())
                     .data_directory(s.cfg.webview_dir.clone())
                     .on_page_load(move |_wv, p| match p.event() {
                         PageLoadEvent::Started => *ns.lock().unwrap() = Instant::now(),
@@ -464,13 +535,12 @@ fn main() {
                 match s.args.mode {
                     PMode::Webview2 => {
                         if let Some(r) = purl.strip_prefix("app://ompdesk") {
-                            real = format!("http://app.localhost{r}");
+                            real = if cfg!(windows) { format!("http://app.localhost{r}") } else { format!("app://localhost{r}") };
                         }
                         *s.preview_url.lock().unwrap() = real.clone();
                         let t0 = Instant::now();
                         let pv = window.add_child(
-                            WebviewBuilder::new("preview", WebviewUrl::External(real.parse()?))
-                                .additional_browser_args(&bargs)
+                            wv_args(WebviewBuilder::new("preview", WebviewUrl::External(real.parse()?)).devtools(true), &bargs_of())
                                 .data_directory(s.cfg.webview_dir.clone())
                                 .on_page_load(move |_wv, p| {
                                     if p.event() == PageLoadEvent::Finished {
@@ -491,6 +561,17 @@ fn main() {
                         *s.preview_url.lock().unwrap() = real.clone();
                         let exe = s.args.preview_host.clone().unwrap_or_else(|| {
                             let dir = std::env::current_exe().unwrap_or_default().parent().map(Path::to_path_buf).unwrap_or_default();
+                            #[cfg(not(windows))]
+                            {
+                                let mut cur = Some(dir.as_path());
+                                while let Some(d) = cur {
+                                    let p = d.join("native/shell-prototype/cef/target/mac/OMPdesk Preview.app/Contents/MacOS/OMPdesk Preview");
+                                    if p.exists() {
+                                        return p;
+                                    }
+                                    cur = d.parent();
+                                }
+                            }
                             let local = dir.join("preview-host.exe");
                             if local.exists() {
                                 return local;
@@ -511,7 +592,11 @@ fn main() {
                             preview::Mode::Offscreen { w: pw as u32, h: ph as u32 }
                         };
                         log("preview.spawn", json!({"exe": exe.display().to_string(), "url": real, "mode": m.name()}));
-                        match preview::Host::spawn(&exe, &real, s.args.cdp_port, pm, &s.out_dir.join("preview-host.log"), |url, ms| {
+                        // macOS: an NSView cannot take a child from another process (no cross-process reparenting in
+                        // AppKit), so the child mode has no mac form; only the streamed one does.
+                        if cfg!(not(windows)) && m == PMode::CefChild {
+                            log("preview.unsupported", json!({"mode": "cef-child", "reason": "no cross-process NSView parenting on macOS"}));
+                        } else { match preview::Host::spawn(&exe, &real, s.args.cdp_port, pm, &s.out_dir.join("preview-host.log"), |url, ms| {
                             log("preview.loaded", json!({"url": url, "ms": ms}));
                             if sh().args.mode == PMode::CefChild {
                                 raise_host();
@@ -524,7 +609,7 @@ fn main() {
                         }) {
                             Ok(h) => *s.host.lock().unwrap() = Some(h),
                             Err(e) => log("preview.spawn_error", json!({"error": e})),
-                        }
+                        } }
                         if m == PMode::CefStream {
                             let _ = s.stream.set(stream::start(s.args.cdp_port, (pw as u32, ph as u32)));
                         }
@@ -610,6 +695,12 @@ fn main() {
         .expect("build tauri app");
 
     app.run(|_app, ev| {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Opened { urls } = &ev {
+            for u in urls {
+                log("deeplink", json!({"url": u.to_string(), "from": "apple-event"}));
+            }
+        }
         if let RunEvent::Exit = ev {
             if let Some(h) = sh().host.lock().unwrap().take() {
                 h.shutdown();

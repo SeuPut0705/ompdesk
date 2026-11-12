@@ -1,0 +1,15 @@
+# Throwaway (batch P, macOS): the keychain half of the shell prototype's update move, on a GitHub runner because it
+# can raise a keychain dialog. Runs on pushes to the prototype's macOS branch only; never on main.
+name: shell-proto-keychain
+on:
+  push:
+    branches: [omp/agent/rust-batch-shell-prototype-mac]
+    paths: ["native/shell-prototype/move/**", "native/shell-prototype/migrate/**", ".github/workflows/shell-proto-keychain.yml"]
+jobs:
+  keychain:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install 1.95 --profile minimal
+      - run: bash native/shell-prototype/move/keychain-ci.sh

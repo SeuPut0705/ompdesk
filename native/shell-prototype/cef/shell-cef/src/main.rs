@@ -730,6 +730,9 @@ wrap_app! {
                         Some(&CefString::from("remote-allow-origins")),
                         Some(&CefString::from("*")),
                     );
+                    // CEF's own OSCrypt would otherwise create "<name> Safe Storage" in the login keychain.
+                    #[cfg(target_os = "macos")]
+                    c.append_switch(Some(&CefString::from("use-mock-keychain")));
                 }
             }
         }
@@ -790,6 +793,15 @@ fn set_app_id() -> String {
 
 fn main() {
     let _ = START.set(Instant::now());
+    // Move-test seam: `--proto-home=<dir>` (carried in the Electron copy's argv, which SWAP_SCRIPT hands to `open -n`)
+    // points the Security framework's keychain search list at the test HOME before anything reads the keychain.
+    if let Some(h) = std::env::args().find_map(|a| a.strip_prefix("--proto-home=").map(str::to_string)) {
+        // SAFETY (prototype): single-threaded at this point, before CEF or any other thread starts.
+        unsafe {
+            std::env::set_var("HOME", h);
+            std::env::set_var("OMPDESK_PROTO_KEYCHAIN_OK", "1");
+        }
+    }
     #[cfg(windows)]
     unsafe {
         use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};

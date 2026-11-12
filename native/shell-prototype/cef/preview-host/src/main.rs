@@ -167,7 +167,10 @@ fn quit() {
 
 fn apply_bounds(x: i32, y: i32, w: i32, h: i32) {
     let Some(host) = BROWSER.with(|b| b.borrow().clone()).and_then(|b| b.host()) else { return };
+    #[cfg(windows)]
     let hwnd = host.window_handle().0;
+    #[cfg(not(windows))]
+    let hwnd = host.window_handle();
     #[cfg(windows)]
     if !hwnd.is_null() {
         unsafe { SetWindowPos(hwnd.cast(), std::ptr::null_mut(), x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE) };
@@ -344,6 +347,9 @@ wrap_app! {
             }
             let Some(c) = command_line else { return };
             c.append_switch_with_value(Some(&CefString::from("remote-allow-origins")), Some(&CefString::from("*")));
+            // CEF's own OSCrypt would otherwise create "<name> Safe Storage" in the login keychain.
+            #[cfg(target_os = "macos")]
+            c.append_switch(Some(&CefString::from("use-mock-keychain")));
             c.append_switch_with_value(
                 Some(&CefString::from("remote-debugging-port")),
                 Some(&CefString::from(opts().cdp_port.to_string().as_str())),

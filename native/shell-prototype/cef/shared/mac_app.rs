@@ -2,7 +2,7 @@
 //! Ported from cef-rs `examples/cefsimple/src/mac/mod.rs` (SimpleApplication). UNVERIFIED: written without a Mac.
 use cef::application_mac::{CefAppProtocol, CrAppControlProtocol, CrAppProtocol};
 use objc2::{
-    ClassType, MainThreadMarker, define_class, extern_methods, msg_send,
+    ClassType, DefinedClass, MainThreadMarker, define_class, extern_methods, msg_send,
     rc::Retained,
     runtime::{AnyObject, Bool, NSObjectProtocol},
 };
