@@ -76,3 +76,16 @@ runs:
         src/main/session-launch-parity.test.ts
         src/main/remote/link-traffic-relaunch.test.ts
         src/main/remote/fanout-cpu-report.test.ts
+        src/main/core/hub.test.ts
+        src/main/sidecar-pool.test.ts
+        src/main/sidecar-run-state.test.ts
+        src/main/tab-layout.test.ts
+        src/main/tab-spawn.test.ts
+        src/main/tab-release.test.ts
+        src/main/web/web-tab-layouts.test.ts
+        src/main/remote/host-services.test.ts
+        src/main/turn-resume.test.ts
+        src/main/turn-resume-limit.test.ts
+        src/main/turn-resume-ends.test.ts
+        src/main/connectivity.test.ts
+        src/main/autopilot-restart-resume.test.ts

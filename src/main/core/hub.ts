@@ -232,6 +232,20 @@ export class Hub {
 		return this.#call("hub.call", { to, method, params }) as T;
 	}
 
+	/**
+	 * A call of the instance `instance()` opens or returns: when the hub is lost under it (the core died or stopped
+	 * answering), the instance's `lost` handler has run, so `instance()` opens it on the next core and the call is made
+	 * once more. Everything the lost core knew is gone, so the second call lands where a call after the loss would.
+	 */
+	callOnce<T>(instance: () => number, method: string, params: unknown = {}): T {
+		try {
+			return this.call<T>(instance(), method, params);
+		} catch (error) {
+			if (!(error instanceof CoreError) || error.code !== "hub_lost") throw error;
+			return this.call<T>(instance(), method, params);
+		}
+	}
+
 	/** A call main does not wait for: what the instance's async rule answers when it is done. */
 	callLater<T>(to: number, method: string, params: unknown = {}): Promise<T> {
 		const connection = this.#connect();
@@ -418,4 +432,63 @@ let shared: Hub | null = null;
 export function hub(): Hub {
 	shared ??= new Hub();
 	return shared;
+}
+
+/**
+ * An instance of `kind` that holds nothing of main's (rules that only compute): opened on first use and again after a
+ * lost core. Returns what {@link Hub.callOnce} takes. `ask` answers the questions its rules ask, if any.
+ */
+export function sharedInstance(kind: string, ask: HubInstanceHandler["ask"] = noQuestions): () => number {
+	let id: number | null = null;
+	return () => {
+		if (id !== null) return id;
+		const opened = hub().nextId();
+		hub().open(
+			opened,
+			kind,
+			{},
+			{
+				item: () => {},
+				ask,
+				lost: () => {
+					if (id === opened) id = null;
+				},
+			},
+		);
+		id = opened;
+		return opened;
+	};
+}
+
+function noQuestions(q: string): never {
+	throw new Error(`these rules ask nothing (${q})`);
+}
+
+/** One minute of main's blocked waits on the hub, for the ledger's measurement (`OMP_GUI_HUB_STATS=1`). */
+export interface HubMinute {
+	calls: number;
+	waits: number;
+	p50Us: number;
+	p99Us: number;
+	maxUs: number;
+	totalMs: number;
+}
+
+/** The waits recorded since the last read, summarized; they are dropped. Null when nothing was measured. */
+export function takeHubMinute(): HubMinute | null {
+	const { stats } = hub();
+	const waits = stats.waitsUs.splice(0).sort((a, b) => a - b);
+	const calls = stats.calls;
+	stats.calls = 0;
+	stats.totalUs = 0;
+	if (waits.length === 0) return null;
+	const at = (q: number) => waits[Math.min(waits.length - 1, Math.floor(q * waits.length))] ?? 0;
+	return {
+		calls,
+		waits: waits.length,
+		p50Us: at(0.5),
+		p99Us: at(0.99),
+		maxUs: waits.at(-1) ?? 0,
+		totalMs: Math.round(waits.reduce((sum, us) => sum + us, 0) / 100) / 10,
+	};
 }

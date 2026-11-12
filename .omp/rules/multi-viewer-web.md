@@ -7,11 +7,12 @@ globs:
   - "src/shared/web-*.ts"
   - "src/shared/device-prefs.ts"
   - "src/main/sidecar-pool.ts"
+  - "native/ompdesk/crates/core/src/pool/**"
 ---
 ## Multi-viewer and mobile web
 
 ### Multi-viewer
-- **Ownership** (`sidecar-pool.ts`): a tab has one owner window and may have viewer windows (`attachViewer`). Only a paired web device's window (negative ids) views another window's tab: `tab-spawn.ts` attaches instead of refusing an owned session. Env `OMP_GUI_TEST_VIEWER_WINDOWS=1` lets any window (`e2e/multi-viewer.e2e.ts`). Each window keeps its own active/visible/split view; the full channel is wired once per tab and fans out to every window showing it; the light channel reaches owner and viewers.
+- **Ownership** (`sidecar-pool.ts`, whose rules are the core's `native/ompdesk/crates/core/src/pool/` since batch H2, native-rust › 9d, 9e): a tab has one owner window and may have viewer windows (`attachViewer`). Only a paired web device's window (negative ids) views another window's tab: `tab-spawn.ts` attaches instead of refusing an owned session. Env `OMP_GUI_TEST_VIEWER_WINDOWS=1` lets any window (`e2e/multi-viewer.e2e.ts`). Each window keeps its own active/visible/split view; the full channel is wired once per tab and fans out to every window showing it; the light channel reaches owner and viewers.
   - A host's window also shows the tabs its `LocalHostServices` runs for paired devices as hosted views (see remote-devices › Host windows see the device's tabs).
   - **One encoding per batch for every window**: each window keeps its own `message_update` slimmer (a window that joined mid-message needs the whole snapshot), but slimmers at the same message get the same array the first one made (`createMessageUpdateSlimmer` keeps each batch's result per starting message; a paired computer's link encoder uses it too), and `#wireFull` hands those windows one push object. A web page's frame text is made once for every page and connection (`WsRouter.dataText`, under Server and auth). Measured by `src/main/remote/fanout-cpu-report.test.ts`; bytes to each receiver unchanged.
 - A viewer closing the tab only leaves it (`detachViewer`); the owner's close releases it for all. `TAB_LIST_CHANGED` → viewers apply `applyTabList` (`shared`/`viewerCount` drive behaviour only). The user's rule: **nothing on screen says a tab is shared** (no title-bar chip, no line under the composer).

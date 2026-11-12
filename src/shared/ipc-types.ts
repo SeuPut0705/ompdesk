@@ -551,6 +551,8 @@ export type RuntimeErrorSource =
 	| "startup-timing"
 	/** A relaunch's resume decision (src/main/turn-resume.ts `log`): `message` is launch, marker or continue. */
 	| "turn-resume"
+	/** Main's blocked waits on the core's hub, one line a minute (`OMP_GUI_HUB_STATS=1`, `takeHubMinute`). */
+	| "hub"
 	/**
 	 * The launch's restore of saved tabs (src/main/index.ts `logLayoutRestore`): counts restored and, by reason, left
 	 * out (folder gone, session deleted, a duplicate) or started fresh (its session file missing).
