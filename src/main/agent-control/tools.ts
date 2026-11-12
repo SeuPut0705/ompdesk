@@ -166,7 +166,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 		label: "Message OMPdesk session",
 		description:
 			"Send a message to another open session.\n" +
-			'Send a message to any other open session. An idle session starts on it; a running one gets it as steer (now, between steps, the default) or follow_up (queued until its turn ends). The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
+			'Send a message to any other open session. An idle session starts on it; a running one reads it between its steps (steer, the default). follow_up holds it until that turn ends, and only for a session you opened: to queue its next task behind the one it works on, never for an answer, a result or news it needs now (the user sees a held message waiting in that session\'s queue). To a session you did not open it goes as steer, unless that session shows the user a question card. The session sees it as sent by you, an agent: `<ompdesk-agent-message from="<your title>" session="<your saved id>">`, so it answers you by that saved id. The receipt names the session it reached (title, saved id, computer) and what it is doing. It cannot answer that session\'s pending question: only the user does. See skill://ompdesk.',
 		parameters: {
 			type: "object",
 			properties: {
@@ -176,7 +176,7 @@ export const AGENT_CONTROL_DEFINITIONS: readonly HostToolDefinition[] = [
 					type: "string",
 					enum: ["follow_up", "steer"],
 					description:
-						"For a running session; default steer (between its steps), follow_up waits for its turn to end.",
+						"For a running session. steer (default): read between its steps. follow_up: held until its turn ends, only for a session you opened (its next task); any other session gets it as steer unless it shows the user a question card.",
 				},
 				request_id: {
 					type: "string",

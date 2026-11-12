@@ -2670,17 +2670,20 @@ export class AgentControl {
 		// Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
 		await this.#untilDraftSent(caller, target);
 		const running = target.busy || (await this.#state(target)).state?.isStreaming === true;
+		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
+		const ownChild =
+			this.#host.parentOf(target.tabId) === caller.tabId ||
+			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
 		// Steer unless a follow-up is asked for (the owner's call, 6 Nov 2026: an agent's instruction to a running session
 		// waited for its whole turn). A follow-up to one that already reported back to the caller in this turn waits in
 		// it (an answer) or wraps up: it would sit unseen behind that turn, so it reaches it between steps instead.
 		const reported = this.#reportedAt.get(`${target.tabId}\n${caller.tabId}`);
 		const followUp = args.delivery === "follow_up";
 		const promoted = running && followUp && reported !== undefined && reported >= (target.busySince ?? 0);
-		const steer = !followUp || promoted;
-		// The opener gives its child new work: a new dispatch (its older reports turn stale) and its question is answered.
-		const ownChild =
-			this.#host.parentOf(target.tabId) === caller.tabId ||
-			this.#openedBy(caller.tabId, this.#host.tabs(caller.tabId) ?? []).has(target.tabId);
+		// A follow-up queues the next task of a session the caller opened behind its turn. Any other session would hold
+		// it in its queue until that turn ends, seen only by the person (12 Nov 2026), so it gets a steer, unless a card
+		// of the person's is open there: stock closes that card for a steer ("Ask interrupted by message").
+		const steer = !followUp || promoted || (!ownChild && target.asks.length === 0);
 		// A dispatch still owed from before a relaunch is not in the journal yet: the next one is numbered past it.
 		if (ownChild)
 			this.#mailbox.seed(
@@ -2751,7 +2754,7 @@ export class AgentControl {
 					: promoted
 						? "delivered as steer (it already reported to you in this turn, so it reads it between steps)"
 						: steer
-							? "delivered as steer (it reads it between steps)"
+							? `delivered as steer (${followUp ? "you did not open it, and a follow-up waits only behind the turn of a session you opened, so " : ""}it reads it between steps)`
 							: "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)";
 		const receipt = `Sent to ${named(target)}: accepted${started ? ", turn started" : ""}; ${how}.${dispatch ? ` Dispatch ${dispatch}: it reports back with ompdesk_report.` : ""}`;
 		if (receiptKey) this.#receipts.set(receiptKey, receipt);
