@@ -137,7 +137,7 @@
 				"native/ompdesk/crates/core/src/disk/tree.rs#live",
 				"native/ompdesk/crates/core/src/git/read.rs#blocking"
 			],
-			"syncCommit": "25040e3347547b1399849fe58b72449af6580486",
+			"syncCommit": "28a914aa93c7900e04ad23ab0ae2096f3cd50bff",
 			"verifySkill": ".omp/skills/repo-lock-core-verify/SKILL.md"
 		},
 		{
