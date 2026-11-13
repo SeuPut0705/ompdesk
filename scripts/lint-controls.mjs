@@ -9,7 +9,7 @@
  * `scripts/lint-surfaces.mjs` runs the check with the other surface rules; `node scripts/lint-controls.mjs` runs it
  * alone.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -116,10 +116,17 @@ function collect(dir) {
 	return out;
 }
 
-/** One line per raw control in the renderer that carries no `controls-ok` reason. */
-export function rawControlViolations() {
+/**
+ * One line per raw control in the renderer that carries no `controls-ok` reason. `only` (absolute paths) limits it to
+ * those files: the rule reads one file at a time, so the pre-push gate (scripts/pre-push-gate.ts) checks what it changed.
+ * @param {string[]} [only]
+ */
+export function rawControlViolations(only) {
 	const violations = [];
-	for (const file of collect(ROOT)) {
+	const files = only
+		? only.filter(file => file.startsWith(ROOT + sep) && isCounted(relative(ROOT, file)) && existsSync(file))
+		: collect(ROOT);
+	for (const file of files) {
 		const rel = relative(ROOT, file).split(sep).join("/");
 		for (const hit of findRawControls(readFileSync(file, "utf8"), file))
 			violations.push(`${rel}:${hit.line}  ${hit.kind}  (use the shared component, or controls-ok: <reason>)`);
