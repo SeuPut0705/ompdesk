@@ -1,0 +1,146 @@
+# Batch S's checks that need a machine other than this Windows desktop (native-rust ledger › S). A branch-only workflow:
+# it exists only on `omp/agent/rust-batch-shell` and runs nothing on main. A pushed workflow file is not dispatchable
+# from a branch until it is on the default branch, so it also runs on a push to that branch that touches it (or the move
+# scripts); `gh workflow run shell-batch-checks.yml --ref omp/agent/rust-batch-shell` runs it by hand once it is there.
+#  shell-mac   the shell builds on macos-15 and macos-26 (`bun run build:shell`, clippy, cargo test): compile errors of the
+#              macOS code written without a Mac come back here.
+#  title-bar   the real title-bar drag check (scripts/shell-drag-check.ts, written by the shell's owner) on windows-latest,
+#              macos-15 and macos-26.
+#  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
+#              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
+#              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
+# Deleted with the branch's landing; the checks that stay move into ci.yml's batch run.
+name: shell-batch-checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [omp/agent/rust-batch-shell]
+    paths:
+      - .github/workflows/shell-batch-checks.yml
+      - .github/actions/shell*/**
+      - scripts/shell-move/**
+      - scripts/package-mac.ts
+      - scripts/build-shell.ts
+      - scripts/shell-drag-check.ts
+
+concurrency:
+  group: shell-batch-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  shell-mac:
+    name: shell-mac (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-check
+      - name: Build and stage the shell
+        run: bun run build:shell
+      - name: Keep the compile errors in the summary
+        if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  title-bar:
+    name: title-bar (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+      - uses: ./.github/actions/shell
+      - run: bun run build
+      - name: The shell's title-bar drag check
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f scripts/shell-drag-check.ts || { echo "::error::scripts/shell-drag-check.ts is not there yet"; exit 1; }
+          bun scripts/shell-drag-check.ts
+      - if: failure()
+        shell: bash
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  keychain:
+    name: keychain (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/install
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
+      - run: bun run build
+      # What the bundle packages besides the shell, as release.yml's mac job: the memory binary (cached), agent-desktop.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        run: bun run build:memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        run: bun run build:memory -- --check
+      - run: bun run build:agent-desktop
+      - name: Playwright (the scripts drive the released app's page over CDP)
+        run: bunx playwright install chromium
+      - name: The keychain gate (release-signed item, ad-hoc item, profile without ciphertext)
+        run: set -o pipefail; bash scripts/shell-move/keychain-ci.sh 2>&1 | tee keychain-ci.log
+        shell: bash
+      - name: Evidence lines
+        if: always()
+        run: |
+          { echo "### keychain gate, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' keychain-ci.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: keychain-${{ matrix.os }}
+          path: keychain-ci.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}

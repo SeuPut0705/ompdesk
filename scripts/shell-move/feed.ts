@@ -77,9 +77,15 @@ const server = Bun.serve({
 	fetch(request) {
 		const url = new URL(request.url);
 		console.log(JSON.stringify({ at: Date.now(), method: request.method, path: url.pathname }));
+		// The token probe (update-auth.ts checkRepoAccess): a public repository answers 200.
+		if (url.pathname === "/repos/SeuPut0705/ompdesk")
+			return Response.json({ full_name: "SeuPut0705/ompdesk", private: false });
 		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/latest") return Response.json(release);
 		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases") return Response.json([release]);
-		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1")
+		// macOS reads the asset as GitHub serves it: a 302 from the API to the storage host (updater.ts signedAssetUrl).
+		if (platform === "mac" && url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1")
+			return new Response(null, { status: 302, headers: { location: `https://api.github.com/download/${name}` } });
+		if (url.pathname === "/repos/SeuPut0705/ompdesk/releases/assets/1" || url.pathname === `/download/${name}`)
 			return new Response(bytes, { headers: { "content-type": "application/octet-stream" } });
 		return new Response("not here", { status: 404 });
 	},

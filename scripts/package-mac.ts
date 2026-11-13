@@ -1,7 +1,7 @@
 /**
  * Package OMPdesk for macOS (Apple silicon) from the CEF shell:
  *
- *   bun run package:mac [-- --no-dmg] [-- --legacy-zip] [-- --version <v>]
+ *   bun run package:mac [-- --no-dmg] [-- --legacy-zip] [-- --version <v>] [-- --sign-with <identity> --keychain <file>]
  *
  * electron-builder cannot lay out a CEF app (its macOS pack is Electron's: the `Electron Framework`, its helper names
  * and Info.plists), so this assembles `dist/mac-arm64/OMPdesk.app` itself, holds it to `scripts/after-pack.cjs`, signs
@@ -226,9 +226,17 @@ async function main(): Promise<void> {
 		appOutDir: out,
 		packager: { appInfo: { productFilename: bundle.PRODUCT } },
 	});
-	await withSigningIdentity(({ identity, keychain }) => {
-		signBundle(app, identity, keychain);
-	});
+	// `--sign-with <identity> --keychain <file>`: a throwaway identity of a CI check (scripts/shell-move/keychain-ci.sh
+	// signs the shell with a certificate it made a minute ago); a release never passes it.
+	const signWith = args[args.indexOf("--sign-with") + 1];
+	if (args.includes("--sign-with") && signWith) {
+		const at = args.indexOf("--keychain");
+		signBundle(app, signWith, at >= 0 ? (args[at + 1] ?? null) : null);
+	} else {
+		await withSigningIdentity(({ identity, keychain }) => {
+			signBundle(app, identity, keychain);
+		});
+	}
 	if (args.includes("--no-dmg")) return;
 	// The legacy update feed (release.yml's LEGACY_UPDATE_FEED) also wants the ZIP.
 	const targets = args.includes("--legacy-zip") ? ["dmg", "zip"] : ["dmg"];
