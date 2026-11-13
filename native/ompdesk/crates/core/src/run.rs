@@ -468,6 +468,8 @@ pub(crate) mod tests {
         assert!(!output.truncated);
     }
 
+    // Unix only: Rust's own program lookup on Windows refuses a missing program with no OS code (`UNKNOWN`).
+    #[cfg(unix)]
     #[tokio::test]
     async fn reports_a_missing_program_as_node_does() {
         let runner = Runner {
