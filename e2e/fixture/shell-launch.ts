@@ -41,9 +41,27 @@ export function stagedShell(platform = process.platform, arch = process.arch, ro
 	);
 }
 
-/** The shell a test runs: `OMP_GUI_E2E_SHELL`, else the staged build. */
-export function shellExecutable(env: NodeJS.ProcessEnv = process.env): string {
-	return env.OMP_GUI_E2E_SHELL ? path.resolve(env.OMP_GUI_E2E_SHELL) : stagedShell();
+/**
+ * The macOS dev bundle (`shell-bundle.ts`): the staged shell only runs from an `.app`, which `e2e/global-setup.ts`
+ * assembles under the checkout's `node_modules/.cache`. Its product name is `scripts/mac-bundle-info.cjs`'s.
+ */
+export const DEV_BUNDLE_PRODUCT = "OMPdesk";
+
+export function devBundleApp(root = REPO_ROOT, arch = process.arch): string {
+	return path.join(root, "node_modules", ".cache", "ompdesk-e2e", `darwin-${arch}`, `${DEV_BUNDLE_PRODUCT}.app`);
+}
+
+export function devBundleExecutable(root = REPO_ROOT, arch = process.arch): string {
+	return path.join(devBundleApp(root, arch), "Contents", "MacOS", DEV_BUNDLE_PRODUCT);
+}
+
+/**
+ * The shell a test runs: `OMP_GUI_E2E_SHELL` (a packaged `OMPdesk(.exe)`, or on macOS the executable inside a
+ * bundle), else the staged build (Windows) or the dev bundle made from it (macOS).
+ */
+export function shellExecutable(env: NodeJS.ProcessEnv = process.env, platform = process.platform): string {
+	if (env.OMP_GUI_E2E_SHELL) return path.resolve(env.OMP_GUI_E2E_SHELL);
+	return platform === "darwin" ? devBundleExecutable() : stagedShell();
 }
 
 /** Throws, naming the missing file and how to build it, when the shell is not there. Returns its path. */
@@ -51,7 +69,9 @@ export function assertShellBuilt(env: NodeJS.ProcessEnv = process.env): string {
 	const exe = shellExecutable(env);
 	if (!fs.existsSync(exe)) {
 		throw new Error(
-			`No shell: ${exe} does not exist. Run \`bun run build:shell\` (or point OMP_GUI_E2E_SHELL at a built ompdesk-shell).`,
+			process.platform === "darwin" && !env.OMP_GUI_E2E_SHELL
+				? `No shell bundle: ${exe} does not exist. Run \`bun run build:shell\`; Playwright's global setup (e2e/global-setup.ts) assembles the bundle from it (or point OMP_GUI_E2E_SHELL at an OMPdesk.app's Contents/MacOS/OMPdesk).`
+				: `No shell: ${exe} does not exist. Run \`bun run build:shell\` (or point OMP_GUI_E2E_SHELL at a built ompdesk-shell).`,
 		);
 	}
 	return exe;
@@ -418,6 +438,15 @@ export async function launchShell(options: ShellLaunchOptions = {}): Promise<She
 		env.OMPDESK_APP_DIR = appDirOfEntry(entry);
 		env.OMPDESK_APP_ENTRY = path.resolve(entry);
 	}
+	// The pinned Node the packaged app runs (`bun run build:node`), else `node` on PATH.
+	const pinnedNode = path.join(
+		REPO_ROOT,
+		"resources",
+		"node",
+		`${process.platform}-${process.arch}`,
+		process.platform === "win32" ? "node.exe" : "node",
+	);
+	if (!env.OMPDESK_NODE && fs.existsSync(pinnedNode)) env.OMPDESK_NODE = pinnedNode;
 	const userData = userDataFromArgs(args) ?? env.OMP_GUI_TEST_USER_DATA_DIR;
 	if (!userData)
 		throw new Error("launchShell: pass --user-data-dir=<private dir>; the shell would use the real profile");
