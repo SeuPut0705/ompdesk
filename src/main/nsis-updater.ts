@@ -3,7 +3,7 @@
  * Its `quitAndInstall()` starts the installer and quits in the same turn; here the installer starts on a worker
  * thread and the quit waits until that attempt ends: a process that ends first takes the worker, and the
  * installer it was still starting, with it. The quit itself is electron-updater's own, the
- * `before-quit-for-update` that app-quit.ts tears down on, then `app.quit()`.
+ * `before-quit-for-update` that the quit guard (shell-host/modules/chrome-quit.ts) tears down on, then `app.quit()`.
  */
 import type { StdioOptions } from "node:child_process";
 import { autoUpdater as nativeAutoUpdater } from "electron";

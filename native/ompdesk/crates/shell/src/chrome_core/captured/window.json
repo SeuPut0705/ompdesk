@@ -1,0 +1,4628 @@
+{
+	"capturedFrom": "83acc6357cd15b80bcff2e96199f014343e4456f",
+	"steps": [
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 100,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 260,
+				"y": 103,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 260,
+				"y": 103,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 260,
+				"y": 103,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 260,
+				"y": 103,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 100,
+				"y": 1079,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 100,
+				"y": 1054,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 10,
+				"y": 10,
+				"width": 5000,
+				"height": 4000
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				],
+				"name": "one"
+			},
+			"output": {
+				"x": 100.5,
+				"y": 100.5,
+				"width": 801,
+				"height": 601
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 100,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 1900,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 1870,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 1861,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 260,
+				"y": 103,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 100,
+				"y": 1079,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 100,
+				"y": 1054,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 560,
+				"y": 253,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 10,
+				"y": 10,
+				"width": 5000,
+				"height": 4000
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				],
+				"name": "two"
+			},
+			"output": {
+				"x": 100.5,
+				"y": 100.5,
+				"width": 801,
+				"height": 601
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 25,
+						"width": 1920,
+						"height": 1055
+					},
+					{
+						"x": 1920,
+						"y": 0,
+						"width": 1280,
+						"height": 984
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 100,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 100,
+				"y": -27,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 20,
+				"y": 20,
+				"width": 260,
+				"height": 160
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 10,
+				"y": 10,
+				"width": 5000,
+				"height": 4000
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				],
+				"name": "small"
+			},
+			"output": {
+				"x": 100.5,
+				"y": 100.5,
+				"width": 801,
+				"height": 601
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [
+					{
+						"x": 0,
+						"y": 0,
+						"width": 300,
+						"height": 200
+					}
+				]
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 1900,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1900,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 1870,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1870,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 1861,
+				"y": 100,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 1861,
+					"y": 100,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 3500,
+				"y": 100,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 3500,
+					"y": 100,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": -1500,
+				"y": -900,
+				"width": 1400,
+				"height": 900
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": -1500,
+					"y": -900,
+					"width": 1400,
+					"height": 900
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100,
+				"y": 1079,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1079,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100,
+				"y": 1054,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": 1054,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100,
+				"y": -27,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -27,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100,
+				"y": -28,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100,
+					"y": -28,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 2500,
+				"y": 984,
+				"width": 800,
+				"height": 600
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 2500,
+					"y": 984,
+					"width": 800,
+					"height": 600
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 10,
+				"y": 10,
+				"width": 5000,
+				"height": 4000
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 10,
+					"y": 10,
+					"width": 5000,
+					"height": 4000
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-bounds.ts#restoreWithinDisplays",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": [],
+				"name": "none"
+			},
+			"output": {
+				"x": 100.5,
+				"y": 100.5,
+				"width": 801,
+				"height": 601
+			}
+		},
+		{
+			"fn": "src/main/window-bounds.ts#isReachable",
+			"input": {
+				"rect": {
+					"x": 100.5,
+					"y": 100.5,
+					"width": 801,
+					"height": 601
+				},
+				"workAreas": []
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "darwin",
+				"dark": false,
+				"mica": false
+			},
+			"output": {
+				"titleBarStyle": "hiddenInset",
+				"trafficLightPosition": {
+					"x": 18,
+					"y": 17
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "darwin",
+				"dark": false,
+				"mica": true
+			},
+			"output": {
+				"titleBarStyle": "hiddenInset",
+				"trafficLightPosition": {
+					"x": 18,
+					"y": 17
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "darwin",
+				"dark": true,
+				"mica": false
+			},
+			"output": {
+				"titleBarStyle": "hiddenInset",
+				"trafficLightPosition": {
+					"x": 18,
+					"y": 17
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "darwin",
+				"dark": true,
+				"mica": true
+			},
+			"output": {
+				"titleBarStyle": "hiddenInset",
+				"trafficLightPosition": {
+					"x": 18,
+					"y": 17
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "win32",
+				"dark": false,
+				"mica": false
+			},
+			"output": {
+				"titleBarStyle": "hidden",
+				"titleBarOverlay": {
+					"color": "#ffffff",
+					"symbolColor": "#1b1b1f",
+					"height": 48
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "win32",
+				"dark": false,
+				"mica": true
+			},
+			"output": {
+				"titleBarStyle": "hidden",
+				"titleBarOverlay": {
+					"color": "#ffffff",
+					"symbolColor": "#1b1b1f",
+					"height": 48
+				},
+				"backgroundMaterial": "mica"
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "win32",
+				"dark": true,
+				"mica": false
+			},
+			"output": {
+				"titleBarStyle": "hidden",
+				"titleBarOverlay": {
+					"color": "#19191c",
+					"symbolColor": "#ededf0",
+					"height": 48
+				}
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "win32",
+				"dark": true,
+				"mica": true
+			},
+			"output": {
+				"titleBarStyle": "hidden",
+				"titleBarOverlay": {
+					"color": "#19191c",
+					"symbolColor": "#ededf0",
+					"height": 48
+				},
+				"backgroundMaterial": "mica"
+			}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "linux",
+				"dark": false,
+				"mica": false
+			},
+			"output": {}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "linux",
+				"dark": false,
+				"mica": true
+			},
+			"output": {}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "linux",
+				"dark": true,
+				"mica": false
+			},
+			"output": {}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#windowChromeOptions",
+			"input": {
+				"platform": "linux",
+				"dark": true,
+				"mica": true
+			},
+			"output": {}
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": "10.0.22621"
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": "10.0.22620"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": "10.0.26100"
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": "10.0.19045"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": "10.0"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "win32",
+				"release": ""
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/window-chrome.ts#micaSupported",
+			"input": {
+				"platform": "darwin",
+				"release": "25.0.0"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "clean-exit",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "clean-exit",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "clean-exit",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "crashed",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "crashed",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "crashed",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "killed",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "killed",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "killed",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "oom",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "oom",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "oom",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "abnormal-exit",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "abnormal-exit",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "abnormal-exit",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "launch-failed",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "launch-failed",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "launch-failed",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "integrity-failure",
+				"lastRecoveryAt": 0,
+				"now": 1000000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "integrity-failure",
+				"lastRecoveryAt": 1000000,
+				"now": 1029999
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldReloadRenderer",
+			"input": {
+				"reason": "integrity-failure",
+				"lastRecoveryAt": 1000000,
+				"now": 1030000
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": null,
+				"current": null
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": null,
+				"current": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				}
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": null
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				}
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": {
+					"device": 9,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				}
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": {
+					"device": 1,
+					"inode": 9,
+					"size": 3,
+					"modifiedAt": 4.5
+				}
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": {
+					"device": 1,
+					"inode": 2,
+					"size": 9,
+					"modifiedAt": 4.5
+				}
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#applicationResourcesChanged",
+			"input": {
+				"launch": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.5
+				},
+				"current": {
+					"device": 1,
+					"inode": 2,
+					"size": 3,
+					"modifiedAt": 4.50001
+				}
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "console-error"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "main-frame-navigation"
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "load-failure",
+				"mainFrame": true
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "load-failure",
+				"mainFrame": false
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "process-gone",
+				"reloadable": true
+			},
+			"output": true
+		},
+		{
+			"fn": "src/main/renderer-recovery.ts#shouldRestartForChangedResources",
+			"input": {
+				"kind": "process-gone",
+				"reloadable": false
+			},
+			"output": false
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "darwin",
+				"quitApproved": false,
+				"closeToTray": false
+			},
+			"output": "hide"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "darwin",
+				"quitApproved": false,
+				"closeToTray": true
+			},
+			"output": "hide"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "darwin",
+				"quitApproved": true,
+				"closeToTray": false
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "darwin",
+				"quitApproved": true,
+				"closeToTray": true
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "win32",
+				"quitApproved": false,
+				"closeToTray": false
+			},
+			"output": "quit"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "win32",
+				"quitApproved": false,
+				"closeToTray": true
+			},
+			"output": "hide"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "win32",
+				"quitApproved": true,
+				"closeToTray": false
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "win32",
+				"quitApproved": true,
+				"closeToTray": true
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "linux",
+				"quitApproved": false,
+				"closeToTray": false
+			},
+			"output": "quit"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "linux",
+				"quitApproved": false,
+				"closeToTray": true
+			},
+			"output": "hide"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "linux",
+				"quitApproved": true,
+				"closeToTray": false
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/quit-guard.ts#lastWindowCloseAction",
+			"input": {
+				"platform": "linux",
+				"quitApproved": true,
+				"closeToTray": true
+			},
+			"output": "close"
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": null,
+				"before": 0,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "app.getGPUInfo",
+						"params": {
+							"kind": "complete"
+						}
+					},
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 1,
+							"wcId": 1,
+							"options": {
+								"width": 1400,
+								"height": 900,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=0"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 0
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": null,
+				"before": 2,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 3,
+							"wcId": 3,
+							"options": {
+								"width": 1400,
+								"height": 900,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=2"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 2
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"width": 1200,
+					"height": 800
+				},
+				"before": 0,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 1,
+							"wcId": 1,
+							"options": {
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=0"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 0
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"width": 1200,
+					"height": 800
+				},
+				"before": 2,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 3,
+							"wcId": 3,
+							"options": {
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=2"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 2
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 40,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": false
+				},
+				"before": 0,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 1,
+							"wcId": 1,
+							"options": {
+								"x": 40,
+								"y": 60,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=0"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 0
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 40,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": false
+				},
+				"before": 2,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 3,
+							"wcId": 3,
+							"options": {
+								"x": 96,
+								"y": 116,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=2"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 2
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 40,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": true
+				},
+				"before": 0,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 1,
+							"wcId": 1,
+							"options": {
+								"x": 40,
+								"y": 60,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "win.op",
+						"params": {
+							"winId": 1,
+							"op": "maximize",
+							"args": {}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=0"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 0
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 40,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": true
+				},
+				"before": 2,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 3,
+							"wcId": 3,
+							"options": {
+								"x": 96,
+								"y": 116,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "win.op",
+						"params": {
+							"winId": 3,
+							"op": "maximize",
+							"args": {}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=2"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 2
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 4000,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": false
+				},
+				"before": 0,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 1,
+							"wcId": 1,
+							"options": {
+								"x": 360,
+								"y": 153,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=0"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 1,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 0
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#createWindow",
+			"input": {
+				"saved": {
+					"x": 4000,
+					"y": 60,
+					"width": 1200,
+					"height": 800,
+					"isMaximized": false
+				},
+				"before": 2,
+				"platform": "darwin",
+				"dark": false,
+				"headless": false
+			},
+			"output": {
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.create",
+						"params": {
+							"winId": 3,
+							"wcId": 3,
+							"options": {
+								"x": 360,
+								"y": 153,
+								"width": 1200,
+								"height": 800,
+								"minWidth": 800,
+								"minHeight": 600,
+								"show": false,
+								"enableLargerThanScreen": false,
+								"autoHideMenuBar": false,
+								"titleBarStyle": "hiddenInset",
+								"trafficLightPosition": {
+									"x": 18,
+									"y": 17
+								},
+								"webPreferences": {
+									"contextIsolation": true,
+									"nodeIntegration": false,
+									"sandbox": true,
+									"spellcheck": true,
+									"session": "app"
+								}
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "loadURL",
+							"args": {
+								"url": "file:///Users/seuput/.omp/wt/gui-shell-port-chrome-b3373c9/src/renderer/index.html?slot=2"
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "watchEvents",
+							"args": {
+								"names": [
+									"context-menu",
+									"console-message",
+									"will-navigate"
+								]
+							}
+						}
+					},
+					{
+						"kind": "call",
+						"method": "wc.op",
+						"params": {
+							"wcId": 3,
+							"op": "executeJavaScript",
+							"args": {
+								"code": "document.documentElement.dataset.gpu = \"software\"",
+								"userGesture": false
+							}
+						}
+					}
+				],
+				"record": {
+					"slot": 2
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": null,
+				"first": "ready-to-show"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "show",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": null,
+				"first": "did-finish-load"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "show",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "hidden",
+				"first": "ready-to-show"
+			},
+			"output": []
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "hidden",
+				"first": "did-finish-load"
+			},
+			"output": []
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "minimized",
+				"first": "ready-to-show"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "minimize",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "minimized",
+				"first": "did-finish-load"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "minimize",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "behind",
+				"first": "ready-to-show"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "showInactive",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#showOnFirstPaint",
+			"input": {
+				"presence": "behind",
+				"first": "did-finish-load"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "showInactive",
+						"args": {}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "close",
+				"otherVisible": false
+			},
+			"output": {
+				"answer": {
+					"prevent": false
+				},
+				"frames": [],
+				"hiddenNotice": 0,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "close",
+				"otherVisible": true
+			},
+			"output": {
+				"answer": {
+					"prevent": false
+				},
+				"frames": [],
+				"hiddenNotice": 0,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "hide",
+				"otherVisible": false
+			},
+			"output": {
+				"answer": {
+					"prevent": true
+				},
+				"frames": [
+					{
+						"kind": "call",
+						"method": "win.op",
+						"params": {
+							"winId": 1,
+							"op": "hide",
+							"args": {}
+						}
+					}
+				],
+				"hiddenNotice": 1,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "hide",
+				"otherVisible": true
+			},
+			"output": {
+				"answer": {
+					"prevent": false
+				},
+				"frames": [],
+				"hiddenNotice": 0,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "quit",
+				"otherVisible": false
+			},
+			"output": {
+				"answer": {
+					"prevent": true
+				},
+				"frames": [],
+				"hiddenNotice": 0,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#close",
+			"input": {
+				"action": "quit",
+				"otherVisible": true
+			},
+			"output": {
+				"answer": {
+					"prevent": false
+				},
+				"frames": [],
+				"hiddenNotice": 0,
+				"saved": {
+					"windowState": {
+						"x": 11,
+						"y": 22,
+						"width": 1333,
+						"height": 777,
+						"isMaximized": true
+					}
+				}
+			}
+		},
+		{
+			"fn": "src/main/window.ts#setRunProgress",
+			"input": {
+				"state": "working"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "app.setBadge",
+					"params": {
+						"text": "●"
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "setProgressBar",
+						"args": {
+							"value": 0.5
+						}
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 2,
+						"op": "setProgressBar",
+						"args": {
+							"value": 0.5
+						}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#setRunProgress",
+			"input": {
+				"state": "waiting"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "app.setBadge",
+					"params": {
+						"text": "!"
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "setProgressBar",
+						"args": {
+							"value": 0.75
+						}
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 2,
+						"op": "setProgressBar",
+						"args": {
+							"value": 0.75
+						}
+					}
+				}
+			]
+		},
+		{
+			"fn": "src/main/window.ts#setRunProgress",
+			"input": {
+				"state": "idle"
+			},
+			"output": [
+				{
+					"kind": "call",
+					"method": "app.setBadge",
+					"params": {
+						"text": ""
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 1,
+						"op": "setProgressBar",
+						"args": {
+							"value": -1
+						}
+					}
+				},
+				{
+					"kind": "call",
+					"method": "win.op",
+					"params": {
+						"winId": 2,
+						"op": "setProgressBar",
+						"args": {
+							"value": -1
+						}
+					}
+				}
+			]
+		}
+	]
+}

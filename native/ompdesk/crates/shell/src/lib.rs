@@ -1,7 +1,9 @@
 //! The shell's pure parts: no CEF in here, so `cargo test` runs them in an executable that never imports libcef.dll.
 
 pub mod accelerator;
+pub mod atomic;
 pub mod childproc;
+pub mod chrome_core;
 pub mod chunks;
 pub mod color;
 pub mod conn;

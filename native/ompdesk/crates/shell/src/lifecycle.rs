@@ -91,6 +91,26 @@ pub fn request_exit(code: i32) {
     });
 }
 
+/// A quit that did not finish in time (the quit watchdog): `app.exit`'s sequence, and when the process still lives
+/// after `grace` (a window that never closes, a wedged UI thread) Node is stopped and the process ends from here.
+pub fn force_exit(code: i32, grace: Duration) {
+    request_exit(code);
+    let spawned = std::thread::Builder::new()
+        .name("forced-exit".into())
+        .spawn(move || {
+            std::thread::sleep(grace);
+            log("app.forced_exit", json!({ "code": code }));
+            crate::node::stop(Duration::from_secs(1));
+            std::process::exit(code);
+        });
+    if let Err(error) = spawned {
+        log(
+            "app.forced_exit_thread_failed",
+            json!({ "error": error.to_string() }),
+        );
+    }
+}
+
 /// Node's connection ended or Node exited: unless the shell is already quitting, that is a crash.
 pub fn node_gone(code: Option<i32>) {
     if EXITING.load(Ordering::SeqCst) {

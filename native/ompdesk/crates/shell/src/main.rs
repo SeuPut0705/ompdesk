@@ -175,7 +175,7 @@ const RELAUNCH_AFTER_ENV: &str = "OMPDESK_SHELL_RELAUNCH_AFTER_PID";
 
 fn browser(argv: Vec<String>) -> i32 {
     // macOS: the NSApplication subclass CEF needs, before anything else touches NSApp, then the app delegate (Apple
-    // Events, Dock re-open) and a default main menu until Node sends its own.
+    // Events, Dock re-open) and a default main menu until the chrome module installs its own.
     #[cfg(target_os = "macos")]
     macos::setup_application(macos::request_quit);
     #[cfg(target_os = "macos")]
@@ -254,11 +254,18 @@ fn browser(argv: Vec<String>) -> i32 {
         .map(Path::to_path_buf)
         .unwrap_or_else(|| located.app_dir.join("out"));
     let _ = PATHS.set(Paths {
+        user_data: user_data.clone(),
+        app_dir: located.app_dir.clone(),
+        resources: located.resources.clone(),
+        packaged: located.packaged,
         renderer_dir: build_dir.join("renderer"),
         preload_file: build_dir.join("preload").join("shell.js"),
         web_dir: web_dir.clone(),
     });
     local_storage::prepare(&user_data, &web_dir, &mut |event, data| log(event, data));
+    // The launch guard and the GPU fallback (was Electron's `startLaunchGuard` + `applyGpuFallbackIfNeeded` before ready):
+    // after the single-instance lock (a second launch handed over and exited above), before CEF reads its switches.
+    modules::chrome::gpu::before_cef(&user_data, located.packaged, &args);
 
     let lang = args
         .iter()
@@ -379,9 +386,9 @@ fn spawn_instance_listener(mut listener: Listener) {
         .spawn(move || {
             while let Ok(mut conn) = listener.accept() {
                 match conn::take_hand_over(&mut conn) {
-                    Ok((argv, cwd)) => {
+                    Ok((argv, _cwd)) => {
                         log("instance.second", json!({ "argv": argv }));
-                        host::event("app.secondInstance", json!({ "argv": argv, "cwd": cwd }));
+                        modules::chrome::deep_link::second_instance(argv);
                     }
                     Err(error) => log(
                         "instance.hand_over_bad",

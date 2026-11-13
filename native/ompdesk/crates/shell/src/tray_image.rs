@@ -1,11 +1,7 @@
-//! A tray icon's pictures: `images: [{scaleFactor, dataURL}]` (PROTOCOL.md §7) to the RGBA pixels the tray takes.
-//! The data URL carries PNG (what `NativeImage` holds) or ICO (PNG or BMP entries); the representation closest to the
-//! display scale is the one decoded. Pure: no OS in here.
+//! A tray icon's pictures to the RGBA pixels the tray takes: PNG, or ICO (PNG or BMP entries); of several
+//! representations the one closest to the display scale is decoded. Pure: no OS in here.
 
 use std::io::Cursor;
-
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 
 /// Straight (non-premultiplied) RGBA, row by row from the top.
 #[derive(Debug, PartialEq)]
@@ -33,40 +29,6 @@ pub fn pick(scales: &[f64], scale: f64) -> Option<usize> {
         };
     }
     best
-}
-
-/// The bytes of a `data:` URL (base64 or percent-encoded).
-pub fn data_url_bytes(url: &str) -> Result<Vec<u8>, String> {
-    let Some(rest) = url.strip_prefix("data:") else {
-        return Err("the image is not a data URL".into());
-    };
-    let Some((head, body)) = rest.split_once(',') else {
-        return Err("the data URL has no body".into());
-    };
-    if head.split(';').any(|p| p.eq_ignore_ascii_case("base64")) {
-        let cleaned: String = body.chars().filter(|c| !c.is_whitespace()).collect();
-        return STANDARD
-            .decode(cleaned.as_bytes())
-            .map_err(|e| format!("the data URL's base64 is invalid: {e}"));
-    }
-    let raw = body.as_bytes();
-    let mut out = Vec::with_capacity(raw.len());
-    let mut i = 0;
-    while i < raw.len() {
-        let escaped = (raw[i] == b'%')
-            .then(|| raw.get(i + 1..i + 3))
-            .flatten()
-            .and_then(|hex| std::str::from_utf8(hex).ok())
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        if let Some(byte) = escaped {
-            out.push(byte);
-            i += 3;
-        } else {
-            out.push(raw[i]);
-            i += 1;
-        }
-    }
-    Ok(out)
 }
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
@@ -277,23 +239,6 @@ mod tests {
         assert_eq!(pick(&[2.0, 1.0], 1.5), Some(0));
         assert_eq!(pick(&[1.0], 3.0), Some(0));
         assert_eq!(pick(&[], 1.0), None);
-    }
-
-    #[test]
-    fn data_urls_carry_base64_or_percent_encoded_bytes() {
-        assert_eq!(
-            data_url_bytes("data:image/png;base64,AQID").unwrap(),
-            [1, 2, 3]
-        );
-        assert_eq!(
-            data_url_bytes("data:image/png;base64,AQ ID").unwrap(),
-            [1, 2, 3]
-        );
-        assert_eq!(data_url_bytes("data:,a%20b%7E").unwrap(), b"a b~");
-        assert_eq!(data_url_bytes("data:,100%").unwrap(), b"100%");
-        assert!(data_url_bytes("image/png;base64,AQID").is_err());
-        assert!(data_url_bytes("data:image/png;base64").is_err());
-        assert!(data_url_bytes("data:image/png;base64,@@@").is_err());
     }
 
     #[test]

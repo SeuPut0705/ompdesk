@@ -23,11 +23,12 @@ interface CoreCall {
 interface RuntimeLine {
 	report: RuntimeLogReport;
 	windowId?: number;
+	cwd?: string;
 }
 
 export interface RelayDeps {
 	core(): CoreProcess;
-	writeRuntimeLog(report: RuntimeLogReport, context: { windowId?: number }): void;
+	writeRuntimeLog(report: RuntimeLogReport, context: { windowId?: number; cwd?: string }): void;
 }
 
 export function serveShellRelays(host: HostClient, deps: RelayDeps): void {
@@ -44,8 +45,11 @@ export function serveShellRelays(host: HostClient, deps: RelayDeps): void {
 			throw error;
 		}
 	});
-	host.on("log.runtime", ({ report, windowId }: RuntimeLine) => {
-		deps.writeRuntimeLog(report, windowId === undefined ? {} : { windowId });
+	host.on("log.runtime", ({ report, windowId, cwd }: RuntimeLine) => {
+		deps.writeRuntimeLog(report, {
+			...(windowId === undefined ? {} : { windowId }),
+			...(cwd === undefined ? {} : { cwd }),
+		});
 	});
 }
 

@@ -1,6 +1,6 @@
 /**
  * The `electron` shim against a fake shell: Electron's semantics (events, synchronous getters, the quit sequence,
- * `ipcMain` feeding main's `IpcRegistry`, protocol and net streaming, menus) over the host protocol's frames.
+ * `ipcMain` feeding main's `IpcRegistry`, protocol and net streaming) over the host protocol's frames.
  */
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,7 +93,6 @@ function fakeShell(shell: ShellClient) {
 	>();
 	const methods = [
 		"app.init",
-		"app.setAsDefaultProtocolClient",
 		"app.getGPUInfo",
 		"win.create",
 		"win.op",
@@ -103,8 +102,6 @@ function fakeShell(shell: ShellClient) {
 		"wc.cdp.send",
 		"session.create",
 		"session.op",
-		"menu.setApplication",
-		"menu.popup",
 		"dialog.messageBox",
 		"clipboard.readText",
 		"clipboard.writeText",
@@ -112,8 +109,6 @@ function fakeShell(shell: ShellClient) {
 		"shell.openPath",
 		"theme.setSource",
 		"power.idleTime",
-		"tray.create",
-		"tray.op",
 		"notification.show",
 		"notification.close",
 		"power.blockerStart",
@@ -201,10 +196,9 @@ describe("app", () => {
 		expect(commandLine.getSwitchValue("blink-settings")).toBe("foo=1,dnsPrefetchingEnabled=false");
 	});
 
-	it("sends one app.init after main's top level, with its switches, schemes and flags; ready follows the shell's event", async () => {
+	it("sends one app.init after main's top level, with its switches and schemes; ready follows the shell's event", async () => {
 		const { app, protocol } = electron;
 		app.setAppUserModelId("com.example.app");
-		app.disableHardwareAcceleration();
 		app.commandLine.appendSwitch("disable-renderer-backgrounding");
 		protocol.registerSchemesAsPrivileged([
 			{ scheme: "omp-media", privileges: { standard: true, secure: true, stream: true } },
@@ -217,7 +211,6 @@ describe("app", () => {
 		const init = fake.callsOf("app.init");
 		expect(init).toHaveLength(1);
 		expect(init[0].params).toMatchObject({
-			disableHardwareAcceleration: true,
 			appUserModelId: "com.example.app",
 			schemes: [{ scheme: "omp-media", privileges: { standard: true, secure: true, stream: true } }],
 		});
@@ -232,9 +225,9 @@ describe("app", () => {
 
 	it("holds requests that need CEF until app.ready, in order, and sends app.* at once", async () => {
 		const win = new electron.BrowserWindow({ width: 100, height: 100 });
-		void electron.app.setAsDefaultProtocolClient("omp");
+		void electron.app.getGPUInfo("basic");
 		await settle();
-		expect(fake.callsOf("app.setAsDefaultProtocolClient")).toHaveLength(1);
+		expect(fake.callsOf("app.getGPUInfo")).toHaveLength(1);
 		expect(fake.callsOf("win.create")).toHaveLength(0);
 		win.show();
 		await shell.event("app.ready");
@@ -245,24 +238,13 @@ describe("app", () => {
 		]);
 	});
 
-	it("emits second-instance, open-url, open-file, activate and child-process-gone", async () => {
+	it("emits child-process-gone", async () => {
 		const { app } = electron;
 		const seen: unknown[][] = [];
-		for (const name of ["second-instance", "open-url", "open-file", "activate", "child-process-gone"])
-			app.on(name, (_event, ...args) => seen.push([name, ...args]));
-		await shell.event("app.secondInstance", { argv: ["C:/app/OMPdesk.exe", "C:/work"], cwd: "C:/" });
-		await shell.event("app.openUrl", { url: "omp://new" });
-		await shell.event("app.openFile", { path: "C:/x" });
-		await shell.event("app.activate", { hasVisibleWindows: true });
+		for (const name of ["child-process-gone"]) app.on(name, (_event, ...args) => seen.push([name, ...args]));
 		await shell.event("app.childProcessGone", { type: "GPU", reason: "crashed" });
 		await settle();
-		expect(seen).toEqual([
-			["second-instance", ["C:/app/OMPdesk.exe", "C:/work"], "C:/", undefined],
-			["open-url", "omp://new"],
-			["open-file", "C:/x"],
-			["activate", true],
-			["child-process-gone", { type: "GPU", reason: "crashed" }],
-		]);
+		expect(seen).toEqual([["child-process-gone", { type: "GPU", reason: "crashed" }]]);
 	});
 
 	it("exits through the shell: the exit event, then the process", async () => {
@@ -366,15 +348,6 @@ describe("the quit sequence", () => {
 		await settle();
 		expect(doInstall).toHaveBeenCalledTimes(installs);
 		if (installs) expect(doInstall).toHaveBeenCalledWith(expect.objectContaining({ isSilent: true }));
-	});
-
-	it("runs the quit sequence when the shell reports a macOS Cmd-Q", async () => {
-		const order: string[] = [];
-		electron.app.on("before-quit", () => order.push("before-quit"));
-		await shell.event("app.quitRequested");
-		await settle();
-		expect(order).toEqual(["before-quit"]);
-		expect(exited).toEqual([0]);
 	});
 
 	it("stops when before-quit is prevented, and may be asked again", async () => {
@@ -1172,88 +1145,10 @@ describe("net", () => {
 	});
 });
 
-describe("menus, dialogs and the small modules", () => {
+describe("dialogs and the small modules", () => {
 	beforeEach(async () => {
 		await boot();
 		await ready();
-	});
-
-	it("builds a template, sends a description, and runs the clicked item's handler or role", async () => {
-		const { Menu, BrowserWindow } = electron;
-		const win = new BrowserWindow({});
-		await shell.event("win.event", { winId: win.id, name: "focus" });
-		let clicked = 0;
-		const menu = Menu.buildFromTemplate([
-			{
-				label: "File",
-				submenu: [
-					{ label: "New", accelerator: "CommandOrControl+N", click: () => (clicked += 1) },
-					{ type: "separator" },
-					{ role: "reload", label: "Reload!" },
-				],
-			},
-		]);
-		Menu.setApplicationMenu(menu);
-		await settle();
-		const [{ params }] = fake.callsOf("menu.setApplication");
-		const template = params.template as Array<{
-			label: string;
-			submenu: Array<{ id: string; label: string; accelerator?: string; type: string }>;
-		}>;
-		expect(template[0].label).toBe("File");
-		expect(template[0].submenu.map(item => [item.label, item.accelerator, item.type])).toEqual([
-			["New", "CommandOrControl+N", "normal"],
-			["", undefined, "separator"],
-			["Reload!", "CommandOrControl+R", "normal"],
-		]);
-		await shell.event("menu.click", { menuId: params.menuId, itemId: template[0].submenu[0].id });
-		expect(clicked).toBe(1);
-		fake.calls.length = 0;
-		await shell.event("menu.click", { menuId: params.menuId, itemId: template[0].submenu[2].id });
-		await settle();
-		expect(fake.callsOf("wc.op").map(call => call.params.op)).toEqual(["reload"]);
-		expect(Menu.getApplicationMenu()).toBe(menu);
-	});
-
-	it("pops a menu up and runs the item the shell reports", async () => {
-		const { Menu, BrowserWindow } = electron;
-		const win = new BrowserWindow({});
-		const labels: string[] = [];
-		const menu = Menu.buildFromTemplate([{ label: "Copy", click: () => labels.push("copy") }]);
-		fake.answers.set("menu.popup", params => ({ itemId: (params.template as Array<{ id: string }>)[0].id }));
-		menu.popup({ window: win });
-		await vi.waitUntil(() => labels.length === 1);
-		expect(fake.callsOf("menu.popup")[0].params).toMatchObject({ winId: win.id });
-	});
-
-	it("makes a tray with its icon representations and a context menu", async () => {
-		const { Tray, Menu, nativeImage } = electron;
-		const image = nativeImage.createFromDataURL(`data:image/png;base64,${PNG_1X1.toString("base64")}`);
-		image.addRepresentation({ scaleFactor: 2, dataURL: `data:image/png;base64,${PNG_1X1.toString("base64")}` });
-		image.setTemplateImage(true);
-		const tray = new Tray(image);
-		tray.setToolTip("OMPdesk");
-		const menu = Menu.buildFromTemplate([{ label: "Quit", click: () => undefined }]);
-		const states: string[] = [];
-		menu.on("menu-will-show", () => states.push("show"));
-		tray.setContextMenu(menu);
-		await settle();
-		const [create] = fake.callsOf("tray.create");
-		expect(create.params).toMatchObject({
-			trayId: 1,
-			template: true,
-			images: [{ scaleFactor: 1 }, { scaleFactor: 2 }],
-		});
-		expect(fake.callsOf("tray.op").map(call => call.params.op)).toEqual(["setToolTip", "setContextMenu"]);
-		const op = fake.callsOf("tray.op")[1].params;
-		await shell.event("menu.event", { menuId: (op.args as { menuId: number }).menuId, name: "will-show" });
-		await settle();
-		expect(states).toEqual(["show"]);
-		const clicks: string[] = [];
-		tray.on("click", () => clicks.push("click"));
-		await shell.event("tray.event", { trayId: 1, name: "click" });
-		await settle();
-		expect(clicks).toEqual(["click"]);
 	});
 
 	it("dialogs pass the owner's id and the options; clipboard.readText is asynchronous only", async () => {

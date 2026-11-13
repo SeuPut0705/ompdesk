@@ -61,8 +61,6 @@ export class Host {
 	#winId = 0;
 	#wcId = 0;
 	#viewId = 0;
-	#trayId = 0;
-	#menuId = 0;
 	/** Pages by `wcId`; filled by the page constructors, emptied when a page is destroyed. */
 	readonly pages = new Map<number, PageRecord>();
 	/** Everything that must know the shell's connection ended (requests already reject with `gone`). */
@@ -83,14 +81,6 @@ export class Host {
 
 	nextViewId(): number {
 		return ++this.#viewId;
-	}
-
-	nextTrayId(): number {
-		return ++this.#trayId;
-	}
-
-	nextMenuId(): number {
-		return ++this.#menuId;
 	}
 
 	/** A request nobody awaits: a failure is logged (the shell's answer is no use to the caller). */

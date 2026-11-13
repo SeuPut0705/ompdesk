@@ -12,7 +12,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
 };
 use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+use windows_sys::Win32::System::Registry::{
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegGetValueW,
+};
 use windows_sys::Win32::System::SystemInformation::GetTickCount;
 use windows_sys::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -23,6 +25,30 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// `os.release()` as Node spells it on Windows, `10.0.<build>` (the app windows' Mica check reads the build).
+pub fn os_release() -> String {
+    let subkey = wide("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion");
+    let value = wide("CurrentBuildNumber");
+    let mut data = [0u16; 32];
+    let mut size = std::mem::size_of_val(&data) as u32;
+    // SAFETY: both names are NUL-terminated; `data` is a 64-byte buffer and `size` says so.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            subkey.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            data.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return String::new();
+    }
+    format!("10.0.{}", from_wide(&data))
 }
 
 fn from_wide(buf: &[u16]) -> String {

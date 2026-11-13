@@ -21,7 +21,6 @@ pub struct SchemeSpec {
 pub struct AppInit {
     pub switches: Vec<(String, Option<String>)>,
     pub schemes: Vec<SchemeSpec>,
-    pub disable_gpu: bool,
 }
 
 pub static INIT: OnceLock<AppInit> = OnceLock::new();
@@ -92,14 +91,7 @@ pub fn parse_init(params: &Value) -> AppInit {
                 .collect()
         })
         .unwrap_or_default();
-    AppInit {
-        switches,
-        schemes,
-        disable_gpu: params
-            .get("disableHardwareAcceleration")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-    }
+    AppInit { switches, schemes }
 }
 
 /// `--ompdesk-schemes=[["name", options], …]`: how the browser process tells helpers which schemes to register
@@ -129,12 +121,14 @@ wrap_browser_process_handler! {
             log("cef.ready", json!({ "version": shell_core::facts::CEF_VERSION }));
             crate::modules::ready();
             host::event("app.ready", json!({}));
-            #[cfg(target_os = "macos")]
-            crate::macos::flush_pending();
         }
 
         fn on_before_child_process_launch(&self, command_line: Option<&mut CommandLine>) {
             let Some(command_line) = command_line else { return };
+            // A GPU process in the making: the GPU fallback notes what mode it was started in.
+            let mut argv = CefStringList::new();
+            command_line.argv(Some(&mut argv));
+            crate::modules::chrome::gpu::child_launching(&argv.into_iter().collect::<Vec<String>>());
             #[cfg(target_os = "macos")]
             command_line.append_switch(Some(&CefString::from("use-mock-keychain")));
             if let Some(init) = INIT.get() {
@@ -143,17 +137,14 @@ wrap_browser_process_handler! {
             }
         }
 
-        fn on_already_running_app_relaunch(&self, command_line: Option<&mut CommandLine>, current_directory: Option<&CefString>) -> i32 {
+        fn on_already_running_app_relaunch(&self, command_line: Option<&mut CommandLine>, _current_directory: Option<&CefString>) -> i32 {
             // CEF's own profile singleton saw a second process: ours handles launches before CEF starts, so this only
             // fires for a CEF process started outside it. Passed on like any second instance.
             let mut argv = CefStringList::new();
             if let Some(c) = command_line {
                 c.argv(Some(&mut argv));
             }
-            host::event(
-                "app.secondInstance",
-                json!({ "argv": argv.into_iter().collect::<Vec<String>>(), "cwd": current_directory.map(|d| d.to_string()).unwrap_or_default() }),
-            );
+            crate::modules::chrome::deep_link::second_instance(argv.into_iter().collect());
             1
         }
     }
@@ -218,10 +209,12 @@ wrap_app! {
                         None => command_line.append_switch(Some(&CefString::from(name.as_str()))),
                     }
                 }
-                if init.disable_gpu {
-                    command_line.append_switch(Some(&CefString::from("disable-gpu")));
-                    command_line.append_switch(Some(&CefString::from("disable-gpu-compositing")));
-                }
+            }
+            // The launch's own decision (`modules/chrome/gpu.rs`: the crash marker, safe mode or --disable-gpu), made
+            // before CEF started: the switches Electron's `disableHardwareAcceleration` set.
+            if crate::modules::chrome::gpu::software_launch() {
+                command_line.append_switch(Some(&CefString::from("disable-gpu")));
+                command_line.append_switch(Some(&CefString::from("disable-gpu-compositing")));
             }
         }
 

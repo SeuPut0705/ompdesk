@@ -27,7 +27,7 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
   `view.create`: Electron's constructors return at once with `win.id` and `win.webContents.id` readable, so they
   cannot wait for an answer. The shell processes requests in arrival order, so an op sent right after a `create`
   finds its target; a request about an id the shell does not know answers `gone`.
-- Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `menu.*`, `tray.*`, `dialog.*`, `clipboard.*`,
+- Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `dialog.*`, `clipboard.*`,
   `shell.*`, `notification.*`, `theme.*`, `power.*`, `shortcut.*`, `net.*`, `system.*`) are sent by the shim only
   **after `app.ready`** (it holds earlier calls, in order); `hello` and `app.*` are never held. The shell therefore
   never has to queue work for a CEF that is not up.
@@ -82,7 +82,7 @@ Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `app.init` | Node | `{name, switches: [[name, value\|null]], schemes: Scheme[], disableHardwareAcceleration: boolean, appUserModelId?: string, activationPolicy?: "regular"\|"accessory"\|"prohibited", aboutPanel?: {applicationName?, iconPath?}}` | `{}` — sent once, on the first macrotask after main's top-level code ran (everything Electron's main does before `whenReady`). The shell then initialises CEF with these switches and schemes and sends `app.ready`. |
+| `app.init` | Node | `{name, switches: [[name, value\|null]], schemes: Scheme[], appUserModelId?: string, activationPolicy?: "regular"\|"accessory"\|"prohibited", aboutPanel?: {applicationName?, iconPath?}}` | `{}` — sent once, on the first macrotask after main's top-level code ran (everything Electron's main does before `whenReady`). The shell then initialises CEF with these switches and schemes and sends `app.ready`. Whether hardware acceleration is off is the shell's own decision before CEF starts (`chrome` gpu area, §15.5), not an init field. |
 | `app.ready` (event) | shell→Node | `{}` | CEF's context is up; windows may be created. `app.whenReady()` resolves here. |
 | `app.exit` (event) | Node | `{code}` | Node finished its quit sequence (`before-quit`, window closes, `will-quit`, `quit`) or `app.exit(code)` was called. The shell closes every window without asking, tears CEF down and exits with `code`; a pending `app.relaunch` is started after teardown. |
 | `app.relaunch` (event) | Node | `{args: string[] \| null}` | After the shell exits, start `exe` again with `args`, or its own launch args when `null` (Electron's default). Last call wins. |
@@ -238,23 +238,12 @@ such a script.
 A scheme is served by Node only on partitions that called `handleScheme` for it (`omp-media` on the app session,
 `omp-visual` on a window's visual partition); a request for it elsewhere fails with `net::ERR_UNKNOWN_URL_SCHEME`.
 
-## 7. `menu.*`, `tray.*`
+## 7. Menus and the tray (moved)
 
-`MenuItem = {id: string, label?, type?: "normal"\|"separator"\|"submenu"\|"checkbox"\|"radio", enabled?, visible?, checked?, accelerator?, sublabel?, toolTip?, role?, submenu?: MenuItem[]}`.
-The shim assigns every `id`; a click on an item with a JS `click` handler or a role it implements itself comes
-back as `menu.click`. Roles the shim implements by itself are expanded before sending (it sets the label default and
-accelerator); `role` stays set only for those that need native handling: macOS `about`, `services`, `hide`,
-`hideOthers`, `unhide`, `front`, `zoom`, `quit`, `minimize`, `close` (and `appMenu`/`windowMenu` containers if used).
-
-| Method | Asks | Params | Result |
-|---|---|---|---|
-| `menu.setApplication` | Node | `{menuId, template: MenuItem[] \| null}` | `{}` — macOS menu bar; Windows: the window's menu bar is not shown (frameless), but accelerators of the items work while an app window has focus |
-| `menu.popup` | Node | `{menuId, template, winId, x?, y?}` | `{itemId: string \| null}` — answered when the menu closes; `null` for a dismissal. Also emits `menu.event` `will-show`/`will-close` |
-| `menu.click` (event) | shell→Node | `{menuId, itemId, checked?}` | an item was chosen (application menu, accelerator, tray menu) |
-| `menu.event` (event) | shell→Node | `{menuId, name: "will-show"\|"will-close"}` | tray/popup menus |
-| `tray.create` | Node | `{trayId, images: [{scaleFactor, dataURL}], template: boolean, tooltip}` | `{}` — the shell picks the closest representation to the display scale |
-| `tray.op` | Node | `{trayId, op, args}` | `setToolTip {text}`, `setImage {images, template}`, `setContextMenu {menuId, template}` (right/left click shows it per platform convention), `destroy` |
-| `tray.event` (event) | shell→Node | `{trayId, name: "click"\|"right-click"\|"double-click"}` | `click`: Windows left click and macOS click without a menu |
+The shim no longer speaks `menu.*` or `tray.*`: the application menu, the text field's context menu and the tray live in
+the shell's `chrome` module (§15.5), which Node reaches through `chrome.menu`, `chrome.menuAction`, `chrome.tray`,
+`chrome.updateAction` and `chrome.menuProbe`. The platform menus the module uses (`menu.rs`, `sys::menu`,
+`sys_mac::menu`) and the tray icon (`tray.rs`) are the shell's own.
 
 ## 8. `dialog.*`, `clipboard.*`, `shell.*`, `notification.*`
 
@@ -526,7 +515,7 @@ What the Rust shell does differently from this table or from Electron. README.md
   `OMPDESK_LAUNCHER_RELEASE_URL` (the API base) and `OMPDESK_LAUNCHER_START_WAIT_S`. Compiled on macOS by CI only.
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs every host request (`host.request`); a Rust panic writes
   `%TEMP%/ompdesk-shell-panic.log`.
-- **`menu.popup`** answers `null` when another popup is open; popup choices never emit `menu.click`.
+- **Popup menus** (`menu::popup_with`): a popup requested while another is open is a dismissal (Windows).
 - **macOS**: `facts.safeStorage` is `{kind: "mac-v10-lazy"}` (the key is fetched with `--keychain-key <userData>`, never at
   launch); every CEF process runs with `--use-mock-keychain`; Cmd-Q sends `app.quitRequested`. All macOS code is
   unverified on a Mac.
@@ -610,7 +599,7 @@ Served by `src/main/shell-host/modules/relay.ts` (`serveShellRelays`, `publishLa
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
 | `core.call` | shell→Node | `{method, params, timeoutMs?}` + `bin` | the core's answer to `method` (its `bin` too). A fault keeps the core's `code` and message; `{cancel: id}` cancels the request in the core. Used through `Ctx::core`. When the core moves under the shell only `Ctx::core`'s body changes. |
-| `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?}` | one line of `<userData>/logs/gui-runtime.jsonl`, written by Node's `writeRuntimeLog` (`runtime-log-core.ts`: rotation, normalising, context). Used through `Ctx::runtime_log`. |
+| `log.runtime` (event) | shell→Node | `{report: RuntimeLogReport, windowId?, cwd?}` | one line of `<userData>/logs/gui-runtime.jsonl`, written by Node's `writeRuntimeLog` (`runtime-log-core.ts`: rotation, normalising, context). Used through `Ctx::runtime_log` (`runtime_log_in` adds a window's `cwd`). |
 | `i18n.labels` (event) | Node | `{language: "en"\|"ko", text: {[key]: string}}` | **transitional, deleted by SX5** (§15.4 rule 2): the whole label table for the UI language: every `MAIN_TEXT` key as is, every `TRAY_LABELS` key as `tray.<key>`, placeholders unfilled. Sent before `whenReady` and after every language change; each replaces the last. Read with `shell_core::labels::label(key, params)` (`fillText`'s rule; `None` before the first table or for an unknown key), the API that stays after SX5. |
 
 ### 15.3 Parity proof, per slice
@@ -693,8 +682,41 @@ on GitHub's runners.
 
 ### 15.5 `chrome.*` (SX1)
 
+The shell owns the app windows' life (geometry, chrome, first show, close to tray, crash recovery, context menu,
+links), the application menu, the tray, the quit's approval, confirmation and watchdog, deep links and launch paths,
+the GPU fallback with the launch history, and the main-thread watchdog. Node keeps what only it has: the windows' tabs
+and sidecars (`spawn`), the run inventory for the quit, its own teardown, the updater (SX4), the runtime log (SX3) and
+the text (SX5): until those land, the shell gets them through the asks and posts below. Text arrives as templates and
+the shell fills `{name}` itself (`chrome_core::fill`, pinned to `fillText`).
+
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
+| `chrome.labels` (post) | Node | `{language, text: {key: template}, tray: {key: template}, accelerators: {sessionNew, windowNew, windowClose, sessionExportHtml}}` | Every `i18n-text.ts` key the module shows (`menu.*`, `quit.*`, `restart.*`, `crash.*`, `updates.restartWork.*`, `tray.keepsRunning*`) and `TRAY_LABELS`, in the UI language; sent before the first window and again on a language change (the menus are rebuilt then). |
+| `chrome.settings` (post) | Node | `{closeToTray: boolean, resumes: boolean}` | prefs the close and the quit read; sent at start and on change. |
+| `chrome.open` | Node | `{winId, wcId, cwd, presence: "hidden"\|"minimized"\|"behind"\|null}` | `{slot, mica, state: WinState}` — makes an app window under Node's ids (Node's shim object exists already, `shellWindow` in the shim): geometry from `<userData>/window-state.json`, cascade, chrome, icon, the renderer URL, first show by `presence`. |
+| `chrome.cwd` (post) | Node | `{winId, cwd}` | the window's project changed (deep links and New Window read it). |
+| `chrome.runProgress` (post) | Node | `{state: "idle"\|"working"\|"waiting"}` | Dock badge and every window's progress bar. |
+| `chrome.spawn` | shell→Node | `{cwd?: string}` | `{winId: number \| null}` — open a window with its tab (menu, tray, deep link, Dock with no window); `null`: none (a quit is underway). |
+| `chrome.hiddenToTray` (event) | shell→Node | `{winId}` | the last shown window hid instead of closing (Node shows the one-time notice). |
+| `chrome.menuAction` (event) | shell→Node | `{winId, action}` | a menu item for the page: Node sends `MENU_ACTION` to that window (the shell spawned one first when none was open). |
+| `chrome.tray` (post) | Node | `{state: TrayState \| null, update: UpdateStatus}` | the renderer's tray snapshot and the updater's status; the tooltip and menu follow (a menu open is never replaced). |
+| `chrome.updateAction` (event) | shell→Node | `{action: "check"\|"download"\|"apply"}` | the tray's update item was clicked. |
+| `chrome.quit` | Node | `{approved: boolean}` | `{}` — `approved`: `requestQuit()` (the approval is the caller's); else a quit nobody approved yet (Node's `before-quit` saw one): the shell asks first when it must. |
+| `chrome.confirmQuit` | Node | `{}` | `{ok}` — `confirmQuit()`. |
+| `chrome.confirmUpdateRestart` | Node | `{}` | `{ok}` — `confirmUpdateRestart()`; the shell asks `chrome.backgroundWork` when it must. |
+| `chrome.quitFacts` | shell→Node | `{}` | `{workingTabs, totalTabs, workingWindows}` (`assessQuitRisk` over the tab inventory). |
+| `chrome.backgroundWork` | shell→Node | `{}` | `{has: boolean, sentence: string}` (`backgroundWorkSentence` in the UI language). |
+| `chrome.approved` (event) | shell→Node | `{run: boolean}` | the quit is approved (Node's `quitApproved()` mirror); `run`: the shell approved it (a confirmation, the menu, the tray, the last window), so Node runs `app.quit()`. |
+| `chrome.committed` (post) | Node | `{reason: "quit"\|"update"}` | the teardown ran: the shell arms the 30 s exit watchdog. |
+| `chrome.disarm` (post) | Node | `{reason?: "quit"\|"update"}` | an install that failed keeps the app: the watchdog stops. |
+| `chrome.forcedExit` | shell→Node | `{reason, timeoutMs}` | `{}` — the watchdog fired: Node runs its forced-exit hooks; the shell then exits 0 whether or not Node answered (2 s). |
+| `chrome.deepLink` (event) | shell→Node | `{winId, payload: DeepLinkPayload}` | delivered once the window's page loaded (Node sends `DEEP_LINK`). |
+| `chrome.launch` | Node | `{}` | `{safeMode, software, request: LaunchRequest}` — this launch's safe mode and software rendering (decided before CEF started) and what its own argv asked for (`parseLaunchArgv`). |
+| `chrome.rendering` | Node | `{}` | `{software}` — whether pages composite in software (asked once the GPU process reported). |
+| `chrome.stable` (post) | Node | `{}` | the launch quit cleanly (`will-quit`): it ends no crash loop. |
+| `chrome.heartbeat` (post) | Node | `{}` | every 1 s while the watchdog runs (`chrome.launch` says whether: packaged or `OMP_GUI_HANG_WATCHDOG=1`). |
+| `chrome.step` (post) | Node | `{phase, step}` | `markMainStep`. |
+| `chrome.log` (event) | shell→Node | `{report: RuntimeLogReport, context?: {windowId, cwd}}` | a `gui-runtime.jsonl` line (Node writes it until SX3 moves the runtime log). |
 
 Deviations:
 

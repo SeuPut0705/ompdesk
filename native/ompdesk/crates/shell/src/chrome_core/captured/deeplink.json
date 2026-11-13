@@ -1,0 +1,10650 @@
+{
+	"capturedFrom": "15ccbb21b65edd4bffc11c77f40f9e0ec0b111d3",
+	"steps": [
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"/Applications/omp.app",
+					"omp://session/abc",
+					"/workspace/app"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "url",
+				"url": "omp://session/abc"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"electron-bin",
+					"/workspace/app",
+					"/nope"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "path",
+				"path": "/workspace/app"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"--class=App",
+					"--no-sandbox",
+					"/workspace/app"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "path",
+				"path": "/workspace/app"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"--flag",
+					"./relative",
+					"/missing"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"/tmp/not-a-directory"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"omp://new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "url",
+				"url": "omp://new"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"OMP://new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"xomp://new",
+					"/workspace/app"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "path",
+				"path": "/workspace/app"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"-omp://new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"/workspace/app",
+					"omp://new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "url",
+				"url": "omp://new"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"--",
+					"/workspace/app"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "path",
+				"path": "/workspace/app"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"",
+					"/workspace/app"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "path",
+				"path": "/workspace/app"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"omp:/new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "focus"
+			}
+		},
+		{
+			"fn": "src/main/launch-argv.ts#parseLaunchArgv",
+			"input": {
+				"argv": [
+					"/missing",
+					"omp://session/first",
+					"omp://new"
+				],
+				"protocol": "omp",
+				"directories": [
+					"/workspace/app",
+					"/Applications/omp.app"
+				]
+			},
+			"output": {
+				"kind": "url",
+				"url": "omp://session/first"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/a/b/../c/"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a/c"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "//a//b"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a/b"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "//"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/a/."
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/a/.."
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/.."
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/../a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a"
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "a/b"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "./a"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": ""
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "."
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": ".."
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "~/a"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#posix.isAbsolute+resolve",
+			"input": {
+				"path": "/a b/ü"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "/a b/ü"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\a"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:/a/../b"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\b"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "c:/a/b/"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "c:\\a\\b"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:/"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:a"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\a\\.\\b"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\a\\b"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\a\\..\\..\\.."
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv\\share\\x\\..\\y"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\srv\\share\\y"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv\\share"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\srv\\share\\"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv\\share\\"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\srv\\share\\"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "//srv/share/x"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\srv\\share\\x"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\srv"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv\\"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\srv"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\srv\\\\share\\x"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\srv\\share\\x"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\.\\C:\\x"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\.\\C:\\x"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\\\?\\C:\\a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "\\\\?\\C:\\a"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\a b\\ü"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\a b\\ü"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "C:\\a\\\\b"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": "C:\\a\\b"
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "a\\b"
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": ""
+			},
+			"output": {
+				"absolute": false,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "/"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "/a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "node:path#win32.isAbsolute+resolve",
+			"input": {
+				"path": "\\a"
+			},
+			"output": {
+				"absolute": true,
+				"resolved": null
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://NEW",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new/",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new?x=1",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://Session/abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc/",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session//abc//",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a%20b",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a%20b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a/b",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a/b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc?x=1#y",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session:99/abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://user@session/abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/../x",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/./abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/ab\tc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/日本",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "%E6%97%A5%E6%9C%AC"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session\\abc",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://sessi%6fn/x",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://foo",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:/new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:///new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "http://new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "https://session/x",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "OMP://New",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": " omp://new ",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "not a url",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://[::1]/x",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://ses sion/x",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/app"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/app"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace//app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/app"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/./app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/app"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/other/../app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/app"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/..",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "//",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/new",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/new"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "relative/dir",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "./workspace/app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "~/workspace/app",
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://NEW",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new/",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new?x=1",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://Session/abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc/",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session//abc//",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a%20b",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a%20b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a/b",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a/b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc?x=1#y",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session:99/abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://user@session/abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/../x",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/./abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/ab\tc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/日本",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "%E6%97%A5%E6%9C%AC"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session\\abc",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://sessi%6fn/x",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://foo",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:/new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:///new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "http://new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "https://session/x",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "OMP://New",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": " omp://new ",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "not a url",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://[::1]/x",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://ses sion/x",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace//app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/./app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/other/../app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/..",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "//",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/new",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/new"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "relative/dir",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "./workspace/app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "~/workspace/app",
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://NEW",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new/",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new?x=1",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://Session/abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc/",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session//abc//",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a%20b",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a%20b"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a/b",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a/b"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc?x=1#y",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session:99/abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://user@session/abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/../x",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/./abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/ab\tc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/日本",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "%E6%97%A5%E6%9C%AC"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session\\abc",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://sessi%6fn/x",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://foo",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:/new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:///new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "http://new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "https://session/x",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "OMP://New",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": " omp://new ",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "after-load"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "not a url",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://[::1]/x",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://ses sion/x",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace//app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/./app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/other/../app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/..",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "//",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/new",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/new"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "relative/dir",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "./workspace/app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "~/workspace/app",
+				"world": {
+					"name": "one loading window",
+					"windows": [
+						{
+							"cwd": "/workspace/app",
+							"loading": true
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://NEW",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new/",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new?x=1",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://Session/abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc/",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session//abc//",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a%20b",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a%20b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a/b",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a/b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc?x=1#y",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session:99/abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://user@session/abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/../x",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/./abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/ab\tc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/日本",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "%E6%97%A5%E6%9C%AC"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session\\abc",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://sessi%6fn/x",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://foo",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:/new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:///new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "http://new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "https://session/x",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "OMP://New",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": " omp://new ",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "not a url",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://[::1]/x",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://ses sion/x",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace//app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/./app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/other/../app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/..",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "//",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/new",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/new"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "relative/dir",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "./workspace/app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "~/workspace/app",
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "/workspace/app",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://NEW",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new/",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://new?x=1",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://Session/abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc/",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session//abc//",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a%20b",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a%20b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/a/b",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "a/b"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/abc?x=1#y",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session:99/abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://user@session/abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/../x",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/./abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/ab\tc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session/日本",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "%E6%97%A5%E6%9C%AC"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://session\\abc",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://sessi%6fn/x",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://foo",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:/new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp:///new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "http://new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "https://session/x",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "x"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "OMP://New",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": " omp://new ",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "not a url",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://[::1]/x",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-url",
+			"input": {
+				"url": "omp://ses sion/x",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace//app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/./app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/other/../app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/app/..",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "//",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "/workspace/new",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"/workspace/new"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "relative/dir",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "./workspace/app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#open-file",
+			"input": {
+				"path": "~/workspace/app",
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://new"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://session/abc"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag",
+					"omp://session/xyz",
+					"<folder>"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "xyz"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"<folder>"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>/"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					"<folder>"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"./nowhere"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"relative"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"."
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>",
+					"omp://new"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [
+					null
+				],
+				"shown": [
+					"spawned"
+				],
+				"sent": [
+					{
+						"win": "spawned",
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"spawned",
+						"show"
+					],
+					[
+						"spawned",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"<folder>"
+				],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [],
+				"world": {
+					"name": "no window",
+					"windows": [],
+					"target": null,
+					"main": false
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://new"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://session/abc"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag",
+					"omp://session/xyz",
+					"<folder>"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "xyz"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"<folder>"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>/"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [
+					"<folder>"
+				],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"./nowhere"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"relative"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"."
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>",
+					"omp://new"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"<folder>"
+				],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [],
+				"world": {
+					"name": "one window",
+					"windows": [
+						{
+							"cwd": "/workspace/app"
+						}
+					],
+					"target": 0,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://new"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://session/abc"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag",
+					"omp://session/xyz",
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "xyz"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>/"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"./nowhere"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"relative"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"."
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>",
+					"omp://new"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [],
+				"world": {
+					"name": "two windows, the second minimized and focused",
+					"windows": [
+						{
+							"cwd": "/workspace/other"
+						},
+						{
+							"cwd": "<folder>",
+							"minimized": true
+						}
+					],
+					"target": 1,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"restore"
+					],
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://new"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"omp://session/abc"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "abc"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag",
+					"omp://session/xyz",
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "switch-session",
+							"sessionId": "xyz"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"--flag"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>/"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					1
+				],
+				"sent": [],
+				"calls": [
+					[
+						"1",
+						"show"
+					],
+					[
+						"1",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"./nowhere"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"relative"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"."
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"/Applications/OMPdesk.app/Contents/MacOS/OMPdesk",
+					"<folder>",
+					"omp://new"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [
+					0
+				],
+				"sent": [
+					{
+						"win": 0,
+						"payload": {
+							"action": "new-session"
+						},
+						"when": "now"
+					}
+				],
+				"calls": [
+					[
+						"0",
+						"show"
+					],
+					[
+						"0",
+						"focus"
+					]
+				]
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [
+					"<folder>"
+				],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		},
+		{
+			"fn": "src/main/deep-link.ts#second-instance",
+			"input": {
+				"argv": [],
+				"world": {
+					"name": "two windows, none focused",
+					"windows": [
+						{
+							"cwd": "/workspace/x"
+						},
+						{
+							"cwd": "<folder>"
+						}
+					],
+					"target": null,
+					"main": true
+				}
+			},
+			"output": {
+				"spawned": [],
+				"shown": [],
+				"sent": [],
+				"calls": []
+			}
+		}
+	]
+}

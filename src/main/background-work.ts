@@ -4,8 +4,8 @@
  *
  * Source: the bridge's `composer.jobs` (the GUI's own jobs poll) on every omp whose run is on, a turn or settling
  * (a settling run is on only because background work keeps it). Electron-free: `index.ts` supplies the omps
- * (`members`) and a click on "Restart & install" asks fresh (`app-quit.ts`, `quit-guard.ts`'
- * `updateRestartConfirmation`) to name what the relaunch starts again. The automatic install never looks: background
+ * (`members`) and a click on "Restart & install" asks fresh (`chrome-quit.ts`, the shell's
+ * `chrome_core::quit::update_restart_confirmation`) to name what the relaunch starts again. The automatic install never looks: background
  * work does not hold it (the relaunch revives it, `app-auto-update.ts`).
  *
  * A tab whose request fails or times out is unknown work, counted like running work in the confirm: a timed-out

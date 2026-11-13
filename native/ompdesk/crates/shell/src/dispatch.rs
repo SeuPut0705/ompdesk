@@ -29,8 +29,6 @@ pub fn request(call: Call) {
         "view.op" => crate::view::op(call),
         "session.create" => crate::session::create(call),
         "session.op" => crate::session::op(call),
-        m if m.starts_with("menu.") => crate::menu::handle(call),
-        m if m.starts_with("tray.") => crate::tray::handle(call),
         m if m.starts_with("dialog.") => crate::dialog::handle(call),
         m if m.starts_with("clipboard.") => crate::clipboard::handle(call),
         m if m.starts_with("shell.") => crate::shellops::handle(call),

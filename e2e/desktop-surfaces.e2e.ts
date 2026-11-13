@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type ElectronApplication, _electron as electron } from "playwright";
-import { micaSupported } from "../src/main/window-chrome";
+import { micaSupported } from "./fixture/mica";
 import { captureTo, exitApp, fixtureOmp, pressShortcutUntilVisible } from "./harness";
 
 // Surfaces the release workflow's @smoke run covers on every platform beside smoke.e2e.ts, on the

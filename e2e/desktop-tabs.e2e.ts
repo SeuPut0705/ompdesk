@@ -258,7 +258,12 @@ for (const [language, theme] of variants(RUNS)) {
 		await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close());
 		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: false });
 		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
-		await app.evaluate(({ app: electronApp }) => electronApp.emit("activate"));
+		// A Dock click: the shell's (chrome module), pressed through its test request.
+		await app.evaluate(electron =>
+			(
+				electron as unknown as { shellHost: { call(method: string, params: unknown): Promise<unknown> } }
+			).shellHost.call("chrome.activate", {}),
+		);
 		await expect.poll(windowState).toMatchObject({ count: 1, id: before.id, destroyed: false, visible: true });
 		expect((await tabs(page)).find(item => item.tabId === tab)?.status).toBe("running");
 		await fixtureCommand(page, tab, "fixture:finish:markdown");

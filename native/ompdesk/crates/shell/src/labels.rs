@@ -2,6 +2,7 @@
 //! module through `label` (PROTOCOL.md §15.4 rule 2). Transitional source until SX5 moves i18n into the shell: Node
 //! pushes the whole table (`MAIN_TEXT`, and `TRAY_LABELS` as `tray.<key>`) for the current language with the event
 //! `i18n.labels {language, text}` at start and on every language change (§15.2). SX5 then fills it from `boot_core`.
+//! A module that draws these words (the application menu, the tray) registers `on_change` to draw them again.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -14,6 +15,14 @@ struct Table {
 }
 
 static TABLE: RwLock<Option<Table>> = RwLock::new(None);
+
+/// What runs after each `set` (a menu that draws these words); registered by the modules that show them.
+static ON_CHANGE: RwLock<Vec<fn()>> = RwLock::new(Vec::new());
+
+/// Calls `f` after every table Node pushes (on the thread that took it: hop to the UI thread to touch a menu).
+pub fn on_change(f: fn()) {
+    ON_CHANGE.write().unwrap().push(f);
+}
 
 /// Takes `i18n.labels`'s data; the table it replaces is dropped whole.
 pub fn set(data: &Value) -> Result<(), String> {
@@ -32,6 +41,11 @@ pub fn set(data: &Value) -> Result<(), String> {
         language: language.to_string(),
         text,
     });
+    // The table is in place and unlocked: a hook may read it.
+    let hooks = ON_CHANGE.read().unwrap().clone();
+    for hook in hooks {
+        hook();
+    }
     Ok(())
 }
 

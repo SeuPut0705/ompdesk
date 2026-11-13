@@ -106,6 +106,9 @@ pub fn forget_cancel(id: u64) {
     }
 }
 
+/// Where a `Call` made inside the shell (`Call::local`) delivers its answer.
+type LocalReply = Box<dyn FnOnce(Result<Value, WireError>, Option<Vec<u8>>) + Send>;
+
 /// A request from Node, answered once. Dropping it unanswered answers `failed`, so Node never waits for nothing.
 pub struct Call {
     pub method: String,
@@ -113,26 +116,65 @@ pub struct Call {
     pub bin: Option<Vec<u8>>,
     id: u64,
     answered: bool,
+    local: Option<LocalReply>,
 }
 
 impl Call {
+    /// A request the shell makes of its own handlers (a module running `win.op` on a window it owns): the answer goes
+    /// to `reply` instead of the wire, a drop answers `failed` there too.
+    pub fn local(
+        method: &str,
+        params: Value,
+        reply: impl FnOnce(Result<Value, WireError>, Option<Vec<u8>>) + Send + 'static,
+    ) -> Self {
+        Self {
+            method: method.to_string(),
+            params,
+            bin: None,
+            id: 0,
+            answered: false,
+            local: Some(Box::new(reply)),
+        }
+    }
+
+    /// `Call::local` whose answer nobody reads (a failure is logged).
+    pub fn fire(method: &str, params: Value) -> Self {
+        let name = method.to_string();
+        Self::local(method, params, move |answer, _| {
+            if let Err(error) = answer {
+                log(
+                    "call.local_failed",
+                    json!({ "method": name, "error": error.message }),
+                );
+            }
+        })
+    }
+
+    fn reply(&mut self, answer: Result<Value, WireError>, bin: Option<&[u8]>) {
+        self.answered = true;
+        match self.local.take() {
+            Some(reply) => reply(answer, bin.map(<[u8]>::to_vec)),
+            None => send_bytes(match answer {
+                Ok(result) => wire::answer_ok(self.id, result, bin),
+                Err(error) => wire::answer_err(self.id, &error),
+            }),
+        }
+    }
+
     pub fn id(&self) -> u64 {
         self.id
     }
 
     pub fn ok(mut self, result: Value) {
-        self.answered = true;
-        send_bytes(wire::answer_ok(self.id, result, None));
+        self.reply(Ok(result), None);
     }
 
     pub fn ok_bin(mut self, result: Value, bin: &[u8]) {
-        self.answered = true;
-        send_bytes(wire::answer_ok(self.id, result, Some(bin)));
+        self.reply(Ok(result), Some(bin));
     }
 
     pub fn err(mut self, code: &str, message: impl Into<String>) {
-        self.answered = true;
-        send_bytes(wire::answer_err(self.id, &WireError::new(code, message)));
+        self.reply(Err(WireError::new(code, message)), None);
     }
 
     pub fn unsupported(self) {
@@ -152,13 +194,8 @@ impl Call {
 impl Drop for Call {
     fn drop(&mut self) {
         if !self.answered {
-            send_bytes(wire::answer_err(
-                self.id,
-                &WireError::new(
-                    "failed",
-                    format!("{} was dropped without an answer", self.method),
-                ),
-            ));
+            let message = format!("{} was dropped without an answer", self.method);
+            self.reply(Err(WireError::new("failed", message)), None);
         }
     }
 }
@@ -260,6 +297,7 @@ fn read_loop<R: Read + std::io::BufRead>(mut reader: R, handlers: Handlers) {
                     bin,
                     id,
                     answered: false,
+                    local: None,
                 });
             }
             Ok(Some(Incoming::Answer { id, result, bin })) => {

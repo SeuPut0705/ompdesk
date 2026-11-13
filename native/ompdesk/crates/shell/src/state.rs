@@ -30,6 +30,13 @@ pub fn next_view_id() -> u64 {
 
 /// The app's places, set once at startup (`app.rs`).
 pub struct Paths {
+    /// The profile folder (`app.getPath("userData")`).
+    pub user_data: PathBuf,
+    /// The folder holding `out/main/index.js` (`app.getAppPath()`).
+    pub app_dir: PathBuf,
+    /// `process.resourcesPath`.
+    pub resources: PathBuf,
+    pub packaged: bool,
     pub renderer_dir: PathBuf,
     pub preload_file: PathBuf,
     pub web_dir: PathBuf,

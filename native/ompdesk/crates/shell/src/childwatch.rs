@@ -79,7 +79,8 @@ fn run() {
                 "child.gone",
                 json!({ "kind": kind.process_type, "details": data }),
             );
-            host::event("app.childProcessGone", data);
+            host::event("app.childProcessGone", data.clone());
+            crate::modules::chrome::gpu::child_gone(&data);
         }
     }
 }
@@ -124,7 +125,8 @@ fn run() {
                 "child.gone",
                 json!({ "kind": kind.process_type, "details": data }),
             );
-            host::event("app.childProcessGone", data);
+            host::event("app.childProcessGone", data.clone());
+            crate::modules::chrome::gpu::child_gone(&data);
         }
     }
 }

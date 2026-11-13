@@ -313,6 +313,7 @@ function cargoEnv(): NodeJS.ProcessEnv {
 	delete env.LIBPATH;
 	env.CEF_PATH = path.join(SHELL_DIR, "target", "cef-bin");
 	env.OMPDESK_ICON = path.join(REPO_ROOT, "resources", "icon.ico");
+	env.OMPDESK_BRAND = path.join(REPO_ROOT, "resources", "brand");
 	if (process.platform === "win32") {
 		const tools = vsTools();
 		env.PATH = `${env.PATH ?? env.Path ?? ""};${tools.cmakeBin};${tools.ninjaBin}`;

@@ -1,7 +1,6 @@
 import { app } from "electron";
 import { fillText } from "../shared/fill-text";
 import { isUiLanguage, type UiLanguage, uiLanguageFromLocale } from "../shared/ui-language";
-import type { EditLabels } from "./editable-context-menu";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
 import type { OmpFailure } from "./omp-runtime";
 import { SafeStore } from "./safe-store";
@@ -22,20 +21,6 @@ export function mainT(
 	params?: Record<string, string | number>,
 ): string {
 	return fillText(MAIN_TEXT[key][language], params);
-}
-
-/** The edit items' names, for the Edit menu and the text-field context menu. */
-export function editLabels(language = getMainLanguage()): EditLabels {
-	return {
-		undo: mainT("menu.undo", language),
-		redo: mainT("menu.redo", language),
-		cut: mainT("menu.cut", language),
-		copy: mainT("menu.copy", language),
-		paste: mainT("menu.paste", language),
-		selectAll: mainT("menu.selectAll", language),
-		addToDictionary: mainT("menu.addToDictionary", language),
-		copyImage: mainT("menu.copyImage", language),
-	};
 }
 
 /** User-facing text for why the system omp is unusable, in the UI language. */

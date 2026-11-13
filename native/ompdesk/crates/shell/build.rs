@@ -1,12 +1,33 @@
 // Windows only: embed the application manifest (supportedOS + PerMonitorV2 + long paths + common controls 6; without
 // it CEF's GPU process crash-loops, exit 0x80000003) and the app icon. The resource script is written here with
 // absolute paths: the crate is built from a `subst` drive (CEF's wrapper paths pass MAX_PATH from a deep worktree), so
-// a path relative to the crate would not find `resources/icon.ico`. `scripts/build-shell.ts` passes OMPDESK_ICON.
+// a path relative to the crate would not find `resources/icon.ico`. `scripts/build-shell.ts` passes OMPDESK_ICON and
+// OMPDESK_BRAND (`resources/brand`, the tray PNGs the chrome module embeds, as `OMPDESK_BRAND_DIR`).
 use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-env-changed=OMPDESK_ICON");
+    println!("cargo:rerun-if-env-changed=OMPDESK_BRAND");
+    let manifest_dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"));
+    let brand = match std::env::var("OMPDESK_BRAND") {
+        Ok(path) if !path.is_empty() => PathBuf::from(path),
+        _ => manifest_dir.join("../../../../resources/brand"),
+    };
+    for name in [
+        "tray.png",
+        "tray@2x.png",
+        "trayTemplate.png",
+        "trayTemplate@2x.png",
+    ] {
+        println!("cargo:rerun-if-changed={}", brand.join(name).display());
+    }
+    // Forward slashes: `concat!` joins a file name with `/`, which every platform's `include_bytes!` reads.
+    println!(
+        "cargo:rustc-env=OMPDESK_BRAND_DIR={}",
+        brand.display().to_string().replace('\\', "/")
+    );
     println!("cargo:rerun-if-changed=last-electron.json");
     // The last Electron release, the app the macOS launcher puts back when a new version never starts: a compile-time
     // constant of `ompdesk-launcher` from `last-electron.json` (`{"tag": "v0.127.0"}`; the release workflow writes it).
@@ -27,8 +48,6 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
-    let manifest_dir =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"));
     let icon = match std::env::var("OMPDESK_ICON") {
         Ok(path) if !path.is_empty() => PathBuf::from(path),
         _ => manifest_dir.join("../../../../resources/icon.ico"),

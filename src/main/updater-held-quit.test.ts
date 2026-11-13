@@ -49,13 +49,13 @@ vi.mock("electron", () => ({
 }));
 vi.mock("electron-updater", () => ({ default: { autoUpdater: mocks.updater } }));
 vi.mock("./nsis-updater", () => ({ OmpNsisUpdater: class {} }));
-vi.mock("./app-quit", () => ({
+vi.mock("./shell-host/modules/chrome-quit", () => ({
 	confirmUpdateRestart: async () => true,
 	disarmQuitWatchdog: () => {},
 	onQuitForcedExit: (listener: () => void) => mocks.forcedExit.push(listener),
 	requestQuit: () => {},
 }));
-vi.mock("./hang-watchdog", () => ({ markMainStep: () => {} }));
+vi.mock("./shell-host/modules/chrome-hang", () => ({ markMainStep: () => {} }));
 vi.mock("./i18n", () => ({ mainT: (key: MainTextKey) => MAIN_TEXT[key].en }));
 vi.mock("./runtime-log", () => ({
 	writeRuntimeLog: (report: { message: string; details: Record<string, unknown> }) => mocks.runtimeLog.push(report),

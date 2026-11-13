@@ -1,19 +1,18 @@
 // UNVERIFIED on macOS: written on Windows without a compiler for this target.
 //! The macOS start-up the shell binary needs before and around CEF: loading the framework, the `NSApplication`
 //! subclass CEF requires (`CefAppProtocol`), and the application delegate that turns the OS's URL / file / Dock
-//! events into `app.openUrl`, `app.openFile` and `app.activate`. `define_class!` and the Apple Event plumbing are
+//! events into the chrome module (`deep_link::open_url`, `open_file`, `quit::activate`). `define_class!` and the Apple Event plumbing are
 //! Objective-C, so this file allows `unsafe_code` for itself (the rest of the OS access is in `shell_core::sys_mac`).
 //!
 //! Order in `main`: `load_framework` first of all (every process), then, in the browser process only,
 //! `setup_application(request_quit)` before anything touches `NSApp`, `setup_delegate` and `install_main_menu` before
-//! `initialize` (a cold launch by URL delivers its Apple Event as soon as the run loop starts), and `flush_pending`
-//! when `app.ready` is sent.
+//! `initialize` (a cold launch by URL delivers its Apple Event as soon as the run loop starts; the deep-link area holds
+//! it until Node's windows exist).
 #![allow(unsafe_code)]
 
 use std::cell::Cell;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use cef::application_mac::{CefAppProtocol, CrAppControlProtocol, CrAppProtocol};
 use cef::library_loader::LibraryLoader;
@@ -25,7 +24,7 @@ use objc2::{
 };
 use objc2_app_kit::{NSApp, NSApplication, NSApplicationDelegate, NSEvent};
 use objc2_foundation::{NSArray, NSObject, NSString};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::host;
 use crate::log::log;
@@ -140,12 +139,12 @@ impl CefApplication {
     }
 }
 
-/// ⌘Q and Dock > Quit: Electron's `app.quit()` starts Node's quit sequence (`before-quit`, window closes, `will-quit`),
-/// so the shell asks Node to run it (`app.quitRequested`); Node answers with `app.exit`. Without a Node connection
+/// ⌘Q and Dock > Quit: the chrome module's quit area asks first when running work would stop, approves the quit and
+/// tells Node to run its quit sequence (`chrome.approved`); Node answers with `app.exit`. Without a Node connection
 /// there is nobody to ask and the shell exits at once. Pass this to `setup_application`.
 pub fn request_quit() {
     if host::connected() {
-        host::event("app.quitRequested", json!({}));
+        crate::modules::chrome::quit::quit();
     } else {
         crate::lifecycle::request_exit(0);
     }
@@ -162,36 +161,6 @@ pub fn setup_application(quit: fn()) {
         NSApp(mtm).isKindOfClass(CefApplication::class()),
         "NSApp is not a CefApplication"
     );
-}
-
-/// Events that arrive before `app.ready` (a cold launch by URL or by a dropped file comes before CEF is up, before Node
-/// is connected): the host drops events nobody is connected for, so they wait here and `flush_pending` sends them.
-static PENDING: Mutex<Vec<(&'static str, Value)>> = Mutex::new(Vec::new());
-static READY: AtomicBool = AtomicBool::new(false);
-/// More than this many events before the app is ready is a loop, not a launch.
-const PENDING_MAX: usize = 64;
-
-fn emit(name: &'static str, data: Value) {
-    let mut queue = PENDING.lock().unwrap();
-    if READY.load(Ordering::Acquire) {
-        drop(queue);
-        host::event(name, data);
-    } else if queue.len() < PENDING_MAX {
-        queue.push((name, data));
-    }
-}
-
-/// Sends the events that waited for the app, in order, and from now on sends events at once. Call where `app.ready` is
-/// sent (the UI thread, `on_context_initialized`), right after that event.
-pub fn flush_pending() {
-    let queued = {
-        let mut queue = PENDING.lock().unwrap();
-        READY.store(true, Ordering::Release);
-        std::mem::take(&mut *queue)
-    };
-    for (name, data) in queued {
-        host::event(name, data);
-    }
 }
 
 const KEY_DIRECT_OBJECT: u32 = 0x2D2D_2D2D; // '----'
@@ -214,7 +183,7 @@ define_class!(
                 direct.and_then(|d| msg_send![&*d, stringValue])
             };
             match url {
-                Some(url) => emit("app.openUrl", json!({ "url": url.to_string() })),
+                Some(url) => crate::modules::chrome::deep_link::open_url(url.to_string()),
                 None => log("app.open_url_unreadable", json!({})),
             }
         }
@@ -228,7 +197,7 @@ define_class!(
         #[unsafe(method(application:openFiles:))]
         fn application_open_files(&self, sender: &NSApplication, filenames: &NSArray<NSString>) {
             for path in filenames.iter() {
-                emit("app.openFile", json!({ "path": path.to_string() }));
+                crate::modules::chrome::deep_link::open_file(path.to_string());
             }
             // SAFETY: `replyToOpenOrPrint:` takes the NSApplicationDelegateReply value.
             unsafe {
@@ -237,10 +206,11 @@ define_class!(
         }
 
         /// The Dock icon was clicked (or the app opened again) while running. Electron answers NO: the app decides
-        /// what to show (`app.activate`), AppKit's default un-minimising is not wanted.
+        /// what to show (the chrome module's quit area applies `activate_action`), AppKit's default un-minimising is
+        /// not wanted.
         #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
-        fn application_should_handle_reopen(&self, _sender: &NSApplication, has_visible_windows: Bool) -> Bool {
-            emit("app.activate", json!({ "hasVisibleWindows": has_visible_windows.as_bool() }));
+        fn application_should_handle_reopen(&self, _sender: &NSApplication, _has_visible_windows: Bool) -> Bool {
+            crate::modules::chrome::quit::activate();
             Bool::NO
         }
 
@@ -313,7 +283,7 @@ fn add_menu(bar: &AnyObject, title: &str, items: &[Retained<AnyObject>]) -> Reta
     }
 }
 
-/// The menu bar the app has until Node sends `menu.setApplication` (which replaces it, `sys_mac::menu`): App (About,
+/// The menu bar the app has until the chrome module installs its own (which replaces it, `sys_mac::menu`): App (About,
 /// Hide, Hide Others, Show All, Quit ⌘Q), Edit (Undo, Redo, Cut, Copy, Paste, Select All: the actions the page's text
 /// fields answer) and Window (Close, Minimize, Zoom, Bring All to Front). Without a main menu ⌘Q, ⌘C, ⌘V and ⌘W do
 /// nothing. Main thread, after `setup_application`; call it where `setup_delegate` is called, before the run loop.

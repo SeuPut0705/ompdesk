@@ -58,6 +58,8 @@ tray-icon = "0.21"
 # wc.frame: the latest painted frame of an offscreen page as JPEG or PNG.
 jpeg-encoder = "0.6"
 png = "0.17"
+# chrome deep links: `omp://new`, `omp://session/<id>` read as the URL standard reads them (what `new URL` did).
+url = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

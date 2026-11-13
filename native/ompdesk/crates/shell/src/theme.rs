@@ -29,6 +29,15 @@ fn snapshot(source: ThemeSource) -> Value {
     value
 }
 
+/// Whether the app's scheme is dark now (`nativeTheme.shouldUseDarkColors`). UI thread.
+pub fn dark() -> bool {
+    STATE.with(|s| {
+        snapshot(s.borrow().source)["dark"]
+            .as_bool()
+            .unwrap_or(false)
+    })
+}
+
 /// UI thread.
 pub fn init() {
     STATE.with(|s| {

@@ -580,7 +580,7 @@ export type RuntimeErrorSource =
 	 * path and the bytes it took.
 	 */
 	| "disk-care"
-	/** A previous run's main-thread stall (src/main/hang-watchdog.ts): `details.unresponsiveMs`, `selfRecovered`. */
+	/** A previous run's main-thread stall (the shell's hang watchdog, `chrome_core::hang`): `details.unresponsiveMs`, `selfRecovered`. */
 	| "main-thread-hang"
 	/**
 	 * A paired web page reloaded itself, or was about to (src/renderer/web/reload-reason.ts): `message` is the reason
@@ -611,9 +611,9 @@ export type RuntimeErrorSource =
 	 * `closed` (`reason`, `ms`) on the host; `details.deviceId` names the other computer.
 	 */
 	| "remote-link"
-	/** The GPU fallback (src/main/gpu-fallback.ts): software rendering, a relaunch or why none, a hardware trial. */
+	/** The GPU fallback (the shell's `chrome_core::gpu`): software rendering, a relaunch or why none, a hardware trial. */
 	| "gpu-fallback"
-	/** The crash-loop guard (src/main/launch-guard.ts): this launch starts in safe mode. */
+	/** The crash-loop guard (the shell's `chrome_core::launch`): this launch starts in safe mode. */
 	| "launch-guard"
 	/** The pre-rename profile moved into userData (src/main/legacy-user-data.ts). */
 	| "user-data-migration"

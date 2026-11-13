@@ -597,7 +597,7 @@ describe("mac bundle configs", () => {
 		}
 	});
 
-	it("registers the omp:// scheme that src/main/deep-link.ts handles, in the NSIS registry entry and the bundle's Info.plist", () => {
+	it("registers the omp:// scheme that the shell's chrome deep-link area handles, in the NSIS registry entry and the bundle's Info.plist", () => {
 		for (const { file, config } of configs) {
 			expect(config.mac, `${file} is a mac config`).toBeDefined();
 		}

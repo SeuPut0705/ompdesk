@@ -9,7 +9,6 @@ import { createWindowClasses } from "./browser-window";
 import { createDesktopModules } from "./desktop";
 import { Host, type HostClient } from "./host";
 import { IpcMain, serveIpc } from "./ipc-main";
-import { createMenuModule } from "./menu";
 import { NativeImage } from "./native-image";
 import { createNet } from "./net";
 import { createSafeStorage, keychainFetcher } from "./safe-storage";
@@ -84,11 +83,6 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 	serveIpc(host, ipcMain);
 
 	const desktop = createDesktopModules(host, { focusedWindowId: () => BrowserWindow.getFocusedWindow()?.id });
-	const menus = createMenuModule(host, {
-		focusedWindow: () => BrowserWindow.getFocusedWindow(),
-		quit: () => app.quit(),
-		showAboutPanel: () => app.showAboutPanel(),
-	});
 
 	const session = {
 		get defaultSession(): Session {
@@ -118,7 +112,6 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 		session,
 		protocol,
 		ipcMain,
-		...menus,
 		dialog: desktop.dialog,
 		clipboard: desktop.clipboard,
 		shell: desktop.shell,

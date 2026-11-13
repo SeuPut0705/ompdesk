@@ -52,6 +52,13 @@ function shellPreferences(preferences: WebPreferences | undefined): Record<strin
 	return { ...rest, session: session?.partition ?? DEFAULT_PARTITION };
 }
 
+/** What `win.adopted` names besides the options. */
+interface Adopted {
+	winId: number;
+	wcId: number;
+	state: WinState;
+}
+
 function initialState(options: BrowserWindowOptions): WinState {
 	const bounds: Rect = {
 		x: options.x ?? 0,
@@ -76,6 +83,8 @@ function initialState(options: BrowserWindowOptions): WinState {
 export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (partition: string) => Session) {
 	const windows = new Map<number, BrowserWindow>();
 	let focused: BrowserWindow | null = null;
+	/** The shell's ids and state for the window being constructed by `win.adopted` (PROTOCOL.md §15.4 rule 4). */
+	let adopting: Adopted | null = null;
 
 	class ContentView extends EventEmitter {
 		readonly children: WebContentsView[] = [];
@@ -147,27 +156,34 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		readonly contentView: ContentView;
 		#state: WinState;
 		#destroyed = false;
+		/** The shell made this window (`win.adopted`). */
+		readonly #adopted: boolean;
 
 		constructor(options: BrowserWindowOptions = {}) {
 			super();
-			this.id = host.nextWindowId();
-			this.#state = initialState(options);
+			const made = adopting;
+			adopting = null;
+			this.id = made?.winId ?? host.nextWindowId();
+			this.#adopted = made !== null;
+			this.#state = made?.state ?? initialState(options);
 			this.contentView = new ContentView(this.id);
 			const preferences = shellPreferences(options.webPreferences);
 			const offscreen = options.webPreferences?.offscreen === true;
 			this.webContents = new WebContents(
 				host,
-				host.nextContentsId(),
+				made?.wcId ?? host.nextContentsId(),
 				{ partition: String(preferences.session), windowId: offscreen ? undefined : this.id, offscreen },
 				sessionFor,
 			);
 			windows.set(this.id, this);
-			const { webPreferences: _drop, ...rest } = options;
-			host.post("win.create", {
-				winId: this.id,
-				wcId: this.webContents.id,
-				options: { ...rest, webPreferences: preferences },
-			});
+			if (!made) {
+				const { webPreferences: _drop, ...rest } = options;
+				host.post("win.create", {
+					winId: this.id,
+					wcId: this.webContents.id,
+					options: { ...rest, webPreferences: preferences },
+				});
+			}
 			app.emit("browser-window-created", makeEvent(), this);
 		}
 
@@ -264,7 +280,9 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		tryClose(): boolean {
 			if (this.#destroyed) return true;
 			if (!emitPreventable(this, "close")) return false;
-			this.#op("close", { force: true });
+			// An app window's close is the shell's to decide (chrome module: close to tray, the quit), as the person's
+			// is: it closes unless the shell hides it instead.
+			this.#op("close", { force: !this.#adopted });
 			return true;
 		}
 
@@ -489,6 +507,13 @@ export function createWindowClasses(host: Host, app: AppEvents, sessionFor: (par
 		}
 	}
 
+	// A window the shell made itself (an app window, SX1): the same object a `new BrowserWindow` gives, over the
+	// shell's ids (2^32 up), without a `win.create`. It arrives before any other frame about that window.
+	host.client.on("win.adopted", ({ winId, wcId, options, state }: Adopted & { options: BrowserWindowOptions }) => {
+		if (windows.has(winId)) return;
+		adopting = { winId, wcId, state };
+		new BrowserWindow(options);
+	});
 	host.client.on("win.state", ({ winId, ...state }: { winId: number } & Partial<WinState>) => {
 		windows.get(winId)?.applyState(state);
 	});

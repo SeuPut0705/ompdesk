@@ -179,6 +179,9 @@ pub fn push_state(win_id: u64) {
     if f1 != f0 {
         event(if f1 { "focus" } else { "blur" });
     }
+    if v1 != v0 || mi1 != mi0 {
+        crate::modules::chrome::window::changed(win_id);
+    }
 }
 
 // ------------------------------------------------------------------ layout
@@ -387,6 +390,10 @@ wrap_window_delegate! {
                 let e = entry.borrow();
                 (e.close_approved, e.close_pending, ui_state(|u| u.exiting))
             };
+            // An app window's close is the chrome module's: it saves the geometry and decides (close to tray, quit).
+            if crate::modules::chrome::window::owns(self.win_id) {
+                return i32::from(crate::modules::chrome::window::can_close(self.win_id, approved || exiting));
+            }
             if approved || exiting {
                 return 1;
             }
@@ -523,6 +530,7 @@ fn window_destroyed(win_id: u64) {
         "win.event",
         json!({ "winId": win_id, "name": "closed", "args": [] }),
     );
+    crate::modules::chrome::window::destroyed(win_id);
 }
 
 #[cfg(windows)]
@@ -646,6 +654,15 @@ pub fn create(call: Call) {
 }
 
 fn create_on_ui(call: Call, win_id: u64, wc_id: u64, options: Value) {
+    match make(win_id, wc_id, options) {
+        Ok(state) => call.ok(json!({ "winId": win_id, "wcId": wc_id, "state": state })),
+        Err(message) => call.err("failed", message),
+    }
+}
+
+/// Makes a window as `win.create` does (UI thread) and returns its first `WinState`; a module that makes its own windows
+/// (the chrome module's app windows) calls this with ids from `state.rs`.
+pub fn make(win_id: u64, wc_id: u64, options: Value) -> Result<Value, String> {
     let prefs = options
         .get("webPreferences")
         .cloned()
@@ -689,22 +706,20 @@ fn create_on_ui(call: Call, win_id: u64, wc_id: u64, options: Value) {
         );
         if !wc::create_offscreen(wc_id, &partition, w, h) {
             ui_state(|u| u.windows.remove(&win_id));
-            return call.err("failed", "CEF could not create an offscreen browser");
+            return Err("CEF could not create an offscreen browser".into());
         }
-        let state = state_json(&snap(&entry.borrow()));
-        return call.ok(json!({ "winId": win_id, "wcId": wc_id, "state": state }));
+        return Ok(state_json(&snap(&entry.borrow())));
     }
     let Some(_page) = wc::create_view(wc_id, Role::Page, &partition) else {
         ui_state(|u| u.windows.remove(&win_id));
-        return call.err("failed", "CEF could not create the page");
+        return Err("CEF could not create the page".into());
     };
     if let Some(w) = state::wc(wc_id) {
         w.borrow_mut().win_id = Some(win_id);
     }
     let mut delegate = ShellWindowDelegate::new(win_id);
     window_create_top_level(Some(&mut delegate));
-    let state = state_json(&snap(&entry.borrow()));
-    call.ok(json!({ "winId": win_id, "wcId": wc_id, "state": state }));
+    Ok(state_json(&snap(&entry.borrow())))
 }
 
 fn parse_rect(v: &Value) -> Option<Rect> {

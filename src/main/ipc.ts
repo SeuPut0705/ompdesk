@@ -12,7 +12,7 @@
 import { existsSync, promises as fsp } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, dialog, type Notification, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, Notification, screen, shell } from "electron";
 import { AUTO_TITLE_EVOLVE_PREF, AUTO_TITLE_PREF } from "../../resources/gui-bridge/modes/auto-title-contracts";
 import { DELEGATION_PREF, isDelegationMode } from "../../resources/gui-bridge/modes/delegation-contracts";
 import { JUDGE_ASSIST_PREF, judgeAssistEnabled } from "../../resources/gui-bridge/modes/judge-assist-contracts";
@@ -45,6 +45,7 @@ import {
 	DEFAULT_BROWSER_PREF,
 	isDefaultBrowserPref,
 } from "../shared/default-browser";
+import { CLOSE_TO_TRAY_PREF, closeToTrayEnabled } from "../shared/desktop-prefs";
 import { codedError, type IpcErrorCode, ipcErrorCode } from "../shared/ipc-error-codes";
 import type {
 	CustomProviderInput,
@@ -139,8 +140,6 @@ import {
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
-import { appNotification } from "./app-icon";
-import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
 import { routeHostAutopilotNotice } from "./autopilot-notice-route";
 import {
@@ -169,7 +168,6 @@ import type { MacPermissions } from "./mac-permissions";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
 import type { MediaStreams } from "./media-stream";
-import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
 import { createNotifyHandler } from "./notify-triage";
@@ -193,6 +191,9 @@ import type { SessionIndex } from "./session-index";
 import { deleteSession, moveSession, onSessionDeleted, recordSessionDelete, renameSession } from "./session-mutations";
 import type { SessionSummaries } from "./session-summaries";
 import { resolveEditorCommand, shellSpawnEnv } from "./shell-env";
+import { quitApproved, requestQuit } from "./shell-host/modules/chrome-quit";
+import { setTrayState } from "./shell-host/modules/chrome-tray";
+import { type SpawnWindow, setCloseToTray, type WindowManager } from "./shell-host/modules/chrome-window";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels } from "./shell-host/modules/relay";
 import { readClipboardText } from "./shell-host/shell-calls";
@@ -209,7 +210,6 @@ import { closeWindowTab, type TabReleaseDeps } from "./tab-release";
 import { type SessionFolderState, type SpawnTabRemote, sessionFolderState, spawnTabForWindow } from "./tab-spawn";
 import { formatTerminalRead, TERMINAL_READ_TOOL } from "./terminal/agent-tool";
 import { closeTabTerminals, readTabTerminals, registerTerminalIpc } from "./terminal/ipc";
-import { setTrayState } from "./tray";
 import { aggregateProgress, aggregateTrayStatus } from "./tray-labels";
 import { personsPrompt, type RelaunchContinuation, trackMove } from "./turn-resume";
 import { dispatchedCommand, STOP_COMMANDS } from "./turn-stop-log";
@@ -219,7 +219,6 @@ import { type FileEditReports, parseFileEditReport } from "./web/file-edit-repor
 import type { IpcCaller, IpcRegistry } from "./web/ipc-registry";
 import { writeDialogPreload } from "./web/preview-dialog";
 import { attachHere, type UploadStore } from "./web/uploads";
-import type { SpawnWindow, WindowManager } from "./window";
 import { sanitizeChromeColors, TOP_BAR_HEIGHT } from "./window-chrome";
 import {
 	FS_BINARY_LOCAL_MAX_BYTES,
@@ -455,7 +454,7 @@ const notifyBatchedWindows = new Set<number>();
 /** One OS notification; one about a tab switches to it on click. */
 function showNotification(windowId: number, notice: ShownNotice): { close: () => void } {
 	const win = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.id === windowId);
-	const notification = appNotification({ title: notice.title, body: notice.body });
+	const notification = new Notification({ title: notice.title, body: notice.body });
 	const { tabId } = notice;
 	if (win && tabId) {
 		// Held until clicked or dismissed: a collected Notification drops its click.
@@ -1171,7 +1170,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				webPush: (tabId, event) => deps.webTabNotice.current?.(tabId, event),
 				banner: event => {
 					if (prefsStore.get("notifications") !== false)
-						appNotification({ title: event.title, body: event.body }).show();
+						new Notification({ title: event.title, body: event.body }).show();
 				},
 			},
 			host,
@@ -1604,7 +1603,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	// sidecar cannot be created.
 	// F-OWN: when the session is already attached to a tab, focus the owner
 	// window (win.show()+win.focus() — the codebase's focus pattern, see
-	// deep-link.ts/tray.ts) instead of spawning a second sidecar for the same
+	// the shell's chrome module) instead of spawning a second sidecar for the same
 	// file; resolves true because the session ends up foregrounded either way.
 	// The new window's tab starts on the session file itself (spawnWindow passes it to the pool, `--session`).
 	ipc.handle(IPC_COMMANDS.SESSION_OPEN_NEW_WINDOW, async (caller, payload: IpcSessionOpenNewWindowPayload) => {
@@ -1649,7 +1648,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				"session_folder_missing",
 				`The folder this session belongs in no longer exists: ${folder.folder}`,
 			);
-		return deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device) !== null;
+		return (await deps.spawnWindow(folder?.folder ?? cwd, sessionPath, kind, device)) !== null;
 	});
 
 	// A desktop window starts its tab on its session (spawnWindow), so it has nothing pending; a paired web page
@@ -2129,11 +2128,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 			remoteDevices.hostJudgeAssistChanged();
 		}
 		if (payload.key === "language" && isUiLanguage(payload.value)) {
-			createMenu(windowManager, deps.spawnWindow);
 			publishLabels(shellHost());
 		}
 		if (payload.key === AGENT_CONTROL_PREF)
 			for (const sidecar of sidecarPool.allSidecars()) if (!sidecar.device) sidecar.syncHostTools();
+		// The shell decides what closing the last window does (chrome window area): it reads the setting from here.
+		if (payload.key === CLOSE_TO_TRAY_PREF) setCloseToTray(closeToTrayEnabled(payload.value));
 		deps.onPrefChanged?.(payload.key);
 		prefChanged(caller.win, payload.key);
 	});
@@ -2823,7 +2823,7 @@ function executeGuiHostTool(name: string, args: Record<string, unknown>): string
 		case "gui_notify": {
 			const title = typeof args.title === "string" ? args.title : "Notification";
 			const body = typeof args.body === "string" ? args.body : "";
-			appNotification({ title, body }).show();
+			new Notification({ title, body }).show();
 			return "Notification shown";
 		}
 		case "gui_clipboard_read": {

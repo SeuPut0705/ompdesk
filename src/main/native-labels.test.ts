@@ -4,27 +4,20 @@
  * Electron's role items default to English whatever the language, and a menu
  * item that opens a page under another name reads as a different feature.
  */
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { en } from "../renderer/locales/en";
 import { ko } from "../renderer/locales/ko";
 import { UI_LANGUAGES } from "../shared/ui-language";
 import { MAIN_TEXT, type MainTextKey } from "./i18n-text";
-import { statusLabel } from "./tray-labels";
+import { TRAY_LABELS } from "./tray-labels";
 
 const RENDERER = { en, ko };
-const source = (file: string) => fs.readFileSync(path.join(__dirname, file), "utf8");
 
 /** Menus use title case and an ellipsis for items that ask for more; the words must match. */
 const sameName = (native: string, renderer: string) =>
 	native.replace(/…$/, "").toLowerCase() === renderer.replace(/…$/, "").toLowerCase();
 
 describe("native menu roles", () => {
-	it.each(["menu.ts", "editable-context-menu.ts"])("%s labels every role item", file => {
-		expect(source(file).match(/\{\s*role: "\w+"(?: as const)?\s*\}/g) ?? []).toEqual([]);
-	});
-
 	it("keeps Electron's English role names in English", () => {
 		const electronNames: Partial<Record<MainTextKey, string>> = {
 			"menu.undo": "Undo",
@@ -93,10 +86,15 @@ describe("one name per place", () => {
 		});
 
 		it(`names the tray's states like the composer (${language})`, () => {
-			expect(statusLabel(language, "idle")).toBe(RENDERER[language]["titlebar.status.ready"]);
-			expect(statusLabel(language, "streaming")).toBe(RENDERER[language]["titlebar.status.working"]);
-			for (const kind of ["question", "approval", "childWaiting"] as const)
-				expect(statusLabel(language, kind)).toBe(RENDERER[language][`attention.${kind}`]);
+			expect(TRAY_LABELS.statusIdle[language]).toBe(RENDERER[language]["titlebar.status.ready"]);
+			expect(TRAY_LABELS.statusStreaming[language]).toBe(RENDERER[language]["titlebar.status.working"]);
+			const waiting = {
+				question: TRAY_LABELS.statusQuestion,
+				approval: TRAY_LABELS.statusApproval,
+				childWaiting: TRAY_LABELS.statusChildWaiting,
+			};
+			for (const [kind, words] of Object.entries(waiting))
+				expect(words[language]).toBe(RENDERER[language][`attention.${kind}`]);
 			// The judge's "this reply waits for you" banner says the question word too.
 			expect(
 				MAIN_TEXT["notify.needsInput"][language].startsWith(`${RENDERER[language]["attention.question"]} · `),

@@ -31,6 +31,20 @@ pub fn handle(call: Call) {
                 call.err("invalid", "notification.show needs an id");
                 return;
             };
+            // A test launch posts nothing to the OS: macOS filed an unpackaged run's notifications under the
+            // development Electron's bundle id, with its logo, in the person's Notification Center (was app-icon.ts).
+            if std::env::var("OMP_GUI_HEADLESS").as_deref() == Ok("1") {
+                return call.ok(json!({}));
+            }
+            // Windows takes the app icon from a file (an unpackaged run has no shortcut to take it from).
+            #[cfg(windows)]
+            let spec = ToastSpec {
+                icon: spec
+                    .icon
+                    .clone()
+                    .or_else(|| Some(crate::modules::chrome::window::icon_path())),
+                ..spec
+            };
             ui::run(move || {
                 let id = spec.id;
                 let shown = native::show(&spec, emit);

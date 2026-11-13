@@ -28,6 +28,8 @@ fn cs(text: &str) -> CefString {
 // ------------------------------------------------------------------ events and state pushes
 
 pub fn emit(wc_id: u64, name: &str, args: Value) {
+    // An app window's page events are the chrome module's too (renderer recovery, context menu, its log lines).
+    crate::modules::chrome::window::page_event(wc_id, name, &args);
     host::event(
         "wc.event",
         json!({ "wcId": wc_id, "name": name, "args": args }),
@@ -251,6 +253,11 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut i32>,
         ) -> i32 {
+            // An app window's page: http(s) opens in the system browser, anything else nowhere (the chrome module).
+            if crate::modules::chrome::window::owns_page(self.wc_id) {
+                crate::modules::chrome::window::window_open(&target_url.map(|u| u.to_string()).unwrap_or_default());
+                return 1;
+            }
             // The app only ever denies (it opens the system browser or its own Preview tab itself): the request
             // goes to Node for its side effects and the popup is cancelled at once, never waiting for the answer.
             host::request(
@@ -345,7 +352,8 @@ wrap_request_handler! {
         ) -> i32 {
             let Some(entry) = wc(self.wc_id) else { return 0 };
             let kinds = entry.borrow().watch_nav.clone();
-            if kinds.is_empty() {
+            let app_page = crate::modules::chrome::window::owns_page(self.wc_id);
+            if kinds.is_empty() && !app_page {
                 return 0;
             }
             let (Some(frame), Some(request)) = (frame, request) else { return 0 };
@@ -358,6 +366,13 @@ wrap_request_handler! {
             // Electron emits no will-navigate for a reload, a history step or a fragment change either: one sent through the DevTools
             // protocol (DevTools' reload button, the e2e harness) reaches here without Node having started it.
             if main && !shell_core::transition::asks_node(transition_bits(request), &string_of(&frame.url()), &url) {
+                return 0;
+            }
+            // An app window keeps its page: a link or a dropped document never replaces it (window.ts' will-navigate).
+            if app_page && main {
+                return 1;
+            }
+            if kinds.is_empty() {
                 return 0;
             }
             let kind = if is_redirect != 0 && kinds.contains("will-redirect") {
@@ -484,6 +499,7 @@ wrap_context_menu_handler! {
                     json!([{
                         "x": p.xcoord(), "y": p.ycoord(),
                         "isEditable": p.is_editable() != 0,
+                        "hasImageContents": p.has_image_contents() != 0,
                         "selectionText": string_of(&p.selection_text()),
                         "misspelledWord": string_of(&p.misspelled_word()),
                         "dictionarySuggestions": suggestions.into_iter().collect::<Vec<String>>(),
@@ -1176,6 +1192,20 @@ fn run_op(call: Call, wc_id: u64, name: &str, args: Value) {
             with_browser(wc_id, move |b| {
                 if let Some(h) = b.host() {
                     h.replace_misspelling(Some(&cs(&text)));
+                }
+                ok(call);
+            })
+        }
+        // `session.addWordToSpellCheckerDictionary` has no browser to ask; the page's host adds the word.
+        "addWordToDictionary" => {
+            let word = args
+                .get("word")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            with_browser(wc_id, move |b| {
+                if let Some(h) = b.host() {
+                    h.add_word_to_dictionary(Some(&cs(&word)));
                 }
                 ok(call);
             })

@@ -34,6 +34,8 @@ pub fn message(msg: Msg) {
         Msg::Resume => {
             if SUSPENDED.replace(false) {
                 event("resume");
+                // The watchdog waits for fresh heartbeats before judging Node again.
+                crate::modules::chrome::hang::resumed();
             }
         }
         Msg::Lock => event("lock-screen"),

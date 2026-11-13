@@ -57,13 +57,13 @@ vi.mock("./nsis-updater", () => ({
 		checkForUpdates = () => mocks.checkForUpdates();
 	},
 }));
-vi.mock("./app-quit", () => ({
+vi.mock("./shell-host/modules/chrome-quit", () => ({
 	confirmUpdateRestart: async () => true,
 	disarmQuitWatchdog: () => {},
 	onQuitForcedExit: () => {},
 	requestQuit: () => {},
 }));
-vi.mock("./hang-watchdog", () => ({ markMainStep: () => {} }));
+vi.mock("./shell-host/modules/chrome-hang", () => ({ markMainStep: () => {} }));
 vi.mock("./i18n", () => ({ mainT: (key: MainTextKey) => MAIN_TEXT[key].en }));
 vi.mock("./runtime-log", () => ({ writeRuntimeLog: () => {} }));
 vi.mock("./update-auth", () => ({

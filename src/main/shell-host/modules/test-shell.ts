@@ -10,7 +10,7 @@
  * a missing shell a failure.
  */
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -42,7 +42,18 @@ export function testShellExecutable(): string | null {
 	}
 }
 
+export interface TestShellOptions {
+	/** Added to the shell's environment (e.g. `OMP_GUI_HEADLESS`, a test seam). */
+	env?: Record<string, string>;
+	/** More arguments after `--user-data-dir` (Chromium switches, a launch path or URL). */
+	args?: string[];
+	/** Runs before the shell starts, with the empty profile folder: a case seeds the files a launch reads. */
+	prepare?(userData: string): void;
+}
+
 export interface TestShell {
+	/** The profile folder the shell runs on (removed by `close`). */
+	readonly userData: string;
 	/** Node's side of the host protocol, after `app.ready`. */
 	readonly client: ShellClient;
 	readonly facts: HostFacts;
@@ -84,7 +95,7 @@ function readToken(socket: Socket): Promise<string> {
 }
 
 /** Starts the shell on a private profile with CEF up (`app.ready`), as main would see it. */
-export async function startTestShell(executable: string): Promise<TestShell> {
+export async function startTestShell(executable: string, options: TestShellOptions = {}): Promise<TestShell> {
 	const dir = mkdtempSync(path.join(tmpdir(), "osh-"));
 	const userData = path.join(dir, "profile");
 	const relayScript = path.join(dir, "relay.mjs");
@@ -107,9 +118,15 @@ export async function startTestShell(executable: string): Promise<TestShell> {
 		OMPDESK_NODE: process.execPath,
 		OMPDESK_TEST_RELAY: relayPath,
 		OMP_GUI_TEST_USER_DATA_DIR: userData,
+		...options.env,
 	};
 	Reflect.deleteProperty(env, "ELECTRON_RUN_AS_NODE");
-	const child = spawn(executable, [`--user-data-dir=${userData}`], { env, stdio: ["pipe", "ignore", "pipe"] });
+	mkdirSync(userData, { recursive: true });
+	options.prepare?.(userData);
+	const child = spawn(executable, [`--user-data-dir=${userData}`, ...(options.args ?? [])], {
+		env,
+		stdio: ["pipe", "ignore", "pipe"],
+	});
 	let stderr = "";
 	child.stderr?.on("data", (chunk: Buffer) => {
 		stderr = (stderr + chunk.toString()).slice(-8_000);
@@ -121,7 +138,9 @@ export async function startTestShell(executable: string): Promise<TestShell> {
 	});
 	const cleanup = () => {
 		server.close();
-		rmSync(dir, { recursive: true, force: true });
+		// On Windows CEF's helpers end a moment after the shell and hold `cef.log` until then (EBUSY): Node's own
+		// retry waits them out instead of failing the test that is already done.
+		rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 	};
 
 	try {
@@ -136,9 +155,10 @@ export async function startTestShell(executable: string): Promise<TestShell> {
 			pid: process.pid,
 			protocol: 1,
 		});
-		await client.call("app.init", { name: "ompdesk", switches: [], schemes: [], disableHardwareAcceleration: true });
+		await client.call("app.init", { name: "ompdesk", switches: [], schemes: [] });
 		await within(ready.promise, "app.ready", () => stderr);
 		return {
+			userData,
 			client,
 			facts: hello.facts,
 			process: child,

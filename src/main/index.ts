@@ -15,6 +15,7 @@ import {
 	dialog,
 	globalShortcut,
 	ipcMain,
+	Notification,
 	nativeImage,
 	nativeTheme,
 	net,
@@ -103,8 +104,6 @@ import { RecallTermsIndex } from "./ai-memory/recall-terms";
 import { AiMemoryService, pidFileControl } from "./ai-memory/service";
 import { MemorySync, serveConclusionPull, serveConclusionPush, servePull, servePush } from "./ai-memory/sync";
 import { MemoryUpkeep } from "./ai-memory/upkeep";
-import { appIconPath, appNotification, holdTestNotifications } from "./app-icon";
-import { installQuitGuard, quitApproved, quitRisk, requestQuit, setQuitResumes } from "./app-quit";
 import type { Autopilot } from "./autopilot";
 import { askBackgroundWork } from "./background-work";
 import { type BridgeConnectResult, BridgeHealth } from "./bridge-health";
@@ -121,7 +120,6 @@ import { installCliLaunchers } from "./control-socket/cli-install";
 import { takeHubMinute } from "./core/hub";
 import { core, stopCore } from "./core/process";
 import { routeCoreSaves } from "./core-saves";
-import { setupDeepLinks } from "./deep-link";
 import { ensureDefaultWorkspace } from "./default-workspace";
 import { initDeletedSessions } from "./deleted-sessions";
 import type { DesktopSlotHost } from "./desktop-slot-host";
@@ -138,19 +136,9 @@ import { ExtensionUpdater } from "./ext-update/updater";
 import { EMPTY_APPLY_PLAN } from "./extension-reload";
 import { createGithubAuthService, registerGithubAuthIpc } from "./github-auth/ipc";
 import type { GithubAuthService } from "./github-auth/service";
-import {
-	applyGpuFallbackIfNeeded,
-	confirmHardwareTrial,
-	handleGpuProcessGone,
-	recordGpuIdentity,
-	softwareCompositing,
-} from "./gpu-fallback";
-import { installHangWatchdog, markMainStep, reportPreviousHang } from "./hang-watchdog";
 import { getMainLanguage, mainT } from "./i18n";
 import { firstUsableCwd } from "./initial-cwd";
 import { type IpcDeps, registerIpcHandlers } from "./ipc";
-import { markLaunchStable, startLaunchGuard } from "./launch-guard";
-import { CRASH_LOOP_LAUNCHES, STABLE_AFTER_MS } from "./launch-guard-core";
 import { migrateLegacyUserData } from "./legacy-user-data";
 import { stockWorktreeLocation, tablessWorktreeBridge } from "./local/git/worktree";
 import { renameStoredSession } from "./local/session-files";
@@ -164,7 +152,6 @@ import { onMcpChange } from "./mcp-live";
 import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
-import { createMenu } from "./menu";
 import { deleteModelsProvider, insertModelsProvider, listModelsProviders } from "./models-config";
 import { configureNativeBin, nativeBinPath } from "./native-bin";
 import { followSetupState } from "./omp-availability";
@@ -174,7 +161,6 @@ import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
 import type { LidAwake } from "./power/lid-awake";
 import { createLidAwake } from "./power/lid-awake-runtime";
-import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
 import { HOST_TAB_GRACE_MS, LocalHostServices } from "./remote/host-services";
@@ -202,6 +188,19 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { startDeepLinks } from "./shell-host/modules/chrome-deep-link";
+import { launchSafeMode, markLaunchStable, softwareCompositing } from "./shell-host/modules/chrome-gpu";
+import { installHangWatchdog, markMainStep } from "./shell-host/modules/chrome-hang";
+import { publishMenu, wireMenuActions } from "./shell-host/modules/chrome-menu";
+import {
+	installQuitGuard,
+	quitApproved,
+	quitRisk,
+	requestQuit,
+	setQuitResumes,
+} from "./shell-host/modules/chrome-quit";
+import { watchTrayUpdates } from "./shell-host/modules/chrome-tray";
+import { onHiddenToTray, serveSpawn, setCloseToTray, WindowManager } from "./shell-host/modules/chrome-window";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
 import {
@@ -227,7 +226,6 @@ import { locateTailscale } from "./tailscale/locate";
 import { MobileWebService } from "./tailscale/service";
 import { Tailnet } from "./tailscale/tailnet";
 import { exitWithLauncher } from "./test-launcher-exit";
-import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, limitLook, retryDelays, TurnResume } from "./turn-resume";
 import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
 import {
@@ -251,7 +249,6 @@ import { UploadStore } from "./web/uploads";
 import { WebClientWindow } from "./web/web-client-window";
 import { WebHost } from "./web/web-host";
 import { WebTabLayouts } from "./web/web-tab-layouts";
-import { WindowManager } from "./window";
 import { nativeThemeSource } from "./window-chrome";
 import { resolveWindowSpawnTarget } from "./window-spawn-target";
 import {
@@ -272,7 +269,7 @@ app.setName("ompdesk");
 // The Windows toast and taskbar group are keyed on this id: electron-builder gives the Start-menu shortcut the
 // appId, so the same id there makes a toast wear the shortcut's name and icon (the dev run has no shortcut).
 if (process.platform === "win32") app.setAppUserModelId("com.seuput.ompdesk");
-app.setAboutPanelOptions({ applicationName: "OMPdesk", iconPath: appIconPath() });
+app.setAboutPanelOptions({ applicationName: "OMPdesk" });
 
 // Honor Electron's explicit profile before acquiring its instance lock.
 const userDataDirectory = app.commandLine.getSwitchValue("user-data-dir");
@@ -323,25 +320,8 @@ if (!gotLock) {
 	app.quit();
 }
 
-// Crash-loop guard (launch-guard-core.ts): when the last launches all ended within seconds, this one starts in
-// safe mode (software rendering, no automatic relaunch, machine setup and memory setup paused). Packaged runs
-// only (a dev run restarts main on every edit, e2e kills apps on purpose); OMP_GUI_LAUNCH_GUARD=1 forces it.
-// A second instance quits at once and is never recorded.
-const launchGuardOn =
-	gotLock && ((app.isPackaged && process.env.OMP_GUI_HEADLESS !== "1") || process.env.OMP_GUI_LAUNCH_GUARD === "1");
-const safeMode = launchGuardOn
-	? startLaunchGuard(join(app.getPath("userData"), "launch-history.json")).safeMode
-	: false;
-if (safeMode) {
-	writeRuntimeLog({
-		source: "launch-guard",
-		message: `Safe mode: the last ${CRASH_LOOP_LAUNCHES} launches ended within ${STABLE_AFTER_MS / 1000} s of starting; software rendering, no automatic relaunch, setup paused`,
-	});
-}
-
-// Software-rendering escape hatch (must precede whenReady): a crashed GPU
-// process leaves every window black — the marker relaunches without it, once.
-applyGpuFallbackIfNeeded(safeMode);
+// The crash-loop guard and the GPU fallback are the shell's (chrome module): it decided safe mode and software
+// rendering before Chromium started; main asks for safe mode once ready (machine and memory setup pause in it).
 
 // Test runs (OMP_GUI_HEADLESS=1, set by playwright.config.ts) must not cover
 // or take focus from the desktop. Hidden windows would stop rendering
@@ -367,7 +347,6 @@ if (process.env.OMP_GUI_HEADLESS === "1") {
 		win.setSkipTaskbar(true);
 		win.setFocusable(false);
 	});
-	holdTestNotifications();
 }
 // A test launch ends with the Playwright worker that launched it, even one that died running no handler.
 exitWithLauncher(process.env, () => app.exit(0));
@@ -529,6 +508,8 @@ async function resolveProxyEnvForSpawn(): Promise<Record<string, string>> {
 
 // Module-level instances (alive for app lifetime)
 let windowManager: WindowManager;
+let stopTrayWatch: () => void = () => {};
+let stopMenuActions: () => void = () => {};
 let sidecarPool: SidecarPool;
 let statsServer: StatsServerManager | null = null;
 /** OMPdesk's MCP hub (src/main/mcp-hub.ts): the one process serving every omp's `rea` and `ompdesk-memory`. */
@@ -636,7 +617,6 @@ function installMainRuntimeLogging(): void {
 				name: details.name ?? null,
 			},
 		});
-		handleGpuProcessGone(details);
 	});
 }
 
@@ -731,13 +711,14 @@ function persistTabLayouts(): void {
 }
 
 /** Reopen one saved window: its tabs in order, at the layout's active cwd. */
-function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null {
+async function spawnWindowWithLayout(layout: PersistedTabLayout): Promise<BrowserWindow | null> {
 	if (quitApproved()) return null;
 	const active = layout.tabs[layout.activeIndex] ?? layout.tabs[0];
 	if (!active) return null;
 	// The window record keeps a path on this machine; a paired host's cwd means nothing here.
-	const win = windowManager.createWindow({ cwd: active.device ? resolveInitialCwd() : active.cwd });
-	if (sidecarPool.restoreLayout(win, layout) > 0) return win;
+	const win = await windowManager.createWindow({ cwd: active.device ? resolveInitialCwd() : active.cwd });
+	// The window took a round trip to the shell: a quit approved meanwhile leaves nothing to restore its tabs on.
+	if (!quitApproved() && sidecarPool.restoreLayout(win, layout) > 0) return win;
 	win.close();
 	return null;
 }
@@ -746,17 +727,21 @@ function spawnWindowWithLayout(layout: PersistedTabLayout): BrowserWindow | null
  *  With no target, start a fresh agent in the default workspace; explicit
  *  workspace/session requests retain their selected/fallback cwd and requested
  *  session kind. `device` runs the window's tab on that paired host, at its `cwd`. */
-function spawnWindow(
+async function spawnWindow(
 	cwd?: string,
 	pendingSessionPath?: string,
 	kind?: SessionKind,
 	device?: string,
-): BrowserWindow | null {
+): Promise<BrowserWindow | null> {
 	// An approved quit has torn the services down (or is doing so): a window built now has nothing to run on, and
 	// restoring the layout on it would drop what a disposed `RemoteDevices` cannot open from the saved session.
 	if (quitApproved()) return null;
 	if (device && cwd) {
-		const win = windowManager.createWindow({ cwd: resolveInitialCwd() });
+		const win = await windowManager.createWindow({ cwd: resolveInitialCwd() });
+		if (quitApproved()) {
+			win.close();
+			return null;
+		}
 		const fresh = pendingSessionPath === undefined;
 		const sidecar = sidecarPool.acquire(
 			cwd,
@@ -779,7 +764,7 @@ function spawnWindow(
 	if (restoreSavedLayout) {
 		const [saved] = readSavedTabLayouts();
 		if (saved) {
-			const restored = spawnWindowWithLayout(saved);
+			const restored = await spawnWindowWithLayout(saved);
 			if (restored) return restored;
 		}
 	}
@@ -792,7 +777,11 @@ function spawnWindow(
 	);
 	// The tab's omp starts on the session file (`--session`), as a tab spawn's does: the renderer's boot switch it
 	// used to wait for never ran in a window whose tab list had not named its tab yet.
-	const win = windowManager.createWindow({ cwd: target.cwd });
+	const win = await windowManager.createWindow({ cwd: target.cwd });
+	if (quitApproved()) {
+		win.close();
+		return null;
+	}
 	const sidecar = sidecarPool.acquire(
 		target.cwd,
 		win,
@@ -813,13 +802,14 @@ function spawnWindow(
 // What every module moved into the shell needs from main: the core, the runtime log and the labels (PROTOCOL.md §15.2).
 serveShellRelays(shellHost(), { core, writeRuntimeLog });
 publishLabels(shellHost());
+publishMenu(app.name);
 
 app.whenReady().then(async () => {
 	installMainRuntimeLogging();
 	// A full disk is told once, by one notification that goes when the files are saved; the writers retry on their own.
 	bindDiskFullNotice(diskFull, {
 		show: notice => {
-			const shown = appNotification(notice);
+			const shown = new Notification(notice);
 			shown.show();
 			return { close: () => shown.close() };
 		},
@@ -835,7 +825,6 @@ app.whenReady().then(async () => {
 	markStartup("app-ready");
 	// A second instance quits at once: it must not take the running one's marker, nor watch anything.
 	if (gotLock) {
-		reportPreviousHang();
 		installHangWatchdog();
 		// The measurement of main's blocked waits on the core's hub (native-rust ledger, H2): one line a minute.
 		if (process.env.OMP_GUI_HUB_STATS === "1")
@@ -843,16 +832,10 @@ app.whenReady().then(async () => {
 				const minute = takeHubMinute();
 				if (minute) writeRuntimeLog({ source: "hub", message: "blocked waits", details: { ...minute } });
 			}, 60_000).unref();
-		// The GPU the crash marker compares (gpu-fallback-core.ts): a changed driver brings hardware back.
-		void recordGpuIdentity();
-		// A launch that ran this long, or quits cleanly sooner, ends no crash loop. A GPU relaunch's `app.exit`
-		// and a crash skip both, so those launches stay unstable. A hardware trial that ran this long keeps hardware.
-		setTimeout(() => {
-			if (launchGuardOn) markLaunchStable();
-			confirmHardwareTrial();
-		}, STABLE_AFTER_MS).unref();
-		if (launchGuardOn) app.on("will-quit", markLaunchStable);
+		// A launch that quits cleanly ends no crash loop (the shell marks one that ran 20 s itself).
+		app.on("will-quit", markLaunchStable);
 	}
+	const safeMode = await launchSafeMode();
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
 	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
@@ -2085,21 +2068,18 @@ app.whenReady().then(async () => {
 	void sidebarProjects.sync();
 	logWatcher = new LogWatcher();
 
-	// Settings › General › Window: closing the last window hides it to the tray
-	// (Windows; macOS keeps running with no window anyway) or quits through the
-	// quit guard, and this computer stays awake while any of its own tabs runs a turn.
-	windowManager.lastWindowClose = () =>
-		lastWindowCloseAction({
-			platform: process.platform,
-			quitApproved: quitApproved(),
-			closeToTray: hasTray() && closeToTrayEnabled(prefs.get(CLOSE_TO_TRAY_PREF)),
-		});
-	windowManager.lastWindowHidden = () => {
+	// Settings › General › Window: closing the last window hides it to the tray (Windows; macOS keeps running with no
+	// window anyway) or quits through the quit guard (the shell decides, from this setting), and this computer stays
+	// awake while any of its own tabs runs a turn.
+	setCloseToTray(closeToTrayEnabled(prefs.get(CLOSE_TO_TRAY_PREF)));
+	onHiddenToTray(() => {
 		// macOS: the Dock icon is the way back and needs no explanation.
 		if (process.platform === "darwin" || prefs.get(CLOSE_TO_TRAY_NOTICE_PREF) === true) return;
 		prefs.set(CLOSE_TO_TRAY_NOTICE_PREF, true);
-		appNotification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
-	};
+		new Notification({ title: mainT("tray.keepsRunningTitle"), body: mainT("tray.keepsRunningBody") }).show();
+	});
+	// The shell asks for a window with its tab (the menu, the tray, a deep link, a Dock click with none open).
+	serveSpawn(cwd => spawnWindow(cwd));
 	const workAwake = new KeepAwakePolicy({
 		blocker: keepAwakeBlocker("work"),
 	});
@@ -2392,7 +2372,7 @@ app.whenReady().then(async () => {
 		confirmNewDevices: () => mobileWebService?.confirmNewDevices() ?? false,
 		whois: address => mobileWebService?.whois(address) ?? Promise.resolve(null),
 		onUnpairedAuth: () =>
-			appNotification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
+			new Notification({ title: mainT("web.unknownDevice.title"), body: mainT("web.unknownDevice.body") }).show(),
 		language: () => getMainLanguage(),
 		// Routine webhooks: `POST /hooks/<schedule id>` (web/server.ts) is answered by the schedule service.
 		hooks: () => scheduleService,
@@ -2487,7 +2467,7 @@ app.whenReady().then(async () => {
 			win.focus();
 			return;
 		}
-		spawnWindow();
+		void spawnWindow();
 	});
 	sessionIndex.start();
 	logWatcher.start();
@@ -2498,13 +2478,13 @@ app.whenReady().then(async () => {
 	// app (the user's rule, 23 Oct 2026: it reopened maximized in front of them). Only the windows this launch restores.
 	const relaunchPresence = explicitStartupCwd ? null : readRelaunchPresence();
 	windowManager.launchPresence = relaunchPresence;
-	spawnWindow(explicitStartupCwd);
+	await spawnWindow(explicitStartupCwd);
 	markStartup("window-created");
 	// A bare launch restores the saved session in full. The window above carries
 	// layout[0]; these are the secondary windows whose tabs used to be dropped at
 	// relaunch. An argv cwd is an explicit "open this", not a restore.
 	if (!explicitStartupCwd) {
-		for (const layout of savedLayouts.slice(1)) spawnWindowWithLayout(layout);
+		for (const layout of savedLayouts.slice(1)) await spawnWindowWithLayout(layout);
 	}
 	windowManager.launchPresence = null;
 	// macOS activates the relaunched app; one that comes back in the tray gives the focus straight back.
@@ -2542,9 +2522,9 @@ app.whenReady().then(async () => {
 	// the menu bar is shared with the user's own OMPdesk, and a test's status item
 	// once stalled this main thread (MenuBarAgent never completed its scene), so
 	// the first window never reached Playwright (release run 38048085831).
-	if (process.env.OMP_GUI_HEADLESS !== "1") createTray(windowManager, spawnWindow);
-	createMenu(windowManager, spawnWindow);
-	setupDeepLinks(windowManager, spawnWindow);
+	stopTrayWatch = watchTrayUpdates();
+	stopMenuActions = wireMenuActions();
+	startDeepLinks();
 	setupUpdater(ipc, {
 		// Default on: only a stored `false` turns it off (an unattended Mac running Autopilot updates itself).
 		enabled: () => prefs.get(APP_AUTO_UPDATE_PREF) !== false,
@@ -2569,23 +2549,6 @@ app.whenReady().then(async () => {
 		for (const win of webHost?.windows.all() ?? [])
 			if (!win.isDestroyed()) win.webContents.send(IPC_EVENTS.UPDATER_STATUS, status);
 	});
-});
-
-// macOS: re-create window on dock click
-app.on("activate", () => {
-	if (!windowManager) return;
-	const windows = windowManager.getAllWindows();
-	const action = activateAction({
-		quitApproved: quitApproved(),
-		windowCount: windows.length,
-		anyVisible: windows.some(win => win.isVisible()),
-	});
-	if (action === "spawn") spawnWindow();
-	if (action !== "show") return;
-	const win = windowManager.getTargetWindow() ?? windows[0];
-	if (win.isMinimized()) win.restore();
-	win.show();
-	win.focus();
 });
 
 // Quit on all windows closed (except macOS)
@@ -2648,7 +2611,13 @@ installQuitGuard(
 			["log-watcher", () => logWatcher?.stop()],
 			// After the schedules' last write and the omps' stop: the core answers both before its input ends.
 			["core", () => void Promise.all([schedulesClosed, ompsStopped]).then(() => stopCore())],
-			["tray", () => destroyTray()],
+			[
+				"tray",
+				() => {
+					stopTrayWatch();
+					stopMenuActions();
+				},
+			],
 		];
 		for (const [name, run] of steps) {
 			markMainStep("quit", `teardown:${name}`);

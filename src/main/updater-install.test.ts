@@ -95,13 +95,13 @@ vi.mock("./nsis-updater", () => ({
 		}
 	},
 }));
-vi.mock("./app-quit", () => ({
+vi.mock("./shell-host/modules/chrome-quit", () => ({
 	confirmUpdateRestart: mocks.confirmUpdateRestart,
 	disarmQuitWatchdog: () => {},
 	onQuitForcedExit: () => {},
 	requestQuit: () => {},
 }));
-vi.mock("./hang-watchdog", () => ({ markMainStep: () => {} }));
+vi.mock("./shell-host/modules/chrome-hang", () => ({ markMainStep: () => {} }));
 vi.mock("./i18n", () => ({
 	mainT: (key: MainTextKey) => MAIN_TEXT[key].en,
 }));

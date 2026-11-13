@@ -25,15 +25,7 @@ pub fn handle(call: Call) {
             }
             call.ok(json!({}))
         }
-        "app.setAsDefaultProtocolClient" => {
-            let protocol = call.str("protocol").unwrap_or_default();
-            let ok = register_protocol(&protocol);
-            call.ok(json!({ "ok": ok }))
-        }
-        "app.getGPUInfo" => {
-            let disabled = crate::app::INIT.get().is_some_and(|i| i.disable_gpu);
-            call.ok(gpu_info(disabled))
-        }
+        "app.getGPUInfo" => call.ok(gpu_info()),
         _ => call.unsupported(),
     }
 }
@@ -56,7 +48,8 @@ pub fn set_app_user_model_id(id: &str) {
     shell_core::sys::system::set_app_user_model_id(id);
 }
 
-fn register_protocol(protocol: &str) -> bool {
+/// Makes this executable the handler of `protocol://` (the deep-link area registers `omp` when Node's windows exist).
+pub fn register_protocol(protocol: &str) -> bool {
     #[cfg(windows)]
     return shell_core::sys::system::register_protocol(
         protocol,
@@ -68,18 +61,25 @@ fn register_protocol(protocol: &str) -> bool {
     return crate::platform::register_protocol(protocol);
 }
 
-fn gpu_info(disabled: bool) -> Value {
+/// The adapters the OS lists (`getGPUInfo("basic").gpuDevice`): the GPU fallback's marker names the one in use. Empty
+/// on macOS, where the shell does not read them.
+pub fn gpu_devices() -> Vec<Value> {
     #[cfg(windows)]
-    let devices = shell_core::sys::system::gpu_adapters();
+    return shell_core::sys::system::gpu_adapters();
     #[cfg(not(windows))]
-    let devices: Vec<Value> = Vec::new();
-    let compositing = if disabled {
+    Vec::new()
+}
+
+/// `app.getGPUInfo`'s answer; whether compositing is software is the GPU fallback's (`gpu::software_now`: the launch's
+/// own decision, or the mode Chromium started its GPU process in).
+fn gpu_info() -> Value {
+    let compositing = if crate::modules::chrome::gpu::software_now() {
         "disabled_software"
     } else {
         "enabled"
     };
     json!({
-        "info": { "gpuDevice": devices },
+        "info": { "gpuDevice": gpu_devices() },
         "features": { "gpu_compositing": compositing, "webgl": compositing, "rasterization": compositing },
     })
 }

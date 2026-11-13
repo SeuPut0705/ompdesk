@@ -77,7 +77,6 @@ export class App extends EventEmitter {
 	#name: string;
 	#ready = false;
 	#readyWaiters: Array<() => void> = [];
-	#disableHardwareAcceleration = false;
 	#appUserModelId: string | undefined;
 	#activationPolicy: string | undefined;
 	#aboutPanel: Record<string, unknown> | undefined;
@@ -119,19 +118,6 @@ export class App extends EventEmitter {
 			this.emit("ready");
 			for (const waiter of this.#readyWaiters.splice(0)) waiter();
 		});
-		client.on("app.secondInstance", ({ argv, cwd }: { argv: string[]; cwd: string }) => {
-			this.emit("second-instance", makeEvent(), argv, cwd, undefined);
-		});
-		client.on("app.openUrl", ({ url }: { url: string }) => {
-			this.emit("open-url", makeEvent(), url);
-		});
-		client.on("app.openFile", ({ path }: { path: string }) => {
-			this.emit("open-file", makeEvent(), path);
-		});
-		client.on("app.quitRequested", () => this.quit());
-		client.on("app.activate", ({ hasVisibleWindows }: { hasVisibleWindows?: boolean }) => {
-			this.emit("activate", makeEvent(), hasVisibleWindows === true);
-		});
 		client.on("app.childProcessGone", (details: Record<string, unknown>) => {
 			this.emit("child-process-gone", makeEvent(), details);
 		});
@@ -145,7 +131,6 @@ export class App extends EventEmitter {
 				name: this.#name,
 				switches: this.commandLine.entries(),
 				schemes: this.#initState.schemes,
-				disableHardwareAcceleration: this.#disableHardwareAcceleration,
 				...(this.#appUserModelId === undefined ? {} : { appUserModelId: this.#appUserModelId }),
 				...(this.#activationPolicy === undefined ? {} : { activationPolicy: this.#activationPolicy }),
 				...(this.#aboutPanel === undefined ? {} : { aboutPanel: this.#aboutPanel }),
@@ -226,10 +211,6 @@ export class App extends EventEmitter {
 
 	releaseSingleInstanceLock(): void {}
 
-	disableHardwareAcceleration(): void {
-		this.#disableHardwareAcceleration = true;
-	}
-
 	setAppUserModelId(id: string): void {
 		this.#appUserModelId = id;
 		if (this.#initSent) this.#host.post("app.setAppUserModelId", { id });
@@ -245,17 +226,6 @@ export class App extends EventEmitter {
 
 	showAboutPanel(): void {
 		this.#host.post("app.showAboutPanel");
-	}
-
-	/** Registers the shell's own executable for `protocol://` links; the answer is logged when it fails. */
-	setAsDefaultProtocolClient(protocol: string): boolean {
-		this.#host.client.call<{ ok: boolean }>("app.setAsDefaultProtocolClient", { protocol }).then(
-			({ ok }) => {
-				if (!ok) this.#host.warn(`app.setAsDefaultProtocolClient(${protocol}) was refused`);
-			},
-			(error: unknown) => this.#host.warn(`app.setAsDefaultProtocolClient: ${String(error)}`),
-		);
-		return true;
 	}
 
 	focus(options?: { steal?: boolean }): void {
