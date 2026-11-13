@@ -338,7 +338,7 @@ describe("mac bundle configs", () => {
 		expect(frontmatter).toMatch(/^name: ompdesk-formal-verify$/m);
 		expect(frontmatter).toMatch(/^description: \S/m);
 		expect(frontmatter).not.toMatch(/disable-model-invocation|^hide:/m);
-		for (const name of ["setup", "tlc", "lean-check", "mutate", "report", "verify-all", "new-lean"]) {
+		for (const name of ["setup", "tlc", "lean-check", "mutate", "report", "verify-all", "new-lean", "shard"]) {
 			expect(fs.existsSync(path.join(skillDir, "scripts", `${name}.ts`)), name).toBe(true);
 		}
 		const pins = JSON.parse(fs.readFileSync(path.join(skillDir, "assets/toolchain.json"), "utf8")) as {
@@ -902,26 +902,42 @@ describe("workflows", () => {
 			on: { workflow_dispatch: { inputs: Record<string, unknown> } };
 			permissions: Record<string, string>;
 			concurrency: { group: string };
+			env: { SKILL: string };
 			jobs: Record<
 				string,
 				{
 					if?: string;
+					needs?: string | string[];
+					permissions?: Record<string, string>;
 					concurrency?: { group: string; "cancel-in-progress": boolean };
+					strategy?: { "fail-fast": boolean; matrix: string };
 					steps: { run?: string; if?: string }[];
 				}
 			>;
 		};
 		expect(Object.keys(formal.on.workflow_dispatch.inputs)).toEqual(["only", "tier", "stamp", "skip_mutations"]);
-		expect(formal.permissions).toEqual({ contents: "write" });
+		// Only the publish job writes to the branch.
+		expect(formal.permissions).toEqual({ contents: "read" });
+		expect(formal.jobs.publish?.permissions).toEqual({ contents: "write" });
 		expect(formal.concurrency.group).toContain("github.ref");
 		expect(formal.concurrency.group).toContain("inputs.only");
-		const steps = formal.jobs.formal?.steps ?? [];
-		expect(steps[0]?.if).toBe("inputs.stamp && github.ref == 'refs/heads/main'");
-		const runs = steps.map(step => step.run ?? "").join("\n");
-		expect(runs).toContain("ompdesk-formal-verify/scripts/verify-all.ts");
+		expect(formal.env.SKILL).toBe("resources/omp-builtin/formal/skills/ompdesk-formal-verify");
+		const runsOf = (job: string): string => formal.jobs[job]?.steps.map(step => step.run ?? "").join("\n") ?? "";
+		// plan -> one job per check -> collect: the checks run side by side and verify-all prints the one report.
+		expect(formal.jobs.plan?.steps[0]?.if).toBe("inputs.stamp && github.ref == 'refs/heads/main'");
+		expect(runsOf("plan")).toContain('scripts/shard.ts" plan');
+		expect(formal.jobs.run?.needs).toBe("plan");
+		expect(formal.jobs.run?.strategy?.["fail-fast"]).toBe(false);
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched as written
+		expect(formal.jobs.run?.strategy?.matrix).toBe("${{ fromJSON(needs.plan.outputs.matrix) }}");
+		expect(runsOf("run")).toContain('scripts/shard.ts" run');
+		expect(formal.jobs.collect?.needs).toEqual(["plan", "run"]);
+		expect(runsOf("collect")).toContain('scripts/verify-all.ts"');
+		expect(runsOf("collect")).toContain("--verdicts verdicts");
 		// Verification runs side by side; publication is serial per ref and checks the covered code again.
 		const publish = formal.jobs.publish;
 		expect(publish?.if).toBe("inputs.stamp");
+		expect(publish?.needs).toBe("collect");
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched as written
 		expect(publish?.concurrency).toEqual({ group: "formal-publish-${{ github.ref }}", "cancel-in-progress": false });
 		const publishRuns = publish?.steps.map(step => step.run ?? "").join("\n") ?? "";

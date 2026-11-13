@@ -1,7 +1,18 @@
-# Formal verification (TLA+/TLC through verify-all.ts) on a hosted runner, on demand. A model check, its
-# mutation runs and its stamp take minutes to hours of CPU, so they never run on a developer's machine:
+# Formal verification (TLA+/TLC through verify-all.ts) on hosted runners, on demand. A model check, its mutation
+# runs and its stamp take minutes to hours of CPU, so they never run on a developer's machine:
 #   gh workflow run formal.yml --ref <branch> -f only=<model id> [-f stamp=true]
 #   gh run watch <run-id> --interval 120
+# The run is split so its time is the longest single check, not their sum:
+#   plan     lists the checks (every matrix run, the mutation baselines, every mutation) with shard.ts,
+#   run      one job per check (a strategy matrix, dealt over fewer jobs past 256), each with a runner of its own, writes
+#            a verdict file and uploads it; a check whose input digest was seen before takes the verdict from the cache,
+#   collect  prints the report verify-all prints, from the verdicts (the `@code` tags, the drift check and the stamp
+#            run there as before),
+#   publish  as before, serial per ref.
+# The digest of a check is the model's text with its comments blanked (an `@code` tag edit changes nothing), the config,
+# the TLC options, the pinned jars and the java; a stamp still needs a run of the new text, which then costs only
+# the checks whose input changed. Caches belong to the branch they were made on and to main: dispatch this workflow
+# on main once (no stamp) after a model change lands, and every branch that starts from it reuses the verdicts.
 # With `stamp`, the updated formal/manifest.json is committed back to the dispatched branch as
 # `chore(formal): stamp <ids> on <sha7>`. A stamp never lands on main directly: dispatch on a branch.
 name: formal
@@ -29,16 +40,22 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: formal-${{ github.ref }}-${{ inputs.only || 'all' }}
   cancel-in-progress: true
 
+env:
+  SKILL: resources/omp-builtin/formal/skills/ompdesk-formal-verify
+
 jobs:
-  formal:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      jobs: ${{ steps.plan.outputs.jobs }}
     steps:
       - name: Refuse a stamp on main
         if: inputs.stamp && github.ref == 'refs/heads/main'
@@ -47,15 +64,95 @@ jobs:
           exit 1
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          fetch-depth: 0
+          sparse-checkout: |
+            formal
+            resources/omp-builtin/formal
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
+      # The plan fetches the pinned jars the first time; the check jobs only restore them.
       - name: TLC tools cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ompdesk/formal
           key: formal-tools-${{ runner.os }}-${{ hashFiles('resources/omp-builtin/formal/skills/ompdesk-formal-verify/assets/toolchain.json') }}
+      - name: Plan the checks
+        id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+          TIER: ${{ inputs.tier }}
+          SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+        run: |
+          args=(formal --tier "$TIER")
+          [ -n "$ONLY" ] && args+=(--only "$ONLY")
+          [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          bun "$SKILL/scripts/shard.ts" plan "${args[@]}" --github-output
+
+  run:
+    name: ${{ matrix.label }}
+    needs: plan
+    if: needs.plan.outputs.jobs != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: |
+            formal
+            resources/omp-builtin/formal
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: TLC tools cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ompdesk/formal
+          key: formal-tools-${{ runner.os }}-${{ hashFiles('resources/omp-builtin/formal/skills/ompdesk-formal-verify/assets/toolchain.json') }}
+      # The key is the digest of this job's checks; a hit holds their verdicts, a miss is saved when the job ends.
+      - name: Verdict cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .formal-verdict-cache
+          key: formal-verdict-v1-${{ matrix.key }}
+      - name: Check
+        env:
+          ONLY: ${{ inputs.only }}
+          TIER: ${{ inputs.tier }}
+          SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
+          UNITS: ${{ matrix.units }}
+        run: |
+          args=(formal --tier "$TIER")
+          [ -n "$ONLY" ] && args+=(--only "$ONLY")
+          [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
+          bun "$SKILL/scripts/shard.ts" run "${args[@]}" --units "$UNITS" --out verdicts --cache .formal-verdict-cache
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: formal-verdict-${{ matrix.id }}
+          path: verdicts
+          if-no-files-found: error
+          retention-days: 3
+
+  collect:
+    needs: [plan, run]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        if: needs.plan.outputs.jobs != '0'
+        with:
+          pattern: formal-verdict-*
+          merge-multiple: true
+          path: verdicts
       - name: Verify
         env:
           ONLY: ${{ inputs.only }}
@@ -63,12 +160,13 @@ jobs:
           STAMP: ${{ inputs.stamp }}
           SKIP_MUTATIONS: ${{ inputs.skip_mutations }}
         run: |
+          mkdir -p verdicts
           args=(formal --tier "$TIER")
           [ -n "$ONLY" ] && args+=(--only "$ONLY")
           [ "$STAMP" = "true" ] && args+=(--stamp)
           [ "$SKIP_MUTATIONS" = "true" ] && args+=(--skip-mutations)
           set -o pipefail
-          bun resources/omp-builtin/formal/skills/ompdesk-formal-verify/scripts/verify-all.ts "${args[@]}" 2>&1 | tee formal-report.txt
+          bun "$SKILL/scripts/verify-all.ts" "${args[@]}" --verdicts verdicts 2>&1 | tee formal-report.txt
       - name: Job summary
         if: always()
         run: |
@@ -95,9 +193,11 @@ jobs:
   # as at the verified commit; a lost push race re-reads the head and checks again, it never rebases the old commit.
   publish:
     if: inputs.stamp
-    needs: formal
+    needs: collect
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     concurrency:
       group: formal-publish-${{ github.ref }}
       cancel-in-progress: false
