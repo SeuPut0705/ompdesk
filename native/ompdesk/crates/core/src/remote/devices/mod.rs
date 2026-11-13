@@ -70,6 +70,20 @@ struct HostRole {
     arriving: HashMap<u64, (u64, Option<Map<String, Value>>)>,
 }
 
+impl HostRole {
+    /// The `host:port` addresses it listens on now.
+    fn addresses(&self) -> Vec<String> {
+        match self.port {
+            Some(port) => self
+                .listening
+                .iter()
+                .map(|host| address::format(host, port))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
 struct Inner {
     name: String,
     loopback: bool,
@@ -263,15 +277,7 @@ impl Devices {
         let peers = locked(&self.peers).list();
         let hosts = locked(&self.hosts).list();
         let inner = self.inner();
-        let addresses: Vec<String> = match inner.host.port {
-            Some(port) => inner
-                .host
-                .listening
-                .iter()
-                .map(|host| address::format(host, port))
-                .collect(),
-            None => Vec::new(),
-        };
+        let addresses = inner.host.addresses();
         json!({
                 "devices": self.id,
                 "phase": inner.phase,
@@ -787,8 +793,16 @@ impl Devices {
         let Some(ip) = ips.iter().find(|ip| address::is_ipv4(ip)).or(ips.first()) else {
             return Vec::new();
         };
-        let found = self.inner().found.get(&node_id).cloned();
-        self.candidates(ip, found.as_deref())
+        let (found, own) = {
+            let inner = self.inner();
+            (inner.found.get(&node_id).cloned(), inner.host.addresses())
+        };
+        // This computer's own host is never the one dialed, as the probe passes it over: two apps on one address (the
+        // rig's loopback, the e2e harness) that restarted in the other order hold each other's former ports, and the
+        // first dial would reach its own host, whose refusal is not the host's answer and ends the attempt.
+        let mut addresses = self.candidates(ip, found.as_deref());
+        addresses.retain(|address| !own.contains(address));
+        addresses
     }
 
     /// Connect to a computer of the tailnet by its node; pins its key (`key_mismatch` for another one).

@@ -289,6 +289,52 @@ describe("two computers that use each other as hosts", () => {
 	}, 20_000);
 });
 
+describe("two apps on one address that took each other's ports", () => {
+	it("dial the host on its new port: this computer's own host on the old one is not the host's answer", async () => {
+		// Two apps on the rig's loopback restart in the other order and each takes the port the other had. Each one's
+		// first dial then reaches its own host, which holds the other's node pinned and refuses it `key_mismatch`.
+		await rig.pickPort();
+		const b = await rig.computer(
+			"Studio",
+			fakeTailnet({
+				peers: [studioNode({ nodeId: "nLAPTOP", name: "laptop" })],
+				whois: new Map([[LOOPBACK, { nodeId: "nLAPTOP", nodeName: "laptop", login: LOGIN }]]),
+			}),
+		);
+		const a = await rig.computer(
+			"Laptop",
+			fakeTailnet({
+				peers: [studioNode()],
+				whois: new Map([[LOOPBACK, { nodeId: "nSTUDIO", nodeName: "studio", login: LOGIN }]]),
+			}),
+		);
+		for (const c of [b, a]) {
+			c.devices.start();
+			await c.devices.setHostEnabled(true);
+			await until(c, state => state.host.port !== null);
+		}
+		const first = { studio: b.devices.state().host.port, laptop: a.devices.state().host.port };
+		await a.devices.connect("nSTUDIO");
+		await b.devices.connect("nLAPTOP");
+		await until(a, state => state.hosts[0]?.state === "online");
+		await until(b, state => state.hosts[0]?.state === "online");
+
+		await Promise.all([a.devices.setHostEnabled(false), b.devices.setHostEnabled(false)]);
+		await until(a, state => state.hosts[0]?.state !== "online");
+		await until(b, state => state.hosts[0]?.state !== "online");
+		await a.devices.setHostEnabled(true);
+		await until(a, state => state.host.port !== null);
+		await b.devices.setHostEnabled(true);
+		await until(b, state => state.host.port !== null);
+		expect({ studio: b.devices.state().host.port, laptop: a.devices.state().host.port }).toEqual({
+			studio: first.laptop,
+			laptop: first.studio,
+		});
+		await until(a, state => state.hosts[0]?.state === "online");
+		await until(b, state => state.hosts[0]?.state === "online");
+	}, 20_000);
+});
+
 describe("a host link after the computer wakes or the network returns", () => {
 	/** A relay a test can silence: both directions drop every byte but the connections stay open, as a dead path does. */
 	async function silenceableRelay(target: number): Promise<{ port: number; silence: { on: boolean } }> {
