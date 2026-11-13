@@ -26,9 +26,10 @@ If it breaks, `main` gets a combination nobody tested (the reason a queue exists
 
 ## Out of scope (not checked)
 
-- A build that does not merge (`built` with a conflict), a run lost without a result (`lost`), a base that refuses every push (`refused`), a branch queued again with a new commit, the save and `resume` after a restart: pinned by the unit tests in `queue_tests.rs`.
+- A build that could not be made (`built` with `Unbuilt`), a run lost without a result (`lost`), a base that refuses every push (`refused`), a branch queued again with a new commit, the save and `resume` after a restart: pinned by the unit tests in `queue_tests.rs`.
 - Two queues for one base (two computers): each pushes only fast-forwards of commits it tested, so the base is safe; whether each drains is not checked.
-- The runner: git, the queue's own branches, dispatching the check and reading its result.
+- The runner (`queue_run.rs`): git, the queue's own branches, dispatching the check and reading its result. It calls the queue one message at a time (the model's atomic steps); its own orders are pinned by `queue_run_tests.rs` against real git.
+- Commits are compared by content in the model. The runner dates each merge commit by its parents, so the same parts on the same tip build the same commit object, and a red verdict the queue carries across a landing names the commit that holds exactly the landed tip and the entry.
 - Several bad entries whose failures hide each other is in scope (`bad` is any subset); a change that fails only together with another (neither fails alone) is not: the model's check is per entry.
 
 ## Properties

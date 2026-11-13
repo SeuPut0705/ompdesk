@@ -20,11 +20,25 @@
 //!   trial under way is dropped and the flight starts over on it.
 //! - A result is taken only for the commit under test now; one that arrives for a trial dropped meanwhile is ignored.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use super::contract::{
     BatchId, GoalId, Lane, Origin, QueueEntry, QueueState, RepoId, Sha, Timestamp,
 };
+use super::hub::{self, QueueHost};
+
+#[path = "queue_run.rs"]
+pub mod run;
+
+pub use run::{GitHands, Hands, Landing, Queues, github_url};
+
+/// The merge queues the hub holds (`Hub.queue`): a lane per base branch of a repository, each built, tested and
+/// landed through `hands`, its runs started and its entries' results told through `host`.
+pub fn open(host: Arc<dyn QueueHost>, hands: Arc<dyn Hands>) -> Arc<dyn hub::LandQueue> {
+    run::open_with(host, hands, Tuning::default())
+}
 
 /// Where a batch starts from (Trunk's defaults, the design's §5): its size, and how long its oldest entry waits for
 /// company.
@@ -91,12 +105,10 @@ pub struct Part {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Told {
     /// The base holds it: `commit` is the tested commit the base was moved to.
-    Landed {
-        commit: Sha,
-    },
-    Failed {
-        why: String,
-    },
+    Landed { commit: Sha },
+    /// `commit`: the commit whose check failed with this entry alone on the tip; none when no run says it (it did
+    /// not build, or the base takes no push of the queue's).
+    Failed { why: String, commit: Option<Sha> },
 }
 
 /// What the queue asks of whoever runs it. A candidate is one trial's name; its branch is
@@ -129,11 +141,12 @@ pub enum Effect {
     },
 }
 
-/// A build that could not be made: the part at `at` (from 1) does not merge onto the tip and the parts before it.
+/// A build that could not be made: the part at `at` (from 1) could not be put onto the tip and the parts before it
+/// (a conflict, a commit the remote does not have), `why` in git's terms.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Conflict {
+pub struct Unbuilt {
     pub at: usize,
-    pub files: Vec<String>,
+    pub why: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,12 +173,12 @@ impl std::fmt::Display for Refusal {
 )]
 enum Outcome {
     /// `commit` on `candidate`'s branch passed the check.
-    Green {
-        commit: Sha,
-        candidate: String,
-    },
+    Green { commit: Sha, candidate: String },
+    /// `commit`: the run that said so; none when it did not build.
     Red {
         why: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        commit: Option<Sha>,
     },
 }
 
@@ -213,6 +226,7 @@ enum Next {
     },
     Fail {
         why: String,
+        commit: Option<Sha>,
     },
     Test {
         len: usize,
@@ -323,11 +337,11 @@ impl LandQueue {
         self.ended.drain(..extra);
     }
 
-    fn fail(&mut self, entry: Entry, why: String, out: &mut Vec<Effect>) {
+    fn fail(&mut self, entry: Entry, why: String, commit: Option<Sha>, out: &mut Vec<Effect>) {
         self.end(entry.clone(), QueueState::Failed);
         out.push(Effect::Tell {
             entry,
-            told: Told::Failed { why },
+            told: Told::Failed { why, commit },
         });
     }
 
@@ -367,7 +381,9 @@ impl LandQueue {
                 Some(Outcome::Green { commit, candidate }) => {
                     green = Some((len, commit.clone(), candidate.clone()));
                 }
-                Some(Outcome::Red { why }) if red.is_none() => red = Some((len, why.clone())),
+                Some(Outcome::Red { why, commit }) if red.is_none() => {
+                    red = Some((len, why.clone(), commit.clone()));
+                }
                 _ => {}
             }
         }
@@ -379,8 +395,8 @@ impl LandQueue {
             };
         }
         match red {
-            Some((1, why)) => Next::Fail { why },
-            Some((len, _)) => Next::Test { len: len / 2 },
+            Some((1, why, commit)) => Next::Fail { why, commit },
+            Some((len, ..)) => Next::Test { len: len / 2 },
             None => Next::Test { len: shas.len() },
         }
     }
@@ -410,9 +426,9 @@ impl LandQueue {
                         stage: Stage::Land { commit },
                     });
                 }
-                Next::Fail { why } => {
+                Next::Fail { why, commit } => {
                     let entry = self.flight.remove(0);
-                    self.fail(entry, why, out);
+                    self.fail(entry, why, commit, out);
                 }
                 Next::Test { len } => {
                     let candidate = self.fresh('c');
@@ -518,11 +534,11 @@ impl LandQueue {
             .map(|head| head.queued_at.saturating_add(self.tuning.window_ms))
     }
 
-    /// The answer to `Build`. A conflict is a red result for the prefix that ends at the part that did not merge.
+    /// The answer to `Build`. A build that could not be made is a red result for the prefix that ends at its part.
     pub fn built(
         &mut self,
         candidate: &str,
-        result: Result<Sha, Conflict>,
+        result: Result<Sha, Unbuilt>,
         now: Timestamp,
     ) -> Vec<Effect> {
         let mut out = Vec::new();
@@ -541,24 +557,19 @@ impl LandQueue {
                 });
                 trial.stage = Stage::Test { commit };
             }
-            Err(conflict) => {
-                let at = conflict.at.clamp(1, trial.len);
-                let entry = &self.flight[at - 1];
+            Err(unbuilt) => {
+                let at = unbuilt.at.clamp(1, trial.len);
                 let why = format!(
-                    "{} does not merge onto {} with the entries before it: conflicts in {}",
-                    entry.branch,
+                    "{} could not be built onto {} with the entries before it: {}",
+                    self.flight[at - 1].branch,
                     self.base,
-                    if conflict.files.is_empty() {
-                        "its files".to_owned()
-                    } else {
-                        conflict.files.join(", ")
-                    }
+                    unbuilt.why
                 );
                 let shas = self.flight[..at]
                     .iter()
                     .map(|entry| entry.sha.clone())
                     .collect();
-                self.learn(shas, Outcome::Red { why });
+                self.learn(shas, Outcome::Red { why, commit: None });
                 self.abort(&mut out);
                 self.advance(now, &mut out);
             }
@@ -591,6 +602,7 @@ impl LandQueue {
                 shas,
                 Outcome::Red {
                     why: why.to_owned(),
+                    commit: Some(commit.to_owned()),
                 },
             );
             out.push(Effect::Drop {
@@ -688,7 +700,7 @@ impl LandQueue {
         let why = format!("{} does not take the queue's push: {why}", self.base);
         let entries: Vec<Entry> = self.flight.drain(..).chain(self.line.drain(..)).collect();
         for entry in entries {
-            self.fail(entry, why.clone(), &mut out);
+            self.fail(entry, why.clone(), None, &mut out);
         }
         out
     }

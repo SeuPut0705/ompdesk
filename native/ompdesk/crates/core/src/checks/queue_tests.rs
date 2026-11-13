@@ -122,7 +122,7 @@ impl World {
                         );
                         self.landed.push(entry.sha);
                     }
-                    Told::Failed { why } => {
+                    Told::Failed { why, commit } => {
                         let mut alone = content(self.queue.tip());
                         alone.push(entry.sha.clone());
                         assert!(
@@ -131,6 +131,9 @@ impl World {
                             entry.sha,
                             name(&alone)
                         );
+                        if let Some(commit) = commit {
+                            assert_eq!(commit, name(&alone), "the failure names another run");
+                        }
                         self.failed.push((entry.sha, why));
                     }
                 },
@@ -486,11 +489,11 @@ fn a_branch_that_does_not_merge_is_failed_with_its_files_named() {
     world.enqueue(1, "g");
     world.enqueue(2, "g");
     let (candidate, _) = world.builds.remove(0);
-    let conflict = Conflict {
+    let unbuilt = Unbuilt {
         at: 2,
-        files: vec!["src/a.ts".into()],
+        why: "conflicts in src/a.ts".into(),
     };
-    let effects = world.queue.built(&candidate, Err(conflict), world.now);
+    let effects = world.queue.built(&candidate, Err(unbuilt), world.now);
     // No run reports it: the build that did not merge is the red result.
     world.red.insert("e1+e2".into());
     world.take(effects);

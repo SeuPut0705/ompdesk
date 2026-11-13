@@ -47,4 +47,4 @@ Replay the trace against `queue.rs` with each row's `@code` location. A step the
 
 ## Updating it for an intended change
 
-Change the model from the code first (one action per method; a new stage of a trial is a new value of `trial.stage`), change a property only when the promise changed on purpose (old wording, new wording, evidence in `Properties.md`), add a mutation for each new guard, fix the `@code` line ranges (every edit of `queue.rs` moves them), run it on the branch, then move the sync commit with `-f stamp=true` after committing.
+Change the model from the code first (one action per method; a new stage of a trial is a new value of `trial.stage`), change a property only when the promise changed on purpose (old wording, new wording, evidence in `Properties.md`), add a mutation for each new guard, run `bun formal/checks-queue/retag.ts` (a Rust location is a line range, which every edit of `queue.rs` moves), run it on the branch, then move the sync commit with `-f stamp=true` after committing.
