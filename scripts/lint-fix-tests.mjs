@@ -7,7 +7,8 @@
  * Oct 2026 found fixes fixed again within minutes and a test that pinned the bug as correct. A test file is a
  * `*.test.*`, `*.e2e.*` or `*.spec.*` file, or anything under `e2e/` (fixtures and harness are test code). Rust keeps
  * a module's tests in the module's own file, so a `.rs` file counts when the commit changes a line at or after its
- * `#[cfg(test)]` mark; a crate's `tests/` folder and a module's `tests.rs` (its `#[cfg(test)] mod tests;`) count whole.
+ * `#[cfg(test)]` mark; a crate's `tests/` folder and a module's `tests.rs` or `<name>_tests.rs` (its
+ * `#[cfg(test)] #[path = "<name>_tests.rs"] mod tests;`) count whole.
  *
  *   bun scripts/lint-fix-tests.mjs [<rev-range>]
  *
@@ -23,7 +24,7 @@ import { withoutGitSelectors } from "../src/shared/git-env.ts";
 
 const FIX_SUBJECT = /^fix(?:\([^)]*\))?!?:/;
 const TEST_FILE =
-	/(?:^|\/)[^/]+\.(?:test|e2e|spec)\.[cm]?[jt]sx?$|^e2e\/|^native\/.*\/tests\/[^/]+\.rs$|^native\/.*\/tests\.rs$/;
+	/(?:^|\/)[^/]+\.(?:test|e2e|spec)\.[cm]?[jt]sx?$|^e2e\/|^native\/.*\/tests\/[^/]+\.rs$|^native\/.*\/(?:[^/]+_)?tests\.rs$/;
 const NO_TEST = /^no-test:\s*\S/m;
 const RUST_TEST_MARK = /^\s*#\[cfg\(test\)\]/;
 

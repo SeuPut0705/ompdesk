@@ -26,6 +26,10 @@ describe("fixCommitsWithoutTests", () => {
 				commit("fix: d", ["e2e/work-board.e2e.ts"]),
 				commit("fix: e", ["e2e/fixture/rpc-ui.ts"]),
 				commit("fix: g", ["native/ompdesk/crates/core/src/x/mod.rs", "native/ompdesk/crates/core/src/x/tests.rs"]),
+				commit("fix: h", [
+					"native/ompdesk/crates/core/src/x/hub.rs",
+					"native/ompdesk/crates/core/src/x/hub_tests.rs",
+				]),
 				commit("fix: f", ["src/renderer/locales/ko.ts"], "Wording.\n\nno-test: a translation, no behavior"),
 			]),
 		).toEqual([]);
