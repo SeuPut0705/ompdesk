@@ -145,6 +145,15 @@ fn set_pref(context: &RequestContext, name: &str, mut value: Value2) -> Result<(
     if context.set_preference(Some(&cs(name)), Some(&mut value), Some(&mut error)) == 0 {
         return Err(format!("{name} was refused: {error}"));
     }
+    // A value that does not read back did not apply, whatever the call answered (a null out-param made CEF refuse
+    // every preference silently): say so instead of carrying on as if it had.
+    let applied = context
+        .preference(Some(&cs(name)))
+        .is_some_and(|read| read.is_equal(Some(&mut value)) != 0);
+    log("session.pref", json!({ "name": name, "applied": applied }));
+    if !applied {
+        return Err(format!("{name} did not read back as set"));
+    }
     Ok(())
 }
 
