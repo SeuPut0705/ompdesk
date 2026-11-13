@@ -11,9 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Notify, broadcast, watch};
 
+use super::answer;
 use super::contract::{
-    Answer, AnswerVerdict, Counts, MainFact, Next, Origin, RunResult, Snapshot, StartDecision,
-    StartReply, StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS, WaitRequest, Where,
+    Answer, MainFact, Next, Note, NoteCode, Origin, RunResult, Snapshot, StartDecision, StartReply,
+    StartRequest, StatusRequest, Until, WAIT_DEFAULT_SECONDS, WaitRequest, Where,
 };
 use super::hub::{ChecksHub, Fut, RESULTS_KEPT, Runners};
 use crate::clock;
@@ -147,22 +148,8 @@ impl FakeHub {
 }
 
 /// What a wait answers for a run with no result yet.
-fn pending(run_id: &str, note: String) -> Answer {
-    Answer {
-        run_id: run_id.to_owned(),
-        verdict: AnswerVerdict::Unknown,
-        as_of: clock::now_ms(),
-        counts: Counts {
-            passed: 0,
-            failed: 0,
-        },
-        failed: Vec::new(),
-        blocks_release: None,
-        expected_wait_min: None,
-        reused: None,
-        next: Next::Wait,
-        notes: vec![note],
-    }
+fn pending(run_id: &str, note: Note) -> Answer {
+    answer::unknown(run_id, clock::now_ms(), Next::Wait, note)
 }
 
 impl ChecksHub for FakeHub {
@@ -215,14 +202,17 @@ impl ChecksHub for FakeHub {
                         return Ok(answer.clone());
                     }
                     if request.until == Until::Any && state.changes > before {
-                        return Ok(pending(&request.run_id, "The run changed.".into()));
+                        return Ok(pending(&request.run_id, Note::new(NoteCode::RunChanged)));
                     }
                 }
                 let left = deadline.saturating_sub(clock::now_ms());
                 if left == 0 {
                     return Ok(pending(
                         &request.run_id,
-                        format!("Still running after waiting {seconds} s."),
+                        Note {
+                            seconds: Some(seconds as u32),
+                            ..Note::new(NoteCode::WaitTimedOut)
+                        },
                     ));
                 }
                 tokio::select! {

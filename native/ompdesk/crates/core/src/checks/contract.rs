@@ -124,10 +124,60 @@ words! {
         Paused = "paused",
         GreenOnSameInputs = "green-on-same-inputs",
         PlacedOn = "placed-on",
+        /// Placement picked a computer, which the hub cannot run a check on yet: it ran on a GitHub runner.
+        LocalUnavailable = "local-unavailable",
         Batched = "batched",
         Flaky = "flaky",
         FailedJobs = "failed-jobs",
         Other = "other",
+    }
+}
+
+words! {
+    /// What an answer's note says, as a code the screens translate (`Note`).
+    NoteCode {
+        /// `{job}`: a job's test report is past GitHub's retention.
+        ReportExpired = "report-expired",
+        /// `{job, error}`.
+        ReportUnreadable = "report-unreadable",
+        RunCancelled = "run-cancelled",
+        /// `{test}`: it passed and failed on the same inputs.
+        QuarantineEntered = "quarantine-entered",
+        /// `{test}`.
+        QuarantineLeft = "quarantine-left",
+        /// `{count}` quarantined tests failed and do not fail the run.
+        QuarantinedPass = "quarantined-pass",
+        ReleaseBlocked = "release-blocked",
+        /// `{job}`.
+        JobOutsideTests = "job-outside-tests",
+        /// `{used, cap}`.
+        RerunsUsed = "reruns-used",
+        /// `{run}`: the run whose green answer this start reuses.
+        Reused = "reused",
+        /// `{run}`: the green run it reused, whose answer is no longer kept.
+        ReuseLost = "reuse-lost",
+        /// `{base, commit}`.
+        Landed = "landed",
+        /// `{base, error}`.
+        NotLanded = "not-landed",
+        LeaseLapsed = "lease-lapsed",
+        /// `{run}`.
+        RunUnknown = "run-unknown",
+        /// `{at, error?}`: GitHub's facts, last read at `at`, with the poller's trouble when it has one.
+        FactsStale = "facts-stale",
+        /// `{error}`.
+        ResultsUnreadable = "results-unreadable",
+        NoAnswerKept = "no-answer-kept",
+        JudgedBeforeRestart = "judged-before-restart",
+        /// `{error?}`.
+        DispatchFailed = "dispatch-failed",
+        Refused = "refused",
+        Replaced = "replaced",
+        /// `{seconds}`.
+        WaitTimedOut = "wait-timed-out",
+        RunChanged = "run-changed",
+        /// `{commit, branch, asked}`: GitHub ran `commit` of `branch`, not the `asked` one the start was for.
+        BranchMoved = "branch-moved",
     }
 }
 
@@ -362,9 +412,9 @@ pub struct Decision {
 
 /// Why a policy acted. On the wire a union tagged by `code` (TS `DecisionWhySchema`), each code with its own fields:
 /// `newer-run {run}`, `pool-full {pool, running, limit}`, `release-ahead {pool, running, limit}`, `paused`,
-/// `green-on-same-inputs {run}`, `placed-on {pool}`, `batched {batch}`, `flaky {fails, runs}`, `failed-jobs {count}`,
-/// `other`. A flat struct here, not a tagged enum, so a workspace build reads its numbers (serde's
-/// `arbitrary_precision`); build one with `DecisionWhy::new(code)` and set that code's fields.
+/// `green-on-same-inputs {run}`, `placed-on {pool}`, `local-unavailable {pool}`, `batched {batch}`,
+/// `flaky {fails, runs}`, `failed-jobs {count}`, `other`. A flat struct here, not a tagged enum, so a workspace build
+/// reads its numbers (serde's `arbitrary_precision`); build one with `DecisionWhy::new(code)` and set that code's fields.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DecisionWhy {
@@ -460,14 +510,92 @@ pub struct TestHistory {
     pub clean_since: u32,
 }
 
+/// A failed test's record, as the numbers behind `FailedTest.history`: what a screen translates. The English `history`
+/// is derived from it (`TestRecord::english`), so the two never disagree.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRecord {
+    /// The system the test failed on: the same test is another program on each.
+    pub os: Os,
+    pub fails_7d: u32,
+    pub runs_7d: u32,
+    /// `quarantined`: it passed and failed on the same inputs and is not yet cleared. `cleared`: it was, and left
+    /// quarantine after clean runs.
+    pub state: TestState,
+    /// While quarantined: the clean runs on different inputs so far, of `clear_after`; else 0.
+    pub clean_runs: u32,
+    /// How many clean runs clear a quarantined test (`ompdesk_checks::flaky::CLEAR_AFTER`).
+    pub clear_after: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FailedTest {
     pub test: String,
     pub first_error: String,
     pub known_flaky: bool,
-    /// Its record in words ("failed 3 of the last 20 runs on unchanged inputs").
+    /// Its record in words, English for agents and logs; a screen shows `record`, never this.
     pub history: String,
+    pub record: TestRecord,
+}
+
+/// One thing an answer says besides its verdict. On the wire a union tagged by `code` (TS `NoteSchema`), each code
+/// with the fields `NoteCode` lists. A flat struct here, not a tagged enum, for the reason `DecisionWhy` is one
+/// (serde's `arbitrary_precision`); build one with `Note::new(code)` and set that code's fields. A value that is
+/// source text (a job's or a test's name, an error from gh or git) travels as a field and is shown as written;
+/// everything else is the code and its numbers. `Answer.notes` is `english()` of each, so a screen and an agent
+/// read the same facts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub code: NoteCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cap: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seconds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<Sha>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<Sha>,
+}
+
+impl Note {
+    pub fn new(code: NoteCode) -> Note {
+        Note {
+            code,
+            job: None,
+            test: None,
+            error: None,
+            count: None,
+            used: None,
+            cap: None,
+            run: None,
+            at: None,
+            seconds: None,
+            base: None,
+            commit: None,
+            branch: None,
+            asked: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -504,7 +632,9 @@ pub struct Answer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reused: Option<Reused>,
     pub next: Next,
+    /// English for agents and logs, `english()` of each of `said`; a screen shows `said`, never this.
     pub notes: Vec<String>,
+    pub said: Vec<Note>,
 }
 
 /// `start`. There is no placement or lane argument: policy decides both and reports them back.
@@ -900,8 +1030,20 @@ pub(crate) mod samples {
         }
     }
 
+    pub(crate) fn record() -> TestRecord {
+        TestRecord {
+            os: Os::Linux,
+            fails_7d: 3,
+            runs_7d: 20,
+            state: TestState::Quarantined,
+            clean_runs: 2,
+            clear_after: 5,
+        }
+    }
+
     pub(crate) fn answer() -> Answer {
-        Answer {
+        let record = record();
+        let mut answer = Answer {
             run_id: "run-1".into(),
             verdict: AnswerVerdict::Red,
             as_of: 1_794_000_700_000,
@@ -913,7 +1055,8 @@ pub(crate) mod samples {
                 test: "src/main/a.test.ts > saves the file".into(),
                 first_error: "AssertionError: expected 1 to be 2".into(),
                 known_flaky: true,
-                history: "failed 3 of the last 20 runs on unchanged inputs".into(),
+                history: record.english(),
+                record,
             }],
             blocks_release: Some(BlocksRelease {
                 gate: "gate-mac".into(),
@@ -924,8 +1067,90 @@ pub(crate) mod samples {
                 saved_min: 12,
             }),
             next: Next::RerunFailed,
-            notes: vec!["1 rerun left for this run".into()],
-        }
+            notes: Vec::new(),
+            said: Vec::new(),
+        };
+        answer.say(Note {
+            used: Some(1),
+            cap: Some(2),
+            ..Note::new(NoteCode::RerunsUsed)
+        });
+        answer
+    }
+
+    /// Every code of `Note` with the fields it carries, the optional ones present.
+    pub(crate) fn note_samples() -> Vec<Note> {
+        let job = |code| Note {
+            job: Some("check (node 1/2)".into()),
+            ..Note::new(code)
+        };
+        let test = |code| Note {
+            test: Some("src/a.test.ts > adds".into()),
+            ..Note::new(code)
+        };
+        let run = |code| Note {
+            run: Some("run-40".into()),
+            ..Note::new(code)
+        };
+        let error = |code| Note {
+            error: Some("HTTP 502 from gh".into()),
+            ..Note::new(code)
+        };
+        vec![
+            job(NoteCode::ReportExpired),
+            Note {
+                error: Some("the archive holds no report".into()),
+                ..job(NoteCode::ReportUnreadable)
+            },
+            Note::new(NoteCode::RunCancelled),
+            test(NoteCode::QuarantineEntered),
+            test(NoteCode::QuarantineLeft),
+            Note {
+                count: Some(2),
+                ..Note::new(NoteCode::QuarantinedPass)
+            },
+            Note::new(NoteCode::ReleaseBlocked),
+            job(NoteCode::JobOutsideTests),
+            Note {
+                used: Some(1),
+                cap: Some(2),
+                ..Note::new(NoteCode::RerunsUsed)
+            },
+            run(NoteCode::Reused),
+            run(NoteCode::ReuseLost),
+            Note {
+                base: Some("main".into()),
+                commit: Some("0123456789abcdef0123456789abcdef01234567".into()),
+                ..Note::new(NoteCode::Landed)
+            },
+            Note {
+                base: Some("main".into()),
+                ..error(NoteCode::NotLanded)
+            },
+            Note::new(NoteCode::LeaseLapsed),
+            run(NoteCode::RunUnknown),
+            Note {
+                at: Some(1_794_000_100_000),
+                ..error(NoteCode::FactsStale)
+            },
+            error(NoteCode::ResultsUnreadable),
+            Note::new(NoteCode::NoAnswerKept),
+            Note::new(NoteCode::JudgedBeforeRestart),
+            error(NoteCode::DispatchFailed),
+            error(NoteCode::Refused),
+            Note::new(NoteCode::Replaced),
+            Note {
+                seconds: Some(60),
+                ..Note::new(NoteCode::WaitTimedOut)
+            },
+            Note::new(NoteCode::RunChanged),
+            Note {
+                commit: Some("89abcdef0123456789abcdef0123456789abcdef".into()),
+                branch: Some("omp/agent/search-index".into()),
+                asked: Some("0123456789abcdef0123456789abcdef01234567".into()),
+                ..Note::new(NoteCode::BranchMoved)
+            },
+        ]
     }
 
     /// Every code of `DecisionWhy` with the fields it carries.
@@ -951,6 +1176,10 @@ pub(crate) mod samples {
             DecisionWhy {
                 pool: Some("device-mini".into()),
                 ..DecisionWhy::new(WhyCode::PlacedOn)
+            },
+            DecisionWhy {
+                pool: Some("device-mini".into()),
+                ..DecisionWhy::new(WhyCode::LocalUnavailable)
             },
             DecisionWhy {
                 batch: Some("batch-3".into()),
@@ -1060,6 +1289,7 @@ pub(crate) mod samples {
         enums.insert("PolicyMode".into(), words(PolicyMode::ALL));
         enums.insert("QueueState".into(), words(QueueState::ALL));
         enums.insert("WhyCode".into(), words(WhyCode::ALL));
+        enums.insert("NoteCode".into(), words(NoteCode::ALL));
         enums.insert("Outcome".into(), words(Outcome::ALL));
         enums.insert("TestState".into(), words(TestState::ALL));
         enums.insert("AnswerVerdict".into(), words(AnswerVerdict::ALL));
@@ -1124,6 +1354,8 @@ pub(crate) mod samples {
         );
         types.insert("TestHistory".into(), of(vec![history()]));
         types.insert("Answer".into(), of(vec![answer()]));
+        types.insert("TestRecord".into(), of(vec![record()]));
+        types.insert("Note".into(), of(note_samples()));
         types.insert(
             "StartRequest".into(),
             of(vec![StartRequest {

@@ -20,11 +20,12 @@ use tokio::task::AbortHandle;
 use super::admission::{self, Admission, Ask, Ended, Key, Limit, Stage};
 use super::answer::{self, Judged};
 use super::contract::{
-    Answer, AnswerVerdict, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Origin,
-    PolicyAction, Purpose, QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict, Sha, Snapshot,
-    StartDecision, StartReply, StartRequest, StartScope, StatusRequest, Until, WaitRequest, Where,
-    WhyCode, WorkflowAsk,
+    Answer, AnswerVerdict, Decision, DecisionWhy, JobState, Lane, MainFact, Next, Note, NoteCode,
+    Origin, Os, PolicyAction, Purpose, QueueEntry, RepoId, Rerun, RunId, RunResult, RunVerdict,
+    Sha, Snapshot, StartDecision, StartReply, StartRequest, StartScope, StatusRequest, Until,
+    WaitRequest, Where, WhyCode, WorkflowAsk,
 };
+use super::place;
 use super::policy::{self, Plan};
 use super::poller::Poller;
 use super::poller::provenance::{Claim, Expected};
@@ -164,6 +165,8 @@ const JUDGE_TRIES: u32 = 20;
 const ANSWERS_SHOWN: usize = 50;
 /// The decisions the snapshot keeps for the board's "Decided automatically" log.
 const DECISIONS_SHOWN: usize = 100;
+/// How often the Tests and cost tab is built again when no ledger changed (the day's queue peaks, the week's window).
+const TRENDS_EVERY_MS: u64 = 5 * 60 * 1000;
 const PAUSE_FILE: &str = "admission.json";
 /// The hub's journal: the decisions and answers the board shows and the adoption counts (design §7.5), kept across a
 /// restart, bounded by `DECISIONS_SHOWN` and `ANSWERS_SHOWN`.
@@ -251,6 +254,8 @@ pub struct Core {
     /// An answer was written.
     done: Notify,
     ids: AtomicU64,
+    /// When the Tests and cost tab was last built; 0 when a ledger changed since.
+    trends_at: AtomicU64,
 }
 
 /// The real hub.
@@ -376,6 +381,7 @@ impl Hub {
                 kick: Arc::new(Notify::new()),
                 done: Notify::new(),
                 ids: AtomicU64::new(0),
+                trends_at: AtomicU64::new(0),
             }),
             tasks: Mutex::default(),
         }
@@ -393,12 +399,14 @@ impl Hub {
         *locked(&self.key) = key;
     }
 
-    /// The hub's loop: at each change the poller saw, at each start and every `SETTLE_EVERY`, it frees the places of
-    /// runs that ended, answers them, reaps lapsed leases and admits what may start.
+    /// The hub's loop: at each change the poller saw, at each start, at each change of the merge queue and every
+    /// `SETTLE_EVERY`, it frees the places of runs that ended, answers them, reaps lapsed leases, admits what may start
+    /// and brings the board's queue, gates and trends up to date.
     pub fn run(&self) -> AbortHandle {
         let core = Arc::downgrade(&self.core);
         let kick = Arc::clone(&self.kick);
         let mut changes = self.poller.changes();
+        let mut queue = self.queue.entries();
         tokio::spawn(async move {
             loop {
                 {
@@ -406,9 +414,11 @@ impl Hub {
                         return;
                     };
                     core.pass().await;
+                    queue.borrow_and_update();
                 }
                 tokio::select! {
                     changed = changes.changed() => if changed.is_err() { return },
+                    changed = queue.changed() => if changed.is_err() { return },
                     () = kick.notified() => {}
                     () = clock::sleep(SETTLE_EVERY) => {}
                 }
@@ -472,9 +482,10 @@ fn places(
 }
 
 impl Core {
-    /// One pass of the hub's loop: settle what the poller saw, answer the runs that ended, admit what may start. A
-    /// run whose answer could not be read is judged again next pass, and after `JUDGE_TRIES` it is answered unknown
-    /// with the last reason, so the session that waits for it is woken either way.
+    /// One pass of the hub's loop: settle what the poller saw, answer the runs that ended, admit what may start, and
+    /// bring the board's queue, gates and trends up to date. A run whose answer could not be read is judged again next
+    /// pass, and after `JUDGE_TRIES` it is answered unknown with the last reason, so the session that waits for it is
+    /// woken either way.
     async fn pass(&self) {
         let ended = self.settle();
         let again: Vec<_> = locked(&self.book).unjudged.drain().collect();
@@ -494,6 +505,7 @@ impl Core {
             }
         }
         self.pump().await;
+        self.board().await;
     }
 
     fn next_id(&self) -> RunId {
@@ -537,12 +549,7 @@ impl Core {
         for id in gone {
             self.finish(
                 &id,
-                answer::unknown(
-                    &id,
-                    now,
-                    Next::Wait,
-                    "it waited in OMPdesk's queue past its lease, with no wait renewing it: start it again".into(),
-                ),
+                answer::unknown(&id, now, Next::Wait, Note::new(NoteCode::LeaseLapsed)),
             );
         }
         ended
@@ -756,6 +763,128 @@ impl Core {
         });
         self.save_journal();
         self.done.notify_waiters();
+        // The board's gates read the answers.
+        self.kick.notify_one();
+    }
+
+    /// The board's own parts: the merge queue as it stands, each release's gates from its runs and answers, and, when
+    /// a ledger changed or `TRENDS_EVERY_MS` passed, the Tests and cost tab.
+    async fn board(&self) {
+        let queue = Arc::clone(&self.queue.entries().borrow());
+        let now = clock::now_ms();
+        let built = self.trends_at.load(Ordering::Relaxed);
+        let trends = if built == 0 || now.saturating_sub(built) >= TRENDS_EVERY_MS {
+            // Set before it is built: a ledger that changes meanwhile sets it back to 0 and the next pass builds again.
+            self.trends_at.store(now.max(1), Ordering::Relaxed);
+            Some(self.trends(now).await)
+        } else {
+            None
+        };
+        let gates = {
+            let snapshot = Arc::clone(&self.snapshot.borrow());
+            let book = locked(&self.book);
+            super::board::gates(&snapshot.runs, &snapshot.answers, |id| {
+                book.pending
+                    .get(id)
+                    .map(|pending| pending.plan.workflow.clone())
+            })
+        };
+        self.snapshot.send_if_modified(|current| {
+            let trends = trends.filter(|trends| *trends != current.trends);
+            if current.queue == **queue && current.gates == gates && trends.is_none() {
+                return false;
+            }
+            let mut next = Snapshot::clone(current);
+            next.queue = queue.to_vec();
+            next.gates = gates;
+            if let Some(trends) = trends {
+                next.trends = trends;
+            }
+            *current = Arc::new(next);
+            true
+        });
+    }
+
+    /// The Tests and cost tab from every watched repository's ledger and this computer's own checks. The pools' waiting
+    /// jobs are noted as the day's queue peaks first; a ledger is saved only when a peak rose.
+    async fn trends(&self, now: u64) -> super::contract::Trends {
+        // Journals that cannot be read list no local quarantine this time.
+        let flaky = self.local.flaky().await.unwrap_or_default();
+        let pools = self.poller.local_pools();
+        let waiting: Vec<(String, u32)> = self
+            .snapshot
+            .borrow()
+            .pools
+            .iter()
+            .map(|pool| (pool.id.clone(), pool.queued))
+            .collect();
+        let repos = self.poller.repos();
+        let mut book = locked(&self.book);
+        for repo in repos {
+            if let std::collections::hash_map::Entry::Vacant(slot) = book.ledgers.entry(repo) {
+                let ledger = self
+                    .store
+                    .as_ref()
+                    .map_or_else(Ledger::default, |store| store.load(slot.key()));
+                slot.insert(ledger);
+            }
+        }
+        for (repo, ledger) in &mut book.ledgers {
+            let mut rose = false;
+            for (pool, queued) in &waiting {
+                rose |= ledger.note_queue(now, pool, *queued);
+            }
+            if rose && let Some(store) = &self.store {
+                // A ledger that cannot be saved stays in memory; the next save tries again.
+                let _ = store.save(repo, ledger);
+            }
+        }
+        let ledgers: Vec<(&str, &Ledger)> = book
+            .ledgers
+            .iter()
+            .map(|(repo, ledger)| (repo.as_str(), ledger))
+            .collect();
+        super::trends::tab::build(
+            &ledgers,
+            &super::trends::tab::Local {
+                flaky: &flaky,
+                os: super::poller::local::this_os(),
+                pools: &pools,
+            },
+            now,
+        )
+    }
+
+    /// What a reused green result saved: the time its run took, noted in the repository's ledger for the tab.
+    fn reuse_saves(&self, repo: &str, from: &str, now: u64) -> u64 {
+        let saved = self
+            .snapshot
+            .borrow()
+            .runs
+            .iter()
+            .find(|run| run.id == from)
+            .map_or(0, |run| {
+                let started = run.jobs.iter().filter_map(|job| job.started_at).min();
+                let ended = run.jobs.iter().filter_map(|job| job.ended_at).max();
+                started
+                    .zip(ended)
+                    .map_or(0, |(started, ended)| ended.saturating_sub(started))
+            });
+        if saved > 0 {
+            let mut book = locked(&self.book);
+            let ledger = book.ledgers.entry(repo.to_owned()).or_insert_with(|| {
+                self.store
+                    .as_ref()
+                    .map_or_else(Ledger::default, |store| store.load(repo))
+            });
+            ledger.note_reuse(now, saved);
+            if let Some(store) = &self.store {
+                // A ledger that cannot be saved stays in memory; the next save tries again.
+                let _ = store.save(repo, ledger);
+            }
+            self.trends_at.store(0, Ordering::Relaxed);
+        }
+        saved
     }
 
     fn answered(&self, id: &str) -> Option<Answer> {
@@ -773,21 +902,22 @@ impl Core {
                 id,
                 now,
                 Next::Wait,
-                format!("GitHub's run for {id} is not known yet"),
+                Note {
+                    run: Some(id.to_owned()),
+                    ..Note::new(NoteCode::RunUnknown)
+                },
             );
         };
         if let Some((as_of, false)) = self.poller.confirmed(&repo, github_run) {
-            let why = self.poller.trouble().map_or_else(
-                || "not read again in time".to_owned(),
-                |trouble| trouble.message,
-            );
             return answer::unknown(
                 id,
                 now,
                 Next::Wait,
-                format!(
-                    "GitHub's facts are stale (last read at {as_of}): {why}; never green from old data"
-                ),
+                Note {
+                    at: Some(as_of),
+                    error: self.poller.trouble().map(|trouble| trouble.message),
+                    ..Note::new(NoteCode::FactsStale)
+                },
             );
         }
         let since = run
@@ -804,7 +934,10 @@ impl Core {
                     id,
                     now,
                     Next::Wait,
-                    format!("its results could not be read: {}", error.message),
+                    Note {
+                        error: Some(error.message),
+                        ..Note::new(NoteCode::ResultsUnreadable)
+                    },
                 );
             }
         };
@@ -815,7 +948,7 @@ impl Core {
             let moved = pending
                 .as_ref()
                 .filter(|pending| pending.sha != run.sha)
-                .map(|pending| short(&pending.sha).to_owned());
+                .map(|pending| pending.sha.clone());
             let digest = match (&pending, &moved) {
                 (Some(pending), None) => pending.digest.clone(),
                 (Some(pending), Some(_)) => format!("{}@{}", pending.digest, run.sha),
@@ -839,11 +972,12 @@ impl Core {
             )
             .map(|mut answer| {
                 if let Some(asked) = moved {
-                    answer.notes.push(format!(
-                        "GitHub ran {} ({}), not {asked}: the branch moved before the run started",
-                        short(&run.sha),
-                        run.git_ref
-                    ));
+                    answer.say(Note {
+                        commit: Some(run.sha.clone()),
+                        branch: Some(run.git_ref.clone()),
+                        asked: Some(asked),
+                        ..Note::new(NoteCode::BranchMoved)
+                    });
                 }
                 answer
             });
@@ -852,13 +986,14 @@ impl Core {
                 let _ = store.save(&repo, &ledger);
             }
             book.ledgers.insert(repo, ledger);
+            self.trends_at.store(0, Ordering::Relaxed);
             answer
         };
         match judged {
             Some(answer) => {
                 self.finish(id, answer);
                 self.answered(id).unwrap_or_else(|| {
-                    answer::unknown(id, now, Next::Wait, "no answer kept".into())
+                    answer::unknown(id, now, Next::Wait, Note::new(NoteCode::NoAnswerKept))
                 })
             }
             None => self.answered(id).unwrap_or_else(|| {
@@ -866,26 +1001,25 @@ impl Core {
                     id,
                     now,
                     Next::Wait,
-                    "this attempt was judged before OMPdesk restarted; its answer was not kept"
-                        .into(),
+                    Note::new(NoteCode::JudgedBeforeRestart),
                 )
             }),
         }
     }
 
     /// Why a run of the hub's will not end by itself, if it will not: it never reached GitHub.
-    fn over_before_github(&self, id: &str) -> Option<String> {
+    fn over_before_github(&self, id: &str) -> Option<Note> {
         let stage = locked(&self.admission).entry(id).map(|entry| entry.stage)?;
         match stage {
-            Stage::Over(Ended::Failed) => Some(locked(&self.book).failures.get(id).map_or_else(
-                || "its dispatch failed".to_owned(),
-                |why| format!("its dispatch failed: {why}"),
-            )),
-            Stage::Over(Ended::Refused) => Some("it was refused".into()),
-            Stage::Over(Ended::Expired) => Some("it waited past its lease: start it again".into()),
-            Stage::Over(Ended::Cancelled) if locked(&self.admission).entry(id).is_some() => Some(
-                "a newer start of the same branch and workflow replaced it before it ran".into(),
-            ),
+            Stage::Over(Ended::Failed) => Some(Note {
+                error: locked(&self.book).failures.get(id).cloned(),
+                ..Note::new(NoteCode::DispatchFailed)
+            }),
+            Stage::Over(Ended::Refused) => Some(Note::new(NoteCode::Refused)),
+            Stage::Over(Ended::Expired) => Some(Note::new(NoteCode::LeaseLapsed)),
+            Stage::Over(Ended::Cancelled) if locked(&self.admission).entry(id).is_some() => {
+                Some(Note::new(NoteCode::Replaced))
+            }
             _ => None,
         }
     }
@@ -898,8 +1032,8 @@ impl Core {
             if let Some(answer) = self.answered(id) {
                 return answer;
             }
-            if let Some(why) = self.over_before_github(id) {
-                let answer = answer::unknown(id, clock::now_ms(), Next::Wait, why);
+            if let Some(note) = self.over_before_github(id) {
+                let answer = answer::unknown(id, clock::now_ms(), Next::Wait, note);
                 self.finish(id, answer);
                 continue;
             }
@@ -1163,6 +1297,7 @@ impl Core {
             policy::lane(purpose, named.is_some(), plan.macos, &git_ref, &mac_refs)
         };
         let digest = policy::digest(&sha, &text, &plan.inputs);
+
         let workflow = plan.workflow.clone();
         let pending = Pending {
             origin,
@@ -1203,6 +1338,7 @@ impl Core {
         let workflow = pending.plan.workflow.clone();
         let digest = pending.digest.clone();
         let pool = policy::pool(pending.plan.macos);
+        let macos = pending.plan.macos;
         locked(&self.book).pending.insert(id.clone(), pending);
         let now = clock::now_ms();
         let started = locked(&self.admission).start(
@@ -1252,9 +1388,20 @@ impl Core {
             }
             (Stage::Over(Ended::Reused), Some(from)) => {
                 let green = self.answered(&from);
+                let saved_ms = self.reuse_saves(&repo, &from, now);
                 let answer = match &green {
-                    Some(green) => answer::reused(&id, green, &from, 0, now),
-                    None => answer::unknown(&id, now, Next::Wait, format!("{from} was green")),
+                    Some(green) => {
+                        answer::reused(&id, green, &from, (saved_ms / 60_000) as u32, now)
+                    }
+                    None => answer::unknown(
+                        &id,
+                        now,
+                        Next::Wait,
+                        Note {
+                            run: Some(from.clone()),
+                            ..Note::new(NoteCode::ReuseLost)
+                        },
+                    ),
                 };
                 self.decide(
                     "reuse-green",
@@ -1279,6 +1426,36 @@ impl Core {
             }
             _ => {}
         }
+        // Where it runs (design §5 policy 5), asked only for a run that runs (a reused one does not). The hub runs a
+        // check only as a GitHub workflow today: a computer that placement picks is named in the reply and the log, and
+        // the run goes to a runner. An unknown visibility reads as public, which sends it where it would go anyway.
+        let private = !macos && self.github.is_private(&repo).await.unwrap_or(false);
+        let placement = place::place(&place::Ask {
+            os: if macos { Os::Macos } else { Os::Linux },
+            private,
+            runner: true,
+            pools: &self.poller.local_pools(),
+        });
+        let elsewhere = match &placement.place {
+            Some(Where::Device { device_id }) => {
+                let why = format!(
+                    "placement picked {device_id} ({}), but OMPdesk cannot run a workflow on a computer yet, so it runs on a GitHub runner",
+                    placement.reason
+                );
+                self.decide(
+                    "local-first",
+                    &id,
+                    PolicyAction::Place,
+                    why.clone(),
+                    DecisionWhy {
+                        pool: Some(super::poller::pools::device_id(device_id)),
+                        ..DecisionWhy::new(WhyCode::LocalUnavailable)
+                    },
+                );
+                format!("; {why}")
+            }
+            _ => String::new(),
+        };
         self.pump().await;
         self.kick.notify_one();
         let stage = locked(&self.admission).entry(&id).map(|entry| entry.stage);
@@ -1295,7 +1472,7 @@ impl Core {
             Some(Stage::Dispatching | Stage::Running) => reply(
                 StartDecision::Started,
                 format!(
-                    "dispatched {workflow} on {git_ref} ({lane} lane){replaced}",
+                    "dispatched {workflow} on {git_ref} ({lane} lane){replaced}{elsewhere}",
                     lane = lane.word()
                 ),
             ),
@@ -1329,7 +1506,7 @@ impl Core {
                 reply(
                     StartDecision::Held,
                     format!(
-                        "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}",
+                        "{pool} has no free place: held in OMPdesk's queue ({lane} lane) and dispatched when one frees{replaced}{elsewhere}",
                         lane = lane.word()
                     ),
                 )
@@ -1339,9 +1516,10 @@ impl Core {
                 decision: StartDecision::Refused,
                 placement: None,
                 expected_start_min: None,
-                reason: self
-                    .over_before_github(&id)
-                    .unwrap_or_else(|| "it could not be dispatched".into()),
+                reason: self.over_before_github(&id).map_or_else(
+                    || "it could not be dispatched".into(),
+                    |note| note.english(),
+                ),
             }),
         }
     }
@@ -1354,7 +1532,7 @@ impl Core {
             .clamp(1, super::contract::WAIT_MAX_SECONDS);
         let deadline = clock::sleep(Duration::from_secs(seconds));
         tokio::pin!(deadline);
-        let timed_out = |note: String| answer::unknown(&id, clock::now_ms(), Next::Wait, note);
+        let timed_out = |note: Note| answer::unknown(&id, clock::now_ms(), Next::Wait, note);
         if request.until == Until::Any {
             if let Some(answer) = self.answered(&id) {
                 return Ok(answer);
@@ -1366,14 +1544,17 @@ impl Core {
                 () = &mut deadline => {}
                 () = scope.on_cancel() => return Err(Fault::new("cancelled", "the wait was cancelled")),
             }
-            return Ok(self.answered(&id).unwrap_or_else(|| {
-                timed_out("the run changed, or the time ran out: status shows it, wait again for the result".into())
-            }));
+            return Ok(self
+                .answered(&id)
+                .unwrap_or_else(|| timed_out(Note::new(NoteCode::RunChanged))));
         }
         // `answer_of` renews a held entry's lease while it waits: the owner is still asking.
         tokio::select! {
             answer = self.answer_of(&id) => Ok(answer),
-            () = &mut deadline => Ok(timed_out(format!("no result within {seconds} s: wait again"))),
+            () = &mut deadline => Ok(timed_out(Note {
+                seconds: Some(seconds as u32),
+                ..Note::new(NoteCode::WaitTimedOut)
+            })),
             () = scope.on_cancel() => Err(Fault::new("cancelled", "the wait was cancelled")),
         }
     }

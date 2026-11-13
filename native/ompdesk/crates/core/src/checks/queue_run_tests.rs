@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::*;
-use crate::checks::contract::{FailedTest, StartScope};
+use crate::checks::contract::{FailedTest, Os, StartScope, TestRecord, TestState};
 use crate::git::run::tests::runner;
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -175,13 +175,14 @@ impl QueueHost for Host {
                     reason: why,
                 });
             }
-            let mut answer = blank_answer(
-                run.clone(),
+            let mut answer = answer::blank(
+                &run,
                 if red {
                     AnswerVerdict::Red
                 } else {
                     AnswerVerdict::Green
                 },
+                clock::now_ms(),
                 if red { Next::Fix } else { Next::Land },
             );
             if red {
@@ -191,6 +192,14 @@ impl QueueHost for Host {
                     first_error: "expected good".into(),
                     known_flaky: false,
                     history: String::new(),
+                    record: TestRecord {
+                        os: Os::Linux,
+                        fails_7d: 0,
+                        runs_7d: 0,
+                        state: TestState::Active,
+                        clean_runs: 0,
+                        clear_after: 5,
+                    },
                 });
             } else {
                 answer.counts.passed = 3;

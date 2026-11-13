@@ -31,9 +31,10 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use super::{Effect, LandQueue, Part, QUEUE_BRANCH_PREFIX, Told, Tuning, Unbuilt};
+use crate::checks::answer;
 use crate::checks::contract::{
-    Answer, AnswerVerdict, Counts, Next, Origin, QueueEntry, RepoId, RunResult, Sha, StartDecision,
-    StartReply,
+    Answer, AnswerVerdict, Next, Note, NoteCode, Origin, QueueEntry, RepoId, RunResult, Sha,
+    StartDecision, StartReply,
 };
 use crate::checks::hub::{Fut, LandQueue as QueueSeam, LandRequest, QueueHost};
 use crate::clock;
@@ -285,24 +286,6 @@ fn red_why(answer: &Answer) -> String {
     why
 }
 
-fn blank_answer(run_id: String, verdict: AnswerVerdict, next: Next) -> Answer {
-    Answer {
-        run_id,
-        verdict,
-        as_of: clock::now_ms(),
-        counts: Counts {
-            passed: 0,
-            failed: 0,
-        },
-        failed: Vec::new(),
-        blocks_release: None,
-        expected_wait_min: None,
-        reused: None,
-        next,
-        notes: Vec::new(),
-    }
-}
-
 struct Lane {
     queue: LandQueue,
     shared: Arc<Shared>,
@@ -533,14 +516,16 @@ impl Lane {
                             }
                         },
                         refused => {
-                            let mut answer = blank_answer(
-                                refused.run_id.unwrap_or_default(),
+                            let mut answer = answer::blank(
+                                &refused.run_id.unwrap_or_default(),
                                 AnswerVerdict::Unknown,
+                                clock::now_ms(),
                                 Next::Fix,
                             );
-                            answer
-                                .notes
-                                .push(format!("the check could not run: {}", refused.reason));
+                            answer.say(Note {
+                                error: Some(refused.reason),
+                                ..Note::new(NoteCode::Refused)
+                            });
                             answer
                         }
                     };
@@ -578,29 +563,42 @@ impl Lane {
             Effect::Tell { entry, told } => {
                 let answer = match told {
                     Told::Landed { commit } => {
-                        let mut answer =
-                            blank_answer(entry.id.clone(), AnswerVerdict::Green, Next::Land);
+                        let mut answer = answer::blank(
+                            &entry.id,
+                            AnswerVerdict::Green,
+                            clock::now_ms(),
+                            Next::Land,
+                        );
                         if let Some(run) = self.answers.get(&commit) {
                             answer.counts = run.counts.clone();
                         }
-                        answer
-                            .notes
-                            .push(format!("landed on {base} in {}", short(&commit)));
+                        answer.say(Note {
+                            base: Some(base.clone()),
+                            commit: Some(commit),
+                            ..Note::new(NoteCode::Landed)
+                        });
                         answer
                     }
                     Told::Failed { why, commit } => {
-                        let mut answer = match commit
-                            .as_ref()
-                            .and_then(|commit| self.answers.get(commit))
-                        {
-                            Some(run) => run.clone(),
-                            None => blank_answer(entry.id.clone(), AnswerVerdict::Red, Next::Fix),
-                        };
+                        let mut answer =
+                            match commit.as_ref().and_then(|commit| self.answers.get(commit)) {
+                                Some(run) => run.clone(),
+                                None => answer::blank(
+                                    &entry.id,
+                                    AnswerVerdict::Red,
+                                    clock::now_ms(),
+                                    Next::Fix,
+                                ),
+                            };
                         answer.run_id = entry.id.clone();
                         answer.verdict = AnswerVerdict::Red;
                         answer.next = Next::Fix;
                         answer.as_of = clock::now_ms();
-                        answer.notes.push(format!("not landed on {base}: {why}"));
+                        answer.say(Note {
+                            base: Some(base.clone()),
+                            error: Some(why),
+                            ..Note::new(NoteCode::NotLanded)
+                        });
                         answer
                     }
                 };

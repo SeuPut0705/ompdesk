@@ -1085,6 +1085,16 @@ impl Poller {
         locked(&self.engine).github_of(run)
     }
 
+    /// Every computer's pool as last read (this one's and each paired one's): what placement weighs.
+    pub fn local_pools(&self) -> Vec<LocalPool> {
+        locked(&self.engine).pools.clone()
+    }
+
+    /// The repositories whose runs are read now.
+    pub fn repos(&self) -> Vec<RepoId> {
+        locked(&self.engine).repos.keys().cloned().collect()
+    }
+
     /// Grows after every round that changed a fact: what a wait for any change of a run selects on.
     pub fn changes(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()

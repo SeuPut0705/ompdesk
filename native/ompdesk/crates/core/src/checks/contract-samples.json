@@ -96,10 +96,38 @@
       "paused",
       "green-on-same-inputs",
       "placed-on",
+      "local-unavailable",
       "batched",
       "flaky",
       "failed-jobs",
       "other"
+    ],
+    "NoteCode": [
+      "report-expired",
+      "report-unreadable",
+      "run-cancelled",
+      "quarantine-entered",
+      "quarantine-left",
+      "quarantined-pass",
+      "release-blocked",
+      "job-outside-tests",
+      "reruns-used",
+      "reused",
+      "reuse-lost",
+      "landed",
+      "not-landed",
+      "lease-lapsed",
+      "run-unknown",
+      "facts-stale",
+      "results-unreadable",
+      "no-answer-kept",
+      "judged-before-restart",
+      "dispatch-failed",
+      "refused",
+      "replaced",
+      "wait-timed-out",
+      "run-changed",
+      "branch-moved"
     ],
     "Outcome": [
       "pass",
@@ -307,6 +335,10 @@
         "pool": "device-mini"
       },
       {
+        "code": "local-unavailable",
+        "pool": "device-mini"
+      },
+      {
         "code": "batched",
         "batch": "batch-3"
       },
@@ -368,7 +400,15 @@
             "test": "src/main/a.test.ts > saves the file",
             "firstError": "AssertionError: expected 1 to be 2",
             "knownFlaky": true,
-            "history": "failed 3 of the last 20 runs on unchanged inputs"
+            "history": "on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+            "record": {
+              "os": "linux",
+              "fails7d": 3,
+              "runs7d": 20,
+              "state": "quarantined",
+              "cleanRuns": 2,
+              "clearAfter": 5
+            }
           }
         ],
         "blocksRelease": {
@@ -381,8 +421,127 @@
         },
         "next": "rerun-failed",
         "notes": [
-          "1 rerun left for this run"
+          "reruns of the failed jobs: 1 of 2 used"
+        ],
+        "said": [
+          {
+            "code": "reruns-used",
+            "used": 1,
+            "cap": 2
+          }
         ]
+      }
+    ],
+    "TestRecord": [
+      {
+        "os": "linux",
+        "fails7d": 3,
+        "runs7d": 20,
+        "state": "quarantined",
+        "cleanRuns": 2,
+        "clearAfter": 5
+      }
+    ],
+    "Note": [
+      {
+        "code": "report-expired",
+        "job": "check (node 1/2)"
+      },
+      {
+        "code": "report-unreadable",
+        "job": "check (node 1/2)",
+        "error": "the archive holds no report"
+      },
+      {
+        "code": "run-cancelled"
+      },
+      {
+        "code": "quarantine-entered",
+        "test": "src/a.test.ts > adds"
+      },
+      {
+        "code": "quarantine-left",
+        "test": "src/a.test.ts > adds"
+      },
+      {
+        "code": "quarantined-pass",
+        "count": 2
+      },
+      {
+        "code": "release-blocked"
+      },
+      {
+        "code": "job-outside-tests",
+        "job": "check (node 1/2)"
+      },
+      {
+        "code": "reruns-used",
+        "used": 1,
+        "cap": 2
+      },
+      {
+        "code": "reused",
+        "run": "run-40"
+      },
+      {
+        "code": "reuse-lost",
+        "run": "run-40"
+      },
+      {
+        "code": "landed",
+        "base": "main",
+        "commit": "0123456789abcdef0123456789abcdef01234567"
+      },
+      {
+        "code": "not-landed",
+        "error": "HTTP 502 from gh",
+        "base": "main"
+      },
+      {
+        "code": "lease-lapsed"
+      },
+      {
+        "code": "run-unknown",
+        "run": "run-40"
+      },
+      {
+        "code": "facts-stale",
+        "error": "HTTP 502 from gh",
+        "at": 1794000100000
+      },
+      {
+        "code": "results-unreadable",
+        "error": "HTTP 502 from gh"
+      },
+      {
+        "code": "no-answer-kept"
+      },
+      {
+        "code": "judged-before-restart"
+      },
+      {
+        "code": "dispatch-failed",
+        "error": "HTTP 502 from gh"
+      },
+      {
+        "code": "refused",
+        "error": "HTTP 502 from gh"
+      },
+      {
+        "code": "replaced"
+      },
+      {
+        "code": "wait-timed-out",
+        "seconds": 60
+      },
+      {
+        "code": "run-changed"
+      },
+      {
+        "code": "branch-moved",
+        "commit": "89abcdef0123456789abcdef0123456789abcdef",
+        "branch": "omp/agent/search-index",
+        "asked": "0123456789abcdef0123456789abcdef01234567"
       }
     ],
     "StartRequest": [
@@ -449,7 +608,15 @@
               "test": "src/main/a.test.ts > saves the file",
               "firstError": "AssertionError: expected 1 to be 2",
               "knownFlaky": true,
-              "history": "failed 3 of the last 20 runs on unchanged inputs"
+              "history": "on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+              "record": {
+                "os": "linux",
+                "fails7d": 3,
+                "runs7d": 20,
+                "state": "quarantined",
+                "cleanRuns": 2,
+                "clearAfter": 5
+              }
             }
           ],
           "blocksRelease": {
@@ -462,7 +629,14 @@
           },
           "next": "rerun-failed",
           "notes": [
-            "1 rerun left for this run"
+            "reruns of the failed jobs: 1 of 2 used"
+          ],
+          "said": [
+            {
+              "code": "reruns-used",
+              "used": 1,
+              "cap": 2
+            }
           ]
         }
       }
@@ -597,7 +771,15 @@
                   "test": "src/main/a.test.ts > saves the file",
                   "firstError": "AssertionError: expected 1 to be 2",
                   "knownFlaky": true,
-                  "history": "failed 3 of the last 20 runs on unchanged inputs"
+                  "history": "on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+                  "record": {
+                    "os": "linux",
+                    "fails7d": 3,
+                    "runs7d": 20,
+                    "state": "quarantined",
+                    "cleanRuns": 2,
+                    "clearAfter": 5
+                  }
                 }
               ],
               "blocksRelease": {
@@ -610,7 +792,14 @@
               },
               "next": "rerun-failed",
               "notes": [
-                "1 rerun left for this run"
+                "reruns of the failed jobs: 1 of 2 used"
+              ],
+              "said": [
+                {
+                  "code": "reruns-used",
+                  "used": 1,
+                  "cap": 2
+                }
               ]
             }
           }
@@ -899,7 +1088,15 @@
                     "test": "src/main/a.test.ts > saves the file",
                     "firstError": "AssertionError: expected 1 to be 2",
                     "knownFlaky": true,
-                    "history": "failed 3 of the last 20 runs on unchanged inputs"
+                    "history": "on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+                    "record": {
+                      "os": "linux",
+                      "fails7d": 3,
+                      "runs7d": 20,
+                      "state": "quarantined",
+                      "cleanRuns": 2,
+                      "clearAfter": 5
+                    }
                   }
                 ],
                 "blocksRelease": {
@@ -912,7 +1109,14 @@
                 },
                 "next": "rerun-failed",
                 "notes": [
-                  "1 rerun left for this run"
+                  "reruns of the failed jobs: 1 of 2 used"
+                ],
+                "said": [
+                  {
+                    "code": "reruns-used",
+                    "used": 1,
+                    "cap": 2
+                  }
                 ]
               }
             }
@@ -1016,7 +1220,15 @@
                 "test": "src/main/a.test.ts > saves the file",
                 "firstError": "AssertionError: expected 1 to be 2",
                 "knownFlaky": true,
-                "history": "failed 3 of the last 20 runs on unchanged inputs"
+                "history": "on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+                "record": {
+                  "os": "linux",
+                  "fails7d": 3,
+                  "runs7d": 20,
+                  "state": "quarantined",
+                  "cleanRuns": 2,
+                  "clearAfter": 5
+                }
               }
             ],
             "blocksRelease": {
@@ -1029,7 +1241,14 @@
             },
             "next": "rerun-failed",
             "notes": [
-              "1 rerun left for this run"
+              "reruns of the failed jobs: 1 of 2 used"
+            ],
+            "said": [
+              {
+                "code": "reruns-used",
+                "used": 1,
+                "cap": 2
+              }
             ]
           }
         }

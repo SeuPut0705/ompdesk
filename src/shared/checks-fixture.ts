@@ -12,6 +12,7 @@ import {
 	emptySnapshot,
 	type FakeCall,
 	type FakeOp,
+	type Note,
 	type Origin,
 	type RunResult,
 	type Snapshot,
@@ -23,7 +24,8 @@ export interface FakeChecksHub extends ChecksHub {
 	apply(op: FakeOp): Promise<FakeCall[] | null>;
 }
 
-function pending(runId: string, note: string): Answer {
+/** A wait that ends with no result: the note as a code, and its English as the core's fake hub writes it. */
+function pending(runId: string, note: Note, english: string): Answer {
 	return {
 		runId,
 		verdict: "unknown",
@@ -33,7 +35,8 @@ function pending(runId: string, note: string): Answer {
 		blocksRelease: null,
 		expectedWaitMin: null,
 		next: "wait",
-		notes: [note],
+		notes: [english],
+		said: [note],
 	};
 }
 
@@ -96,8 +99,18 @@ export function createFakeChecksHub(): FakeChecksHub {
 					signal?.throwIfAborted();
 					const answer = answers.get(request.runId);
 					if (answer) return answer;
-					if (request.until === "any" && changes > before) return pending(request.runId, "The run changed.");
-					if (timedOut) return pending(request.runId, `Still running after waiting ${seconds} s.`);
+					if (request.until === "any" && changes > before)
+						return pending(
+							request.runId,
+							{ code: "run-changed" },
+							"the run changed, or the time ran out: status shows it, wait again for the result",
+						);
+					if (timedOut)
+						return pending(
+							request.runId,
+							{ code: "wait-timed-out", seconds },
+							`no result within ${seconds} s: wait again`,
+						);
 					const woken = Promise.withResolvers<void>();
 					const wake = () => woken.resolve();
 					wakers.add(wake);
@@ -171,13 +184,16 @@ export function sampleAnswer(runId = "run-41"): Answer {
 				test: "src/store/save.test.ts > saves the file once",
 				firstError: "AssertionError: expected 1 to be 2",
 				knownFlaky: true,
-				history: "failed 3 of the last 20 runs on unchanged inputs",
+				history:
+					"on linux: failed 3 of 20 runs in 7 days; quarantined as flaky (passed and failed on the same inputs), 2 of 5 clean runs",
+				record: { os: "linux", fails7d: 3, runs7d: 20, state: "quarantined", cleanRuns: 2, clearAfter: 5 },
 			},
 		],
 		blocksRelease: { gate: "gate-mac" },
 		expectedWaitMin: null,
 		next: "rerun-failed",
-		notes: ["1 rerun left for this run"],
+		notes: ["reruns of the failed jobs: 0 of 2 used"],
+		said: [{ code: "reruns-used", used: 0, cap: 2 }],
 	};
 }
 

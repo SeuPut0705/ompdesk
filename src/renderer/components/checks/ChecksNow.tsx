@@ -35,7 +35,16 @@ import {
 	User,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import type { Decision, GateStatus, POLICY_ACTIONS, Pool, Run, RunResult } from "../../../shared/checks-contract";
+import type {
+	Decision,
+	GateStatus,
+	Note,
+	POLICY_ACTIONS,
+	Pool,
+	Run,
+	RunResult,
+	TestRecord,
+} from "../../../shared/checks-contract";
 import type { ChecksFrame } from "../../../shared/checks-frame";
 import {
 	decisionFor,
@@ -64,7 +73,7 @@ import {
 	runsByLane,
 	shortSha,
 } from "../../lib/checks/view";
-import { cx, formatSpanCompact } from "../../lib/format";
+import { cx, formatClock, formatSpanCompact } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useShortAge } from "../../lib/now-tick";
 import { useUiStore } from "../../stores/ui";
@@ -427,6 +436,69 @@ function LaneRuns({ group, frame, current }: { group: LaneGroup; frame: ChecksFr
 
 const VERDICT_COLOR = { green: "text-(--sc-success)", red: "text-(--sc-danger)", unknown: "text-(--sc-warning)" };
 
+/** A test's record from its numbers (`FailedTest.record`); `history` is the core's English and never shown. */
+function recordText(record: TestRecord, t: Translate): string {
+	const parts = [t("checks.record.week", { os: OS_NAME[record.os], fails: record.fails7d, runs: record.runs7d })];
+	if (record.state === "quarantined")
+		parts.push(t("checks.record.quarantined", { clean: record.cleanRuns, of: record.clearAfter }));
+	if (record.state === "cleared") parts.push(t("checks.record.cleared"));
+	return parts.join(" · ");
+}
+
+/** One note of an answer from its code (`Answer.said`); `notes` is the core's English and never shown. */
+function noteText(note: Note, frame: ChecksFrame, t: Translate): string {
+	switch (note.code) {
+		case "branch-moved":
+			return t("checks.note.branch-moved", {
+				commit: shortSha(note.commit),
+				branch: note.branch,
+				asked: shortSha(note.asked),
+			});
+		case "report-expired":
+		case "job-outside-tests":
+			return t(`checks.note.${note.code}`, { job: note.job });
+		case "report-unreadable":
+			return t("checks.note.report-unreadable", { job: note.job, error: note.error });
+		case "quarantine-entered":
+		case "quarantine-left":
+			return t(`checks.note.${note.code}`, { test: note.test });
+		case "quarantined-pass":
+			return t("checks.note.quarantined-pass", { count: note.count, plural: plural(note.count) });
+		case "reruns-used":
+			return t("checks.note.reruns-used", { used: note.used, cap: note.cap });
+		case "reused":
+		case "reuse-lost":
+		case "run-unknown":
+			return t(`checks.note.${note.code}`, { run: runName(frame, note.run) });
+		case "landed":
+			return t("checks.note.landed", { base: note.base, commit: shortSha(note.commit) });
+		case "not-landed":
+			return t("checks.note.not-landed", { base: note.base, error: note.error });
+		case "facts-stale":
+			return t("checks.note.facts-stale", {
+				at: formatClock(note.at),
+				why: note.error ?? t("checks.note.facts-stale-quiet"),
+			});
+		case "results-unreadable":
+			return t("checks.note.results-unreadable", { error: note.error });
+		case "dispatch-failed":
+		case "refused":
+			return note.error === undefined
+				? t(`checks.note.${note.code}`)
+				: t(`checks.note.${note.code}-why`, { error: note.error });
+		case "wait-timed-out":
+			return t("checks.note.wait-timed-out", { seconds: note.seconds });
+		case "run-cancelled":
+		case "release-blocked":
+		case "lease-lapsed":
+		case "no-answer-kept":
+		case "judged-before-restart":
+		case "replaced":
+		case "run-changed":
+			return t(`checks.note.${note.code}`);
+	}
+}
+
 function AnswerCard({ result, frame }: { result: RunResult; frame: ChecksFrame }) {
 	const t = useT();
 	const { answer } = result;
@@ -437,7 +509,7 @@ function AnswerCard({ result, frame }: { result: RunResult; frame: ChecksFrame }
 	for (const failed of answer.failed) {
 		rows.push([t("checks.answer.failed"), failed.test]);
 		rows.push([t("checks.answer.firstError"), failed.firstError]);
-		rows.push([t("checks.answer.flaky"), `${yesNo(failed.knownFlaky)} — ${failed.history}`]);
+		rows.push([t("checks.answer.flaky"), `${yesNo(failed.knownFlaky)} — ${recordText(failed.record, t)}`]);
 	}
 	const blocking = answer.blocksRelease;
 	const gate = blocking ? frame.snapshot.gates.find(status => status.gate.id === blocking.gate) : undefined;
@@ -452,7 +524,8 @@ function AnswerCard({ result, frame }: { result: RunResult; frame: ChecksFrame }
 	if (answer.reused)
 		rows.push([t("checks.answer.reusedLabel"), t("checks.answer.reused", { count: answer.reused.savedMin })]);
 	rows.push([t("checks.answer.next"), t(`checks.answer.next.${answer.next}`)]);
-	if (answer.notes.length > 0) rows.push([t("checks.answer.notes"), answer.notes.join(" ")]);
+	if (answer.said.length > 0)
+		rows.push([t("checks.answer.notes"), answer.said.map(note => noteText(note, frame, t)).join(" ")]);
 	const total = answer.counts.passed + answer.counts.failed;
 	const toTitle =
 		to.title ?? t(to.kind === "session" ? "checks.origin.unknownSession" : `checks.answer.to.${to.kind}`);
@@ -510,16 +583,18 @@ function decisionText(decision: Decision, run: Run | undefined, t: Translate): s
 	return t(`checks.decisions.${decision.action}`, { target });
 }
 
+/** A run as a sentence names it: its repository and ref, else its id. */
+function runName(frame: ChecksFrame, id: string): string {
+	const found = frame.snapshot.runs.find(entry => entry.id === id);
+	return found ? `${repoName(found.repo)} · ${found.ref}` : id;
+}
+
 /**
  * Why the hub decided, from its code (`Decision.why`); `reason` is the hub's English for agents and never shown.
  * Null for a code the hub has no words for (`other`): the action's sentence then stands alone.
  */
 function whyText(decision: Decision, frame: ChecksFrame, t: Translate): string | null {
 	const { why } = decision;
-	const run = (id: string) => {
-		const found = frame.snapshot.runs.find(entry => entry.id === id);
-		return found ? `${repoName(found.repo)} · ${found.ref}` : id;
-	};
 	const pool = (id: string) => {
 		const found = frame.snapshot.pools.find(entry => entry.id === id);
 		return found ? poolName(found, frame.names) : id;
@@ -527,12 +602,13 @@ function whyText(decision: Decision, frame: ChecksFrame, t: Translate): string |
 	switch (why.code) {
 		case "newer-run":
 		case "green-on-same-inputs":
-			return t(`checks.why.${why.code}`, { run: run(why.run) });
+			return t(`checks.why.${why.code}`, { run: runName(frame, why.run) });
 		case "pool-full":
 		case "release-ahead":
 			return t(`checks.why.${why.code}`, { pool: pool(why.pool), running: why.running, limit: why.limit });
 		case "placed-on":
-			return t("checks.why.placed-on", { pool: pool(why.pool) });
+		case "local-unavailable":
+			return t(`checks.why.${why.code}`, { pool: pool(why.pool) });
 		case "batched":
 			return t("checks.why.batched", { batch: why.batch });
 		case "flaky":

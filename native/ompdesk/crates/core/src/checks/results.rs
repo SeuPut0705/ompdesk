@@ -22,7 +22,7 @@ pub mod zip;
 use self::ledger::{Attempt, Ended, Failed, JobDone, Ledger};
 use self::reports::Case;
 use self::rerun::Budget;
-use super::contract::{Counts, FailedTest, Next, Origin, Os, RunVerdict};
+use super::contract::{Counts, FailedTest, Next, Note, NoteCode, Origin, Os, RunVerdict};
 use super::sources::{GithubJob, GithubRun};
 use super::trends::cost;
 
@@ -80,7 +80,7 @@ pub struct Verdict {
     pub unreported: Vec<String>,
     pub rerun: Budget,
     pub next: Next,
-    pub notes: Vec<String>,
+    pub said: Vec<Note>,
 }
 
 fn ended(conclusion: Option<&str>) -> Ended {
@@ -97,7 +97,8 @@ fn failed_test(test: &Failed) -> FailedTest {
         test: test.test.clone(),
         first_error: test.first_error.clone(),
         known_flaky: test.known_flaky,
-        history: format!("on {}: {}", test.os.word(), test.history),
+        history: test.record.english(),
+        record: test.record.clone(),
     }
 }
 
@@ -163,36 +164,40 @@ pub fn take_in(ledger: &mut Ledger, done: &Finished) -> Option<Verdict> {
             unreported.push(job.name.clone());
         }
     }
-    let mut notes = Vec::new();
+    let mut said = Vec::new();
     for name in &judged.entered {
-        notes.push(format!(
-            "quarantined as flaky: {name} (it passed and failed on the same inputs)"
-        ));
+        said.push(Note {
+            test: Some(name.clone()),
+            ..Note::new(NoteCode::QuarantineEntered)
+        });
     }
     for name in &judged.cleared {
-        notes.push(format!("left quarantine after clean runs: {name}"));
+        said.push(Note {
+            test: Some(name.clone()),
+            ..Note::new(NoteCode::QuarantineLeft)
+        });
     }
     if !flaky.is_empty() && !done.release {
-        notes.push(format!(
-            "{} quarantined flaky test(s) failed; they do not fail this run",
-            flaky.len()
-        ));
+        said.push(Note {
+            count: Some(flaky.len() as u32),
+            ..Note::new(NoteCode::QuarantinedPass)
+        });
     }
     if blocks_release {
-        notes.push(
-            "release gate: a quarantined test failed in this run, so it does not pass".to_string(),
-        );
+        said.push(Note::new(NoteCode::ReleaseBlocked));
     }
     for job in &unreported {
-        notes.push(format!(
-            "job \"{job}\" failed outside its tests or uploaded no test report"
-        ));
+        said.push(Note {
+            job: Some(job.clone()),
+            ..Note::new(NoteCode::JobOutsideTests)
+        });
     }
     if !green {
-        notes.push(format!(
-            "reruns of the failed jobs: {} of {} used",
-            budget.used, budget.cap
-        ));
+        said.push(Note {
+            used: Some(budget.used),
+            cap: Some(budget.cap),
+            ..Note::new(NoteCode::RerunsUsed)
+        });
     }
     failed.append(&mut flaky);
     Some(Verdict {
@@ -209,7 +214,7 @@ pub fn take_in(ledger: &mut Ledger, done: &Finished) -> Option<Verdict> {
         unreported,
         rerun: budget,
         next,
-        notes,
+        said,
     })
 }
 
@@ -297,6 +302,11 @@ mod tests {
         assert_eq!(verdict.failed.len(), 1);
         assert_eq!(verdict.failed[0].test, "src/a.test.ts › adds");
         assert!(!verdict.failed[0].known_flaky);
+        let record = &verdict.failed[0].record;
+        assert_eq!(
+            (record.os, record.fails_7d, record.runs_7d),
+            (Os::Linux, 1, 1)
+        );
         assert!(
             verdict.failed[0]
                 .history
@@ -305,7 +315,12 @@ mod tests {
         assert_eq!(verdict.unreported, vec!["build"]);
         assert_eq!(verdict.next, Next::RerunFailed);
         assert_eq!(verdict.rerun, Budget { used: 0, cap: 2 });
-        assert!(verdict.notes.iter().any(|n| n.contains("0 of 2 used")));
+        assert!(
+            verdict
+                .said
+                .iter()
+                .any(|n| n.code == NoteCode::RerunsUsed && (n.used, n.cap) == (Some(0), Some(2)))
+        );
         // The runner's minutes are in the day's use, each job's started minute counted.
         let day = &ledger.days[&crate::checks::trends::day_of(T0)];
         assert_eq!((day.used.linux.minutes, day.used.windows.minutes), (6, 3));
@@ -364,7 +379,11 @@ mod tests {
             (RunVerdict::Green, Next::Land)
         );
         assert!(!verdict.blocks_release);
-        assert!(verdict.notes[0].starts_with("quarantined as flaky: src/a.test.ts › adds"));
+        assert_eq!(verdict.said[0].code, NoteCode::QuarantineEntered);
+        assert_eq!(
+            verdict.said[0].test.as_deref(),
+            Some("src/a.test.ts › adds")
+        );
         // The job not run again is counted as saved, not as used twice.
         let day = &ledger.days[&crate::checks::trends::day_of(T0)];
         assert_eq!((day.used.linux.minutes, day.saved_ms), (9, 180_000));
@@ -396,9 +415,9 @@ mod tests {
         assert!(verdict.failed[0].known_flaky);
         assert!(
             verdict
-                .notes
+                .said
                 .iter()
-                .any(|n| n.contains("do not fail this run"))
+                .any(|n| n.code == NoteCode::QuarantinedPass && n.count == Some(1))
         );
         done.release = true;
         let verdict = take_in(&mut ledger, &done).unwrap();

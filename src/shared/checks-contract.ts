@@ -37,10 +37,39 @@ export const WHY_CODES = [
 	"paused",
 	"green-on-same-inputs",
 	"placed-on",
+	"local-unavailable",
 	"batched",
 	"flaky",
 	"failed-jobs",
 	"other",
+] as const;
+/** What an answer's note says, as a code the screens translate (`NoteSchema`). */
+export const NOTE_CODES = [
+	"report-expired",
+	"report-unreadable",
+	"run-cancelled",
+	"quarantine-entered",
+	"quarantine-left",
+	"quarantined-pass",
+	"release-blocked",
+	"job-outside-tests",
+	"reruns-used",
+	"reused",
+	"reuse-lost",
+	"landed",
+	"not-landed",
+	"lease-lapsed",
+	"run-unknown",
+	"facts-stale",
+	"results-unreadable",
+	"no-answer-kept",
+	"judged-before-restart",
+	"dispatch-failed",
+	"refused",
+	"replaced",
+	"wait-timed-out",
+	"run-changed",
+	"branch-moved",
 ] as const;
 export const QUEUE_STATES = ["waiting", "testing", "ready", "landing", "failed", "removed"] as const;
 export const OUTCOMES = ["pass", "fail", "skip"] as const;
@@ -70,6 +99,7 @@ export const CHECKS_ENUMS = {
 	PolicyAction: POLICY_ACTIONS,
 	PolicyMode: POLICY_MODES,
 	WhyCode: WHY_CODES,
+	NoteCode: NOTE_CODES,
 	QueueState: QUEUE_STATES,
 	Outcome: OUTCOMES,
 	TestState: TEST_STATES,
@@ -245,6 +275,7 @@ export const DecisionWhySchema = z.discriminatedUnion("code", [
 	z.strictObject({ code: z.literal("paused") }),
 	z.strictObject({ code: z.literal("green-on-same-inputs"), run: z.string() }),
 	z.strictObject({ code: z.literal("placed-on"), pool: z.string() }),
+	z.strictObject({ code: z.literal("local-unavailable"), pool: z.string() }),
 	z.strictObject({ code: z.literal("batched"), batch: z.string() }),
 	z.strictObject({ code: z.literal("flaky"), fails: Count, runs: Count }),
 	z.strictObject({ code: z.literal("failed-jobs"), count: Count }),
@@ -312,6 +343,57 @@ export const TestHistorySchema = z.strictObject({
 });
 export type TestHistory = z.infer<typeof TestHistorySchema>;
 
+/**
+ * A failed test's record as numbers: what a screen translates (`history` stays English for agents and logs, derived
+ * from this in the core).
+ */
+export const TestRecordSchema = z.strictObject({
+	/** The system it failed on: the same test is another program on each. */
+	os: z.enum(OS),
+	fails7d: Count,
+	runs7d: Count,
+	/** `quarantined`: passed and failed on the same inputs, not yet cleared. `cleared`: it was, and left after clean runs. */
+	state: z.enum(TEST_STATES),
+	/** While quarantined: clean runs on different inputs so far, of `clearAfter`; else 0. */
+	cleanRuns: Count,
+	/** How many clean runs clear a quarantined test. */
+	clearAfter: Count,
+});
+export type TestRecord = z.infer<typeof TestRecordSchema>;
+
+/**
+ * One thing an answer says besides its verdict, as a code the screens translate (`notes` stays English for agents and
+ * logs, derived from these in the core). A name or an error from gh or git is source text: shown as written.
+ */
+export const NoteSchema = z.discriminatedUnion("code", [
+	z.strictObject({ code: z.literal("report-expired"), job: z.string() }),
+	z.strictObject({ code: z.literal("report-unreadable"), job: z.string(), error: z.string() }),
+	z.strictObject({ code: z.literal("run-cancelled") }),
+	z.strictObject({ code: z.literal("quarantine-entered"), test: z.string() }),
+	z.strictObject({ code: z.literal("quarantine-left"), test: z.string() }),
+	z.strictObject({ code: z.literal("quarantined-pass"), count: Count }),
+	z.strictObject({ code: z.literal("release-blocked") }),
+	z.strictObject({ code: z.literal("job-outside-tests"), job: z.string() }),
+	z.strictObject({ code: z.literal("reruns-used"), used: Count, cap: Count }),
+	z.strictObject({ code: z.literal("reused"), run: z.string() }),
+	z.strictObject({ code: z.literal("reuse-lost"), run: z.string() }),
+	z.strictObject({ code: z.literal("landed"), base: z.string(), commit: z.string() }),
+	z.strictObject({ code: z.literal("not-landed"), base: z.string(), error: z.string() }),
+	z.strictObject({ code: z.literal("lease-lapsed") }),
+	z.strictObject({ code: z.literal("run-unknown"), run: z.string() }),
+	z.strictObject({ code: z.literal("facts-stale"), at: Timestamp, error: z.string().optional() }),
+	z.strictObject({ code: z.literal("results-unreadable"), error: z.string() }),
+	z.strictObject({ code: z.literal("no-answer-kept") }),
+	z.strictObject({ code: z.literal("judged-before-restart") }),
+	z.strictObject({ code: z.literal("dispatch-failed"), error: z.string().optional() }),
+	z.strictObject({ code: z.literal("refused"), error: z.string().optional() }),
+	z.strictObject({ code: z.literal("replaced") }),
+	z.strictObject({ code: z.literal("wait-timed-out"), seconds: Count }),
+	z.strictObject({ code: z.literal("run-changed") }),
+	z.strictObject({ code: z.literal("branch-moved"), commit: z.string(), branch: z.string(), asked: z.string() }),
+]);
+export type Note = z.infer<typeof NoteSchema>;
+
 /** What an agent receives. It carries the judgment, so the agent never reads logs. */
 export const AnswerSchema = z.strictObject({
 	runId: z.string(),
@@ -323,15 +405,18 @@ export const AnswerSchema = z.strictObject({
 			test: z.string(),
 			firstError: z.string(),
 			knownFlaky: z.boolean(),
-			/** Its record in words ("failed 3 of the last 20 runs on unchanged inputs"). */
+			/** Its record in English for agents and logs; a screen shows `record`. */
 			history: z.string(),
+			record: TestRecordSchema,
 		}),
 	),
 	blocksRelease: z.strictObject({ gate: z.string() }).nullable(),
 	expectedWaitMin: Count.nullable(),
 	reused: z.strictObject({ from: z.string(), savedMin: Count }).optional(),
 	next: z.enum(NEXTS),
+	/** English for agents and logs, one per `said`; a screen shows `said`. */
 	notes: z.array(z.string()),
+	said: z.array(NoteSchema),
 });
 export type Answer = z.infer<typeof AnswerSchema>;
 
@@ -492,6 +577,8 @@ export const CHECKS_SCHEMAS = {
 	TestResult: TestResultSchema,
 	TestHistory: TestHistorySchema,
 	Answer: AnswerSchema,
+	TestRecord: TestRecordSchema,
+	Note: NoteSchema,
 	StartRequest: StartRequestSchema,
 	StartReply: StartReplySchema,
 	WaitRequest: WaitRequestSchema,

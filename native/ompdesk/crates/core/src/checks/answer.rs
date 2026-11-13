@@ -8,9 +8,10 @@
 use std::collections::BTreeMap;
 
 use super::contract::{
-    Answer, AnswerVerdict, BlocksRelease, Counts, GateId, Next, Origin, Reused, RunId, RunVerdict,
-    Timestamp,
+    Answer, AnswerVerdict, BlocksRelease, Counts, GateId, Next, Note, NoteCode, Origin, Reused,
+    RunId, RunVerdict, Timestamp,
 };
+use super::note::english_of;
 use super::results::ledger::Ledger;
 use super::results::reports::Case;
 use super::results::{self, Finished, JobFacts};
@@ -22,8 +23,8 @@ pub struct Fetched {
     pub jobs: Vec<GithubJob>,
     /// A job's test report, by job id.
     pub cases: BTreeMap<u64, Vec<Case>>,
-    /// Reports that could not be read, in words.
-    pub notes: Vec<String>,
+    /// Reports that could not be read.
+    pub said: Vec<Note>,
 }
 
 /// Reads run `run` of `repo` (`since`: a time before it was last updated, its first job's queue time), its jobs and
@@ -45,13 +46,16 @@ pub async fn fetch(
         .ok_or_else(|| SourceError::new("failed", format!("GitHub does not list run {run}")))?;
     let jobs = github.jobs(repo, run).await?;
     let mut cases = BTreeMap::new();
-    let mut notes = Vec::new();
+    let mut said = Vec::new();
     for artifact in github.artifacts(repo, run).await? {
         let Some(job) = results::job_of_artifact(&artifact.name) else {
             continue;
         };
         if artifact.expired {
-            notes.push(format!("the test report of job {job} expired"));
+            said.push(Note {
+                job: Some(job.to_string()),
+                ..Note::new(NoteCode::ReportExpired)
+            });
             continue;
         }
         let read = github
@@ -63,14 +67,18 @@ pub async fn fetch(
             Ok(found) => {
                 cases.insert(job, found);
             }
-            Err(why) => notes.push(format!("the test report of job {job}: {why}")),
+            Err(why) => said.push(Note {
+                job: Some(job.to_string()),
+                error: Some(why),
+                ..Note::new(NoteCode::ReportUnreadable)
+            }),
         }
     }
     Ok(Fetched {
         run: found,
         jobs,
         cases,
-        notes,
+        said,
     })
 }
 
@@ -104,16 +112,13 @@ pub fn judge(ledger: &mut Ledger, fetched: &Fetched, judged: &Judged) -> Option<
             release: judged.gate.is_some(),
         },
     )?;
-    let mut notes = fetched.notes.clone();
-    notes.extend(verdict.notes);
+    let mut said = fetched.said.clone();
+    said.extend(verdict.said);
     let (answer_verdict, next) = match verdict.verdict {
         RunVerdict::Green => (AnswerVerdict::Green, verdict.next),
         RunVerdict::Red => (AnswerVerdict::Red, verdict.next),
         RunVerdict::Cancelled => {
-            notes.push(
-                "the run was cancelled: start it again, or wait for the run that replaced it"
-                    .into(),
-            );
+            said.push(Note::new(NoteCode::RunCancelled));
             (AnswerVerdict::Unknown, Next::Wait)
         }
     };
@@ -130,15 +135,16 @@ pub fn judge(ledger: &mut Ledger, fetched: &Fetched, judged: &Judged) -> Option<
         expected_wait_min: None,
         reused: None,
         next,
-        notes,
+        notes: english_of(&said),
+        said,
     })
 }
 
-/// No verdict yet, or none that can be trusted: what the agent does is wait (or what `next` says).
-pub fn unknown(run_id: &str, as_of: Timestamp, next: Next, note: String) -> Answer {
+/// An answer with no tests and nothing said yet.
+pub fn blank(run_id: &str, verdict: AnswerVerdict, as_of: Timestamp, next: Next) -> Answer {
     Answer {
         run_id: run_id.to_owned(),
-        verdict: AnswerVerdict::Unknown,
+        verdict,
         as_of,
         counts: Counts {
             passed: 0,
@@ -149,8 +155,16 @@ pub fn unknown(run_id: &str, as_of: Timestamp, next: Next, note: String) -> Answ
         expected_wait_min: None,
         reused: None,
         next,
-        notes: vec![note],
+        notes: Vec::new(),
+        said: Vec::new(),
     }
+}
+
+/// No verdict yet, or none that can be trusted: what the agent does is wait (or what `next` says).
+pub fn unknown(run_id: &str, as_of: Timestamp, next: Next, note: Note) -> Answer {
+    let mut answer = blank(run_id, AnswerVerdict::Unknown, as_of, next);
+    answer.say(note);
+    answer
 }
 
 /// A start answered from a green run of the same inputs: green, with where it came from.
@@ -161,21 +175,15 @@ pub fn reused(
     saved_min: u32,
     now: Timestamp,
 ) -> Answer {
-    Answer {
-        run_id: run_id.to_owned(),
-        verdict: AnswerVerdict::Green,
-        as_of: now,
-        counts: from.counts.clone(),
-        failed: Vec::new(),
-        blocks_release: None,
-        expected_wait_min: None,
-        reused: Some(Reused {
-            from: from_run.clone(),
-            saved_min,
-        }),
-        next: Next::Land,
-        notes: vec![format!(
-            "the same commit, workflow and inputs were green in {from_run}: nothing ran"
-        )],
-    }
+    let mut answer = blank(run_id, AnswerVerdict::Green, now, Next::Land);
+    answer.counts = from.counts.clone();
+    answer.reused = Some(Reused {
+        from: from_run.clone(),
+        saved_min,
+    });
+    answer.say(Note {
+        run: Some(from_run.clone()),
+        ..Note::new(NoteCode::Reused)
+    });
+    answer
 }

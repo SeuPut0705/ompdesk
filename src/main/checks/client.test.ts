@@ -95,7 +95,8 @@ describe.each(HUBS)("a scripted checks hub: %s", (_name, { make, fakeTimers, adv
 				runId: "run-41",
 				verdict: "unknown",
 				next: "wait",
-				notes: ["Still running after waiting 60 s."],
+				notes: ["no result within 60 s: wait again"],
+				said: [{ code: "wait-timed-out", seconds: 60 }],
 			});
 		} finally {
 			await realTimers();

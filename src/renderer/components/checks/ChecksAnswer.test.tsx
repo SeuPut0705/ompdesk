@@ -32,7 +32,7 @@ let root: Root | undefined;
 
 /** An answer carrying one note of every kind a judged red run writes, and a failed test with its record. */
 function judgedAnswer(): Answer {
-	const answer = {
+	return {
 		...sampleAnswer("run-41"),
 		failed: [
 			{
@@ -60,7 +60,6 @@ function judgedAnswer(): Answer {
 			{ code: "facts-stale", at: FIXED_NOW - 600_000, error: "gh is offline" },
 		],
 	};
-	return answer as unknown as Answer;
 }
 
 async function mount(): Promise<string> {

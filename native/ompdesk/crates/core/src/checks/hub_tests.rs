@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use super::*;
-use crate::checks::contract::{AnswerVerdict, samples};
+use crate::checks::contract::{AnswerVerdict, Note, NoteCode, samples};
 use crate::checks::sources::{
     Checkout, FakeGithub, FakeLocal, GithubJob, GithubRun, GithubWrite, SourceError,
 };
@@ -650,6 +650,17 @@ async fn a_wait_ends_with_the_judgment_and_every_subscriber_hears_it_once() {
         "{:?}",
         answer.notes
     );
+    // The English an agent reads is derived from the codes a screen translates: the two cannot differ.
+    let outside = answer
+        .said
+        .iter()
+        .find(|note| note.code == NoteCode::JobOutsideTests)
+        .expect("the failed job is said as a code");
+    assert_eq!(outside.job.as_deref(), Some("check"));
+    assert_eq!(
+        answer.notes,
+        answer.said.iter().map(Note::english).collect::<Vec<_>>()
+    );
     let heard = results.recv().await.unwrap();
     assert_eq!(
         (heard.run_id, heard.origin),
@@ -739,7 +750,11 @@ async fn the_merge_queue_starts_its_batch_in_the_land_lane_and_its_entries_end_t
         "q-1",
         clock::now_ms(),
         Next::Fix,
-        "not landed on main: red".into(),
+        Note {
+            base: Some("main".into()),
+            error: Some("red".into()),
+            ..Note::new(NoteCode::NotLanded)
+        },
     );
     host.finished(RunResult {
         run_id: "q-1".into(),
@@ -871,6 +886,7 @@ async fn a_start_asks_placement_and_says_so_when_the_computer_it_picks_cannot_ru
     assert_eq!(placed.len(), 1, "{placed:?}");
     assert_eq!(placed[0].run, reply.run_id.unwrap());
     assert_eq!(placed[0].why.pool.as_deref(), Some("device-local"));
+    assert_eq!(placed[0].why.code, WhyCode::LocalUnavailable);
 
     // A public repository goes to a runner by policy: nothing to explain.
     let github = self::github(CI);
@@ -893,7 +909,8 @@ async fn seen(board: &watch::Receiver<Arc<Snapshot>>, check: impl Fn(&Snapshot) 
 }
 
 #[tokio::test]
-async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from_the_hubs_own_work() {
+async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from_the_hubs_own_work()
+{
     let _serial = clock::TEST_CLOCK.lock().await;
     clock::set_manual(1_794_000_000_000);
     let github = github(CI);
@@ -954,8 +971,12 @@ async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from
         hub.poller.round().await;
     }
     assert!(
-        seen(&board, |now| now.gates.iter().any(|gate| gate.run.as_deref() == Some(&id)
-            && gate.state == crate::checks::contract::GateVerdict::Running))
+        seen(&board, |now| now.gates.iter().any(|gate| gate
+            .run
+            .as_deref()
+            == Some(&id)
+            && gate.state
+                == crate::checks::contract::GateVerdict::Running))
         .await,
         "{:?}",
         board.borrow().gates
@@ -963,7 +984,12 @@ async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from
     assert_eq!(board.borrow().gates[0].gate.jobs.workflow, "ci.yml");
     // The Tests and cost tab: a test this computer's own checks quarantined.
     assert!(
-        seen(&board, |now| now.trends.tests.iter().any(|test| test.name == "src/a.test.ts › adds")).await,
+        seen(&board, |now| now
+            .trends
+            .tests
+            .iter()
+            .any(|test| test.name == "src/a.test.ts › adds"))
+        .await,
         "{:?}",
         board.borrow().trends
     );
@@ -974,7 +1000,11 @@ async fn the_board_shows_the_merge_queue_a_releases_gates_and_the_tests_tab_from
         .unwrap();
     assert!(land.run_id.is_some(), "{}", land.reason);
     assert!(
-        seen(&board, |now| now.queue.iter().any(|entry| entry.branch == "feat2")).await,
+        seen(&board, |now| now
+            .queue
+            .iter()
+            .any(|entry| entry.branch == "feat2"))
+        .await,
         "{:?}",
         board.borrow().queue
     );

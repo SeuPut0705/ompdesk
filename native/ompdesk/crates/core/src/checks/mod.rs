@@ -23,9 +23,11 @@
 
 pub mod admission;
 pub mod answer;
+pub mod board;
 pub mod contract;
 pub mod fake;
 pub mod hub;
+pub mod note;
 pub mod place;
 pub mod policy;
 pub mod poller;

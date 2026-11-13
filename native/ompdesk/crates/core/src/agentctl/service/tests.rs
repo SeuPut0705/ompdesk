@@ -1009,11 +1009,22 @@ fn red_result(run: &str, session: &str) -> crate::checks::contract::RunResult {
                 passed: 41,
                 failed: 1,
             },
-            failed: vec![FailedTest {
-                test: "src/a.test.ts > saves once".into(),
-                first_error: "AssertionError: expected 1 to be 2".into(),
-                known_flaky: false,
-                history: "on linux: failed 1 of 9 runs in 7 days".into(),
+            failed: vec![{
+                let record = TestRecord {
+                    os: Os::Linux,
+                    fails_7d: 1,
+                    runs_7d: 9,
+                    state: TestState::Active,
+                    clean_runs: 0,
+                    clear_after: 5,
+                };
+                FailedTest {
+                    test: "src/a.test.ts > saves once".into(),
+                    first_error: "AssertionError: expected 1 to be 2".into(),
+                    known_flaky: false,
+                    history: record.english(),
+                    record,
+                }
             }],
             blocks_release: Some(BlocksRelease {
                 gate: "gate-mac".into(),
@@ -1022,6 +1033,7 @@ fn red_result(run: &str, session: &str) -> crate::checks::contract::RunResult {
             reused: None,
             next: Next::Fix,
             notes: vec![],
+            said: vec![],
         },
     }
 }

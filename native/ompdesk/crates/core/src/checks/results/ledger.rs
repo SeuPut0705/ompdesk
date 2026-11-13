@@ -24,7 +24,7 @@ use ompdesk_checks::flaky::{Book, CLEAR_AFTER, Failures};
 use serde::{Deserialize, Serialize};
 
 use super::reports::{Case, Outcome};
-use crate::checks::contract::{Origin, Os};
+use crate::checks::contract::{Origin, Os, TestRecord, TestState};
 use crate::checks::trends::cost::{self, Use};
 use crate::checks::trends::slow::{self, Pace};
 use crate::checks::trends::{DAY_MS, PerOs, WINDOW_DAYS, day_of};
@@ -172,10 +172,9 @@ pub struct Attempt<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Failed {
     pub test: String,
-    pub os: Os,
     pub first_error: String,
     pub known_flaky: bool,
-    pub history: String,
+    pub record: TestRecord,
     /// How often it has failed on these inputs, this time included, without ever passing on them.
     pub repeats: u32,
 }
@@ -401,10 +400,9 @@ impl Ledger {
             if failed {
                 failed_here.push(name.clone());
                 let test = Failed {
-                    history: self.history(&id, at),
+                    record: self.record(&id, job.os, at),
                     repeats: self.repeats(&id, attempt.digest),
                     test: name,
-                    os: job.os,
                     first_error: case.first_error.clone(),
                     known_flaky: now_quarantined,
                 };
@@ -460,14 +458,20 @@ impl Ledger {
         out
     }
 
-    /// The most jobs a poll saw waiting in `pool`: the day's peak.
-    pub fn note_queue(&mut self, at: u64, pool: &str, waiting: u32) {
-        if waiting == 0 {
-            return;
+    /// The most jobs a poll saw waiting in `pool`: the day's peak. True when this raised it (the ledger changed).
+    pub fn note_queue(&mut self, at: u64, pool: &str, waiting: u32) -> bool {
+        let peak = self
+            .days
+            .get(&day_of(at))
+            .and_then(|day| day.queued.get(pool))
+            .copied()
+            .unwrap_or(0);
+        if waiting <= peak {
+            return false;
         }
         let day = self.days.entry(day_of(at)).or_default();
-        let peak = day.queued.entry(pool.to_string()).or_default();
-        *peak = (*peak).max(waiting);
+        day.queued.insert(pool.to_string(), waiting);
+        true
     }
 
     /// A start answered with a green result of the same inputs instead of a run.
@@ -491,25 +495,26 @@ impl Ledger {
             .map_or(0, |s| if s.passed == 0 { s.failed } else { 0 })
     }
 
-    /// One line an agent reads beside a failed test.
-    pub fn history(&self, key: &str, now: u64) -> String {
+    /// A failed test's record, for the answer: its week and where the quarantine stands.
+    pub fn record(&self, key: &str, os: Os, now: u64) -> TestRecord {
         let week = self
             .tracks
             .get(key)
             .map(|t| t.counts(now, 7))
             .unwrap_or_default();
-        let mut line = format!("failed {} of {} runs in 7 days", week.fails, week.runs);
-        if let Some(t) = self.flaky.tests.get(key) {
-            if t.quarantined {
-                line.push_str(&format!(
-                    "; quarantined as flaky (passed and failed on the same inputs), {} of {CLEAR_AFTER} clean runs",
-                    t.streak
-                ));
-            } else if !t.flaked_on.is_empty() {
-                line.push_str("; was flaky, cleared after clean runs");
-            }
+        let (state, clean_runs) = match self.flaky.tests.get(key) {
+            Some(t) if t.quarantined => (TestState::Quarantined, t.streak),
+            Some(t) if !t.flaked_on.is_empty() => (TestState::Cleared, 0),
+            _ => (TestState::Active, 0),
+        };
+        TestRecord {
+            os,
+            fails_7d: week.fails,
+            runs_7d: week.runs,
+            state,
+            clean_runs,
+            clear_after: CLEAR_AFTER,
         }
-        line
     }
 
     /// Drops what the windows no longer hold. A test's book entry goes once it is out of quarantine, none of its
@@ -824,7 +829,9 @@ pub(crate) mod tests {
         assert!(!ledger.flaky.quarantined(&k));
         assert_eq!(ledger.clean(&k), CLEAR_AFTER);
         assert!(ledger.tracks[&k].cleared_at.is_some());
-        assert!(ledger.history(&k, T0 + 7 * DAY_MS).contains("was flaky"));
+        let record = ledger.record(&k, Os::Linux, T0 + 7 * DAY_MS);
+        assert_eq!(record.state, TestState::Cleared);
+        assert!(record.english().contains("was flaky"));
     }
 
     #[test]

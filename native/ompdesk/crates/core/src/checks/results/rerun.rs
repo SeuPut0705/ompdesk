@@ -78,15 +78,21 @@ mod tests {
 
     use super::super::ledger::{Failed, JobJudged};
     use super::*;
-    use crate::checks::contract::Os;
+    use crate::checks::contract::{Os, TestRecord, TestState};
 
     fn failed(repeats: u32, known_flaky: bool) -> Failed {
         Failed {
             test: "a.test.ts › t".into(),
-            os: Os::Linux,
             first_error: String::new(),
             known_flaky,
-            history: String::new(),
+            record: TestRecord {
+                os: Os::Linux,
+                fails_7d: 0,
+                runs_7d: 0,
+                state: TestState::Active,
+                clean_runs: 0,
+                clear_after: 5,
+            },
             repeats,
         }
     }
