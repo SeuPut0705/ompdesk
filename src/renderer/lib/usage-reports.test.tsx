@@ -142,24 +142,21 @@ describe("watchUsage", () => {
 		expect(read).toHaveBeenCalledTimes(1);
 	});
 
-	it("backs off after failed reads and holds focus reads meanwhile, but a turn's end reads once a poll interval has passed", async () => {
+	it("backs off after failed reads, ignores turn ends and focus meanwhile, and resumes the interval after a success", async () => {
 		read.mockResolvedValue(false);
 		watch();
 		await advance(USAGE_POLL_MS);
 		expect(read).toHaveBeenCalledTimes(1);
-		window.dispatchEvent(new Event("focus"));
-		await advance(0);
-		expect(read).toHaveBeenCalledTimes(1);
-		// A turn's end moved the in-use account's headers: its read is not held in the backoff, only spaced as a poll.
+		// One failure: the next poll waits twice as long, and neither a turn end nor a focus jumps it.
 		useUsageSignal.getState().turnEnded();
-		await advance(USAGE_POLL_MS - 1);
+		window.dispatchEvent(new Event("focus"));
+		await advance(USAGE_POLL_MS * 2 - 1);
 		expect(read).toHaveBeenCalledTimes(1);
 		await advance(1);
 		expect(read).toHaveBeenCalledTimes(2);
 		// A success ends the backoff: turn ends are then read after the one-minute gap again.
 		read.mockResolvedValue(true);
-		useUsageSignal.getState().turnEnded();
-		await advance(USAGE_POLL_MS);
+		await advance(USAGE_POLL_MS * 4);
 		expect(read).toHaveBeenCalledTimes(3);
 		useUsageSignal.getState().turnEnded();
 		await advance(USAGE_EVENT_GAP_MS);
@@ -188,10 +185,11 @@ describe("watchUsage", () => {
 
 	it.each([
 		["healthy reads, a turn ending every two minutes", true, 720],
-		["failing reads, a turn ending every two minutes", false, 290],
+		// Reads at 0, 10 and 30 minutes, then one every 20: 73 reads, as before (22 Oct 2026: 313 answers of 429 in a day).
+		["failing reads, a turn ending every two minutes", false, 74],
 	])("bounds a simulated day of reads: %s", async (_name, ok, ceiling) => {
-		// A read probes every expired account (the 429s of 22 Oct 2026): a day never reads more often than one per
-		// minute when healthy, and one per poll interval when failing, however often turns end.
+		// A read probes every expired account: a healthy day never reads more often than once a minute, and a failing
+		// one keeps the doubling backoff whatever turns end; only an explicit refresh (useUsageRead) reads through it.
 		read.mockResolvedValue(ok);
 		watch();
 		for (let minute = 0; minute < 24 * 60; minute += 2) {
@@ -199,7 +197,7 @@ describe("watchUsage", () => {
 			await advance(120_000);
 		}
 		expect(read.mock.calls.length).toBeLessThanOrEqual(ceiling);
-		expect(read.mock.calls.length).toBeGreaterThan((24 * 60) / 20);
+		expect(read.mock.calls.length).toBeGreaterThan(50);
 	});
 
 	it("never overlaps reads: a nudge while one is in flight waits for it", async () => {
