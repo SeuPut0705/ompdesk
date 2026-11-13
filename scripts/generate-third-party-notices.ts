@@ -6,7 +6,8 @@
  * What ships: electron-builder packs `out/**` and no node_modules, so a package is in
  * the app when main, preload or the renderer bundle it. The shipped set is taken as the
  * production closure of package.json `dependencies` (plus `optionalDependencies` that
- * are installed), read from node_modules, and Electron itself. This is a superset of
+ * are installed), read from node_modules. The engine (CEF and Chromium), Node and the shell's crates are sections
+ * 2 and 5; no Electron ships. This is a superset of
  * what Rollup tree-shook into `out/`, never a subset. The few devDependencies the
  * bundles import are type-only (unified, remark-parse, micromark-*), so none are added.
  * A package built for some platforms only (its package.json names `os` or `cpu`: a
@@ -20,7 +21,9 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import aiMemorySource from "../native/memory/ompdesk.json" with { type: "json" };
+import cefPin from "../native/ompdesk/crates/shell/cef-pin.json" with { type: "json" };
 import agentDesktopPin from "./agent-desktop-pin.json" with { type: "json" };
+import nodePin from "./node-runtime-pin.json" with { type: "json" };
 import { committedCrateList } from "./gen-crate-notices";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -142,20 +145,6 @@ function collect(): { components: Component[]; missing: string[] } {
 	return { components, missing };
 }
 
-function electronComponent(): Component {
-	const dir = join(ROOT, "node_modules", "electron");
-	const pkg = readJson(join(dir, "package.json"));
-	const license = join(dir, "dist", "LICENSE");
-	if (!existsSync(license)) throw new Error("node_modules/electron/dist/LICENSE is missing; run bun install");
-	return {
-		name: "electron",
-		version: pkg.version,
-		spdx: declaredLicense(pkg),
-		text: readFileSync(license, "utf8").replace(/\r\n?/g, "\n").trim(),
-		dir: "node_modules/electron",
-	};
-}
-
 /** First line that states a copyright, to head a group with. */
 function copyrightLines(text: string): string[] {
 	return text
@@ -209,6 +198,7 @@ function vendoredSections(): string {
 		version: string;
 	};
 	const lobeLicense = read("LICENSES/MIT-lobe-icons.txt");
+	const cefLicense = read("LICENSES/CEF-LICENSE.txt");
 	return [
 		[
 			"Mixdog (https://github.com/tribgames/mixdog)",
@@ -241,6 +231,31 @@ function vendoredSections(): string {
 			"OMPdesk's own Rust source is built into the binaries that ship inside the app under ompdesk-bin/ (ompdesk /",
 			"ompdesk.exe, the command-line tool). They are OMPdesk's, under the Apache License, Version 2.0 (LICENSE), and",
 			"statically link the Rust crates listed in section 4, each under its own license.",
+		].join("\n"),
+		[
+			`Chromium Embedded Framework ${cefPin.cefVersion} (https://bitbucket.org/chromiumembedded/cef) and Chromium ${cefPin.chromium}`,
+			"The app's browser engine: the release archive `native/ompdesk/crates/shell/cef-pin.json` pins (libcef and its",
+			"runtime files, unmodified) ships beside the app's executable on Windows (libcef.dll, chrome_elf.dll and the",
+			"rest) and as Chromium Embedded Framework.framework on macOS. CEF is licensed under the BSD 3-Clause License",
+			"(full text below, in LICENSES/CEF-LICENSE.txt and shipped as LICENSE.cef.txt). Chromium and the libraries it",
+			"bundles are under their own licenses, listed in LICENSES.chromium.html (CEF's CREDITS.html), which ships",
+			"beside this file.",
+			"",
+			cefLicense,
+		].join("\n"),
+		[
+			`Node.js ${nodePin.version} (https://nodejs.org)`,
+			"The unmodified release binary (scripts/node-runtime-pin.json: nodejs.org's archive, checked against its",
+			"published SHA-256) ships as node/node (node/node.exe on Windows) and runs the app's TypeScript main. Node.js is",
+			"under the MIT License, with the licenses of the libraries it bundles (V8, OpenSSL, ICU, zlib, undici and",
+			"others); Node's complete LICENSE file ships beside the binary as node/LICENSE.",
+		].join("\n"),
+		[
+			"OMPdesk's CEF shell (native/ompdesk/crates/shell)",
+			"OMPdesk's own Rust source is built into the shell that ships as the app's executable (OMPdesk.exe,",
+			"OMPdesk.app/Contents/MacOS/OMPdesk and the helper apps copied from it). It is OMPdesk's, under the Apache",
+			"License, Version 2.0 (LICENSE), and statically links the Rust crates listed in section 5, each under its own",
+			"license.",
 		].join("\n"),
 		[
 			`agent-desktop ${agentDesktopPin.version} (https://github.com/${agentDesktopPin.repo}, tag v${agentDesktopPin.version})`,
@@ -337,7 +352,7 @@ function vendoredSections(): string {
 function generate(): { text: string; flagged: string[] } {
 	const { components, missing } = collect();
 	if (missing.length) throw new Error(`dependencies not installed (run bun install): ${missing.join(", ")}`);
-	const all = [electronComponent(), ...components];
+	const all = components;
 
 	const groups = new Map<string, Component[]>();
 	const flagged: string[] = [];
@@ -365,13 +380,15 @@ function generate(): { text: string; flagged: string[] } {
 		"",
 		"OMPdesk itself is Copyright 2026 SeuPut and licensed under the Apache License 2.0 (LICENSE,",
 		"NOTICE); versions up to and including v0.41.0 were released under the MIT License.",
-		"The app is built from the components below and the vendored code credited in sections 2 and 3;",
+		"The app is built from the components below and the vendored code credited in sections 2 to 5;",
 		"each is used under the license shown. This file is generated by",
 		"scripts/generate-third-party-notices.ts from node_modules (bun run gen:licenses); do not",
 		"edit it by hand.",
 		"",
-		"Electron (MIT) bundles Chromium and its third-party components, whose notices ship in",
-		"LICENSES.chromium.html beside this file.",
+		"The app runs in the Chromium Embedded Framework (CEF), which bundles Chromium and its third-party",
+		"components: their notices ship in LICENSES.chromium.html beside this file, and CEF's own license in",
+		"LICENSE.cef.txt (section 2). The TypeScript main runs on Node.js; its complete license file, with those of",
+		"the libraries it bundles, ships as node/LICENSE beside this file.",
 		"",
 		`${all.length} npm components, in ${groups.size + unlicensed.length} license texts.`,
 		"",
@@ -409,6 +426,12 @@ function generate(): { text: string; flagged: string[] } {
 		RULE,
 		"",
 		committedCrateList("ompdesk"),
+		"",
+		RULE,
+		"5. Rust crates linked into OMPdesk's CEF shell (native/ompdesk/crates/shell)",
+		RULE,
+		"",
+		committedCrateList("shell"),
 		"",
 	);
 	return { text: `${out.join("\n").replace(/\n{4,}/g, "\n\n\n")}`, flagged };
