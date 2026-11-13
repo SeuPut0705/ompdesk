@@ -10,6 +10,11 @@
 #              throwaway certificate, updates itself into the real shell bundle through its unchanged updater (check found …
 #              swap helper, swap.log installed, the shell on Electron's profile with Local Storage and the seeded token), and
 #              a move that fails (read-only apps folder) rolls back; no SecurityAgent or coreauthd line.
+#  move-win    the whole update move on windows-latest (scripts/shell-move/run-move.ts, a test identity, silent): the released
+#              v0.127.0 updates itself through its unchanged updater into the real shell (the success run: the main's
+#              app-started.json of the new version appears and the old folder's backup is gone), an unpack made incomplete
+#              puts the Electron app back, and a new shell that exits after CEF init (OMP_GUI_TEST_SHELL_FAIL_START=1)
+#              gets Electron back too, started, `swap result outcome rolled back`, no window, no dialog.
 #  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
 #              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
 #              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
@@ -130,6 +135,55 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  move-win:
+    name: move-win
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      ELECTRON_BUILDER_COMPRESSION_LEVEL: "4"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - name: Put bun's cache on the workspace volume
+        shell: bash
+        run: echo "BUN_INSTALL_CACHE_DIR=$RUNNER_TEMP/bun-cache" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/shell-mac-inputs
+        with:
+          builder: "true"
+          playwright: "false"
+      # Each run starts from nothing (a fresh profile, update log and setup log); the old setup is kept between them.
+      - name: The success move
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --label success 2>&1 | tee move-win-success.log
+      - name: A move whose unpack is incomplete
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at swap 2>&1 | tee move-win-fail-swap.log
+      - name: A move whose new shell does not start
+        shell: bash
+        run: set -o pipefail; bun scripts/shell-move/run-move.ts --work "$RUNNER_TEMP/omv" --fail-at start 2>&1 | tee move-win-fail-start.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move, windows-latest"; for f in move-win-*.log; do echo "#### $f"; echo '```'; grep -E '"step":"(ok|FAILED)|^RESULT|OWNER CHANGED' "$f" | cut -c1-400 || true; echo '```'; done; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-win
+          path: |
+            move-win-*.log
+            ${{ runner.temp }}/omv/runs/*/evidence.json
+            ${{ runner.temp }}/omv/runs/*/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        shell: bash
         run: bash scripts/ci-failure.sh
         env:
           GH_TOKEN: ${{ github.token }}

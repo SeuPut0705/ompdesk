@@ -126,8 +126,26 @@ describe("resources/installer.nsh and the test seams", () => {
 			expect(shipping, macro).toContain(`!insertmacro ${macro}`);
 			expect(seams, macro).toContain(`!macro ${macro}`);
 		}
-		// A release-time restore of the old app starts it again; the dry run must not (Explorer has no test environment).
-		expect(shipping).toMatch(/!ifndef OMP_MOVE_TEST\n\s+\$\{if\} \$ompBackupMode != ""/);
+		// The old app comes back through the launcher in the dry run (Explorer has no test environment), through its exe in a release.
+		expect(shipping).toMatch(
+			/!ifdef OMP_MOVE_TEST\n\s+\$\{StdUtils\.ExecShellAsUser\} \$0 "\$launchLink" "open" ""\n\s+!else\n\s+\$\{StdUtils\.ExecShellAsUser\} \$0 "\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}" "open" ""/,
+		);
+	});
+
+	it("keeps the old folder until the new shell proved it started (app-started.json of this version), else puts it back", () => {
+		// The mark is written by the main once the first window's page loaded; it carries the setup's own version.
+		expect(shipping).toContain('StrCpy $ompMarker "$ompUserData\\app-started.json"');
+		expect(shipping).toContain("ReadEnvStr $ompUserData OMP_GUI_TEST_USER_DATA_DIR");
+		expect(shipping).toContain('StrCpy $ompUserData "$APPDATA\\ompdesk"');
+		expect(shipping).toMatch(/Delete "\$ompMarker"\n[\s\S]*ExecShellAsUser\} \$0 "\$launchLink" "open" "\$ompArgs"/);
+		expect(shipping).toContain("${For} $ompWaited 1 120");
+		expect(shipping).toContain('$\\"version$\\":$\\"${VERSION}$\\"');
+		// The proof removes the backup; the lack of it kills the new app's processes, restores and exits 2, no dialog.
+		expect(shipping).toMatch(
+			/\$\{if\} \$ompSeen == "1"\n\s+RMDir \/r "\$ompBackup"\n\s+\$\{else\}\n\s+!insertmacro ompLog "start-failed:[^\n]*\n\s+!insertmacro KILL_PROCESS "\$\{APP_EXECUTABLE_FILENAME\}" 1\n\s+Sleep 3000\n\s+!insertmacro ompRestoreOldFolder "start-failed"/,
+		);
+		// Neither check removes the backup before the proof, and `start-failed` shows no dialog.
+		expect(shipping).toMatch(/!if "\$\{REASON\}" == "incomplete"\n\s+\$\{IfNot\} \$\{Silent\}/);
 	});
 
 	it("starts nothing without the test profile and the isolated home in the setup's environment", () => {

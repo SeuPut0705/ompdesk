@@ -33,23 +33,31 @@
   ${endif}
 !macroend
 
-; After the new folder passed: the setup starts the app through Explorer (StdUtils.ExecShellAsUser on a link), which has
-; none of the setup's environment, so the link is a launcher that sets the test profile and the isolated home first.
-; Without both in the setup's environment the launcher starts nothing: the new app must never read the person's profile.
-; The launcher also opens CEF's debugging port (OMP_MOVE_DEBUG_PORT) so the run can read the page's Local Storage.
+; Before the new folder is checked, the launcher the setup starts the app through: StdUtils.ExecShellAsUser on a link goes
+; through Explorer, which has none of the setup's environment, so the link is a launcher that sets the test profile and
+; the isolated home first. Without both in the setup's environment the launcher starts nothing: the new app must never
+; read the person's profile. It sits in %TEMP%, not in the install folder, because the same launcher starts the old app
+; again when the move is undone, and the folder it lives in is then the old one. It also opens CEF's debugging port
+; (OMP_MOVE_DEBUG_PORT) so the run can read the page's Local Storage, and with OMP_MOVE_FAIL=start it sets
+; OMP_GUI_TEST_SHELL_FAIL_START=1, the shell's seam that exits 1 after CEF init (the new app never comes up).
 !macro ompMoveTestAfterInstall
   ReadEnvStr $R9 OMP_GUI_TEST_USER_DATA_DIR
   ReadEnvStr $R7 OMP_MOVE_HOME
   ReadEnvStr $R6 OMP_MOVE_DEBUG_PORT
-  FileOpen $R8 "$INSTDIR\ompdesk-move-test.cmd" w
+  ReadEnvStr $R5 OMP_MOVE_FAIL
+  FileOpen $R8 "$TEMP\ompdesk-move-test.cmd" w
   ${if} $R9 == ""
   ${orIf} $R7 == ""
     FileWrite $R8 "@echo off$\r$\nexit /b 1$\r$\n"
   ${else}
-    FileWrite $R8 "@echo off$\r$\nset $\"OMP_GUI_HEADLESS=1$\"$\r$\nset $\"OMP_GUI_TEST_USER_DATA_DIR=$R9$\"$\r$\nset $\"USERPROFILE=$R7$\"$\r$\nset $\"HOME=$R7$\"$\r$\nset $\"APPDATA=$R7\AppData\Roaming$\"$\r$\nset $\"LOCALAPPDATA=$R7\AppData\Local$\"$\r$\nstart $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --remote-debugging-port=$R6 %*$\r$\n"
+    FileWrite $R8 "@echo off$\r$\nset $\"OMP_GUI_HEADLESS=1$\"$\r$\nset $\"OMP_GUI_TEST_USER_DATA_DIR=$R9$\"$\r$\nset $\"USERPROFILE=$R7$\"$\r$\nset $\"HOME=$R7$\"$\r$\nset $\"APPDATA=$R7\AppData\Roaming$\"$\r$\nset $\"LOCALAPPDATA=$R7\AppData\Local$\"$\r$\n"
+    ${if} $R5 == "start"
+      FileWrite $R8 "set $\"OMP_GUI_TEST_SHELL_FAIL_START=1$\"$\r$\n"
+    ${endif}
+    FileWrite $R8 "start $\"$\" $\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --remote-debugging-port=$R6 %*$\r$\n"
   ${endif}
   FileClose $R8
-  StrCpy $launchLink "$INSTDIR\ompdesk-move-test.cmd"
+  StrCpy $launchLink "$TEMP\ompdesk-move-test.cmd"
 !macroend
 
 ; The seams above come first, then the file a release builds (its copy sits beside this one).

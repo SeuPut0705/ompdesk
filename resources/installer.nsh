@@ -84,6 +84,13 @@ Var pid
   Var /GLOBAL ompOldQuiet
   Var /GLOBAL ompOldIcon
   Var /GLOBAL ompOldSize
+  Var /GLOBAL ompStart
+  Var /GLOBAL ompUserData
+  Var /GLOBAL ompMarker
+  Var /GLOBAL ompArgs
+  Var /GLOBAL ompSeen
+  Var /GLOBAL ompWaited
+  Var /GLOBAL ompScan
 !endif
 
 !macro ompKeepOldFolder
@@ -140,10 +147,11 @@ Var pid
   !endif
 !macroend
 
-!macro ompRestoreOldFolder
+; REASON is `incomplete` (the unpack came out without what the app needs) or `start-failed` (the new app did not come up).
+!macro ompRestoreOldFolder REASON
   !ifndef BUILD_UNINSTALLER
-    DetailPrint "The new files are not complete: putting the old app back"
-    !insertmacro ompLog "the new files were not complete; putting the old app back ($ompBackupMode)"
+    DetailPrint "The new app did not come up (${REASON}): putting the old app back"
+    !insertmacro ompLog "${REASON}: putting the old app back ($ompBackupMode)"
     ; The setup's own working folder is the install folder (SetOutPath): NSIS cannot delete the folder it stands in, and
     ; a rename onto a folder that is still there fails, so it steps out first.
     SetOutPath "$TEMP"
@@ -176,22 +184,118 @@ Var pid
         WriteRegDWORD SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" EstimatedSize $ompOldSize
       ${endIf}
     ${endIf}
-    ; Only a setup a person started by hand says so. An update's rollback shows nothing: the old app starts again and
-    ; the next launch's `swap result … rolled back` line in its update log reports it (a dialog shown to a person whose
-    ; update went wrong is a failed move).
-    ${IfNot} ${Silent}
-    ${AndIfNot} ${isUpdated}
-      MessageBox MB_OK|MB_ICONSTOP "OMPdesk could not be updated: the new files were not complete. Your settings and sessions were not changed."
-    ${endIf}
-    ; An automatic update brings the old app back, as it came back from every update before.
-    !ifndef OMP_MOVE_TEST
-      ${if} $ompBackupMode != ""
-      ${andIf} ${isUpdated}
-        ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" ""
+    ; Only a setup a person started by hand says so, and only when the files were incomplete. An update's rollback
+    ; shows nothing: the old app starts again and the next launch's `swap result … rolled back` line in its update log
+    ; reports it (a dialog shown to a person whose update went wrong is a failed move). A new app that did not come up
+    ; never gets a dialog either: it has nothing to ask the person.
+    !if "${REASON}" == "incomplete"
+      ${IfNot} ${Silent}
+      ${AndIfNot} ${isUpdated}
+        MessageBox MB_OK|MB_ICONSTOP "OMPdesk could not be updated: the new files were not complete. Your settings and sessions were not changed."
       ${endIf}
     !endif
+    ; The old app comes back running: after an automatic update as it came back from every update before, and after a
+    ; new app that did not start whoever began the setup.
+    ${if} $ompBackupMode != ""
+    !if "${REASON}" == "incomplete"
+    ${andIf} ${isUpdated}
+    !endif
+      !ifdef OMP_MOVE_TEST
+        ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" ""
+      !else
+        ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" ""
+      !endif
+    ${endIf}
     SetErrorLevel 2
     Quit
+  !endif
+!macroend
+
+; Does the start marker (userData\app-started.json, one line {version, pid, at}, written by the main once the first window's page
+; loaded) carry NEEDLE? Sets $ompSeen to 1 when it does.
+!macro ompMarkerHas NEEDLE
+  StrLen $R3 "${NEEDLE}"
+  StrLen $R2 $R7
+  IntOp $R2 $R2 - $R3
+  ${For} $ompScan 0 $R2
+    StrCpy $R5 $R7 $R3 $ompScan
+    ${if} $R5 == "${NEEDLE}"
+      StrCpy $ompSeen "1"
+      ${ExitFor}
+    ${endIf}
+  ${Next}
+!macroend
+
+; The new app starts here, not after the setup: an update that left a shell which cannot start would leave nothing to
+; use. The backup of the old folder stays until the new shell wrote app-started.json for this version (waiting up to
+; 120 s); without it the new app's processes end, the old folder and its uninstall entry come back, the old app starts and
+; the setup exits 2 with `start-failed` in %TEMP%\ompdesk-setup.log. A setup that does not start the app after it
+; installs (silent, no --force-run) cannot ask it to prove anything, so it has nothing to wait for. The template's own
+; start after this runs, when the proof came, reaches the running app: a second launch of the same profile only
+; forwards its arguments.
+!macro ompStartAndVerify
+  !ifndef BUILD_UNINSTALLER
+    StrCpy $ompStart "0"
+    !ifdef RUN_AFTER_FINISH
+      ${IfNot} ${Silent}
+        StrCpy $ompStart "1"
+      ${endIf}
+    !endif
+    ${if} ${isForceRun}
+      StrCpy $ompStart "1"
+    ${endIf}
+    ${if} $ompBackupMode != ""
+    ${andIf} $ompStart == "1"
+      ReadEnvStr $ompUserData OMP_GUI_TEST_USER_DATA_DIR
+      ${if} $ompUserData == ""
+        StrCpy $ompUserData "$APPDATA\ompdesk"
+      ${endIf}
+      StrCpy $ompMarker "$ompUserData\app-started.json"
+      Delete "$ompMarker"
+      ${if} ${isUpdated}
+        StrCpy $ompArgs "--updated"
+      ${else}
+        StrCpy $ompArgs ""
+      ${endIf}
+      ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "$ompArgs"
+      StrCpy $ompSeen "0"
+      ${For} $ompWaited 1 120
+        ${if} ${FileExists} "$ompMarker"
+          StrCpy $R7 ""
+          FileOpen $R8 "$ompMarker" r
+          ${if} $R8 != ""
+            FileRead $R8 $R7 4096
+            FileClose $R8
+          ${endIf}
+          !insertmacro ompMarkerHas '$\"version$\":$\"${VERSION}$\"'
+          ${if} $ompSeen != "1"
+            !insertmacro ompMarkerHas '$\"version$\": $\"${VERSION}$\"'
+          ${endIf}
+          ${if} $ompSeen == "1"
+            ${ExitFor}
+          ${endIf}
+        ${endIf}
+        Sleep 1000
+        ; Nothing of the new app runs any more (a shell that exits at once does not need the whole wait): ten seconds are
+        ; given for the start to show up, since it goes through Explorer.
+        ${if} $ompWaited > 10
+          !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R4
+          ${if} $R4 != 0
+            ${ExitFor}
+          ${endIf}
+        ${endIf}
+      ${Next}
+      ${if} $ompSeen == "1"
+        RMDir /r "$ompBackup"
+      ${else}
+        !insertmacro ompLog "start-failed: no app-started.json for ${VERSION} in $ompUserData (waited $ompWaited s)"
+        !insertmacro KILL_PROCESS "${APP_EXECUTABLE_FILENAME}" 1
+        Sleep 3000
+        !insertmacro ompRestoreOldFolder "start-failed"
+      ${endIf}
+    ${elseIf} $ompBackupMode != ""
+      RMDir /r "$ompBackup"
+    ${endIf}
   !endif
 !macroend
 
@@ -200,20 +304,16 @@ Var pid
   !ifndef BUILD_UNINSTALLER
     !ifdef OMP_MOVE_TEST
       !insertmacro ompMoveTestBeforeCheck
+      !insertmacro ompMoveTestAfterInstall
     !endif
     ${if} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
     ${andIf} ${FileExists} "$INSTDIR\libcef.dll"
     ${andIf} ${FileExists} "$INSTDIR\resources\node\node.exe"
     ${andIf} ${FileExists} "$INSTDIR\resources\app\out\main\index.js"
-      ${if} $ompBackupMode != ""
-        RMDir /r "$ompBackup"
-      ${endIf}
+      !insertmacro ompStartAndVerify
     ${else}
-      !insertmacro ompRestoreOldFolder
+      !insertmacro ompRestoreOldFolder "incomplete"
     ${endIf}
-    !ifdef OMP_MOVE_TEST
-      !insertmacro ompMoveTestAfterInstall
-    !endif
   !endif
 !macroend
 

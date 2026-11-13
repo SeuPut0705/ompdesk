@@ -2,7 +2,7 @@
  * The dry run of the update from the released Electron app (v0.127.0) to the CEF shell, on this PC, never touching the
  * person's install (native-rust › S):
  *
- *   bun scripts/shell-move/run-move.ts [--label success] [--fail-at swap] [--work <dir>] [--keep] [--stand-in <project>]
+ *   bun scripts/shell-move/run-move.ts [--label success] [--fail-at swap|start] [--work <dir>] [--keep] [--stand-in <project>]
  *
  * `--stand-in <project>` packs a project of the same shape (package.json, out/, a staged shell) in place of this
  * checkout, without the package check: the harness's own dry test while the real shell is not built yet.
@@ -26,6 +26,11 @@
  *    record, then the uninstall entry, the folder and the uninstall.
  * 5. `--fail-at swap`: the same, but the unpack comes out incomplete on purpose (the test seam of move-test.nsh): the
  *    old app must come back (folder, uninstall entry) and start, and log `swap result … rolled back`.
+ * 6. `--fail-at start`: the unpack is complete but the new shell exits right after CEF init
+ *    (`OMP_GUI_TEST_SHELL_FAIL_START=1`, in the launcher's environment): the setup, which waits for the main's
+ *    `app-started.json` of the new version, ends what the new app started, puts the old folder and uninstall entry
+ *    back, starts the old app (logging `start-failed`, exit 2, no dialog) and that app logs `swap result … rolled back`.
+ *    The success run checks the other side: the marker names the new version and the backup of the old folder is gone.
  *
  * What protects the person's data: the old Electron runs with `OMP_GUI_TEST_USER_DATA_DIR=<temp profile>`,
  * `OMP_GUI_HEADLESS=1` (no `omp://` registration, no focus) and a temp HOME, APPDATA and LOCALAPPDATA (its updater's
@@ -70,7 +75,8 @@ const { values } = parseArgs({
 	},
 });
 const failAt = values["fail-at"];
-if (failAt !== undefined && failAt !== "swap") throw new Error("--fail-at takes `swap`");
+if (failAt !== undefined && failAt !== "swap" && failAt !== "start")
+	throw new Error("--fail-at takes `swap` or `start`");
 const label = values.label ?? (failAt ? `fail-${failAt}` : "success");
 const work = resolve(values.work ?? join(tmpdir(), "ompdesk-shell-move"));
 const out = join(work, "runs", label);
@@ -366,7 +372,7 @@ async function main(): Promise<void> {
 	);
 
 	if (!failAt) await verifyMoved();
-	else await verifyRolledBack(feedPort);
+	else await verifyRolledBack(failAt);
 }
 
 async function verifyMoved(): Promise<void> {
@@ -454,6 +460,16 @@ async function verifyMoved(): Promise<void> {
 		"the folder holds the shell (libcef.dll), no asar",
 	);
 	expect(!existsSync(`${TEST_DIR}.move-backup`), "the backup of the old folder is gone");
+	const started = existsSync(join(profile, "app-started.json"))
+		? (JSON.parse(readFileSync(join(profile, "app-started.json"), "utf8")) as { version?: string; pid?: number })
+		: null;
+	evidence.appStarted = started;
+	expect(
+		started?.version === OFFERED_VERSION && typeof started.pid === "number",
+		`the main wrote app-started.json for ${OFFERED_VERSION} (the setup waited for it, then dropped the backup)`,
+		started,
+	);
+	expect(!setupLogText().includes("start-failed"), "the setup logged no start-failed", setupLogText().trim());
 	const programs = (await run(["cmd", "/c", "dir", "/b", join(LOCAL, "Programs")])).out
 		.split(/\r?\n/)
 		.filter(name => name.startsWith("OMPdesk"));
@@ -483,8 +499,28 @@ async function verifyMoved(): Promise<void> {
 	}
 }
 
-async function verifyRolledBack(port: number): Promise<void> {
-	await sleep(3000);
+function setupLogText(): string {
+	const file = join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log");
+	return existsSync(file) ? readFileSync(file, "utf8") : "";
+}
+
+async function verifyRolledBack(reason: "swap" | "start"): Promise<void> {
+	// `start` waits for the old app too: the setup has to see the new one fail (it leaves at once when nothing of it runs).
+	let result: LogLine | undefined;
+	const before = updateLines().length;
+	for (let waited = 0; waited < 150 && !result; waited += 2) {
+		await sleep(2000);
+		result = updateLines()
+			.slice(before)
+			.find(line => line.message === "swap" && line.details?.event === "result");
+	}
+	evidence.swapResult = result?.details ?? null;
+	// The old app the SETUP started (through the launcher) reads the profile and says what came of the move.
+	expect(
+		result?.details?.outcome === "rolled back",
+		"the old app the setup started logged `swap result outcome rolled back`",
+		result?.details,
+	);
 	const entry = await regValues(TEST_UNINSTALL_KEY);
 	evidence.uninstallEntry = entry;
 	expect(
@@ -497,41 +533,26 @@ async function verifyRolledBack(port: number): Promise<void> {
 		"the folder holds the Electron app again (app.asar, no libcef.dll)",
 	);
 	expect(!existsSync(`${TEST_DIR}.move-backup`), "no backup folder is left");
-	const setupText = existsSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"))
-		? readFileSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"), "utf8")
-		: "";
+	const setupText = setupLogText();
 	expect(
-		setupText.includes("putting the old app back"),
-		"the setup logged the rollback (in %TEMP%\\ompdesk-setup.log), no dialog",
+		setupText.includes(
+			reason === "swap" ? "incomplete: putting the old app back" : "start-failed: no app-started.json",
+		),
+		`the setup logged ${reason === "swap" ? "the incomplete unpack" : "`start-failed`"} (in %TEMP%\\ompdesk-setup.log), no dialog`,
 		setupText.trim(),
 	);
-	expect(await noWindows(), "no window appeared during the failed move");
-	expect(!existsSync(join(TEST_DIR, "ompdesk-move-test.cmd")), "nothing of the new install is left in the folder");
-	// The old app starts as before, on the same profile, with no feed to update from this time.
-	await stopTestProcesses();
-	const before = updateLines().length;
-	const restarted = Bun.spawn([join(TEST_DIR, "OMPdesk.exe"), `--user-data-dir=${profile}`, ...switches(port + 500)], {
-		env: testEnv(),
-		stdout: "ignore",
-		stderr: "ignore",
-	});
-	note("released app started again", { pid: restarted.pid });
-	let result: LogLine | undefined;
-	for (let waited = 0; waited < 90 && !result; waited += 2) {
-		await sleep(2000);
-		result = updateLines()
-			.slice(before)
-			.find(line => line.message === "swap" && line.details?.event === "result");
-	}
-	evidence.swapResult = result?.details ?? null;
 	expect(
-		result?.details?.outcome === "rolled back",
-		"the restarted app logged `swap result outcome rolled back`",
-		result?.details,
+		!existsSync(join(profile, "app-started.json")) || reason === "swap",
+		"the failed new app left no app-started.json for the new version",
 	);
+	expect(await noWindows(), "no window appeared during the failed move");
+	const running = await processesUnder(TEST_DIR);
+	evidence.running = running;
 	expect(
-		(await processesUnder(TEST_DIR)).some(process_ => process_.name.toLowerCase() === "ompdesk"),
-		"the Electron app is running again",
+		running.some(process_ => process_.name.toLowerCase() === "ompdesk") &&
+			!running.some(process_ => process_.path.toLowerCase().endsWith("\\resources\\node\\node.exe")),
+		"the Electron app is running again from the test folder, with nothing of the shell left",
+		running,
 	);
 	if (!values.keep) {
 		await stopTestProcesses();
@@ -570,6 +591,7 @@ async function cleanup(): Promise<void> {
 assertTestIdentity();
 // A run starts from nothing: a profile, update log or shell log of an earlier run would pass for this one's evidence.
 rmSync(out, { recursive: true, force: true });
+rmSync(join(process.env.TEMP ?? tmpdir(), "ompdesk-setup.log"), { force: true });
 mkdirSync(out, { recursive: true });
 const ownerBefore = await snapshotOwner();
 await Bun.write(join(out, "owner-before.json"), JSON.stringify(ownerBefore, null, 2));

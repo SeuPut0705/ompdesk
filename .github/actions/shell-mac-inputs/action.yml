@@ -2,13 +2,25 @@
 # shell-batch-checks.yml): the dependencies, the staged shell and Node and CEF's licences, `out/`, the memory binary (cached,
 # as release.yml's mac job), the pinned agent-desktop and Playwright's Chromium (the check scripts drive the released app's
 # page over CDP). Run it after actions/checkout and oven-sh/setup-bun.
+# The Windows setup of the move check (`move-win`) needs the same inputs with electron-builder's downloads cached and no
+# Playwright: `builder: "true"`, `playwright: "false"`.
 name: Inputs of the macOS shell bundle
 description: install, shell, build, memory, agent-desktop, Playwright.
+
+inputs:
+  builder:
+    description: "'true' for a job that runs electron-builder."
+    default: "false"
+  playwright:
+    description: "'false' for a job that never drives a page through Playwright."
+    default: "true"
 
 runs:
   using: composite
   steps:
       - uses: ./.github/actions/install
+        with:
+          builder: ${{ inputs.builder }}
       - uses: ./.github/actions/shell
         with:
           licenses: "true"
@@ -41,6 +53,7 @@ runs:
         shell: bash
       - run: bun run build:agent-desktop
         shell: bash
-      - name: Playwright (the scripts drive the released app's page over CDP)
+      - if: inputs.playwright == 'true'
+        name: Playwright (the scripts drive the released app's page over CDP)
         run: bunx playwright install chromium
         shell: bash
