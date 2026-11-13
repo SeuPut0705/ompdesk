@@ -11,7 +11,7 @@
  * request to the repository-lock step it is made in as `execBin` holds a git.
  */
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { withoutGitSelectors } from "../../../shared/git-env";
 import { type CoreAnswer, core } from "../../core/process";
@@ -297,7 +297,9 @@ export async function execBin(bin: string, args: string[], opts: ExecOptions): P
 	child.on("error", err => {
 		clearTimeout(timer);
 		hold?.removeEventListener("abort", stop);
-		reject(err);
+		// The OS reports a missing working folder as the program's own ENOENT (`spawn /…/git ENOENT`): name the folder.
+		const folderGone = opts.cwd && !statSync(opts.cwd, { throwIfNoEntry: false })?.isDirectory();
+		reject(folderGone ? new Error(`working folder ${opts.cwd} does not exist`) : err);
 	});
 	child.on("close", code => {
 		clearTimeout(timer);

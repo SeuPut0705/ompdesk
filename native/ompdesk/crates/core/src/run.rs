@@ -144,12 +144,9 @@ impl Exec {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
-        let mut child = command.spawn().map_err(|error| {
-            Fault::new(
-                "spawn_failed",
-                format!("spawn {} {}", runner.bin, uv_code(&error)),
-            )
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|error| spawn_fault(&runner.bin, cwd, &error))?;
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             return Err(Fault::new("internal", "the process's pipes were not open"));
         };
@@ -296,6 +293,18 @@ async fn supervise(mut child: Child, end: &Notify, scope: &Scope) -> i32 {
     status.ok().and_then(|status| status.code()).unwrap_or(1)
 }
 
+/// A spawn that failed because its working folder is gone says so: the OS reports a missing `cwd` as the program's
+/// own ENOENT (`spawn /…/git ENOENT`), which reads as a missing git.
+fn spawn_fault(bin: &str, cwd: &str, error: &std::io::Error) -> Fault {
+    if !std::path::Path::new(cwd).is_dir() {
+        return Fault::new(
+            "spawn_failed",
+            format!("working folder {cwd} does not exist"),
+        );
+    }
+    Fault::new("spawn_failed", format!("spawn {bin} {}", uv_code(error)))
+}
+
 #[cfg(unix)]
 pub(crate) fn terminate(child: &mut Child) {
     if let Some(pid) = child.id() {
@@ -327,6 +336,32 @@ pub(crate) mod tests {
 
     fn exec(runner: Runner, scope: Scope) -> Exec {
         Exec::new(runner, scope, "git")
+    }
+
+    #[tokio::test]
+    async fn a_missing_working_folder_is_named_not_blamed_on_the_program() {
+        let gone = std::env::temp_dir().join(format!("ompdesk-core-gone-{}", std::process::id()));
+        let cwd = gone.to_string_lossy().into_owned();
+        let runner = Runner {
+            bin: std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            timeout_ms: 1_000,
+            max_bytes: 1024,
+        };
+        let fault = exec(runner, Scope::detached())
+            .run(&cwd, &["--version"], Opts::default())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(fault.code, "spawn_failed");
+        assert_eq!(
+            fault.message,
+            format!("working folder {cwd} does not exist")
+        );
     }
 
     #[cfg(unix)]
@@ -434,20 +469,21 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn reports_a_spawn_failure_as_node_does() {
+    async fn reports_a_missing_program_as_node_does() {
         let runner = Runner {
-            bin: "git".into(),
+            bin: "ompdesk-no-such-program".into(),
             args: Vec::new(),
             env: std::env::vars().collect(),
             timeout_ms: 60_000,
             max_bytes: 1024,
         };
+        let cwd = std::env::temp_dir().to_string_lossy().into_owned();
         let fault = exec(runner, Scope::detached())
-            .run("/no/such/folder/here", &["status"], Opts::default())
+            .run(&cwd, &["status"], Opts::default())
             .await
             .err()
             .unwrap();
-        assert_eq!(fault.message, "spawn git ENOENT");
+        assert_eq!(fault.message, "spawn ompdesk-no-such-program ENOENT");
         assert_eq!(fault.code, "spawn_failed");
     }
 
