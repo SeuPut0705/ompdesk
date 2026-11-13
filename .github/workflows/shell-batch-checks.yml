@@ -23,6 +23,7 @@ on:
       - scripts/package-mac.ts
       - scripts/build-shell.ts
       - scripts/shell-drag-check.ts
+      - native/ompdesk/crates/shell/**
 
 concurrency:
   group: shell-batch-checks-${{ github.ref }}
