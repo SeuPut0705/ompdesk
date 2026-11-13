@@ -6,6 +6,10 @@
 #              macOS code written without a Mac come back here.
 #  title-bar   the real title-bar drag check (scripts/shell-drag-check.ts, written by the shell's owner) on windows-latest,
 #              macos-15 and macos-26.
+#  move-mac    the whole update move on the Mac (scripts/shell-move/move-mac.sh): the released v0.127.0, re-signed with a
+#              throwaway certificate, updates itself into the real shell bundle through its unchanged updater (check found …
+#              swap helper, swap.log installed, the shell on Electron's profile with Local Storage and the seeded token), and
+#              a move that fails (read-only apps folder) rolls back; no SecurityAgent or coreauthd line.
 #  keychain    S's landing gate for the macOS keychain (scripts/shell-move/keychain-ci.sh): a release-signed item read by the
 #              shell, an ad-hoc item never asked about, a profile without ciphertext never reading; no SecurityAgent or
 #              coreauthd line. macOS 27 has no hosted runner: the owner's Mac covers it.
@@ -20,6 +24,7 @@ on:
       - .github/workflows/shell-batch-checks.yml
       - .github/actions/shell*/**
       - scripts/shell-move/**
+      - .github/actions/shell-mac-inputs/**
       - scripts/package-mac.ts
       - scripts/build-shell.ts
       - scripts/shell-drag-check.ts
@@ -83,6 +88,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  move-mac:
+    name: move-mac (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: ./.github/actions/shell-mac-inputs
+      - name: The update move (success, then a failed move)
+        shell: bash
+        run: set -o pipefail; bash scripts/shell-move/move-mac.sh 2>&1 | tee move-mac.log
+      - name: Evidence lines
+        if: always()
+        shell: bash
+        run: |
+          { echo "### update move, ${{ matrix.os }}"; echo '```'; grep -E '^(EVIDENCE|ok|FAILED)' move-mac.log || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: move-mac-${{ matrix.os }}
+          path: move-mac.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - if: failure()
+        run: bash scripts/ci-failure.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   keychain:
     name: keychain (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -96,37 +135,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
-      - uses: ./.github/actions/install
-      - uses: ./.github/actions/shell
-        with:
-          licenses: "true"
-      - run: bun run build
-      # What the bundle packages besides the shell, as release.yml's mac job: the memory binary (cached), agent-desktop.
-      - id: memory-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: resources/ai-memory-bin
-          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
-      - if: steps.memory-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
-        with:
-          toolchain: "1.95"
-      - if: steps.memory-cache.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: native/memory
-      - if: steps.memory-cache.outputs.cache-hit != 'true'
-        run: bun run build:memory
-      - if: steps.memory-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: resources/ai-memory-bin
-          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
-      - if: steps.memory-cache.outputs.cache-hit == 'true'
-        run: bun run build:memory -- --check
-      - run: bun run build:agent-desktop
-      - name: Playwright (the scripts drive the released app's page over CDP)
-        run: bunx playwright install chromium
+      - uses: ./.github/actions/shell-mac-inputs
       - name: The keychain gate (release-signed item, ad-hoc item, profile without ciphertext)
         run: set -o pipefail; bash scripts/shell-move/keychain-ci.sh 2>&1 | tee keychain-ci.log
         shell: bash

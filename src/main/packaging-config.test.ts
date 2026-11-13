@@ -875,6 +875,7 @@ describe("mac bundle configs", () => {
 				await put("out/preload/shell.js");
 				await put("out/renderer/index.html");
 				await put("out/.build-stamp.json");
+				await put("out/.used");
 				const staged = "resources/ompdesk-shell/darwin-arm64";
 				const files: Record<string, string> = { "ompdesk-shell": sha256(FAKE_SHELL) };
 				await put(`${staged}/ompdesk-shell`, FAKE_SHELL);
@@ -913,6 +914,7 @@ describe("mac bundle configs", () => {
 				const resources = path.join(app, "Contents", "Resources");
 				expect(fs.readFileSync(path.join(app, "Contents", "MacOS", "OMPdesk"))).toEqual(FAKE_SHELL);
 				expect(fs.existsSync(path.join(resources, "app", "out", ".build-stamp.json"))).toBe(false);
+				expect(fs.existsSync(path.join(resources, "app", "out", ".used"))).toBe(false);
 				expect(fs.existsSync(path.join(resources, "app", "out", "preload", "shell.js"))).toBe(true);
 				const info = await parsePlistFile(path.join(app, "Contents", "Info.plist"));
 				expect(info).toMatchObject({
@@ -1234,6 +1236,10 @@ describe("Windows package config", () => {
 		expect(config.electronBranding).toBeUndefined();
 		// The shell starts <resources>/node/node.exe on <resources>/app/out/main/index.js: no archive to read.
 		expect(config.asar).toBe(false);
+		// Build bookkeeping out/ carries (the reuse stamp, the snapshot heartbeat) is not packed.
+		expect((config as { files?: string[] }).files).toEqual(
+			expect.arrayContaining(["!out/.build-stamp.json", "!out/.used"]),
+		);
 		expect(config.npmRebuild).toBe(false);
 		expect(config.extraResources).toContainEqual({ from: "resources/node/win32-x64", to: "node" });
 		expect(fs.readFileSync(path.join(PACKAGE_ROOT, ".gitignore"), "utf8").split("\n")).toEqual(
@@ -1300,7 +1306,8 @@ describe("Windows package config", () => {
 		];
 		for (const line of lines) expect(init).toContain(line);
 		// Asked first only when someone is watching; a copy that is still registered stops the install.
-		expect(init).toMatch(/\$\{IfNot\} \$\{Silent\}\n\s+MessageBox MB_OKCANCEL/);
+		// (never to an update: the updater starts the setup without /S, and a dialog there is a failed move.)
+		expect(init).toMatch(/\$\{IfNot\} \$\{Silent\}\n\s+\$\{AndIfNot\} \$\{isUpdated\}\n\s+MessageBox MB_OKCANCEL/);
 		expect(init).toMatch(/SetErrorLevel 2\n\s+Quit/);
 		expect(script).not.toMatch(/customInstallMode|RequestExecutionLevel admin/);
 	});

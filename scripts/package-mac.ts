@@ -154,7 +154,7 @@ export function assembleBundle(repo: string, out: string, version?: string): str
 	fs.writeFileSync(path.join(appDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 	fs.cpSync(path.join(repo, "out"), path.join(appDir, "out"), {
 		recursive: true,
-		filter: source => path.basename(source) !== ".build-stamp.json",
+		filter: source => ![".build-stamp.json", ".used"].includes(path.basename(source)),
 	});
 	return app;
 }

@@ -16,42 +16,8 @@
 #   C. a profile without ciphertext: the shell starts and the keychain is never read (no `--keychain-key` process ever runs,
 #      sampled every 0.2 s, and no item exists afterwards).
 # Evidence lines start with "EVIDENCE:" for the ledger. Exit 1 on any failed check.
-set -u
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
-W=${RUNNER_TEMP:-/tmp}/kc; rm -rf "$W"; mkdir -p "$W"; cd "$W"
-PW=move; FAILED=0
-step() { echo; echo "=== $*"; }
-check() { if [ "$1" = 0 ]; then echo "ok: $2"; else echo "FAILED: $2"; FAILED=1; fi; }
-evidence() { echo "EVIDENCE: $*"; }
-limit() { perl -e 'alarm shift; exec @ARGV' "$@"; }
-OS=$(sw_vers -productVersion)
-ORIG_DEFAULT=$(security default-keychain -d user | sed 's/^[ ]*"//; s/"$//'); ORIG_LIST=$(security list-keychains -d user | sed 's/^[ ]*"//; s/"$//' | tr '\n' ' ')
-
-# Signing keychain: holds the identity every codesign below uses.
-KC0=$W/sign.keychain-db
-security create-keychain -p $PW "$KC0" && security unlock-keychain -p $PW "$KC0" && security set-keychain-settings "$KC0"
-printf '[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=OMPdesk Move Check Throwaway\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n' > cs.cnf
-/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -config cs.cnf 2>/dev/null
-/usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -out id.p12 -passout pass:$PW -name throwaway
-security import id.p12 -k "$KC0" -P $PW -T /usr/bin/codesign >/dev/null
-security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $PW "$KC0" >/dev/null
-ID=$(/usr/bin/openssl x509 -in cert.pem -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')
-security list-keychains -d user -s "$KC0" $ORIG_LIST   # codesign finds the identity; the default stays the runner's
-evidence "macOS $OS, throwaway identity $ID"
-
-log stream --style compact --predicate 'process == "SecurityAgent" OR process == "coreauthd"' > "$W/dialogs.log" 2>&1 & WATCH=$!
-dialogs() { [ "$(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")" = 0 ]; }
-
-# A fresh keychain as the default (the login keychain's slot); `restore` puts the runner's own back.
-use_keychain() {
-  KC=$W/$1.keychain-db
-  security create-keychain -p $PW "$KC" && security unlock-keychain -p $PW "$KC" && security set-keychain-settings "$KC"
-  security default-keychain -d user -s "$KC"; security list-keychains -d user -s "$KC" "$KC0" $ORIG_LIST
-}
-restore() { security default-keychain -d user -s "$ORIG_DEFAULT"; security list-keychains -d user -s "$KC0" $ORIG_LIST; }
-item_exists() { security dump-keychain "$KC" 2>/dev/null | grep -q 'ompdesk Safe Storage'; }
-item_acl() { security dump-keychain -a "$KC" 2>/dev/null | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,40p' | grep -E 'description: cdhash|requirement|authorizations' | head -5; }
-kill_apps() { pkill -f "$1" 2>/dev/null; sleep 3; }
+. "$HERE/mac-common.sh"
 
 step "the shell bundle (scripts/package-mac.ts, signed with the throwaway identity)"
 (cd "$REPO" && bun scripts/package-mac.ts --no-dmg --version 0.200.0 --sign-with "$ID" --keychain "$KC0"); check $? "package-mac built and signed OMPdesk.app"
@@ -90,7 +56,7 @@ OMP_GUI_HEADLESS=1 OMP_GUI_TEST_USER_DATA_DIR=$UD "$SHELL_APP/Contents/MacOS/OMP
 (cd "$REPO" && limit 120 bun scripts/shell-move/cdp-seed-mac.ts 19223 read) | tee "$W/read-a.json"; check ${PIPESTATUS[0]} "A: the shell's page answered"
 kill_apps "$SHELL_APP/Contents/MacOS"
 grep -q '"draft":"a draft typed in Electron"' "$W/read-a.json" && grep -q '"large":200000' "$W/read-a.json"; check $? "A: Local Storage came over (draft, Korean, 200 000 characters)"
-grep -q "STANDIN\|stored\|saved" "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (auth info names a stored token)"
+grep -q '"hasStoredToken":true' "$W/read-a.json" && grep -q '"droppedReason":null' "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (a stored token, none dropped)"
 evidence "A page: $(cut -c1-400 "$W/read-a.json")"
 dialogs; check $? "A: no SecurityAgent/coreauthd line"
 restore

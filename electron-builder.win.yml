@@ -29,6 +29,8 @@ files:
   - "!node_modules/**/*"
   # scripts/build-cache.ts's reuse stamp; the app never reads it.
   - "!out/.build-stamp.json"
+  # scripts/out-snapshot.ts's marker of the build a Playwright run last used; the app never reads it.
+  - "!out/.used"
 extraResources:
   - from: resources/gui-bridge
     to: gui-bridge

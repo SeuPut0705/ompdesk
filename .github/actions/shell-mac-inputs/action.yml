@@ -1,0 +1,46 @@
+# What a macOS job needs before it packages the shell bundle with scripts/package-mac.ts (the keychain and move checks of
+# shell-batch-checks.yml): the dependencies, the staged shell and Node and CEF's licences, `out/`, the memory binary (cached,
+# as release.yml's mac job), the pinned agent-desktop and Playwright's Chromium (the check scripts drive the released app's
+# page over CDP). Run it after actions/checkout and oven-sh/setup-bun.
+name: Inputs of the macOS shell bundle
+description: install, shell, build, memory, agent-desktop, Playwright.
+
+runs:
+  using: composite
+  steps:
+      - uses: ./.github/actions/install
+      - uses: ./.github/actions/shell
+        with:
+          licenses: "true"
+      - run: bun run build
+        shell: bash
+      # What the bundle packages besides the shell, as release.yml's mac job: the memory binary (cached), agent-desktop.
+      - id: memory-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ai-memory-bin-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/memory/**', 'scripts/build-memory.ts', 'resources/gui-bridge/memory-prompt.ts', 'resources/gui-bridge/redactor.ts') }}
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # 1.95
+        with:
+          toolchain: "1.95"
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: native/memory
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        run: bun run build:memory
+        shell: bash
+      - if: steps.memory-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: resources/ai-memory-bin
+          key: ${{ steps.memory-cache.outputs.cache-primary-key }}
+      - if: steps.memory-cache.outputs.cache-hit == 'true'
+        run: bun run build:memory -- --check
+        shell: bash
+      - run: bun run build:agent-desktop
+        shell: bash
+      - name: Playwright (the scripts drive the released app's page over CDP)
+        run: bunx playwright install chromium
+        shell: bash
