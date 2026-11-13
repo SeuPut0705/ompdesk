@@ -285,11 +285,12 @@ for (const language of variants(["en", "ko"] as const))
 						await expect(emails).toHaveText(["side@example.com", "work@example.com"]);
 						await expect(claude.locator("[data-in-use]")).toHaveCount(0);
 					}
-					const cut = await block.locator("[data-usage-account] [data-account-label]").evaluateAll(labels =>
-						labels.filter(entry => {
-							const style = getComputedStyle(entry);
-							return style.textOverflow === "ellipsis" || entry.scrollWidth > entry.clientWidth + 1;
-						}).length,
+					const cut = await block.locator("[data-usage-account] [data-account-label]").evaluateAll(
+						labels =>
+							labels.filter(entry => {
+								const style = getComputedStyle(entry);
+								return style.textOverflow === "ellipsis" || entry.scrollWidth > entry.clientWidth + 1;
+							}).length,
 					);
 					expect(cut, "no address is cut").toBe(0);
 					// The groups scroll inside a height cap: 18rem, at most 40 % of the window.

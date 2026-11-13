@@ -168,9 +168,7 @@ export function ProviderGroupItem({
 						{t("providers.accounts.addShort")}
 					</Button>
 				)}
-				{menu && (
-					<RowMenu busy={busy} label={t("providers.row.actions", { name: fullName })} menu={menu} />
-				)}
+				{menu && <RowMenu busy={busy} label={t("providers.row.actions", { name: fullName })} menu={menu} />}
 			</div>
 			{list && (fold ? <Collapse open={fold.open}>{list}</Collapse> : list)}
 			{after}
