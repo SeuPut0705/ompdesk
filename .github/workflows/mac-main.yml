@@ -3,7 +3,7 @@
 # four can wait a long time for one: kept inside ci.yml's `ci-main` group, that wait held every newer push's Linux and
 # Windows verdict back behind it. Here the same rule as ci.yml holds for macOS alone: one run going and the newest push
 # waiting (a newer push replaces the one waiting, a run that started is never cancelled), so main never has more than one
-# run's four runners open. A `release: vX.Y.Z` commit (release.yml runs its checks, macOS included) cancels what runs and
+# run's five runners open. A `release: vX.Y.Z` commit (release.yml runs its checks, macOS included) cancels what runs and
 # waits, so those runners are free for the release.
 #
 # Same trigger and path filter as ci.yml. A branch's macOS checks are ci.yml's `mac=true` (the `mac-dispatch` lane).
