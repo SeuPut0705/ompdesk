@@ -24,6 +24,7 @@ use super::types::{
 };
 use crate::agentctl::app::AppState;
 use crate::agentctl::journal::Clock;
+use crate::agentctl::journal::attachments::{AttachedSet, AttachmentStore, LandedCache};
 use crate::agentctl::journal::mail_outbox::{MailAnswer, MailOutbox, OutboxMail};
 use crate::agentctl::rules::mail::MailDelivery;
 use crate::ports::Port;
@@ -286,6 +287,14 @@ pub struct Host {
     caps: Caps,
     /// Accepted reports wait here until the receiver's journal holds them (`mail-outbox`); None keeps none.
     outbox: Option<(Arc<MailOutbox>, Clock)>,
+    /// The bytes of what the outboxes' messages carry, by content (`journal/attachments.rs`).
+    pub(super) attachments: Arc<AttachmentStore>,
+    /// The paths files landed at on each computer today, so the same bytes are put there once.
+    pub(super) landed: Arc<LandedCache>,
+    /// What each sender was told about a delivery that cannot go (once each).
+    pub(super) troubled: Arc<std::sync::Mutex<HashSet<String>>>,
+    /// `Date.now()`.
+    pub(super) clock: Clock,
 }
 
 impl Host {
@@ -294,7 +303,23 @@ impl Host {
             port,
             caps,
             outbox: None,
+            attachments: Arc::new(AttachmentStore::new(None)),
+            landed: Arc::new(LandedCache::default()),
+            troubled: Arc::default(),
+            clock: crate::agentctl::journal::system_clock(),
         }
+    }
+
+    /// `Date.now()` for what the host stamps (a test fixes it).
+    pub fn with_clock(mut self, clock: Clock) -> Host {
+        self.clock = clock;
+        self
+    }
+
+    /// The attachments the outboxes still owe are kept in `store`.
+    pub fn with_attachments(mut self, store: Arc<AttachmentStore>) -> Host {
+        self.attachments = store;
+        self
     }
 
     /// This host keeps every report it hands to a tab until the receiver's journal holds it.
@@ -372,7 +397,11 @@ impl Host {
 
     // ---- asks ---------------------------------------------------------------------------------------------------
 
-    async fn ask<T: serde::de::DeserializeOwned>(&self, method: &str, args: Value) -> R<T> {
+    pub(super) async fn ask<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        args: Value,
+    ) -> R<T> {
         Ok(self.port.ask(method, &args).await?)
     }
 
@@ -413,22 +442,56 @@ impl Host {
         details: &Value,
         delivery: MailDelivery,
     ) -> R<()> {
+        self.mail_attached(tab_id, content, details, delivery, None)
+            .await
+    }
+
+    /// `mail` with what the report carries: its pictures go inline (read from the attachment store), its files are
+    /// named in the text. The entry kept names them, so a redelivery brings them again.
+    pub async fn mail_attached(
+        &self,
+        tab_id: &str,
+        content: &str,
+        details: &Value,
+        delivery: MailDelivery,
+        attached: Option<&AttachedSet>,
+    ) -> R<()> {
+        let images = self.stored_images(attached).await?;
         let kept = self.outbox.as_ref().and_then(|(outbox, clock)| {
             let id = details.get("id")?.as_str()?;
             let state = self.state();
             let tab = state.tabs.iter().find(|tab| tab.tab_id == tab_id)?;
+            // The reporting session, told when this cannot be delivered with its attachments.
+            let sender = details.get("from").and_then(Value::as_str).map(|from| {
+                match state.tabs.iter().find(|tab| tab.tab_id == from) {
+                    Some(tab) => (
+                        tab.session_path
+                            .clone()
+                            .filter(|p| !p.is_empty())
+                            .unwrap_or_else(|| from.to_owned()),
+                        tab.device.clone().filter(|d| !d.is_empty()),
+                    ),
+                    None => (from.to_owned(), None),
+                }
+            });
             outbox.keep(OutboxMail {
                 id: id.to_owned(),
                 session_path: tab.session_path.clone().filter(|path| !path.is_empty())?,
                 device: tab.device.clone().filter(|device| !device.is_empty()),
+                from: sender.as_ref().map(|(path, _)| path.clone()),
+                from_device: sender.as_ref().and_then(|(_, device)| device.clone()),
                 content: content.to_owned(),
                 details: details.clone(),
                 delivery,
+                attachments: attached.cloned(),
+                attachments_corrupt: false,
                 at: clock(),
             });
             Some((outbox, id.to_owned()))
         });
-        let answer = self.send_mail(tab_id, content, details, delivery).await?;
+        let answer = self
+            .send_mail_with(tab_id, content, details, delivery, &images)
+            .await?;
         if let (Some((outbox, id)), Some(answer)) = (kept, answer)
             && answer.duplicate
             && answer.journaled
@@ -446,6 +509,26 @@ impl Host {
         details: &Value,
         delivery: MailDelivery,
     ) -> R<Option<MailAnswer>> {
+        self.send_mail_with(tab_id, content, details, delivery, &[])
+            .await
+    }
+
+    /// `send_mail` with pictures: stock's custom message content is then the text and its image blocks.
+    pub async fn send_mail_with(
+        &self,
+        tab_id: &str,
+        content: &str,
+        details: &Value,
+        delivery: MailDelivery,
+        images: &[Value],
+    ) -> R<Option<MailAnswer>> {
+        let content = if images.is_empty() {
+            json!(content)
+        } else {
+            let mut blocks = vec![json!({ "type": "text", "text": content })];
+            blocks.extend(images.iter().cloned());
+            Value::Array(blocks)
+        };
         let answer: Value = self
             .ask(
                 "mail",

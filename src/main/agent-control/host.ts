@@ -53,10 +53,12 @@ import {
 	type AgentMessage,
 	BLOCKING_UI_METHODS,
 	type ExtensionUIResponse,
+	type ImageContent,
 	isSignInRequest,
 	type RpcCommand,
 	type RpcResponse,
 	type RpcWorktreeCreateResult,
+	type TextContent,
 } from "../../shared/rpc-types";
 import type { Schedule } from "../../shared/schedules";
 import type { SessionSummary, VersionedSummaries } from "../../shared/session-summary";
@@ -78,8 +80,10 @@ import { SUPERVISOR_STOPPED_CODE } from "../setup/supervisor";
 import type { SidecarPool, TabActivity } from "../sidecar-pool";
 import type { SidecarLike } from "../sidecar-types";
 import { recordTurnStop } from "../turn-stop-log";
+import { uploadToHost } from "../remote/host-upload";
 import { type ClientWindow, isWebWindow } from "../web/client-window";
 import type { FileEditReports } from "../web/file-edit-reports";
+import { attachHere, type UploadStore } from "../web/uploads";
 import { sessionOpenFolders } from "../worktree-orphans";
 import {
 	type BranchEvidence,
@@ -102,6 +106,7 @@ import {
 	type ControlAsk,
 	type ControlTab,
 	type HostTab,
+	type Landing,
 	type MailAnswer,
 	type OpenElsewhere,
 	type OpenedChild,
@@ -207,6 +212,10 @@ export interface AgentControlHostDeps {
 	runtimeTuning?: RuntimeTuning;
 	/** Where accepted reports wait for their receiver's journal (`mail-outbox`); absent: kept in memory only. */
 	mailOutboxFile?: string | null;
+	/** Where the bytes of the attachments an outbox entry still owes are kept, by content; absent: in memory only. */
+	attachmentsDir?: string | null;
+	/** This computer's upload folder (`web/uploads.ts`): where a file sent to a session on this computer lands. */
+	uploads?: Pick<UploadStore, "store">;
 	/** Where sent messages wait for their receiver's journal (`send-outbox`); absent: kept in memory only. */
 	sendOutboxFile?: string | null;
 	/** Where the control-tool calls that change something are recorded (`call-journal`); absent: in memory only. */
@@ -336,6 +345,7 @@ export class AgentControlRuntime {
 				calls: deps.callJournalFile ?? null,
 				sendOutbox: deps.sendOutboxFile ?? null,
 				mailOutbox: deps.mailOutboxFile ?? null,
+				attachments: deps.attachmentsDir ?? null,
 			},
 		});
 		// Every tab activity goes to the core's runtime, which decides what it means (the sweep of the opened sessions,
@@ -966,11 +976,16 @@ export class AgentControlRuntime {
 			mail: async (tabId, content, details, delivery) => {
 				// A report to a caller outside OMPdesk goes to its event stream (the control socket), not into a session.
 				if (isOutside(tabId)) {
-					for (const listener of this.#outsideMail) listener(tabId, content);
+					const text =
+						typeof content === "string"
+							? content
+							: content.flatMap(block => (block.type === "text" ? [block.text] : [])).join("\n");
+					for (const listener of this.#outsideMail) listener(tabId, text);
 					return undefined;
 				}
 				return this.#sendMail(tabId, content, details, delivery);
 			},
+			land: (tabId, name, bytes) => this.#land(tabId, name, bytes),
 			sentMarks: async (tabId, marks) => {
 				const response = await this.#hostCommand(
 					tabId,
@@ -1287,9 +1302,31 @@ export class AgentControlRuntime {
 	}
 
 	/** One report to a tab's omp; the bridge's answer (`{duplicate, journaled}` for an id it already holds or queued). */
+	/** Put a file on the computer `tabId`'s session runs on: this one's upload folder, or a paired host's through the link. */
+	async #land(tabId: string, name: string, bytes: Uint8Array): Promise<Landing> {
+		const deps = this.#deps;
+		const sidecar = isOutside(tabId) ? undefined : deps.pool.sidecarOf(tabId);
+		const device = sidecar?.device;
+		if (!device) {
+			if (!deps.uploads) return { ok: false, error: "This computer does not take attached files", code: "unsupported" };
+			return attachHere(deps.uploads, name, bytes);
+		}
+		const remote = deps.remote;
+		if (!remote) return { ok: false, error: "No link to that computer", code: "unsupported" };
+		const stored = await uploadToHost(
+			(method, params, timeoutMs) =>
+				remote.request(device, method, { ...params, rtab: tabId, cwd: sidecar?.cwd }, timeoutMs),
+			name,
+			bytes,
+		);
+		return stored.ok && stored.path
+			? { ok: true, path: stored.path }
+			: { ok: false, error: stored.error ?? "The upload failed", ...(stored.code ? { code: stored.code } : {}) };
+	}
+
 	async #sendMail(
 		tabId: string,
-		content: string,
+		content: string | (TextContent | ImageContent)[],
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
 	): Promise<MailAnswer | undefined> {

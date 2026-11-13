@@ -134,9 +134,13 @@ impl Runtime {
                 id: id.clone(),
                 session_path: session_path.to_owned(),
                 device: None,
+                from: None,
+                from_device: None,
                 content: content.clone(),
                 details: details.clone(),
                 delivery,
+                attachments: None,
+                attachments_corrupt: false,
                 at: mail.at,
             });
         }

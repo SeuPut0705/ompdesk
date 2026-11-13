@@ -17,6 +17,7 @@
 //! call scope is the task-local `CALL_KEY`, and a `Promise.all` is `util::join::all` on the calling task (never
 //! `tokio::spawn`, which would drop the scope).
 
+pub mod attach;
 pub mod fail;
 pub mod host;
 pub mod js;
@@ -54,6 +55,7 @@ use self::types::{
     Target, Tool, ToolOutcome,
 };
 use self::util::{Flight, OrderedMap};
+use crate::agentctl::journal::attachments::AttachmentStore;
 use crate::agentctl::journal::call_journal::{CallBegin, CallJournal, CallRecord, CallResult};
 use crate::agentctl::journal::mail_outbox::MailOutbox;
 use crate::agentctl::journal::pending_cleanups::PendingCleanups;
@@ -261,6 +263,8 @@ pub struct Files {
     pub send_outbox: Option<JournalFile>,
     /// Where accepted reports wait for their receiver's journal (`mail-outbox.json`); absent: none are kept.
     pub mail_outbox: Option<JournalFile>,
+    /// Where the bytes of the attachments an outbox entry still owes are kept, by content; absent: in memory only.
+    pub attachments: Option<PathBuf>,
 }
 
 impl AgentControl {
@@ -272,7 +276,12 @@ impl AgentControl {
         tuning: Tuning,
         clock: Clock,
     ) -> AgentControl {
-        let mut host = Host::new(port, caps);
+        let mut host = Host::new(port, caps)
+            .with_clock(clock.clone())
+            .with_attachments(Arc::new(AttachmentStore::with_clock(
+                files.attachments.clone(),
+                clock.clone(),
+            )));
         if let Some(outbox) = &files.mail_outbox {
             host = host.with_outbox(
                 Arc::new(MailOutbox::with_clock(outbox.file.clone(), clock.clone())),
@@ -283,11 +292,12 @@ impl AgentControl {
         let deliver: Deliver = Arc::new(move |mail: Mail| {
             let host = deliver_host.clone();
             Box::pin(async move {
-                host.mail(
+                host.mail_attached(
                     &mail.to,
                     &mail_text(&mail),
                     &mail_details(&mail),
                     delivery_for(mail.kind),
+                    mail.attachments.as_ref(),
                 )
                 .await
                 .map_err(|error| error.message())?;

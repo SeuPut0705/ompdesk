@@ -16,6 +16,7 @@ use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 
+use super::attachments::{Attached, AttachedSet, read_attached};
 use super::{
     Clock, THREE_DAYS_MS, js_number, number, object, read_array, string, stringify, system_clock,
     write_text,
@@ -32,10 +33,17 @@ pub struct OutboxMail {
     /// The receiver's session file (a paired device's own path when `device` is set).
     pub session_path: String,
     pub device: Option<String>,
+    /// The reporting session (its file, its tab id when it has none) and its computer: told when a delivery fails.
+    pub from: Option<String>,
+    pub from_device: Option<String>,
     pub content: String,
     /// What the transcript draws (any JSON value the file held; a report's own is an object).
     pub details: Value,
     pub delivery: MailDelivery,
+    /// What the report carries: its pictures (bytes in the attachment store) and the files landed for its receiver.
+    pub attachments: Option<AttachedSet>,
+    /// Its record of attachments was damaged: it is never delivered as text alone.
+    pub attachments_corrupt: bool,
     pub at: f64,
 }
 
@@ -47,9 +55,21 @@ impl OutboxMail {
         if let Some(device) = self.device.as_ref().filter(|device| !device.is_empty()) {
             map.insert("device".into(), device.clone().into());
         }
+        if let Some(from) = self.from.as_ref().filter(|from| !from.is_empty()) {
+            map.insert("from".into(), from.clone().into());
+        }
+        if let Some(from_device) = self.from_device.as_ref().filter(|d| !d.is_empty()) {
+            map.insert("fromDevice".into(), from_device.clone().into());
+        }
         map.insert("content".into(), self.content.clone().into());
         map.insert("details".into(), self.details.clone());
         map.insert("delivery".into(), self.delivery.to_json());
+        if let Some(attachments) = &self.attachments {
+            map.insert("attachments".into(), attachments.to_json());
+        }
+        if self.attachments_corrupt {
+            map.insert("attachmentsCorrupt".into(), true.into());
+        }
         map.insert("at".into(), js_number(self.at));
         Value::Object(map)
     }
@@ -65,6 +85,11 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxMail> {
         .filter(|details| object(details).is_some())?;
     let delivery = object(fields.get("delivery")?)?;
     let at = number(fields, "at")?;
+    let (attachments, corrupt) = match read_attached(fields.get("attachments")) {
+        Attached::None => (None, false),
+        Attached::Set(set) => (Some(set), false),
+        Attached::Corrupt => (None, true),
+    };
     let trigger_turn = delivery.get("triggerTurn")?.as_bool()?;
     // `followUp`: what an earlier build kept; reports are asides now.
     let aside = match delivery.get("deliverAs") {
@@ -78,12 +103,21 @@ pub(crate) fn parse_entry(value: &Value) -> Option<OutboxMail> {
         device: string(fields, "device")
             .filter(|d| !d.is_empty())
             .map(str::to_owned),
+        from: string(fields, "from")
+            .filter(|d| !d.is_empty())
+            .map(str::to_owned),
+        from_device: string(fields, "fromDevice")
+            .filter(|d| !d.is_empty())
+            .map(str::to_owned),
         content: content.to_owned(),
         details: details.clone(),
         delivery: MailDelivery {
             trigger_turn,
             aside,
         },
+        attachments,
+        attachments_corrupt: corrupt
+            || fields.get("attachmentsCorrupt") == Some(&Value::Bool(true)),
         at,
     })
 }
@@ -162,6 +196,27 @@ impl MailOutbox {
         state.entries.push(entry);
         state.trim();
         state.save();
+    }
+
+    /// The files of a report landed again (their uploads were deleted): its text and files as they stand now.
+    pub fn relanded(&self, id: &str, content: &str, details: &Value, attachments: &AttachedSet) {
+        let mut state = self.state();
+        let Some(kept) = state.entries.iter_mut().find(|held| held.id == id) else {
+            return;
+        };
+        kept.content = content.to_owned();
+        kept.details = details.clone();
+        kept.attachments = Some(attachments.clone());
+        state.save();
+    }
+
+    /// The SHA-256 of every attachment a report still waiting names: what the attachment store must keep.
+    pub fn attachment_shas(&self) -> std::collections::HashSet<String> {
+        self.pending()
+            .iter()
+            .flat_map(|entry| entry.attachments.iter())
+            .flat_map(|set| set.shas().map(str::to_owned))
+            .collect()
     }
 
     /// The receiver's journal holds `id`: nothing more to do for it.

@@ -118,6 +118,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// What no owed message names is swept from the attachment store this often.
+const ATTACHMENT_SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
+
 /// Starts the runtime of `control` (opened as port `port`): its timer runs until the port closes.
 pub fn start(control: AgentControl, port: u64, config: RuntimeConfig) -> Arc<Runtime> {
     let runtime = Arc::new(Runtime {
@@ -135,9 +138,16 @@ pub fn start(control: AgentControl, port: u64, config: RuntimeConfig) -> Arc<Run
             let period = Duration::from_millis(every);
             let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            // What no owed message names any more goes: once now (a relaunch), then every hour.
+            let mut sweeps = tokio::time::interval(ATTACHMENT_SWEEP_EVERY);
+            sweeps.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 tokio::select! {
                     () = &mut ended => break,
+                    _ = sweeps.tick() => {
+                        let control = control.clone();
+                        let _ = tokio::task::spawn_blocking(move || control.sweep_attachments());
+                    }
                     _ = ticks.tick() => {
                         // What the pass reads of main is main as it is at the tick, not as it last pushed.
                         let pass = timer.clone();
@@ -319,11 +329,7 @@ impl RedeliverDeps for MailTabs<'_> {
     }
 
     async fn send(&self, tab_id: &str, mail: &OutboxMail) -> Option<MailAnswer> {
-        self.host
-            .send_mail(tab_id, &mail.content, &mail.details, mail.delivery)
-            .await
-            .ok()
-            .flatten()
+        self.host.redeliver_mail(tab_id, mail).await
     }
 }
 

@@ -20,6 +20,7 @@
 //!   Such a file reads as damaged (nothing recorded). No writer here produces one.
 //! - A number that `JSON.stringify` prints with an exponent (`1e+21`) prints as `1e21`.
 
+pub mod attachments;
 pub mod call_journal;
 pub mod mail_outbox;
 pub mod pending_cleanups;

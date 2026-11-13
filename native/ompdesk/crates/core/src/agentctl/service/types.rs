@@ -1110,11 +1110,23 @@ pub struct ListArgs {
 pub struct SendArgs {
     pub session: String,
     pub message: String,
+    #[serde(default)]
+    pub attachments: Option<Vec<Attachment>>,
     /// `follow_up` or `steer`.
     #[serde(default)]
     pub delivery: Option<String>,
     #[serde(default)]
     pub request_id: Option<String>,
+}
+
+/// One attachment of a call (exactly one field): a file where the caller's omp runs, or the n-th newest picture of
+/// its conversation (`tools.ts` `Attachment`).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct Attachment {
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub image: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -1138,6 +1150,8 @@ pub struct ReportArgs {
     pub dispatch: Option<String>,
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub attachments: Option<Vec<Attachment>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -1177,6 +1191,8 @@ pub struct AnswerItem {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct AnswerArgs {
     pub session: String,
+    #[serde(default)]
+    pub attachments: Option<Vec<Attachment>>,
     #[serde(default)]
     pub request: Option<String>,
     #[serde(default)]

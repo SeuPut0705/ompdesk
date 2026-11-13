@@ -20,6 +20,7 @@ use serde_json::{Map, Value};
 
 use self::MailKind::{Blocked, Done, Note, Progress, Question, Review};
 
+use crate::agentctl::journal::attachments::AttachedSet;
 use crate::agentctl::journal::js_number;
 
 /// The custom message type stock journals a report under (`agent-control-contracts.ts`).
@@ -92,6 +93,8 @@ pub struct Mail {
     pub card: Option<String>,
     /// What the receiver is asked to do with it, in place of the kind's own line (a wake's prompt).
     pub instruction: Option<String>,
+    /// What it carries besides text: pictures sent inline (by reference, bytes in the attachment store), files landed.
+    pub attachments: Option<AttachedSet>,
     pub at: f64,
 }
 
@@ -119,6 +122,7 @@ impl Mail {
             merged: None,
             card: None,
             instruction: None,
+            attachments: None,
             at,
         }
     }
@@ -187,6 +191,13 @@ pub fn mail_text(mail: &Mail) -> String {
     if let Some(files) = mail.files.as_ref().filter(|files| !files.is_empty()) {
         lines.push(in_mail(&format!("changed files: {}", files.join(", "))));
     }
+    for line in mail
+        .attachments
+        .iter()
+        .flat_map(AttachedSet::attached_lines)
+    {
+        lines.push(in_mail(&line));
+    }
     if let Some(checks) = mail.checks.as_ref().filter(|checks| !checks.is_empty()) {
         let listed: Vec<String> = checks
             .iter()
@@ -250,6 +261,23 @@ pub fn mail_details(mail: &Mail) -> Value {
     }
     if let Some(merged) = mail.merged.filter(|merged| *merged != 0) {
         map.insert("merged".into(), js_number(merged as f64));
+    }
+    if let Some(attached) = &mail.attachments {
+        let mut listed = Vec::new();
+        for image in &attached.images {
+            let mut one = Map::new();
+            one.insert("name".into(), image.name.clone().into());
+            one.insert("kind".into(), "image".into());
+            listed.push(Value::Object(one));
+        }
+        for file in &attached.files {
+            let mut one = Map::new();
+            one.insert("name".into(), file.file.name.clone().into());
+            one.insert("kind".into(), "file".into());
+            one.insert("path".into(), file.path.clone().into());
+            listed.push(Value::Object(one));
+        }
+        map.insert("attachments".into(), Value::Array(listed));
     }
     Value::Object(map)
 }

@@ -50,6 +50,7 @@ fn mail_of(value: &Value) -> Mail {
         dispatch: value["dispatch"].as_str().map(str::to_owned),
         merged: value["merged"].as_u64(),
         card: value["card"].as_str().map(str::to_owned),
+        attachments: None,
         instruction: value["instruction"].as_str().map(str::to_owned),
         at: value["at"].as_f64().unwrap(),
     }

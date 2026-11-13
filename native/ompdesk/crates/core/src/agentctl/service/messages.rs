@@ -32,6 +32,7 @@ use super::types::{AnswerArgs, ControlTab, ReportArgs, RpcResponse, SendArgs, Ui
 use super::util::Flight;
 use super::wrap::{dispatch_mark, request_mark, wrap_agent_message};
 use super::{AgentControl, QueuedFollowUp};
+use crate::agentctl::journal::attachments::{Resolved, image_block, shas_sig, with_attached};
 use crate::agentctl::journal::pending_cleanups::CleanupAction;
 use crate::agentctl::journal::send_outbox::{
     HandOver, OutboxSend, OwedDeps, SendOutbox, SentAnswer, StreamingBehavior, deliver_owed,
@@ -149,11 +150,9 @@ impl OwedDeps for Owed<'_> {
     }
 
     async fn prompt(&self, tab_id: &str, entry: &OutboxSend) -> HandOver {
-        let command = json!({
-            "type": "prompt",
-            "message": entry.message,
-            "streamingBehavior": entry.streaming_behavior.as_str(),
-        });
+        let Ok(command) = self.ctl.owed_command(tab_id, entry).await else {
+            return HandOver::Refused;
+        };
         let sent = self
             .ctl
             .host
@@ -311,6 +310,10 @@ impl AgentControl {
         args: &SendArgs,
         receipt_key: Option<&str>,
     ) -> R<String> {
+        // What the message carries is read first, where the caller's omp runs: one that cannot be read refuses the send.
+        let resolved = self
+            .resolve_attachments(caller, args.attachments.as_deref())
+            .await?;
         self.ensure_started(found, &caller.tab_id).await?;
         // The tab as it is now, never the row it was named by: one woken from asleep has its omp's title, folder, turn
         // and asks only now, and the receipt and the delivery go by those.
@@ -335,7 +338,7 @@ impl AgentControl {
             (self.send_outbox.as_ref(), target.session_path.as_deref())
         else {
             return self
-                .hand_send(caller, &target, args, receipt_key, None)
+                .hand_send(caller, &target, args, receipt_key, None, resolved)
                 .await;
         };
         // One delivery to a session at a time: what is still owed to it goes first, and the sweep never sends again what
@@ -349,6 +352,7 @@ impl AgentControl {
                     args,
                     receipt_key,
                     Some(Kept { outbox, path }),
+                    resolved,
                 ),
             )
             .await
@@ -362,6 +366,7 @@ impl AgentControl {
         args: &SendArgs,
         receipt_key: Option<&str>,
         kept: Option<Kept<'_>>,
+        resolved: Vec<Resolved>,
     ) -> R<String> {
         let from = caller
             .session_path
@@ -376,7 +381,11 @@ impl AgentControl {
             };
             deliver_owed(kept.outbox, &owed, kept.path, device).await;
             // A resend of a message still on its way (its first send timed out, say) never runs it twice.
-            if let Some(same) = kept.outbox.waiting(&from, kept.path, device, &args.message) {
+            let sig = shas_sig(resolved.iter().map(|item| item.file.sha256.as_str()));
+            if let Some(same) = kept
+                .outbox
+                .waiting(&from, kept.path, device, &args.message, &sig)
+            {
                 let dispatch = match same.dispatch {
                     Some(n) if n != 0 => format!(" (dispatch d{n})"),
                     _ => String::new(),
@@ -400,6 +409,10 @@ impl AgentControl {
         }
         // Only a send that will deliver waits on the person's draft: a repeat of a delivered request answers at once.
         self.until_draft_sent(caller, target).await?;
+        // Files land on the receiver's computer before anything is numbered or kept: a failure leaves nothing behind.
+        let carried = self
+            .carry(&target.tab_id, device, resolved, true, kept.is_some())
+            .await?;
         let running = target.busy
             || self
                 .session_state(target)
@@ -461,7 +474,11 @@ impl AgentControl {
             }
         };
         let message = wrap_agent_message(
-            &with_dispatch(&args.message, dispatch.as_deref(), request_id.as_deref()),
+            &with_dispatch(
+                &with_attached(&args.message, &carried.set.files),
+                dispatch.as_deref(),
+                request_id.as_deref(),
+            ),
             &caller.title,
             saved_id_of_path(caller.session_path.as_deref()).as_deref(),
         );
@@ -487,7 +504,7 @@ impl AgentControl {
                 _ => None,
             }
             .unwrap_or(instance);
-            let made = OutboxSend::new(
+            let mut made = OutboxSend::new(
                 mark,
                 dispatch_number,
                 kept.path.to_owned(),
@@ -498,6 +515,10 @@ impl AgentControl {
                 behavior,
                 self.now(),
             );
+            made.from_device = caller.device.clone().filter(|device| !device.is_empty());
+            if carried.count > 0 {
+                made.attachments = Some(carried.set.clone());
+            }
             kept.outbox.keep(made.clone());
             entry = Some(made);
         }
@@ -509,8 +530,17 @@ impl AgentControl {
         };
         // A command that never answered still reached the omp: one holding its command queue (stock's `login` while a
         // provider sign-in waits) runs the prompt once that ends. Saying it failed made senders send it again.
-        let command =
+        let mut command =
             json!({ "type": "prompt", "message": message, "streamingBehavior": behavior.as_str() });
+        if !carried.inline.is_empty() {
+            command["images"] = Value::Array(
+                carried
+                    .inline
+                    .iter()
+                    .map(|item| image_block(&item.file, &item.bytes))
+                    .collect(),
+            );
+        }
         let held;
         let mut response: Option<RpcResponse> = None;
         match self
@@ -605,13 +635,18 @@ impl AgentControl {
             "queued as a follow-up (it runs when the current turn ends; it is told so if it reports first)".to_owned()
         };
         let receipt = format!(
-            "Sent to {}: accepted{}; {how}.{}",
+            "Sent to {}: accepted{}; {how}.{}{}",
             named(target),
             if started { ", turn started" } else { "" },
             dispatch
                 .as_ref()
                 .map(|d| format!(" Dispatch {d}: it reports back with ompdesk_report."))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            if carried.count > 0 {
+                format!(" {}.", carried.set.summary())
+            } else {
+                String::new()
+            }
         );
         if let Some(key) = receipt_key {
             self.mem().receipts.insert(key.to_owned(), receipt.clone());
@@ -788,6 +823,25 @@ impl AgentControl {
             }
         };
         let (custody, pace) = tokio::join!(custody_future, pace_future);
+        let resolved = self
+            .resolve_attachments(caller, args.attachments.as_deref())
+            .await?;
+        let to_tab = tabs.iter().find(|tab| tab.tab_id == to);
+        // A caller outside OMPdesk has no omp to show a picture to: everything lands as a file on this computer.
+        let attached = if resolved.is_empty() {
+            None
+        } else {
+            Some(
+                self.carry(
+                    &to,
+                    to_tab.and_then(|tab| tab.device.as_deref()),
+                    resolved.clone(),
+                    to_tab.is_some(),
+                    true,
+                )
+                .await?,
+            )
+        };
         let id = match &args.id {
             Some(id) => id.clone(),
             None => {
@@ -802,14 +856,18 @@ impl AgentControl {
                     .session_path
                     .clone()
                     .unwrap_or_else(|| caller.tab_id.clone());
-                let joined = [
+                let sig = shas_sig(resolved.iter().map(|item| item.file.sha256.as_str()));
+                let mut parts = vec![
                     sender.as_str(),
                     receiver.as_str(),
                     args.kind.as_str(),
                     args.dispatch.as_deref().unwrap_or(""),
                     args.text.as_str(),
-                ]
-                .join("\u{0}");
+                ];
+                if !resolved.is_empty() {
+                    parts.push(sig.as_str());
+                }
+                let joined = parts.join("\u{0}");
                 let digest = Sha256::digest(joined.as_bytes());
                 digest
                     .iter()
@@ -838,6 +896,10 @@ impl AgentControl {
             self.now(),
         );
         mail.files = args.files.clone();
+        mail.attachments = attached
+            .as_ref()
+            .filter(|carried| carried.count > 0)
+            .map(|carried| carried.set.clone());
         mail.checks = args.checks.as_ref().map(|checks| {
             checks
                 .iter()
@@ -883,7 +945,13 @@ impl AgentControl {
                 .reported_in
                 .insert(format!("{}\n{to}", caller.tab_id), caller.busy_since);
         }
-        let mut waiting = self.queued_note(caller, tabs).await;
+        let mut waiting = match &attached {
+            Some(carried) if outcome != Posted::Duplicate && outcome != Posted::Stale => {
+                format!(" {}.", carried.set.summary())
+            }
+            _ => String::new(),
+        };
+        waiting.push_str(&self.queued_note(caller, tabs).await);
         if let Some(gap) = custody
             .as_ref()
             .and_then(|c| c.gap.as_deref())
@@ -986,6 +1054,9 @@ impl AgentControl {
             ));
         };
         let request = &ask.request;
+        let resolved = self
+            .resolve_attachments(caller, args.attachments.as_deref())
+            .await?;
         let title_of = |max| one_line(request.title.as_deref().unwrap_or("undefined"), max);
         let response: Value;
         let summary: String;
@@ -1166,7 +1237,29 @@ impl AgentControl {
                 ));
             }
         }
-        self.host.answer(&target.tab_id, &ask.id, &response).await?;
+        let about = if request.method == "ask" {
+            "its questions".to_owned()
+        } else {
+            request
+                .title
+                .clone()
+                .unwrap_or_else(|| "undefined".to_owned())
+        };
+        match self
+            .companion(caller, target, &about, &ask.id, resolved)
+            .await?
+        {
+            Some(companion) => {
+                self.host
+                    .answer_with_companion(
+                        &target.tab_id,
+                        json!({ "askId": ask.id, "response": response }),
+                        &companion,
+                    )
+                    .await?
+            }
+            None => self.host.answer(&target.tab_id, &ask.id, &response).await?,
+        }
         let by = if caller.title.is_empty() {
             &caller.tab_id
         } else {
@@ -1189,6 +1282,9 @@ impl AgentControl {
         plan_title: &str,
         args: &AnswerArgs,
     ) -> R<String> {
+        let resolved = self
+            .resolve_attachments(caller, args.attachments.as_deref())
+            .await?;
         let approve = args.approve.or_else(|| {
             args.choice.as_ref().map(|choice| {
                 let lowered = choice.to_lowercase();
@@ -1247,11 +1343,33 @@ impl AgentControl {
             };
             (command, summary)
         };
-        let response = self
-            .host
-            .command(&target.tab_id, &command, Deadline::Default)
-            .await?;
-        response_data(&response, "Answering the plan")?;
+        match self
+            .companion(
+                caller,
+                target,
+                if plan_title.is_empty() {
+                    "plan"
+                } else {
+                    plan_title
+                },
+                "plan",
+                resolved,
+            )
+            .await?
+        {
+            Some(companion) => {
+                self.host
+                    .answer_with_companion(&target.tab_id, json!({ "plan": command }), &companion)
+                    .await?
+            }
+            None => {
+                let response = self
+                    .host
+                    .command(&target.tab_id, &command, Deadline::Default)
+                    .await?;
+                response_data(&response, "Answering the plan")?;
+            }
+        }
         let by = if caller.title.is_empty() {
             &caller.tab_id
         } else {

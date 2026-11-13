@@ -180,6 +180,21 @@ export type RpcCommand =
 	// Which message markers main sent this session its journal holds, and which omp process answers
 	// (main/agent-control/send-outbox.ts): `{instance, journaled}`.
 	| { id?: string; type: "agent_control_sent"; marks: string[] }
+	// An answer that carries attachments, made in one step where the answered session runs
+	// (main/agent-control/target-answer.ts): the note first, then the answer (`askId` + `response`, or `plan`).
+	| {
+			id?: string;
+			type: "agent_control_answer";
+			requestId: string;
+			companion: {
+				content: string | (TextContent | ImageContent)[];
+				details: Record<string, unknown>;
+				delivery: { triggerTurn: boolean; deliverAs?: "aside" };
+			};
+			askId?: string;
+			response?: ExtensionUIResponse;
+			plan?: RpcCommand;
+	  }
 	// One attachment of `ompdesk_session_send` / `ompdesk_report` read where this session's omp runs
 	// (gui-bridge agent-control.ts `agent_control.attachment`): `{path}` a file, `{image}` the n-th newest picture of
 	// its conversation (1 = newest). Answers `{name, mimeType, dataBase64, sha256}`.

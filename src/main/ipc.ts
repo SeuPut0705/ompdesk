@@ -139,6 +139,7 @@ import {
 	reprobeAgentBrowserStatus,
 } from "./agent-browsers";
 import { AgentControlRuntime, CARD_TIMEOUT_MS } from "./agent-control/host";
+import { type AnswerStep, TargetAnswer } from "./agent-control/target-answer";
 import { appNotification } from "./app-icon";
 import { quitApproved, requestQuit } from "./app-quit";
 import { Autopilot, type AutopilotCommand, type AutopilotNotice } from "./autopilot";
@@ -791,6 +792,12 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		return { ...page, messages: localizePromptOrigins(page.messages, ownId, hostName) };
 	};
 
+	const targetAnswer = new TargetAnswer({
+		askOpen: (tabId, id) => sidecarPool.isRequestOpen(tabId, id),
+		planOpen: tabId => sidecarPool.pendingPlan(tabId) !== null,
+		route: (tabId, id, response) => sidecarPool.routeSideChannel(id, response, tabId),
+	});
+
 	const dispatchRpcCommand = async (
 		win: ClientWindow,
 		sidecar: SidecarLike | null,
@@ -913,6 +920,26 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 					success: false,
 					error: err instanceof Error ? err.message : String(err),
 					code: "agent_control_review_failed",
+				};
+			}
+		}
+		// An answer with attachments is one step where the answered session runs (`target-answer.ts`): this main for its
+		// own tabs; a paired host's tab goes on to that host's main below.
+		if (cmd.type === "agent_control_answer" && !sidecar.device) {
+			if (!issuerTabId)
+				return { id: _id, type: "response", command: cmd.type, success: false, error: "No tab", code: "no_tab" };
+			try {
+				await targetAnswer.run(issuerTabId, cmd as AnswerStep, command =>
+					dispatchRpcCommand(win, sidecar, issuerTabId, { ...payload, command }, channel),
+				);
+				return { id: _id, type: "response", command: cmd.type, success: true, data: null };
+			} catch (err) {
+				return {
+					id: _id,
+					type: "response",
+					command: cmd.type,
+					success: false,
+					error: err instanceof Error ? err.message : String(err),
 				};
 			}
 		}
@@ -1379,6 +1406,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 		},
 		mailOutboxFile: path.join(app.getPath("userData"), "mail-outbox.json"),
 		sendOutboxFile: path.join(app.getPath("userData"), "send-outbox.json"),
+		attachmentsDir: path.join(app.getPath("userData"), "agent-attachments"),
+		uploads: deps.uploads,
 		callJournalFile: path.join(app.getPath("userData"), "agent-control-calls.json"),
 		sessionFatesFile: path.join(app.getPath("userData"), "agent-session-fates.json"),
 		pendingCleanupsFile: path.join(app.getPath("userData"), "agent-pending-cleanups.json"),

@@ -46,8 +46,10 @@ import type {
 	AgentMessage,
 	ExtensionUIRequest,
 	ExtensionUIResponse,
+	ImageContent,
 	RpcCommand,
 	RpcResponse,
+	TextContent,
 } from "../../shared/rpc-types";
 import type { ScheduleCreated, ScheduleDraft, SchedulesRequest, SchedulesState } from "../../shared/schedules";
 import type { SessionSummary } from "../../shared/session-summary";
@@ -305,6 +307,9 @@ export interface AppPorts {
 	autopilot(callerTabId: string, args: unknown): Promise<string>;
 }
 
+/** A file put on a computer: its path there, or why not (`code`: `file_too_large`, `upload_refused`, `unsupported`). */
+export type Landing = { ok: true; path: string } | { ok: false; error: string; code?: string };
+
 export interface AgentControlHost {
 	/** Settings › Tools & extensions switch (this computer's). */
 	enabled(): boolean;
@@ -331,10 +336,16 @@ export interface AgentControlHost {
 	 */
 	mail(
 		tabId: string,
-		content: string,
+		content: string | (TextContent | ImageContent)[],
 		details: Record<string, unknown>,
 		delivery: MailDelivery,
 	): Promise<MailAnswer | undefined | void>;
+	/**
+	 * Put a file on the computer `tabId`'s session runs on, where its omp reads it by path (the upload folder a
+	 * composer's attached file lands in; a paired host's through `host.files.upload`). A caller outside OMPdesk's id
+	 * lands it on this computer.
+	 */
+	land?(tabId: string, name: string, bytes: Buffer): Promise<Landing>;
 	/** A child's report changed what its opener's work board shows. */
 	reviewChanged?(parentTabId: string): void;
 	/** Every open tab of this app once, in the pool's order, with the window it is in (a tab of any window). */
@@ -551,6 +562,8 @@ export interface AgentControlFiles {
 	sendOutbox?: string | null;
 	/** Accepted reports until the receiver's journal holds them (`mail-outbox`); kept in memory when the runtime runs. */
 	mailOutbox?: string | null;
+	/** The bytes of the attachments an outbox entry still owes, by content (`<userData>/agent-attachments`). */
+	attachments?: string | null;
 }
 
 export interface AgentControlOptions {
@@ -887,6 +900,7 @@ export class AgentControl {
 				...(files.calls !== undefined ? { calls: file(files.calls) } : {}),
 				...(files.sendOutbox !== undefined ? { sendOutbox: file(files.sendOutbox) } : {}),
 				...(files.mailOutbox !== undefined || host.runtime ? { mailOutbox: file(files.mailOutbox ?? null) } : {}),
+				...(files.attachments ? { attachments: files.attachments } : {}),
 			},
 			caps: {
 				reviewChanged: host.reviewChanged !== undefined,
@@ -1028,10 +1042,15 @@ export class AgentControl {
 				delivery,
 			}: {
 				tabId: string;
-				content: string;
+				content: string | (TextContent | ImageContent)[];
 				details: Record<string, unknown>;
 				delivery: MailDelivery;
 			}) => coded(async () => (await host.mail(tabId, content, details, delivery)) ?? null),
+			land: ({ tabId, name, dataBase64 }: { tabId: string; name: string; dataBase64: string }) =>
+				coded(async () => {
+					if (!host.land) return { ok: false, error: "This OMPdesk cannot put files on a computer", code: "unsupported" };
+					return host.land(tabId, name, Buffer.from(dataBase64, "base64"));
+				}),
 			command: ({
 				tabId,
 				command,

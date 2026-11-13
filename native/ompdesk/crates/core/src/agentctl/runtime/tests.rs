@@ -216,9 +216,13 @@ async fn a_pass_sends_a_kept_report_again_to_the_tab_that_holds_its_session_unti
             id: "m-5".into(),
             session_path: "/s/boss.jsonl".into(),
             device: None,
+            from: None,
+            from_device: None,
             content: "c".into(),
             details: mail_details("m-5"),
             delivery: DELIVERY,
+            attachments: None,
+            attachments_corrupt: false,
             at: control.now(),
         });
     for _ in 0..2 {

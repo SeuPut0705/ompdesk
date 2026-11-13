@@ -90,6 +90,8 @@ export const QUOTA_FREE_COMMAND_TYPES = [
 	// One attachment's bytes read where the session's omp runs (`ompdesk_session_send` / `ompdesk_report`): a file or
 	// conversation picture read, no model.
 	"agent_control_attachment",
+	// The answer of `ompdesk_session_answer` with attachments: a note and an extension-UI response, no model.
+	"agent_control_answer",
 	"autopilot_bridge",
 	"agent_control_review",
 	"agent_control_family_edits",
