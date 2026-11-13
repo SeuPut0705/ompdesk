@@ -24,6 +24,7 @@ if (typeof elementPrototype.scrollIntoView !== "function") elementPrototype.scro
 const ok = (data: unknown) => ({ type: "response", command: "x", success: true, data });
 let recent: unknown = { selectors: ["openai/gpt-5", "gone/model", "anthropic/claude"] };
 const setModel = vi.fn(async () => ok({}));
+const setModelRole = vi.fn(async () => ok({}));
 const setThinkingLevel = vi.fn(async (level: string) => ok({ thinkingLevel: level, thinkingConfigured: level }));
 Reflect.set(window, "omp", {
 	rpc: {
@@ -31,6 +32,7 @@ Reflect.set(window, "omp", {
 		getRecentModels: vi.fn(async () => ok(recent)),
 		getSettings: vi.fn(async () => ok({ values: {} })),
 		setModel,
+		setModelRole,
 		setThinkingLevel,
 	},
 	events: { onConfigUpdate: vi.fn(() => () => {}) },
@@ -91,6 +93,7 @@ afterEach(async () => {
 	container?.remove();
 	recent = { selectors: ["openai/gpt-5", "gone/model", "anthropic/claude"] };
 	setModel.mockClear();
+	setModelRole.mockClear();
 	useModelStore.getState().reset();
 	useSessionStore.getState().reset();
 	useUiStore.setState({ modelPickerOpen: false });
@@ -125,6 +128,19 @@ describe("ModelPicker Recent group", () => {
 		recent = { selectors: [] };
 		await mount();
 		expect(groupNames()).not.toContain("Recent");
+	});
+});
+
+describe("ModelPicker pick", () => {
+	// The owner's rule (14 Nov 2026): switching one session's model never changes the default model new sessions open
+	// on; only Settings › Models & accounts › Model roles writes `modelRoles.default`.
+	it("switches this session only and writes no model role", async () => {
+		await mount();
+		// A rendered option row (linkedom's element, typed as the DOM's).
+		const option = document.querySelector('[data-model-group="openai"] [role="option"]') as unknown as HTMLElement;
+		await act(async () => option.click());
+		expect(setModel).toHaveBeenCalledWith("openai", "gpt-5");
+		expect(setModelRole).not.toHaveBeenCalled();
 	});
 });
 
