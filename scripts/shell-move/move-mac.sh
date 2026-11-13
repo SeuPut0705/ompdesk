@@ -37,7 +37,7 @@ bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
 start_feed $FEEDPORT "$W/new.dmg"
 SWITCHES=(--host-resolver-rules="MAP api.github.com 127.0.0.1:$FEEDPORT" --ignore-certificate-errors)
-update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
+update_lines() { jq -r 'select(.source=="app-update") | "\(.message) \(.details.event // "") \(.details.outcome // "") \(.details.mode // "") \(.details.reason // "")"' "$1/logs/gui-runtime.jsonl" 2>/dev/null; }
 has_line() { update_lines "$1" | grep -q "^$2"; }
 wait_for() { local n=0; while [ $n -lt $2 ]; do eval "$1" && return 0; sleep 3; n=$((n+3)); done; return 1; }
 
@@ -53,6 +53,13 @@ relaunch_diag() {
   evidence "diag: crash reports: $(ls -t ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i ompdesk | head -3 | tr '\n' ' ')"
   for r in $(ls -t ~/Library/Logs/DiagnosticReports/*OMPdesk* 2>/dev/null | head -1); do head -c 1800 "$r" | sed 's/^/EVIDENCE: diag crash: /'; done
   log show --last 6m --predicate 'process == "OMPdesk" OR process == "launchservicesd" AND eventMessage CONTAINS "OMPdesk"' --style compact 2>/dev/null | tail -25 | cut -c1-260 | sed 's/^/EVIDENCE: diag log: /'
+  evidence "diag: spctl: $(spctl --assess --type execute -vv "$APPS/OMPdesk.app" 2>&1 | tr '\n' '|' | cut -c1-300)"
+  evidence "diag: quarantine: $(xattr -l "$APPS/OMPdesk.app" 2>&1 | head -3 | tr '\n' '|')"
+  # The relaunch as the swap script does it, by hand: its exit code and what the system says about the launch.
+  open -n "$APPS/OMPdesk.app" --args --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-open.out" 2>&1; local rc=$?
+  sleep 20
+  evidence "diag: open -n exit $rc: $(head -c 400 "$W/$name-open.out" | tr '\n' '|'); running afterwards: $(ps -axo command | grep "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" | grep -v grep | head -1 | cut -c1-120)"
+  log show --last 2m --predicate 'process == "syspolicyd" OR process == "amfid" OR process == "launchservicesd" OR process == "runningboardd"' --style compact 2>/dev/null | grep -i 'ompdesk\|reject\|deny\|kill' | tail -12 | cut -c1-260 | sed 's/^/EVIDENCE: diag system: /'
   kill_apps "$APPS/OMPdesk.app/Contents/MacOS"
   OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT "${SWITCHES[@]}" >"$W/$name-direct.out" 2>&1 &
   sleep 25
@@ -108,6 +115,7 @@ scenario() {
     OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT --host-resolver-rules="MAP api.github.com 127.0.0.1:1" --ignore-certificate-errors >"$W/$name-again.out" 2>&1 &
     wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | grep -q '^swap result rolled back'; check $? "S2: swap result outcome rolled back"
   fi
+  evidence "$name feed log: $(tail -n 6 "$W/feed.log" | cut -c1-120 | tr '\n' '|')"
   dialogs; check $? "$name: no dialog (SecurityAgent) line"
   kill_apps "$APPS/OMPdesk.app/Contents/MacOS"; pkill -f "$W/$name" 2>/dev/null
   restore
