@@ -1,12 +1,11 @@
-//! `shortcut.register` / `shortcut.unregister` and `shortcut.fired`: global hotkeys on the hidden message window.
+//! Global hotkeys on the hidden message window: registered by `boot.registerShortcut`, reported as `boot.shortcut`
+//! (PROTOCOL.md §15.9).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use serde_json::json;
 use shell_core::hotkey;
 
-use crate::host::{self, Call};
 use crate::system;
 
 #[derive(Default)]
@@ -23,11 +22,13 @@ thread_local! {
 /// A hotkey fired. UI thread.
 pub fn fired(id: i32) {
     if let Some(accelerator) = REGISTRY.with(|r| r.borrow().by_id.get(&id).cloned()) {
-        host::event("shortcut.fired", json!({ "accelerator": accelerator }));
+        crate::modules::boot::shortcut(&accelerator);
     }
 }
 
-fn register(text: &str) -> bool {
+/// Registers `text` (an Electron accelerator) system-wide; false when it does not parse or another application holds
+/// it. Registering one already held is true. UI thread.
+pub fn register(text: &str) -> bool {
     let Some(parsed) = hotkey::parse(text, cfg!(target_os = "macos")) else {
         return false;
     };
@@ -45,31 +46,4 @@ fn register(text: &str) -> bool {
         r.by_id.insert(id, text.to_string());
         true
     })
-}
-
-fn unregister(text: &str) {
-    REGISTRY.with(|r| {
-        let mut r = r.borrow_mut();
-        if let Some(id) = r.by_accelerator.remove(text) {
-            r.by_id.remove(&id);
-            system::unregister_hotkey(id);
-        }
-    });
-}
-
-pub fn handle(call: Call) {
-    let Some(text) = call.str("accelerator") else {
-        return call.err("invalid", "shortcut calls need an accelerator");
-    };
-    match call.method.as_str() {
-        "shortcut.register" => crate::ui::run(move || {
-            let registered = register(&text);
-            call.ok(json!({ "registered": registered }));
-        }),
-        "shortcut.unregister" => crate::ui::run(move || {
-            unregister(&text);
-            call.ok(json!({}));
-        }),
-        _ => call.unsupported(),
-    }
 }

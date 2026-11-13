@@ -622,8 +622,10 @@ export type RuntimeErrorSource =
 	 * override and its outcome; `details.level` is `warn` or `info`.
 	 */
 	| "setup"
-	/** The lid-awake hold (src/main/keep-awake, wired in index.ts): `message` is held, released, skipped, recovered or failed. */
+	/** The lid-awake hold (the shell's `boot` module, `boot_core::lid`): `message` is held, released, skipped, recovered or failed. */
 	| "keep-awake"
+	/** A `boot.*` request to the shell that failed (src/main/index.ts `bootWarn`): theme, shortcut, media, blockers. */
+	| "shell-boot"
 	/** A paired-host event outside the link and tab sources (src/main/remote/devices.ts `log`): `message` is the event. */
 	| "remote"
 	/** Memory shared between paired computers (src/main/ai-memory/sync.ts): `message` is conflict, round or failed. */

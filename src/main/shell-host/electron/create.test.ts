@@ -110,18 +110,12 @@ function fakeShell(shell: ShellClient) {
 		"clipboard.writeText",
 		"net.fetch",
 		"shell.openPath",
-		"theme.setSource",
 		"power.idleTime",
 		"tray.create",
 		"tray.op",
 		"notification.show",
 		"notification.close",
-		"power.blockerStart",
-		"power.blockerStop",
-		"shortcut.register",
-		"shortcut.unregister",
 	];
-	answers.set("shortcut.register", () => ({ registered: true }));
 	for (const method of methods) {
 		shell.handle(method, (params: Record<string, unknown>, { bin, signal }) => {
 			calls.push({ method, params, bin });
@@ -201,14 +195,11 @@ describe("app", () => {
 		expect(commandLine.getSwitchValue("blink-settings")).toBe("foo=1,dnsPrefetchingEnabled=false");
 	});
 
-	it("sends one app.init after main's top level, with its switches, schemes and flags; ready follows the shell's event", async () => {
-		const { app, protocol } = electron;
+	it("sends one app.init after main's top level, with its switches and flags; ready follows the shell's event", async () => {
+		const { app } = electron;
 		app.setAppUserModelId("com.example.app");
 		app.disableHardwareAcceleration();
 		app.commandLine.appendSwitch("disable-renderer-backgrounding");
-		protocol.registerSchemesAsPrivileged([
-			{ scheme: "omp-media", privileges: { standard: true, secure: true, stream: true } },
-		]);
 		let whenReady = false;
 		void app.whenReady().then(() => {
 			whenReady = true;
@@ -219,7 +210,6 @@ describe("app", () => {
 		expect(init[0].params).toMatchObject({
 			disableHardwareAcceleration: true,
 			appUserModelId: "com.example.app",
-			schemes: [{ scheme: "omp-media", privileges: { standard: true, secure: true, stream: true } }],
 		});
 		expect(init[0].params.switches).toContainEqual(["disable-renderer-backgrounding", null]);
 		expect(whenReady).toBe(false);
@@ -227,7 +217,6 @@ describe("app", () => {
 		await shell.event("app.ready");
 		await app.whenReady();
 		expect(app.isReady()).toBe(true);
-		expect(() => protocol.registerSchemesAsPrivileged([])).toThrow(/before app is ready/);
 	});
 
 	it("holds requests that need CEF until app.ready, in order, and sends app.* at once", async () => {
@@ -1163,13 +1152,6 @@ describe("net", () => {
 			undefined,
 		]);
 	});
-
-	it("answers isOnline from the facts and net.online, and resolves hosts through the shell", async () => {
-		expect(electron.net.isOnline()).toBe(true);
-		await shell.event("net.online", { online: false });
-		await settle();
-		expect(electron.net.isOnline()).toBe(false);
-	});
 });
 
 describe("menus, dialogs and the small modules", () => {
@@ -1315,7 +1297,7 @@ describe("menus, dialogs and the small modules", () => {
 	});
 
 	it("mirrors screen, theme and power state from the facts and the shell's pushes", async () => {
-		const { screen, nativeTheme, powerMonitor, systemPreferences, powerSaveBlocker, globalShortcut } = electron;
+		const { screen, nativeTheme, powerMonitor, systemPreferences } = electron;
 		expect(screen.getPrimaryDisplay()).toMatchObject({
 			id: 1,
 			scaleFactor: 1.5,
@@ -1339,31 +1321,16 @@ describe("menus, dialogs and the small modules", () => {
 		await settle();
 		expect(updated).toEqual([false]);
 		expect(systemPreferences.getAnimationSettings().prefersReducedMotion).toBe(true);
-		fake.answers.set("theme.setSource", () => ({ dark: true, highContrast: false, inverted: false }));
-		nativeTheme.themeSource = "dark";
-		expect(nativeTheme.themeSource).toBe("dark");
-		await settle();
-		expect(fake.callsOf("theme.setSource")[0].params).toEqual({ source: "dark" });
-		expect(powerMonitor.isOnBatteryPower()).toBe(false);
 		const power: string[] = [];
-		powerMonitor.on("on-battery", () => power.push("on-battery"));
-		await shell.event("power.event", { name: "on-battery" });
+		powerMonitor.on("resume", () => power.push("resume"));
+		await shell.event("power.event", { name: "resume" });
 		await settle();
-		expect(powerMonitor.isOnBatteryPower()).toBe(true);
-		expect(power).toEqual(["on-battery"]);
+		expect(power).toEqual(["resume"]);
 		expect(() => powerMonitor.getSystemIdleTime()).toThrow(/getSystemIdleTimeAsync/);
 		fake.answers.set("power.idleTime", () => ({ seconds: 12 }));
 		expect(
 			await (powerMonitor as unknown as { getSystemIdleTimeAsync(): Promise<number> }).getSystemIdleTimeAsync(),
 		).toBe(12);
-		const id = powerSaveBlocker.start("prevent-app-suspension");
-		expect(powerSaveBlocker.isStarted(id)).toBe(true);
-		powerSaveBlocker.stop(id);
-		let fired = 0;
-		expect(globalShortcut.register("CommandOrControl+Shift+O", () => (fired += 1))).toBe(true);
-		await shell.event("shortcut.fired", { accelerator: "CommandOrControl+Shift+O" });
-		await settle();
-		expect(fired).toBe(1);
 	});
 
 	it("shows a notification and routes its click back", async () => {

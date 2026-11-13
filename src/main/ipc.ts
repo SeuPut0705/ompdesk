@@ -168,7 +168,6 @@ import type { LogWatcher } from "./log-watcher";
 import type { MacPermissions } from "./mac-permissions";
 import { type LocalMachine, type MachineServices, machineFor as pickMachine } from "./machine-services";
 import type { MailAccounts } from "./mail-accounts";
-import type { MediaStreams } from "./media-stream";
 import { createMenu } from "./menu";
 import { modelsPath } from "./models-config";
 import { type NoticeKind, NotificationBatcher, type ShownNotice } from "./notification-batch";
@@ -295,8 +294,12 @@ export interface IpcDeps {
 	worktreeLifecycle: WorktreeLifecycle;
 	/** The questions it asks in the windows. */
 	worktreePrompts: WorktreePrompts;
-	/** `omp-media://` URLs handed to players (registered as a protocol in index.ts). */
-	mediaStreams: MediaStreams;
+	/** `omp-media://` URLs handed to players: the shell serves them (`boot.mediaOpen`, PROTOCOL.md §15.9). */
+	media: {
+		open(path: string, mime: string, owner: number): Promise<string>;
+		release(url: string, owner: number): void;
+		releaseOwner(owner: number): void;
+	};
 	/**
 	 * Where a file attached to a prompt of this computer's own tab lands when it has no path here (pasted, dragged out
 	 * of another app): the phones' upload folder (web/uploads.ts), its limits and its 24-hour lifetime.
@@ -2695,18 +2698,20 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 				streamOwners.add(owner);
 				caller.sender.once("destroyed", () => {
 					streamOwners.delete(owner);
-					deps.mediaStreams.releaseOwner(owner);
+					deps.media.releaseOwner(owner);
 				});
 			}
 			return {
 				ok: true,
-				url: deps.mediaStreams.open(media.abs, media.mime, owner),
+				url: await deps.media.open(media.abs, media.mime, owner),
 				mime: media.mime,
 				size: media.size,
 			};
 		},
 	);
-	ipc.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (caller, url: unknown) => deps.mediaStreams.release(url, caller.sender.id));
+	ipc.on(IPC_COMMANDS.FS_MEDIA_RELEASE, (caller, url: unknown) => {
+		if (typeof url === "string") deps.media.release(url, caller.sender.id);
+	});
 
 	ipc.handle(
 		IPC_COMMANDS.FS_READ_PLAN,

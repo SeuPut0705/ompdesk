@@ -1,18 +1,14 @@
 /**
  * `app`: Electron's lifecycle over the host protocol (PROTOCOL.md §2). Everything main does before `whenReady`
- * (switches, privileged schemes, "no hardware acceleration") is collected and sent as `app.init` on the first
+ * (switches, "no hardware acceleration") is collected and sent as `app.init` on the first
  * macrotask after main's top-level code ran; the shell answers, starts CEF and sends `app.ready`. The quit sequence
  * is Electron's, run here: `before-quit`, every window's `close`, `will-quit`, `quit`, then `app.exit`.
  */
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { HostFacts, PathName, SchemeFact } from "../facts";
+import type { HostFacts, PathName } from "../facts";
 import { emitPreventable, type Host, makeEvent } from "./host";
-
-export interface InitState {
-	schemes: SchemeFact[];
-}
 
 export interface AppDeps {
 	/** Closes every window, each through its `close` listeners; false when one was kept open. */
@@ -70,7 +66,6 @@ export class App extends EventEmitter {
 	readonly dock: { setBadge(text: string): void; setIcon(image: { bytes(): Buffer | null }): void } | undefined;
 	readonly #host: Host;
 	readonly #facts: HostFacts;
-	readonly #initState: InitState;
 	readonly #deps: AppDeps;
 	readonly #paths = new Map<string, string>();
 	readonly #package: { name: string; version: string };
@@ -87,11 +82,10 @@ export class App extends EventEmitter {
 	#gpuFeatures: Record<string, string> = {};
 	#initSent = false;
 
-	constructor(host: Host, initState: InitState, deps: AppDeps) {
+	constructor(host: Host, deps: AppDeps) {
 		super();
 		this.#host = host;
 		this.#facts = host.facts;
-		this.#initState = initState;
 		this.#deps = deps;
 		this.isPackaged = host.facts.isPackaged;
 		this.commandLine = new CommandLine(host.facts.argv.slice(1));
@@ -144,7 +138,6 @@ export class App extends EventEmitter {
 			.call("app.init", {
 				name: this.#name,
 				switches: this.commandLine.entries(),
-				schemes: this.#initState.schemes,
 				disableHardwareAcceleration: this.#disableHardwareAcceleration,
 				...(this.#appUserModelId === undefined ? {} : { appUserModelId: this.#appUserModelId }),
 				...(this.#activationPolicy === undefined ? {} : { activationPolicy: this.#activationPolicy }),

@@ -41,6 +41,10 @@ pub fn paths() -> &'static Paths {
     PATHS.get().expect("paths are set at startup")
 }
 
+/// The facts `hello` answers with (PROTOCOL.md §1), set once at startup (`main.rs`), for the moved modules (§15) that
+/// need the app's folders.
+pub static FACTS: OnceLock<Value> = OnceLock::new();
+
 /// CEF browser id → `wcId`, readable from CEF's IO thread (the scheme handlers find their page here).
 static BROWSER_WC: Mutex<Option<HashMap<i32, u64>>> = Mutex::new(None);
 

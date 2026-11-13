@@ -146,6 +146,25 @@ pub fn on_battery() -> bool {
     unsafe { GetSystemPowerStatus(&mut status) != 0 && status.ACLineStatus == 0 }
 }
 
+/// True when the machine has a system battery (a laptop: a lid to close). `BatteryFlag` 128 is "no system battery",
+/// 255 "unknown status": neither counts.
+pub fn has_battery() -> bool {
+    let mut status = SYSTEM_POWER_STATUS {
+        ACLineStatus: 255,
+        BatteryFlag: 255,
+        BatteryLifePercent: 0,
+        SystemStatusFlag: 0,
+        BatteryLifeTime: 0,
+        BatteryFullLifeTime: 0,
+    };
+    // SAFETY: `status` is a SYSTEM_POWER_STATUS the API fills.
+    unsafe {
+        GetSystemPowerStatus(&mut status) != 0
+            && status.BatteryFlag & 128 == 0
+            && status.BatteryFlag != 255
+    }
+}
+
 /// Seconds since the last keyboard or mouse input.
 pub fn idle_seconds() -> u64 {
     let mut info = LASTINPUTINFO {

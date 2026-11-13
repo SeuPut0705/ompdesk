@@ -103,7 +103,7 @@ export interface WsRouterDeps {
 	activeTab?: (win: WebClientWindow) => string | null;
 	/** `/blob` URLs for bytes and streams a reply carries. */
 	blobs: Pick<BlobStore, "addBytes" | "addMedia" | "mediaUrl" | "release">;
-	/** Opens an `omp-media://` stream for a range (MediaStreams.handle); without it a stream answer passes unchanged. */
+	/** Opens an `omp-media://` stream for a range (`mediaResponse`); without it a stream answer passes unchanged. */
 	mediaOpen?: (url: string, range: string | undefined) => Promise<Response>;
 	/** The device's uploads: a picture a call names by upload (`WebUploadedImage`) is read back into the call. */
 	uploads: Pick<UploadStore, "take">;
@@ -552,7 +552,7 @@ export class WsRouter {
 		return { ...rest, blobUrl: this.#deps.blobs.addBytes(deviceId, data, mime) };
 	}
 
-	/** A player's stream: `MediaStreams` keeps serving it, behind this device's `/blob` URL. */
+	/** A player's stream: the shell keeps serving it, behind this device's `/blob` URL. */
 	#mediaResult(deviceId: string, result: unknown): unknown {
 		const { blobs, mediaOpen } = this.#deps;
 		if (!mediaOpen || typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) {

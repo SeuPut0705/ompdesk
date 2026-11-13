@@ -1,7 +1,7 @@
 /**
  * Electron's `net` through the shell's `net.*` (PROTOCOL.md §10): Chromium's network stack (the system proxy, PAC
- * and certificate store) behind `net.fetch`, the streaming `ClientRequest` (`net.request`) that `updater.ts` and
- * electron-updater's download use, `net.isOnline()` (mirrored) and `net.resolveHost`.
+ * and certificate store) behind `net.fetch` and the streaming `ClientRequest` (`net.request`) that `updater.ts` and
+ * electron-updater's download use. The link state and the resolver are `boot.*`'s (§15.9).
  */
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
@@ -33,7 +33,6 @@ export function createNet(host: Host) {
 	const { client } = host;
 	const streams = new Map<number, ReadableStreamDefaultController<Uint8Array>>();
 	let nextRequest = 1;
-	let online = host.facts.system.online;
 	/** The `login` answerers of the requests in flight, by request id; a request is over when its stream is. */
 	const logins = new Map<number, LoginAnswer>();
 	client.on("net.chunk", ({ reqId }: { reqId: number }, bin?: Buffer) => {
@@ -51,9 +50,6 @@ export function createNet(host: Host) {
 	client.handle("net.login", async ({ reqId, ...info }: { reqId: number } & AuthInfo) => {
 		const credentials = await logins.get(reqId)?.(info);
 		return credentials ?? { cancel: true };
-	});
-	client.on("net.online", (data: { online: boolean }) => {
-		online = data.online;
 	});
 
 	async function fetchViaShell(
@@ -281,15 +277,5 @@ export function createNet(host: Host) {
 	return {
 		fetch: fetchViaShell,
 		request: (options: RequestOptions | string): ClientRequest => new ClientRequest(options),
-		isOnline: (): boolean => online,
-		async resolveHost(
-			hostname: string,
-			options?: { cacheUsage?: string },
-		): Promise<{ endpoints: Array<{ address: string; family: "ipv4" | "ipv6" }> }> {
-			return client.call("net.resolveHost", {
-				host: hostname,
-				...(options?.cacheUsage ? { cacheUsage: options.cacheUsage } : {}),
-			});
-		},
 	};
 }

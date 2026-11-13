@@ -13,14 +13,8 @@ import {
 	BrowserWindow,
 	clipboard,
 	dialog,
-	globalShortcut,
 	ipcMain,
 	nativeImage,
-	nativeTheme,
-	net,
-	powerMonitor,
-	powerSaveBlocker,
-	protocol,
 	safeStorage,
 	session,
 	shell,
@@ -77,7 +71,6 @@ import {
 } from "../shared/local-engines";
 import { MOBILE_WEB_COMMAND, MOBILE_WEB_GET_STATE, MOBILE_WEB_PORT, MOBILE_WEB_STATE } from "../shared/mobile-web";
 import { MODEL_SETUP_RESEARCH_PICK_PREF } from "../shared/model-setup";
-import { VISUAL_SCHEME } from "../shared/preview";
 import { PSTACK_PREF } from "../shared/pstack";
 import { REPLY_LANGUAGE_PREF } from "../shared/reply-language";
 import { SCHEDULES_STATE } from "../shared/schedules";
@@ -161,7 +154,6 @@ import { LocalMachine } from "./machine-services";
 import { MailAccounts, plainImapConnect } from "./mail-accounts";
 import { McpHub } from "./mcp-hub";
 import { onMcpChange } from "./mcp-live";
-import { MEDIA_SCHEME, MediaStreams } from "./media-stream";
 import { testMemoryReading } from "./memory-sampler";
 import { startMemoryWatch } from "./memory-watch";
 import { createMenu } from "./menu";
@@ -172,8 +164,6 @@ import { OMP_PIDS_FILE, OmpProcesses } from "./omp-processes";
 import { ompPackageRoot, ompPathEnv, refreshSystemOmp, systemOmp } from "./omp-runtime";
 import { OmpUpdater, registerOmpUpdateIpc } from "./omp-updater";
 import { openLocalPath } from "./open-path";
-import type { LidAwake } from "./power/lid-awake";
-import { createLidAwake } from "./power/lid-awake-runtime";
 import { activateAction, lastWindowCloseAction } from "./quit-guard";
 import { decodeBinaryRead, HOST_FS_READ_BINARY_TIMEOUT_MS, SidebarProjectsStateSchema } from "./remote/app-protocol";
 import { RemoteDevices } from "./remote/devices";
@@ -202,6 +192,7 @@ import { applyManagedToolEnv, bunInstallDir, managedToolsDir, setupPlatform } fr
 import { SetupService } from "./setup/service";
 import { findBun } from "./setup/supervisor";
 import { shellSpawnEnv, spawnPath } from "./shell-env";
+import { awakeBlocker, bootModule, mediaResponse, onlineMirror } from "./shell-host/modules/boot";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
 import {
@@ -296,23 +287,26 @@ if (userDataDirectory) {
 	}
 }
 
-// Players stream audio/video through `omp-media://` (range requests); the agent's visuals load in the Preview
-// through `omp-visual://` (main/preview/visuals.ts; handled on the preview's visual session only). Privileges
-// must precede whenReady.
-protocol.registerSchemesAsPrivileged([
-	{ scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true } },
-	{ scheme: VISUAL_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
-]);
 // No page resolves host names it only hints at (`<link rel=dns-prefetch>`, in any frame, whatever
 // `x-dns-prefetch-control` says): a visual's page could spell what it read into a name for the system resolver,
 // which neither CSP nor the visual session's dead proxy stops (Security #3). Only a hint is lost; Blink applies
 // this after each page's preferences, in every renderer. Any `--blink-settings` given at launch is kept.
+// (`omp-media://` and `omp-visual://` are the shell's own schemes: PROTOCOL.md §15.9.)
 const blinkSettings = app.commandLine.getSwitchValue("blink-settings");
 app.commandLine.appendSwitch(
 	"blink-settings",
 	[blinkSettings, "dnsPrefetchingEnabled=false"].filter(Boolean).join(","),
 );
-const mediaStreams = new MediaStreams();
+const boot = bootModule();
+/** Chromium's link state (`net.isOnline()`); the shell's first `boot.online` arrives before `app.ready`. */
+const link = onlineMirror(boot);
+const bootWarn = (message: string) =>
+	writeRuntimeLog({ source: "shell-boot", message: "failed", details: { error: message } });
+/** The app's theme over the OS's, for the shell's windows and pages (window-chrome.ts). */
+const applyThemeSource = () =>
+	boot
+		.call("themeSource", { source: nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme")) })
+		.catch(error => bootWarn(String(error)));
 // Test seam (unpackaged only, the parity sheet's launch): the mail accounts read as if the macOS keychain would ask for
 // the login password, so an account saved through the page shows the re-entry notice (e2e/responsive-surfaces.ts).
 const keychainWouldAskForTests = !app.isPackaged && process.env.OMP_GUI_TEST_KEYCHAIN_WOULD_ASK === "1";
@@ -594,8 +588,6 @@ function firstWindowLoaded(): Promise<void> {
 let mailAccounts: MailAccounts | null = null;
 /** Keep-awake while this computer's own tabs run a turn (Settings › General › Window). */
 let workAwakePolicy: KeepAwakePolicy | null = null;
-/** A charging laptop's lid close never stops work a keep-awake blocker holds (src/main/power/lid-awake.ts). */
-let lidAwake: LidAwake | null = null;
 /** Disk care at launch and daily (src/main/disk/care.ts). */
 let diskCare: DiskCare | null = null;
 
@@ -855,7 +847,7 @@ app.whenReady().then(async () => {
 	}
 	windowManager = new WindowManager();
 	// Before any window exists: each one is created under the app's theme, not the OS's (window-chrome.ts).
-	nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
+	await applyThemeSource();
 	// The windows' spellchecker follows the system language, not the en-US the trimmed locales leave (system-languages.ts).
 	seedSpellchecker(session.defaultSession, app.getPreferredSystemLanguages(), process.platform);
 
@@ -1345,26 +1337,9 @@ app.whenReady().then(async () => {
 				})
 			: null;
 	const tailnet = new Tailnet({ locate: locateTs });
-	// A test launch never changes the machine's power settings (a killed test app would leave them changed), and a
-	// second instance must not undo the running one's hold as a leftover.
-	lidAwake =
-		process.env.OMP_GUI_HEADLESS === "1" || !gotLock
-			? null
-			: createLidAwake({
-					userData: app.getPath("userData"),
-					onAc: !powerMonitor.isOnBatteryPower(),
-					log: (message, details) => writeRuntimeLog({ source: "keep-awake", message, details }),
-				});
-	void lidAwake?.start();
-	powerMonitor.on("on-ac", () => lidAwake?.setOnAc(true));
-	powerMonitor.on("on-battery", () => lidAwake?.setOnAc(false));
-	const keepAwakeBlocker = (label: string) => {
-		const blocker = {
-			start: () => powerSaveBlocker.start("prevent-app-suspension"),
-			stop: (id: number) => powerSaveBlocker.stop(id),
-		};
-		return lidAwake ? lidAwake.wrap(blocker, label) : blocker;
-	};
+	// Keep-awake's blockers are the shell's (`boot.awakeStart`), which also holds a charging laptop's lid while one is
+	// held (`boot_core::lid`; never in a test launch).
+	const keepAwakeBlocker = (label: string) => awakeBlocker(boot, label, bootWarn);
 	const devices = new RemoteDevices({
 		userData: app.getPath("userData"),
 		identity: await remoteIdentity,
@@ -2123,7 +2098,7 @@ app.whenReady().then(async () => {
 	// after a relaunch. The marker file is rewritten on every run-state change, so a crash or a
 	// SIGKILL, which run no quit hook, still leaves it behind.
 	const connectivity = new ConnectivityMonitor({
-		isOnline: () => net.isOnline(),
+		isOnline: () => link.isOnline(),
 		// Right after a wake the OS can report a link before it carries traffic, and a dead DNS or route never shows in
 		// `net.isOnline()`: ask the resolver itself, never its cache, then open a connection (through the agent's proxy
 		// when it has one), and give up after `PROBE_TIMEOUT_MS`.
@@ -2135,7 +2110,7 @@ app.whenReady().then(async () => {
 						agentProxyUrl().then(proxy =>
 							reaches(probeTarget(host ?? "example.com", proxy), {
 								resolve: async name =>
-									(await net.resolveHost(name, { cacheUsage: "disallowed" })).endpoints.map(
+									(await boot.call("resolveHost", { host: name, cacheUsage: "disallowed" })).endpoints.map(
 										endpoint => endpoint.address,
 									),
 								connect: (address, port) => tcpConnects(address, port, PROBE_TIMEOUT_MS),
@@ -2245,12 +2220,13 @@ app.whenReady().then(async () => {
 		if (typeof online === "boolean") connectivity.report(online);
 	});
 	setQuitResumes(() => prefs.get(RESUME_INTERRUPTED_PREF) !== false);
-	powerMonitor.on("suspend", () => connectivity.suspend());
-	powerMonitor.on("resume", () => {
-		connectivity.resume();
-		devices.wake("resume");
+	boot.on("power", ({ name }) => {
+		if (name === "suspend") connectivity.suspend();
+		else if (name === "resume") {
+			connectivity.resume();
+			devices.wake("resume");
+		} else if (name === "unlock-screen") devices.wake("unlock");
 	});
-	powerMonitor.on("unlock-screen", () => devices.wake("unlock"));
 	app.on("browser-window-focus", () => devices.wake("focus"));
 	// Chromium's own link state, sampled for changes the windows' events missed (a window may not exist).
 	setInterval(() => connectivity.poll(), 3000).unref();
@@ -2337,7 +2313,15 @@ app.whenReady().then(async () => {
 		desktopSlotRef,
 		checkoutFilesRef,
 		relaunchContinuation: tabId => turnResume.relaunchContinuation(tabId),
-		mediaStreams,
+		media: {
+			open: async (path, mime, owner) => (await boot.call("mediaOpen", { path, mime, owner })).url,
+			release: (url, owner) => {
+				boot.post("mediaRelease", { url, owner }).catch(error => bootWarn(String(error)));
+			},
+			releaseOwner: owner => {
+				boot.post("mediaReleaseOwner", { owner }).catch(error => bootWarn(String(error)));
+			},
+		},
 		uploads: { store: (deviceId, name, bytes) => hostUploads().store(deviceId, name, bytes) },
 		schedules: () => scheduleService,
 		mailAccounts: () => mailAccounts,
@@ -2359,12 +2343,9 @@ app.whenReady().then(async () => {
 				cliToolUpdater.prefChanged();
 				extensionToolUpdater.prefChanged();
 			}
-			if (key === "themeName" || key === "theme") {
-				nativeTheme.themeSource = nativeThemeSource(prefsStore().get("themeName"), prefsStore().get("theme"));
-			}
+			if (key === "themeName" || key === "theme") applyThemeSource();
 		},
 	});
-	protocol.handle(MEDIA_SCHEME, request => mediaStreams.handle(request));
 	const createdWebHost = new WebHost({
 		ipc,
 		onPageConnectionEnded: connId => fileEditReports.forget(connId),
@@ -2381,7 +2362,7 @@ app.whenReady().then(async () => {
 			facts: tabId => sidecarPool.tabFacts(tabId),
 			resnapshot: win => sidecarPool.resnapshotWindow(win),
 		},
-		openMedia: (url, range) => mediaStreams.handle(new Request(url, range ? { headers: { range } } : undefined)),
+		openMedia: (url, range) => mediaResponse(boot, url, range),
 		shell: {
 			openPath: abs => openLocalPath(abs, shell),
 			reveal: abs => shell.showItemInFolder(abs),
@@ -2471,7 +2452,9 @@ app.whenReady().then(async () => {
 
 	// Global shortcut: Cmd+Shift+O — toggle focused window, else show the most
 	// recent, else spawn one (multi-window decision tree).
-	globalShortcut.register(nativeAccelerator("window.toggle"), () => {
+	const toggleAccelerator = nativeAccelerator("window.toggle");
+	boot.on("shortcut", ({ accelerator }) => {
+		if (accelerator !== toggleAccelerator) return;
 		const focused = BrowserWindow.getFocusedWindow();
 		if (focused && !focused.isDestroyed() && windowManager.recordFor(focused)) {
 			if (focused.isVisible()) focused.hide();
@@ -2489,6 +2472,12 @@ app.whenReady().then(async () => {
 		}
 		spawnWindow();
 	});
+	boot.call("registerShortcut", { accelerator: toggleAccelerator }).then(
+		({ registered }) => {
+			if (!registered) bootWarn(`the global shortcut ${toggleAccelerator} is taken by another application`);
+		},
+		error => bootWarn(String(error)),
+	);
 	sessionIndex.start();
 	logWatcher.start();
 	// Read before the first window restores: every tab change rewrites the store,
@@ -2630,7 +2619,6 @@ installQuitGuard(
 				},
 			],
 			["work-awake", () => workAwakePolicy?.dispose()],
-			["lid-awake", () => lidAwake?.dispose()],
 			["disk-care", () => diskCare?.stop()],
 			[
 				"sidecars",

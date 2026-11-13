@@ -1,7 +1,7 @@
-//! `theme.setSource` and `theme.changed`: the OS colour scheme with Electron's `themeSource` override on top. The override
-//! is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` on the global context and every
-//! partition's, in force before any page loads (a page's `<head>` script reads `prefers-color-scheme` synchronously), and
-//! also CDP media emulation of `prefers-color-scheme` on each page as a second hold.
+//! `theme.changed`: the OS colour scheme with the app's theme (`boot.themeSource`, Electron's `themeSource`) on top. The
+//! override is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` on the global context and every
+//! partition's, in force before any page loads (a page's `<head>` script reads `prefers-color-scheme` synchronously),
+//! and also CDP media emulation of `prefers-color-scheme` on each page as a second hold.
 
 use std::cell::RefCell;
 
@@ -9,7 +9,7 @@ use cef::{ColorVariant, ImplRequestContext, RequestContext, request_context_get_
 use serde_json::{Value, json};
 use shell_core::desk_state::{ThemeSource, effective_theme};
 
-use crate::host::{self, Call};
+use crate::host;
 use crate::system;
 
 #[derive(Default)]
@@ -53,27 +53,15 @@ pub fn refresh() {
     }
 }
 
-pub fn handle(call: Call) {
-    match call.method.as_str() {
-        "theme.setSource" => {
-            let Some(source) = call.str("source").as_deref().and_then(ThemeSource::parse) else {
-                return call.err(
-                    "invalid",
-                    "theme.setSource: source must be system, light or dark",
-                );
-            };
-            crate::ui::run(move || {
-                STATE.with(|s| s.borrow_mut().source = source);
-                apply_scheme_all();
-                refresh();
-                apply_all();
-                apply_chrome_all();
-                let now = snapshot(source);
-                call.ok(json!({ "dark": now["dark"], "highContrast": now["highContrast"], "inverted": now["inverted"] }));
-            });
-        }
-        _ => call.unsupported(),
-    }
+/// The app's theme over the OS's (`boot.themeSource`): the browser-wide colour scheme, every page's
+/// `prefers-color-scheme` and the windows' native chrome follow, and `theme.changed` goes out when the effective values
+/// moved. UI thread.
+pub fn set_source(source: ThemeSource) {
+    STATE.with(|s| s.borrow_mut().source = source);
+    apply_scheme_all();
+    refresh();
+    apply_all();
+    apply_chrome_all();
 }
 
 /// CEF's colour variant for a theme source (`system` hands the choice back to the OS).

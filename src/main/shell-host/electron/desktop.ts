@@ -1,9 +1,9 @@
 /**
  * The small desktop modules of `electron`: `dialog`, `clipboard`, `shell`, `Notification`, `screen`, `nativeTheme`,
- * `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `systemPreferences` and the native `autoUpdater` (PROTOCOL.md
- * §8, §9). Their synchronous getters answer from what the shell hands over and pushes (`facts`, `screen.changed`,
- * `theme.changed`, `power.event`); the few that cannot (`clipboard.readText`, `powerMonitor.getSystemIdleTime`,
- * the macOS permission queries) throw and have an `…Async` form that asks.
+ * `powerMonitor`, `systemPreferences` and the native `autoUpdater` (PROTOCOL.md §8, §9). Their synchronous getters
+ * answer from what the shell hands over and pushes (`facts`, `screen.changed`, `theme.changed`); the few that cannot
+ * (`clipboard.readText`, `powerMonitor.getSystemIdleTime`, the macOS permission queries) throw and have an `…Async`
+ * form that asks. The app's theme source, keep-awake's blockers and the global shortcut are `boot.*`'s (§15.9).
  */
 import { EventEmitter } from "node:events";
 import type { DisplayFact, Rect } from "../facts";
@@ -207,7 +207,6 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 	// --- nativeTheme and systemPreferences ---
 	let theme = { ...facts.theme };
 	let reducedMotion = facts.system.reducedMotion;
-	let themeSource: "system" | "light" | "dark" = "system";
 	class NativeThemeImpl extends EventEmitter {
 		get shouldUseDarkColors(): boolean {
 			return theme.dark;
@@ -217,21 +216,6 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 		}
 		get shouldUseInvertedColorScheme(): boolean {
 			return theme.inverted;
-		}
-		get themeSource(): "system" | "light" | "dark" {
-			return themeSource;
-		}
-		set themeSource(source: "system" | "light" | "dark") {
-			themeSource = source;
-			const answered = client.call<{ dark: boolean; highContrast: boolean; inverted: boolean }>("theme.setSource", {
-				source,
-			});
-			answered.then(
-				next => this.#apply(next),
-				(error: unknown) => host.warn(`theme.setSource: ${String(error)}`),
-			);
-			// The scheme the source forces is known now; `system` keeps what the OS last said until the shell answers.
-			if (source !== "system") theme = { ...theme, dark: source === "dark" };
 		}
 		#apply(next: { dark: boolean; highContrast: boolean; inverted: boolean }): void {
 			const changed = next.dark !== theme.dark || next.highContrast !== theme.highContrast;
@@ -271,11 +255,7 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 	};
 
 	// --- power ---
-	let onBattery = facts.system.onBattery;
 	class PowerMonitorImpl extends EventEmitter {
-		isOnBatteryPower(): boolean {
-			return onBattery;
-		}
 		getSystemIdleTime(): number {
 			return unavailable("powerMonitor.getSystemIdleTime()", "powerMonitor.getSystemIdleTimeAsync()");
 		}
@@ -284,52 +264,7 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 		}
 	}
 	const powerMonitor = new PowerMonitorImpl();
-	client.on("power.event", ({ name, onBattery: battery }: { name: string; onBattery?: boolean }) => {
-		if (name === "on-battery") onBattery = true;
-		else if (name === "on-ac") onBattery = false;
-		else if (battery !== undefined) onBattery = battery;
-		powerMonitor.emit(name, makeEvent());
-	});
-	const blockers = new Set<number>();
-	let nextBlocker = 1;
-	const powerSaveBlocker = {
-		start(type: "prevent-app-suspension" | "prevent-display-sleep"): number {
-			const id = nextBlocker++;
-			blockers.add(id);
-			host.post("power.blockerStart", { id, type });
-			return id;
-		},
-		stop(id: number): void {
-			if (blockers.delete(id)) host.post("power.blockerStop", { id });
-		},
-		isStarted: (id: number): boolean => blockers.has(id),
-	};
-
-	// --- globalShortcut ---
-	const shortcuts = new Map<string, () => void>();
-	client.on("shortcut.fired", ({ accelerator }: { accelerator: string }) => shortcuts.get(accelerator)?.());
-	const globalShortcut = {
-		register(accelerator: string, callback: () => void): boolean {
-			shortcuts.set(accelerator, callback);
-			client.call<{ registered: boolean }>("shortcut.register", { accelerator }).then(
-				({ registered }) => {
-					if (!registered) {
-						shortcuts.delete(accelerator);
-						host.warn(`the global shortcut ${accelerator} is taken by another application`);
-					}
-				},
-				(error: unknown) => host.warn(`shortcut.register: ${String(error)}`),
-			);
-			return true;
-		},
-		unregister(accelerator: string): void {
-			if (shortcuts.delete(accelerator)) host.post("shortcut.unregister", { accelerator });
-		},
-		unregisterAll(): void {
-			for (const accelerator of [...shortcuts.keys()]) globalShortcut.unregister(accelerator);
-		},
-		isRegistered: (accelerator: string): boolean => shortcuts.has(accelerator),
-	};
+	client.on("power.event", ({ name }: { name: string }) => powerMonitor.emit(name, makeEvent()));
 
 	// --- native autoUpdater (Squirrel): not in the shell; electron-updater only listens to it ---
 	class NativeAutoUpdater extends EventEmitter {
@@ -356,8 +291,6 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 		nativeTheme,
 		systemPreferences,
 		powerMonitor,
-		powerSaveBlocker,
-		globalShortcut,
 		autoUpdater: new NativeAutoUpdater(),
 		/** The window a dialog sheet or a menu belongs to when none is given. */
 		focusedWindowId: deps.focusedWindowId,

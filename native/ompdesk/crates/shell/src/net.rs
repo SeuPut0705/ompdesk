@@ -1,7 +1,7 @@
 //! `net.*` (PROTOCOL.md §10): Electron's `net` over Chromium's network stack through `CefURLRequest` (the system
 //! proxy, PAC and certificate store apply). `net.fetch` answers with the head as soon as the response started, then
 //! streams the body as `net.chunk` events (each chunk CEF hands over is forwarded at once and split at 1 MiB, never
-//! collected) and a final `net.end {reqId, error?}`; `net.resolveHost` asks the request context's resolver.
+//! collected) and a final `net.end {reqId, error?}`; `boot.resolveHost` asks the request context's resolver.
 //!
 //! Differences from Electron's `net` that CEF's URL request API does not allow to avoid:
 //! - `credentials: "same-origin"` (Fetch's default, so every `net.request`) sends and keeps cookies like `include`:
@@ -13,7 +13,7 @@
 //!   client nothing earlier. A response that stays silent after its headers shows no head until then.
 //! - `statusText` of an HTTP/2 response (which carries none) is the standard reason phrase.
 //! - Chunks are not paced: a Node side that reads slower than the network lets them queue in the writer.
-//! - `net.resolveHost`'s `cacheUsage: "disallowed"` (or `"disabled"`) skips Chromium's host cache by asking the OS
+//! - `boot.resolveHost`'s `cacheUsage: "disallowed"` (or `"disabled"`) skips Chromium's host cache by asking the OS
 //!   resolver (`getaddrinfo`, on a worker thread, answered after at most 15 s as `ERR_NAME_NOT_RESOLVED`) instead of
 //!   CEF's: that lookup ignores Chromium's own DNS configuration (secure DNS, custom servers) and the OS resolver's own
 //!   cache still applies. `staleAllowed` behaves as `allowed`. `bypassCustomProtocolHandlers`
@@ -80,7 +80,6 @@ thread_local! {
 pub fn handle(call: Call) {
     match call.method.as_str() {
         "net.fetch" => fetch(call),
-        "net.resolveHost" => resolve_host(call),
         _ => call.unsupported(),
     }
 }
@@ -463,9 +462,10 @@ fn answer_login(req_id: u64, seq: u64, answer: netmap::LoginAnswer) {
     }
 }
 
-fn resolve_host(call: Call) {
+/// `boot.resolveHost {host, cacheUsage?}` → `{endpoints}`: the app session's resolver (the OS's for `disallowed`).
+pub fn resolve_host(call: Call) {
     let Some(host_name) = call.str("host").filter(|h| !h.trim().is_empty()) else {
-        return call.err("invalid", "net.resolveHost needs a host");
+        return call.err("invalid", "boot.resolveHost needs a host");
     };
     let usage = match netmap::cache_usage(call.params.get("cacheUsage").and_then(Value::as_str)) {
         Ok(usage) => usage,

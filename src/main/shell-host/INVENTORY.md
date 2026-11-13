@@ -13,14 +13,13 @@ frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imp
 | `webContents` | `id`, `send`, `getURL`, `getTitle`, `isLoading`, `isDestroyed`, `loadURL`, `stop`, `reload`, `executeJavaScript`, `executeJavaScriptInIsolatedWorld`, `setWindowOpenHandler`, `session`, `replaceMisspelling`, `copyImageAt`, `getZoomFactor`/`setZoomFactor`, `navigationHistory.*`, `setWebRTCIPHandlingPolicy`, `setFrameRate`, `invalidate`, `startPainting`, `stopPainting`, `capturePage`, `printToPDF`, `sendInputEvent`, `insertText`, `getUserAgent`, `close`, `debugger.{attach,detach,isAttached,sendCommand,on}`; events `did-start-loading`, `did-stop-loading`, `did-finish-load`, `did-fail-load`, `did-navigate`, `did-navigate-in-page`, `did-start-navigation`, `page-title-updated`, `dom-ready`, `render-process-gone`, `console-message`, `context-menu`, `preload-error`, `input-event`, `unresponsive`, `responsive`, `will-navigate`, `will-frame-navigate`, `will-redirect`, `will-attach-webview` (never raised: no `<webview>` exists), `will-prevent-unload`, `paint`, `destroyed` |
 | `WebContentsView` | `new({webPreferences})`, `webContents`, `setVisible` |
 | `session` | `defaultSession`, `fromPartition`, `resolveProxy`, `clearCache`, `clearStorageData`, `setProxy`, `setUserAgent`/`getUserAgent`, `getSpellCheckerLanguages`/`setSpellCheckerLanguages`/`availableSpellCheckerLanguages`, `addWordToSpellCheckerDictionary`, `setPermissionRequestHandler`/`setPermissionCheckHandler` (deny-all handlers only), `registerPreloadScript`, `protocol.handle`, `on("will-download")` |
-| `protocol` | `registerSchemesAsPrivileged`, `handle` |
 | `ipcMain` | `handle`, `on` (through `IpcRegistry`, and the Preview's dialog channel) |
 | `Menu`, `MenuItem`, `Tray` | `buildFromTemplate`, `setApplicationMenu`, `popup`, `on("menu-will-show"/"menu-will-close")`; template `role`, `accelerator`, `submenu`, `click`; `Tray` `setToolTip`, `setContextMenu`, `destroy`, `on("click")` |
 | `dialog` | `showMessageBox`, `showOpenDialog`, `showSaveDialog` (with and without an owner window) |
 | `clipboard`, `shell` | `writeText`; `openExternal`, `openPath`, `showItemInFolder`, `trashItem` |
 | `Notification` | `new`, `show`, `close`, `on("click"/"close")` |
-| `screen`, `nativeTheme`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut` | `getPrimaryDisplay`, `getAllDisplays`; `shouldUseDarkColors`, `themeSource`; `on("suspend"/"resume"/"unlock-screen"/"on-ac"/"on-battery")`, `isOnBatteryPower`; `start`, `stop`; `register` |
-| `net` | `fetch`, `request` (`redirect: "manual"`, `setHeader`, `on("redirect"/"response"/"error")`, `abort`), `isOnline`, `resolveHost` |
+| `screen`, `nativeTheme`, `powerMonitor` | `getPrimaryDisplay`, `getAllDisplays`; `shouldUseDarkColors`; `on("resume")` |
+| `net` | `fetch`, `request` (`redirect: "manual"`, `setHeader`, `on("redirect"/"response"/"error")`, `abort`) |
 | `nativeImage` | `createFromPath`, `createFromDataURL`; `addRepresentation`, `setTemplateImage` |
 | `safeStorage` | `isEncryptionAvailable`, `encryptString`, `decryptString` |
 | `systemPreferences` | `getAnimationSettings` |
@@ -46,7 +45,6 @@ frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imp
 | `app.asar` identity (window.ts' "resources changed" restart) | no archive | the renderer entry `out/renderer/index.html`'s identity |
 | `win.webContents` `preload` option | the shell injects `window.omp` itself | dropped from `window.ts`; `src/preload/index.ts` (contextBridge + `webUtils`) is deleted once `src/preload/shell.ts` exists (`fs.pathForFile` is the shell's) |
 | `autoUpdater` (Squirrel) | not in the shell | emitter only; its methods throw. macOS "relaunch"/"manual" modes never call them |
-| `globalShortcut.register()` | returns synchronously | returns `true`; a refusal by the OS is logged and the shortcut forgotten |
 | `app.setAsDefaultProtocolClient()` | returns synchronously | returns `true`; a refusal is logged |
 | HTTP cache folder (`<userData>/Cache`, disk care) | CEF keeps it under `<userData>/shell-webview` | `shell-calls.ts` `defaultSessionCachePath()` (the shim `Session.getCachePath()`, from `session.create`'s `cachePath`) feeds `DiskCare`'s `httpCachePath`; null → the Electron path |
 
@@ -57,3 +55,8 @@ externals in `electron.vite.config.ts` (and the `electron`/`original-fs`/`node:o
 `scripts/check-main-bundle.ts`); `process.defaultApp` branches in `deep-link.ts` and `index.ts`; the `preload:`
 option of `window.ts`; `process.getSystemVersion()`/`process.versions.electron` reads; `Electron.*` sync NativeImage
 handling in `preview-stream.ts`.
+
+Moved into the shell's `boot` module (PROTOCOL.md §15.9, batch SX5), so the shim lost them: `protocol`
+(`registerSchemesAsPrivileged`, `handle`: `omp-media://` is the shell's), `powerSaveBlocker`, `globalShortcut`,
+`nativeTheme.themeSource`, `powerMonitor.isOnBatteryPower`, `net.isOnline`, `net.resolveHost`; with them the wire's
+`theme.setSource`, `power.blockerStart`/`blockerStop`, `shortcut.*`, `net.online` and `net.resolveHost`.

@@ -1,7 +1,7 @@
 //! `/blob/<token>`: what a page fetches instead of receiving it in a WebSocket frame (a file the viewer shows, a
 //! recording a player streams, a download; unit 8b, was `src/main/web/blobs.ts`). Each token is random, belongs to
 //! one device (its cookie must match) and dies after 30 minutes without a request. The three sources: a file on disk,
-//! bytes main already holds, or a stream only main can open (`MediaStreams`, an `omp-media://` address). Answers
+//! bytes main already holds, or a stream only the shell can open (an `omp-media://` address). Answers
 //! honour `Range`. A blob is never rendered as a page: HTML, SVG and scripts are served as attachments, everything
 //! carries `nosniff` and a sandboxing CSP.
 //!
@@ -223,7 +223,7 @@ pub struct MediaAnswer {
     pub body: mpsc::Receiver<Bytes>,
 }
 
-/// Opens the media stream behind a blob (the `MediaStreams.handle` of main).
+/// Opens the media stream behind a blob (main's `mediaResponse` over the shell's `boot.mediaHead`/`mediaRead`).
 pub trait MediaOpener: Send + Sync {
     /// `None` when the stream cannot be opened (the page is told 404).
     fn open<'a>(

@@ -275,6 +275,7 @@ fn browser(argv: Vec<String>) -> i32 {
         lang,
     };
     let facts = facts::collect(&launch, &mut |event, data| log(event, data));
+    let _ = state::FACTS.set(facts.clone());
     let app_locale = facts["locale"]["appLocale"]
         .as_str()
         .unwrap_or("en-US")

@@ -28,7 +28,7 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
   cannot wait for an answer. The shell processes requests in arrival order, so an op sent right after a `create`
   finds its target; a request about an id the shell does not know answers `gone`.
 - Requests that need CEF (`win.*`, `wc.*`, `view.*`, `session.*`, `menu.*`, `tray.*`, `dialog.*`, `clipboard.*`,
-  `shell.*`, `notification.*`, `theme.*`, `power.*`, `shortcut.*`, `net.*`, `system.*`) are sent by the shim only
+  `shell.*`, `notification.*`, `power.*`, `net.*`, `system.*`) are sent by the shim only
   **after `app.ready`** (it holds earlier calls, in order); `hello` and `app.*` are never held. The shell therefore
   never has to queue work for a CEF that is not up.
 - Rects are `{x, y, width, height}` in DIP (device independent pixels, Electron's unit); colours are CSS strings
@@ -82,7 +82,7 @@ Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
-| `app.init` | Node | `{name, switches: [[name, value\|null]], schemes: Scheme[], disableHardwareAcceleration: boolean, appUserModelId?: string, activationPolicy?: "regular"\|"accessory"\|"prohibited", aboutPanel?: {applicationName?, iconPath?}}` | `{}` — sent once, on the first macrotask after main's top-level code ran (everything Electron's main does before `whenReady`). The shell then initialises CEF with these switches and schemes and sends `app.ready`. |
+| `app.init` | Node | `{name, switches: [[name, value\|null]], schemes?: Scheme[], disableHardwareAcceleration: boolean, appUserModelId?: string, activationPolicy?: "regular"\|"accessory"\|"prohibited", aboutPanel?: {applicationName?, iconPath?}}` | `{}` — sent once, on the first macrotask after main's top-level code ran (everything Electron's main does before `whenReady`). The shell then initialises CEF with these switches and schemes and sends `app.ready`. |
 | `app.ready` (event) | shell→Node | `{}` | CEF's context is up; windows may be created. `app.whenReady()` resolves here. |
 | `app.exit` (event) | Node | `{code}` | Node finished its quit sequence (`before-quit`, window closes, `will-quit`, `quit`) or `app.exit(code)` was called. The shell closes every window without asking, tears CEF down and exits with `code`; a pending `app.relaunch` is started after teardown. |
 | `app.relaunch` (event) | Node | `{args: string[] \| null}` | After the shell exits, start `exe` again with `args`, or its own launch args when `null` (Electron's default). Last call wins. |
@@ -102,7 +102,8 @@ Display = { id, label, bounds: Rect, workArea: Rect, scaleFactor, rotation: 0|90
 | `app.childProcessGone` (event) | shell→Node | `{type: "GPU"\|"Utility"\|"Renderer"\|…, reason, exitCode, name?, serviceName?}` | CEF helper process ended abnormally (the GPU one drives the software fallback). Renderer crashes are `wc.event render-process-gone` instead. |
 
 `Scheme = {scheme, privileges: {standard?, secure?, bypassCSP?, allowServiceWorkers?, supportFetchAPI?, corsEnabled?, stream?, codeCache?}}`
-(Electron's `CustomScheme`). `app://ompdesk` is the shell's own and is not registered here.
+(Electron's `CustomScheme`). `app://ompdesk`, `omp-media://` (standard, secure; §15.9) and `omp-visual://` (standard,
+secure, fetch) are the shell's own and are not registered here; main registers none today.
 
 Not Node's to ask: single-instance (the shell enforces it before Node starts; `requestSingleInstanceLock()`
 answers `true` locally), the userData choice (`app.setPath("userData", dir)` only updates Node's table; the
@@ -231,12 +232,13 @@ such a script.
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
-| `protocol.request` | shell→Node | `{scheme, partition, url, method, headers: [[k, v]], hasBody}` + `bin` = the request body when `hasBody` | `{status, statusText, headers: [[k, v]], streamId}` — the answer is the head; the body follows as events `protocol.chunk {streamId}` (`bin`) and a final `protocol.end {streamId, error?}`, Node → shell. A `{cancel: id}` frame or `protocol.cancel {streamId}` (shell→Node event) means the page dropped the request. Range semantics are Node's (`omp-media://` answers 206 itself). A scheme registered with `stream` is read incrementally. |
+| `protocol.request` | shell→Node | `{scheme, partition, url, method, headers: [[k, v]], hasBody}` + `bin` = the request body when `hasBody` | `{status, statusText, headers: [[k, v]], streamId}` — the answer is the head; the body follows as events `protocol.chunk {streamId}` (`bin`) and a final `protocol.end {streamId, error?}`, Node → shell. A `{cancel: id}` frame or `protocol.cancel {streamId}` (shell→Node event) means the page dropped the request. Range semantics are Node's. A scheme registered with `stream` is read incrementally. |
 | `protocol.chunk` / `protocol.end` (events) | Node | as above | |
 | `protocol.cancel` (event) | shell→Node | `{streamId}` | |
 
-A scheme is served by Node only on partitions that called `handleScheme` for it (`omp-media` on the app session,
-`omp-visual` on a window's visual partition); a request for it elsewhere fails with `net::ERR_UNKNOWN_URL_SCHEME`.
+A scheme is served by Node only on partitions that called `handleScheme` for it (`omp-visual` on a window's visual
+partition); a request for it elsewhere fails with `net::ERR_UNKNOWN_URL_SCHEME`. `omp-media://` is served by the
+shell itself on the app session (`boot`, §15.9).
 
 ## 7. `menu.*`, `tray.*`
 
@@ -274,22 +276,18 @@ accelerator); `role` stays set only for those that need native handling: macOS `
 | `notification.close` | Node | `{id}` | `{}` |
 | `notification.event` (event) | shell→Node | `{id, name: "show"\|"click"\|"close"\|"failed", reason?}` | |
 
-## 9. `screen.*`, `theme.*`, `power.*`, `shortcut.*`
+## 9. `screen.*`, `theme.*`, `power.*`
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
 | `screen.changed` (event) | shell→Node | `{displays: Display[], primaryDisplayId, reason: "added"\|"removed"\|"metrics"}` | mirrors `screen.*`; the first value is in `facts` |
 | `screen.cursorPoint` | Node | `{}` | `{x, y}` |
-| `theme.setSource` | Node | `{source: "system"\|"light"\|"dark"}` | `{dark, highContrast, inverted}` — pushed again as `theme.changed` if the effective scheme moved |
-| `theme.changed` (event) | shell→Node | `{dark, highContrast, inverted, reducedMotion}` | OS change or `setSource` effect; mirrors `nativeTheme.shouldUseDarkColors`, `systemPreferences.getAnimationSettings()` |
-| `power.event` (event) | shell→Node | `{name: "suspend"\|"resume"\|"lock-screen"\|"unlock-screen"\|"on-ac"\|"on-battery"\|"shutdown", onBattery?: boolean}` | `on-ac`/`on-battery` update the mirrored `isOnBatteryPower()` |
+| `theme.changed` (event) | shell→Node | `{dark, highContrast, inverted, reducedMotion}` | OS change or `boot.themeSource` effect; mirrors `nativeTheme.shouldUseDarkColors`, `systemPreferences.getAnimationSettings()` |
+| `power.event` (event) | shell→Node | `{name: "suspend"\|"resume"\|"lock-screen"\|"unlock-screen"\|"on-ac"\|"on-battery"\|"shutdown", onBattery?: boolean}` | `powerMonitor`'s events (also sent as `boot.power`) |
 | `power.idleTime` | Node | `{}` | `{seconds}` — idle input time (`GetLastInputInfo` / `CGEventSourceSecondsSinceLastEventType`) |
-| `power.blockerStart` | Node | `{id, type: "prevent-app-suspension"\|"prevent-display-sleep"}` | `{}` — `id` is Node's (Electron's `start()` returns it at once) |
-| `power.blockerStop` | Node | `{id}` | `{}` |
-| `shortcut.register` | Node | `{accelerator}` | `{registered: boolean}` |
-| `shortcut.unregister` | Node | `{accelerator}` | `{}` |
-| `shortcut.fired` (event) | shell→Node | `{accelerator}` | |
-| `net.online` (event) | shell→Node | `{online}` | mirrors `net.isOnline()` |
+
+The app's theme source, keep-awake's blockers, the global shortcut, the link state and the resolver are `boot.*`'s
+(§15.9).
 
 The system-permission calls main makes on macOS (`systemPreferences.isTrustedAccessibilityClient(prompt)`,
 `getMediaAccessStatus("screen")`) are `system.accessibilityTrusted {prompt}` → `{trusted}` and
@@ -306,7 +304,6 @@ Chromium's network stack through CEF's `CefURLRequest`, so the system proxy, PAC
 | `net.chunk` / `net.end` (events) | shell→Node | | |
 | `net.cancel` (event) | Node | `{reqId}` | |
 | `net.login` | shell | `{reqId, isProxy, scheme, host, port, realm}` | `{username, password}` or `{cancel: true}`: an HTTP authentication challenge (server or proxy) of the `net.fetch` `reqId` in flight (CEF `GetAuthCredentials`; answered asynchronously, no timeout on the shell's side beyond the request's own end). The shim raises Electron's `login` on that `net.request` with `authInfo` `{isProxy, scheme, host, port, realm}` and a `callback(username?, password?)`; no listener, or `callback()` with nothing, answers `{cancel: true}` and the challenge's 401/407 is the response, as in Electron. A `net.fetch` made by `net.fetch()` (no `ClientRequest`) always gets `{cancel: true}` |
-| `net.resolveHost` | Node | `{host, cacheUsage?}` | `{endpoints: [{address, family: "ipv4"\|"ipv6"}]}` |
 
 `net.request` (the streaming `ClientRequest` API `updater.ts` and electron-updater use) is built by the shim on
 `net.fetch` (`redirect: "manual"` + `net.chunk`), with `response`, `redirect`, `error`, `abort` semantics.
@@ -368,10 +365,8 @@ and `ipc.sendSync` from Preview partitions only for their registered preload (`_
 | `app.getPath(name)`, `getLocale`, `getSystemLocale`, `getPreferredSystemLanguages`, `getAppPath`, `isPackaged`, `process.resourcesPath` | `facts` |
 | `app.getGPUFeatureStatus()` | last `app.getGPUInfo` answer (`{}` before) |
 | `screen.getPrimaryDisplay/getAllDisplays/getDisplayMatching/getDisplayNearestPoint` | `facts.displays` + `screen.changed` |
-| `nativeTheme.shouldUseDarkColors`, `…HighContrastColors`, `…InvertedColorScheme`, `themeSource` | `facts.theme` + `theme.changed`; `themeSource` is what Node last set |
+| `nativeTheme.shouldUseDarkColors`, `…HighContrastColors`, `…InvertedColorScheme` | `facts.theme` + `theme.changed` |
 | `systemPreferences.getAnimationSettings().prefersReducedMotion` | `facts.system.reducedMotion` + `theme.changed` |
-| `powerMonitor.isOnBatteryPower()` | `facts.system.onBattery` + `power.event` |
-| `net.isOnline()` | `facts.system.online` + `net.online` |
 | `BrowserWindow#getBounds/isMaximized/isMinimized/isVisible/isFocused/isFullScreen/getContentSize/getTitle/getOpacity` | `win.state` |
 | `webContents#getURL/isLoading/getTitle/getZoomFactor/getUserAgent/navigationHistory.canGoBack/canGoForward/isCrashed` | `wc.state` |
 | `session#getUserAgent/getSpellCheckerLanguages/availableSpellCheckerLanguages` | `session.create` |
@@ -475,7 +470,7 @@ What the Rust shell does differently from this table or from Electron. README.md
   cancel never ends the next alert. File dialogs are not cancelled.
 - **`notification.*`**: WinRT toasts keyed on the AppUserModelID; without a Start-menu shortcut carrying it a toast may
   not show, though `show` is still reported.
-- **`theme.setSource`** is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` (SYSTEM/LIGHT/DARK) on the global
+- **`boot.themeSource`** is a browser-wide colour scheme: `RequestContext::set_chrome_color_scheme` (SYSTEM/LIGHT/DARK) on the global
   context and every partition's, in force before a page loads (a page's `<head>` script reads `prefers-color-scheme`
   synchronously), plus CDP `Emulation.setEmulatedMedia` on each page as a second hold; it reaches
   native chrome: Windows sets `DWMWA_USE_IMMERSIVE_DARK_MODE` on every window (when the source changes, on window creation
@@ -495,7 +490,8 @@ What the Rust shell does differently from this table or from Electron. README.md
   Preview pages produce only the `wc.event`.
 - **`wc.event preload-error`** `[preloadPath, {message, stack}]` is produced for `shell.js` throwing in an app page, via
   `POST /__shell/preload-error`; a throw in a Preview partition's preload (`app.rs`) is not reported.
-- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`); an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
+- **`boot.resolveHost`** with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`).
+- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
   `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
 - **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
   (the e2e harness) reaches the shell as an unhandled key event and is matched there.
@@ -723,5 +719,37 @@ Deviations:
 
 | Method | Asks | Params | Result / notes |
 |---|---|---|---|
+| `boot.mediaOpen` | Node | `{path, mime, owner}` | `{url}` — `omp-media://stream/<32 base64url chars>`, a capability for `path` (Node resolved and sniffed it: `resolveWorkspaceMedia`). `owner` is the page's `wcId` (or a paired page's id). |
+| `boot.mediaRelease` (event) | Node | `{url, owner}` | forgets `url` when `owner` holds it |
+| `boot.mediaReleaseOwner` (event) | Node | `{owner}` | forgets every URL of a page that closed or reloaded |
+| `boot.mediaHead` | Node | `{url, method?: "GET", range?}` | `{status, headers: [[k, v]], start, length}` — what `omp-media://` answers: 404 for an unknown token, a method other than GET/HEAD or a file gone; 416 with `Content-Range: bytes */size` for a range other than `bytes=a-b`, `bytes=a-`, `bytes=-n` (one range, `bytes` unit) or past the end; else 200/206 with `Accept-Ranges`, `Content-Type`, `Cache-Control: no-store`, `Content-Length`, `Content-Range`. The body is `length` bytes from `start` (0: none; HEAD and an empty file have none). |
+| `boot.mediaRead` | Node | `{url, offset, length}` | `{}` + `bin` = up to 1 MiB of the file from `offset`; `gone` once the URL was released. Node's `mediaResponse` builds a paired page's `Response` from `mediaHead` and these reads. |
+| `boot.awakeStart` (event) | Node | `{id, label}` | holds `prevent-app-suspension` for Node's `id` (`label`: `work`, `host`), and counts as work for the lid policy |
+| `boot.awakeStop` (event) | Node | `{id}` | releases it |
+| `boot.awakeState` | Node | `{}` | `{held, lidHeld}` — any blocker held; the lid hold after the policy settled on everything sent before |
+| `boot.themeSource` | Node | `{source: "system"\|"light"\|"dark"}` | `{}` — answered after `theme.changed` went out, so the shim's `nativeTheme` already agrees |
+| `boot.registerShortcut` | Node | `{accelerator}` | `{registered}` — false when it does not parse or another application holds it |
+| `boot.shortcut` (event) | shell→Node | `{accelerator}` | a registered shortcut fired |
+| `boot.power` (event) | shell→Node | `{name}` | `suspend`, `resume`, `lock-screen`, `unlock-screen`, `on-ac`, `on-battery`, `shutdown` |
+| `boot.online` (event) | shell→Node | `{online}` | Chromium's link state: once in `ready` (before `app.ready`), then on every change of the 3 s poll; Node mirrors it (`onlineMirror`) |
+| `boot.resolveHost` | Node | `{host}` | `{endpoints: [{address, family}]}` — the app session's resolver; `invalid` for an empty host, `failed` with `net::ERR_…` |
+
+The lid policy (`boot_core::lid`, was `power/lid-awake.ts`) runs on a thread of its own from `ready` to `shutdown`
+(which releases at once and waits up to 5 s for a backend call under way): while any blocker is held and the computer
+is a laptop on AC, macOS runs `/usr/bin/caffeinate -s -w <shell pid>`, Windows sets the active scheme's AC lid action
+to "do nothing" with `powercfg`, its old value in `<userData>/lid-awake.json` until put back (`boot_core::powercfg`).
+Each change is a `gui-runtime.jsonl` line (`log.runtime`, source `keep-awake`). A test launch (`OMP_GUI_HEADLESS=1`)
+holds no lid.
 
 Deviations:
+
+- `omp-media://` and `omp-visual://` are registered by the shell, not by `app.init`; Electron's `stream` privilege has
+  no CEF flag.
+- A paired page's media body is read 256 KiB at a time through `boot.mediaRead`, each read opening the file again; a
+  URL released while its body streams ends the body with an error (the TypeScript kept reading the file it had open).
+- Windows' "is a laptop" is `GetSystemPowerStatus` (`BatteryFlag` not 128 or 255), not PowerShell's `Win32_Battery`
+  count; a failing `powercfg` reports `Command failed: <path> <args>` and its stderr; `powercfg` has no 5 s limit at
+  quit (the shutdown waits 5 s for the policy thread instead).
+- macOS: a `caffeinate` that cannot start fails the hold (logged `failed`); the TypeScript counted it held.
+- The lid log's `details` keys are in alphabetical order.
+- Blockers are always `prevent-app-suspension` (`prevent-display-sleep` had no caller).

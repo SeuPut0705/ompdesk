@@ -167,10 +167,15 @@ for (const [language, theme] of variants(RUNS)) {
 				opened.push(url);
 			};
 		});
+		// The blockers are the shell's (`boot.awakeStart`): ask it through the shim's connection, which Electron's
+		// typings do not know.
 		const awake = () =>
-			app.evaluate(({ powerSaveBlocker }) =>
-				Array.from({ length: 64 }, (_, id) => powerSaveBlocker.isStarted(id)).some(Boolean),
-			);
+			app.evaluate(async electron => {
+				const { shellHost } = electron as unknown as {
+					shellHost: { call<T>(method: string, params: unknown): Promise<T> };
+				};
+				return (await shellHost.call<{ held: boolean }>("boot.awakeState", {})).held;
+			});
 
 		const settings = await openGeneralSettings(page);
 		const sound = settings.locator("#setting-gui-notificationSound");

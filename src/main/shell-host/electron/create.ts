@@ -4,7 +4,7 @@
  * over a fake shell.
  */
 import type { HostFacts } from "../facts";
-import { App, type InitState } from "./app";
+import { App } from "./app";
 import { createWindowClasses } from "./browser-window";
 import { createDesktopModules } from "./desktop";
 import { Host, type HostClient } from "./host";
@@ -13,7 +13,7 @@ import { createMenuModule } from "./menu";
 import { NativeImage } from "./native-image";
 import { createNet } from "./net";
 import { createSafeStorage, keychainFetcher } from "./safe-storage";
-import { DEFAULT_PARTITION, type ProtocolHandler, Session, serveDownloads, serveProtocolRequests } from "./session";
+import { DEFAULT_PARTITION, Session, serveDownloads, serveProtocolRequests } from "./session";
 import { servePages, webContentsModule } from "./web-contents";
 
 export interface CreateOptions {
@@ -57,9 +57,8 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 		Object.defineProperty(process.versions, "cef", { value: facts.versions.cef, configurable: true });
 	}
 
-	const initState: InitState = { schemes: [] };
 	let closeAll: () => Promise<boolean> = async () => true;
-	const app = new App(host, initState, {
+	const app = new App(host, {
 		closeWindows: () => closeAll(),
 		...(options.exitProcess ? { exitProcess: options.exitProcess } : {}),
 	});
@@ -98,25 +97,12 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 			sessionFor(partition, sessionOptions?.cache),
 	};
 
-	const protocol = {
-		registerSchemesAsPrivileged(schemes: InitState["schemes"]): void {
-			if (app.isReady())
-				throw new Error("protocol.registerSchemesAsPrivileged should be called before app is ready");
-			initState.schemes.push(...schemes);
-		},
-		handle: (scheme: string, handler: ProtocolHandler): void =>
-			session.defaultSession.protocol.handle(scheme, handler),
-		unhandle: (scheme: string): void => session.defaultSession.protocol.unhandle(scheme),
-		isProtocolHandled: (scheme: string): boolean => session.defaultSession.protocol.isProtocolHandled(scheme),
-	};
-
 	return {
 		app,
 		BrowserWindow,
 		WebContentsView,
 		webContents: webContentsModule(host),
 		session,
-		protocol,
 		ipcMain,
 		...menus,
 		dialog: desktop.dialog,
@@ -127,8 +113,6 @@ export function createElectron(client: HostClient, facts: HostFacts, options: Cr
 		nativeTheme: desktop.nativeTheme,
 		systemPreferences: desktop.systemPreferences,
 		powerMonitor: desktop.powerMonitor,
-		powerSaveBlocker: desktop.powerSaveBlocker,
-		globalShortcut: desktop.globalShortcut,
 		autoUpdater: desktop.autoUpdater,
 		net: createNet(host),
 		nativeImage: {

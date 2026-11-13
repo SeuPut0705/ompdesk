@@ -1,12 +1,12 @@
 //! `system.*` (permission queries) and the hidden message window that feeds `power.event`, `theme.changed`,
-//! `screen.changed`, `shortcut.fired` and `net.online` (PROTOCOL.md §9).
+//! `screen.changed` and `boot.*`'s `power`, `shortcut` and `online` (PROTOCOL.md §9, §15.9).
 
 use std::time::Duration;
 
 use serde_json::json;
 use shell_core::desk_state::Msg;
 
-use crate::host::{self, Call};
+use crate::host::Call;
 
 #[cfg(windows)]
 use shell_core::sys::desk as native;
@@ -39,7 +39,7 @@ pub fn init() {
                 let now = native::online();
                 if now != last {
                     last = now;
-                    host::event("net.online", json!({ "online": now }));
+                    crate::modules::boot::online(now);
                 }
             }
         });

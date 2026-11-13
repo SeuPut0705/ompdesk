@@ -69,7 +69,7 @@ export interface WebHostDeps {
 		/** The window missed pushes: its tabs' next streamed update carries the whole message (`SidecarPool.resnapshotWindow`). */
 		resnapshot(win: ClientWindow): void;
 	};
-	/** `MediaStreams.handle`: answers a range request for an `omp-media://` stream. */
+	/** Answers a range request for an `omp-media://` stream, which the shell serves (`mediaResponse`, `boot.mediaHead`). */
 	openMedia: (url: string, range: string | undefined) => Promise<Response>;
 	/** The host's own screen: open a file (launcher types are only revealed), reveal it, open a link. */
 	shell: {

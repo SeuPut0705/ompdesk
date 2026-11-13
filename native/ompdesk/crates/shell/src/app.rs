@@ -78,20 +78,36 @@ pub fn parse_init(params: &Value) -> AppInit {
                 .collect()
         })
         .unwrap_or_default();
-    let schemes = params
+    // The shell's own custom schemes (PROTOCOL.md §15.9): `omp-media://` (players, served by `boot`) and `omp-visual://`
+    // (the agent's visuals in the Preview, served on its partition). Electron's `stream` privilege has no CEF flag.
+    let mut schemes = vec![
+        SchemeSpec {
+            name: "omp-media".into(),
+            options: scheme_options(&serde_json::json!({ "standard": true, "secure": true })),
+        },
+        SchemeSpec {
+            name: "omp-visual".into(),
+            options: scheme_options(
+                &serde_json::json!({ "standard": true, "secure": true, "supportFetchAPI": true }),
+            ),
+        },
+    ];
+    for spec in params
         .get("schemes")
         .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|s| {
-                    Some(SchemeSpec {
-                        name: s.get("scheme")?.as_str()?.to_string(),
-                        options: scheme_options(s.get("privileges").unwrap_or(&Value::Null)),
-                    })
-                })
-                .collect()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            Some(SchemeSpec {
+                name: s.get("scheme")?.as_str()?.to_string(),
+                options: scheme_options(s.get("privileges").unwrap_or(&Value::Null)),
+            })
         })
-        .unwrap_or_default();
+    {
+        if !schemes.iter().any(|known| known.name == spec.name) {
+            schemes.push(spec);
+        }
+    }
     AppInit {
         switches,
         schemes,
