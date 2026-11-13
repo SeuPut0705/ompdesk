@@ -303,11 +303,12 @@ impl Admission {
     }
 
     /// `DispatchFails`: the dispatch failed or its answer never came. The entry ends and its place goes back; it is
-    /// never queued again, because a dispatch whose answer was lost may have started the run.
+    /// never queued again, because a dispatch whose answer was lost may have started the run. An entry a newer start
+    /// superseded while its dispatch was awaited (`Cancelling`) ends the same way: no run of it exists to end later.
     pub fn dispatch_failed(&mut self, id: &str) {
         if let Some(entry) = self
             .entry_mut(id)
-            .filter(|entry| entry.stage == Stage::Dispatching)
+            .filter(|entry| matches!(entry.stage, Stage::Dispatching | Stage::Cancelling))
         {
             entry.stage = Stage::Over(Ended::Failed);
         }
@@ -500,6 +501,39 @@ mod tests {
         assert_eq!(queue.entry("b1").unwrap().stage, Stage::Over(Ended::Failed));
         assert_eq!(queue.admit(2).map(|ask| ask.id), Some("b2".into()));
         assert_eq!(queue.admit(3), None);
+    }
+
+    #[test]
+    fn a_run_superseded_while_its_dispatch_is_awaited_frees_its_place_when_the_dispatch_fails() {
+        let mut queue = pools(1, 40);
+        queue.start(ask("old", Lane::Branch, "github-macos", "feat", "d1"), 0);
+        assert_eq!(queue.admit(1).map(|ask| ask.id), Some("old".into()));
+        // A newer start of the same key arrives while old's dispatch is on its way.
+        let started = queue.start(ask("new", Lane::Branch, "github-macos", "feat", "d2"), 2);
+        assert_eq!(started.cancel, vec!["old".to_owned()]);
+        assert_eq!(queue.entry("old").unwrap().stage, Stage::Cancelling);
+        // The dispatch failed: no run exists, so no run will ever end and give the place back.
+        queue.dispatch_failed("old");
+        assert_eq!(
+            queue.entry("old").unwrap().stage,
+            Stage::Over(Ended::Failed)
+        );
+        assert_eq!(queue.admit(3).map(|ask| ask.id), Some("new".into()));
+    }
+
+    #[test]
+    fn a_run_superseded_while_its_dispatch_is_awaited_keeps_its_place_when_the_dispatch_went_through()
+     {
+        let mut queue = pools(1, 40);
+        queue.start(ask("old", Lane::Branch, "github-macos", "feat", "d1"), 0);
+        queue.admit(1);
+        queue.start(ask("new", Lane::Branch, "github-macos", "feat", "d2"), 2);
+        queue.dispatched("old");
+        // The run exists and is being cancelled: its place is free only once GitHub shows it ended.
+        assert_eq!(queue.entry("old").unwrap().stage, Stage::Cancelling);
+        assert_eq!(queue.admit(3), None);
+        queue.cancel_landed("old");
+        assert_eq!(queue.admit(4).map(|ask| ask.id), Some("new".into()));
     }
 
     #[test]

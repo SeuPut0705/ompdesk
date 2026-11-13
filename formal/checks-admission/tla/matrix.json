@@ -50,6 +50,11 @@
 			"timeoutSec": 1800
 		},
 		{
+			"name": "liveness-a-dispatch-that-fails-after-a-supersede",
+			"config": "MC_live_supersede.cfg",
+			"expect": "pass"
+		},
+		{
 			"name": "one-pool-two-release-jobs-five-jobs",
 			"config": "MC.cfg",
 			"constants": {

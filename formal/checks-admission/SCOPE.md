@@ -67,6 +67,7 @@ The frozen set is `Properties.md`.
 | `MC_supersede.cfg` | hosted pool of 2; release, land, two branch jobs and an outside job, all one repo, ref and workflow; pause on |
 | `MC_reuse.cfg` | hosted pool of 2; three branch jobs, two of one digest and two of one key |
 | `MC_live.cfg`, `MC_live_account.cfg` | as `MC.cfg` (no pause) and `MC_account.cfg`, under `Fairness`: the two liveness properties |
+| `MC_live_supersede.cfg` | one heavy slot; a release job and two branch jobs of one key, under `Fairness`: P10 when a start supersedes a job whose dispatch is still awaited and that dispatch then fails (added 14 Nov 2026 after the review found the place kept for good) |
 | deep | one heavy pool of 2 slots, two release jobs, two branch jobs, one outside job |
 
 The real limits (5 and 40) are larger. The properties compare counts with limits and order entries by lane and arrival; nothing in them depends on the limit's size beyond "full" and "not full", which a limit of 1 or 2 reaches. States, depth and times are in `evidence/` and in the report.

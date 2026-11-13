@@ -229,6 +229,16 @@
 			"config": "MC_live.cfg",
 			"isolate": true,
 			"deadlock": false
+		},
+		{
+			"name": "a-dispatch-failing-after-a-supersede-keeps-its-place",
+			"why": "A newer start supersedes an entry while its dispatch is awaited (cancelling); the dispatch then fails, and only an entry still dispatching is ended: no run of it exists to be seen ending, so its place is never given back and the release job behind it waits for good.",
+			"search": "IF @ \\in {\"dispatching\", \"cancelling\"} THEN \"failed\" ELSE @",
+			"replace": "IF @ \\in {\"dispatching\"} THEN \"failed\" ELSE @",
+			"breaks": "ReleaseEventuallyAdmitted",
+			"config": "MC_live_supersede.cfg",
+			"isolate": true,
+			"deadlock": false
 		}
 	]
 }

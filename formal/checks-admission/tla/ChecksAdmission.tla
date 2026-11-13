@@ -78,9 +78,11 @@ VARIABLES
     lapsed,   \* held entries whose lease ran out before a heartbeat renewed it
     paused,   \* the owner paused admission
     admits,   \* ghost: job -> how many times the hub took a place and dispatched it
-    at        \* ghost: job -> the arrival number `next` had when the job last took a place (0: never)
+    at,       \* ghost: job -> the arrival number `next` had when the job last took a place (0: never)
+    sent,     \* jobs whose dispatch was sent and whose answer has not come
+    launched  \* jobs whose dispatch GitHub accepted: a run of theirs exists
 
-vars == <<state, seq, next, lapsed, paused, admits, at>>
+vars == <<state, seq, next, lapsed, paused, admits, at, sent, launched>>
 
 \* A job that ended, one way or another.
 Over == {"refused", "reused", "failed", "green", "red", "cancelled", "expired", "gone"}
@@ -94,6 +96,8 @@ TypeOK ==
     /\ paused \in BOOLEAN
     /\ admits \in [Jobs -> 0 .. 2]
     /\ at \in [Jobs -> 0 .. Cardinality(Jobs) + 1]
+    /\ sent \subseteq Jobs
+    /\ launched \subseteq Jobs
 
 Init ==
     /\ state = [j \in Jobs |-> "none"]
@@ -103,6 +107,8 @@ Init ==
     /\ paused = FALSE
     /\ admits = [j \in Jobs |-> 0]
     /\ at = [j \in Jobs |-> 0]
+    /\ sent = {}
+    /\ launched = {}
 
 \* ============================ What is true of the pools ============================
 
@@ -177,7 +183,7 @@ Start(j) ==
                         ELSE IF state[x] = "held" THEN "cancelled" ELSE "cancelling"]
     /\ seq' = [seq EXCEPT ![j] = next]
     /\ next' = next + 1
-    /\ UNCHANGED <<lapsed, paused, admits, at>>
+    /\ UNCHANGED <<lapsed, paused, admits, at, sent, launched>>
 
 \* The pump: the first live entry in line that has a place takes it, and its dispatch is sent. One step: the place
 \* is in the ledger before the dispatch's `await`.
@@ -195,23 +201,29 @@ Admit(j) ==
     /\ state' = [state EXCEPT ![j] = "dispatching"]
     /\ admits' = [admits EXCEPT ![j] = @ + 1]
     /\ at' = [at EXCEPT ![j] = next]
-    /\ UNCHANGED <<seq, next, lapsed, paused>>
+    /\ sent' = sent \cup {j}
+    /\ UNCHANGED <<seq, next, lapsed, paused, launched>>
 
-\* The dispatch was accepted: the run exists.
+\* The dispatch was accepted: the run exists. An entry a newer start superseded while its dispatch was awaited stays
+\* `cancelling`: its run now exists and frees the place when GitHub shows it ended.
 \* @code native/ompdesk/crates/core/src/checks/admission.rs:296-303 Admission::dispatched
 \* @code native/ompdesk/crates/core/src/checks/hub.rs:498-546 Core::dispatch: the poller's claim, then GitHub's dispatch; its answer decides Dispatched or DispatchFails
 Dispatched(j) ==
-    /\ state[j] = "dispatching"
-    /\ state' = [state EXCEPT ![j] = "running"]
+    /\ j \in sent
+    /\ state' = [state EXCEPT ![j] = IF @ = "dispatching" THEN "running" ELSE @]
+    /\ sent' = sent \ {j}
+    /\ launched' = launched \cup {j}
     /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
 
 \* The dispatch failed, or its answer never came: the entry ends and its place goes back. It is never queued again,
-\* because a dispatch whose answer was lost may have started the run.
-\* @code native/ompdesk/crates/core/src/checks/admission.rs:307-314 Admission::dispatch_failed: never put back in the queue
+\* because a dispatch whose answer was lost may have started the run. An entry superseded while its dispatch was
+\* awaited ends the same way: no run of it exists, so none will end and free its place.
+\* @code native/ompdesk/crates/core/src/checks/admission.rs:308-315 Admission::dispatch_failed: never put back in the queue, also from cancelling
 DispatchFails(j) ==
-    /\ state[j] = "dispatching"
-    /\ state' = [state EXCEPT ![j] = "failed"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
+    /\ j \in sent
+    /\ state' = [state EXCEPT ![j] = IF @ \in {"dispatching", "cancelling"} THEN "failed" ELSE @]
+    /\ sent' = sent \ {j}
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, launched>>
 
 \* The poller shows the run ended (a job the hub governs: green or red; any other: only that it is gone).
 \* @code native/ompdesk/crates/core/src/checks/admission.rs:317-329 Admission::run_ended: a green one may be reused on its digest
@@ -220,14 +232,15 @@ RunEnds(j) ==
     /\ state[j] = "running"
     /\ \E verdict \in (IF j \in Outside THEN {"gone"} ELSE {"green", "red"}) :
           state' = [state EXCEPT ![j] = verdict]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
 
-\* The poller shows a superseded run ended: only now is its place free.
+\* The poller shows a superseded run ended: only now is its place free. Only a run that exists can be seen to end.
 \* @code native/ompdesk/crates/core/src/checks/admission.rs:332-339 Admission::cancel_landed
 CancelLands(j) ==
     /\ state[j] = "cancelling"
+    /\ j \in launched
     /\ state' = [state EXCEPT ![j] = "cancelled"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
 
 \* The lease sweep, or a heartbeat that arrives after its lease lapsed: the entry leaves the queue and its owner is
 \* told `expired`.
@@ -236,14 +249,14 @@ CancelLands(j) ==
 Reap(j) ==
     /\ j \in lapsed /\ state[j] = "held"
     /\ state' = [state EXCEPT ![j] = "expired"]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, at, sent, launched>>
 
 \* Only under LateHeartbeatRenews: the heartbeat handler renews a lease without reading its deadline.
 Renew(j) ==
     /\ LateHeartbeatRenews
     /\ j \in lapsed /\ state[j] = "held"
     /\ lapsed' = lapsed \ {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits, at>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched>>
 
 \* The owner's one control.
 \* @code native/ompdesk/crates/core/src/checks/admission.rs:373-375 Admission::pause
@@ -251,12 +264,12 @@ Renew(j) ==
 Pause ==
     /\ MayPause /\ ~paused
     /\ paused' = TRUE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits, at>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched>>
 
 Resume ==
     /\ MayPause /\ paused
     /\ paused' = FALSE
-    /\ UNCHANGED <<state, seq, next, lapsed, admits, at>>
+    /\ UNCHANGED <<state, seq, next, lapsed, admits, at, sent, launched>>
 
 \* ============================ The environment ============================
 
@@ -267,7 +280,7 @@ OutsideStarts(j) ==
     /\ Free(j)
     /\ state' = [state EXCEPT ![j] = "running"]
     /\ at' = [at EXCEPT ![j] = next]
-    /\ UNCHANGED <<seq, next, lapsed, paused, admits>>
+    /\ UNCHANGED <<seq, next, lapsed, paused, admits, sent, launched>>
 
 \* A lease's time runs out with no heartbeat (the owner died, slept, or lost its link).
 Lapse(j) ==
@@ -275,7 +288,7 @@ Lapse(j) ==
     /\ state[j] = "held"
     /\ j \notin lapsed
     /\ lapsed' = lapsed \cup {j}
-    /\ UNCHANGED <<state, seq, next, paused, admits, at>>
+    /\ UNCHANGED <<state, seq, next, paused, admits, at, sent, launched>>
 
 \* Every job is over: nothing is left to do.
 Terminated == (\A j \in Jobs : state[j] \in Over) /\ UNCHANGED vars
