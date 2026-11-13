@@ -566,8 +566,10 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 				const rig = await downloaded(readFileSync(SYSTEM_EXE));
 				await rig.updater.post("quit", { trigger: "quit" });
 				await rig.logs.until(isLog("swap", "helper"));
-				await rig.close();
+				// Read before the close: the harness removes the private profile once the shell has exited.
 				expect(marker(rig)).toMatchObject({ to: "2.0.0", mode: "nsis", trigger: "quit" });
+				// The shell's `shutdown` joins the installer's start; the close resolves only once the shell has exited.
+				await rig.close();
 			},
 		);
 	});
