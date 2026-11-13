@@ -35,21 +35,15 @@ import {
 	User,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-import {
-	type Decision,
-	type GateStatus,
-	type Lane,
-	POLICY_ACTIONS,
-	type Pool,
-	type Run,
-	type RunResult,
-} from "../../../shared/checks-contract";
+import type { Decision, GateStatus, POLICY_ACTIONS, Pool, Run, RunResult } from "../../../shared/checks-contract";
 import type { ChecksFrame } from "../../../shared/checks-frame";
 import {
 	decisionFor,
+	gateJobs,
 	gateName,
 	gateProgress,
 	jobTally,
+	type Lane,
 	type LaneGroup,
 	lastAnswer,
 	OS_NAME,
@@ -177,6 +171,29 @@ function startedBy(run: Run, frame: ChecksFrame, t: Translate): string[] {
 	return [who, where].filter(part => part !== null);
 }
 
+/**
+ * Where a gate stands, from the jobs it selects: where they run and how long they took, how many wait, else its
+ * state in a word.
+ */
+function gateAside(status: GateStatus, frame: ChecksFrame, t: Translate): string {
+	const jobs = gateJobs(status, frame.snapshot);
+	const state = t(`checks.gate.state.${status.state}`);
+	if (jobs.length === 0) return state;
+	const pools = [...new Set(jobs.map(job => job.pool))].flatMap(id => {
+		const pool = frame.snapshot.pools.find(entry => entry.id === id);
+		return pool ? [poolName(pool, frame.names)] : [];
+	});
+	const waiting = jobs.filter(job => job.state === "held" || job.state === "queued").length;
+	const starts = jobs.flatMap(job => job.startedAt ?? []);
+	const ends = jobs.flatMap(job => job.endedAt ?? []);
+	const parts = [pools.join(", ")];
+	if (waiting > 0) parts.push(t("checks.gate.waitingJobs", { count: waiting }));
+	else if (starts.length > 0 && ends.length === jobs.length)
+		parts.push(formatSpanCompact(Math.max(...ends) - Math.min(...starts)));
+	else parts.push(state);
+	return parts.filter(Boolean).join(" · ");
+}
+
 function ReleaseCard({ release, frame }: { release: ReleaseView; frame: ChecksFrame }) {
 	const t = useT();
 	const run = release.runs[0];
@@ -232,8 +249,8 @@ function ReleaseCard({ release, frame }: { release: ReleaseView; frame: ChecksFr
 						>
 							<Icon aria-hidden className={cx("size-4 shrink-0", color)} />
 							<span className="min-w-0 flex-1 truncate text-sc-sm text-(--sc-text)">{gateName(status)}</span>
-							<span className="shrink-0 text-sc-xs text-(--sc-text-muted)">
-								{t(`checks.gate.state.${status.state}`)}
+							<span className="shrink-0 text-sc-xs text-(--sc-text-muted) tabular-nums">
+								{gateAside(status, frame, t)}
 							</span>
 						</li>
 					);
@@ -473,16 +490,12 @@ const DECISION_ICON: Record<PolicyAction, LucideIcon> = {
 	"rerun-failed": RotateCcw,
 };
 
-const isPolicyAction = (action: string): action is PolicyAction =>
-	(POLICY_ACTIONS as readonly string[]).includes(action);
-
 /** How many of the newest decisions the log shows; the hub keeps the rest. */
 const DECISIONS_SHOWN = 8;
 
-/** One sentence per policy action; an action the contract's list does not name is shown as the hub wrote it. */
+/** One sentence per policy action. */
 function decisionText(decision: Decision, run: Run | undefined, t: Translate): string {
 	const target = run ? `${repoName(run.repo)} · ${run.ref}` : decision.run;
-	if (!isPolicyAction(decision.action)) return t("checks.decisions.other", { action: decision.action, target });
 	if (decision.action === "hold" && run) {
 		const count = run.jobs.filter(job => job.state === "held").length;
 		if (count > 0) return t("checks.decisions.holdJobs", { count, plural: plural(count), target });
@@ -505,7 +518,7 @@ function DecisionsCard({ frame }: { frame: ChecksFrame }) {
 			) : (
 				<ul className="flex flex-col gap-3">
 					{newest.map(decision => {
-						const Icon = isPolicyAction(decision.action) ? DECISION_ICON[decision.action] : Scale;
+						const Icon = DECISION_ICON[decision.action];
 						return (
 							<li
 								className="flex min-w-0 gap-2"

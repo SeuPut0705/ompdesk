@@ -1433,14 +1433,13 @@ app.whenReady().then(async () => {
 					`[checks] the scripted hub took no snapshot: ${error instanceof Error ? error.message : String(error)}`,
 				),
 			);
-	const hereId = (await remoteIdentity).deviceId;
 	const checksRelay = new ChecksRelay({
 		hub: checksHub,
 		names: async snapshot =>
 			testChecks !== undefined
 				? sampleNames()
 				: namesFor(snapshot, {
-						here: { id: hereId, name: devices.deviceName() },
+						here: { id: "local", name: devices.deviceName() },
 						hosts: devices.state().hosts,
 						sessions: (await sessionIndex.listKnown()) ?? [],
 					}),

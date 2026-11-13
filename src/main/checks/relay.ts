@@ -20,7 +20,7 @@ export interface ChecksRelayDeps {
 	onLost(listener: () => void): () => void;
 }
 
-const NO_NAMES: ChecksNames = { devices: {}, sessions: {}, goals: {} };
+const NO_NAMES: ChecksNames = { devices: {}, sessions: {} };
 
 export class ChecksRelay {
 	readonly #deps: ChecksRelayDeps;
@@ -78,7 +78,7 @@ export interface NameSources {
 
 /** The names of the ids a snapshot holds, and of no other (a frame never carries the whole session list). */
 export function namesFor(snapshot: Snapshot, sources: NameSources): ChecksNames {
-	const names: ChecksNames = { devices: {}, sessions: {}, goals: {} };
+	const names: ChecksNames = { devices: {}, sessions: {} };
 	const device = (id: string) => {
 		if (id === sources.here.id) names.devices[id] = { name: sources.here.name, here: true };
 		else {

@@ -10,15 +10,17 @@ import {
 	type GateStatus,
 	type Job,
 	LANES,
-	type Lane,
 	type Origin,
-	type Os,
+	type OS,
 	type Pool,
 	type Run,
 	type RunResult,
 	type Snapshot,
 } from "../../../shared/checks-contract";
 import type { ChecksFrame, ChecksNames } from "../../../shared/checks-frame";
+
+export type Os = (typeof OS)[number];
+export type Lane = (typeof LANES)[number];
 
 export const OS_NAME: Record<Os, string> = { macos: "macOS", windows: "Windows", linux: "Linux" };
 
@@ -109,6 +111,14 @@ export function gateProgress(release: ReleaseView): { green: number; total: numb
 	return { green: release.gates.filter(status => status.state === "green").length, total: release.gates.length };
 }
 
+/** The jobs of a gate's run that the gate selects by name (every job of the run when it names none). */
+export function gateJobs(status: GateStatus, snapshot: Snapshot): Job[] {
+	const run = snapshot.runs.find(entry => entry.id === status.run);
+	if (!run) return [];
+	const names = status.gate.jobs.jobs;
+	return names.length === 0 ? run.jobs : run.jobs.filter(job => names.includes(job.name));
+}
+
 /** A pool a release's jobs wait at, and how many of them. */
 export interface ReleaseWait {
 	pool: Pool;
@@ -117,10 +127,7 @@ export interface ReleaseWait {
 	full: boolean;
 }
 
-/**
- * What a release's runs wait on: each pool where a job of theirs is held or queued, the fullest first. The contract
- * does not say which jobs a gate owns, so this is said of the release's runs, never of one gate.
- */
+/** What a release's runs wait on: each pool where a job of theirs is held or queued, the fullest first. */
 export function releaseWaits(release: ReleaseView, snapshot: Snapshot): ReleaseWait[] {
 	const counts = new Map<string, number>();
 	for (const run of release.runs) {
@@ -259,7 +266,7 @@ export function originView(origin: Origin, names: ChecksNames): OriginView {
 	return {
 		kind: "session",
 		title: session?.title,
-		goal: origin.goal === undefined ? undefined : names.goals[origin.goal],
+		goal: origin.goal,
 		device: names.devices[origin.device]?.name,
 		autopilot: session?.autopilot,
 	};
@@ -272,11 +279,17 @@ export function repoName(repo: string): string {
 
 export const shortSha = (sha: string) => sha.slice(0, 7);
 
-/** The run a session waits on, for the work board's row: its newest live run. */
-export function waitedRun(snapshot: Snapshot, session: string): Run | null {
+/**
+ * The run a session waits on, for the work board's row: its newest live run. A session is named by its saved id, or
+ * its tab's id before its file exists, on its computer (`local` for the hub's own).
+ */
+export function waitedRun(snapshot: Snapshot, session: { ids: readonly string[]; device: string }): Run | null {
 	let newest: Run | null = null;
 	for (const run of snapshot.runs) {
-		if (run.origin.kind !== "session" || run.origin.session !== session || !runIsLive(run)) continue;
+		const { origin } = run;
+		if (origin.kind !== "session" || origin.device !== session.device || !session.ids.includes(origin.session))
+			continue;
+		if (!runIsLive(run)) continue;
 		if (!newest || (runQueuedAt(run) ?? 0) > (runQueuedAt(newest) ?? 0)) newest = run;
 	}
 	return newest;

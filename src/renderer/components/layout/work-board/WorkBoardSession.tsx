@@ -347,8 +347,14 @@ export function useSessionBoard(turn: TurnWindow | null = null): SessionBoard {
 	const check = useLastCheck(newest);
 	const jobs = useBackgroundJobs();
 	const sessionId = useSessionStore(state => state.sessionId);
+	const runtimeTabId = useRuntimeTabId();
+	const tab = useTabsStore(state => state.tabs.find(entry => entry.id === (runtimeTabId ?? state.activeTabId)));
+	const tabId = tab?.id;
+	const device = tab?.device ?? "local";
 	const hubRun = useChecksStore(state =>
-		state.frame && sessionId ? waitedRun(state.frame.snapshot, sessionId) : null,
+		state.frame
+			? waitedRun(state.frame.snapshot, { ids: [sessionId, tabId].filter((id): id is string => !!id), device })
+			: null,
 	);
 	const peers = useSessionStore(state => state.checkoutPeers);
 	const messages = useMessagesStore(state => state.messages);

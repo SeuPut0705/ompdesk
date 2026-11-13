@@ -92,7 +92,12 @@ function QueueRowView({ entry, previous, anyBatch }: { entry: QueueRow; previous
 				{entry.position}
 			</span>
 			<span className="min-w-0 flex-1 text-sc-sm text-(--sc-text)">
-				<span>#{entry.pr}</span>{" "}
+				{entry.pr === undefined ? (
+					<span className="font-mono text-sc-xs">{entry.branch}</span>
+				) : (
+					<span>#{entry.pr}</span>
+				)}{" "}
+				<span className="break-words">{entry.title}</span>{" "}
 				<span className="font-mono text-sc-xs text-(--sc-text-muted)">{shortSha(entry.sha)}</span>
 			</span>
 			<Badge className="shrink-0" variant={ENTRY_BADGE[entry.state]}>

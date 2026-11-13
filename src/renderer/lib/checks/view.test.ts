@@ -29,6 +29,7 @@ const run = (id: string): Run => {
 };
 const job = (state: Job["state"], os: Job["os"] = "macos"): Job => ({
 	id: `${os}-${state}`,
+	name: `${os} ${state}`,
 	os,
 	pool: `github-${os}`,
 	state,
@@ -134,23 +135,25 @@ describe("runs", () => {
 		]);
 	});
 
-	it("finds the live run a session waits on, never a finished one or another session's", () => {
+	it("finds the live run a session waits on by its saved or tab id on its computer, never a finished one", () => {
 		const snapshot = sampleSnapshot(NOW);
-		expect(waitedRun(snapshot, "0a1b2c3d")?.id).toBe("run-41");
-		expect(waitedRun(snapshot, "4e5f6a7b")?.id).toBe("run-42");
-		expect(waitedRun(snapshot, "nobody")).toBeNull();
+		expect(waitedRun(snapshot, { ids: ["0a1b2c3d"], device: "local" })?.id).toBe("run-41");
+		expect(waitedRun(snapshot, { ids: ["tab-9", "4e5f6a7b"], device: "mac-mini" })?.id).toBe("run-42");
+		expect(waitedRun(snapshot, { ids: ["4e5f6a7b"], device: "local" })).toBeNull();
+		expect(waitedRun(snapshot, { ids: ["nobody"], device: "local" })).toBeNull();
 		const ended = { ...snapshot, runs: snapshot.runs.map(entry => ({ ...entry, verdict: "green" as const })) };
-		expect(waitedRun(ended, "0a1b2c3d")).toBeNull();
+		expect(waitedRun(ended, { ids: ["0a1b2c3d"], device: "local" })).toBeNull();
 	});
 });
 
 describe("who and what", () => {
-	it("names a session's origin from the frame's names and leaves an unknown id unnamed", () => {
+	it("names a session's origin from the frame's names, its goal as written, and leaves an unknown id unnamed", () => {
 		const names = sampleNames();
-		expect(originView(run("run-41").origin, names)).toEqual({
+		const origin = run("run-41").origin;
+		expect(originView(origin, names)).toEqual({
 			kind: "session",
 			title: "Ship 1.4 (Autopilot)",
-			goal: "Ship 1.4",
+			goal: origin.kind === "session" ? origin.goal : undefined,
 			device: "MacBook",
 			autopilot: true,
 		});

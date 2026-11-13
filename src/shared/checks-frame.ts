@@ -5,14 +5,15 @@
  */
 import type { Snapshot } from "./checks-contract";
 
-/** Names for the ids of one snapshot. An id main cannot name is absent, and the page says so in its own words. */
+/**
+ * Names for the ids of one snapshot. An id main cannot name is absent, and the page says so in its own words. A goal
+ * needs none: `Origin.goal` is the goal's own text.
+ */
 export interface ChecksNames {
-	/** By device id. `here`: the computer whose hub this is. */
+	/** By device id (`local`: the hub's own computer). `here`: the computer whose hub this is. */
 	devices: Record<string, { name: string; here?: true }>;
-	/** By `Origin.session`. `autopilot`: the session is an Autopilot run's. */
+	/** By `Origin.session`, the saved session id (or a tab id before its file exists). `autopilot`: an Autopilot run's. */
 	sessions: Record<string, { title: string; autopilot?: true }>;
-	/** A goal's text by `Origin.goal`. */
-	goals: Record<string, string>;
 }
 
 export interface ChecksFrame {

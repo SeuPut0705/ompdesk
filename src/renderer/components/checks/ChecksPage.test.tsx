@@ -36,6 +36,11 @@ Object.assign(HTMLElement.prototype, {
 });
 
 const busy = (): ChecksFrame => checksFrame("busy", FIXED_NOW, false);
+/** The goal the release's run names: its own text, shown as written. */
+const GOAL = (() => {
+	const origin = busy().snapshot.runs.find(run => run.id === "run-41")?.origin;
+	return origin?.kind === "session" ? (origin.goal ?? "") : "";
+})();
 const withSnapshot = (frame: ChecksFrame, change: Partial<Snapshot>): ChecksFrame => ({
 	...frame,
 	snapshot: { ...frame.snapshot, ...change },
@@ -109,9 +114,11 @@ describe("Checks page", () => {
 		const release = text(view, '[data-check-release="v1.4.0"]');
 		expect(release).toContain("Release v1.4.0");
 		expect(release).toContain("1 of 2 gates green");
-		expect(release).toContain("Started by goal “Ship 1.4”");
+		expect(release).toContain(`Started by goal “${GOAL}”`);
 		expect(release).toContain("Autopilot run on MacBook");
-		expect(text(view, '[data-check-gate="gate-mac"]')).toContain("mac-smoke, mac-native");
+		const gateMac = text(view, '[data-check-gate="gate-mac"]');
+		expect(gateMac).toContain("mac-smoke, mac-native");
+		expect(gateMac).toContain("GitHub macOS");
 		expect(view.querySelector('[data-check-gate="gate-mac"]')?.getAttribute("data-state")).toBe("running");
 		expect(view.querySelector("[data-check-waits]")).toBeNull();
 
@@ -125,6 +132,7 @@ describe("Checks page", () => {
 							...run.jobs,
 							{
 								id: "job-413",
+								name: "mac-native",
 								os: "macos" as const,
 								pool: "github-macos",
 								state: "queued" as const,
@@ -149,7 +157,7 @@ describe("Checks page", () => {
 		expect(release).toContain("9f2c1d7");
 		expect(release).toContain("macOS 1 running · Linux done");
 		expect(release).toContain("Ship 1.4 (Autopilot)");
-		expect(release).toContain("Goal “Ship 1.4” · on MacBook");
+		expect(release).toContain(`Goal “${GOAL}” · on MacBook`);
 		expect(release).toContain("Running");
 		const held = text(view, '[data-check-run="run-42"]');
 		expect(held).toContain("Held");
@@ -187,7 +195,7 @@ describe("Checks page", () => {
 	it("writes one sentence per policy action", async () => {
 		const frame = busy();
 		const decisions = [
-			{ policy: "release-first", run: "run-42", action: "hold", reason: "macOS full", at: FIXED_NOW },
+			{ policy: "release-first", run: "run-42", action: "hold" as const, reason: "macOS full", at: FIXED_NOW },
 		];
 		const view = await mount(withSnapshot(frame, { decisions }));
 		expect(text(view, '[data-check-decision="hold"]')).toContain("Held 1 job of app · omp/agent/search-index");

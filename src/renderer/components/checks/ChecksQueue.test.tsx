@@ -41,7 +41,9 @@ const entry = (pr: number, position: number, over: Partial<QueueEntry> = {}): Qu
 	id: `q-${pr}`,
 	repo: "example/app",
 	base: "main",
+	branch: `omp/agent/pr-${pr}`,
 	pr,
+	title: `Change ${pr}`,
 	sha: `${pr}a3c5e7092b4d6f8a0c2e4f6081a3c5e7092b4d6`,
 	lane: "land",
 	position,
@@ -59,7 +61,7 @@ describe("QueueCard", () => {
 		const host = await mount(<QueueCard frame={checksFrame("busy", FIXED_NOW, false)} />);
 		const rows = [...host.querySelectorAll("[data-queue-entry]")];
 		expect(rows).toHaveLength(1);
-		expect(rows[0]?.textContent).toContain("#128");
+		expect(rows[0]?.textContent).toContain("#128 Index the search results");
 		expect(rows[0]?.textContent).toContain("1a3c5e7");
 		expect(rows[0]?.textContent).toContain("testing");
 		expect(host.textContent).toContain("Batch batch-3 tests this pull request and lands it when green.");
@@ -78,6 +80,14 @@ describe("QueueCard", () => {
 		expect(rows.filter(row => row.endsWith("testing"))).toHaveLength(3);
 		expect(rows[3]?.endsWith("next batch")).toBe(true);
 		expect(host.textContent).toContain("Batch B-7 tests the 3 together and lands them in order when green.");
+	});
+
+	it("names an entry with no pull request by its branch", async () => {
+		const frame = withQueue([{ ...entry(1, 1), pr: undefined, branch: "omp/agent/docs", title: "Fix the docs" }]);
+		const host = await mount(<QueueCard frame={frame} />);
+		const text = host.querySelector("[data-queue-entry]")?.textContent ?? "";
+		expect(text).toContain("omp/agent/docs Fix the docs");
+		expect(text).not.toContain("#");
 	});
 
 	it("renders nothing for an empty queue", async () => {

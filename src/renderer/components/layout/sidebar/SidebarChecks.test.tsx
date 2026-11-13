@@ -125,6 +125,7 @@ describe("SidebarChecks", () => {
 
 		const queued = {
 			id: "job-queued",
+			name: "mac-smoke",
 			os: "macos" as const,
 			pool: "github-macos",
 			state: "queued" as const,

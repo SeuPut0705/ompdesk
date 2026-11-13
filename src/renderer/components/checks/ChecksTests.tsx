@@ -7,12 +7,12 @@
  * the value.
  */
 
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, HardDrive } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Os, Snapshot, TestHistory } from "../../../shared/checks-contract";
+import type { Snapshot, TestHistory } from "../../../shared/checks-contract";
 import type { ChecksFrame } from "../../../shared/checks-frame";
-import { OS_NAME, originView, poolName } from "../../lib/checks/view";
-import { formatDuration, uiLocale } from "../../lib/format";
+import { OS_NAME, type Os, originView, poolName, shortSha } from "../../lib/checks/view";
+import { formatAgo, formatBytes, formatDuration, formatSpanCompact, uiLocale } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { Badge, type BadgeVariant, Card, EmptyState, ProgressBar, SectionLabel } from "../common";
 import { originText } from "./ChecksQueue";
@@ -23,6 +23,7 @@ type Slowdown = Trends["slowdowns"][number];
 const SLOWDOWN_PERCENT = 30;
 const CLEAR_AFTER = 5;
 const DOTS = [1, 2, 3, 4, 5];
+const DIGEST_LENGTH = 12;
 const SPARK_WIDTH = 96;
 const SPARK_HEIGHT = 24;
 
@@ -38,20 +39,39 @@ const WARNING_TEXT = "text-(--sc-warning-on-soft)";
 
 const count = (value: number) => value.toLocaleString(uiLocale());
 
-/** A test's duration: milliseconds up to a second, whole seconds up to two minutes, then minutes and seconds. */
+const dollars = (value: number) =>
+	value.toLocaleString(uiLocale(), { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/** A test's duration: tenths of a second under ten, whole seconds up to two minutes, else `formatDuration`. */
 function durationText(ms: number): string {
-	if (ms < 1000 || ms >= 120_000) return formatDuration(ms);
+	if (ms < 10_000 || ms >= 120_000) return formatDuration(ms);
 	return `${Math.round(ms / 1000)}s`;
 }
 
-function Figure({ label, value, warning, sub }: { label: string; value: string; warning?: boolean; sub: string }) {
+type FigureTone = "plain" | "warning" | "success";
+
+const FIGURE_TEXT: Record<FigureTone, string> = {
+	plain: "text-(--sc-text)",
+	warning: WARNING_TEXT,
+	success: "text-(--sc-success-on-soft)",
+};
+
+function Figure({
+	label,
+	value,
+	tone = "plain",
+	sub,
+}: {
+	label: string;
+	value: string;
+	tone?: FigureTone;
+	sub?: string;
+}) {
 	return (
 		<Card className="flex flex-col gap-1" padding="lg" radius="lg">
 			<div className="text-sc-sm text-(--sc-text-muted)">{label}</div>
-			<div className={`text-sc-2xl font-semibold tabular-nums ${warning ? WARNING_TEXT : "text-(--sc-text)"}`}>
-				{value}
-			</div>
-			<div className="text-sc-xs text-(--sc-text-muted)">{sub}</div>
+			<div className={`text-sc-2xl font-semibold tabular-nums ${FIGURE_TEXT[tone]}`}>{value}</div>
+			{sub ? <div className="text-sc-xs text-(--sc-text-muted)">{sub}</div> : null}
 		</Card>
 	);
 }
@@ -62,6 +82,13 @@ function Figures({ trends }: { trends: Trends }) {
 	const quarantined = trends.tests.filter(entry => entry.state === "quarantined").length;
 	const fresh = trends.tests.filter(entry => entry.state === "active").length;
 	const clearing = trends.tests.filter(entry => entry.state === "quarantined" && entry.cleanSince > 0).length;
+	const { lostMs7d, lostMsPrev7d, savedByRerunMs7d, savedByReuseMs7d } = trends;
+	let lostSub: string | undefined;
+	if (lostMsPrev7d > 0 && lostMsPrev7d !== lostMs7d) {
+		lostSub = t(lostMs7d < lostMsPrev7d ? "checks.tests.lost.down" : "checks.tests.lost.up", {
+			span: formatSpanCompact(lostMsPrev7d),
+		});
+	}
 	return (
 		<div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(13rem, 1fr))" }}>
 			{trends.tests.length > 0 ? (
@@ -71,12 +98,32 @@ function Figures({ trends }: { trends: Trends }) {
 					value={count(open)}
 				/>
 			) : null}
+			{lostMs7d > 0 ? (
+				<Figure
+					label={t("checks.tests.lost.label")}
+					sub={lostSub}
+					tone="warning"
+					value={formatSpanCompact(lostMs7d)}
+				/>
+			) : null}
+			{savedByRerunMs7d > 0 ? (
+				<Figure
+					label={t("checks.tests.saved.label")}
+					sub={
+						savedByReuseMs7d > 0
+							? t("checks.tests.saved.reuse", { span: formatSpanCompact(savedByReuseMs7d) })
+							: undefined
+					}
+					tone="success"
+					value={formatSpanCompact(savedByRerunMs7d)}
+				/>
+			) : null}
 			{trends.slowdowns.length > 0 ? (
 				<Figure
 					label={t("checks.tests.slowdowns.label")}
 					sub={t("checks.tests.slowdowns.sub")}
+					tone="warning"
 					value={count(trends.slowdowns.length)}
-					warning
 				/>
 			) : null}
 		</div>
@@ -103,26 +150,50 @@ function CleanDots({ clean }: { clean: number }) {
 	);
 }
 
+function OsWord({ os }: { os: Os }) {
+	return <span className="font-sans text-sc-xs text-(--sc-text-muted)"> {OS_NAME[os]}</span>;
+}
+
 function FlakyRow({ entry, frame }: { entry: TestHistory; frame: ChecksFrame }) {
 	const t = useT();
-	const who =
-		entry.state === "quarantined" && entry.quarantinedBy
-			? originText(t, originView(entry.quarantinedBy, frame.names))
-			: null;
+	let note: string | null = null;
+	if (entry.state === "quarantined") {
+		const ago = entry.quarantinedAt === undefined ? "" : formatAgo(entry.quarantinedAt, frame.snapshot.asOf);
+		const who = entry.quarantinedBy
+			? t("checks.tests.note.quarantinedBy", {
+					who: originText(t, originView(entry.quarantinedBy, frame.names)),
+				})
+			: t("checks.tests.note.quarantined");
+		note = ago ? `${who} · ${ago}` : who;
+	} else if (entry.state === "cleared") {
+		const ago = entry.clearedAt === undefined ? "" : formatAgo(entry.clearedAt, frame.snapshot.asOf);
+		note = ago ? `${t("checks.tests.note.cleared")} · ${ago}` : t("checks.tests.note.cleared");
+	}
 	return (
 		<tr className="border-t border-(--sc-border-subtle)" data-flaky-test={entry.test}>
 			<td className={`${TD} max-w-[22rem] min-w-[12rem]`}>
-				<div className="font-mono text-sc-xs break-words text-(--sc-text)">{entry.name}</div>
-				{who ? (
-					<div className="mt-0.5 text-sc-xs text-(--sc-text-muted)">
-						{t("checks.tests.note.quarantinedBy", { who })}
-					</div>
-				) : null}
+				<div className="font-mono text-sc-xs break-words text-(--sc-text)">
+					{entry.name}
+					<OsWord os={entry.os} />
+				</div>
+				{note ? <div className="mt-0.5 text-sc-xs text-(--sc-text-muted)">{note}</div> : null}
 			</td>
 			<td className={TD}>
 				<Badge variant={STATE_BADGE[entry.state]}>{t(`checks.tests.state.${entry.state}`)}</Badge>
 			</td>
-			<td className={`${TD} whitespace-nowrap tabular-nums`}>{durationText(entry.p50Ms30d)}</td>
+			<td className={`${TD} whitespace-nowrap tabular-nums`}>
+				{t("checks.tests.failsOf", { fails: entry.fails7d, runs: entry.runs7d })}
+			</td>
+			<td className={TD}>
+				{entry.flakedOn ? (
+					<span className="font-mono text-sc-xs text-(--sc-text-secondary)">
+						{t("checks.tests.sameInputs")}
+						<span className="block text-(--sc-text-muted)">{entry.flakedOn.slice(0, DIGEST_LENGTH)}</span>
+					</span>
+				) : (
+					<span className="text-(--sc-text-muted)">—</span>
+				)}
+			</td>
 			<td className={TD}>
 				<CleanDots clean={entry.cleanSince} />
 			</td>
@@ -138,7 +209,7 @@ function FlakyTable({ trends, frame }: { trends: Trends; frame: ChecksFrame }) {
 				{t("checks.tests.flakyTable.title")}
 			</SectionLabel>
 			<Card className="overflow-x-auto" padding="none" radius="lg">
-				<table aria-label={t("checks.tests.flakyTable.title")} className="w-full min-w-[32rem] border-collapse">
+				<table aria-label={t("checks.tests.flakyTable.title")} className="w-full min-w-[40rem] border-collapse">
 					<thead>
 						<tr>
 							<th className={TH} scope="col">
@@ -148,7 +219,10 @@ function FlakyTable({ trends, frame }: { trends: Trends; frame: ChecksFrame }) {
 								{t("checks.tests.col.state")}
 							</th>
 							<th className={TH} scope="col">
-								{t("checks.tests.col.median")}
+								{t("checks.tests.col.fails")}
+							</th>
+							<th className={TH} scope="col">
+								{t("checks.tests.col.flakedOn")}
 							</th>
 							<th className={TH} scope="col">
 								{t("checks.tests.col.clearsAfter")}
@@ -203,7 +277,10 @@ function SlowdownRow({ entry }: { entry: Slowdown }) {
 	const slow = over !== null && over > SLOWDOWN_PERCENT;
 	return (
 		<tr className="border-t border-(--sc-border-subtle)" data-slowdown={entry.test}>
-			<td className={`${TD} max-w-[22rem] min-w-[12rem] font-mono text-sc-xs break-words`}>{entry.name}</td>
+			<td className={`${TD} max-w-[22rem] min-w-[12rem] font-mono text-sc-xs break-words`}>
+				{entry.name}
+				<OsWord os={entry.os} />
+			</td>
 			<td className={`${TD} whitespace-nowrap tabular-nums`}>{durationText(entry.p50Ms30d)}</td>
 			<td className={`${TD} whitespace-nowrap tabular-nums ${slow ? WARNING_TEXT : ""}`}>
 				{latest === undefined ? (
@@ -218,6 +295,9 @@ function SlowdownRow({ entry }: { entry: Slowdown }) {
 			<td className={TD}>
 				<Sparkline values={entry.lastMs} />
 			</td>
+			<td className={`${TD} font-mono text-sc-xs text-(--sc-text-secondary)`}>
+				{entry.sinceSha ? shortSha(entry.sinceSha) : <span className="text-(--sc-text-muted)">—</span>}
+			</td>
 		</tr>
 	);
 }
@@ -230,7 +310,7 @@ function SlowdownTable({ trends }: { trends: Trends }) {
 				{t("checks.tests.slowTable.title")}
 			</SectionLabel>
 			<Card className="overflow-x-auto" padding="none" radius="lg">
-				<table aria-label={t("checks.tests.slowTable.title")} className="w-full min-w-[30rem] border-collapse">
+				<table aria-label={t("checks.tests.slowTable.title")} className="w-full min-w-[36rem] border-collapse">
 					<thead>
 						<tr>
 							<th className={TH} scope="col">
@@ -244,6 +324,9 @@ function SlowdownTable({ trends }: { trends: Trends }) {
 							</th>
 							<th className={TH} scope="col">
 								{t("checks.tests.col.trend")}
+							</th>
+							<th className={TH} scope="col">
+								{t("checks.tests.col.since")}
 							</th>
 						</tr>
 					</thead>
@@ -315,19 +398,18 @@ function RunnerMinutes({ minutes }: { minutes: Trends["minutes"] }) {
 		<SideCard aside={monthText} title={t("checks.tests.minutes.title")}>
 			<ul className="flex flex-col gap-2">
 				{rows.map(entry => {
-					const os: Os = entry.os;
 					const amount = count(Math.round(entry.minutes));
 					return (
-						<li className="flex items-center gap-3 text-sc-sm" key={os}>
+						<li className="flex items-center gap-3 text-sc-sm" key={entry.os}>
 							<ProgressBar
 								ariaLabel={t("checks.tests.minutes.share", {
-									os: OS_NAME[os],
+									os: OS_NAME[entry.os],
 									minutes: amount,
 									month: monthText,
 								})}
 								className="min-w-0 flex-1"
 								color="var(--sc-text-muted)"
-								label={OS_NAME[os]}
+								label={OS_NAME[entry.os]}
 								labelCase="keep"
 								labelClassName="w-16 shrink-0 text-sc-sm text-(--sc-text)"
 								value={largest > 0 ? entry.minutes / largest : 0}
@@ -336,10 +418,16 @@ function RunnerMinutes({ minutes }: { minutes: Trends["minutes"] }) {
 							<span className="shrink-0 text-right tabular-nums">
 								{t("checks.tests.minutes.value", { minutes: amount })}
 							</span>
+							{entry.costUsd > 0 ? (
+								<span className="w-14 shrink-0 text-right text-(--sc-text-muted) tabular-nums">
+									≈ {dollars(entry.costUsd)}
+								</span>
+							) : null}
 						</li>
 					);
 				})}
 			</ul>
+			<p className="mt-3 text-sc-xs text-(--sc-text-muted)">{t("checks.tests.minutes.estimate")}</p>
 		</SideCard>
 	);
 }
@@ -364,6 +452,19 @@ function Adoption({ adoption }: { adoption: Snapshot["adoption"] }) {
 	);
 }
 
+function StoreLine({ bytes }: { bytes: number }) {
+	const t = useT();
+	return (
+		<Card className="flex flex-wrap items-center gap-x-3 gap-y-1" padding="row" radius="lg">
+			<HardDrive aria-hidden className="size-4 shrink-0 text-(--sc-text-muted)" />
+			<span className="min-w-0 flex-1 text-sc-sm text-(--sc-text)">
+				{t("checks.tests.store.text", { size: formatBytes(bytes) })}
+			</span>
+			<span className="text-sc-xs text-(--sc-text-muted)">{t("checks.tests.store.aside")}</span>
+		</Card>
+	);
+}
+
 /** Queue depth points grouped by pool id, each pool's points in time order. */
 function depthByPool(points: Trends["queueDepth"]): [string, Trends["queueDepth"]][] {
 	const groups = new Map<string, Trends["queueDepth"]>();
@@ -376,7 +477,15 @@ export function ChecksTests({ frame }: { frame: ChecksFrame }) {
 	const { trends, adoption, pools } = frame.snapshot;
 	const usage = adoption.started + adoption.refused + adoption.polls + adoption.wrongGreens > 0;
 	const hasHistory = trends.tests.length > 0 || trends.slowdowns.length > 0;
-	if (!hasHistory && trends.minutes.length === 0 && trends.queueDepth.length === 0 && !usage) {
+	const hasFigures = trends.lostMs7d > 0 || trends.savedByRerunMs7d > 0;
+	if (
+		!hasHistory &&
+		!hasFigures &&
+		trends.minutes.length === 0 &&
+		trends.queueDepth.length === 0 &&
+		trends.storeBytes === undefined &&
+		!usage
+	) {
 		return (
 			<EmptyState
 				description={t("checks.tests.empty.description")}
@@ -393,6 +502,7 @@ export function ChecksTests({ frame }: { frame: ChecksFrame }) {
 		}),
 		trends.minutes.length > 0 ? <RunnerMinutes key="minutes" minutes={trends.minutes} /> : null,
 		<Adoption adoption={adoption} key="adoption" />,
+		trends.storeBytes === undefined ? null : <StoreLine bytes={trends.storeBytes} key="store" />,
 	];
 	const main = hasHistory ? (
 		<div className="flex min-w-0 flex-col gap-6">
@@ -403,7 +513,7 @@ export function ChecksTests({ frame }: { frame: ChecksFrame }) {
 	const sideColumn = <div className="flex min-w-0 flex-col gap-4">{side}</div>;
 	return (
 		<div className="flex flex-col gap-6">
-			{hasHistory ? <Figures trends={trends} /> : null}
+			{hasHistory || hasFigures ? <Figures trends={trends} /> : null}
 			{main ? (
 				<div className="omp-checks-split">
 					{main}

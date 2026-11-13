@@ -8,6 +8,5 @@ export function sampleNames(ko = false): ChecksNames {
 			"0a1b2c3d": { title: ko ? "1.4 출시 (오토파일럿)" : "Ship 1.4 (Autopilot)", autopilot: true },
 			"4e5f6a7b": { title: ko ? "검색 색인" : "Search index" },
 		},
-		goals: { "goal-7": ko ? "1.4 출시" : "Ship 1.4" },
 	};
 }

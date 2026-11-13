@@ -54,6 +54,7 @@ export const en: Record<string, string> = {
 	"checks.gate.state.red": "failed",
 	"checks.gate.state.running": "running",
 	"checks.gate.state.waiting": "waiting",
+	"checks.gate.waitingJobs": "{count} waiting",
 
 	"checks.lane.release": "Release",
 	"checks.lane.land": "Landing",
@@ -132,7 +133,6 @@ export const en: Record<string, string> = {
 	"checks.decisions.batch": "Batched {target}",
 	"checks.decisions.quarantine": "Quarantined a test of {target}",
 	"checks.decisions.rerun-failed": "Reran the failed jobs of {target}",
-	"checks.decisions.other": "{action}: {target}",
 	"checks.decisions.empty": "Nothing decided yet",
 
 	"workBoard.session.hubCheck": "Check · {what}",
@@ -199,6 +199,7 @@ export const ko: Record<string, string> = {
 	"checks.gate.state.red": "실패",
 	"checks.gate.state.running": "실행 중",
 	"checks.gate.state.waiting": "기다림",
+	"checks.gate.waitingJobs": "{count}개 대기",
 
 	"checks.lane.release": "릴리스",
 	"checks.lane.land": "병합",
@@ -277,7 +278,6 @@ export const ko: Record<string, string> = {
 	"checks.decisions.batch": "{target}의 실행을 한데 묶었어요",
 	"checks.decisions.quarantine": "{target}의 테스트를 격리했어요",
 	"checks.decisions.rerun-failed": "{target}의 실패한 작업을 다시 실행했어요",
-	"checks.decisions.other": "{action}: {target}",
 	"checks.decisions.empty": "아직 정한 것이 없어요",
 
 	"workBoard.session.hubCheck": "검사 · {what}",

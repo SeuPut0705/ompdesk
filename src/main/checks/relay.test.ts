@@ -4,7 +4,7 @@ import { createFakeChecksHub, sampleSnapshot } from "../../shared/checks-fixture
 import type { ChecksFrame, ChecksNames } from "../../shared/checks-frame";
 import { ChecksRelay, namesFor } from "./relay";
 
-const NAMES: ChecksNames = { devices: { local: { name: "MacBook", here: true } }, sessions: {}, goals: {} };
+const NAMES: ChecksNames = { devices: { local: { name: "MacBook", here: true } }, sessions: {} };
 
 function subject(names: () => ChecksNames | Promise<ChecksNames> = () => NAMES) {
 	const hub = createFakeChecksHub();
@@ -90,7 +90,7 @@ describe("ChecksRelay", () => {
 		relay.start();
 		await hub.apply({ op: "snapshot", snapshot: sampleSnapshot(1_000) });
 		await settled();
-		expect(sent.at(-1)).toMatchObject({ names: { devices: {}, sessions: {}, goals: {} }, hub: "live" });
+		expect(sent.at(-1)).toMatchObject({ names: { devices: {}, sessions: {} }, hub: "live" });
 	});
 });
 
@@ -111,7 +111,6 @@ describe("namesFor", () => {
 		expect(names).toEqual({
 			devices: { local: { name: "MacBook", here: true }, "mac-mini": { name: "Mac mini" } },
 			sessions: { "0a1b2c3d": { title: "Ship 1.4" }, "4e5f6a7b": { title: "Search index" } },
-			goals: {},
 		});
 	});
 });
