@@ -79,9 +79,9 @@ pub fn sync_call(wc_id: u64, channel: &str, payload: Value, answer: impl FnOnce(
     stream::sync_call(wc_id, channel, payload, Box::new(answer));
 }
 
-/// A download the page started (always cancelled by the caller).
-pub fn download(wc_id: u64, url: &str) {
-    host::download(wc_id, url);
+/// A download the page started, with its suggested file name (always cancelled by the caller).
+pub fn download(wc_id: u64, url: &str, filename: &str) {
+    host::download(wc_id, url, filename);
 }
 
 /// An offscreen page painted (its pixels are in the page's entry).

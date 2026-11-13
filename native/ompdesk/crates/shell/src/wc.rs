@@ -621,9 +621,17 @@ wrap_download_handler! {
             suggested_name: Option<&CefString>,
             callback: Option<&mut BeforeDownloadCallback>,
         ) -> i32 {
+            // Returning true without running the callback cancels the download (CEF's contract).
+            if module_owned(self.wc_id) {
+                crate::modules::preview::download(
+                    self.wc_id,
+                    &item.as_ref().map(|i| string_of(&i.url())).unwrap_or_default(),
+                    &suggested_name.map(|n| n.to_string()).unwrap_or_default(),
+                );
+                return 1;
+            }
             let partition = wc(self.wc_id).map(|e| e.borrow().partition.clone()).unwrap_or_default();
             if session::downloads_denied(&partition) {
-                // Returning true without running the callback cancels the download (CEF's contract).
                 host::event(
                     "session.download",
                     json!({
