@@ -100,13 +100,13 @@ GitExits ==
     /\ alive' = alive - 1
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, gits, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, scratch, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/git/branches.rs:198-204 Scratch::new: the request makes its scratch object store (whether or not it was cancelled)
+\* @code native/ompdesk/crates/core/src/git/branches.rs:200-206 Scratch::new: the request makes its scratch object store (whether or not it was cancelled)
 MakeScratch ==
     /\ coreUp /\ handler = "running" /\ scratch = "none"
     /\ scratch' = "made"
     /\ UNCHANGED <<step, req, toCore, toMain, registered, cancelled, handler, gits, alive, answered, coreUp, nextHolder, spawnedAfterStop, timedOut, disk, diskCalls>>
 
-\* @code native/ompdesk/crates/core/src/git/branches.rs:211-215 Scratch's drop removes it when the function that made it returns, inside the handler
+\* @code native/ompdesk/crates/core/src/git/branches.rs:213-217 Scratch's drop removes it when the function that made it returns, inside the handler
 DropScratch ==
     /\ coreUp /\ handler = "running" /\ scratch = "made"
     /\ scratch' = "gone"
