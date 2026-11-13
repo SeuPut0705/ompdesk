@@ -34,10 +34,21 @@ pub mod run;
 
 pub use run::{GitHands, Hands, Landing, Queues, github_url};
 
-/// The merge queues the hub holds (`Hub.queue`): a lane per base branch of a repository, each built, tested and
-/// landed through `hands`, its runs started and its entries' results told through `host`.
-pub fn open(host: Arc<dyn QueueHost>, hands: Arc<dyn Hands>) -> Arc<dyn hub::LandQueue> {
-    run::open_with(host, hands, Tuning::default())
+/// The merge queues the hub holds (`Hub.queue`): a lane per base branch of a repository, each built and landed with
+/// the git the hub hands over in a folder it gives (`GitHands` over GitHub), its runs started and its entries' results
+/// told through `host`. Call inside the runtime: saved lanes start again at once.
+#[expect(
+    dead_code,
+    reason = "Hub::new takes it once admission implements QueueHost (the contract owner's line)"
+)]
+pub(crate) fn open(host: Arc<dyn QueueHost>) -> Arc<dyn hub::LandQueue> {
+    let git_host = Arc::clone(&host);
+    let hands = GitHands {
+        git: Box::new(move |scope| git_host.git(scope)),
+        dir: host.queue_dir(),
+        url: Box::new(github_url),
+    };
+    run::open_with(host, Arc::new(hands), Tuning::default())
 }
 
 /// Where a batch starts from (Trunk's defaults, the design's §5): its size, and how long its oldest entry waits for

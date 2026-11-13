@@ -198,6 +198,15 @@ impl QueueHost for Host {
     fn finished(&self, result: RunResult) {
         let _ = self.told.send(result);
     }
+
+    // The tests hand `GitHands` their own git and folder (the remote is a bare repository, not GitHub).
+    fn git(&self, scope: Scope) -> Option<Git> {
+        Some(Git::new(runner(), scope))
+    }
+
+    fn queue_dir(&self) -> PathBuf {
+        self.remote.with_file_name("queue")
+    }
 }
 
 /// `GitHands` that also says when it deleted a candidate's branch.
