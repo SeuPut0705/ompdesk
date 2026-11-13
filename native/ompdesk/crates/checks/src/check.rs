@@ -376,13 +376,23 @@ fn start_on_windows(exe: &Path, args: &[String], id: &str) -> io::Result<()> {
 
 /// Follows a run's log to its end; the run's exit code.
 fn attach_id(store: &Store, id: &str) -> i32 {
+    attach_to(store, id, &mut io::stdout())
+}
+
+/// How long a finished run's runner may still hold `alive` (it is writing its last lines, or ending) before the
+/// attached caller stops waiting for it.
+const RUNNER_LINGER: Duration = Duration::from_secs(5);
+
+/// `attach_id` into `out`. A run reads as finished the moment its runner saved the state, but the runner is only done
+/// with the log once it released `alive` (its process ended): returning earlier could leave out its last lines.
+fn attach_to(store: &Store, id: &str, out: &mut dyn Write) -> i32 {
     let Ok(mut log) = fs::File::open(store.file(id, "log")) else {
         eprintln!("ompdesk check: no run {id}");
         return 1;
     };
-    let mut stdout = io::stdout();
     let mut buf = vec![0u8; 64 * 1024];
     let begun = Instant::now();
+    let mut finished_at: Option<Instant> = None;
     loop {
         let mut read_any = false;
         while let Ok(n) = log.read(&mut buf) {
@@ -390,31 +400,34 @@ fn attach_id(store: &Store, id: &str) -> i32 {
                 break;
             }
             read_any = true;
-            let _ = stdout.write_all(&buf[..n]);
+            let _ = out.write_all(&buf[..n]);
         }
-        let _ = stdout.flush();
+        let _ = out.flush();
         let Some(run) = store.read(id) else {
             return 1;
         };
         if run.state.finished() {
-            let mut rest = Vec::new();
-            let _ = log.read_to_end(&mut rest);
-            let _ = stdout.write_all(&rest);
-            let _ = stdout.flush();
-            if run.state == State::Killed {
-                eprintln!(
-                    "ompdesk check {id}: its runner stopped before it finished (killed); what passed before stays \
-                     reusable, so running the check again runs only the rest."
-                );
+            let since = *finished_at.get_or_insert_with(Instant::now);
+            if !store.runner_alive(id) || since.elapsed() > RUNNER_LINGER {
+                let mut rest = Vec::new();
+                let _ = log.read_to_end(&mut rest);
+                let _ = out.write_all(&rest);
+                let _ = out.flush();
+                if run.state == State::Killed {
+                    eprintln!(
+                        "ompdesk check {id}: its runner stopped before it finished (killed); what passed before stays \
+                         reusable, so running the check again runs only the rest."
+                    );
+                }
+                return exit_of(&run);
             }
-            return exit_of(&run);
-        }
-        if run.state == State::Starting && begun.elapsed() > Duration::from_secs(60) {
+        } else if run.state == State::Starting && begun.elapsed() > Duration::from_secs(60) {
             eprintln!("ompdesk check {id}: the runner never started");
             return 1;
         }
         if !read_any {
-            std::thread::sleep(Duration::from_millis(200));
+            let pause = if finished_at.is_some() { 20 } else { 200 };
+            std::thread::sleep(Duration::from_millis(pause));
         }
     }
 }
@@ -1784,55 +1797,78 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    /// `attach_id` returns once it reads the run as finished, so the verdict line (the one `session-pace` and the
-    /// caller read) must already be in the log by then: a reader that sees `finished` sees the whole log.
+    /// What `attach_to` writes, and a signal when the first bytes arrive.
+    struct Tap<'a> {
+        seen: &'a std::sync::Mutex<Vec<u8>>,
+        first: Option<std::sync::mpsc::Sender<()>>,
+    }
+
+    impl Write for Tap<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.seen.lock().unwrap().extend_from_slice(bytes);
+            if let Some(first) = self.first.take() {
+                let _ = first.send(());
+            }
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A run reads as finished as soon as its runner saved the state, but the runner's last log line (the verdict
+    /// line `session-pace` and the caller read) may come after: an attached caller returns only once the runner let
+    /// go of `alive`, and then has every line.
     #[test]
-    fn a_run_that_reads_as_finished_has_its_verdict_line_in_the_log() {
-        let dir = std::env::temp_dir().join(format!("ompdesk-finish-{}", std::process::id()));
+    fn an_attached_caller_returns_only_after_the_runner_let_go_and_keeps_its_last_line() {
+        let dir = std::env::temp_dir().join(format!("ompdesk-attach-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let store = Store::open(dir.clone()).unwrap();
-        for n in 0..200 {
-            let id = format!("{n:04}");
-            let mut run = earlier_run(&store, &id, "running", "same");
-            run.state = State::Running;
-            store.write(&run).unwrap();
-            // The runner holds `alive` while it runs; a free one reads as a killed run, which is finished.
-            let alive = fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .write(true)
-                .open(store.file(&id, "alive"))
-                .unwrap();
-            alive.lock().unwrap();
-            let log = fs::OpenOptions::new()
-                .append(true)
-                .open(store.file(&id, "log"))
-                .unwrap();
-            let started = std::sync::atomic::AtomicBool::new(false);
-            let seen = std::thread::scope(|scope| {
-                let reader = scope.spawn(|| {
-                    started.store(true, std::sync::atomic::Ordering::SeqCst);
-                    loop {
-                        if store.read(&id).is_some_and(|r| r.state.finished()) {
-                            return fs::read_to_string(store.file(&id, "log")).unwrap_or_default();
-                        }
-                    }
-                });
-                while !started.load(std::sync::atomic::Ordering::SeqCst) {
-                    std::hint::spin_loop();
-                }
-                let mut rt = Runtime {
-                    store: &store,
-                    run,
-                    log,
-                    resource_stop: None,
+        let mut run = earlier_run(&store, "0001", "passed", "same");
+        run.state = State::Passed;
+        store.write(&run).unwrap();
+        store
+            .append("0001", "log", "ompdesk check: running")
+            .unwrap();
+        let alive = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(store.file("0001", "alive"))
+            .unwrap();
+        alive.lock().unwrap();
+
+        let seen = std::sync::Mutex::new(Vec::new());
+        let (first, first_seen) = std::sync::mpsc::channel();
+        let (done, finished) = std::sync::mpsc::channel();
+        let code = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let mut tap = Tap {
+                    seen: &seen,
+                    first: Some(first),
                 };
-                let decision = full(String::new(), Vec::new(), runner::Rewrite::default());
-                finish(&mut rt, 0, false, &decision, "same");
-                reader.join().unwrap()
+                let _ = done.send(attach_to(&store, "0001", &mut tap));
             });
-            assert!(seen.contains(" — verdict "), "run {id}: {seen}");
-        }
+            // The caller has read the log's first line, so it is attached; the state it reads is already finished.
+            first_seen.recv().unwrap();
+            assert!(
+                finished.recv_timeout(Duration::from_millis(300)).is_err(),
+                "the caller returned while the runner still held alive"
+            );
+            store
+                .append(
+                    "0001",
+                    "log",
+                    "ompdesk check: 0001: passed — verdict /x/verdict.txt",
+                )
+                .unwrap();
+            drop(alive);
+            finished.recv().unwrap()
+        });
+        assert_eq!(code, 0);
+        let text = String::from_utf8(seen.into_inner().unwrap()).unwrap();
+        assert!(text.contains("passed — verdict /x/verdict.txt"), "{text}");
         let _ = fs::remove_dir_all(dir);
     }
 }

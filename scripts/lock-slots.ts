@@ -438,7 +438,7 @@ export async function acquireHeavy(locks: Locks, who: Who): Promise<HeavyLease |
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {
 		out += chunk;
-		if (/^held [\d,]+$/m.test(out)) held.resolve();
+		if (/^held [\d,]+ pid \d+\r?$/m.test(out)) held.resolve();
 	});
 	child.once("error", held.reject);
 	child.once("close", code => held.reject(new Error(`ompdesk heavy hold ended (exit ${code}) before it held a slot`)));

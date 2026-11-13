@@ -26,34 +26,45 @@ describe("planGate", () => {
 			"native/ompdesk/crates/core/src/lib.rs",
 			".github/workflows/ci.yml",
 		]);
-		expect(plan).toEqual({ biome: [], surfaces: false, types: false, budget: false });
+		expect(plan).toEqual({ biome: [], surfaces: null, types: false, budget: false });
 	});
 
 	it("runs every static check for a renderer source and the budget for it", () => {
 		expect(planGate(["src/renderer/components/Row.tsx", "docs/a.md"])).toEqual({
 			biome: ["src/renderer/components/Row.tsx"],
-			surfaces: true,
+			surfaces: { only: ["src/renderer/components/Row.tsx"] },
 			types: true,
 			budget: true,
 		});
 	});
 
-	it("skips the typecheck for a script that is not TypeScript and the budget for main-process code", () => {
-		expect(planGate(["scripts/lint-x.mjs"])).toEqual({
-			biome: ["scripts/lint-x.mjs"],
-			surfaces: true,
-			types: false,
-			budget: false,
+	it("gives the surface policy only the changed files it reads, the whole tree when a lint changed", () => {
+		expect(
+			planGate(["src/main/a.ts", "resources/gui-bridge/b.ts", "e2e/c.ts", "src/renderer/x.css"]).surfaces,
+		).toEqual({
+			only: ["resources/gui-bridge/b.ts", "src/main/a.ts"],
 		});
-		expect(planGate(["src/main/a.ts"]).budget).toBe(false);
-		expect(planGate(["src/shared/a.ts"]).budget).toBe(true);
+		expect(planGate(["e2e/c.ts"]).surfaces).toBeNull();
+		expect(planGate(["scripts/lint-ime.mjs", "src/main/a.ts"]).surfaces).toEqual({ only: null });
+		expect(planGate(["scripts/lint-duplicate-rules-allow.json"]).surfaces).toEqual({ only: null });
 	});
 
-	it("types a root configuration change and leaves a stylesheet to the surface policy", () => {
+	it("skips the typecheck for a range that changed no TypeScript, JSON it imports or configuration", () => {
+		expect(planGate(["scripts/lint-x.mjs", "src/renderer/styles/global.css", "resources/a.json"]).types).toBe(false);
+		expect(planGate(["src/shared/a.ts"]).types).toBe(true);
+		expect(planGate(["e2e/a.e2e.ts"]).types).toBe(true);
+		expect(planGate(["src/main/table.json"]).types).toBe(true);
 		expect(planGate(["tsconfig.json"]).types).toBe(true);
+		expect(planGate(["package.json"]).types).toBe(true);
+		expect(planGate(["bun.lock"]).types).toBe(true);
+	});
+
+	it("skips the budget for main-process code and keeps it for shared code", () => {
+		expect(planGate(["src/main/a.ts"]).budget).toBe(false);
+		expect(planGate(["src/shared/a.ts"]).budget).toBe(true);
 		expect(planGate(["src/renderer/styles/global.css"])).toMatchObject({
 			types: false,
-			surfaces: true,
+			surfaces: null,
 			budget: true,
 		});
 	});

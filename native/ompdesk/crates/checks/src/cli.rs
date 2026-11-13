@@ -516,28 +516,43 @@ fn heavy_command(rest: &[String]) -> i32 {
                 [flag] if flag == "--all" => true,
                 _ => return usage("heavy hold takes only --all"),
             };
-            let label = env("OMPDESK_HEAVY_LABEL").unwrap_or_else(|| "heavy hold".into());
-            let lease = match take(if all { 0 } else { 1 }, &[], &label) {
-                Ok(lease) => lease,
-                Err(e) => {
-                    eprintln!("ompdesk: cannot take a heavy slot: {e}");
-                    return EXIT_FAILED;
+            // Inside a command that already holds (`run --heavy`, another hold whose pid the holder exported), the
+            // outer lease covers it: taking another slot would wait on itself where the pool has one.
+            let lease = if held_by_ancestor() {
+                None
+            } else {
+                let label = env("OMPDESK_HEAVY_LABEL").unwrap_or_else(|| "heavy hold".into());
+                match take(if all { 0 } else { 1 }, &[], &label) {
+                    Ok(lease) => Some(lease),
+                    Err(e) => {
+                        eprintln!("ompdesk: cannot take a heavy slot: {e}");
+                        return EXIT_FAILED;
+                    }
                 }
             };
-            let slots: Vec<String> = lease.slots().iter().map(usize::to_string).collect();
             {
+                // The pid is what the holder exports as `OMPDESK_HEAVY_HELD` to the work it runs under this hold.
                 let mut out = io::stdout().lock();
-                let _ = writeln!(out, "held {}", slots.join(","));
+                let _ = match &lease {
+                    Some(lease) => {
+                        let slots: Vec<String> =
+                            lease.slots().iter().map(usize::to_string).collect();
+                        writeln!(out, "held {} pid {}", slots.join(","), std::process::id())
+                    }
+                    None => writeln!(out, "held reused"),
+                };
                 let _ = out.flush();
             }
             // The hold does not know its holder's command, so it can only warn (its holder shows stderr).
             let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
-            let _watch = crate::watch::Watch::start(
-                heavy::Volumes::of_work(&here, &[], &env),
-                None,
-                |line| eprintln!("ompdesk: {line}"),
-                None,
-            );
+            let _watch = lease.is_some().then(|| {
+                crate::watch::Watch::start(
+                    heavy::Volumes::of_work(&here, &[], &env),
+                    None,
+                    |line| eprintln!("ompdesk: {line}"),
+                    None,
+                )
+            });
             // Holds until stdin ends: the holder closed it, or died.
             let mut sink = Vec::new();
             let stdin = io::stdin();

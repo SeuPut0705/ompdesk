@@ -7,7 +7,7 @@
  *   fix-tests  scripts/lint-fix-tests.mjs on the pushed range (always; well under a second)
  *   biome      biome check on the range's changed files
  *   surfaces   scripts/lint-surfaces.mjs
- *   types      tsc --noEmit --incremental (the check:types command, its own incremental cache), in a `vitest` slot
+ *   types      tsc --noEmit --incremental, on the cache `check:types` keeps in place; no `vitest` slot (see `tscCommand`)
  *   budget     the phone's first-screen JavaScript budget (scripts/check-main-bundle.ts), only for a renderer change and
  *              only when this checkout's `out/` was built from exactly the pushed inputs, which means the build's own
  *              check already passed; a fresh build takes minutes, so otherwise the output says it was skipped
@@ -66,19 +66,29 @@ export function isGated(ref: PushRef): boolean {
 
 export interface Plan {
 	biome: string[];
-	surfaces: boolean;
+	/** The surface policy: `only` names the files its per-file rules read (null: the whole tree); null when it has nothing to read. */
+	surfaces: { only: string[] | null } | null;
 	types: boolean;
 	/** A renderer change: the first-screen budget applies. */
 	budget: boolean;
 }
 
+/** A change to a lint itself or to the duplicate rules' allow list: the per-file rules run on the whole tree. */
+const LINT_SOURCE = /^scripts\/lint-[^/]+\.(?:mjs|json)$/;
+/** What the surface policy reads: the app's TypeScript and the gui-bridge. */
+const SURFACE_INPUT = /^(?:src\/.*\.tsx?|resources\/gui-bridge\/.*\.ts)$/;
+/** What the typechecker reads: TypeScript, the JSON it imports and the configuration that decides how. */
+const TYPE_INPUT = /\.[cm]?tsx?$|^tsconfig[^/]*\.json$|^package\.json$|^bun\.lock$|^(?:src|e2e|scripts)\/.*\.json$/;
+
 /** Which checks a change needs, from its changed files (repository-relative, forward slashes). */
 export function planGate(files: readonly string[]): Plan {
 	const scope = changedScope(files);
+	const lintChanged = scope.files.some(file => LINT_SOURCE.test(file));
+	const surfaceFiles = scope.files.filter(file => SURFACE_INPUT.test(file));
 	return {
 		biome: biomeFiles(scope.files),
-		surfaces: scope.files.length > 0,
-		types: scope.files.some(file => /\.[cm]?tsx?$|\.json$|^bun\.lock$/.test(file)),
+		surfaces: lintChanged || surfaceFiles.length > 0 ? { only: lintChanged ? null : surfaceFiles } : null,
+		types: scope.files.some(file => TYPE_INPUT.test(file)),
 		budget: scope.files.some(file => /^src\/(?:renderer|shared)\//.test(file)),
 	};
 }
@@ -259,10 +269,31 @@ function staticChecks(plan: Plan, dir: string, modules: string, types: string[])
 		const command = [process.execPath, biome, "check", "--no-errors-on-unmatched", ...plan.biome];
 		steps.push(runStep(`biome check on ${plan.biome.length} file(s)`, command, dir));
 	}
-	if (plan.surfaces)
-		steps.push(runStep("surface policy and renderer lints", ["node", "scripts/lint-surfaces.mjs"], dir));
+	if (plan.surfaces) {
+		const files = plan.surfaces.only ? ["--only", ...plan.surfaces.only] : [];
+		const label = plan.surfaces.only
+			? `surface policy (${plan.surfaces.only.length} file(s) and the duplicate rules)`
+			: "surface policy (whole tree)";
+		steps.push(runStep(label, ["node", "scripts/lint-surfaces.mjs", ...files], dir));
+	}
 	if (plan.types) steps.push(runStep("typecheck (incremental)", types, dir));
 	return steps;
+}
+
+/**
+ * The typecheck, one node process on its own incremental cache, with no slot of the machine's lock (`bun run check:types`
+ * takes a `vitest` slot): on 14 Nov 2026 five gate runs held the slot 35 to 53 s each and waited 111 to 1,227 s for it
+ * behind other sessions' full test runs, so the queue was the whole cost of a push.
+ */
+function tscCommand(modules: string, buildInfo: string): string[] {
+	return [
+		"node",
+		path.join(modules, "typescript", "bin", "tsc"),
+		"--noEmit",
+		"--incremental",
+		"--tsBuildInfoFile",
+		buildInfo,
+	];
 }
 
 /** The checks on a copy of `sha` (see the header); throws when the copy cannot be made. */
@@ -273,9 +304,7 @@ async function copyChecks(root: string, tree: string, sha: string, plan: Plan): 
 	const link = path.join(tree, "node_modules");
 	if (!fs.existsSync(link)) fs.symlinkSync(modules, link, "junction");
 	say(`copy of ${sha.slice(0, 9)} ready in ${seconds(performance.now() - synced)}`);
-	const tsc = ["node", path.join(link, "typescript", "bin", "tsc"), "--noEmit", "--incremental"];
-	const locked = [process.execPath, path.join(root, "scripts", "build-lock.ts"), "--kind", "vitest", "--", ...tsc];
-	return Promise.all(staticChecks(plan, tree, link, [...locked, "--tsBuildInfoFile", ".gate.tsbuildinfo"]));
+	return Promise.all(staticChecks(plan, tree, link, tscCommand(link, ".gate.tsbuildinfo")));
 }
 
 async function gate(root: string, gitDir: string, ref: PushRef): Promise<number> {
@@ -306,7 +335,14 @@ async function gate(root: string, gitDir: string, ref: PushRef): Promise<number>
 			if (inPlace) {
 				say("this working tree is the pushed commit: checking it in place");
 				results.push(
-					...(await Promise.all(staticChecks(plan, root, modules, [process.execPath, "run", "check:types"]))),
+					...(await Promise.all(
+						staticChecks(
+							plan,
+							root,
+							modules,
+							tscCommand(modules, path.join("node_modules", ".cache", "tsc", "check.tsbuildinfo")),
+						),
+					)),
 				);
 			} else {
 				say("this working tree differs from the pushed commit: checking a copy of the commit");
