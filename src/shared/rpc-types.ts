@@ -197,11 +197,11 @@ export type RpcCommand =
 	/** One stored account (stock `logout`), or every account of the provider with `all`. */
 	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 	| { id?: string; type: "logout"; providerId: string; all: true }
-	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) when a report is a minute old or more, so it is probed now. */
+	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) whatever the age of the reports, so it is probed now. */
 	| { id?: string; type: "get_provider_accounts"; providerId: string; refresh?: boolean }
 	/** Spend one of the account's saved rate-limit resets (stock `/usage reset`); `creditId` = the pass the user confirmed. */
 	| { id?: string; type: "redeem_reset_pass"; providerId: string; credentialId: number; creditId?: string }
-	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) for each provider with a report a minute old or more. */
+	/** `refresh`: stock `usage.invalidate` (`omp usage invalidate`) for each provider with a report, whatever its age. */
 	| { id?: string; type: "get_usage"; refresh?: boolean }
 	| { id?: string; type: "get_settings_schema" }
 	| { id?: string; type: "get_settings"; paths?: string[] }
@@ -2331,6 +2331,13 @@ export interface UsageReport {
 	lastUsedAt?: number;
 	/** The account's saved rate-limit resets, when the provider reports any. */
 	resetPasses?: ResetPasses;
+	/**
+	 * Only on the report of the account this session is pinned to (`active`): why the session is on it, the last
+	 * decision of the account rotation (bridge `account-rotation-core.ts`: `why` is a `MoveWhy` or `RerankSkip` code,
+	 * `moved` whether that decision moved the session, `phase` `turn-start`, `mid-turn` or `even`, `at` epoch ms).
+	 * Absent before the session's first turn.
+	 */
+	rotation?: { why: string; moved: boolean; phase: string; at: number };
 }
 
 /**

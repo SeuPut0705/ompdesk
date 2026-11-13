@@ -1298,6 +1298,25 @@ export const ko: Record<string, string> = {
 	"usage.resetting": "초기화 중…",
 	"usage.inUse": "사용 중",
 	"usage.updatedAgo": "{time} 전 업데이트",
+	// Why this session is on its account (the rotation's last decision, bridge account-rotation-core.ts RerankSkip/MoveWhy)
+	"usage.rotation.better": "이번 차례를 시작할 때 이 계정으로 옮겼어요. omp 순위에서 확실히 앞서요.",
+	"usage.rotation.near-limit": "이전 계정이 한도에 가까워서 이 계정으로 옮겼어요.",
+	"usage.rotation.much-better": "차례 도중에 이 계정으로 옮겼어요. 여유가 훨씬 커요.",
+	"usage.rotation.same": "그대로예요. omp 순위 1위 계정이에요.",
+	"usage.rotation.within-margin": "그대로예요. 다른 계정이 조금 나을 뿐이고, 옮기면 프롬프트 캐시를 잃어요.",
+	"usage.rotation.mid-turn": "차례 도중이라 그대로예요. 한도에 가깝지 않고, 옮기면 프롬프트 캐시를 잃어요.",
+	"usage.rotation.no-better": "그대로예요. 지금 더 여유 있는 계정이 없어요.",
+	"usage.rotation.usage-unreadable": "그대로예요. 계정의 사용량을 읽지 못해서 옮기지 않아요.",
+	"usage.rotation.explicit": "그대로예요. 이 세션을 이 계정으로 직접 고정했어요.",
+	"usage.rotation.restricted": "그대로예요. 이 세션은 계정 풀로 제한돼요.",
+	"usage.rotation.policy": "그대로예요. 계정 정책이 사용할 계정을 정해요.",
+	"usage.rotation.blocked": "이 모델에서는 이 계정이 막혀 있어요. 다음 요청은 다른 계정을 써요.",
+	"usage.rotation.subagents": "그대로예요. 이 세션의 서브에이전트가 이 계정으로 일하고 있어요.",
+	"usage.rotation.cold": "한 시간 넘게 쉬었어요. 다음 요청이 가장 나은 계정을 다시 골라요.",
+	"usage.rotation.no-choice": "그대로예요. 지금 이 모델을 처리할 다른 계정이 없어요.",
+	"usage.rotation.pin-refused": "그대로예요. 계정을 바꾸지 못했어요.",
+	"usage.rotation.mode": "균등 순환이에요. 이 세션은 막힐 때까지 계정을 유지해요.",
+	"usage.rotation.unknown-provenance": "omp에 맡겼어요. 이 세션이 계정을 받은 경위를 읽지 못했어요.",
 
 	// First-run onboarding
 

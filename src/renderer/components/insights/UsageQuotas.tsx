@@ -34,6 +34,33 @@ function resetCountdown(resetsAt: number | undefined, t: Translate, now: number)
 	return t("usage.resetsIn", { time: formatSpan(ms) });
 }
 
+/** The rotation's answers that carry a line; the rest (one account, no account yet, no model) say nothing. */
+const ROTATION_REASONS: ReadonlySet<string> = new Set([
+	"better",
+	"near-limit",
+	"much-better",
+	"same",
+	"within-margin",
+	"mid-turn",
+	"no-better",
+	"usage-unreadable",
+	"explicit",
+	"restricted",
+	"policy",
+	"blocked",
+	"subagents",
+	"cold",
+	"no-choice",
+	"pin-refused",
+	"mode",
+	"unknown-provenance",
+]);
+
+/** Why this session is on the account of its card, in words (en/ko keys `usage.rotation.*`); null without a line. */
+export function rotationReason(rotation: UsageReport["rotation"], t: Translate): string | null {
+	return rotation && ROTATION_REASONS.has(rotation.why) ? t(`usage.rotation.${rotation.why}`) : null;
+}
+
 export function limitValueText(limit: UsageLimit, t: Translate): string {
 	const hasUnit = Boolean(limit.unit && limit.unit !== "unknown");
 	if (!hasUnit && limit.usedFraction !== undefined) {
@@ -112,6 +139,7 @@ function ProviderReportCard({
 	onRedeemed: () => Promise<readonly UsageLimit[] | undefined>;
 }) {
 	const limits = Array.isArray(report.limits) ? report.limits : [];
+	const reason = report.active ? rotationReason(report.rotation, t) : null;
 	// Stock's provider display name (the catalog's login names); the id when the catalog has none.
 	const providerName = useModelStore(
 		state => state.providers.find(provider => provider.id === report.provider)?.name ?? report.provider,
@@ -151,6 +179,15 @@ function ProviderReportCard({
 						))}
 				</span>
 			</header>
+			{reason && (
+				<p
+					className="text-sc-xs break-words text-(--sc-text-muted)"
+					data-usage-rotation={report.rotation?.why}
+					title={report.rotation ? formatClock(report.rotation.at) : undefined}
+				>
+					{reason}
+				</p>
+			)}
 			<Notes notes={report.notes} />
 			{limits.length > 0 && (
 				<ul className="flex flex-col divide-y divide-(--sc-divider)">
