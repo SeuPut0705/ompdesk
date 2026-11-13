@@ -20,6 +20,7 @@ import {
 	gateProgress,
 	poolFill,
 	poolKind,
+	poolLoad,
 	poolName,
 	poolsWithWork,
 	releases,
@@ -43,6 +44,9 @@ function poolCaption(pool: Pool, frame: ChecksFrame, t: Translate): string | und
 	const kind = poolKind(pool, frame.names);
 	if ((kind === "github" || kind === "runner") && pool.queued > 0) {
 		return t("sidebar.checks.oldestWait", { time: formatSpanCompact(pool.oldestWaitMs) });
+	}
+	if ((kind === "here" || kind === "paired") && pool.foreign.length > 0) {
+		return t("sidebar.checks.foreign", { count: pool.foreign.length });
 	}
 	if ((kind === "here" || kind === "paired") && pool.diskFreeGb !== undefined) {
 		return t("sidebar.checks.disk", { size: Math.round(pool.diskFreeGb).toLocaleString(uiLocale()) });
@@ -87,7 +91,7 @@ export function SidebarChecks() {
 
 	const poolsSentence = pools
 		.map(pool =>
-			t("sidebar.checks.poolSummary", { name: poolName(pool, names), running: pool.running, limit: pool.limit }),
+			t("sidebar.checks.poolSummary", { name: poolName(pool, names), running: poolLoad(pool), limit: pool.limit }),
 		)
 		.join(", ");
 	const label = [
@@ -134,8 +138,8 @@ export function SidebarChecks() {
 						<Gauge
 							ariaLabel={
 								pool.limit === 1
-									? t("sidebar.checks.slotsOne", { name, running: pool.running })
-									: t("sidebar.checks.slots", { name, running: pool.running, limit: pool.limit })
+									? t("sidebar.checks.slotsOne", { name, running: poolLoad(pool) })
+									: t("sidebar.checks.slots", { name, running: poolLoad(pool), limit: pool.limit })
 							}
 							caption={poolCaption(pool, frame, t)}
 							data-pool={pool.id}
@@ -143,7 +147,7 @@ export function SidebarChecks() {
 							key={pool.id}
 							label={name}
 							state={fill.tone === "full" ? "near" : "ok"}
-							valueText={`${pool.running}/${pool.limit}`}
+							valueText={`${poolLoad(pool)}/${pool.limit}`}
 						/>
 					);
 				})}

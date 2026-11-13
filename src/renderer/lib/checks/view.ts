@@ -36,8 +36,16 @@ export function freshness(frame: ChecksFrame): Freshness {
 	return pools.length > 0 && pools.every(pool => pool.state !== "live") ? "stale" : "live";
 }
 
+/**
+ * A pool's load: OMPdesk's jobs running there plus heavy work outside it (another project's own lock, a plain
+ * terminal), which takes the same machine though it holds no slot.
+ */
+export function poolLoad(pool: Pool): number {
+	return pool.running + pool.foreign.length;
+}
+
 export function poolHasWork(pool: Pool): boolean {
-	return pool.state !== "offline" && (pool.running > 0 || pool.queued > 0);
+	return pool.state !== "offline" && (poolLoad(pool) > 0 || pool.queued > 0);
 }
 
 export type PoolKind = "github" | "here" | "paired" | "runner";
@@ -68,11 +76,11 @@ export function poolsWithWork(frame: ChecksFrame): Pool[] {
 
 export type PoolTone = "plain" | "full";
 
-/** How full a pool is: its share of slots in use, and `full` once none is free (a queue then only grows). */
+/** How full a pool is: its load's share of its slots, and `full` once none is free (a queue then only grows). */
 export function poolFill(pool: Pool): { fraction: number; tone: PoolTone } {
 	if (pool.limit <= 0) return { fraction: 0, tone: "plain" };
-	const fraction = Math.min(1, pool.running / pool.limit);
-	return { fraction, tone: pool.running >= pool.limit ? "full" : "plain" };
+	const load = poolLoad(pool);
+	return { fraction: Math.min(1, load / pool.limit), tone: load >= pool.limit ? "full" : "plain" };
 }
 
 /** Jobs waiting over every pool that can be read: the sidebar head's figure. */

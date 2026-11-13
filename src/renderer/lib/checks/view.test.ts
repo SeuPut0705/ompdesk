@@ -75,6 +75,18 @@ describe("pools", () => {
 		expect(poolFill(linux)).toEqual({ fraction: 0.15, tone: "plain" });
 		expect(poolFill({ ...mac, limit: 0 })).toEqual({ fraction: 0, tone: "plain" });
 	});
+
+	it("counts heavy work outside OMPdesk against a computer's slots, and as work there", () => {
+		const macbook = sampleSnapshot(NOW).pools.find(pool => pool.id === "device-macbook");
+		if (!macbook) throw new Error("the sample has this computer's pool");
+		expect(macbook.running).toBe(2);
+		expect(poolFill(macbook)).toEqual({ fraction: 1, tone: "full" });
+		const idle = { ...macbook, running: 0, queued: 0 };
+		expect(poolsWithWork({ ...frame(), snapshot: { ...frame().snapshot, pools: [idle] } })).toEqual([idle]);
+		expect(
+			poolsWithWork({ ...frame(), snapshot: { ...frame().snapshot, pools: [{ ...idle, foreign: [] }] } }),
+		).toEqual([]);
+	});
 });
 
 describe("releases", () => {

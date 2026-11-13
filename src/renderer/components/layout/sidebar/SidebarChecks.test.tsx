@@ -88,33 +88,42 @@ describe("SidebarChecks", () => {
 		const view = await mount(busy());
 		expect(view.querySelectorAll("button, a, input, select, [role='button']")).toHaveLength(1);
 		expect(name(view)).toBe(
-			"Checks: 3 waiting. GitHub macOS 5 of 5, GitHub Linux 6 of 40, MacBook 2 of 3. " +
+			"Checks: 3 waiting. GitHub macOS 5 of 5, GitHub Linux 6 of 40, MacBook 3 of 3. " +
 				"Release v1.4.0: 1 of 2 gates green. Open Checks.",
 		);
 	});
 
-	it("shows each pool with work as a gauge, with its wait, its disk and the release line", async () => {
+	it("shows each pool with work as a gauge, with its wait, the work outside OMPdesk and the release line", async () => {
 		const view = await mount(busy());
 		const bars = [...view.querySelectorAll('[role="progressbar"]')];
+		// This computer runs two of OMPdesk's jobs and one cargo build outside it: three of its three slots are taken.
 		expect(bars.map(bar => bar.getAttribute("aria-label"))).toEqual([
 			"GitHub macOS: 5 of 5 slots in use",
 			"GitHub Linux: 6 of 40 slots in use",
-			"MacBook: 2 of 3 slots in use",
+			"MacBook: 3 of 3 slots in use",
 		]);
-		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["100", "15", "67"]);
-		expect(gaugeTexts(view)).toEqual(["GitHub macOS5/5", "GitHub Linux6/40", "MacBook2/3"]);
+		expect(bars.map(bar => bar.getAttribute("aria-valuenow"))).toEqual(["100", "15", "100"]);
+		expect(gaugeTexts(view)).toEqual(["GitHub macOS5/5", "GitHub Linux6/40", "MacBook3/3"]);
 		// The paired computer is offline and has no work: it has no gauge.
 		expect(view.textContent).not.toContain("Mac mini");
 		expect(view.textContent).toContain("3 waiting");
 		expect(view.textContent).toContain("oldest wait 9m");
-		expect(view.textContent).toContain("disk 212 GB free");
+		expect(view.textContent).toContain("1 outside OMPdesk");
 		expect(releaseLine(view)).toBe("v1.4.0 · 1 of 2 gates green");
+	});
+
+	it("says a computer's free disk when nothing outside OMPdesk runs on it", async () => {
+		const frame = busy();
+		const pools = frame.snapshot.pools.map(pool => ({ ...pool, foreign: [] }));
+		const view = await mount(withSnapshot(frame, { pools }));
+		expect(view.textContent).toContain("disk 212 GB free");
+		expect(gaugeTexts(view)).toContain("MacBook2/3");
 	});
 
 	it("draws a full pool as busy (warning), never as an error", async () => {
 		const view = await mount(busy());
 		const states = [...view.querySelectorAll("[data-pool]")].map(gauge => gauge.getAttribute("data-state"));
-		expect(states).toEqual(["near", "ok", "ok"]);
+		expect(states).toEqual(["near", "ok", "near"]);
 	});
 
 	it("says where the release's jobs wait, and only when some do", async () => {
@@ -163,7 +172,7 @@ describe("SidebarChecks", () => {
 		expect(many.querySelectorAll('[role="progressbar"]')).toHaveLength(4);
 		expect(many.textContent).toContain("+2 more pools");
 		// The accessible name still reports every pool at work.
-		expect(name(many).match(/MacBook 2 of 3/g)).toHaveLength(4);
+		expect(name(many).match(/MacBook 3 of 3/g)).toHaveLength(4);
 	});
 
 	it("opens the Checks page on a click and is the current page while it is open", async () => {
@@ -220,6 +229,6 @@ describe("SidebarChecks", () => {
 		expect(name(view)).toContain("검사 화면 열기");
 		expect(name(view)).toContain("릴리스 v1.4.0");
 		expect(view.textContent).not.toContain("oldest wait");
-		expect(view.textContent).toContain("디스크 212GB 남음");
+		expect(view.textContent).toContain("OMPdesk 밖 작업 1개");
 	});
 });

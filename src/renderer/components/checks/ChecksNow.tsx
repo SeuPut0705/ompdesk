@@ -51,6 +51,7 @@ import {
 	type PoolKind,
 	poolFill,
 	poolKind,
+	poolLoad,
 	poolName,
 	type ReleaseView,
 	type RunState,
@@ -89,6 +90,7 @@ function PoolCard({ pool, frame }: { pool: Pool; frame: ChecksFrame }) {
 	const kind = poolKind(pool, frame.names);
 	const name = poolName(pool, frame.names);
 	const { fraction, tone } = poolFill(pool);
+	const load = poolLoad(pool);
 	const offline = pool.state === "offline";
 	const Icon = kind === "paired" && pool.os === "windows" ? Monitor : POOL_ICON[kind];
 	const parts: ReactNode[] = [];
@@ -105,8 +107,15 @@ function PoolCard({ pool, frame }: { pool: Pool; frame: ChecksFrame }) {
 			);
 			if (pool.oldestWaitMs > 0) parts.push(t("checks.pool.oldest", { span: formatSpanCompact(pool.oldestWaitMs) }));
 		}
+		if (pool.foreign.length > 0)
+			parts.push(
+				t("checks.pool.foreign", {
+					count: pool.foreign.length,
+					kinds: [...new Set(pool.foreign.map(work => work.kind))].join(", "),
+				}),
+			);
 		if (pool.diskFreeGb !== undefined) parts.push(t("checks.pool.disk", { gb: Math.round(pool.diskFreeGb) }));
-		if (parts.length === 0 && pool.running === 0) parts.push(t("checks.pool.idle"));
+		if (parts.length === 0 && load === 0) parts.push(t("checks.pool.idle"));
 	}
 	return (
 		<Card
@@ -124,11 +133,11 @@ function PoolCard({ pool, frame }: { pool: Pool; frame: ChecksFrame }) {
 				</span>
 			</div>
 			<div className="text-sc-sm text-(--sc-text-muted) tabular-nums">
-				<span className="text-sc-xl font-semibold text-(--sc-text)">{offline ? 0 : pool.running}</span>{" "}
+				<span className="text-sc-xl font-semibold text-(--sc-text)">{offline ? 0 : load}</span>{" "}
 				{t("checks.pool.ofSlots", { limit: pool.limit, plural: plural(pool.limit) })}
 			</div>
 			<ProgressBar
-				ariaLabel={t("checks.pool.aria", { name, running: pool.running, limit: pool.limit })}
+				ariaLabel={t("checks.pool.aria", { name, running: load, limit: pool.limit })}
 				color={tone === "full" ? "var(--sc-warning)" : "var(--sc-text-muted)"}
 				height={8}
 				value={offline ? 0 : fraction}
@@ -271,7 +280,7 @@ function ReleaseCard({ release, frame }: { release: ReleaseView; frame: ChecksFr
 								{t(wait.full ? "checks.release.waitsFull" : "checks.release.waitsQueued", {
 									count: wait.jobs,
 									plural: plural(wait.jobs),
-									running: wait.pool.running,
+									running: poolLoad(wait.pool),
 									limit: wait.pool.limit,
 								})}
 							</span>
