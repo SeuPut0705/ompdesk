@@ -328,7 +328,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // `repeated-answer.ts` in the transcript, `FoldedReminders`, two strings, plus the health label of the bridge feature
 // that keeps the reminder from waking a waiting session, all in the English catalog): measured 2,199,378 on
 // cb261f72 by ci.yml's build before the label (about 110 bytes), 137 bytes over; the budget takes both.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_199_500;
+// The sidebar's usage block lists every account grouped by provider and draws Settings' `ConnectedRow`/`AccountQuota`
+// per account (13 Nov 2026, bc9bf3afd, 0ace6eefa, e00a31068: `SidebarUsage.tsx`, `lib/usage-reports.ts`,
+// `lib/usage-rotation.ts`; the sidebar is the phone's first screen and `Sidebar.tsx` imports the block statically):
+// measured 2,200,805 on main (196695ef), 1,305 bytes over.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_200_950;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.
@@ -445,7 +449,11 @@ if (panelChunk || firstScreenBytes > WEB_FIRST_SCREEN_JS_BYTES) {
 	console.error(
 		`The paired phone's first screen loads ${firstScreenBytes.toLocaleString("en-US")} bytes of JavaScript in ${firstScreen.size} files ` +
 			`(budget ${WEB_FIRST_SCREEN_JS_BYTES.toLocaleString("en-US")})${panelChunk ? `, the side panel's views (${panelChunk}) among them` : ""}. ` +
-			"Load what the first screen does not show lazily (React.lazy / import()), or raise the budget in scripts/check-main-bundle.ts with numbers from e2e/web-perf.e2e.ts.",
+			"Load what the first screen does not show lazily (React.lazy / import()), or raise the budget in scripts/check-main-bundle.ts with numbers from e2e/web-perf.e2e.ts.\n" +
+			`Chunks, largest first: ${[...firstScreen]
+				.sort((a, b) => b[1] - a[1])
+				.map(([name, size]) => `${name} ${size.toLocaleString("en-US")}`)
+				.join(", ")}.`,
 	);
 	process.exit(1);
 }
