@@ -6,6 +6,7 @@ import type { Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UsageLimit, UsageReport } from "../../../../shared/rpc-types";
 import { I18nProvider } from "../../../lib/i18n";
+import { en } from "../../../locales/en";
 import { useSessionStore } from "../../../stores/session";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
 import { useTabsStore } from "../../../stores/tabs";
@@ -191,6 +192,16 @@ describe("SidebarUsage", () => {
 		const rule = /\.omp-sidebar-usage-groups\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
 		expect(rule).toMatch(/max-height:\s*min\(\s*20rem,\s*40dvh\s*\)/);
 		expect(rule).toMatch(/overflow-y:\s*auto/);
+	});
+
+	it("says why the session is on its account, on that account's row only", async () => {
+		const rotation = { why: "better", moved: true, phase: "turn-start", at: Date.now() };
+		const block = await mount([
+			report("anthropic", 1, "a@example.com", { active: true, rotation }),
+			report("anthropic", 2, "b@example.com", { rotation }),
+		]);
+		expect(row(block, 1)?.querySelector("[data-account-reason]")?.textContent).toBe(en["usage.rotation.better"]);
+		expect(row(block, 2)?.querySelector("[data-account-reason]")).toBeNull();
 	});
 
 	it("lists no API-key provider and renders nothing with no account", async () => {

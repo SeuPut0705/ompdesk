@@ -19,6 +19,7 @@ import { formatClock, formatSpan } from "../../lib/format";
 import { useT } from "../../lib/i18n";
 import { useNowTick } from "../../lib/now-tick";
 import { usageLimitLabel } from "../../lib/usage-labels";
+import { rotationReason } from "../../lib/usage-rotation";
 import { useModelStore } from "../../stores/model";
 import { useSessionStore } from "../../stores/session";
 import { useUiStore } from "../../stores/ui";
@@ -34,33 +35,6 @@ function resetCountdown(resetsAt: number | undefined, t: Translate, now: number)
 	return t("usage.resetsIn", { time: formatSpan(ms) });
 }
 
-/** The rotation's answers that carry a line; the rest (one account, no account yet, no model) say nothing. */
-const ROTATION_REASONS: ReadonlySet<string> = new Set([
-	"better",
-	"near-limit",
-	"much-better",
-	"same",
-	"within-margin",
-	"mid-turn",
-	"no-better",
-	"usage-unreadable",
-	"explicit",
-	"restricted",
-	"policy",
-	"blocked",
-	"subagents",
-	"cold",
-	"no-choice",
-	"target-limited",
-	"pin-refused",
-	"mode",
-	"unknown-provenance",
-]);
-
-/** Why this session is on the account of its card, in words (en/ko keys `usage.rotation.*`); null without a line. */
-export function rotationReason(rotation: UsageReport["rotation"], t: Translate): string | null {
-	return rotation && ROTATION_REASONS.has(rotation.why) ? t(`usage.rotation.${rotation.why}`) : null;
-}
 
 export function limitValueText(limit: UsageLimit, t: Translate): string {
 	const hasUnit = Boolean(limit.unit && limit.unit !== "unknown");

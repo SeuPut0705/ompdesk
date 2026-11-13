@@ -7,10 +7,10 @@
  * measured window as a gauge with its reset beneath (5H, 7D, a model's own weekly limit), a window at its limit in
  * the danger fill and one near it in warning, as in Settings (`AccountQuota.tsx`). The provider this tab uses comes
  * first; inside a group the accounts keep a fixed order, so a reading never moves a row. The accounts scroll inside
- * a capped height, so many of them never take the sidebar. A row's reason line (why the session is on that account)
- * is `ConnectedRow`'s `reason` slot. API-key providers have no windows and are not listed; with no account at all the
- * block renders nothing. The header's gear opens Settings › Models & accounts. Reads go through `useUsageReports`
- * (live quotas, no polling of its own).
+ * a capped height, so many of them never take the sidebar. The in-use account's row says why the session is on it
+ * (`rotationReason`, the account rotation's last decision) when the report carries one. API-key providers have no
+ * windows and are not listed; with no account at all the block renders nothing. The header's gear opens Settings ›
+ * Models & accounts. Reads go through `useUsageReports` (live quotas, no polling of its own).
  */
 
 import { Settings2 } from "lucide-react";
@@ -19,6 +19,7 @@ import type { ProviderInfo, UsageReport } from "../../../../shared/rpc-types";
 import { useUsageReports } from "../../../hooks/use-usage-reports";
 import { useT } from "../../../lib/i18n";
 import { type UsageAccountGroup, usageAccountGroups } from "../../../lib/usage-reports";
+import { rotationReason } from "../../../lib/usage-rotation";
 import { gaugeColumns } from "../../../lib/usage-windows";
 import { useModelStore } from "../../../stores/model";
 import { useSidebarFolds } from "../../../stores/sidebar-folds";
@@ -67,6 +68,7 @@ function groupOf(id: string, providers: readonly ProviderInfo[]): ProviderGroup 
 }
 
 function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers: readonly ProviderInfo[] }) {
+	const t = useT();
 	const folded = useSidebarFolds(s => s.usageGroups[group.provider] === true);
 	const sources = group.accounts.map(({ report, inUse }) => sourceOf(report, inUse));
 	const labels = group.accounts.map(({ report }) => report.account?.trim() || report.provider);
@@ -95,6 +97,7 @@ function UsageGroup({ group, providers }: { group: UsageAccountGroup; providers:
 						key={`${report.provider}:${report.credentialId ?? labels[index]}`}
 						quota={<QuotaCell account={source} columns={columns} compact now={now} tracks={0} />}
 						quotaColumns={columns.length}
+						reason={inUse ? rotationReason(report.rotation, t) : null}
 						rowProps={{
 							"data-in-use": inUse || undefined,
 							"data-rail-account": `${report.provider}:${report.account ?? ""}`,

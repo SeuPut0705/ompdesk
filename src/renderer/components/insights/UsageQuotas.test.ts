@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { MoveWhy, RerankSkip } from "../../../../resources/gui-bridge/account-rotation-core";
 import type { UsageLimit } from "../../../shared/rpc-types";
+import { rotationReason } from "../../lib/usage-rotation";
 import { en } from "../../locales/en";
 import { ko } from "../../locales/ko";
-import { limitValueText, rotationReason } from "./UsageQuotas";
+import { limitValueText } from "./UsageQuotas";
 
 function valueText(amount: Omit<UsageLimit, "id" | "label">): string {
 	return limitValueText({ id: "quota", label: "Quota", ...amount }, (key, params) =>
