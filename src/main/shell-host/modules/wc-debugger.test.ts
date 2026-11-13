@@ -64,4 +64,28 @@ describe.skipIf(!executable)("the page debugger's session", () => {
 		});
 		expect(again.result.result.value).toBe(3);
 	}, 60_000);
+
+	it("fails a debugger command still in flight when the debugger detaches, at once", async () => {
+		const pending = shell.client.call("wc.cdp.send", {
+			wcId: WC,
+			method: "Runtime.evaluate",
+			params: { expression: "new Promise(() => {})", awaitPromise: true },
+			debugger: true,
+		});
+		const settled = pending.then(
+			() => "answered",
+			(error: unknown) => (error instanceof Error ? error.message : String(error)),
+		);
+		await shell.client.call("wc.cdp.detach", { wcId: WC });
+		// The test's 30 s bound is half the 60 s a command waits for an answer Chromium never sends for a closed session.
+		expect(await settled).toMatch(/target closed while handling command/);
+		// The page's own session still answers, and the debugger can attach again.
+		const own = await shell.client.call<{ result: { result: { value: unknown } } }>("wc.cdp.send", {
+			wcId: WC,
+			method: "Runtime.evaluate",
+			params: { expression: "4", returnByValue: true },
+		});
+		expect(own.result.result.value).toBe(4);
+		await shell.client.call("wc.cdp.attach", { wcId: WC });
+	}, 30_000);
 });
