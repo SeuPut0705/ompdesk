@@ -468,11 +468,7 @@ async function verifyMoved(): Promise<void> {
 	// The shell's own uninstaller (the entry's), keeping userData.
 	if (!values.keep) {
 		await stopTestProcesses();
-		const quiet = regValue(entry, "QuietUninstallString");
-		if (quiet) {
-			await run(["cmd", "/c", quiet], testEnv());
-			await sleep(5000);
-		}
+		await uninstallQuiet(entry);
 		evidence.afterUninstall = {
 			folderGone: !existsSync(join(TEST_DIR, "OMPdesk.exe")),
 			entryGone: (await run(["reg", "query", TEST_UNINSTALL_KEY])).code !== 0,
@@ -539,8 +535,24 @@ async function verifyRolledBack(port: number): Promise<void> {
 	);
 	if (!values.keep) {
 		await stopTestProcesses();
-		await run(["cmd", "/c", regValue(entry, "QuietUninstallString") ?? "exit 0"], testEnv());
+		await uninstallQuiet(entry);
 	}
+}
+
+/**
+ * Runs the entry's own quiet uninstaller (`"<folder>\\Uninstall OMPdesk.exe" /currentuser /S`) directly, never through a
+ * shell, and waits for its copy in %TEMP% to finish the folder (it deletes the install folder after it exits).
+ */
+async function uninstallQuiet(entry: string): Promise<void> {
+	const quiet = regValue(entry, "QuietUninstallString") ?? "";
+	const match = /^"([^"]+)"\s*(.*)$/.exec(quiet);
+	if (!match?.[1] || !match[1].toLowerCase().startsWith(TEST_DIR.toLowerCase())) {
+		note("no quiet uninstaller inside the test folder", quiet);
+		return;
+	}
+	await run([match[1], ...(match[2] ?? "").split(/\s+/).filter(Boolean)], testEnv());
+	for (let waited = 0; waited < 60 && existsSync(join(TEST_DIR, "OMPdesk.exe")); waited += 2) await sleep(2000);
+	await sleep(2000);
 }
 
 async function cleanup(): Promise<void> {
@@ -556,6 +568,8 @@ async function cleanup(): Promise<void> {
 }
 
 assertTestIdentity();
+// A run starts from nothing: a profile, update log or shell log of an earlier run would pass for this one's evidence.
+rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 const ownerBefore = await snapshotOwner();
 await Bun.write(join(out, "owner-before.json"), JSON.stringify(ownerBefore, null, 2));
