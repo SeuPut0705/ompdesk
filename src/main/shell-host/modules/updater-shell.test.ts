@@ -8,7 +8,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -549,15 +549,25 @@ describe.skipIf(!executable)("the updater, in the real shell", () => {
 		}, 120_000);
 		afterAll(() => rmSync(built, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
-		/** The arguments the recorder was started with, once it has written them (it runs detached). */
-		async function startedWith(rig: Rig): Promise<string[]> {
+		/** The arguments the recorder was started with, once its record appears (it runs detached; its rename is atomic). */
+		function startedWith(rig: Rig): Promise<string[]> {
 			const file = path.join(rig.pending, RECORD);
-			const deadline = Date.now() + 20_000;
-			while (!existsSync(file)) {
-				if (Date.now() > deadline) throw new Error("the installer never started");
-				await new Promise(resolve => setTimeout(resolve, 50));
-			}
-			return readFileSync(file, "utf8").trimEnd().split("\n");
+			return new Promise((resolve, reject) => {
+				const watcher = watch(rig.pending);
+				cleanups.push(async () => watcher.close());
+				const settle = (): void => {
+					if (!existsSync(file)) return;
+					watcher.close();
+					resolve(readFileSync(file, "utf8").trimEnd().split("\n"));
+				};
+				watcher.on("change", settle);
+				watcher.on("error", error => {
+					watcher.close();
+					reject(error);
+				});
+				// Registered first, then looked: a record written before the watch began is found here.
+				settle();
+			});
 		}
 
 		/** Finds 2.0.0, its "installer" `payload`, and downloads it by itself (automatic mode). */
