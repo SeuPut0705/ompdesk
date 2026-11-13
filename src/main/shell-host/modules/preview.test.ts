@@ -27,7 +27,7 @@ import {
 import type { ClientWindow } from "../../web/client-window";
 import { type IpcCaller, IpcRegistry } from "../../web/ipc-registry";
 import { shellModule } from "./client";
-import { type PreviewClient, type PreviewSpec, type RelaySocket, registerPreview } from "./preview";
+import { type PreviewClient, type PreviewSpec, type RelaySocket, registerPreview, type VisualizeTab } from "./preview";
 import { startTestShell, type TestShell, testShellExecutable } from "./test-shell";
 
 const executable = testShellExecutable();
@@ -174,6 +174,12 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 	}, 120_000);
 
 	afterEach(async () => {
+		// The store keeps at most 8 visuals per tab, and every case opens in the same tab: each closes what it opened.
+		const closer = viewers[0];
+		for (const [id, tabId] of openedVisuals) {
+			if (closer) await client.visualize({ ...tab(closer), tabId }, { action: "close", visual: id }).catch(() => {});
+		}
+		openedVisuals.clear();
 		for (const viewer of viewers.splice(0)) await ask(viewer, { action: "dispose" }).catch(() => {});
 		prefs.judge = false;
 		prefs.active = null;
@@ -230,6 +236,15 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 		win: win as unknown as ClientWindow,
 		rpc: rpc as never,
 	});
+	/** Visual ids the cases opened, with their tab. */
+	const openedVisuals = new Map<string, string>();
+	/** `gui_visualize` as the tab runs it, remembering what it opened for `afterEach` to close. */
+	const visualize = async (on: VisualizeTab, args: object) => {
+		const result = await client.visualize(on, args);
+		const id = visual(result.text);
+		if (!result.isError && id) openedVisuals.set(id, on.tabId);
+		return result;
+	};
 	/** Shows a visual the agent just opened, as the renderer does when it hears of it. */
 	const show = async (win: Viewer, id: string) => {
 		await ask(win, { action: "showVisual", tabId: "tab", visualId: id });
@@ -241,7 +256,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 	/** Opens an inline visual and shows it on a laid-out surface; its first frame is out, so a tap can land. */
 	const openVisual = async (win: Viewer, html: string) => {
 		await lay(win);
-		const opened = await client.visualize(tab(win), { action: "open", html });
+		const opened = await visualize(tab(win), { action: "open", html });
 		expect(opened.isError).toBe(false);
 		const id = visual(opened.text);
 		expect(id).toMatch(/^[0-9a-f]{16}$/);
@@ -306,7 +321,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 	it("shows a visual in a page of the visual session, replacing the empty web tab, and opens an address typed there beside it", async () => {
 		const win = viewer();
 		await lay(win);
-		const opened = await client.visualize(tab(win), {
+		const opened = await visualize(tab(win), {
 			action: "open",
 			html: "<!doctype html><title>V</title><p>drawn</p>",
 		});
@@ -466,7 +481,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 				win.onVisual = event => {
 					void ask(win, { action: "showVisual", tabId: event.tabId, visualId: event.visualId });
 				};
-			return client.visualize(tab(win, omp(rig)), args);
+			return visualize(tab(win, omp(rig)), args);
 		}
 		const PAGE = { action: "open", html: "<!doctype html><title>Checked</title><p>content</p>" } as const;
 		const asked = (rig: JudgeRig) => rig.commands.map(command => command.type);
@@ -513,7 +528,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 			win.onVisual = event => {
 				void ask(win, { action: "showVisual", tabId: event.tabId, visualId: event.visualId });
 			};
-			const result = await client.visualize(tab(win, omp(rig)), PAGE);
+			const result = await visualize(tab(win, omp(rig)), PAGE);
 			expect(result.text).not.toContain("Preview check");
 			expect(rig.commands).toEqual([]);
 		}, 90_000);
@@ -533,7 +548,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 			const rig = judged("error");
 			prefs.judge = true;
 			prefs.active = "other";
-			const result = await client.visualize(tab(win, omp(rig)), PAGE);
+			const result = await visualize(tab(win, omp(rig)), PAGE);
 			expect(result.text).not.toContain("Preview check");
 			expect(asked(rig)).toEqual(["judge_available"]);
 		}, 90_000);
@@ -569,7 +584,7 @@ describe.skipIf(!executable)("the Preview module over the real shell", () => {
 
 		it("says why a choice could not be made", async () => {
 			const win = viewer();
-			const opened = await client.visualize(tab(win), { action: "open", html: "<p data-choice=a>a</p>" });
+			const opened = await visualize(tab(win), { action: "open", html: "<p data-choice=a>a</p>" });
 			const id = visual(opened.text);
 			const none = await client.visualize(tab(win), { action: "choose", visual: id, timeout_seconds: 10 });
 			expect(none).toMatchObject({ isError: true });
