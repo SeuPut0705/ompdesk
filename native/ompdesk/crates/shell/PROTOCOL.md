@@ -738,7 +738,7 @@ Deviations:
   queued (at most 64) until `chrome.linksReady`, instead of until `setupDeepLinks`. The dialog's owner is the focused
   app window. Links are read with the `url` crate, as `new URL` read them.
 - **Quit watchdog** fires in the shell: the forced-exit hooks are asked of Node (`chrome.forcedExit`, 2 s), then the shell
-  exits 0. A failed `chrome.quitFacts` or `chrome.backgroundWork` lets the quit go on. Test seams:
+  exits 0. A failed or malformed `chrome.quitFacts`, or `chrome.backgroundWork` when it is asked, refuses the quit or restart (it never approves one blind). Test seams:
   `OMP_GUI_TEST_QUIT_WATCHDOG_MS` shortens the 30 s watchdog; `OMP_GUI_TEST_QUIT_DIALOG=<button>` answers the quit
   dialog.
 - **Menu**: the tray's labels follow the label table's language (`i18n.labels`), not `TrayState.language`. The context

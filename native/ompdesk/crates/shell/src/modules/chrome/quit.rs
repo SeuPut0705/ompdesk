@@ -108,8 +108,8 @@ fn say(key: &str, params: &[(&str, &str)]) -> String {
     shell_core::labels::label(key, params).unwrap_or_else(|| key.to_string())
 }
 
-/// `chrome.quitFacts`: what a quit would stop. None when Node cannot say: the quit then goes ahead, as Node's own
-/// `app.quit()` would have.
+/// `chrome.quitFacts`: what a quit would stop. None when Node cannot say: the quit or restart is then refused
+/// (`Confirmation::Refuse`), never approved blind.
 fn read_facts(ctx: Ctx, then: impl FnOnce(Option<QuitFacts>) + Send + 'static) {
     ctx.ask("quitFacts", json!({}), None, move |answer, _| {
         let facts = match answer {
@@ -125,19 +125,18 @@ fn read_facts(ctx: Ctx, then: impl FnOnce(Option<QuitFacts>) + Send + 'static) {
 
 /// True when nothing would stop or the person chose to quit anyway.
 fn confirm_quit(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
-    read_facts(ctx, move |facts| match facts {
-        Some(facts) => present(quit_plan(&facts, &say), then),
-        None => then(true),
+    read_facts(ctx, move |facts| {
+        present(quit_plan(facts.as_ref(), &say), then)
     });
 }
 
 fn confirm_update_restart(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
     read_facts(ctx, move |facts| {
         let Some(facts) = facts else {
-            return then(true);
+            return present(update_plan(None, None, &say), then);
         };
         if !needs_background_work(facts.resumes) {
-            return present(update_plan(&facts, None, &say), then);
+            return present(update_plan(Some(&facts), None, &say), then);
         }
         ctx.ask(
             "backgroundWork",
@@ -147,10 +146,10 @@ fn confirm_update_restart(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
                 .ok()
                 .and_then(|value| BackgroundWork::from_json(&value))
             {
-                Some(work) => present(update_plan(&facts, Some(&work), &say), then),
+                Some(work) => present(update_plan(Some(&facts), Some(&work), &say), then),
                 None => {
                     log("quit.background_work_failed", json!({}));
-                    then(true)
+                    present(update_plan(Some(&facts), None, &say), then)
                 }
             },
         );
@@ -160,6 +159,7 @@ fn confirm_update_restart(ctx: Ctx, then: impl FnOnce(bool) + Send + 'static) {
 fn present(plan: Confirmation, then: impl FnOnce(bool) + Send + 'static) {
     match plan {
         Confirmation::Proceed => then(true),
+        Confirmation::Refuse => then(false),
         Confirmation::Ask(options) => ask_once(options, then),
     }
 }

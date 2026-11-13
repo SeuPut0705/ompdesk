@@ -135,12 +135,18 @@ pub fn background_work_options(sentence: &str, say: Say) -> Value {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Confirmation {
     Proceed,
+    /// What would stop is unknown (Node could not say): no quit and no restart, as the TypeScript's own failure was
+    /// one (`confirmUpdateRestart` threw when the work could not be read; the inventory never failed).
+    Refuse,
     /// Ask with these `dialog.messageBox` options: the first button proceeds.
     Ask(Value),
 }
 
-/// `confirmQuit`.
-pub fn confirm_quit(facts: &QuitFacts, say: Say) -> Confirmation {
+/// `confirmQuit`; `facts` None when `chrome.quitFacts` failed or answered something else.
+pub fn confirm_quit(facts: Option<&QuitFacts>, say: Say) -> Confirmation {
+    let Some(facts) = facts else {
+        return Confirmation::Refuse;
+    };
     if quit_needs_confirmation(&facts.risk, facts.resumes) {
         Confirmation::Ask(quit_options(&facts.risk, say))
     } else {
@@ -148,12 +154,19 @@ pub fn confirm_quit(facts: &QuitFacts, say: Say) -> Confirmation {
     }
 }
 
-/// `confirmUpdateRestart`; `work` is what `chrome.backgroundWork` answered, asked only when `needs_background_work`.
+/// `confirmUpdateRestart`; `facts` None when `chrome.quitFacts` failed; `work` is what `chrome.backgroundWork`
+/// answered, asked only when `needs_background_work` (None there: it failed or answered something else).
 pub fn confirm_update_restart(
-    facts: &QuitFacts,
+    facts: Option<&QuitFacts>,
     work: Option<&BackgroundWork>,
     say: Say,
 ) -> Confirmation {
+    let Some(facts) = facts else {
+        return Confirmation::Refuse;
+    };
+    if needs_background_work(facts.resumes) && work.is_none() {
+        return Confirmation::Refuse;
+    }
     let has = work.is_some_and(|work| work.has);
     match update_restart_confirmation(&facts.risk, facts.resumes, has) {
         None => Confirmation::Proceed,
@@ -406,7 +419,7 @@ mod tests {
 
     fn dialogs(plan: &Confirmation) -> Value {
         match plan {
-            Confirmation::Proceed => json!([]),
+            Confirmation::Proceed | Confirmation::Refuse => json!([]),
             Confirmation::Ask(options) => json!([options]),
         }
     }
@@ -415,11 +428,12 @@ mod tests {
     fn replays_the_confirm_quit_dialogs() {
         for step in of("quit", "src/main/app-quit.ts#confirmQuit") {
             let table = table(step.input["language"].as_str().unwrap());
-            let plan = confirm_quit(&facts(&step), &say_in(&table));
+            let plan = confirm_quit(Some(&facts(&step)), &say_in(&table));
             assert_eq!(dialogs(&plan), step.output["dialogs"], "{:?}", step.input);
             // The first button proceeds; a box that never opened proceeds by itself.
             let result = match plan {
                 Confirmation::Proceed => true,
+                Confirmation::Refuse => false,
                 Confirmation::Ask(_) => step.input["response"].as_u64() == Some(0),
             };
             assert_eq!(json!(result), step.output["result"], "{:?}", step.input);
@@ -436,7 +450,8 @@ mod tests {
                 sentence: step.input["sentence"].as_str().unwrap().to_string(),
             };
             let reads = needs_background_work(facts.resumes);
-            let plan = confirm_update_restart(&facts, reads.then_some(&work), &say_in(&table));
+            let plan =
+                confirm_update_restart(Some(&facts), reads.then_some(&work), &say_in(&table));
             assert_eq!(
                 json!(u64::from(reads)),
                 step.output["workRead"],
@@ -446,6 +461,7 @@ mod tests {
             assert_eq!(dialogs(&plan), step.output["dialogs"], "{:?}", step.input);
             let result = match plan {
                 Confirmation::Proceed => true,
+                Confirmation::Refuse => false,
                 Confirmation::Ask(_) => step.input["response"].as_u64() == Some(0),
             };
             assert_eq!(json!(result), step.output["result"], "{:?}", step.input);
@@ -513,5 +529,41 @@ mod tests {
                 step.function
             );
         }
+    }
+
+    #[test]
+    fn an_unknown_answer_never_approves_a_quit_or_a_restart() {
+        let say = |key: &str, _: &[(&str, &str)]| key.to_string();
+        let idle = QuitFacts {
+            risk: QuitRisk {
+                working_tabs: 0,
+                total_tabs: 1,
+                working_windows: 0,
+            },
+            resumes: true,
+        };
+        // `chrome.quitFacts` failed or was malformed.
+        assert_eq!(confirm_quit(None, &say), Confirmation::Refuse);
+        assert_eq!(
+            confirm_update_restart(None, None, &say),
+            Confirmation::Refuse
+        );
+        assert_eq!(QuitFacts::from_json(&json!({ "workingTabs": 1 })), None);
+        // Continue interrupted work on: the restart needs `chrome.backgroundWork`, which failed or was malformed.
+        assert_eq!(
+            confirm_update_restart(Some(&idle), None, &say),
+            Confirmation::Refuse
+        );
+        assert_eq!(BackgroundWork::from_json(&json!({ "has": true })), None);
+        // Setting off: the work is never asked, and nothing running proceeds as before.
+        let off = QuitFacts {
+            resumes: false,
+            ..idle
+        };
+        assert_eq!(
+            confirm_update_restart(Some(&off), None, &say),
+            Confirmation::Proceed
+        );
+        assert_eq!(confirm_quit(Some(&idle), &say), Confirmation::Proceed);
     }
 }
