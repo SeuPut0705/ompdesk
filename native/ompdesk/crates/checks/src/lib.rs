@@ -3,7 +3,7 @@
 
 pub mod check;
 pub mod cli;
-mod flaky;
+pub mod flaky;
 pub mod heavy;
 mod inputs;
 mod runner;

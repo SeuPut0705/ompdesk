@@ -144,6 +144,32 @@ fn flaked_now(t: &Test, digest: &str) -> bool {
     t.flaked_on.iter().any(|d| d == digest)
 }
 
+/// What a run's failures come to, counted against the quarantine: one rule for a local check and for a run on a
+/// GitHub runner (the core's `checks::trends`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Failures {
+    /// Failed tests that are not in quarantine.
+    pub blocking: usize,
+    /// Failed tests that are.
+    pub quarantined: usize,
+    /// Quarantined tests that passed only after a retry within this run.
+    pub quarantined_flaky: usize,
+}
+
+impl Failures {
+    /// A release check does not pass while a quarantined test failed or flaked in that run.
+    pub fn release_blocked(&self, release: bool) -> bool {
+        release && (self.quarantined > 0 || self.quarantined_flaky > 0)
+    }
+
+    /// Whether the run passes. `exit_ok`: its command (for a runner's job, its conclusion) reported success; a
+    /// failure reported there fails the run unless every failed test is a quarantined one.
+    pub fn passes(&self, exit_ok: bool, release: bool) -> bool {
+        let exit_explained = exit_ok || (self.quarantined > 0 && self.blocking == 0);
+        self.blocking == 0 && exit_explained && !self.release_blocked(release)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +217,33 @@ mod tests {
         }
         assert!(!book.quarantined("t"));
         assert_eq!(book.tests["t"].cleared_in.as_deref(), Some("last"));
+    }
+
+    #[test]
+    fn only_quarantined_failures_are_forgiven_and_never_for_a_release() {
+        let none = Failures::default();
+        assert!(none.passes(true, true));
+        // A failing exit code nothing explains.
+        assert!(!none.passes(false, false));
+        let quarantined = Failures {
+            quarantined: 2,
+            ..none
+        };
+        assert!(quarantined.passes(false, false));
+        assert!(!quarantined.passes(false, true));
+        assert!(!quarantined.passes(true, true));
+        let mixed = Failures {
+            blocking: 1,
+            ..quarantined
+        };
+        assert!(!mixed.passes(false, false));
+        assert!(!mixed.passes(true, false));
+        // A quarantined test that needed a retry blocks only a release.
+        let retried = Failures {
+            quarantined_flaky: 1,
+            ..none
+        };
+        assert!(retried.passes(true, false));
+        assert!(!retried.passes(true, true));
     }
 }

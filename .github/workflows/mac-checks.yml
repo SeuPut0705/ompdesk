@@ -38,7 +38,20 @@ jobs:
       # pwa-install and device-prefs drive a phone page in Playwright's own Chromium.
       - name: Playwright browsers
         run: bunx playwright install chromium
+      # OMPDESK_TEST_REPORT makes playwright.config.ts also write Playwright's JSON report, which check control reads
+      # each test's result and duration from (.omp/rules/check-control.md › Test results); the job's id names the artifact.
       - run: bunx playwright test --grep "@smoke"
+        env:
+          OMPDESK_TEST_REPORT: test-report/playwright.json
+      - name: Upload the test report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-report-${{ job.check_run_id }}
+          path: test-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:
@@ -51,6 +64,10 @@ jobs:
     permissions:
       contents: read
       actions: read # the failure report reads this run's jobs
+    # As mac-smoke: vitest.config.ts writes Vitest's JSON report where this names it. On the job, because the tests
+    # run inside a composite action.
+    env:
+      OMPDESK_TEST_REPORT: test-report/vitest.json
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -66,6 +83,15 @@ jobs:
           echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
           "$HOME/.bun/bin/omp" --version
       - uses: ./.github/actions/native-parity
+      - name: Upload the test report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-report-${{ job.check_run_id }}
+          path: test-report/
+          if-no-files-found: ignore
+          retention-days: 3
       - if: failure()
         run: bash scripts/ci-failure.sh
         env:

@@ -1323,6 +1323,7 @@ dependencies = [
  "icu_properties",
  "libc",
  "notify",
+ "ompdesk-checks",
  "p256",
  "rcgen",
  "rustls",
