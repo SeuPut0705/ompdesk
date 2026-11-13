@@ -584,7 +584,6 @@ pub fn page_first_load(wc_id: u64) {
             .map(|w| w.borrow().id)
     });
     if let Some(win_id) = found {
-        crate::started::page_loaded();
         host::event(
             "win.event",
             json!({ "winId": win_id, "name": "ready-to-show", "args": [] }),

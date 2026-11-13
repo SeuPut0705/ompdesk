@@ -28,7 +28,6 @@ mod screen;
 mod session;
 mod shellops;
 mod shortcut;
-mod started;
 mod state;
 mod system;
 mod theme;
@@ -167,6 +166,9 @@ fn random_hex(bytes: usize) -> String {
 }
 
 /// Where a relaunch waits for the instance it replaces to let go of the single-instance name.
+/// Test seam: the shell exits 1 right after CEF initialised (stands in for any start failure, for the installer's
+/// swap-back path).
+const FAIL_START_ENV: &str = "OMP_GUI_TEST_SHELL_FAIL_START";
 const RELAUNCH_AFTER_ENV: &str = "OMPDESK_SHELL_RELAUNCH_AFTER_PID";
 
 fn browser(argv: Vec<String>) -> i32 {
@@ -243,17 +245,6 @@ fn browser(argv: Vec<String>) -> i32 {
     };
     // The renderer and the preload are the main script's siblings (`out/main/index.js` → `out/renderer`): the e2e
     // harness runs pinned snapshots (`out-<hash>/main/index.js`) beside the checkout's own `out/`.
-    let version = std::fs::read_to_string(located.app_dir.join("package.json"))
-        .ok()
-        .and_then(|text| shell_core::marker::version_from_package_json(&text))
-        .unwrap_or_else(|| {
-            log(
-                "started.version_unknown",
-                json!({ "appDir": located.app_dir.display().to_string() }),
-            );
-            "unknown".to_string()
-        });
-    started::init(user_data.clone(), version);
     let entry = node::entry_script(&located.app_dir);
     let build_dir = entry
         .parent()
@@ -459,16 +450,10 @@ fn run_cef(
         eprintln!("[shell] CEF could not initialise (another process owns {web}?)");
         return 1;
     }
-    if std::env::var_os(shell_core::marker::FAIL_START_ENV).is_some() {
-        // Test seam: a start that fails after CEF is up, for the installer's swap-back path. No marker is written.
-        log(
-            "start.failed_on_purpose",
-            json!({ "env": shell_core::marker::FAIL_START_ENV }),
-        );
-        eprintln!(
-            "[shell] {} is set: exiting 1 without a start marker",
-            shell_core::marker::FAIL_START_ENV
-        );
+    if std::env::var_os(FAIL_START_ENV).is_some() {
+        // Test seam: a start that fails after CEF is up.
+        log("start.failed_on_purpose", json!({ "env": FAIL_START_ENV }));
+        eprintln!("[shell] {} is set: exiting 1", FAIL_START_ENV);
         shutdown();
         return 1;
     }

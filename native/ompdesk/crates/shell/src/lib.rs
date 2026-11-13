@@ -9,7 +9,6 @@ pub mod dialog_spec;
 pub mod facts;
 pub mod frame;
 pub mod hotkey;
-pub mod marker;
 pub mod menu_model;
 pub mod migrate;
 pub mod netmap;
