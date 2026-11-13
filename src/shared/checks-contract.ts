@@ -109,6 +109,19 @@ export const WhereSchema = z.discriminatedUnion("kind", [
 ]);
 export type Where = z.infer<typeof WhereSchema>;
 
+/** Heavy work on a computer that holds none of its slots (another project's own lock, a plain terminal). Never managed. */
+export const ForeignLoadSchema = z.strictObject({
+	/** `cargo`, `godot`, `vitest`, `playwright`. */
+	kind: z.string(),
+	/** The topmost process of the work. */
+	pid: Count,
+	/** Its command line, cut to 200 characters. */
+	command: z.string(),
+	/** The processes of its tree that are that kind. */
+	processes: Count,
+});
+export type ForeignLoad = z.infer<typeof ForeignLoadSchema>;
+
 /** Slot and capacity per OS and machine: one shape for a computer's heavy slots and for GitHub's macOS limit. */
 export const PoolSchema = z.strictObject({
 	id: z.string(),
@@ -121,6 +134,8 @@ export const PoolSchema = z.strictObject({
 	diskFreeGb: z.number().optional(),
 	asOf: Timestamp,
 	state: z.enum(POOL_STATES),
+	/** Heavy work there that holds none of its slots: the load is `running + foreign.length` against `limit`. */
+	foreign: z.array(ForeignLoadSchema),
 });
 export type Pool = z.infer<typeof PoolSchema>;
 
@@ -388,6 +403,8 @@ export const LocalPoolSchema = z.strictObject({
 	offline: z.boolean(),
 	/** The size of that computer's check store. */
 	checkStoreBytes: Count.optional(),
+	/** Heavy work there that holds none of its slots (an older computer's answer leaves it out). */
+	foreign: z.array(ForeignLoadSchema).default([]),
 });
 export type LocalPool = z.infer<typeof LocalPoolSchema>;
 

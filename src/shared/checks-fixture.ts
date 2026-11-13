@@ -198,6 +198,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				oldestWaitMs: 9 * minute,
 				asOf,
 				state: "live",
+				foreign: [],
 			},
 			{
 				id: "github-linux",
@@ -209,6 +210,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				oldestWaitMs: 0,
 				asOf,
 				state: "live",
+				foreign: [],
 			},
 			{
 				id: "device-macbook",
@@ -221,6 +223,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				diskFreeGb: 212.4,
 				asOf,
 				state: "live",
+				foreign: [{ kind: "cargo", pid: 4242, command: "cargo build --release -p game", processes: 9 }],
 			},
 			{
 				id: "device-mini",
@@ -233,6 +236,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				diskFreeGb: 18.9,
 				asOf: asOf - 14 * minute,
 				state: "offline",
+				foreign: [],
 			},
 		],
 		runs: [

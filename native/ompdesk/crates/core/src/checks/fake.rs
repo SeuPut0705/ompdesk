@@ -19,9 +19,9 @@ use super::hub::{ChecksHub, Fut, RESULTS_KEPT, Runners};
 use crate::clock;
 use crate::server::{Fault, Scope};
 
-/// What `checks.fake` takes.
+/// What `checks.fake` takes. Read through `FakeOpWire` for the reason `MainFact` is (a snapshot holds numbers).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "op", rename_all = "camelCase")]
+#[serde(tag = "op", rename_all = "camelCase", try_from = "FakeOpWire")]
 pub enum FakeOp {
     /// What `status` and `watch` show from now on.
     Snapshot { snapshot: Snapshot },
@@ -31,6 +31,36 @@ pub enum FakeOp {
     Finish { result: RunResult },
     /// Answers every call made so far (`FakeCall`), oldest first.
     Calls,
+}
+
+/// `FakeOp` as it is read: one plain object, its fields by the op.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FakeOpWire {
+    op: String,
+    snapshot: Option<Snapshot>,
+    reply: Option<StartReply>,
+    result: Option<RunResult>,
+}
+
+impl TryFrom<FakeOpWire> for FakeOp {
+    type Error = String;
+    fn try_from(wire: FakeOpWire) -> Result<FakeOp, String> {
+        let missing = |field: &str| format!("checks.fake {} needs {field}", wire.op);
+        Ok(match wire.op.as_str() {
+            "snapshot" => FakeOp::Snapshot {
+                snapshot: wire.snapshot.clone().ok_or_else(|| missing("snapshot"))?,
+            },
+            "startReply" => FakeOp::StartReply {
+                reply: wire.reply.clone().ok_or_else(|| missing("reply"))?,
+            },
+            "finish" => FakeOp::Finish {
+                result: wire.result.clone().ok_or_else(|| missing("result"))?,
+            },
+            "calls" => FakeOp::Calls,
+            other => return Err(format!("checks.fake has no op {other:?}")),
+        })
+    }
 }
 
 /// A call the fake hub got.

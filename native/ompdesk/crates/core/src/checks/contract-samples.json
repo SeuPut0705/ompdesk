@@ -183,7 +183,15 @@
         "oldestWaitMs": 540000,
         "diskFreeGb": 41.5,
         "asOf": 1794000000000,
-        "state": "live"
+        "state": "live",
+        "foreign": [
+          {
+            "kind": "cargo",
+            "pid": 4242,
+            "command": "cargo build --release -p game",
+            "processes": 9
+          }
+        ]
       }
     ],
     "Job": [
@@ -411,7 +419,15 @@
             "oldestWaitMs": 540000,
             "diskFreeGb": 41.5,
             "asOf": 1794000000000,
-            "state": "live"
+            "state": "live",
+            "foreign": [
+              {
+                "kind": "cargo",
+                "pid": 4242,
+                "command": "cargo build --release -p game",
+                "processes": 9
+              }
+            ]
           }
         ],
         "runs": [
@@ -614,7 +630,15 @@
         ],
         "asOf": 1794000700000,
         "offline": false,
-        "checkStoreBytes": 6800000000
+        "checkStoreBytes": 6800000000,
+        "foreign": [
+          {
+            "kind": "vitest",
+            "pid": 5150,
+            "command": "node vitest run",
+            "processes": 4
+          }
+        ]
       }
     ],
     "MainFact": [
@@ -643,7 +667,15 @@
           ],
           "asOf": 1794000700000,
           "offline": false,
-          "checkStoreBytes": 6800000000
+          "checkStoreBytes": 6800000000,
+          "foreign": [
+            {
+              "kind": "vitest",
+              "pid": 5150,
+              "command": "node vitest run",
+              "processes": 4
+            }
+          ]
         }
       },
       {
@@ -681,7 +713,15 @@
               "oldestWaitMs": 540000,
               "diskFreeGb": 41.5,
               "asOf": 1794000000000,
-              "state": "live"
+              "state": "live",
+              "foreign": [
+                {
+                  "kind": "cargo",
+                  "pid": 4242,
+                  "command": "cargo build --release -p game",
+                  "processes": 9
+                }
+              ]
             }
           ],
           "runs": [

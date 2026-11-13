@@ -225,6 +225,9 @@ pub struct LocalPool {
     /// The size of that computer's check store (`<cache>/ompdesk/checks`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_store_bytes: Option<u64>,
+    /// Heavy work there that holds none of its slots; an older computer's answer has none.
+    #[serde(default)]
+    pub foreign: Vec<super::contract::ForeignLoad>,
 }
 
 /// One `ompdesk check` run, from its journal (`<cache>/ompdesk/checks/runs/<id>/run.json`).
