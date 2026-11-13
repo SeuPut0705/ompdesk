@@ -197,26 +197,36 @@ mod tests {
     use std::process::Command;
     use std::time::{Duration, Instant};
 
+    /// The wait status kqueue reported for `pid`, or why none came.
+    fn observed(watch: &ExitWatch, pid: u32) -> Result<i32, &'static str> {
+        if !watch.watch(pid) {
+            return Err("the child was gone before it was watched");
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some((_, status)) = watch.ended().into_iter().find(|(p, _)| *p == pid) {
+                return Ok(status);
+            }
+            if Instant::now() >= deadline {
+                return Err("no exit seen");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     fn status_of(script: &str) -> i32 {
         let watch = ExitWatch::new().expect("kqueue");
         let mut child = Command::new("/bin/sh")
             .args(["-c", script])
             .spawn()
             .expect("sh starts");
-        assert!(watch.watch(child.id()), "the child is still there to watch");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if let Some((_, status)) = watch
-                .ended()
-                .into_iter()
-                .find(|(pid, _)| *pid == child.id())
-            {
-                child.wait().expect("reaped");
-                return status;
-            }
-            assert!(Instant::now() < deadline, "no exit seen");
-            std::thread::sleep(Duration::from_millis(20));
+        let status = observed(&watch, child.id());
+        // Reaped on every path; a child that never ended is ended first.
+        if status.is_err() {
+            let _ = child.kill();
         }
+        child.wait().expect("reaped");
+        status.expect("kqueue reported the exit")
     }
 
     #[test]
