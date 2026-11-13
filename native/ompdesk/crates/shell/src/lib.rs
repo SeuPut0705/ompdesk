@@ -1,6 +1,7 @@
 //! The shell's pure parts: no CEF in here, so `cargo test` runs them in an executable that never imports libcef.dll.
 
 pub mod accelerator;
+pub mod childproc;
 pub mod chunks;
 pub mod color;
 pub mod conn;
@@ -16,6 +17,7 @@ pub mod migrate;
 pub mod netmap;
 pub mod notify_spec;
 pub mod proxy_mac;
+pub mod preload_report;
 pub mod proxy_rules;
 pub mod range;
 pub mod shell_args;

@@ -5,6 +5,7 @@
 mod app;
 mod appops;
 mod cdp;
+mod childwatch;
 mod clipboard;
 mod dialog;
 mod dispatch;

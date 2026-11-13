@@ -34,6 +34,22 @@ pub fn emit(wc_id: u64, name: &str, args: Value) {
     );
 }
 
+/// The window whose page this is hears of it too (`BrowserWindow`'s `unresponsive` / `responsive`, `win.event`).
+fn window_event(wc_id: u64, name: &str) {
+    let found = ui_state(|u| {
+        u.windows
+            .values()
+            .find(|w| w.borrow().wc_id == wc_id)
+            .map(|w| w.borrow().id)
+    });
+    if let Some(win_id) = found {
+        host::event(
+            "win.event",
+            json!({ "winId": win_id, "name": name, "args": [] }),
+        );
+    }
+}
+
 /// `wc.state` when anything changed since the last push.
 pub fn push_state(wc_id: u64) {
     let Some(entry) = wc(wc_id) else { return };
@@ -394,11 +410,13 @@ wrap_request_handler! {
 
         fn on_render_process_unresponsive(&self, _browser: Option<&mut Browser>, _callback: Option<&mut UnresponsiveProcessCallback>) -> i32 {
             emit(self.wc_id, "unresponsive", json!([]));
+            window_event(self.wc_id, "unresponsive");
             0
         }
 
         fn on_render_process_responsive(&self, _browser: Option<&mut Browser>) {
             emit(self.wc_id, "responsive", json!([]));
+            window_event(self.wc_id, "responsive");
         }
 
         fn on_document_available_in_main_frame(&self, _browser: Option<&mut Browser>) {
@@ -812,6 +830,7 @@ fn extra_info(preload: Option<&str>) -> Option<DictionaryValue> {
 /// A Views browser (the app page or a Preview view). Registers the entry; the browser itself arrives in
 /// `on_after_created`.
 pub fn create_view(wc_id: u64, role: Role, partition: &str) -> Option<BrowserView> {
+    crate::childwatch::start();
     let mut entry = WcEntry::new(wc_id, partition);
     let preload = session::preload_for(partition);
     entry.preload = preload.clone();
@@ -837,6 +856,7 @@ pub fn create_view(wc_id: u64, role: Role, partition: &str) -> Option<BrowserVie
 
 /// A windowless browser (`webPreferences.offscreen`): paints arrive in `ShellRender`.
 pub fn create_offscreen(wc_id: u64, partition: &str, width: i32, height: i32) -> bool {
+    crate::childwatch::start();
     let mut entry = WcEntry::new(wc_id, partition);
     entry.view_size = (width, height);
     entry.preload = session::preload_for(partition);

@@ -14,6 +14,7 @@
  */
 import type { OmpApi } from "../shared/ipc-types";
 import { createOmpApi, type OmpTransport } from "../shared/omp-api";
+import { describePreloadFailure } from "../shared/preload-failure";
 
 const BASE = "app://ompdesk/";
 
@@ -155,29 +156,54 @@ function pathForFile(file: File): string {
 }
 
 /**
- * A link to a `file:` URL is refused by Blink before the browser process hears of it (the page's origin is not local),
- * so Electron's `will-navigate` would never fire here. The shell is told, and the main process's listeners decide.
+ * Electron's `preload-error`: this script threw. The shell turns the report into the page's `preload-error` event (the
+ * main process logs it). Reporting never throws and never waits; the error itself is rethrown after it.
  */
-document.addEventListener(
-	"click",
-	event => {
-		const target = event.target;
-		const anchor = target instanceof Element ? target.closest("a[href]") : null;
-		if (!(anchor instanceof HTMLAnchorElement) || !/^file:/i.test(anchor.href)) return;
-		event.preventDefault();
-		void fetch(`${BASE}__shell/will-navigate`, {
+function reportFailure(error: unknown): void {
+	try {
+		void fetch(`${BASE}__shell/preload-error`, {
 			method: "POST",
 			headers: { "content-type": "text/plain" },
-			body: JSON.stringify({ url: anchor.href }),
+			body: JSON.stringify(describePreloadFailure(error)),
 		}).catch(() => undefined);
-	},
-	true,
-);
+	} catch {
+		// Nothing more can be done about a failing report.
+	}
+}
 
-importLocalStorage();
-void readEvents();
+function start(): void {
+	/**
+	 * A link to a `file:` URL is refused by Blink before the browser process hears of it (the page's origin is not local),
+	 * so Electron's `will-navigate` would never fire here. The shell is told, and the main process's listeners decide.
+	 */
+	document.addEventListener(
+		"click",
+		event => {
+			const target = event.target;
+			const anchor = target instanceof Element ? target.closest("a[href]") : null;
+			if (!(anchor instanceof HTMLAnchorElement) || !/^file:/i.test(anchor.href)) return;
+			event.preventDefault();
+			void fetch(`${BASE}__shell/will-navigate`, {
+				method: "POST",
+				headers: { "content-type": "text/plain" },
+				body: JSON.stringify({ url: anchor.href }),
+			}).catch(() => undefined);
+		},
+		true,
+	);
 
-const shared = createOmpApi(shellTransport);
-const api: OmpApi = { ...shared, fs: { ...shared.fs, pathForFile } };
+	importLocalStorage();
+	void readEvents();
 
-(window as unknown as { omp: OmpApi }).omp = api;
+	const shared = createOmpApi(shellTransport);
+	const api: OmpApi = { ...shared, fs: { ...shared.fs, pathForFile } };
+
+	(window as unknown as { omp: OmpApi }).omp = api;
+}
+
+try {
+	start();
+} catch (error) {
+	reportFailure(error);
+	throw error;
+}

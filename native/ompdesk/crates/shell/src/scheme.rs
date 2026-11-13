@@ -404,6 +404,17 @@ fn route(
                 }
                 Resp::no_content()
             }
+            // The page script threw: the page's `preload-error` event (the main process logs it).
+            ("POST", "preload-error") => {
+                let path = p.preload_file.to_string_lossy().into_owned();
+                if let (Some(wc_id), Some(args)) = (
+                    wc_id,
+                    shell_core::preload_report::event_args(&path, &req.body),
+                ) {
+                    wc::emit(wc_id, "preload-error", args);
+                }
+                Resp::no_content()
+            }
             ("GET", "drag-files") => {
                 let list: Vec<Value> = wc::DROPPED
                     .lock()

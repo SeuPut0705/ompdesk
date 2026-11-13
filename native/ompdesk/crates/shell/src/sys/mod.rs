@@ -3,6 +3,7 @@
 #![allow(unsafe_code)]
 
 pub mod caption;
+pub mod childproc;
 pub mod clipboard;
 pub mod comthread;
 mod crypt;
