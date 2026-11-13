@@ -911,14 +911,6 @@
 	}
 }
 
-.omp-conversation-nav-stack.is-dense {
-	gap: 1px;
-}
-
-.omp-conversation-nav-stack.is-compact {
-	gap: 0;
-}
-
 .omp-conversation-nav-slot {
 	position: relative;
 	flex: 0 1 10px;
@@ -926,8 +918,40 @@
 	width: 100%;
 }
 
-.omp-conversation-nav-stack.is-compact .omp-conversation-nav-slot {
-	flex-basis: 6px;
+/* The top item of a windowed rail: how many turns lie above the ticks, one press of it moves the window a page up. */
+.omp-conversation-nav-earlier-slot {
+	position: relative;
+	flex: 0 0 auto;
+	width: 100%;
+	margin-bottom: var(--sc-space-1);
+}
+
+.omp-conversation-nav-earlier {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 1px;
+	width: 100%;
+	padding: 0 var(--sc-space-1) 0 0;
+	border: 0;
+	border-radius: var(--sc-radius-xs);
+	background: transparent;
+	color: var(--sc-text-subtle);
+	font-size: var(--sc-font-2xs);
+	font-variant-numeric: tabular-nums;
+	line-height: 1.5;
+	pointer-events: auto;
+	cursor: pointer;
+	transition: color var(--sc-duration-fast) var(--sc-ease-standard);
+}
+
+.omp-conversation-nav-earlier:hover,
+.omp-conversation-nav-earlier:focus-visible:where(:not(html[data-focus-modality="pointer"] *)) {
+	color: var(--sc-text);
+}
+
+.omp-conversation-nav-earlier:focus-visible:where(:not(html[data-focus-modality="pointer"] *)) {
+	outline: var(--sc-focus-width) solid var(--sc-focus-ring);
 }
 
 .omp-conversation-nav-marker {
@@ -1014,15 +1038,30 @@
 	animation: omp-fade-in var(--sc-duration-fast) var(--sc-ease-standard) both;
 }
 
-.omp-conversation-nav-slot:nth-child(-n + 5):not(:nth-last-child(-n + 5)) .omp-conversation-nav-preview {
+.omp-conversation-nav-slot:nth-child(-n + 5 of .omp-conversation-nav-slot):not(
+		:nth-last-child(-n + 5 of .omp-conversation-nav-slot)
+	)
+	.omp-conversation-nav-preview {
 	top: 0;
 	transform: none;
 }
 
-.omp-conversation-nav-slot:nth-last-child(-n + 5):not(:nth-child(-n + 5)) .omp-conversation-nav-preview {
+.omp-conversation-nav-slot:nth-last-child(-n + 5 of .omp-conversation-nav-slot):not(
+		:nth-child(-n + 5 of .omp-conversation-nav-slot)
+	)
+	.omp-conversation-nav-preview {
 	top: auto;
 	bottom: 0;
 	transform: none;
+}
+
+.omp-conversation-nav-preview-earlier {
+	width: max-content;
+	padding: var(--sc-space-1-5) var(--sc-space-3);
+	color: var(--sc-text-muted);
+	font-size: var(--sc-font-xs);
+	font-weight: 500;
+	white-space: nowrap;
 }
 
 .omp-conversation-nav-preview-kicker {

@@ -85,7 +85,7 @@ export interface Surface {
 	};
 }
 
-export type ParitySession = "work" | "reply" | "steer" | "advisor" | "limit";
+export type ParitySession = "work" | "reply" | "steer" | "advisor" | "limit" | "turns";
 
 /** The fake omp's voice script (`voiceScript`, e2e/fixture/rpc-ui.ts); e2e/parity.e2e.ts names the file. */
 async function scriptVoice(script: Record<string, unknown>): Promise<void> {
@@ -667,6 +667,45 @@ async function showTranscriptStart(page: Page): Promise<void> {
 	await holdAtTop(first);
 }
 
+/** What the turn rail draws: its ticks, the number of the first one, the ticks marked as the turn in view, the earlier item's name. */
+interface TurnRailReading {
+	ticks: number;
+	first: number;
+	current: number;
+	earlier: string | null;
+}
+
+/**
+ * Waits until the turn rail draws 20 ticks (`TURN_RAIL_LIMIT`), the first of them turn number `first` (exactly, or at
+ * most `atMost`: a phone's page reads another turn as the one in view than a window does), the turn in view among
+ * them, and an "N earlier" item that names the turns above the first tick (none when the first tick is turn 1). Fails
+ * with what it read.
+ */
+async function expectTurnRail(page: Page, want: { first: number | { atMost: number } }): Promise<void> {
+	const read = (): Promise<TurnRailReading> =>
+		page.evaluate(() => {
+			const markers = [...document.querySelectorAll(".omp-conversation-nav-marker")];
+			const first = Number(/turn (\d+) of/.exec(markers[0]?.getAttribute("aria-label") ?? "")?.[1]);
+			return {
+				ticks: markers.length,
+				first,
+				current: markers.filter(marker => marker.getAttribute("aria-current") === "location").length,
+				earlier: document.querySelector(".omp-conversation-nav-earlier")?.getAttribute("aria-label") ?? null,
+			};
+		});
+	const fits = (seen: TurnRailReading) =>
+		seen.ticks === 20 &&
+		seen.current === 1 &&
+		(typeof want.first === "number" ? seen.first === want.first : seen.first <= want.first.atMost) &&
+		seen.earlier === (seen.first > 1 ? `${seen.first - 1} earlier` : null);
+	let seen = await read();
+	for (let attempt = 0; attempt < 40 && !fits(seen); attempt++) {
+		await page.waitForTimeout(250);
+		seen = await read();
+	}
+	if (!fits(seen)) throw new Error(`the turn rail draws ${JSON.stringify(seen)}, not ${JSON.stringify(want)}`);
+}
+
 export const SURFACES: readonly Surface[] = [
 	// ── Area A: sidebar, transcript, composer, panels ─────────────────────────────────────────
 	{
@@ -1099,6 +1138,31 @@ export const SURFACES: readonly Surface[] = [
 		open: page => showTurn(page, "Show me everything that tends to overflow on a phone."),
 		ready: '.omp-user-bubble:has-text("Show me everything that tends to overflow on a phone.")',
 		settle: 900,
+	},
+	// The turn rail in the transcript's left gutter (ConversationNavigator). A phone's page does not draw it (its CSS
+	// hides it below a wide workspace), so there the capture is the transcript alone; the ticks are mounted all the same.
+	{
+		id: "transcript-turn-rail",
+		area: "A",
+		title: "Transcript of a 44-turn session at its newest turn, with the turn rail in the left gutter",
+		open: page => expectTurnRail(page, { first: 25 }),
+		ready: ".omp-transcript-scroll",
+		settle: 600,
+		when: () => false,
+		parity: { session: "turns" },
+	},
+	{
+		id: "transcript-turn-rail-scrolled",
+		area: "A",
+		title: "The same session scrolled up to its third turn: the turn rail follows it",
+		open: async page => {
+			await showTurn(page, "Parity turn 3");
+			await expectTurnRail(page, { first: { atMost: 5 } });
+		},
+		ready: ".omp-transcript-scroll",
+		settle: 900,
+		when: () => false,
+		parity: { session: "turns" },
 	},
 	{
 		id: "image-viewer",

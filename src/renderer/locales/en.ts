@@ -3185,6 +3185,7 @@ export const en: Record<string, string> = {
 	"chat.navigator.label": "Turn navigation",
 	"chat.navigator.jumpTo": "Jump to turn {current} of {total}: {preview}",
 	"chat.navigator.turn": "Turn {current} of {total}",
+	"chat.navigator.earlier": "{count} earlier",
 	"chat.navigator.imagePrompt": "Image prompt",
 	"chat.empty.title": "What should we build?",
 	"chat.starter.understand.title": "Understand the project",

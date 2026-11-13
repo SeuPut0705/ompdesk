@@ -340,7 +340,11 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // 2,201,221 by the runner's build (13 Nov 2026, branch run 43449213441), 631 bytes under the budget above. The budget is
 // that measure plus 79 bytes, so the next change that grows the first screen has to say so here. Run 43487947733 on the
 // branch merged with main (14 Nov 2026) passed `build` under it.
-const WEB_FIRST_SCREEN_JS_BYTES = 2_201_300;
+// The turn rail's window (14 Nov 2026: `ConversationNavigator` draws the newest 20 turns and an "N earlier" item, the
+// transcript is the phone's first screen though its CSS hides the rail there): about 1,730 bytes more than the budget
+// above measured (2,203,581 against 2,201,852 on the branch before the usage grouping moved out). Run 43497845095 on the
+// branch merged with main passed `build` under the budget below.
+const WEB_FIRST_SCREEN_JS_BYTES = 2_203_000;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
 // Node does not have: a bundle importing `ws` at runtime must fail here, not pass because Bun runs this check.

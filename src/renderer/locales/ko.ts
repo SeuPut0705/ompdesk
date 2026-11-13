@@ -3176,6 +3176,7 @@ export const ko: Record<string, string> = {
 	"chat.navigator.label": "턴 탐색",
 	"chat.navigator.jumpTo": "{current}/{total}번째 턴으로 이동: {preview}",
 	"chat.navigator.turn": "턴 {current}/{total}",
+	"chat.navigator.earlier": "이전 {count}개",
 	"chat.navigator.imagePrompt": "이미지 프롬프트",
 	"chat.empty.title": "무엇을 만들어 볼까요?",
 	"chat.starter.understand.title": "프로젝트 이해하기",
