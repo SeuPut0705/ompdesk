@@ -43,7 +43,8 @@ const FACTS: HostFacts = {
 	},
 	exe: "C:/app/OMPdesk.exe",
 	resourcesPath: "C:/app/resources",
-	appPath: "C:/app/resources/app",
+	// A path of the machine the test runs on: loadFile resolves against it, as against a real app folder.
+	appPath: join(tmpdir(), "ompdesk-app", "resources", "app"),
 	isPackaged: true,
 	argv: ["C:/app/OMPdesk.exe", "--user-data-dir=C:/data/ompdesk", "--blink-settings=foo=1", "C:/work"],
 	locale: { appLocale: "ko", systemLocale: "ko-KR", preferredLanguages: ["ko-KR", "en-US"] },
@@ -178,7 +179,7 @@ describe("app", () => {
 		const { app } = electron;
 		expect(app.getPath("userData")).toBe("C:/data/ompdesk");
 		expect(() => app.getPath("nothing")).toThrow("Failed to get 'nothing' path");
-		expect(app.getAppPath()).toBe("C:/app/resources/app");
+		expect(app.getAppPath()).toBe(FACTS.appPath);
 		expect(app.isPackaged).toBe(true);
 		expect(app.getLocale()).toBe("ko");
 		expect(app.getPreferredSystemLanguages()).toEqual(["ko-KR", "en-US"]);
@@ -613,7 +614,7 @@ describe("webContents", () => {
 
 	it("loadURL settles on the load; loadFile maps the renderer to app://ompdesk/ with query and hash", async () => {
 		const { webContents } = new electron.BrowserWindow({});
-		const loaded = webContents.loadFile("C:/app/resources/app/out/renderer/index.html", {
+		const loaded = webContents.loadFile(join(FACTS.appPath, "out", "renderer", "index.html"), {
 			query: { slot: "0", mica: "1" },
 			hash: "/x",
 		});
