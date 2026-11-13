@@ -40,7 +40,7 @@ use super::journal::mail_outbox::{MailAnswer, OutboxMail, RedeliverDeps, redeliv
 use super::service::AgentControl;
 use super::service::host::Host;
 use super::service::types::ClosedChild;
-use crate::server::{Call, Fault, Registry, Reply};
+use crate::server::{Call, Fault, Registry, Reply, at_once};
 
 pub use activity::Activity;
 
@@ -370,15 +370,18 @@ fn fault_of(error: &super::service::fail::Fail) -> Fault {
     super::service::fault_of(error)
 }
 
+// The handlers below that never wait do their work in their own call, which the read loop makes as the line is read
+// (`at_once`): a tab's activity and the stop of a run that follows it happen in the order main sent them.
+
 /// `agentRuntime.activity {port, activity}`: one tab activity main saw (after the snapshot it pushed).
-async fn activity_call(call: Call) -> Result<Reply, Fault> {
+fn activity_call(call: &Call) -> Result<Reply, Fault> {
     let params: ActivityParams = call.params()?;
     runtime_of(params.port)?.activity(params.activity);
     Reply::json(&())
 }
 
 /// `agentRuntime.afterRun {port, tabId}`: a tool that may change what the work board shows ran for `tabId`.
-async fn after_run(call: Call) -> Result<Reply, Fault> {
+fn after_run(call: &Call) -> Result<Reply, Fault> {
     let params: TabParams = call.params()?;
     let runtime = runtime_of(params.port)?;
     runtime.push_review(&params.tab_id);
@@ -387,13 +390,13 @@ async fn after_run(call: Call) -> Result<Reply, Fault> {
 }
 
 /// `agentRuntime.pushReview {port, tabId}`: what `tabId`'s work board shows changed (a child's report reached it).
-async fn push_review(call: Call) -> Result<Reply, Fault> {
+fn push_review(call: &Call) -> Result<Reply, Fault> {
     let params: TabParams = call.params()?;
     runtime_of(params.port)?.push_review(&params.tab_id);
     Reply::json(&())
 }
 
-async fn sweep_openers(call: Call) -> Result<Reply, Fault> {
+fn sweep_openers(call: &Call) -> Result<Reply, Fault> {
     let params: PortOnly = call.params()?;
     runtime_of(params.port)?.sweep_openers();
     Reply::json(&())
@@ -426,29 +429,23 @@ async fn live_review_call(call: Call) -> Result<Reply, Fault> {
     Reply::json(&())
 }
 
-async fn forget_deleted(call: Call) -> Result<Reply, Fault> {
+fn forget_deleted(call: &Call) -> Result<Reply, Fault> {
     let params: PortOnly = call.params()?;
     runtime_of(params.port)?.forget_deleted();
     Reply::json(&())
 }
 
-async fn acknowledge(call: Call) -> Result<Reply, Fault> {
+fn acknowledge(call: &Call) -> Result<Reply, Fault> {
     let params: AcknowledgeParams = call.params()?;
     runtime_of(params.port)?.acknowledge(&params.call_id);
     Reply::json(&())
 }
 
 pub fn register(registry: &mut Registry) {
-    registry.add("agentRuntime.activity", |call| {
-        Box::pin(activity_call(call))
-    });
-    registry.add("agentRuntime.afterRun", |call| Box::pin(after_run(call)));
-    registry.add("agentRuntime.pushReview", |call| {
-        Box::pin(push_review(call))
-    });
-    registry.add("agentRuntime.sweepOpeners", |call| {
-        Box::pin(sweep_openers(call))
-    });
+    registry.add("agentRuntime.activity", |call| at_once(activity_call(&call)));
+    registry.add("agentRuntime.afterRun", |call| at_once(after_run(&call)));
+    registry.add("agentRuntime.pushReview", |call| at_once(push_review(&call)));
+    registry.add("agentRuntime.sweepOpeners", |call| at_once(sweep_openers(&call)));
     registry.add("agentRuntime.review", |call| Box::pin(review_call(call)));
     registry.add("agentRuntime.familyEdits", |call| {
         Box::pin(family_edits_call(call))
@@ -456,12 +453,8 @@ pub fn register(registry: &mut Registry) {
     registry.add("agentRuntime.liveReview", |call| {
         Box::pin(live_review_call(call))
     });
-    registry.add("agentRuntime.forgetDeleted", |call| {
-        Box::pin(forget_deleted(call))
-    });
-    registry.add("agentRuntime.acknowledge", |call| {
-        Box::pin(acknowledge(call))
-    });
+    registry.add("agentRuntime.forgetDeleted", |call| at_once(forget_deleted(&call)));
+    registry.add("agentRuntime.acknowledge", |call| at_once(acknowledge(&call)));
     wake::register(registry);
 }
 

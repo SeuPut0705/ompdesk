@@ -1898,6 +1898,26 @@ describe("a session's own wake-up", () => {
 		);
 	});
 
+	it("aborts the turn of a wake stopped right after the tab's busy edge, however the core's tasks start", async () => {
+		const file = await sessionFile();
+		const rig = setup({ tabs: [{ tabId: "main0001", sessionPath: file }], owners: { [file]: "main0001" } });
+		// The busy edge and the stop are two calls main sends in this order; the core must handle them in it, or the
+		// stop finds a turn that "has not started" and aborts nothing (win-platform 3/3, run 43387432689).
+		for (let round = 1; round <= 40; round++) {
+			const run = await rig.runtime.wakeSession(wakeable(file), `run-burst-${round}`);
+			for (const observer of rig.activity) observer({ type: "busy", tabId: "main0001" });
+			run.stop();
+			await expect(run.done).resolves.toEqual({ code: 130 });
+			await vi.waitFor(
+				() =>
+					expect(
+						rig.commands.filter(entry => entry.tabId === "main0001" && entry.command.type === "abort"),
+					).toHaveLength(round),
+				{ timeout: 5_000 },
+			);
+		}
+	});
+
 	it("opens a session no tab holds in the background, and starts an asleep one", async () => {
 		const file = await sessionFile();
 		const none = setup({ outsideWindow: true });

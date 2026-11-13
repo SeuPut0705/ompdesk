@@ -175,6 +175,14 @@ impl Reply {
 pub type Answer = Pin<Box<dyn Future<Output = Result<Reply, Fault>> + Send>>;
 pub type Handler = fn(Call) -> Answer;
 
+/// The answer of a handler whose work was done in the handler's own call, which the read loop makes as the line is
+/// read. A handler written as `Box::pin(async move { … })` starts only when its task is first polled, and two such
+/// tasks start in either order: a call whose effect a later call of the same caller reads (a tab's busy edge, then
+/// the stop that asks whether the turn had started) must do it before it returns this.
+pub fn at_once(done: Result<Reply, Fault>) -> Answer {
+    Box::pin(async move { done })
+}
+
 /// What a push handler is given: it runs on the read loop, so it must only hand the work on (a channel's send).
 pub struct PushCall {
     pub params: Box<RawValue>,
