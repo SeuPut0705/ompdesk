@@ -142,8 +142,12 @@ fn usage(message: &str) -> i32 {
     EXIT_USAGE
 }
 
-fn pool() -> io::Result<Pool> {
-    Pool::new(heavy::pool_dir(&env), heavy::machine_size(&env))
+/// The pool, judging the disk by the volumes `command` writes to (none: this folder and the temp folder).
+fn pool(command: &[String]) -> io::Result<Pool> {
+    let mut pool = Pool::new(heavy::pool_dir(&env), heavy::machine_size(&env))?;
+    let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+    pool.volumes = heavy::Volumes::of_work(&here, command, &env);
+    Ok(pool)
 }
 
 fn cwd() -> String {
@@ -162,6 +166,24 @@ fn minutes(ms: u64) -> String {
 }
 
 fn wait_line(w: &Waiting) -> String {
+    if !w.low_disk.is_empty() {
+        let disks: Vec<String> = w
+            .low_disk
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} free on {} (needs {})",
+                    crate::watch::gb(d.free),
+                    d.path,
+                    crate::watch::gb(d.need)
+                )
+            })
+            .collect();
+        return format!(
+            "ompdesk: waiting for disk space before starting heavy work: {}; work already running goes on\n",
+            disks.join(", ")
+        );
+    }
     let now = heavy::now_ms();
     let holders: Vec<String> = w
         .holders
@@ -186,15 +208,15 @@ fn wait_line(w: &Waiting) -> String {
     )
 }
 
-/// Takes slots for `command_line`, printing the wait line when it has to wait.
-fn take(weight: usize, command_line: &str) -> io::Result<heavy::Lease> {
-    let pool = pool()?;
+/// Takes slots for `command` (`label` names it in status), printing the wait line when it has to wait.
+fn take(weight: usize, command: &[String], label: &str) -> io::Result<heavy::Lease> {
+    let pool = pool(command)?;
     let weight = if weight == 0 { pool.size } else { weight };
     let lease = pool.acquire(
         weight,
         Owner {
             pid: std::process::id(),
-            command: command_line.chars().take(200).collect(),
+            command: label.chars().take(200).collect(),
             cwd: cwd(),
             since: 0,
             weight,
@@ -245,7 +267,7 @@ fn run(rest: &[String]) -> i32 {
     let lease = if held_by_ancestor() {
         None
     } else {
-        match take(if all { 0 } else { 1 }, &line) {
+        match take(if all { 0 } else { 1 }, command, &line) {
             Ok(lease) => Some(lease),
             Err(e) => {
                 eprintln!("ompdesk: cannot take a heavy slot: {e}");
@@ -258,52 +280,101 @@ fn run(rest: &[String]) -> i32 {
     code
 }
 
+/// Ends `pid` (and on Windows its tree): SIGTERM, then SIGKILL after `GRACE` if it still runs.
+pub fn stop_process(pid: u32) {
+    #[cfg(unix)]
+    {
+        crate::sys::signal(pid, libc::SIGTERM);
+        std::thread::sleep(crate::watch::GRACE);
+        if crate::sys::alive(pid) {
+            crate::sys::signal(pid, libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
 /// Runs `command` to its end while this process holds its slots; SIGTERM and SIGHUP sent to this process are passed
-/// on to it, so the holder never gives its slot back before the command ended.
+/// on to it, so the holder never gives its slot back before the command ended. Its volumes are watched while it runs
+/// (`watch.rs`), and output going to a pipe or file (an agent, a log) is capped; a terminal sees all of it.
 fn run_holding(command: &[String]) -> i32 {
+    use std::io::IsTerminal;
+    use std::process::Stdio;
     let mut child = Command::new(&command[0]);
     child
         .args(&command[1..])
         .env(HELD_ENV, std::process::id().to_string());
-    #[cfg(unix)]
-    {
-        let held = match crate::sys::HeldSignals::block() {
-            Ok(held) => held,
-            Err(e) => {
-                eprintln!("ompdesk: {e}");
-                return EXIT_FAILED;
-            }
-        };
-        crate::sys::child_defaults(&mut child, false);
-        let mut spawned = match child.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("ompdesk: cannot start {}: {e}", command[0]);
-                return EXIT_NOT_STARTED;
-            }
-        };
-        let pid = spawned.id();
-        std::thread::spawn(move || {
-            loop {
-                let signal = held.wait();
-                // The terminal's Ctrl-C reaches the command's group already; a kill aimed at this process is passed on.
-                if signal != libc::SIGINT {
-                    crate::sys::signal(pid, signal);
-                }
-            }
-        });
-        exit_code(spawned.wait())
+    let cap_out = !io::stdout().is_terminal();
+    let cap_err = !io::stderr().is_terminal();
+    if cap_out {
+        child.stdout(Stdio::piped());
     }
-    #[cfg(not(unix))]
-    {
-        match child.status() {
-            Ok(status) => status.code().unwrap_or(EXIT_FAILED),
-            Err(e) => {
-                eprintln!("ompdesk: cannot start {}: {e}", command[0]);
-                EXIT_NOT_STARTED
+    if cap_err {
+        child.stderr(Stdio::piped());
+    }
+    #[cfg(unix)]
+    let held = match crate::sys::HeldSignals::block() {
+        Ok(held) => held,
+        Err(e) => {
+            eprintln!("ompdesk: {e}");
+            return EXIT_FAILED;
+        }
+    };
+    #[cfg(unix)]
+    crate::sys::child_defaults(&mut child, false);
+    let mut spawned = match child.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("ompdesk: cannot start {}: {e}", command[0]);
+            return EXIT_NOT_STARTED;
+        }
+    };
+    let pid = spawned.id();
+    #[cfg(unix)]
+    std::thread::spawn(move || {
+        loop {
+            let signal = held.wait();
+            // The terminal's Ctrl-C reaches the command's group already; a kill aimed at this process is passed on.
+            if signal != libc::SIGINT {
+                crate::sys::signal(pid, signal);
             }
         }
+    });
+    let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let watch = crate::watch::Watch::start(
+        heavy::Volumes::of_work(&here, command, &env),
+        None,
+        |line| eprintln!("ompdesk: {line}"),
+        Some(Box::new(move || stop_process(pid))),
+    );
+    let out = std::sync::Arc::new(crate::watch::Capped::new(io::stdout()));
+    let err = std::sync::Arc::new(crate::watch::Capped::new(io::stderr()));
+    let mut pumps = Vec::new();
+    if let Some(from) = spawned.stdout.take() {
+        let to = out.clone();
+        pumps.push(std::thread::spawn(move || to.pump(from)));
     }
+    if let Some(from) = spawned.stderr.take() {
+        let to = err.clone();
+        pumps.push(std::thread::spawn(move || to.pump(from)));
+    }
+    let status = spawned.wait();
+    for pump in pumps {
+        let _ = pump.join();
+    }
+    out.finish();
+    err.finish();
+    drop(watch);
+    #[cfg(unix)]
+    return exit_code(status);
+    #[cfg(not(unix))]
+    status.ok().and_then(|s| s.code()).unwrap_or(EXIT_FAILED)
 }
 
 #[cfg(unix)]
@@ -326,7 +397,7 @@ fn heavy_command(rest: &[String]) -> i32 {
                 [flag] if flag == "--json" => true,
                 _ => return usage("heavy status takes only --json"),
             };
-            let pool = match pool() {
+            let pool = match pool(&[]) {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("ompdesk: {e}");
@@ -375,6 +446,23 @@ fn heavy_command(rest: &[String]) -> i32 {
                 let pids: Vec<String> = status.queue.iter().map(u32::to_string).collect();
                 let _ = writeln!(out, "  waiting: {}", pids.join(", "));
             }
+            for d in &status.disk {
+                let _ = writeln!(
+                    out,
+                    "  disk {}: {} free of {}{}",
+                    d.path,
+                    crate::watch::gb(d.free),
+                    crate::watch::gb(d.total),
+                    if d.low() {
+                        format!(
+                            "; under the {} new heavy work needs, so it waits",
+                            crate::watch::gb(d.need)
+                        )
+                    } else {
+                        String::new()
+                    }
+                );
+            }
             0
         }
         Some("hold") => {
@@ -384,7 +472,7 @@ fn heavy_command(rest: &[String]) -> i32 {
                 _ => return usage("heavy hold takes only --all"),
             };
             let label = env("OMPDESK_HEAVY_LABEL").unwrap_or_else(|| "heavy hold".into());
-            let lease = match take(if all { 0 } else { 1 }, &label) {
+            let lease = match take(if all { 0 } else { 1 }, &[], &label) {
                 Ok(lease) => lease,
                 Err(e) => {
                     eprintln!("ompdesk: cannot take a heavy slot: {e}");
@@ -397,6 +485,14 @@ fn heavy_command(rest: &[String]) -> i32 {
                 let _ = writeln!(out, "held {}", slots.join(","));
                 let _ = out.flush();
             }
+            // The hold does not know its holder's command, so it can only warn (its holder shows stderr).
+            let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+            let _watch = crate::watch::Watch::start(
+                heavy::Volumes::of_work(&here, &[], &env),
+                None,
+                |line| eprintln!("ompdesk: {line}"),
+                None,
+            );
             // Holds until stdin ends: the holder closed it, or died.
             let mut sink = Vec::new();
             let stdin = io::stdin();

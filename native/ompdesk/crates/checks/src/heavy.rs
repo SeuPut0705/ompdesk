@@ -16,6 +16,10 @@
 //!
 //! Nesting: a holder puts `OMPDESK_HEAVY_HELD` (its own pid) in its command's environment; a heavy command started
 //! under it (a check script that wraps each step) runs inside its holder's place instead of waiting on itself.
+//!
+//! Disk: a new heavy command also waits while a volume it writes to (its folder's, the temp folder's) has less free
+//! space than `min_free` of that volume, and says so; a command already running is never stopped. A full system disk
+//! ended a check and put an OS error box on the owner's screen (13 Nov 2026: 116 MB left on a Mac mini).
 
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -27,6 +31,7 @@ use serde::{Deserialize, Serialize};
 pub const DIR_ENV: &str = "OMPDESK_HEAVY_DIR";
 pub const SLOTS_ENV: &str = "OMPDESK_HEAVY_SLOTS";
 pub const HELD_ENV: &str = "OMPDESK_HEAVY_HELD";
+pub const MIN_FREE_ENV: &str = "OMPDESK_HEAVY_MIN_FREE_GB";
 
 const GIB: u64 = 1024 * 1024 * 1024;
 const MAX_SLOTS: usize = 7;
@@ -97,9 +102,112 @@ pub fn now_ms() -> u64 {
         .map_or(0, |d| d.as_millis() as u64)
 }
 
+/// Free space a heavy command needs on a volume of `total` bytes before it starts: a tenth of the volume, at least
+/// 10 GB and at most 20 GB. A tenth follows the disk's size; under 10 GB macOS and Windows start failing their own
+/// writes (swap, updates, an app's settings file); past 20 GB a big disk would idle work with plenty left, and the
+/// heaviest measured check (a Playwright suite with traces and a build) wrote under 10 GB.
+pub fn min_free(total: u64) -> u64 {
+    (total / 10).clamp(10 * GIB, 20 * GIB)
+}
+
+/// Free and total bytes of the volume holding a path.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Disk {
+    pub path: String,
+    pub free: u64,
+    pub total: u64,
+    /// What a new heavy command needs free there.
+    pub need: u64,
+}
+
+impl Disk {
+    pub fn low(&self) -> bool {
+        self.free < self.need
+    }
+}
+
+pub type Probe = std::sync::Arc<dyn Fn(&Path) -> Option<(u64, u64)> + Send + Sync>;
+
+/// The volumes a heavy command writes to: its own folder, the temp folder it is given (`TMPDIR`, Windows `TEMP`/`TMP`)
+/// and every folder its arguments name (`--output test-results`, `--outputFile=/Volumes/BACKUP/r.json`), each read on
+/// the volume that holds it, so work on an external disk is judged by that disk.
+#[derive(Clone)]
+pub struct Volumes {
+    pub paths: Vec<PathBuf>,
+    /// `OMPDESK_HEAVY_MIN_FREE_GB` in bytes; `None` is `min_free` of each volume.
+    pub need: Option<u64>,
+    probe: Probe,
+}
+
+/// The nearest folder of `path` that exists (an output folder is often made by the command itself).
+fn existing(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find(|p| p.is_dir()).map(Path::to_path_buf)
+}
+
+impl Volumes {
+    pub fn of_work(cwd: &Path, argv: &[String], env: &dyn Fn(&str) -> Option<String>) -> Volumes {
+        let mut paths = vec![cwd.to_path_buf()];
+        let temp = if cfg!(windows) {
+            env("TEMP").or_else(|| env("TMP"))
+        } else {
+            env("TMPDIR")
+        };
+        paths.push(
+            temp.filter(|t| !t.is_empty())
+                .map_or_else(std::env::temp_dir, PathBuf::from),
+        );
+        for arg in argv.iter().skip(1) {
+            let value = match arg.split_once('=') {
+                Some((flag, value)) if flag.starts_with('-') => value,
+                _ if arg.starts_with('-') => continue,
+                _ => arg.as_str(),
+            };
+            if value.contains(['/', '\\']) || value.starts_with('.') {
+                paths.push(cwd.join(value));
+            }
+        }
+        let need = env(MIN_FREE_ENV)
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|gb| *gb >= 0.0)
+            .map(|gb| (gb * GIB as f64) as u64);
+        Volumes {
+            paths: paths.iter().filter_map(|p| existing(p)).collect(),
+            need,
+            probe: std::sync::Arc::new(crate::sys::disk_space),
+        }
+    }
+
+    /// The same volumes read another way (tests).
+    pub fn with_probe(mut self, probe: Probe) -> Volumes {
+        self.probe = probe;
+        self
+    }
+
+    /// Each distinct volume (two paths on one volume are listed once).
+    pub fn read(&self) -> Vec<Disk> {
+        let mut out: Vec<Disk> = Vec::new();
+        for path in &self.paths {
+            let Some((free, total)) = (self.probe)(path) else {
+                continue;
+            };
+            if out.iter().any(|d| d.free == free && d.total == total) {
+                continue;
+            }
+            out.push(Disk {
+                path: path.display().to_string(),
+                free,
+                total,
+                need: self.need.unwrap_or_else(|| min_free(total)),
+            });
+        }
+        out
+    }
+}
+
 pub struct Pool {
     pub dir: PathBuf,
     pub size: usize,
+    pub volumes: Volumes,
 }
 
 /// Slots held for as long as this value lives (or its process does).
@@ -130,6 +238,8 @@ impl Drop for Lease {
 pub struct Waiting {
     pub ahead: usize,
     pub holders: Vec<Owner>,
+    /// The volumes too full to start: waiting is for disk space, not (only) for a slot.
+    pub low_disk: Vec<Disk>,
 }
 
 /// A slot of the pool, as `status` shows it.
@@ -148,6 +258,8 @@ pub struct Status {
     pub slots: Vec<SlotView>,
     /// Live waiters, oldest first: their pids.
     pub queue: Vec<u32>,
+    /// The volumes this process's heavy commands would write to; a `low` one holds new heavy commands back.
+    pub disk: Vec<Disk>,
 }
 
 fn try_lock(file: &File) -> io::Result<bool> {
@@ -170,10 +282,16 @@ fn open_rw(path: &Path) -> io::Result<File> {
 impl Pool {
     pub fn new(dir: PathBuf, size: usize) -> io::Result<Pool> {
         fs::create_dir_all(dir.join("queue"))?;
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
         Ok(Pool {
             dir,
             size: size.max(1),
+            volumes: Volumes::of_work(&cwd, &[], &|k| std::env::var(k).ok()),
         })
+    }
+
+    pub fn disks(&self) -> Vec<Disk> {
+        self.volumes.read()
     }
 
     fn slot_path(&self, i: usize) -> PathBuf {
@@ -289,19 +407,27 @@ impl Pool {
         let started = Instant::now();
         let (number, ticket_path, ticket) = self.enqueue()?;
         let mut held: Vec<(usize, File)> = Vec::new();
-        let mut told = false;
+        let mut told: Option<(bool, usize)> = None;
         let outcome = loop {
             let tickets = self.live_tickets(Some(&ticket_path));
             let ahead = tickets.iter().filter(|(n, _)| *n < number).count();
+            let mut low_disk = Vec::new();
             if ahead == 0 {
-                match self.take_free(&mut held, want) {
-                    Ok(true) => break Ok(()),
-                    Ok(false) => {}
-                    Err(e) => break Err(e),
+                // The oldest waiter holds the line while the disk is low, so a later small command never starts
+                // on the space it waits for.
+                low_disk = self.disks().into_iter().filter(Disk::low).collect();
+                if low_disk.is_empty() {
+                    match self.take_free(&mut held, want) {
+                        Ok(true) => break Ok(()),
+                        Ok(false) => {}
+                        Err(e) => break Err(e),
+                    }
                 }
             }
-            if !told {
-                told = true;
+            // Told again when the reason changes (the disk filled or freed, the queue moved).
+            let reason = (!low_disk.is_empty(), ahead);
+            if told != Some(reason) {
+                told = Some(reason);
                 on_wait(&Waiting {
                     ahead,
                     holders: self
@@ -310,6 +436,7 @@ impl Pool {
                         .into_iter()
                         .filter_map(|s| s.owner)
                         .collect(),
+                    low_disk,
                 });
             }
             std::thread::sleep(POLL);
@@ -353,6 +480,7 @@ impl Pool {
                 .into_iter()
                 .map(|(_, pid)| pid)
                 .collect(),
+            disk: self.disks(),
         }
     }
 }
@@ -486,6 +614,73 @@ mod tests {
         all.join().unwrap();
         later.join().unwrap();
         assert_eq!(*order.lock().unwrap(), vec![("all", 2), ("later", 1)]);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn needs_a_tenth_of_the_volume_between_10_and_20_gb() {
+        assert_eq!(min_free(256 * GIB), 20 * GIB);
+        assert_eq!(min_free(128 * GIB), 128 * GIB / 10);
+        assert_eq!(min_free(64 * GIB), 10 * GIB);
+        assert_eq!(min_free(2000 * GIB), 20 * GIB);
+    }
+
+    #[test]
+    fn reads_the_volumes_the_work_writes_to() {
+        let cwd = std::env::temp_dir();
+        let outside = cwd.join(format!("ompdesk-vol-{}", std::process::id()));
+        fs::create_dir_all(&outside).unwrap();
+        let argv: Vec<String> = ["bunx", "playwright", "test", "--grep", "x"]
+            .iter()
+            .map(|s| s.to_string())
+            .chain([
+                format!("--output={}/results", outside.display()),
+                "./e2e/a.spec.ts".into(),
+            ])
+            .collect();
+        let v = Volumes::of_work(&cwd, &argv, &|k| (k == "TMPDIR").then(|| "/".to_string()));
+        assert_eq!(v.paths[0], cwd);
+        assert_eq!(v.paths[1], PathBuf::from("/"));
+        assert!(
+            v.paths.contains(&outside),
+            "the output folder's nearest existing folder"
+        );
+        assert!(!v.paths.iter().any(|p| p.ends_with("x")));
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn new_heavy_work_waits_while_the_disk_is_low_and_says_why() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let (dir, pool) = temp_pool(1);
+        let free = Arc::new(AtomicU64::new(5 * GIB));
+        let probe_free = free.clone();
+        let pool = Pool {
+            volumes: pool.volumes.with_probe(Arc::new(move |_| {
+                Some((probe_free.load(Ordering::Relaxed), 100 * GIB))
+            })),
+            ..pool
+        };
+        let status = pool.status();
+        assert!(status.disk[0].low());
+        assert_eq!(status.disk[0].need, 10 * GIB);
+        let said = Arc::new(Mutex::new(Vec::new()));
+        let said2 = said.clone();
+        let waiter = std::thread::spawn(move || {
+            pool.acquire(1, owner("w"), |w| {
+                said2.lock().unwrap().push(w.low_disk.len())
+            })
+            .unwrap()
+            .slots()
+        });
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(
+            !waiter.is_finished(),
+            "a free slot is not taken while the disk is low"
+        );
+        free.store(50 * GIB, Ordering::Relaxed);
+        assert_eq!(waiter.join().unwrap(), vec![0]);
+        assert_eq!(said.lock().unwrap()[0], 1);
         let _ = fs::remove_dir_all(dir);
     }
 

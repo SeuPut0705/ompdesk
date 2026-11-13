@@ -130,6 +130,54 @@ pub fn signal(pid: u32, signal: i32) {
     }
 }
 
+/// Free bytes (what this user may still write) and total bytes of the volume holding `path`.
+#[cfg(unix)]
+pub fn disk_space(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `c` is NUL-terminated and outlives the call; `stat` is written by the call before it is read.
+    if unsafe { libc::statvfs(c.as_ptr(), stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: statvfs returned 0, so it filled `stat`.
+    let stat = unsafe { stat.assume_init() };
+    // The field types differ by OS (macOS keeps block counts in u32), so the casts stay.
+    #[allow(clippy::unnecessary_cast)]
+    let (unit, avail, blocks) = (
+        stat.f_frsize as u64,
+        stat.f_bavail as u64,
+        stat.f_blocks as u64,
+    );
+    Some((avail * unit, blocks * unit))
+}
+
+#[cfg(windows)]
+pub fn disk_space(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            dir: *const u16,
+            free: *mut u64,
+            total: *mut u64,
+            total_free: *mut u64,
+        ) -> i32;
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    let (mut free, mut total, mut total_free) = (0u64, 0u64, 0u64);
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the three outputs are written during the call.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &raw mut free,
+            &raw mut total,
+            &raw mut total_free,
+        )
+    };
+    (ok != 0).then_some((free, total))
+}
+
 /// Sends `signal` to the process group `pid` leads.
 #[cfg(unix)]
 pub fn signal_group(pid: u32, signal: i32) {

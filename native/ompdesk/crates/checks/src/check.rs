@@ -35,6 +35,7 @@ use crate::heavy::{self, now_ms};
 use crate::inputs::{self, InputSet, StatCache};
 use crate::runner::{self, Detected, Earlier, Kind, Record};
 use crate::store::{self, Plan, Run, State, Store};
+use crate::watch::gb;
 
 /// Set for a check's command: a check started inside it runs as its child (no second runner, no second slot).
 pub const RUN_ENV: &str = "OMPDESK_CHECK_RUN";
@@ -1084,14 +1085,29 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
         };
         let log = &mut rt.log;
         let taken = heavy::Pool::new(heavy::pool_dir(&lookup), heavy::machine_size(&lookup))
-            .and_then(|pool| {
+            .and_then(|mut pool| {
+                pool.volumes = heavy::Volumes::of_work(&cwd, &argv, &lookup);
                 pool.acquire(1, owner, |w| {
-                    let _ = writeln!(
-                        log,
-                        "ompdesk check: waiting for a heavy slot ({} ahead, {} in use)",
-                        w.ahead,
-                        w.holders.len()
-                    );
+                    let line = if w.low_disk.is_empty() {
+                        format!(
+                            "waiting for a heavy slot ({} ahead, {} in use)",
+                            w.ahead,
+                            w.holders.len()
+                        )
+                    } else {
+                        let disks: Vec<String> = w
+                            .low_disk
+                            .iter()
+                            .map(|d| {
+                                format!("{} free on {} (needs {})", gb(d.free), d.path, gb(d.need))
+                            })
+                            .collect();
+                        format!(
+                            "waiting for disk space before starting: {}",
+                            disks.join(", ")
+                        )
+                    };
+                    let _ = writeln!(log, "ompdesk check: {line}");
                 })
             });
         match taken {
@@ -1226,54 +1242,18 @@ fn execute(rt: &mut Runtime, forced_full: bool) -> i32 {
 }
 
 #[cfg(unix)]
-fn run_command(
-    rt: &mut Runtime,
-    argv: &[String],
-    cwd: &Path,
-    env: &BTreeMap<String, String>,
-) -> i32 {
-    let (Ok(out), Ok(err)) = (rt.log.try_clone(), rt.log.try_clone()) else {
-        return 1;
-    };
+fn command_for(argv: &[String], _env: &BTreeMap<String, String>) -> Command {
     let mut command = Command::new(&argv[0]);
-    command
-        .args(&argv[1..])
-        .current_dir(cwd)
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err);
-    // A group of its own, so a cancel ends what it started too.
+    command.args(&argv[1..]);
+    // A group of its own, so a cancel or a full disk ends what it started too.
     crate::sys::child_defaults(&mut command, true);
-    match command.spawn() {
-        Ok(mut child) => {
-            let _ = fs::write(rt.store.file(&rt.run.id, "child"), child.id().to_string());
-            let code = crate::cli::exit_code(child.wait());
-            // What the command left running in its group goes with it.
-            crate::sys::signal_group(child.id(), libc::SIGKILL);
-            code
-        }
-        Err(e) => {
-            rt.say(&format!("cannot start {}: {e}", argv[0]));
-            127
-        }
-    }
+    command
 }
 
 #[cfg(windows)]
-fn run_command(
-    rt: &mut Runtime,
-    argv: &[String],
-    cwd: &Path,
-    env: &BTreeMap<String, String>,
-) -> i32 {
-    let (Ok(out), Ok(err)) = (rt.log.try_clone(), rt.log.try_clone()) else {
-        return 1;
-    };
+fn command_for(argv: &[String], env: &BTreeMap<String, String>) -> Command {
     // A batch file (npm.cmd, a project's check.bat) runs through cmd, as a shell would start it.
-    let program = crate::cli::resolve_windows(&argv[0], env);
-    let mut command = match &program {
+    match crate::cli::resolve_windows(&argv[0], env) {
         Some(p)
             if p.extension().is_some_and(|e| {
                 e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")
@@ -1293,24 +1273,100 @@ fn run_command(
             c.args(&argv[1..]);
             c
         }
+    }
+}
+
+/// Ends the command and what it started: its process group (POSIX) or its tree (Windows), SIGTERM then SIGKILL.
+fn stop_tree(pid: u32) {
+    #[cfg(unix)]
+    {
+        crate::sys::signal_group(pid, libc::SIGTERM);
+        std::thread::sleep(crate::watch::GRACE);
+        crate::sys::signal_group(pid, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    crate::cli::stop_process(pid);
+}
+
+/// Runs the check's command with its output through the log's cap and its volumes watched; its exit code.
+fn run_command(
+    rt: &mut Runtime,
+    argv: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> i32 {
+    let (Ok(log), Ok(said)) = (rt.log.try_clone(), rt.log.try_clone()) else {
+        return 1;
     };
+    let mut command = command_for(argv, env);
     command
         .current_dir(cwd)
         .env_clear()
         .envs(env)
         .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err);
-    match command.spawn() {
-        Ok(mut child) => {
-            let _ = fs::write(rt.store.file(&rt.run.id, "child"), child.id().to_string());
-            child.wait().ok().and_then(|s| s.code()).unwrap_or(1)
-        }
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
         Err(e) => {
             rt.say(&format!("cannot start {}: {e}", argv[0]));
-            127
+            return 127;
         }
+    };
+    let pid = child.id();
+    let _ = fs::write(rt.store.file(&rt.run.id, "child"), pid.to_string());
+    let said = std::sync::Mutex::new(said);
+    let watch = crate::watch::Watch::start(
+        heavy::Volumes::of_work(cwd, argv, &|k| env.get(k).cloned()),
+        None,
+        move |line| {
+            if let Ok(mut log) = said.lock() {
+                let _ = writeln!(log, "ompdesk check: {line}");
+            }
+        },
+        Some(Box::new(move || stop_tree(pid))),
+    );
+    let capped = std::sync::Arc::new(crate::watch::Capped::new(log));
+    let mut pumps = Vec::new();
+    for from in [
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let to = capped.clone();
+        pumps.push(std::thread::spawn(move || to.pump(from)));
     }
+    let status = child.wait();
+    // What the command left running in its group goes with it.
+    #[cfg(unix)]
+    crate::sys::signal_group(pid, libc::SIGKILL);
+    for pump in pumps {
+        let _ = pump.join();
+    }
+    let cut = capped.finish();
+    let stopped_for_disk = watch.stopped_for_disk();
+    drop(watch);
+    if cut > 0 {
+        rt.say(&format!(
+            "the command printed {} more than the log keeps; its start and end are kept",
+            gb(cut)
+        ));
+    }
+    if stopped_for_disk {
+        rt.say("the command was stopped because the disk was nearly full; what it recorded before stays");
+    }
+    #[cfg(unix)]
+    return crate::cli::exit_code(status);
+    #[cfg(windows)]
+    status.ok().and_then(|s| s.code()).unwrap_or(1)
 }
 
 /// About how long the reused results took when they ran: each origin run's own wall time, shared out by its results'
