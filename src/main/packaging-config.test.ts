@@ -195,6 +195,7 @@ const NODE_PIN = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "scripts/nod
 const NODE_KEYS: Record<string, string> = { darwin: "darwin-arm64", win32: "win32-x64" };
 const bundleInfo = require(path.join(PACKAGE_ROOT, "scripts/mac-bundle-info.cjs")) as {
 	FRAMEWORK: string;
+	frameworkRoot: (framework: string) => string;
 	HELPERS: { suffix: string; id: string }[];
 	PRIVACY: Record<string, string>;
 	appInfo: (version: string) => Record<string, unknown>;
@@ -593,6 +594,20 @@ describe("mac bundle configs", () => {
 		expect(win.protocols?.flatMap(protocol => protocol.schemes ?? [])).toContain("omp");
 		const urlTypes = bundleInfo.appInfo("1.0.0").CFBundleURLTypes as { CFBundleURLSchemes: string[] }[];
 		expect(urlTypes.flatMap(type => type.CFBundleURLSchemes)).toContain("omp");
+	});
+
+	it("reads CEF's macOS framework flat, as its own distribution lays it out, and a versioned one too", async () => {
+		const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ompdesk-framework-"));
+		try {
+			const flat = path.join(directory, "flat.framework");
+			const versioned = path.join(directory, "versioned.framework");
+			await fs.promises.mkdir(path.join(flat, "Resources"), { recursive: true });
+			await fs.promises.mkdir(path.join(versioned, "Versions", "A", "Resources"), { recursive: true });
+			expect(bundleInfo.frameworkRoot(flat)).toBe(flat);
+			expect(bundleInfo.frameworkRoot(versioned)).toBe(path.join(versioned, "Versions", "A"));
+		} finally {
+			await fs.promises.rm(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("names the app in every privacy prompt the bundle can trigger", () => {

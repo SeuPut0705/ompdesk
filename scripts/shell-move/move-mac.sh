@@ -31,7 +31,7 @@ cp "$DMG" "$W/new.dmg"
 step "the released app v0.127.0, re-signed (release-form designated requirement)"
 curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
 mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
-"$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
+bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 evidence "released app requirement: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
 (cd "$REPO" && bun scripts/shell-move/feed.ts --setup "$W/new.dmg" --platform mac --version 0.200.0 --cert-dir "$W/cert" --port $FEEDPORT >"$W/feed.log" 2>&1) & FEED=$!
 sleep 3
@@ -88,12 +88,12 @@ scenario() {
     OMP_GUI_TEST_USER_DATA_DIR=$UD "$APPS/OMPdesk.app/Contents/MacOS/OMPdesk" --user-data-dir="$UD" --remote-debugging-port=$PORT --host-resolver-rules="MAP api.github.com 127.0.0.1:1" --ignore-certificate-errors >"$W/$name-again.out" 2>&1 &
     wait_for "has_line $UD 'swap result'" 120; update_lines "$UD" | grep -q '^swap result rolled back'; check $? "S2: swap result outcome rolled back"
   fi
-  dialogs; check $? "$name: no SecurityAgent/coreauthd line"
+  dialogs; check $? "$name: no dialog (SecurityAgent) line"
   kill_apps "$APPS/OMPdesk.app/Contents/MacOS"; pkill -f "$W/$name" 2>/dev/null
   restore
 }
 scenario s1 0
 scenario s2 1
-evidence "SecurityAgent/coreauthd lines in the whole run: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")"
+dialog_evidence
 security delete-keychain "$KC0" 2>/dev/null
 exit $FAILED

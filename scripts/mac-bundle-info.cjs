@@ -90,4 +90,13 @@ function helperInfo(version, helper) {
 	};
 }
 
-module.exports = { APP_ID, PRODUCT, FRAMEWORK, HELPERS, PRIVACY, TRANSPORT, appInfo, helperInfo };
+/**
+ * Where CEF's framework keeps its files: CEF's own macOS distribution is flat (`<framework>/Resources`,
+ * `<framework>/Libraries`, `<framework>/Chromium Embedded Framework`); a versioned layout (`Versions/A`) is read too.
+ */
+function frameworkRoot(framework) {
+	const versioned = require("node:path").join(framework, "Versions", "A");
+	return require("node:fs").existsSync(versioned) ? versioned : framework;
+}
+
+module.exports = { frameworkRoot, APP_ID, PRODUCT, FRAMEWORK, HELPERS, PRIVACY, TRANSPORT, appInfo, helperInfo };

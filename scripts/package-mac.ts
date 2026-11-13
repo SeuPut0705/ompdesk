@@ -62,6 +62,7 @@ const bundle = require("./mac-bundle-info.cjs") as {
 	PRODUCT: string;
 	FRAMEWORK: string;
 	HELPERS: Helper[];
+	frameworkRoot: (framework: string) => string;
 	appInfo: (version: string) => Record<string, unknown>;
 	helperInfo: (version: string, helper: Helper) => Record<string, unknown>;
 };
@@ -201,8 +202,9 @@ export function signBundle(app: string, identity: string, keychain: string | nul
 	const framework = path.join(contents, "Frameworks", bundle.FRAMEWORK);
 	// Loose Mach-O files first (Node, the Rust binaries, agent-desktop, CEF's libraries), then the framework as a
 	// bundle, the helper apps and the app. The framework's own executable is sealed by signing the framework.
-	const frameworkExecutable = path.join(framework, "Versions", "A", "Chromium Embedded Framework");
-	for (const dir of [path.join(contents, "Resources"), path.join(framework, "Versions", "A")]) {
+	const frameworkFiles = bundle.frameworkRoot(framework);
+	const frameworkExecutable = path.join(frameworkFiles, "Chromium Embedded Framework");
+	for (const dir of [path.join(contents, "Resources"), frameworkFiles]) {
 		for (const file of machOFiles(dir)) if (file !== frameworkExecutable) codesign([...options, file]);
 	}
 	codesign([...options, framework]);

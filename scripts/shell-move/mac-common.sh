@@ -26,7 +26,13 @@ security list-keychains -d user -s "$KC0" $ORIG_LIST   # codesign finds the iden
 evidence "macOS $OS, throwaway identity $ID"
 
 log stream --style compact --predicate 'process == "SecurityAgent" OR process == "coreauthd"' > "$W/dialogs.log" 2>&1 & WATCH=$!
-dialogs() { [ "$(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")" = 0 ]; }
+# A dialog is a SecurityAgent line (it is the process that draws the keychain and credential prompts) or a coreauthd line that
+# presents or asks (uiDelegate set, "present", "prompt", "dialog", "alert"). coreauthd's other chatter (a LocalAuthentication
+# context created and "Skipping processing of request" for a policy no biometry hardware answers) is what any keychain access
+# on a hosted runner logs: it is counted and printed as evidence, not failed on.
+dialog_lines() { grep -v -E '^(Filtering|Timestamp)' "$W/dialogs.log" | grep -E 'SecurityAgent|coreauthd.*(uiDelegate:[1-9a-zA-Z<]|[Pp]resent|[Pp]rompt|[Dd]ialog|[Aa]lert)' | grep -v 'uiDelegate:0'; }
+dialogs() { [ "$(dialog_lines | wc -l | tr -d ' ')" = 0 ]; }
+dialog_evidence() { evidence "dialog lines (SecurityAgent, or coreauthd presenting/asking): $(dialog_lines | wc -l | tr -d ' '); all SecurityAgent/coreauthd lines logged: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")"; dialog_lines | head -10; }
 
 # A fresh keychain as the default (the login keychain's slot); `restore` puts the runner's own back.
 use_keychain() {
@@ -34,8 +40,12 @@ use_keychain() {
   security create-keychain -p $PW "$KC" && security unlock-keychain -p $PW "$KC" && security set-keychain-settings "$KC"
   security default-keychain -d user -s "$KC"; security list-keychains -d user -s "$KC" "$KC0" $ORIG_LIST
 }
-restore() { security default-keychain -d user -s "$ORIG_DEFAULT"; security list-keychains -d user -s "$KC0" $ORIG_LIST; }
-item_exists() { security dump-keychain "$KC" 2>/dev/null | grep -q 'ompdesk Safe Storage'; }
-item_acl() { security dump-keychain -a "$KC" 2>/dev/null | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,40p' | grep -E 'description: cdhash|requirement|authorizations' | head -5; }
+# The item is looked up through the search list (where Chromium puts it is the default keychain of the user session: the one
+# `use_keychain` made, or, if the session ignored that, the runner's login keychain); `item_where` says which. `restore` removes
+# it from wherever it went, so the next scenario starts with none (the runner is throwaway).
+restore() { security delete-generic-password -s "ompdesk Safe Storage" >/dev/null 2>&1; security delete-generic-password -s "ompdesk Safe Storage" >/dev/null 2>&1; security default-keychain -d user -s "$ORIG_DEFAULT"; security list-keychains -d user -s "$KC0" $ORIG_LIST; }
+item_exists() { security find-generic-password -s "ompdesk Safe Storage" >/dev/null 2>&1; }
+item_where() { security find-generic-password -s "ompdesk Safe Storage" 2>&1 | sed -n 's/^keychain: //p'; }
+item_acl() { echo "keychain $(item_where)"; security dump-keychain -a 2>/dev/null | awk '/ompdesk Safe Storage/{f=1} f' | sed -n '1,40p' | grep -E 'description: cdhash|requirement|authorizations' | head -5; }
 kill_apps() { pkill -f "$1" 2>/dev/null; sleep 3; }
 

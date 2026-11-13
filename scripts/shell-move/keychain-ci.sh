@@ -29,7 +29,7 @@ step "the released app v0.127.0"
 curl -sSL -o rel.dmg https://github.com/SeuPut0705/ompdesk/releases/download/v0.127.0/ompdesk-mac-arm64.dmg
 mkdir mnt && hdiutil attach -nobrowse -readonly -noautoopen -mountpoint mnt rel.dmg >/dev/null && ditto mnt/OMPdesk.app rel.app && hdiutil detach mnt >/dev/null
 ditto rel.app adhoc.app
-"$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
+bash "$HERE/resign-mac.sh" rel.app "$KC0" "$ID" | tail -1
 codesign --force --deep -s - adhoc.app >/dev/null 2>&1; codesign --verify --deep adhoc.app; check $? "the ad-hoc copy of the released app is signed (codesign -s -)"
 evidence "release-form requirement of the released app: $(codesign -d -r- rel.app 2>&1 | sed -n 's/^designated => //p')"
 (cd "$REPO" && bun scripts/shell-move/feed.ts --setup "$W/rel.dmg" --platform mac --version 0.200.0 --cert-dir "$W/cert" --port 18443 >"$W/feed.log" 2>&1) & FEED=$!
@@ -58,7 +58,7 @@ kill_apps "$SHELL_APP/Contents/MacOS"
 grep -q '"draft":"a draft typed in Electron"' "$W/read-a.json" && grep -q '"large":200000' "$W/read-a.json"; check $? "A: Local Storage came over (draft, Korean, 200 000 characters)"
 grep -q '"hasStoredToken":true' "$W/read-a.json" && grep -q '"droppedReason":null' "$W/read-a.json"; check $? "A: the shell decrypted the stand-in token (a stored token, none dropped)"
 evidence "A page: $(cut -c1-400 "$W/read-a.json")"
-dialogs; check $? "A: no SecurityAgent/coreauthd line"
+dialogs; check $? "A: no dialog (SecurityAgent) line"
 restore
 
 step "B. an ad-hoc item (development machine): the shell never asks"
@@ -70,7 +70,7 @@ START=$(date +%s)
 limit 60 "$SHELL_APP/Contents/MacOS/OMPdesk" --keychain-key "$UD" 2>/dev/null > "$W/key-b.json"; EL=$(( $(date +%s) - START ))
 evidence "B --keychain-key answered in ${EL} s: $(sed 's/"password":"[^"]*"/"password":"<hidden>"/' "$W/key-b.json")"
 grep -q '"unavailable":"keychain-would-ask"' "$W/key-b.json" && [ "$EL" -lt 30 ]; check $? "B: {unavailable: keychain-would-ask} within its time"
-dialogs; check $? "B: no SecurityAgent/coreauthd line"
+dialogs; check $? "B: no dialog (SecurityAgent) line"
 restore
 
 step "C. a profile without ciphertext never reads the keychain"
@@ -82,11 +82,11 @@ grep -q cef.ready "$UD/shell-webview/shell.log.jsonl"; check $? "C: the shell st
 [ ! -s "$W/keychain-runs.txt" ]; check $? "C: no --keychain-key process ran"
 item_exists; [ $? != 0 ]; check $? "C: no \"ompdesk Safe Storage\" item was created or touched"
 evidence "C shell log: $(grep -c . "$UD/shell-webview/shell.log.jsonl") lines, keychain runs sampled: $(wc -l < "$W/keychain-runs.txt" | tr -d ' ')"
-dialogs; check $? "C: no SecurityAgent/coreauthd line"
+dialogs; check $? "C: no dialog (SecurityAgent) line"
 restore
 
 kill $WATCH $FEED 2>/dev/null
 step "security dialogs logged"; grep -v -E '^(Filtering|Timestamp)' "$W/dialogs.log" | head -20
-evidence "SecurityAgent/coreauthd lines in the whole run: $(grep -c -v -E '^(Filtering|Timestamp)' "$W/dialogs.log")"
+dialog_evidence
 security delete-keychain "$KC0" 2>/dev/null
 exit $FAILED

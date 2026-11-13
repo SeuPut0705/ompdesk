@@ -62,7 +62,7 @@ async function checkLocales(context) {
 	const where = layout(context);
 	const dirs =
 		platform === "darwin"
-			? [path.join(where.frameworks, bundle.FRAMEWORK, "Versions", "A", "Resources")]
+			? [path.join(bundle.frameworkRoot(path.join(where.frameworks, bundle.FRAMEWORK)), "Resources")]
 			: [path.join(context.appOutDir, "locales")];
 	const ext = path.extname(kept[0]);
 	for (const dir of dirs) {
@@ -376,10 +376,7 @@ async function checkNative(context) {
  */
 async function afterExtract(context) {
 	if (context.electronPlatformName !== "win32") return;
-	await fs.rename(
-		path.join(context.appOutDir, SHELL_BINARIES.win32),
-		path.join(context.appOutDir, "electron.exe"),
-	);
+	await fs.rename(path.join(context.appOutDir, SHELL_BINARIES.win32), path.join(context.appOutDir, "electron.exe"));
 }
 
 /** electron-builder's `afterPack` hook (Windows) and `scripts/package-mac.ts`'s last step before signing. */
