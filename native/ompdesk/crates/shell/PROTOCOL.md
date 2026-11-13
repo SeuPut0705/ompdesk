@@ -484,6 +484,12 @@ What the Rust shell does differently from this table or from Electron. README.md
 - **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam): the shell exits 1 right after CEF initialised, before `app.init` is
   answered, so the installer's swap-back path can be exercised. The "app started" mark (`<userData>/app-started.json`) is
   written by the app's main script, not by the shell.
+- **macOS helpers**: with the launcher layout the shell runs as `Contents/MacOS/ompdesk-shell`, and CEF names its helpers
+  after the running executable (`ompdesk-shell Helper (GPU).app`). The shell sets `CefSettings.main_bundle_path` to the .app
+  and `browser_subprocess_path` to `Contents/Frameworks/OMPdesk Helper.app/Contents/MacOS/OMPdesk Helper` (only when that
+  file exists; `startup::mac_bundle_paths`, logged as `cef.helper`). Whether CEF 156 then derives the `(GPU)`/`(Renderer)`/
+  `(Plugin)`/`(Alerts)` variants from that path rather than from the executable is not confirmed from its source:
+  UNVERIFIED until a macOS runner starts the GPU process with only the `OMPdesk Helper*` apps in the bundle.
 - **macOS launcher** (`ompdesk-launcher`, `launcher.rs`, `launcher_main.rs`): the bundle's `CFBundleExecutable`
   (`Contents/MacOS/OMPdesk`); the shell is `Contents/MacOS/ompdesk-shell`, which the launcher `exec`s with the same argv (the
   app's pid stays the shell's). Armed only when `<userData>/update-install.json` has `to` == the bundle's

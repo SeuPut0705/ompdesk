@@ -425,7 +425,16 @@ fn run_cef(
         "en-US"
     };
     let web = web_dir.display().to_string();
-    let settings = Settings {
+    // macOS: the helpers keep the app's name whatever this executable is called (see `startup::mac_bundle_paths`).
+    #[cfg(target_os = "macos")]
+    let (bundle_path, helper_path) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| startup::mac_bundle_paths(&exe))
+        .filter(|(_, helper)| helper.is_file())
+        .map(|(bundle, helper)| (bundle.display().to_string(), helper.display().to_string()))
+        .unwrap_or_default();
+    #[allow(unused_mut)]
+    let mut settings = Settings {
         no_sandbox: 1,
         windowless_rendering_enabled: 1,
         root_cache_path: CefString::from(web.as_str()),
@@ -438,6 +447,15 @@ fn run_cef(
         accept_language_list: CefString::from(languages.join(",").as_str()),
         ..Default::default()
     };
+    #[cfg(target_os = "macos")]
+    if !helper_path.is_empty() {
+        settings.main_bundle_path = CefString::from(bundle_path.as_str());
+        settings.browser_subprocess_path = CefString::from(helper_path.as_str());
+        log(
+            "cef.helper",
+            json!({ "bundle": bundle_path, "helper": helper_path }),
+        );
+    }
     window::init_caption();
     lifecycle::cef_started();
     if initialize(

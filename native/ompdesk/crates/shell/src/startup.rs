@@ -78,6 +78,30 @@ pub fn host_socket_path(user_data: &Path, pid: u32) -> PathBuf {
     unix_socket_path(user_data, &std::env::temp_dir(), &format!("host-{pid}"))
 }
 
+/// The helper app every CEF helper process starts from, named after the app, not after this executable.
+pub const MAC_HELPER_NAME: &str = "OMPdesk Helper";
+
+/// macOS: for the executable `exe` inside an app bundle (`<bundle>/Contents/MacOS/<name>`), the bundle and the helper
+/// executable `<bundle>/Contents/Frameworks/OMPdesk Helper.app/Contents/MacOS/OMPdesk Helper`. CEF names its helpers
+/// after the running executable, and the launcher layout runs the shell as `ompdesk-shell`, which would look for
+/// `ompdesk-shell Helper (GPU).app`: `main_bundle_path` and `browser_subprocess_path` name them explicitly. None for an
+/// executable that is not inside a bundle (an unpackaged build).
+pub fn mac_bundle_paths(exe: &Path) -> Option<(PathBuf, PathBuf)> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    if macos.file_name()? != "MacOS" || contents.file_name()? != "Contents" {
+        return None;
+    }
+    let bundle = contents.parent()?;
+    let helper = contents
+        .join("Frameworks")
+        .join(format!("{MAC_HELPER_NAME}.app"))
+        .join("Contents")
+        .join("MacOS")
+        .join(MAC_HELPER_NAME);
+    Some((bundle.to_path_buf(), helper))
+}
+
 /// The folder holding `out/main/index.js`, found by walking up from `start`.
 pub fn find_app_dir(start: &Path, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
     let mut dir = Some(start);
@@ -249,6 +273,26 @@ mod tests {
         let fallback = unix_socket_path(long, long_tmp, "shell");
         assert!(fallback.starts_with("/tmp"));
         assert!(fallback.as_os_str().len() <= SOCKET_PATH_MAX);
+    }
+
+    #[test]
+    fn the_mac_helper_is_named_after_the_app_not_the_executable() {
+        let (bundle, helper) = mac_bundle_paths(Path::new(
+            "/Applications/OMPdesk.app/Contents/MacOS/ompdesk-shell",
+        ))
+        .unwrap();
+        assert_eq!(bundle, Path::new("/Applications/OMPdesk.app"));
+        assert_eq!(
+            helper,
+            Path::new(
+                "/Applications/OMPdesk.app/Contents/Frameworks/OMPdesk Helper.app/Contents/MacOS/OMPdesk Helper"
+            )
+        );
+        assert_eq!(
+            mac_bundle_paths(Path::new("/work/target/release/ompdesk-shell")),
+            None
+        );
+        assert_eq!(mac_bundle_paths(Path::new("ompdesk-shell")), None);
     }
 
     #[test]
