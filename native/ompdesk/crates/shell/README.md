@@ -124,7 +124,7 @@ file name).
 - **macOS launcher**: the bundle's `Contents/MacOS/OMPdesk` is `ompdesk-launcher`, which execs `ompdesk-shell` and, for the
   first launch of a version an update installed, restores the last Electron release if the new app never writes
   `app-started.json` (PROTOCOL.md §14 has the rules and the `swap.log` lines). `last-electron.json` names that release.
-- **Native chrome**: progress on the taskbar button (Windows) or the Dock icon (macOS) and a dark or light title bar that follows `nativeTheme.themeSource`; behind an authenticating proxy `net.request` can answer the login, and macOS follows the system proxy.
+- **Native chrome**: progress on the taskbar button (Windows) or the Dock icon (macOS) and a dark or light title bar that follows `nativeTheme.themeSource`; macOS follows the system proxy. A proxy or server challenge of the updater's requests is not answered (the 401/407 is the response).
 - **Diagnostics**: `OMPDESK_SHELL_TRACE=1` logs each host request; a Rust panic writes `%TEMP%/ompdesk-shell-panic.log`.
 - **Dialogs** run on a thread of their own so their modal loop does not block CEF's UI thread; macOS `messageBox` is
   an app-modal alert, not a sheet.

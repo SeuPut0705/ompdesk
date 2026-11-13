@@ -12,6 +12,13 @@ import macTemplate from "../../resources/brand/trayTemplate.png?inline";
 import type { TrayState, UpdateStatus } from "../shared/ipc-types";
 import { getMainLanguage } from "./i18n";
 import {
+	applyUpdate,
+	checkForUpdate,
+	downloadUpdate,
+	onUpdateStatus,
+	updateStatus,
+} from "./shell-host/modules/updater";
+import {
 	menuSignature,
 	type TrayMenuActions,
 	type TrayMenuInput,
@@ -19,7 +26,6 @@ import {
 	trayTooltip,
 	trayUpdateItem,
 } from "./tray-labels";
-import { applyUpdate, checkForUpdate, downloadUpdate, onUpdateStatus, updateStatus } from "./updater";
 import type { SpawnWindow, WindowManager } from "./window";
 
 /** How long a finished check that found nothing keeps saying "up to date" before the item offers a check again. */

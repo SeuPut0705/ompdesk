@@ -331,7 +331,7 @@ export function createDesktopModules(host: Host, deps: { focusedWindowId(): numb
 		isRegistered: (accelerator: string): boolean => shortcuts.has(accelerator),
 	};
 
-	// --- native autoUpdater (Squirrel): not in the shell; electron-updater only listens to it ---
+	// --- native autoUpdater (Squirrel): not in the shell; an emitter for `before-quit-for-update` only ---
 	class NativeAutoUpdater extends EventEmitter {
 		setFeedURL(): void {
 			throw new Error("The native auto updater is not available under the shell");

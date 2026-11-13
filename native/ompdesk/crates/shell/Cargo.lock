@@ -1528,6 +1528,7 @@ dependencies = [
  "embed-resource",
  "getrandom 0.3.4",
  "jpeg-encoder",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

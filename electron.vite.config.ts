@@ -7,7 +7,7 @@ import { pwaPlugin } from "./scripts/pwa-plugin";
 
 /**
  * Main runs under Node, as a child of the Rust shell (docs: native-rust › Ledger › S): the `electron` it imports, and
- * the one electron-store and electron-updater `require`, is `src/main/shell-host/electron`, which speaks the host
+ * the one electron-store `require`, is `src/main/shell-host/electron`, which speaks the host
  * protocol to the shell. It is bundled like any other module, so there is no `electron` left to resolve at runtime.
  */
 const ELECTRON_SHIM = resolve(__dirname, "src/main/shell-host/electron/index.ts");
@@ -37,7 +37,7 @@ function bundleElectronShim(): Plugin {
  * that package — in this nested checkout bun hoists most deps to the monorepo root, so a
  * traversal misses them and the app dies at launch with ERR_MODULE_NOT_FOUND.
  */
-const MAIN_BUNDLED_DEPS = ["electron-store", "electron-updater", "jszip", "ws", "yaml", "zod"];
+const MAIN_BUNDLED_DEPS = ["electron-store", "jszip", "ws", "yaml", "zod"];
 
 /**
  * Optional native addons of bundled packages, switched off at build time. Vite resolves an optional peer

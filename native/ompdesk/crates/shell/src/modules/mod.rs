@@ -17,6 +17,8 @@ use shell_core::namespaces::{check_modules, namespace_of};
 use shell_core::wire::WireError;
 
 use crate::host::{self, Call};
+
+mod updater;
 use crate::log::log;
 
 /// A moved subsystem. One unit struct per module; its state lives in the module's own statics.
@@ -50,7 +52,7 @@ pub trait Module: Sync {
 /// The registration list: one line per moved module, in the order `ready` runs. Batch SX's slices each add theirs
 /// (PROTOCOL.md §15.1): `&chrome::Chrome`, `&preview::Preview`, `&services::Services`, `&updater::Updater`,
 /// `&boot::Boot`.
-static MODULES: &[&dyn Module] = &[];
+static MODULES: &[&dyn Module] = &[&updater::Updater];
 
 /// What a module may do on the wire, scoped to its namespace: every name it emits or asks is `<namespace>.<name>`.
 #[derive(Clone, Copy)]

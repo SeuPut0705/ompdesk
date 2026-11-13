@@ -18,7 +18,20 @@ import { REA_HUB_ENTRY } from "../../resources/gui-bridge/mcp-hub-contracts";
 import { AGENT_DESKTOP_SERVER } from "../../resources/gui-bridge/modes/computer-use-contracts";
 import { assembleBundle, RESOURCE_COPIES } from "../../scripts/package-mac";
 import { REA_VERSION } from "../shared/builtin-mcp";
-import { UPDATE_ASSETS } from "./update-release";
+
+/** The release assets the updater fetches, read from the shell's updater (`updater_core/release.rs` `Platform::asset`). */
+const UPDATE_ASSETS = (() => {
+	const source = fs.readFileSync(
+		path.join(__dirname, "../../native/ompdesk/crates/shell/src/updater_core/release.rs"),
+		"utf8",
+	);
+	const asset = (variant: string): string => {
+		const found = new RegExp(`fn asset\\(self\\)[\\s\\S]*?Platform::${variant} => "([^"]+)"`).exec(source)?.[1];
+		if (!found) throw new Error(`release.rs names no ${variant} asset`);
+		return found;
+	};
+	return { mac: asset("Mac"), windows: asset("Windows") };
+})();
 
 interface BuilderConfig {
 	appId?: string;

@@ -114,6 +114,8 @@ objc2-foundation = "0.3.2"
 # Notification-centre observers are Objective-C blocks (sys_mac/desk.rs).
 block2 = "0.6"
 security-framework = "3"
+# `access(2)` for the updater's "may this bundle be replaced" check (already linked through getrandom).
+libc = "0.2"
 
 # Same lints as the core workspace. `unsafe_code` is denied crate-wide; the modules that cross into the OS or into
 # CEF's raw-pointer API (`sys/`, the CEF handlers whose signatures carry `*mut u8`) allow it by name, each use with a

@@ -1,6 +1,6 @@
 /**
  * Builds the `electron` module object over a host connection and its facts: what `require("electron")` returns in
- * main, in electron-store and in electron-updater. `index.ts` makes the one real instance; tests make their own
+ * main and in electron-store. `index.ts` makes the one real instance; tests make their own
  * over a fake shell.
  */
 import type { HostFacts } from "../facts";

@@ -205,6 +205,20 @@ import { shellSpawnEnv, spawnPath } from "./shell-env";
 import { shellHost } from "./shell-host/modules/client";
 import { publishLabels, serveShellRelays } from "./shell-host/modules/relay";
 import {
+	appAutoUpdatePrefChanged,
+	appVersion,
+	checkForUpdate,
+	downloadUpdate,
+	noteAppStarted,
+	onUpdateStatus,
+	postponeUpdate,
+	readRelaunchPresence,
+	restartableUpdate,
+	restartIntoUpdate,
+	setupUpdater,
+	updateStatus,
+} from "./shell-host/modules/updater";
+import {
 	accessibilityTrusted,
 	defaultSessionCachePath,
 	readClipboardText,
@@ -230,20 +244,7 @@ import { exitWithLauncher } from "./test-launcher-exit";
 import { createTray, destroyTray, hasTray } from "./tray";
 import { InterruptedTurnStore, limitLook, retryDelays, TurnResume } from "./turn-resume";
 import { recordTurnStop, setTurnStopLog } from "./turn-stop-log";
-import {
-	appAutoUpdatePrefChanged,
-	appVersion,
-	checkForUpdate,
-	downloadUpdate,
-	noteAppStarted,
-	onUpdateStatus,
-	postponeUpdate,
-	readRelaunchPresence,
-	restartableUpdate,
-	restartIntoUpdate,
-	setupUpdater,
-	updateStatus,
-} from "./updater";
+
 import { FileEditReports } from "./web/file-edit-reports";
 import { IPC_POLICY } from "./web/ipc-policy";
 import { IpcRegistry } from "./web/ipc-registry";

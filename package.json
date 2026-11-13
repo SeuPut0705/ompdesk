@@ -65,7 +65,6 @@
     "docx-preview": "0.4.1",
     "electron-log": "^5.3.0",
     "electron-store": "^10.0.0",
-    "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.0",
     "jszip": "3.10.2",
     "katex": "^0.16.0",

@@ -29,6 +29,7 @@ pub mod spell;
 pub mod startup;
 pub mod transition;
 pub mod tray_image;
+pub mod updater_core;
 pub mod wire;
 
 #[cfg(windows)]

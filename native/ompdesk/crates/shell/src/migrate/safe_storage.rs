@@ -142,6 +142,12 @@ fn platform_key(user_data: &Path) -> Result<Key, String> {
     crate::sys::dpapi_unprotect(&wrapped).map(Key::Windows)
 }
 
+/// The Windows OSCrypt key itself, for a module of the shell that stores a secret (the updater's token).
+#[cfg(windows)]
+pub fn windows_key(user_data: &Path) -> Result<Vec<u8>, String> {
+    platform_key(user_data).map(|Key::Windows(key)| key)
+}
+
 /// A clean profile (no `Local State`, or one without the key) gets the key Chromium would make, so an Electron
 /// install that comes later reads what the shell encrypted.
 #[cfg(windows)]

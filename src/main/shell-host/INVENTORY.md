@@ -1,6 +1,6 @@
 # Electron APIs `src/main` uses, and what the shell swap did to each
 
-Static inventory, 12 Nov 2026 (every `import … from "electron"`, `original-fs`, `electron-store`, `electron-updater`
+Static inventory, 12 Nov 2026 (every `import … from "electron"`, `original-fs`, `electron-store`
 in `src/main/**` and `src/preload/**`, plus the members they call). `native/ompdesk/crates/shell/PROTOCOL.md` has the
 frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imports.
 
@@ -24,9 +24,8 @@ frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imp
 | `nativeImage` | `createFromPath`, `createFromDataURL`; `addRepresentation`, `setTemplateImage` |
 | `safeStorage` | `isEncryptionAvailable`, `encryptString`, `decryptString` |
 | `systemPreferences` | `getAnimationSettings` |
-| `autoUpdater` (native) | `on`, `emit` only: `electron-updater` listens to it, and `NsisUpdater`/`MacUpdater` in the modes main uses never call its Squirrel methods |
+| `autoUpdater` (native) | `on`, `emit` only: `app-quit.ts` listens for `before-quit-for-update`, which the updater's client emits once the Windows installer started |
 | `electron-store` | `app.getPath("userData")`, `app.getVersion()`, `ipcMain.on("electron-store-get-data")`, `shell.openPath` |
-| `electron-updater` | `app.{getVersion,getName,isPackaged,getPath,getAppPath,whenReady,quit,relaunch,once("quit")}`, `process.resourcesPath`, `net.request` through `session.fromPartition("electron-updater")`, `shell.openPath`, `Notification` (unused here), `autoUpdater.emit("before-quit-for-update")` |
 | `process` | `resourcesPath` (defined by the shim from the facts), `versions.chrome` (CEF's), `versions.shell`, `versions.cef` |
 
 ## Made different, and what each call site does now
@@ -34,14 +33,14 @@ frames; `electron/*.ts` has the shim. `electron-log` is a dependency nothing imp
 | Electron | Why it cannot stay | Now |
 |---|---|---|
 | `clipboard.readText()` | the clipboard is the shell's; a socket round trip is asynchronous | the shim's `readText()` throws; `shell-host/shell-calls.ts` `readClipboardText()` asks. Callers: `index.ts` (`readClipboard` of the Memory password copy, whose check now awaits) and `ipc.ts` (`gui_clipboard_read`, whose tool result now settles on the answer) |
-| `powerMonitor.getSystemIdleTime()` | same | throws; `systemIdleSeconds()` is read just before each auto-install look (`updater.ts` `tickAutoInstall`), and the scheduler's synchronous facts hold that last value: never ahead of the moment of decision, so a person who just touched the computer is not taken for idle (it can only be older) |
+| `powerMonitor.getSystemIdleTime()` | same | throws; `systemIdleSeconds()` is read just before each auto-install look (`shell-host/modules/updater.ts` `tickAutoInstall`), and the scheduler's synchronous facts hold that last value: never ahead of the moment of decision, so a person who just touched the computer is not taken for idle (it can only be older) |
 | `systemPreferences.isTrustedAccessibilityClient`, `getMediaAccessStatus` | same (macOS) | throw; `accessibilityTrusted()` / `screenRecordingGranted()`; `MacPermissionDeps` accept a promise |
 | `NativeImage#resize/toPNG/toJPEG` on a captured or painted page | no bitmap codec in main; the shell holds the pixels | `capturePage` returns PNG bytes that remember how to be captured again at another scale (`fitImage()` in `shell-host/image.ts`: `Page.captureScreenshot` `clip.scale`); a paint is a frame the shell encodes on request (`encodeImage()`, `wc.frame`). `preview/host.ts` (`paintImage`, region capture, the Preview check) and `web/preview-stream.ts` (`PaintImage.jpeg()` is asynchronous; `PageStream` encodes one frame at a time, drops a frame whose page navigated meanwhile, and parks one whose poll left) |
 | `session.setPermissionRequestHandler(fn)` | a function cannot cross the socket | probed once with every permission: deny-all becomes the shell's `setPermissions deny-all` policy; a handler that grants anything throws |
 | `registerPreloadScript` of the Preview's dialog shim | it used `contextBridge` and `ipcRenderer.sendSync` | `web/preview-dialog.ts` `DIALOG_PRELOAD_SOURCE` is a plain script using the shell's `__ompdeskSendSync` (taken and removed from `globalThis` first); `ipcMain.on` answers when a handler sets `returnValue`, however late |
 | `process.getSystemVersion()` | Node has none | `system-version.ts` `systemVersion()` (Windows `os.release()`, macOS from the Darwin kernel) |
 | `process.versions.electron` (system info, feedback, diagnostics) | no Electron | `shellEngine()` (`ompdesk-shell 0.1.0, CEF 156.0.26`); the shared type's key stays `electron`, the labels read "Shell" |
-| `process.defaultApp`, `process.execPath` | main is `node <bundle> <the shell's args>` | `index.ts` reads arguments from `process.argv.slice(2)`, `deep-link.ts` from `argv.slice(1)` of a second launch; `setAsDefaultProtocolClient(PROTOCOL)` always registers the shell's own exe; `updater.ts` reads the bundle from `app.getPath("exe")` and reopens with `process.argv.slice(2)` |
+| `process.defaultApp`, `process.execPath` | main is `node <bundle> <the shell's args>` | `index.ts` reads arguments from `process.argv.slice(2)`, `deep-link.ts` from `argv.slice(1)` of a second launch; `setAsDefaultProtocolClient(PROTOCOL)` always registers the shell's own exe; the updater (shell, SX4) reads the bundle from its `exe` and reopens with its own arguments |
 | `original-fs` / `node:original-fs` | no asar: nothing patches `fs` | every import is `node:fs`; `user-folder-fs.test.ts` (the guard against the patched `fs`) and the vitest alias are gone |
 | `app.asar` identity (window.ts' "resources changed" restart) | no archive | the renderer entry `out/renderer/index.html`'s identity |
 | `win.webContents` `preload` option | the shell injects `window.omp` itself | dropped from `window.ts`; `src/preload/index.ts` (contextBridge + `webUtils`) is deleted once `src/preload/shell.ts` exists (`fs.pathForFile` is the shell's) |

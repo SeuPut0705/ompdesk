@@ -6,7 +6,7 @@
 # notes, and exactly two assets, `ompdesk-mac-arm64.dmg` and
 # `ompdesk-windows-setup.exe`. The in-app updater reads their version, size and
 # SHA-512 from an HTML comment the publish job appends to the notes
-# (`<!-- ompdesk-update {json} -->`, parsed by src/main/update-release.ts).
+# (`<!-- ompdesk-update {json} -->`, parsed by native/ompdesk/crates/shell/src/updater_core/release.rs).
 # An `Unreleased` heading or an existing tag makes the run a no-op.
 # `workflow_dispatch` re-runs it; `dry_run` does everything except the tag and
 # release (the packages stay as run artifacts) and works on any branch.
@@ -839,7 +839,7 @@ jobs:
             fi
           fi
       # Version, size and SHA-512 (base64, as electron-updater writes it) of the
-      # two installers, for the in-app updater (src/main/update-release.ts). An
+      # two installers, for the in-app updater (updater_core/release.rs). An
       # HTML comment: GitHub does not render it.
       - name: Append update metadata
         run: |

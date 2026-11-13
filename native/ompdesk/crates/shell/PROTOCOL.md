@@ -16,7 +16,7 @@ The core's wire (`crates/core/src/wire.rs`), over the named pipe / unix socket t
 - request `{"id": n, "method": "...", "params": {...}}`, answer `{"id": n, "ok": true, "result": ...}` or
   `{"id": n, "ok": false, "error": {"code": "...", "message": "..."}}`, event `{"event": "...", "data": {...}}`;
 - `"bin": n` on any frame (request, answer, event): exactly `n` raw bytes follow the newline and belong to that frame;
-- `{"cancel": id}`: the sender no longer waits for request `id` (a `net.fetch` aborted, a `protocol.request` the page
+- `{"cancel": id}`: the sender no longer waits for request `id` (a `protocol.request` the page
   dropped); the other side may stop work and need not answer;
 - **both sides send requests**; ids are per direction (the shell's ids and Node's ids are independent counters). One
   writer per side, so frames never interleave. A malformed line is logged and skipped.
@@ -302,14 +302,11 @@ Chromium's network stack through CEF's `CefURLRequest`, so the system proxy, PAC
 
 | Method | Asks | Params | Result |
 |---|---|---|---|
-| `net.fetch` | Node | `{reqId, url, method, headers: [[k, v]], hasBody, redirect: "follow"\|"manual"\|"error", partition?, credentials?: "include"\|"omit"\|"same-origin", bypassCustomProtocolHandlers?: boolean}` + `bin` = the body when `hasBody` | `{status, statusText, url, redirected, headers: [[k, v]]}` once the head arrived; the body follows as events `net.chunk {reqId}` (`bin`) and `net.end {reqId, error?: string}`, shell → Node. `redirect: "manual"` answers the 3xx itself. A `{cancel: id}` frame (or `net.cancel {reqId}` event, Node → shell) aborts. Network failure before the head → `error.code "failed"`, `message` = Chromium's `net::ERR_…`. |
-| `net.chunk` / `net.end` (events) | shell→Node | | |
-| `net.cancel` (event) | Node | `{reqId}` | |
-| `net.login` | shell | `{reqId, isProxy, scheme, host, port, realm}` | `{username, password}` or `{cancel: true}`: an HTTP authentication challenge (server or proxy) of the `net.fetch` `reqId` in flight (CEF `GetAuthCredentials`; answered asynchronously, no timeout on the shell's side beyond the request's own end). The shim raises Electron's `login` on that `net.request` with `authInfo` `{isProxy, scheme, host, port, realm}` and a `callback(username?, password?)`; no listener, or `callback()` with nothing, answers `{cancel: true}` and the challenge's 401/407 is the response, as in Electron. A `net.fetch` made by `net.fetch()` (no `ClientRequest`) always gets `{cancel: true}` |
+
 | `net.resolveHost` | Node | `{host, cacheUsage?}` | `{endpoints: [{address, family: "ipv4"\|"ipv6"}]}` |
 
-`net.request` (the streaming `ClientRequest` API `updater.ts` and electron-updater use) is built by the shim on
-`net.fetch` (`redirect: "manual"` + `net.chunk`), with `response`, `redirect`, `error`, `abort` semantics.
+`net.fetch`, `net.request`, their `net.chunk`/`net.end`/`net.cancel` frames and the `net.login` ask went with their last caller, the updater
+(SX4): its requests are the shell's own (`net.rs` `fetch_in_shell`, §15.8).
 
 ## 11. safeStorage
 
@@ -323,7 +320,7 @@ in the other:
   decrypt reverses it, refusing another prefix.
 - macOS: **never read at launch**: any keychain dialog at launch or in the move is a failure. `facts.safeStorage` is
   `{kind: "mac-v10-lazy"}` and the shim reads the key on the **first** `isEncryptionAvailable` / `encryptString` /
-  `decryptString` / `getSelectedStorageBackend` call (Electron's own semantics; `update-auth.ts` and `mail-accounts.ts`
+  `decryptString` / `getSelectedStorageBackend` call (Electron's own semantics; `mail-accounts.ts`
   touch safeStorage only when a stored secret exists or one is saved) by a synchronous one-shot of the shell binary
   itself, so the keychain ACL sees the app's own code identity: `execFileSync(facts.exe, ["--keychain-key", userData])`
   (stdin closed, stderr ignored, 120 s limit because the keychain may show its prompt). The process answers **one JSON
@@ -495,8 +492,9 @@ What the Rust shell does differently from this table or from Electron. README.md
   Preview pages produce only the `wc.event`.
 - **`wc.event preload-error`** `[preloadPath, {message, stack}]` is produced for `shell.js` throwing in an app page, via
   `POST /__shell/preload-error`; a throw in a Preview partition's preload (`app.rs`) is not reported.
-- **`net.fetch`**: `credentials: "same-origin"` behaves as `include`; `resolveHost` with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`); an HTTP 401/407 challenge of a `net.fetch` is asked of Node with `net.login` (CEF re-asks after wrong credentials); request headers
-  `Content-Length`, `Host`, `Connection`, `Transfer-Encoding` are not forwarded; a body is streamed without back-pressure.
+- **`net.resolveHost`** with `cacheUsage: "disallowed"` (or `"disabled"`) resolves with the OS resolver (`getaddrinfo`) on a
+  worker thread, bypassing Chromium's host cache (it ignores Chromium's own DNS configuration, the OS resolver's cache still
+  applies, and it answers `net::ERR_NAME_NOT_RESOLVED` after at most 15 s; `staleAllowed` behaves as `allowed`).
 - **Application menu accelerators** are matched by a message hook for typed keys; a key sent through the DevTools protocol
   (the e2e harness) reaches the shell as an unhandled key event and is matched there.
 - **`OMP_GUI_TEST_SHELL_FAIL_START=1`** (test seam): the shell exits 1 right after CEF initialised, before `app.init` is
@@ -585,7 +583,7 @@ file named here is deleted from `src/main` by its slice (or, for `ipc.ts` and `i
 | SX1 chrome | `chrome.*` | `window.ts`, `menu.ts`, `tray.ts`, `app-quit.ts`, `deep-link.ts`, `gpu-fallback.ts`, `hang-watchdog.ts`, `app-icon.ts` | `modules/chrome/`, `chrome_core/` |
 | SX2 preview | `preview.*` | `preview/host.ts`, `agent-relay.ts`, `visuals.ts`, `page-scripts.ts`, `preview-check.ts`, `layout.ts`, `relay-socket.ts`, `visual-navigation.ts`; `web/preview-stream.ts`, `preview-input.ts`, `preview-dialog.ts`, `preview-pacer.ts` | `modules/preview/`, `preview_core/` |
 | SX3 services | `services.*` | the Electron services of `ipc.ts` and `ssh/ipc.ts` (clipboard, dialog, screen, shell, `Notification`, window lookups); their IPC handlers stay registered in Node (§15.4 rule 5) and call the client. `web/ipc-registry.ts` and `runtime-log.ts` stay in Node (rules 5 and 1) | `modules/services/`, `services_core/` |
-| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `updater-state.ts` | `modules/updater/`, `updater_core/` |
+| SX4 updater | `updater.*` | `updater.ts`, `update-auth.ts`, `nsis-updater.ts`, `installer-spawn.ts`, `updater-state.ts`, `update-provider.ts`, `update-release.ts`; the shim's `net.fetch`/`net.request` | `modules/updater/`, `updater_core/` |
 | SX5 boot | `boot.*` | `index.ts`'s Electron wiring (`protocol`, `powerMonitor`, `powerSaveBlocker`, `globalShortcut`, `nativeTheme`, `net`), `power/**`, `i18n.ts`, `i18n-text.ts` and `tray-labels.ts`'s tables (rule 2), `sidecar-factory.ts`'s paths | `modules/boot/`, `boot_core/` |
 
 - **Where a module lives**: in the shell when it needs CEF or the OS objects the shell holds (windows, tray, menus,
@@ -736,13 +734,13 @@ countdown, the install Node began). `State = {status: RawStatus, installable: bo
 | `updater.check` | Node | `{}` | `State` once the check settled — a person's check: a check under way is joined and settles as asked (its failure or "no result" reaches the banner). A downloaded update or a macOS transfer in flight answers at once, unchanged. |
 | `updater.download` | Node | `{}` | `State` — downloads the update an `available` status names (macOS DMG to Downloads or staging; Windows installer to the updater cache); a failure is an error status with `showInBanner`. |
 | `updater.install` | Node | `{trigger: "auto"\|"user click"\|"quit", presence?: "hidden"\|"minimized"\|"behind"}` | `{then: "quit"\|"quit-for-update"\|"none"}` — Node already began the install (`installing` shown). `quit`: relaunch mode armed to reopen after the swap, or the Windows dev dry install: Node runs `requestQuit()`. `quit-for-update`: the Windows installer (`--updated --force-run`) was started off the reader thread and the answer comes once that attempt ended, started or not; Node then runs electron-updater's quit (`before-quit-for-update`, `app.quit()`). `none`: nothing is staged; an error status went out. |
-| `updater.quit` (event) | Node | `{trigger, presence?}` | An approved quit with a downloaded update (Node's `will-quit`, or the quit watchdog's forced exit). Relaunch mode: the detached swap helper starts once (`SWAP_SCRIPT`, waiting for the shell's pid). Windows, when no install was started yet: the installer starts silently (`--updated /S`) on a thread `shutdown` joins. Both write `<userData>/update-install.json` and log `swap helper`. |
+| `updater.quit` (event) | Node | `{trigger, presence?}` | An approved quit with a downloaded update (Node's `will-quit`, or the quit watchdog's forced exit). Relaunch mode: the detached swap helper starts once (`SWAP_SCRIPT`, waiting for the shell's pid; on a restart it keeps `<dest>.previous` until Node's start mark `<userData>/app-started.json` names the staged version, else puts the old app back). Windows, when no install was started yet: the installer starts silently (`--updated /S`) on a thread `shutdown` joins. Both write `<userData>/update-install.json` and log `swap helper`. |
 | `updater.authInfo` | Node | `{}` | `UpdateAuthInfo` |
 | `updater.authTest` | Node | `{token?}` | `UpdateAuthTestResult` — a given token is tried as is (trimmed); none: the token the next check would use. |
 | `updater.authSave` | Node | `{token}` | `UpdateAuthTestResult` — stored (encrypted with `safeStorage`'s key) only when the repository answers `ok` to it. Errors: `keychain_would_ask`, `safe_storage_unavailable`. |
 | `updater.authClear` | Node | `{}` | `UpdateAuthInfo` — the stored token and the dropped marker removed. |
 | `updater.status` (event) | shell→Node | `State` | after every change; Node mirrors it (`updateStatus()`, `restartableUpdate()` read the mirror synchronously). |
-| `updater.log` (event) | shell→Node | `{message: "check"\|"download"\|"swap", details}` | one decision line of `gui-runtime.jsonl` (source `app-update`); the token is already cut out, Node passes each `reason` through `scrubUpdateText`. |
+| `updater.log` (event) | shell→Node | `{message: "check"\|"download"\|"swap", details}` or `{message}` | one line of `gui-runtime.jsonl` (source `app-update`): a decision line (`details`, info level; the token is already cut out, Node passes each `reason` through `scrubUpdateText`), or a plain notice without details (a dropped stored token). |
 | `updater.loginEnv` | shell→Node | `{}` | `{token?: string, path: string}` — `GH_TOKEN`/`GITHUB_TOKEN` of Node's launch environment, else the login shell's; `spawnPath()` for `gh`. |
 
 Deviations:

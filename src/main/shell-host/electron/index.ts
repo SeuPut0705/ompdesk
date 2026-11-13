@@ -1,5 +1,5 @@
 /**
- * The `electron` module main, electron-store and electron-updater import (the main bundle aliases `electron` to this
+ * The `electron` module main and electron-store import (the main bundle aliases `electron` to this
  * file). Importing it connects to the shell (`OMPDESK_SHELL_SOCKET`, `OMPDESK_SHELL_TOKEN`), says `hello` and waits
  * for the facts before any main code runs, so Electron's synchronous `app.getPath()` and friends work at module top
  * level, as they do there.

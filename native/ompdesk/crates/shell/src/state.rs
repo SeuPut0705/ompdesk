@@ -37,6 +37,10 @@ pub struct Paths {
 
 pub static PATHS: OnceLock<Paths> = OnceLock::new();
 
+/// The facts `hello` hands Node (PROTOCOL.md §1), kept for the modules that read the same places (`paths`, `exe`,
+/// `argv`, `isPackaged`). Set once at startup (`main.rs`).
+pub static FACTS: OnceLock<serde_json::Value> = OnceLock::new();
+
 pub fn paths() -> &'static Paths {
     PATHS.get().expect("paths are set at startup")
 }

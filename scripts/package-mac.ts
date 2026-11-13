@@ -18,7 +18,7 @@
  * "com.seuput.ompdesk" and certificate root = H"…"` in every release and macOS keeps its privacy grants; ad-hoc without
  * it (an error with `OMPDESK_MAC_SIGNING_REQUIRED=1`). Every Mach-O is signed inside out with hardened runtime and
  * `resources/entitlements.mac.plist` (V8's JIT needs it in the helpers and Node), no secure timestamp (nothing is
- * notarized), then the helper apps and the app, which `stageBundleFromDmg` (src/main/updater-state.ts) verifies with
+ * notarized), then the helper apps and the app, which the updater's staging (native/ompdesk/crates/shell/src/modules/updater/platform.rs `stage_bundle`) verifies with
  * `codesign --verify --deep --strict` after the update.
  *
  * Written without a Mac; nothing here has run on one. What a Mac must show (each one is a way the update from the
