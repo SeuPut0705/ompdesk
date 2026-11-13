@@ -71,7 +71,7 @@ pub(super) fn kept(folder: &Folder, hash: &str) -> Option<String> {
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// One blob: from the folder (unless the caller just found it `unkept` there), else from the host (as `fetch` answers
+/// One blob: from the folder (a caller that just found it `unkept` there looks only whether it came since), else from the host (as `fetch` answers
 /// it: the host's base64, None when it has none), kept only when its bytes match its address. None leaves the reference as it is: the renderer shows that picture
 /// as unavailable.
 pub(super) async fn load<F, R>(
@@ -89,7 +89,9 @@ where
     if !is_hash(&hash) {
         return None;
     }
-    if !unkept {
+    // A caller that already found the folder without it checks again only that the file exists, at once: another read
+    // may have kept it meanwhile, and the check never waits, so the host is still asked in the caller's order.
+    if !unkept || folder.dir.join(&hash).exists() {
         let reading = folder.clone();
         let wanted = hash.clone();
         if let Some(kept) = blocking(move || kept(&reading, &wanted)).await.ok()? {

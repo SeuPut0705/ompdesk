@@ -151,6 +151,36 @@ fn reads_the_pictures_the_typescript_kept() {
     }
 }
 
+/// A read whose own look in the folder missed, and that owns the host's read only after another read kept the picture,
+/// takes it from the folder: each picture crosses the link once.
+#[tokio::test]
+async fn a_read_that_missed_takes_a_picture_another_read_kept_meanwhile() {
+    let rows = captured();
+    let (hash, data) = rows["blobs"]["files"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .next()
+        .unwrap();
+    let dir = temp_dir("blobs-kept-meanwhile");
+    let kept = folder(&dir);
+    let reference = format!("blob:sha256:{hash}");
+    assert_eq!(
+        blobs::load(&kept, &reference, 1 << 20, true, || async {
+            Some(data.as_str().unwrap().to_owned())
+        })
+        .await,
+        data.as_str().map(str::to_owned)
+    );
+    assert_eq!(
+        blobs::load(&kept, &reference, 1 << 20, true, || async {
+            unreachable!("the host was asked for a picture the folder holds")
+        })
+        .await,
+        data.as_str().map(str::to_owned)
+    );
+}
+
 #[test]
 fn decodes_base64_as_node_does() {
     for row in captured()["base64"].as_array().unwrap() {
