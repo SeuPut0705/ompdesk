@@ -8,8 +8,10 @@
  * - The question must still be open: when it is gone, nothing is appended and the answer is refused.
  * - The note is appended before the answer and is idempotent by its own id (the receiver's bridge refuses a repeat).
  * - The step is idempotent by `requestId`: a resend after a lost reply finds it done and appends and answers nothing.
- * - A question that closes between the check and the answer (its person answered in that moment) is said so: the note
- *   reached the session, the answer did not. Nothing in stock can hold a question open while a note goes in.
+ * - The question is claimed in the tick that finds it open (`SidecarPool.claimRequest`): the person's card, another
+ *   agent and a paired device are refused (`being_answered`) until this answer lands or the claim is released. If the
+ *   note cannot be appended the claim is released and nothing was delivered. The only partial case left is omp itself
+ *   cancelling the question while the note goes in (a turn aborted), outside main's control: it is said explicitly.
  */
 import type { ExtensionUIResponse, RpcCommand } from "../../shared/rpc-types";
 
@@ -29,8 +31,12 @@ export interface TargetAnswerDeps {
 	askOpen(tabId: string, id: string): boolean;
 	/** Whether `tabId` waits on a plan approval. */
 	planOpen(tabId: string): boolean;
-	/** Put the answer to the question to its omp; false when the question is no longer open. */
-	route(tabId: string, id: string, response: ExtensionUIResponse): Promise<boolean>;
+	/** Take the question so no other answer lands; null when it is not open or already taken. */
+	claim(tabId: string, id: string): symbol | null;
+	/** Give a claimed question back unanswered. */
+	release(id: string, claim: symbol): void;
+	/** Put the claimed answer to the question to its omp (which also ends the claim). */
+	route(tabId: string, id: string, response: ExtensionUIResponse, claim: symbol): Promise<boolean>;
 }
 
 /** A command to the answered session's omp, through the dispatcher of the call. */
@@ -66,41 +72,64 @@ export class TargetAnswer {
 
 	async #step(tabId: string, step: AnswerStep, send: SendCommand): Promise<void> {
 		const deps = this.#deps;
-		const open = "askId" in step ? deps.askOpen(tabId, step.askId) : deps.planOpen(tabId);
-		if (!open)
-			throw new Error("That question is not open any more: nothing was added to the session and nothing answered.");
+		const gone = new Error(
+			"That question is not open any more, or another answer holds it: nothing was added to the session and nothing answered.",
+		);
 		const { content, details, delivery } = step.companion;
-		const noted = await send({
+		const note = {
 			type: "agent_control_mail",
 			content,
 			details,
 			triggerTurn: delivery.triggerTurn,
 			...(delivery.deliverAs ? { deliverAs: delivery.deliverAs } : {}),
-		} as RpcCommand);
-		if (!noted.success)
-			throw new Error(
-				`what goes with the answer could not be delivered (${noted.error ?? "no reason given"}). Neither the attachments nor the answer were sent.`,
+		} as RpcCommand;
+		const failed = (why: string | undefined) =>
+			new Error(
+				`what goes with the answer could not be delivered (${why ?? "no reason given"}). Neither the attachments nor the answer were sent.`,
 			);
-		const closed =
-			"The question closed while the attachments were going in (it was answered, or its session moved on): the attachments reached that session, the answer did not.";
-		if ("askId" in step) {
-			// Stock sends nothing back for an answer to a question that is gone, so the claim is looked at again here.
-			if (!deps.askOpen(tabId, step.askId)) throw new Error(closed);
-			let routed = false;
-			try {
-				routed = await deps.route(tabId, step.askId, step.response);
-			} catch (error) {
+		if (!("askId" in step)) {
+			if (!deps.planOpen(tabId)) throw gone;
+			const noted = await send(note);
+			if (!noted.success) throw failed(noted.error);
+			const answered = await send(step.plan);
+			if (!answered.success)
 				throw new Error(
-					`The answer was not delivered (${error instanceof Error ? error.message : String(error)}); the attachments reached that session. Sending the same answer again is safe.`,
+					`The plan was not answered (${answered.error ?? "no reason given"}); the attachments reached that session.`,
 				);
-			}
-			if (!routed) throw new Error(closed);
 			return;
 		}
-		const answered = await send(step.plan);
-		if (!answered.success)
+		// Claim, then append, then resolve: from the tick that finds the question open no other answer can land. The one
+		// thing outside main's hands is omp itself cancelling the question meanwhile (its turn aborted): then the note
+		// is in and the answer cannot be, and that is said.
+		const claim = deps.claim(tabId, step.askId);
+		if (claim === null) throw gone;
+		let noted: { success: boolean; error?: string };
+		try {
+			noted = await send(note);
+		} catch (error) {
+			deps.release(step.askId, claim);
+			throw failed(error instanceof Error ? error.message : String(error));
+		}
+		if (!noted.success) {
+			deps.release(step.askId, claim);
+			throw failed(noted.error);
+		}
+		if (!deps.askOpen(tabId, step.askId)) {
+			deps.release(step.askId, claim);
 			throw new Error(
-				`The plan was not answered (${answered.error ?? "no reason given"}); the attachments reached that session.`,
+				"The session cancelled the question while the attachments were going in (its turn was aborted): the attachments reached that session, the answer did not.",
 			);
+		}
+		try {
+			if (await deps.route(tabId, step.askId, step.response, claim)) return;
+		} catch (error) {
+			deps.release(step.askId, claim);
+			throw new Error(
+				`The answer was not delivered (${error instanceof Error ? error.message : String(error)}); the attachments reached that session. Sending the same answer again is safe.`,
+			);
+		}
+		throw new Error(
+			"The session cancelled the question while the attachments were going in (its turn was aborted): the attachments reached that session, the answer did not.",
+		);
 	}
 }

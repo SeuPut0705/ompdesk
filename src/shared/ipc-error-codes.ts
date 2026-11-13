@@ -120,6 +120,7 @@ export const IPC_ERROR_CODES = [
 	"update_not_ready",
 	// Another window that shows the tab answered this ask or approval first (multi-viewer, sidecar-pool.ts).
 	"already_answered",
+	"being_answered",
 	// A paired web device asked for something its grants or the web policy do not allow (main/web/ws-router.ts).
 	"web_forbidden",
 	// A paired host has no browser relay running for the tab a device's Preview page tunnels to (host-services.ts `host.previewRelay.*`).

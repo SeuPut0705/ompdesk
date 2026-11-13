@@ -795,7 +795,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 	const targetAnswer = new TargetAnswer({
 		askOpen: (tabId, id) => sidecarPool.isRequestOpen(tabId, id),
 		planOpen: tabId => sidecarPool.pendingPlan(tabId) !== null,
-		route: (tabId, id, response) => sidecarPool.routeSideChannel(id, response, tabId),
+		claim: (tabId, id) => sidecarPool.claimRequest(tabId, id),
+		release: (id, claim) => sidecarPool.releaseRequest(id, claim),
+		route: (tabId, id, response, claim) => sidecarPool.routeSideChannel(id, response, tabId, undefined, claim),
 	});
 
 	const dispatchRpcCommand = async (
