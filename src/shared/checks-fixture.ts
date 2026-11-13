@@ -341,6 +341,7 @@ export function sampleSnapshot(asOf = 1_794_000_700_000): Snapshot {
 				id: "q-1",
 				repo: "example/app",
 				base: "main",
+				branch: "omp/agent/search-index",
 				pr: 128,
 				title: "Index the search results",
 				sha: "1a3c5e7092b4d6f8a0c2e4f6081a3c5e7092b4d6",

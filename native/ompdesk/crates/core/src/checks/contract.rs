@@ -330,8 +330,12 @@ pub struct QueueEntry {
     pub id: String,
     pub repo: RepoId,
     pub base: String,
-    pub pr: u64,
-    /// The pull request's title.
+    /// The branch that lands.
+    pub branch: String,
+    /// Its pull request, when it has one (a repo may land branches without).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<u64>,
+    /// What lands, in a line: the pull request's title, else the subject of the branch's newest commit.
     pub title: String,
     pub sha: Sha,
     pub lane: Lane,
@@ -792,7 +796,8 @@ pub(crate) mod samples {
                 id: "q-1".into(),
                 repo: "example/app".into(),
                 base: "main".into(),
-                pr: 12,
+                branch: "omp/agent/search-index".into(),
+                pr: Some(12),
                 title: "Index the search results".into(),
                 sha: "0123456789abcdef0123456789abcdef01234567".into(),
                 lane: Lane::Land,

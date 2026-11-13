@@ -220,8 +220,11 @@ export const QueueEntrySchema = z.strictObject({
 	id: z.string(),
 	repo: z.string(),
 	base: z.string(),
-	pr: Count,
-	/** The pull request's title. */
+	/** The branch that lands. */
+	branch: z.string(),
+	/** Its pull request, when it has one (a repo may land branches without). */
+	pr: Count.optional(),
+	/** What lands, in a line: the pull request's title, else the subject of the branch's newest commit. */
 	title: z.string(),
 	sha: z.string(),
 	lane: z.enum(LANES),

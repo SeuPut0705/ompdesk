@@ -5,9 +5,11 @@
 //! - `hub`: the `ChecksHub` trait and the real `Hub` over the two fact adapters.
 //! - `sources`: `GithubSource` and `LocalSource`, with their in-memory fakes.
 //! - `fake`: a scripted `ChecksHub` for tests and the dev harness.
-//! - The real hub's parts, one file each so they are built side by side. Here: `admission` (what a start decides) and
-//!   `answer` (a run's result as an agent reads it). Each other part adds its own file and its one `pub mod` line:
-//!   the poller and the real sources, the merge queue, test results, trends, placement.
+//! - The real hub's parts, one file each so they are built side by side, every one declared here from the start (an
+//!   empty file until its part lands) so no part edits this file: `admission` (what a start decides), `answer` (a
+//!   run's result as an agent reads it), `poller` (the one reader of GitHub and the pools, and the real sources),
+//!   `queue` (the merge queue), `results` (test reports into test results), `trends` (flaky tests, slowdowns, cost)
+//!   and `place` (local or runner).
 //!
 //! The wire, each a request of main's with `hub`, main's id for the hub it opened:
 //! `checks.open {hub, fake?}`, `checks.close {hub}`, `checks.start {hub, origin, request}` → `StartReply`,
@@ -25,7 +27,12 @@ pub mod answer;
 pub mod contract;
 pub mod fake;
 pub mod hub;
+pub mod place;
+pub mod poller;
+pub mod queue;
+pub mod results;
 pub mod sources;
+pub mod trends;
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
