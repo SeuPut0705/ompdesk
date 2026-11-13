@@ -338,7 +338,8 @@ const AXE_MARKER = "_thisWillBeDeletedDoNotUse";
 // The sidebar usage block's grouping (`usageAccountGroups`, about 630 bytes) moved out of `lib/usage-reports.ts`, which
 // the first screen loads, into `sidebar/usage-groups.ts`, which only the session list's chunk imports: measured
 // 2,201,221 by the runner's build (13 Nov 2026, branch run 43449213441), 631 bytes under the budget above. The budget is
-// that measure plus 79 bytes, so the next change that grows the first screen has to say so here.
+// that measure plus 79 bytes, so the next change that grows the first screen has to say so here. Run 43487947733 on the
+// branch merged with main (14 Nov 2026) passed `build` under it.
 const WEB_FIRST_SCREEN_JS_BYTES = 2_201_300;
 
 // Bun's `builtinModules` also lists its own modules and stand-ins (`bun:*`, `ws`, `undici`), which Electron's
