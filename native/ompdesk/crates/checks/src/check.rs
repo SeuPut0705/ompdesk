@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use crate::flaky::Book;
+use crate::flaky::{Book, Failures};
 use crate::heavy::{self, now_ms};
 use crate::inputs::{self, InputSet, StatCache};
 use crate::runner::{self, Detected, Earlier, Kind, Record};
@@ -1564,8 +1564,12 @@ fn finish(
         .iter()
         .filter(|(r, o)| o.run == own && r.status == "flaky" && book.quarantined(&r.key))
         .collect();
-    let release_blocked =
-        rt.run.release && (!quarantined.is_empty() || !quarantined_flaky.is_empty());
+    let came_to = Failures {
+        blocking: blocking.len(),
+        quarantined: quarantined.len(),
+        quarantined_flaky: quarantined_flaky.len(),
+    };
+    let release_blocked = came_to.release_blocked(rt.run.release);
     let passed_now = now.iter().filter(|(r, _)| !failing(&r.status)).count();
     rt.run.reused = reused;
     rt.run.ran = now.len();
@@ -1576,12 +1580,11 @@ fn finish(
     rt.run.exit_code = Some(exit_code);
     rt.run.ended = Some(now_ms());
     // The command's exit code fails the verdict unless every failure it reports is a quarantined test's.
-    let exit_explained = exit_code == 0 || (!quarantined.is_empty() && blocking.is_empty());
     rt.run.state = if cancelled {
         State::Cancelled
     } else if rt.resource_stop.is_some() {
         State::Error
-    } else if blocking.is_empty() && exit_explained && !release_blocked {
+    } else if came_to.passes(exit_code == 0, rt.run.release) {
         State::Passed
     } else {
         State::Failed
