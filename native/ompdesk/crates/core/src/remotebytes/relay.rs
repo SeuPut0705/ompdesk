@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use yawc::{Frame, OpCode, Options, WebSocket};
 
 use crate::remote::codec::MAX_FRAME_BYTES;
-use crate::server::{Call, Events, Fault, PushCall, Reply};
+use crate::server::{Call, Events, Fault, PushCall, Reply, Scope};
 
 enum Command {
     Send(String),
@@ -54,22 +54,31 @@ async fn dial(target: &str) -> Option<WebSocket<TcpStream>> {
 }
 
 /// `remotebytes.relayOpen {socket, target}`: dials the relay; answers once its socket is open, `relay_unavailable`
-/// when it did not answer or main closed it first.
+/// when it did not answer or the call was cancelled first (main closed the tunnel while it opened, or gave up
+/// waiting). Main hears of the socket only after this answers, so nothing else can name it before.
 pub async fn open(call: Call) -> Result<Reply, Fault> {
     let params: OpenParams = call.params()?;
-    let (commands, mut received) = mpsc::unbounded_channel();
-    sockets().insert(params.socket, commands);
-    let dialed = tokio::select! {
-        socket = dial(&params.target) => socket,
-        // Closed while it dialed (only a close comes before the open is answered).
-        _ = received.recv() => None,
-    };
-    let Some(socket) = dialed else {
-        sockets().remove(&params.socket);
-        return Err(unavailable());
-    };
-    tokio::spawn(pump(params.socket, socket, received, call.events.clone()));
+    open_socket(
+        params.socket,
+        &params.target,
+        &call.scope,
+        call.events.clone(),
+    )
+    .await?;
     Reply::json(&serde_json::Value::Null)
+}
+
+async fn open_socket(id: u64, target: &str, scope: &Scope, events: Events) -> Result<(), Fault> {
+    let dialed = tokio::select! {
+        biased;
+        () = scope.on_cancel() => None,
+        socket = dial(target) => socket,
+    };
+    let socket = dialed.ok_or_else(unavailable)?;
+    let (commands, received) = mpsc::unbounded_channel();
+    sockets().insert(id, commands);
+    tokio::spawn(pump(id, socket, received, events));
+    Ok(())
 }
 
 /// Frames both ways until main closes the socket (it hears nothing more) or the relay ends it (main hears `close`).
@@ -134,5 +143,52 @@ pub fn close(push: PushCall) {
     };
     if let Some(socket) = sockets().remove(&params.socket) {
         let _ = socket.send(Command::Close);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// A relay that takes the connection and never answers the upgrade: a cancelled open ends at once and leaves
+    /// no socket behind.
+    #[tokio::test]
+    async fn a_cancelled_open_ends_a_stalled_handshake_and_keeps_nothing() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let held = tokio::spawn(async move { listener.accept().await.map(|(stream, _)| stream) });
+        let scope = Scope::detached();
+        let (events, _frames, _received) = Events::capture();
+        let target = format!("ws://127.0.0.1:{port}/ext?token=abcdefghijklmnop");
+        let opening = {
+            let scope = scope.clone();
+            tokio::spawn(async move { open_socket(901, &target, &scope, events).await })
+        };
+        let _stream = held.await.unwrap().unwrap();
+        scope.cancel();
+        let opened = tokio::time::timeout(Duration::from_secs(5), opening)
+            .await
+            .expect("the open ends once cancelled")
+            .unwrap();
+        assert_eq!(opened.unwrap_err().code, "relay_unavailable");
+        assert!(!sockets().contains_key(&901));
+    }
+
+    /// Closed before it started dialing: no socket is made.
+    #[tokio::test]
+    async fn an_open_cancelled_before_it_dials_makes_no_socket() {
+        let scope = Scope::detached();
+        scope.cancel();
+        let (events, _frames, _received) = Events::capture();
+        let opened = open_socket(
+            902,
+            "ws://127.0.0.1:9/ext?token=abcdefghijklmnop",
+            &scope,
+            events,
+        )
+        .await;
+        assert_eq!(opened.unwrap_err().code, "relay_unavailable");
+        assert!(!sockets().contains_key(&902));
     }
 }

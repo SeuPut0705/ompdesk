@@ -21,6 +21,8 @@ interface Tunnel {
 	socket?: number;
 	/** Whether that socket finished opening (a frame sent before is refused, as on a connecting WebSocket). */
 	open?: boolean;
+	/** Stops the core's open while it dials: the core names no socket before it answers, so a close cannot reach it. */
+	opening?: AbortController;
 	/** The link connection the open socket's frames go to. */
 	owner?: object;
 }
@@ -92,15 +94,25 @@ export class PreviewRelayTunnels {
 			} else if (!push({ kind: "message", rtab, data: event.data })) this.close(key, push, rtab);
 		};
 		sockets.set(socket, receive);
+		const opening = new AbortController();
+		tunnel.opening = opening;
 		try {
-			await core().call("remotebytes.relayOpen", { socket, target: tunnel.target });
+			await core().call("remotebytes.relayOpen", { socket, target: tunnel.target }, { signal: opening.signal });
 		} catch {
 			sockets.delete(socket);
-			if (tunnel.socket === socket) tunnel.socket = tunnel.owner = undefined;
+			if (tunnel.socket === socket) tunnel.socket = tunnel.owner = tunnel.opening = undefined;
 			throw codedError("relay_unavailable", "The browser relay did not answer");
 		}
 		waiting = false;
-		if (tunnel.socket === socket) tunnel.open = true;
+		if (tunnel.socket !== socket) {
+			// Closed while the core's answer was on its way: the socket it opened ends here, as a WebSocket closed while
+			// connecting fails its open.
+			sockets.delete(socket);
+			core().push("remotebytes.relayClose", { socket });
+			throw codedError("relay_unavailable", "The browser relay did not answer");
+		}
+		tunnel.opening = undefined;
+		tunnel.open = true;
 		for (const event of early.splice(0)) receive(event);
 	}
 
@@ -117,9 +129,11 @@ export class PreviewRelayTunnels {
 		const tunnel = this.#tunnels.get(key);
 		const socket = tunnel?.socket;
 		if (!tunnel || socket === undefined) return;
-		tunnel.socket = tunnel.owner = tunnel.open = undefined;
+		const opening = tunnel.open ? undefined : tunnel.opening;
+		tunnel.socket = tunnel.owner = tunnel.open = tunnel.opening = undefined;
 		sockets.delete(socket);
-		core().push("remotebytes.relayClose", { socket });
+		if (opening) opening.abort();
+		else core().push("remotebytes.relayClose", { socket });
 		if (push && rtab) push({ kind: "close", rtab });
 	}
 
