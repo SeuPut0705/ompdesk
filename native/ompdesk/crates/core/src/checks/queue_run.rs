@@ -383,6 +383,10 @@ impl Lane {
         for effect in effects {
             self.effect(effect);
         }
+        if self.queue.is_empty() {
+            // Every entry a run's answer could still be told to has been told.
+            self.answers.clear();
+        }
         self.shared.show(&self.queue);
         self.shared.hands.save(&self.queue);
     }
