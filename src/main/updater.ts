@@ -338,11 +338,22 @@ function startFailedPath(): string {
 
 function rememberStartFailure(failure: StartFailure): void {
 	startFailure = failure;
+	syncQuitInstall();
 	try {
 		writeFileAtomicSync(startFailedPath(), JSON.stringify(failure));
 	} catch (error) {
 		logUpdate("swap", { event: "start-failure-not-saved", reason: failureReason(error) });
 	}
+}
+
+/** What is downloaded is the version whose start failed, and nobody started its install: only a person's click installs it. */
+function heldStartFailed(): boolean {
+	return (
+		startFailure !== undefined &&
+		current.state === "downloaded" &&
+		!current.installing &&
+		current.version === startFailure.version
+	);
 }
 
 /** The downloaded version is the one that failed to start; a different one (a newer release) clears the record. */
@@ -357,6 +368,20 @@ function startFailedBefore(): boolean {
 function clearStartFailure(): void {
 	startFailure = undefined;
 	fs.rmSync(startFailedPath(), { force: true });
+	syncQuitInstall();
+}
+
+/**
+ * Windows: electron-updater installs a downloaded update by itself at an approved quit and downloads what a check
+ * finds. While the downloaded version is held as start-failed neither may happen: a quit never installs it (only
+ * "Restart & install" does, through `quitAndInstall`), and a check that finds that same version again must not fetch it
+ * a second time (a newer one is downloaded by hand, `update-available`). Read by electron-updater when it quits or
+ * when a check ends, so it follows every status and the record.
+ */
+function syncQuitInstall(): void {
+	const automatic = installMode === "automatic";
+	autoUpdater.autoInstallOnAppQuit = automatic && !heldStartFailed();
+	autoUpdater.autoDownload = automatic && !heldStartFailed();
 }
 
 function isWritable(target: string): boolean {
@@ -670,6 +695,7 @@ export function onUpdateStatus(listener: (status: UpdateStatus) => void): () => 
 
 function broadcast(status: UpdateStatus): void {
 	current = status.state === "downloaded" && !status.installing ? withNotice(status) : status;
+	syncQuitInstall();
 	for (const win of BrowserWindow.getAllWindows()) {
 		win.webContents.send(IPC_EVENTS.UPDATER_STATUS, current);
 	}
@@ -802,6 +828,16 @@ async function checkOnce(): Promise<void> {
 				? mainT("updates.installerMissing")
 				: mainT("updates.checkFailed");
 	const settled = settleFailedUpdateCheck(access, code, message, appVersion(), checkAsked, detail);
+	// A held download is still the answer when the look for a newer one fails (an error would drop it, and with it the hold).
+	if (heldStartFailed()) {
+		logUpdate("check", {
+			event: "error",
+			kind: "held",
+			manual: checkAsked,
+			reason: scrubUpdateText(detail, [configuredToken, updateToken]),
+		});
+		return;
+	}
 	// A repo with no release yet is the same answer as "no update"; the rest is an error with its kind.
 	if (settled.state === "not-available") {
 		logUpdate("check", {
@@ -867,8 +903,9 @@ export function updateStatus(): UpdateStatus {
  * round (the countdown or the waiting notice went, the max wait started over).
  */
 export async function checkForUpdate(): Promise<UpdateStatus> {
-	if (macTransfer.running || current.state === "downloaded") return current;
-	broadcast({ state: "checking" });
+	if (macTransfer.running || (current.state === "downloaded" && !heldStartFailed())) return current;
+	// A downloaded version held as start-failed is looked past: a newer release replaces it, and the card keeps it meanwhile.
+	if (!heldStartFailed()) broadcast({ state: "checking" });
 	await runCheck(true);
 	return current;
 }
@@ -989,8 +1026,7 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	if (process.platform === "darwin") void sweepInstallerPartials(app.getPath("downloads"));
 	// Updates download in the background as soon as a check finds one (Claude/Codex
 	// style); the only prompt is "Restart & install". Manual DMGs still wait for a click.
-	autoUpdater.autoDownload = installMode === "automatic";
-	autoUpdater.autoInstallOnAppQuit = installMode === "automatic";
+	syncQuitInstall();
 	// Releases publish no blockmaps; NSIS always downloads the whole installer.
 	autoUpdater.disableDifferentialDownload = true;
 	// Dev/preview verification gate: electron-updater skips unpackaged apps
@@ -1002,6 +1038,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	if (installMode === "relaunch") {
 		const launchStagedSwap = (): void => {
 			if (swapLaunched || !staged || !ownBundle) return;
+			// An ordinary quit never installs a version whose start failed: with no relaunch the helper would remove
+			// the previous app at once and nothing would check the start. Only "Restart & install" (relaunch) does.
+			if (!relaunchAfterSwap && startFailure?.version === staged.version) {
+				swapLaunched = true;
+				logUpdate("swap", { event: "skipped", reason: "start failed before", version: staged.version });
+				return;
+			}
 			swapLaunched = true;
 			launchSwap(staged, ownBundle, relaunchAfterSwap, quitInstallTrigger());
 		};
@@ -1011,14 +1054,20 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	// Windows: electron-updater installs a downloaded update by itself on an approved quit (`autoInstallOnAppQuit`).
 	if (installMode === "automatic") {
 		app.on("will-quit", () => {
-			if (installTrigger === undefined && current.state === "downloaded")
+			if (installTrigger === undefined && current.state === "downloaded" && !heldStartFailed())
 				noteInstallHelper("nsis", quitInstallTrigger());
 		});
 	}
 
-	autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
+	autoUpdater.on("checking-for-update", () => {
+		if (!heldStartFailed()) broadcast({ state: "checking" });
+	});
 	autoUpdater.on("update-available", info => {
 		logUpdate("check", { event: "found", version: info.version, current: appVersion(), mode: installMode });
+		// The held version again (it is the latest): it stays downloaded and held, nothing is fetched twice.
+		if (heldStartFailed() && current.state === "downloaded" && current.version === info.version) return;
+		// Held downloads switch electron-updater's own download off; the newer release found now is fetched here.
+		const downloadByHand = installMode === "automatic" && !autoUpdater.autoDownload;
 		// The transfer in flight keeps its asset and version; restarting it would
 		// append a second stream to the same partial.
 		if (macTransfer.running) return;
@@ -1054,11 +1103,13 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 			// autoDownload: electron-updater fetches the installer right now.
 			nsisDownloadStartedAt = Date.now();
 			logUpdate("download", { event: "started", version: info.version, mode: "nsis" });
+			if (downloadByHand) void autoUpdater.downloadUpdate().catch(() => {});
 		}
 		if (installMode === "relaunch") void prepareRelaunchUpdate(info.version);
 	});
 	autoUpdater.on("update-not-available", () => {
 		logUpdate("check", { event: "no-update", current: appVersion() });
+		if (heldStartFailed()) return;
 		broadcast({ state: "not-available", version: appVersion() });
 	});
 	autoUpdater.on("download-progress", progress => {
@@ -1130,9 +1181,10 @@ export function setupUpdater(ipc: IpcRegistry, probe: AutoInstallProbe): void {
 	});
 
 	// First check once the app settles; then every five minutes. A downloaded or
-	// in-flight update is never replaced by a background re-check.
+	// in-flight update is never replaced by a background re-check, except one held as start-failed: a newer
+	// release is what the rolled-back app is waiting for.
 	const backgroundCheck = () => {
-		if (current.state === "downloading" || current.state === "downloaded") return;
+		if (current.state === "downloading" || (current.state === "downloaded" && !heldStartFailed())) return;
 		void runCheck(false);
 	};
 	setTimeout(backgroundCheck, 3000);
