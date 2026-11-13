@@ -13,7 +13,7 @@ A pass means "no counterexample within this model and these bounds". It never me
 
 ## Run on the runner, not on this machine
 
-TLC, the mutation runs and the stamp are hours of CPU. In the OMPdesk repo they run on a GitHub runner: `gh workflow run formal.yml --ref <branch> -f only=<model id> -f stamp=true` (inputs `only`, `tier` fast|deep, `stamp`, `skip_mutations`), then `gh run watch <run-id> --interval 120` once as an async bash job. With `stamp=true` the workflow commits the updated `formal/manifest.json` to that branch as `chore(formal): stamp <ids> on <sha7>`; it refuses `main`, so stamp from a branch. Locally run only a sub-second spec edit check (a parse of the spec), never the matrix, the mutations or `--stamp`.
+TLC, the mutation runs and the stamp are hours of CPU. In the OMPdesk repo they run on a GitHub runner: `gh workflow run formal.yml --ref <branch> -f only=<model id> -f stamp=true` (inputs `only`, `tier` fast|deep, `stamp`, `skip_mutations`), then `gh run watch <run-id> --interval 120` once as an async bash job. With `stamp=true` the workflow commits the model's stamp to that branch (publication is serial; a model whose covered code changed meanwhile is refused: rerun) as `chore(formal): stamp <ids> on <sha7>`; it refuses `main`, so stamp from a branch. Locally run only a sub-second spec edit check (a parse of the spec), never the matrix, the mutations or `--stamp`.
 
 ## Where things are
 

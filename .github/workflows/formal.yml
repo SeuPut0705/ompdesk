@@ -76,30 +76,68 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: formal-report
+          name: formal-report-${{ inputs.only || 'all' }}
           path: |
             formal-report.txt
             formal/reports/
             formal/**/evidence/
           if-no-files-found: warn
           retention-days: 14
-      - name: Commit the stamp
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: inputs.stamp
+        with:
+          name: formal-stamp-${{ inputs.only || 'all' }}
+          path: formal/manifest.json
+          retention-days: 1
+
+  # Verification runs side by side (one group per ref and model); publication is one at a time per ref. The
+  # stamp is written onto the branch's head as it is now, and only for a model whose covered code is the same there
+  # as at the verified commit; a lost push race re-reads the head and checks again, it never rebases the old commit.
+  publish:
+    if: inputs.stamp
+    needs: formal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: formal-publish-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: formal-stamp-${{ inputs.only || 'all' }}
+          path: verified
+      - name: Publish the stamp
+        env:
+          VERIFIED_SHA: ${{ github.sha }}
         run: |
-          if git diff --quiet -- formal/manifest.json; then
-            echo "Nothing to stamp: formal/manifest.json is unchanged."
-            exit 0
-          fi
-          sha7=$(git rev-parse --short=7 HEAD)
-          ids=$(bun -e '
-            const { execFileSync } = require("node:child_process");
-            const old = JSON.parse(execFileSync("git", ["show", "HEAD:formal/manifest.json"], { encoding: "utf8" }));
-            const now = JSON.parse(require("node:fs").readFileSync("formal/manifest.json", "utf8"));
-            const before = new Map(old.models.map(m => [m.id, JSON.stringify([m.syncCommit, m.syncDiff])]));
-            console.log(now.models.filter(m => before.get(m.id) !== JSON.stringify([m.syncCommit, m.syncDiff])).map(m => m.id).join(","));
-          ')
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add formal/manifest.json
-          git commit -m "chore(formal): stamp ${ids} on ${sha7}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          sha7=${VERIFIED_SHA:0:7}
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin "$GITHUB_REF_NAME"
+            git reset -q --hard "origin/$GITHUB_REF_NAME"
+            refused=0
+            bun scripts/formal-publish.ts verified/manifest.json "$VERIFIED_SHA" --ids-out ids.txt || refused=1
+            ids=$(cat ids.txt)
+            if [ -z "$ids" ]; then
+              [ "$refused" = 1 ] && exit 1
+              echo "Nothing to stamp."
+              exit 0
+            fi
+            git add formal/manifest.json
+            git commit -q -m "chore(formal): stamp ${ids} on ${sha7}"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              [ "$refused" = 1 ] && exit 1
+              exit 0
+            fi
+            echo "push lost a race (attempt $attempt): re-reading the head"
+          done
+          echo "::error::could not publish the stamp after 5 attempts"
+          exit 1
