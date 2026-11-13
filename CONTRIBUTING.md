@@ -24,6 +24,7 @@ Issues are welcome.
   ```
 
   While you work, `bun run check:changed` runs the same checks on just what you changed (plus the end-to-end specs that touch it).
+  A clone that runs `git config core.hooksPath .githooks` (`.ompdesk/worktree-setup` does) also runs the static checks on the commits of every `git push` (`scripts/pre-push-gate.ts`); `git push --no-verify` skips them.
 
 - Every user-visible string needs the same key in both `src/renderer/locales/en.ts` and `ko.ts`.
 - Build UI from the shared components in [`src/renderer/components/common`](src/renderer/components/common/README.md): its README says which one fits each need. The surface lint above refuses a new raw `<button>`, checkbox or radio, or a hand-made dialog outside that folder.
