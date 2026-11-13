@@ -7,6 +7,7 @@
  * Paired computers are read every `PAIRED_POOL_EVERY_MS` and when a link comes up: a computer answers its own pool
  * as its hub reads it (`checks.localPool` over the link), and this computer files it under that computer's device id.
  */
+import { createHash } from "node:crypto";
 import type { LocalPool, MainFact, Origin } from "../../shared/checks-contract";
 import type { RemoteLinkState } from "../../shared/ipc-types";
 import type { CoreRunner } from "../local/git/exec";
@@ -104,8 +105,14 @@ export class ChecksFacts {
 		void this.#deps
 			.runners()
 			.then(({ gh, git, home }) =>
-				this.#send(`runners`, JSON.stringify([gh !== null, git !== null, home]), () =>
-					this.#deps.hub.runners(gh, git, home),
+				// The whole of each runner (its path, arguments, limits and the environment it runs with, tokens
+				// included), hashed so no copy of a token is kept: a moved tool or a new sign-in is told again.
+				this.#send(
+					`runners`,
+					createHash("sha256")
+						.update(JSON.stringify([gh, git, home]))
+						.digest("hex"),
+					() => this.#deps.hub.runners(gh, git, home),
 				),
 			)
 			.catch(error => this.#failed("runners", error));
